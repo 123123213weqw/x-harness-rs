@@ -10,6 +10,8 @@ use std::{
 use async_trait::async_trait;
 use futures::{stream, StreamExt};
 use serde_json::{json, Value};
+use tokio::sync::{mpsc, Notify};
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_core::*;
 
@@ -58,6 +60,61 @@ impl ModelProvider for ScriptProvider {
             .pop_front()
             .expect("fake provider script exhausted")?;
         Ok(Box::pin(stream::iter(script)))
+    }
+}
+
+#[derive(Clone)]
+struct GatedProvider {
+    requests: Arc<Mutex<Vec<ProviderRequest>>>,
+    attempts: Arc<AtomicUsize>,
+    release_first: Arc<Notify>,
+}
+
+impl GatedProvider {
+    fn new() -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            attempts: Arc::new(AtomicUsize::new(0)),
+            release_first: Arc::new(Notify::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<ProviderRequest> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ModelProvider for GatedProvider {
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.requests.lock().unwrap().push(request);
+        let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = mpsc::channel(8);
+        let release = self.release_first.clone();
+        tokio::spawn(async move {
+            if attempt == 0 {
+                let _ = tx
+                    .send(Ok(ProviderEvent::TextDelta("partial".to_owned())))
+                    .await;
+                tokio::select! {
+                    _ = cancellation.cancelled() => {},
+                    _ = release.notified() => {
+                        let _ = tx.send(Ok(ProviderEvent::TextDelta(" tail".to_owned()))).await;
+                        let _ = tx.send(Ok(completed())).await;
+                    }
+                }
+            } else {
+                let _ = tx
+                    .send(Ok(ProviderEvent::TextDelta("final".to_owned())))
+                    .await;
+                let _ = tx.send(Ok(completed())).await;
+            }
+        });
+        Ok(Box::pin(ReceiverStream::new(rx)))
     }
 }
 
@@ -479,4 +536,241 @@ async fn dropping_the_event_consumer_cancels_and_checkpoints() {
     let snapshot = store.load("drop-test").await.unwrap().unwrap();
     assert_eq!(snapshot.phase, "consumer_stopped");
     assert!(!snapshot.tool_batch_complete);
+}
+
+#[tokio::test]
+async fn next_step_injection_waits_for_the_current_model_round() {
+    let provider = Arc::new(GatedProvider::new());
+    let request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("original")]);
+    let mut run = LoopEngine.start(request);
+
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+            break;
+        }
+    }
+    run.send(LoopCommand::InjectMessage {
+        message: AgentMessage::user("additional constraint"),
+        mode: InjectionMode::NextStep,
+    })
+    .await
+    .unwrap();
+    provider.release_first.notify_one();
+
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    let requests = provider.requests();
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].messages.len(), 1);
+    assert_eq!(requests[1].messages[2].content, "additional constraint");
+    assert_eq!(result.messages[1].content, "partial tail");
+    assert_eq!(result.messages[2].content, "additional constraint");
+}
+
+#[tokio::test]
+async fn steering_interrupts_model_and_preserves_partial_assistant_turn() {
+    let provider = Arc::new(GatedProvider::new());
+    let request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("original")]);
+    let mut run = LoopEngine.start(request);
+
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+            break;
+        }
+    }
+    run.send(LoopCommand::Steer(AgentMessage::user("change direction")))
+        .await
+        .unwrap();
+
+    let mut saw_interrupted_event = false;
+    while let Some(event) = run.next().await {
+        saw_interrupted_event |= matches!(event.kind, LoopEventKind::ModelInterrupted);
+    }
+    let result = run.result().await;
+    let requests = provider.requests();
+    assert!(saw_interrupted_event);
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].messages[1].content, "partial");
+    assert!(requests[1].messages[1].interrupted);
+    assert_eq!(requests[1].messages[2].content, "change direction");
+    assert_eq!(result.final_text, "final");
+}
+
+#[tokio::test]
+async fn pause_stops_model_event_progress_until_resume() {
+    let provider = Arc::new(GatedProvider::new());
+    let request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    let mut run = LoopEngine.start(request);
+
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+            break;
+        }
+    }
+    run.send(LoopCommand::Pause).await.unwrap();
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::RunPaused) {
+            break;
+        }
+    }
+    provider.release_first.notify_one();
+    assert!(tokio::time::timeout(Duration::from_millis(25), run.next())
+        .await
+        .is_err());
+
+    run.send(LoopCommand::Resume).await.unwrap();
+    let mut saw_resumed = false;
+    let mut saw_tail = false;
+    while let Some(event) = run.next().await {
+        saw_resumed |= matches!(event.kind, LoopEventKind::RunResumed);
+        saw_tail |= matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == " tail");
+    }
+    assert!(saw_resumed && saw_tail);
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+}
+
+#[tokio::test]
+async fn approval_blocks_tool_start_until_host_approves() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![Ok(tool_delta(0, "", "guarded", "{}")), Ok(completed())],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tool = ToolSpec::new("guarded", "guarded", json!({}), {
+        let executions = executions.clone();
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("allowed") }
+        }
+    })
+    .requires_approval();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tools.push(tool);
+    let mut run = LoopEngine.start(request);
+
+    let call_id = loop {
+        let event = run.next().await.unwrap();
+        if let LoopEventKind::ToolApprovalRequested { call } = event.kind {
+            break call.id;
+        }
+    };
+    assert!(!call_id.is_empty());
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    run.send(LoopCommand::ApproveTool {
+        call_id: call_id.clone(),
+    })
+    .await
+    .unwrap();
+
+    let mut saw_started = false;
+    while let Some(event) = run.next().await {
+        saw_started |=
+            matches!(event.kind, LoopEventKind::ToolStarted(ref call) if call.id == call_id);
+    }
+    assert!(saw_started);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+}
+
+#[tokio::test]
+async fn rejected_tool_never_runs_and_failure_is_written_back() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![Ok(tool_delta(0, "deny", "guarded", "{}")), Ok(completed())],
+        vec![
+            Ok(ProviderEvent::TextDelta("handled".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tool = ToolSpec::new("guarded", "guarded", json!({}), {
+        let executions = executions.clone();
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("unexpected") }
+        }
+    })
+    .requires_approval();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tools.push(tool);
+    let mut run = LoopEngine.start(request);
+
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::ToolApprovalRequested { .. }) {
+            break;
+        }
+    }
+    run.send(LoopCommand::RejectTool {
+        call_id: "deny".to_owned(),
+        reason: "unsafe arguments".to_owned(),
+    })
+    .await
+    .unwrap();
+
+    let mut saw_started = false;
+    while let Some(event) = run.next().await {
+        saw_started |= matches!(event.kind, LoopEventKind::ToolStarted(_));
+    }
+    let result = run.result().await;
+    assert!(!saw_started);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert!(result.messages[2].content.contains("tool rejected"));
+    assert!(result.messages[2].content.contains("unsafe arguments"));
+}
+
+#[tokio::test]
+async fn steering_during_tools_is_deferred_until_the_batch_finishes() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![Ok(tool_delta(0, "wait", "wait", "{}")), Ok(completed())],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let release = Arc::new(Notify::new());
+    let tool = ToolSpec::new("wait", "wait", json!({}), {
+        let release = release.clone();
+        move |_, _| {
+            let release = release.clone();
+            async move {
+                release.notified().await;
+                ToolResult::success("tool finished")
+            }
+        }
+    });
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tools.push(tool);
+    let mut run = LoopEngine.start(request);
+
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::ToolStarted(_)) {
+            break;
+        }
+    }
+    run.send(LoopCommand::Steer(AgentMessage::user("new instruction")))
+        .await
+        .unwrap();
+    release.notify_one();
+
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    assert_eq!(result.messages[2].role, Role::Tool);
+    assert_eq!(result.messages[3].content, "new instruction");
+    assert_eq!(result.messages[4].content, "done");
+}
+
+#[tokio::test]
+async fn commands_are_rejected_after_run_completion() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    let mut run = LoopEngine.start(request);
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    assert_eq!(
+        run.send(LoopCommand::Pause).await,
+        Err(LoopControlError::Closed)
+    );
 }
