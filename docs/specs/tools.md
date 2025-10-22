@@ -1,0 +1,60 @@
+# 工具注册与执行管线规范
+
+**Crate：** `xharness-tools`
+**状态：** 正式工具运行时已实现；Core Adapter 仍是临时兼容桥。
+
+## Registry 契约
+
+`ToolRegistry` 以唯一非空名称持有不可变 `ToolSpec`。注册时必须验证 Input/Output Schema
+都是 JSON Object，并原子拒绝重复名称。`definitions()` 必须为模型请求返回确定性列表。
+
+Spec 包含模型可见定义、Handler、Timeout、Concurrency Mode、Approval Requirement 和
+可选 Resource-key Resolver。未声明并发的工具默认 `Exclusive`；并行必须显式开启。
+
+## 执行管线
+
+每次 `ToolExecutor::execute` 生成进程内唯一 `execution_id`，按下列顺序执行：
+
+```text
+查找 -> 解析 JSON Object -> Schema 校验
+  -> pre middleware
+  -> 单调 guard
+  -> fail-closed 审批
+  -> 并发 gate
+  -> around middleware -> handler
+  -> post middleware -> finalize middleware
+  -> observer
+```
+
+所有失败都必须成为值（`ToolResult`/`ToolFailure`），不能变成未控制的 Loop Panic。
+Handler 和 Middleware Panic 必须在各自信任边界捕获。
+
+## Policy 语义
+
+Guard 状态单调：后续阶段可以把 `allow` 收紧为 `ask` 或 `deny`，禁止放宽已经存在的
+限制。Approval 缺失、出错、Panic、超时或取消时必须 fail closed。Finalizer 禁止把拒绝
+或执行失败改成成功。
+
+默认审批 Deadline 为 5 分钟，零 Deadline 非法。审批必须按 Execution ID 关联，不能只
+使用 Provider Call ID。
+
+## 并发与取消
+
+- `Parallel`：工具层不串行。
+- `Keyed`：相同资源键串行，不同键可以重叠。
+- `Exclusive`：等待所有活跃 Call，然后独占执行。
+- Keyed Resolver 得到空键时，按调用方契约安全失败或降级。
+- Request Cancellation 必须传播到 Handler Token。
+- Timeout/Cancel 后，在 Executor 返回失败前必须提供有界清理时间。
+
+## 当前限制
+
+- JSON Schema 只实现实用的首版子集，不覆盖完整生态。
+- 持久 Tool Call 记账由 Session/Core 负责，不属于本 Crate。
+- Result Spill-to-disk 和 Output Schema Enforcement 尚未实现。
+
+## 验收标准
+
+测试必须覆盖重复/非法定义、畸形/Schema 非法参数、精确 Pipeline 顺序、单调 Guard、
+Approval Unavailable/Denied/Pending/Cancelled、每个 Middleware Panic、Handler Timeout/
+Panic、安全的默认 Exclusive、Keyed 重叠/串行，以及 Finalizer 禁止提权。

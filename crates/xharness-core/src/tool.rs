@@ -8,6 +8,15 @@ use crate::{
     ResourceKeyResolver, ToolConcurrency, ToolDefinition, ToolHandler, ToolResult, ToolSpec,
 };
 
+/// Smallest supported model-facing tool-result budget.
+///
+/// The loop rejects smaller configured limits. [`tool_result_for_model`] also
+/// uses this envelope as a fail-safe for direct callers, prioritizing valid
+/// JSON over an impossible byte limit.
+const LIMIT_TOO_SMALL_ENVELOPE: &str =
+    r#"{"ok":false,"content":"","error":"tool result limit too small","truncated":true}"#;
+pub const MIN_TOOL_RESULT_LIMIT_BYTES: usize = LIMIT_TOO_SMALL_ENVELOPE.len();
+
 impl ToolSpec {
     pub fn new<F, Fut>(
         name: impl Into<String>,
@@ -86,15 +95,17 @@ fn encode_tool_result(result: &ToolResult, content: &str, error: &str, truncated
 /// Produces the bounded JSON value written back to the model. The original
 /// [`ToolResult`] remains untouched and is emitted in `ToolCompleted`.
 pub fn tool_result_for_model(result: &ToolResult, max_bytes: usize) -> (String, bool) {
+    if max_bytes < MIN_TOOL_RESULT_LIMIT_BYTES {
+        return (LIMIT_TOO_SMALL_ENVELOPE.to_owned(), true);
+    }
+
     let full = encode_tool_result(result, &result.content, &result.error, false);
     if full.len() <= max_bytes {
         return (full, false);
     }
 
     let minimal = encode_tool_result(result, "", "", true);
-    if minimal.len() > max_bytes {
-        return (utf8_prefix(&minimal, max_bytes).to_owned(), true);
-    }
+    debug_assert!(minimal.len() <= max_bytes);
 
     let source = if result.content.is_empty() {
         &result.error

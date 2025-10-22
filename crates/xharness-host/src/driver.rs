@@ -1,0 +1,626 @@
+use std::sync::Arc;
+
+use futures::StreamExt;
+use serde_json::{json, Value};
+use tokio::sync::{mpsc, oneshot};
+use xharness_api::{RpcError, RpcErrorCode, RpcId};
+use xharness_core::{
+    AgentMessage, LoopCommand, LoopEngine, LoopEvent, LoopEventKind, LoopRequest, LoopStatus, Role,
+};
+
+use crate::{
+    state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
+    BasicHost,
+};
+
+impl BasicHost {
+    pub(crate) async fn append_session_event(
+        &self,
+        session_id: &str,
+        event_type: &str,
+        data: Value,
+        surface_op: Option<&str>,
+    ) -> Result<Value, RpcError> {
+        let event = {
+            let mut state = self.state.write().await;
+            let session = state.sessions.get_mut(session_id).ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::SessionNotFound,
+                    format!("session {session_id:?} was not found"),
+                    json!({"sessionId": session_id}),
+                )
+            })?;
+            let seq = session.events.len();
+            let mut event = json!({
+                "type": event_type,
+                "seq": seq,
+                "time": now_ms(),
+                "data": data,
+            });
+            if let Some(surface_op) = surface_op {
+                event
+                    .as_object_mut()
+                    .expect("event is an object")
+                    .insert("surfaceOp".to_owned(), json!(surface_op));
+            }
+            if event_type == "turn/start" {
+                session.blank = false;
+            }
+            if event_type == "user/message" {
+                session.updated_at = now_ms();
+            }
+            session.events.push(event.clone());
+            event
+        };
+        self.push_mux(json!({
+            "type": "session/event",
+            "sessionId": session_id,
+            "event": event,
+        }));
+        Ok(event)
+    }
+
+    pub(crate) async fn push_projection(&self, session_id: &str, key: &str, value: Value) {
+        let seq = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .map_or(-1, |session| session.events.len() as i64 - 1);
+        if seq >= 0 {
+            self.push_mux(json!({
+                "type": "session/projection",
+                "sessionId": session_id,
+                "key": key,
+                "value": value,
+                "seq": seq,
+            }));
+        }
+    }
+
+    pub(crate) async fn emit_queue(&self, session_id: &str) {
+        let items = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .map_or_else(Vec::new, |session| session.queue_view());
+        self.push_mux(json!({
+            "type": "session/queue",
+            "sessionId": session_id,
+            "items": items,
+        }));
+    }
+
+    pub(crate) async fn enqueue_prompt(
+        &self,
+        rpc_id: RpcId,
+        session_id: &str,
+        mode: &str,
+        text: String,
+        content: Vec<Value>,
+        source: Value,
+    ) -> Result<(), RpcError> {
+        if self.provider.is_none() {
+            return Err(rpc_error(
+                RpcErrorCode::ModelUnavailable,
+                "no model provider is configured",
+                json!({"provider": self.config.provider_id, "model": self.config.model_id}),
+            ));
+        }
+
+        let steer_control = {
+            let state = self.state.read().await;
+            let session = state.sessions.get(session_id).ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::SessionNotFound,
+                    format!("session {session_id:?} was not found"),
+                    json!({"sessionId": session_id}),
+                )
+            })?;
+            if mode == "steer" && session.running {
+                session.control.clone()
+            } else {
+                None
+            }
+        };
+
+        if let Some(control) = steer_control {
+            let message = AgentMessage::new(Role::User, text);
+            let (acknowledgement, accepted) = oneshot::channel();
+            control
+                .send(DriverCommand {
+                    command: LoopCommand::Steer(message),
+                    acknowledgement,
+                })
+                .await
+                .map_err(|_| {
+                    rpc_error(
+                        RpcErrorCode::SteerUnavailable,
+                        "the active turn stopped before steering was admitted",
+                        json!({"sessionId": session_id}),
+                    )
+                })?;
+            accepted
+                .await
+                .map_err(|_| {
+                    rpc_error(
+                        RpcErrorCode::SteerUnavailable,
+                        "the active turn closed before steering was applied",
+                        json!({"sessionId": session_id}),
+                    )
+                })?
+                .map_err(|error| {
+                    rpc_error(
+                        RpcErrorCode::SteerUnavailable,
+                        error.to_string(),
+                        json!({"sessionId": session_id}),
+                    )
+                })?;
+            self.append_session_event(
+                session_id,
+                "user/message",
+                web_user_message(&self.mint_id("message"), content, source),
+                Some("append"),
+            )
+            .await?;
+            return Ok(());
+        }
+
+        let mut start_driver = None;
+        {
+            let mut state = self.state.write().await;
+            let session = state.sessions.get_mut(session_id).ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::SessionNotFound,
+                    format!("session {session_id:?} was not found"),
+                    json!({"sessionId": session_id}),
+                )
+            })?;
+            session.queue.push_back(QueuedPrompt {
+                id: rpc_id.as_str().to_owned(),
+                text,
+                content,
+                source,
+            });
+            if !session.running {
+                let (control_tx, control_rx) = mpsc::channel(64);
+                session.running = true;
+                session.control = Some(control_tx);
+                start_driver = Some(control_rx);
+            }
+        }
+        self.emit_queue(session_id).await;
+        if let Some(control_rx) = start_driver {
+            self.push_host(json!({
+                "type": "host/session-status",
+                "sessionId": session_id,
+                "running": true,
+            }));
+            let host = self.clone();
+            let session_id = session_id.to_owned();
+            tokio::spawn(async move { host.drive_session(session_id, control_rx).await });
+        }
+        Ok(())
+    }
+
+    async fn drive_session(
+        self,
+        session_id: String,
+        mut control_rx: mpsc::Receiver<DriverCommand>,
+    ) {
+        loop {
+            let next = {
+                let mut state = self.state.write().await;
+                state
+                    .sessions
+                    .get_mut(&session_id)
+                    .and_then(|session| session.queue.pop_front())
+            };
+            let Some(prompt) = next else {
+                let mut state = self.state.write().await;
+                if let Some(session) = state.sessions.get_mut(&session_id) {
+                    session.running = false;
+                    session.control = None;
+                }
+                drop(state);
+                self.emit_queue(&session_id).await;
+                self.push_host(json!({
+                    "type": "host/session-status",
+                    "sessionId": session_id,
+                    "running": false,
+                }));
+                return;
+            };
+            self.emit_queue(&session_id).await;
+            if let Err(error) = self.run_turn(&session_id, prompt, &mut control_rx).await {
+                self.push_host(json!({
+                    "type": "host/agent-error",
+                    "sessionId": session_id,
+                    "message": error.message,
+                }));
+            }
+        }
+    }
+
+    async fn run_turn(
+        &self,
+        session_id: &str,
+        prompt: QueuedPrompt,
+        control_rx: &mut mpsc::Receiver<DriverCommand>,
+    ) -> Result<(), RpcError> {
+        let (turn, cwd, messages) = {
+            let mut state = self.state.write().await;
+            let session = state.sessions.get_mut(session_id).ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::SessionNotFound,
+                    "session disappeared while starting its turn",
+                    json!({"sessionId": session_id}),
+                )
+            })?;
+            let turn = session.next_turn;
+            session.next_turn = session.next_turn.saturating_add(1);
+            session
+                .messages
+                .push(AgentMessage::new(Role::User, prompt.text.clone()));
+            (turn, session.cwd.clone(), session.messages.clone())
+        };
+
+        self.append_session_event(
+            session_id,
+            "turn/start",
+            json!({
+                "turn": turn,
+                "trigger": {"kind": "message", "source": {"kind": "user"}},
+            }),
+            None,
+        )
+        .await?;
+        self.append_session_event(
+            session_id,
+            "user/message",
+            web_user_message(&prompt.id, prompt.content, prompt.source),
+            Some("append"),
+        )
+        .await?;
+
+        let provider = Arc::clone(self.provider.as_ref().expect("checked before enqueue"));
+        let tools = self
+            .tool_factory
+            .tools(session_id, &cwd)
+            .await
+            .map_err(|message| RpcError::internal(format!("could not prepare tools: {message}")))?;
+        let mut request = LoopRequest::new(provider, messages);
+        request.session_id = Some(session_id.to_owned());
+        request.tools = tools;
+        let mut run = LoopEngine.start(request);
+        let mut current_step = None;
+
+        loop {
+            tokio::select! {
+                event = run.next() => match event {
+                    Some(event) => {
+                        self.project_loop_event(session_id, turn, &mut current_step, event)
+                            .await?;
+                    }
+                    None => break,
+                },
+                command = control_rx.recv() => {
+                    if let Some(command) = command {
+                        let result = run.send(command.command).await;
+                        let _ = command.acknowledgement.send(result);
+                    }
+                }
+            }
+        }
+
+        let result = run.result().await;
+        if !result.final_text.is_empty() {
+            let model = self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(session_id)
+                .map(|session| session.model.clone())
+                .expect("session exists while driver owns it");
+            let step = current_step.unwrap_or_else(|| {
+                result
+                    .step_usage
+                    .last()
+                    .map_or(0, |usage| usage.step.try_into().unwrap_or(u32::MAX))
+            });
+            let mut data = json!({
+                "turn": turn,
+                "step": step,
+                "message": web_assistant_message(
+                    &self.mint_id("message"),
+                    &result.final_text,
+                    &model.provider,
+                    &model.model,
+                ),
+            });
+            if let Some(usage) = &result.usage {
+                data.as_object_mut()
+                    .expect("assistant data is object")
+                    .insert(
+                        "usage".to_owned(),
+                        json!({
+                            "inputTokens": usage.input_tokens,
+                            "outputTokens": usage.output_tokens,
+                            "cacheReadTokens": usage.cache_read_tokens,
+                            "cacheWriteTokens": usage.cache_write_tokens,
+                            "reasoningTokens": usage.reasoning_tokens,
+                        }),
+                    );
+            }
+            self.append_session_event(session_id, "assistant/message", data, Some("append"))
+                .await?;
+        }
+        if let Some(step) = current_step {
+            self.append_session_event(
+                session_id,
+                "step/end",
+                json!({"turn": turn, "step": step}),
+                None,
+            )
+            .await?;
+        }
+        {
+            let mut state = self.state.write().await;
+            if let Some(session) = state.sessions.get_mut(session_id) {
+                session.messages = result.messages.clone();
+            }
+            state.pending.retain(|_, pending| match pending {
+                PendingResponse::Approval { session_id: id, .. } => id != session_id,
+            });
+        }
+        let reason = match result.status {
+            LoopStatus::Completed => json!({"kind": "completed"}),
+            LoopStatus::Cancelled => json!({"kind": "cancelled"}),
+            LoopStatus::LimitReached => json!({"kind": "max-steps"}),
+            LoopStatus::Failed => json!({
+                "kind": "error",
+                "error": {"message": result.error.unwrap_or_else(|| "loop failed".to_owned()), "code": "LOOP_FAILED"},
+            }),
+        };
+        self.append_session_event(
+            session_id,
+            "turn/end",
+            json!({"turn": turn, "reason": reason}),
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn ensure_step(
+        &self,
+        session_id: &str,
+        turn: u32,
+        current_step: &mut Option<u32>,
+        step: usize,
+    ) -> Result<(), RpcError> {
+        let step = u32::try_from(step).unwrap_or(u32::MAX);
+        if *current_step != Some(step) {
+            if let Some(previous) = *current_step {
+                self.append_session_event(
+                    session_id,
+                    "step/end",
+                    json!({"turn": turn, "step": previous}),
+                    None,
+                )
+                .await?;
+            }
+            self.append_session_event(
+                session_id,
+                "step/start",
+                json!({"turn": turn, "step": step}),
+                None,
+            )
+            .await?;
+            self.append_session_event(
+                session_id,
+                "assistant/chunk",
+                json!({
+                    "turn": turn,
+                    "step": step,
+                    "chunk": {"type": "block-start", "index": 0, "blockType": "text"},
+                }),
+                None,
+            )
+            .await?;
+            *current_step = Some(step);
+        }
+        Ok(())
+    }
+
+    async fn project_loop_event(
+        &self,
+        session_id: &str,
+        turn: u32,
+        current_step: &mut Option<u32>,
+        event: LoopEvent,
+    ) -> Result<(), RpcError> {
+        self.ensure_step(session_id, turn, current_step, event.step)
+            .await?;
+        let step = u32::try_from(event.step).unwrap_or(u32::MAX);
+        match event.kind {
+            LoopEventKind::TextDelta(text) => {
+                self.append_session_event(
+                    session_id,
+                    "assistant/chunk",
+                    json!({
+                        "turn": turn,
+                        "step": step,
+                        "chunk": {"type": "text-delta", "index": 0, "text": text},
+                    }),
+                    None,
+                )
+                .await?;
+            }
+            LoopEventKind::ReasoningDelta(text) => {
+                self.append_session_event(
+                    session_id,
+                    "assistant/chunk",
+                    json!({
+                        "turn": turn,
+                        "step": step,
+                        "chunk": {"type": "reasoning-delta", "index": 0, "text": text},
+                    }),
+                    None,
+                )
+                .await?;
+            }
+            LoopEventKind::ToolStarted(call) => {
+                self.append_session_event(
+                    session_id,
+                    "tool/call",
+                    json!({
+                        "turn": turn,
+                        "step": step,
+                        "callId": call.id,
+                        "name": call.name,
+                        "arguments": call.arguments_json,
+                    }),
+                    None,
+                )
+                .await?;
+            }
+            LoopEventKind::ToolCompleted { call, result } => {
+                self.append_session_event(
+                    session_id,
+                    "tool/result",
+                    json!({
+                        "turn": turn,
+                        "step": step,
+                        "message": {
+                            "id": self.mint_id("message"),
+                            "role": "user",
+                            "content": [{
+                                "type": "tool-result",
+                                "toolCallId": call.id,
+                                "content": [{"type": "text", "text": if result.ok { result.content } else { result.error }}],
+                                "isError": !result.ok,
+                            }],
+                            "source": {"kind": "tool", "callId": call.id},
+                        },
+                    }),
+                    Some("append"),
+                )
+                .await?;
+            }
+            LoopEventKind::ToolApprovalRequested { call } => {
+                let approval_id = call.id.clone();
+                let rpc_id = RpcId::new(self.mint_id("approval"));
+                let control = self
+                    .state
+                    .read()
+                    .await
+                    .sessions
+                    .get(session_id)
+                    .and_then(|session| session.control.clone())
+                    .ok_or_else(|| RpcError::internal("session control channel is unavailable"))?;
+                self.state.write().await.pending.insert(
+                    rpc_id.as_str().to_owned(),
+                    PendingResponse::Approval {
+                        session_id: session_id.to_owned(),
+                        approval_id: approval_id.clone(),
+                        call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        control,
+                    },
+                );
+                self.push_mux_correlated(
+                    rpc_id,
+                    json!({
+                        "type": "approval/requested",
+                        "sessionId": session_id,
+                        "approvalId": approval_id,
+                        "toolName": call.name,
+                        "callId": call.id,
+                        "reason": "This tool requires explicit approval.",
+                    }),
+                );
+            }
+            LoopEventKind::ToolApprovalResolved {
+                call,
+                approved,
+                reason: _,
+            } => {
+                self.push_mux(json!({
+                    "type": "approval/resolved",
+                    "sessionId": session_id,
+                    "approvalId": call.id,
+                    "outcome": if approved { "allowed-once" } else { "rejected" },
+                }));
+            }
+            LoopEventKind::ModelRetry { attempt, error } => {
+                self.append_session_event(
+                    session_id,
+                    "llm/retry",
+                    json!({
+                        "turn": turn,
+                        "step": step,
+                        "provider": self.config.provider_id,
+                        "mode": "normal",
+                        "policyKey": "xharness",
+                        "retry": attempt,
+                        "maxRetries": 2,
+                        "delayMs": 0,
+                        "failure": {"code": "TRANSPORT", "message": error},
+                    }),
+                    None,
+                )
+                .await?;
+            }
+            LoopEventKind::RunFailed { error } => {
+                self.push_host(json!({
+                    "type": "host/agent-error",
+                    "sessionId": session_id,
+                    "message": error,
+                }));
+            }
+            LoopEventKind::MessageInjected { .. }
+            | LoopEventKind::RunPaused
+            | LoopEventKind::RunResumed
+            | LoopEventKind::ModelInterrupted
+            | LoopEventKind::RunCompleted { .. }
+            | LoopEventKind::RunCancelled
+            | LoopEventKind::LimitReached => {}
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn rpc_error(
+    code: RpcErrorCode,
+    message: impl Into<String>,
+    details: Value,
+) -> RpcError {
+    RpcError {
+        code,
+        message: message.into(),
+        details,
+    }
+}
+
+pub(crate) fn web_user_message(id: &str, content: Vec<Value>, source: Value) -> Value {
+    json!({
+        "id": id,
+        "role": "user",
+        "content": content,
+        "source": source,
+    })
+}
+
+fn web_assistant_message(id: &str, text: &str, provider: &str, model: &str) -> Value {
+    json!({
+        "id": id,
+        "role": "assistant",
+        "content": [{"type": "text", "text": text}],
+        "source": {"kind": "model", "provider": provider, "model": model},
+    })
+}

@@ -14,6 +14,11 @@ use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_core::*;
+use xharness_session::{
+    AppendReceipt, AssistantChunk, EventData as SessionEventData,
+    MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent, SessionHeader,
+    SessionInspection, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
+};
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
 
@@ -118,9 +123,75 @@ impl ModelProvider for GatedProvider {
     }
 }
 
+#[derive(Clone, Default)]
+struct FailAssistantJournal {
+    inner: EventMemorySessionStore,
+}
+
+#[async_trait]
+impl EventStore for FailAssistantJournal {
+    async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
+        self.inner.create(header).await
+    }
+
+    async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
+        self.inner.load(session_id).await
+    }
+
+    async fn append(
+        &self,
+        session_id: &str,
+        expected_revision: Revision,
+        events: Vec<SessionEvent>,
+    ) -> Result<AppendReceipt, StoreError> {
+        if events
+            .iter()
+            .any(|event| matches!(event.data(), SessionEventData::AssistantMessage { .. }))
+        {
+            return Err(StoreError::Backend {
+                message: "injected assistant journal failure".to_owned(),
+            });
+        }
+        self.inner
+            .append(session_id, expected_revision, events)
+            .await
+    }
+
+    async fn flush(&self, session_id: &str) -> Result<Revision, StoreError> {
+        self.inner.flush(session_id).await
+    }
+
+    async fn inspect(&self, session_id: &str) -> Result<Option<SessionInspection>, StoreError> {
+        self.inner.inspect(session_id).await
+    }
+}
+
 fn completed() -> ProviderEvent {
     ProviderEvent::Completed {
-        usage: Some(json!({"output_tokens": 1})),
+        finish_reason: Some(FinishReason::Stop),
+        usage: Some(TokenUsage {
+            output_tokens: 1,
+            ..TokenUsage::default()
+        }),
+        provider_items: Vec::new(),
+    }
+}
+
+fn completed_for_calls() -> ProviderEvent {
+    ProviderEvent::Completed {
+        finish_reason: Some(FinishReason::ToolCalls),
+        usage: Some(TokenUsage {
+            output_tokens: 1,
+            ..TokenUsage::default()
+        }),
+        provider_items: Vec::new(),
+    }
+}
+
+fn completed_with(finish_reason: FinishReason, usage: TokenUsage) -> ProviderEvent {
+    ProviderEvent::Completed {
+        finish_reason: Some(finish_reason),
+        usage: Some(usage),
         provider_items: Vec::new(),
     }
 }
@@ -165,13 +236,38 @@ async fn streams_reasoning_and_text_separately() {
 }
 
 #[tokio::test]
+async fn result_does_not_require_draining_more_events_than_the_legacy_buffer() {
+    const DELTAS: usize = 512;
+    let mut script = (0..DELTAS)
+        .map(|_| Ok(ProviderEvent::TextDelta("x".to_owned())))
+        .collect::<Vec<_>>();
+    script.push(Ok(completed()));
+    let provider = Arc::new(ScriptProvider::new([script]));
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.config.event_buffer = 1;
+    let mut run = LoopEngine.start(request);
+
+    let result = tokio::time::timeout(Duration::from_secs(1), run.result())
+        .await
+        .expect("result was blocked by event delivery");
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text.len(), DELTAS);
+
+    let mut event_count = 0usize;
+    while run.next().await.is_some() {
+        event_count += 1;
+    }
+    assert_eq!(event_count, DELTAS + 1);
+}
+
+#[tokio::test]
 async fn aggregates_fragmented_tool_calls_and_returns_errors_to_model() {
     let provider = Arc::new(ScriptProvider::new([
         vec![
             Ok(tool_delta(0, "bad", "echo", "[1")),
             Ok(tool_delta(0, "", "", ",2]")),
             Ok(tool_delta(1, "missing", "no_such_tool", "{}")),
-            Ok(completed()),
+            Ok(completed_for_calls()),
         ],
         vec![
             Ok(ProviderEvent::TextDelta("recovered".to_owned())),
@@ -232,7 +328,7 @@ async fn parallel_completion_is_live_but_history_order_is_stable() {
         vec![
             Ok(tool_delta(0, "slow", "sleep", r#"{"ms":40}"#)),
             Ok(tool_delta(1, "fast", "sleep", r#"{"ms":1}"#)),
-            Ok(completed()),
+            Ok(completed_for_calls()),
         ],
         vec![
             Ok(ProviderEvent::TextDelta("done".to_owned())),
@@ -272,7 +368,7 @@ async fn keyed_tools_serialize_per_key_and_respect_global_cap() {
             Ok(tool_delta(0, "a1", "keyed", r#"{"key":"a","ms":30}"#)),
             Ok(tool_delta(1, "a2", "keyed", r#"{"key":"a","ms":1}"#)),
             Ok(tool_delta(2, "b1", "keyed", r#"{"key":"b","ms":5}"#)),
-            Ok(completed()),
+            Ok(completed_for_calls()),
         ],
         vec![
             Ok(ProviderEvent::TextDelta("done".to_owned())),
@@ -320,7 +416,7 @@ async fn reaches_step_limit_without_fabricating_an_answer() {
     for step in 0..3 {
         scripts.push(vec![
             Ok(tool_delta(0, &format!("call-{step}"), "echo", "{}")),
-            Ok(completed()),
+            Ok(completed_for_calls()),
         ]);
     }
     let provider = Arc::new(ScriptProvider::new(scripts));
@@ -338,6 +434,89 @@ async fn reaches_step_limit_without_fabricating_an_answer() {
     ));
 }
 
+#[tokio::test]
+async fn token_usage_is_recorded_per_step_and_accumulated() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "echo-1", "echo", "{}")),
+            Ok(completed_with(
+                FinishReason::ToolCalls,
+                TokenUsage {
+                    input_tokens: 10,
+                    output_tokens: 2,
+                    cache_read_tokens: 4,
+                    cache_write_tokens: 1,
+                    reasoning_tokens: 1,
+                },
+            )),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed_with(
+                FinishReason::Stop,
+                TokenUsage {
+                    input_tokens: 5,
+                    output_tokens: 3,
+                    cache_read_tokens: 2,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: 2,
+                },
+            )),
+        ],
+    ]));
+    let tool = ToolSpec::new("echo", "echo", json!({}), |_, _| async {
+        ToolResult::success("ok")
+    });
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tools.push(tool);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.finish_reason, Some(FinishReason::Stop));
+    assert_eq!(
+        result.usage,
+        Some(TokenUsage {
+            input_tokens: 15,
+            output_tokens: 5,
+            cache_read_tokens: 6,
+            cache_write_tokens: 1,
+            reasoning_tokens: 3,
+        })
+    );
+    assert_eq!(result.step_usage.len(), 2);
+    assert_eq!(result.step_usage[0].step, 1);
+    assert_eq!(result.step_usage[0].finish_reason, FinishReason::ToolCalls);
+    assert_eq!(result.step_usage[1].step, 2);
+    assert_eq!(result.step_usage[1].finish_reason, FinishReason::Stop);
+}
+
+#[tokio::test]
+async fn length_finish_is_partial_failure_not_completed() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("partial".to_owned())),
+        Ok(completed_with(
+            FinishReason::Length,
+            TokenUsage {
+                output_tokens: 7,
+                ..TokenUsage::default()
+            },
+        )),
+    ]]));
+    let (events, result) =
+        collect(LoopEngine.start(LoopRequest::new(provider, vec![AgentMessage::user("run")])))
+            .await;
+
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(result.finish_reason, Some(FinishReason::Length));
+    assert_eq!(result.final_text, "partial");
+    assert!(result.messages[1].interrupted);
+    assert_eq!(result.usage.as_ref().unwrap().output_tokens, 7);
+    assert!(result.error.as_deref().unwrap().contains("token limit"));
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event.kind, LoopEventKind::RunCompleted { .. })));
+}
+
 #[test]
 fn tool_result_cap_is_utf8_safe_and_valid_json() {
     let result = ToolResult::success("汉字".repeat(1_000));
@@ -348,11 +527,101 @@ fn tool_result_cap_is_utf8_safe_and_valid_json() {
     assert_eq!(value["truncated"], true);
 }
 
+#[test]
+fn tool_result_cap_never_produces_invalid_json() {
+    let result = ToolResult::success("content");
+    for limit in 0..MIN_TOOL_RESULT_LIMIT_BYTES {
+        let (encoded, truncated) = tool_result_for_model(&result, limit);
+        let value: Value = serde_json::from_str(&encoded).unwrap();
+        assert!(truncated);
+        assert_eq!(value["truncated"], true);
+        assert!(value["error"].as_str().unwrap().contains("limit"));
+    }
+}
+
+#[test]
+fn loop_request_validation_rejects_invalid_config_and_tools() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+
+    let mut request = LoopRequest::new(provider.clone(), vec![]);
+    request.config.tool_result_limit_bytes = MIN_TOOL_RESULT_LIMIT_BYTES - 1;
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("tool_result_limit_bytes"));
+
+    let mut request = LoopRequest::new(provider.clone(), vec![]);
+    request
+        .tools
+        .push(ToolSpec::new("", "empty", json!({}), |_, _| async {
+            ToolResult::success("")
+        }));
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("empty name"));
+
+    let duplicate = ToolSpec::new("same", "same", json!({}), |_, _| async {
+        ToolResult::success("")
+    });
+    let mut request = LoopRequest::new(provider.clone(), vec![]);
+    request.tools = vec![duplicate.clone(), duplicate];
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("duplicate tool name"));
+
+    let mut request = LoopRequest::new(provider.clone(), vec![]);
+    request.tools.push(
+        ToolSpec::new("zero-timeout", "zero", json!({}), |_, _| async {
+            ToolResult::success("")
+        })
+        .timeout(Duration::ZERO),
+    );
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("timeout"));
+
+    let mut request = LoopRequest::new(provider, vec![]);
+    request.tools.push(ToolSpec::new(
+        "bad-schema",
+        "bad",
+        json!([]),
+        |_, _| async { ToolResult::success("") },
+    ));
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("schema must be a JSON object"));
+}
+
+#[tokio::test]
+async fn invalid_request_fails_before_the_provider_is_called() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.config.tool_result_limit_bytes = MIN_TOOL_RESULT_LIMIT_BYTES - 1;
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.attempts(), 0);
+    assert!(result
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("tool_result_limit_bytes"));
+}
+
 #[tokio::test]
 async fn cancellation_stops_a_running_tool() {
     let provider = Arc::new(ScriptProvider::new([vec![
         Ok(tool_delta(0, "wait", "wait", "{}")),
-        Ok(completed()),
+        Ok(completed_for_calls()),
     ]]));
     let tool = ToolSpec::new("wait", "wait", json!({}), |_, token| async move {
         token.cancelled().await;
@@ -375,7 +644,7 @@ async fn timeout_and_handler_panic_become_tool_results() {
         vec![
             Ok(tool_delta(0, "timeout", "slow", "{}")),
             Ok(tool_delta(1, "panic", "panic", "{}")),
-            Ok(completed()),
+            Ok(completed_for_calls()),
         ],
         vec![
             Ok(ProviderEvent::TextDelta("recovered".to_owned())),
@@ -405,7 +674,7 @@ async fn exclusive_tool_is_a_barrier() {
             Ok(tool_delta(1, "p2", "parallel", r#"{"ms":20}"#)),
             Ok(tool_delta(2, "x", "exclusive", "{}")),
             Ok(tool_delta(3, "p3", "parallel", r#"{"ms":1}"#)),
-            Ok(completed()),
+            Ok(completed_for_calls()),
         ],
         vec![
             Ok(ProviderEvent::TextDelta("done".to_owned())),
@@ -514,7 +783,7 @@ async fn dropping_the_event_consumer_cancels_and_checkpoints() {
     let store = Arc::new(MemorySessionStore::default());
     let provider = Arc::new(ScriptProvider::new([vec![
         Ok(tool_delta(0, "wait", "wait", "{}")),
-        Ok(completed()),
+        Ok(completed_for_calls()),
     ]]));
     let tool = ToolSpec::new("wait", "wait", json!({}), |_, token| async move {
         token.cancelled().await;
@@ -633,7 +902,10 @@ async fn pause_stops_model_event_progress_until_resume() {
 #[tokio::test]
 async fn approval_blocks_tool_start_until_host_approves() {
     let provider = Arc::new(ScriptProvider::new([
-        vec![Ok(tool_delta(0, "", "guarded", "{}")), Ok(completed())],
+        vec![
+            Ok(tool_delta(0, "", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
         vec![
             Ok(ProviderEvent::TextDelta("done".to_owned())),
             Ok(completed()),
@@ -677,9 +949,62 @@ async fn approval_blocks_tool_start_until_host_approves() {
 }
 
 #[tokio::test]
+async fn duplicate_provider_call_ids_get_unique_approval_ids() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "duplicate", "guarded", r#"{"value":1}"#)),
+            Ok(tool_delta(1, "duplicate", "guarded", r#"{"value":2}"#)),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tool = ToolSpec::new("guarded", "guarded", json!({}), {
+        let executions = executions.clone();
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("allowed") }
+        }
+    })
+    .requires_approval();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tools.push(tool);
+    let mut run = LoopEngine.start(request);
+
+    let mut approval_ids = Vec::new();
+    while approval_ids.len() < 2 {
+        let event = run.next().await.unwrap();
+        if let LoopEventKind::ToolApprovalRequested { call } = event.kind {
+            approval_ids.push(call.id);
+        }
+    }
+    assert_ne!(approval_ids[0], approval_ids[1]);
+    for call_id in approval_ids {
+        run.send(LoopCommand::ApproveTool { call_id })
+            .await
+            .unwrap();
+    }
+
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(executions.load(Ordering::SeqCst), 2);
+    assert_ne!(
+        result.messages[1].tool_calls[0].id,
+        result.messages[1].tool_calls[1].id
+    );
+}
+
+#[tokio::test]
 async fn rejected_tool_never_runs_and_failure_is_written_back() {
     let provider = Arc::new(ScriptProvider::new([
-        vec![Ok(tool_delta(0, "deny", "guarded", "{}")), Ok(completed())],
+        vec![
+            Ok(tool_delta(0, "deny", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
         vec![
             Ok(ProviderEvent::TextDelta("handled".to_owned())),
             Ok(completed()),
@@ -724,7 +1049,10 @@ async fn rejected_tool_never_runs_and_failure_is_written_back() {
 #[tokio::test]
 async fn steering_during_tools_is_deferred_until_the_batch_finishes() {
     let provider = Arc::new(ScriptProvider::new([
-        vec![Ok(tool_delta(0, "wait", "wait", "{}")), Ok(completed())],
+        vec![
+            Ok(tool_delta(0, "wait", "wait", "{}")),
+            Ok(completed_for_calls()),
+        ],
         vec![
             Ok(ProviderEvent::TextDelta("done".to_owned())),
             Ok(completed()),
@@ -773,4 +1101,491 @@ async fn commands_are_rejected_after_run_completion() {
         run.send(LoopCommand::Pause).await,
         Err(LoopControlError::Closed)
     );
+}
+
+#[tokio::test]
+async fn explicit_stop_with_tool_calls_fails_closed_without_running_the_tool() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(tool_delta(0, "provider-danger", "dangerous", "{}")),
+        // Deliberately inconsistent: this must not be inferred as tool_calls.
+        Ok(completed()),
+    ]]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tool = ToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
+        let executions = Arc::clone(&executions);
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("must not run") }
+        }
+    });
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("do not trust this")]);
+    request.session_id = Some("explicit-stop-mismatch".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tools.push(tool);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(result.finish_reason, Some(FinishReason::Stop));
+    assert_eq!(result.usage.as_ref().unwrap().output_tokens, 1);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert!(result
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("finish reason was stop"));
+
+    let session = journal
+        .load("explicit-stop-mismatch")
+        .await
+        .unwrap()
+        .unwrap();
+    let raw_finish_reasons = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::AssistantChunk {
+                chunk: AssistantChunk::Finish { reason },
+                ..
+            } => Some(reason.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(raw_finish_reasons, ["stop"]);
+    assert_eq!(
+        raw_finish_reasons[0],
+        result.finish_reason.as_ref().unwrap().description()
+    );
+    assert!(!session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ToolCall { .. } | SessionEventData::ToolResult { .. }
+    )));
+}
+
+#[tokio::test]
+async fn missing_finish_reason_is_inferred_only_for_legacy_providers() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "legacy-call", "echo", "{}")),
+            Ok(ProviderEvent::Completed {
+                finish_reason: None,
+                usage: None,
+                provider_items: Vec::new(),
+            }),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tool = ToolSpec::new("echo", "echo", json!({"type":"object"}), {
+        let executions = Arc::clone(&executions);
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("ok") }
+        }
+    });
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("legacy")]);
+    request.tools.push(tool);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(result.finish_reason, Some(FinishReason::Stop));
+}
+
+#[tokio::test]
+async fn completed_usage_survives_assistant_journal_failure() {
+    let usage = TokenUsage {
+        input_tokens: 7,
+        output_tokens: 5,
+        cache_read_tokens: 3,
+        cache_write_tokens: 2,
+        reasoning_tokens: 4,
+    };
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("billed output".to_owned())),
+        Ok(completed_with(FinishReason::Stop, usage.clone())),
+    ]]));
+    let journal = Arc::new(FailAssistantJournal::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("failing-assistant-journal".to_owned());
+    request.journal_store = Some(journal);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(result.finish_reason, Some(FinishReason::Stop));
+    assert_eq!(result.usage, Some(usage.clone()));
+    assert_eq!(result.step_usage.len(), 1);
+    assert_eq!(result.step_usage[0].step, 1);
+    assert_eq!(result.step_usage[0].usage, usage);
+    assert_eq!(result.step_usage[0].finish_reason, FinishReason::Stop);
+    assert!(result
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("injected assistant journal failure"));
+}
+
+#[tokio::test]
+async fn journal_rejects_invalid_injected_roles_without_stopping_the_run() {
+    let provider = Arc::new(GatedProvider::new());
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("reject-invalid-injection".to_owned());
+    request.journal_store = Some(journal);
+    let mut run = LoopEngine.start(request);
+
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+            break;
+        }
+    }
+
+    let assistant_rejection = run
+        .send(LoopCommand::InjectMessage {
+            message: AgentMessage::assistant("invalid assistant injection"),
+            mode: InjectionMode::NextStep,
+        })
+        .await;
+    assert!(matches!(
+        assistant_rejection,
+        Err(LoopControlError::Rejected(ref reason)) if reason.contains("user/system")
+    ));
+    let tool_rejection = run
+        .send(LoopCommand::Steer(AgentMessage::tool(
+            "provider-call",
+            "invalid tool injection",
+        )))
+        .await;
+    assert!(matches!(
+        tool_rejection,
+        Err(LoopControlError::Rejected(ref reason)) if reason.contains("user/system")
+    ));
+
+    provider.release_first.notify_one();
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(provider.requests().len(), 1);
+    assert!(!result.messages.iter().any(|message| {
+        message.content == "invalid assistant injection"
+            || message.content == "invalid tool injection"
+    }));
+}
+
+#[tokio::test]
+async fn event_journal_records_model_input_and_tool_call_before_side_effects() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "call-1", "inspect", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let was_durable = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tool = ToolSpec::new("inspect", "inspect", json!({"type":"object"}), {
+        let journal = Arc::clone(&journal);
+        let was_durable = Arc::clone(&was_durable);
+        move |_, _| {
+            let journal = Arc::clone(&journal);
+            let was_durable = Arc::clone(&was_durable);
+            async move {
+                let session = journal.load("journal-run").await.unwrap().unwrap();
+                let durable = session.events().iter().any(|event| {
+                    matches!(
+                        event.data(),
+                        SessionEventData::ToolCall { call, .. }
+                            if call.name == "inspect" && call.id.starts_with("xh-")
+                    )
+                });
+                was_durable.store(durable, Ordering::SeqCst);
+                ToolResult::success("observed")
+            }
+        }
+    });
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("inspect state")]);
+    request.session_id = Some("journal-run".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tools.push(tool);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert!(was_durable.load(Ordering::SeqCst));
+
+    let session = journal.load("journal-run").await.unwrap().unwrap();
+    let events = session.events();
+    let call_position = events
+        .iter()
+        .position(|event| matches!(event.data(), SessionEventData::ToolCall { .. }))
+        .unwrap();
+    let result_position = events
+        .iter()
+        .position(|event| matches!(event.data(), SessionEventData::ToolResult { .. }))
+        .unwrap();
+    assert!(call_position < result_position);
+    let finish_reasons = events
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::AssistantChunk {
+                chunk: AssistantChunk::Finish { reason },
+                ..
+            } => Some(reason.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(finish_reasons, ["tool_calls", "stop"]);
+    assert!(matches!(
+        events.last().unwrap().data(),
+        SessionEventData::TurnEnd {
+            reason: TurnEndReason::Completed,
+            ..
+        }
+    ));
+    let request_header = events
+        .iter()
+        .find_map(|event| match event.data() {
+            SessionEventData::RequestHeader { header } => Some(header),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(request_header.input[0].content, "inspect state");
+    assert_eq!(request_header.provider, "custom");
+}
+
+#[tokio::test]
+async fn journal_namespaces_reused_provider_call_ids_across_steps() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "provider-reused", "echo", r#"{"step":1}"#)),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(tool_delta(0, "provider-reused", "echo", r#"{"step":2}"#)),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tool = ToolSpec::new("echo", "echo", json!({"type":"object"}), {
+        let executions = Arc::clone(&executions);
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("ok") }
+        }
+    });
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("twice")]);
+    request.session_id = Some("reused-provider-call-ids".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tools.push(tool);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(executions.load(Ordering::SeqCst), 2);
+    let session = journal
+        .load("reused-provider-call-ids")
+        .await
+        .unwrap()
+        .unwrap();
+    let execution_ids = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ToolCall { call, .. } => Some(call.id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(execution_ids.len(), 2);
+    assert_ne!(execution_ids[0], execution_ids[1]);
+    assert!(execution_ids.iter().all(|id| id.starts_with("xh-")));
+    assert!(execution_ids.iter().all(|id| id != "provider-reused"));
+
+    let raw_provider_ids = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::AssistantChunk {
+                chunk: AssistantChunk::ToolCallDelta { id, .. },
+                ..
+            } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(raw_provider_ids, ["provider-reused", "provider-reused"]);
+
+    let result_ids = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ToolResult { result, .. } => Some(result.call_id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(result_ids, execution_ids);
+}
+
+#[tokio::test]
+async fn event_journal_recovers_incomplete_tool_as_outcome_unknown_without_replay() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    journal
+        .create(SessionHeader::new("recover-journal"))
+        .await
+        .unwrap();
+    let call = ToolCall {
+        id: "side-effect".to_owned(),
+        index: 0,
+        name: "dangerous".to_owned(),
+        arguments_json: "{}".to_owned(),
+    };
+    let mut assistant = AgentMessage::assistant("");
+    assistant.tool_calls.push(call.clone());
+    journal
+        .append(
+            "recover-journal",
+            Revision::ZERO,
+            vec![
+                SessionEventData::TurnStart { turn: 1 }.into(),
+                SessionEventData::UserMessage {
+                    message: AgentMessage::user("do it"),
+                }
+                .into(),
+                SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call,
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("verified".to_owned())),
+        Ok(completed()),
+    ]]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tool = ToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
+        let executions = Arc::clone(&executions);
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("unexpected") }
+        }
+    });
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("verify first")]);
+    request.session_id = Some("recover-journal".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tools.push(tool);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert!(result
+        .messages
+        .iter()
+        .any(|message| message.content.contains("outcome is unknown")));
+
+    let session = journal.load("recover-journal").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|event| {
+        matches!(
+            event.data(),
+            SessionEventData::ToolResult { result, .. }
+                if result.call_id == "side-effect" && result.outcome == ToolOutcome::OutcomeUnknown
+        )
+    }));
+    assert!(session.events().iter().any(|event| {
+        matches!(
+            event.data(),
+            SessionEventData::TurnEnd {
+                turn: 1,
+                reason: TurnEndReason::Interrupted
+            }
+        )
+    }));
+}
+
+#[tokio::test]
+async fn cancel_command_is_acknowledged_before_the_run_stops() {
+    let provider = Arc::new(GatedProvider::new());
+    let request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+            break;
+        }
+    }
+
+    assert_eq!(run.send(LoopCommand::Cancel).await, Ok(()));
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+}
+
+#[tokio::test]
+async fn terminal_vs_steer_never_acknowledges_an_unapplied_command() {
+    for iteration in 0..32 {
+        let provider = Arc::new(GatedProvider::new());
+        let request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+        let mut run = LoopEngine.start(request);
+        while let Some(event) = run.next().await {
+            if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+                break;
+            }
+        }
+
+        provider.release_first.notify_one();
+        if iteration % 2 == 0 {
+            tokio::task::yield_now().await;
+        }
+        let acceptance = run
+            .send(LoopCommand::Steer(AgentMessage::user(
+                "terminal race steer",
+            )))
+            .await;
+
+        while run.next().await.is_some() {}
+        let result = run.result().await;
+        let requests = provider.requests();
+        assert_eq!(result.status, LoopStatus::Completed);
+        match acceptance {
+            Ok(()) => {
+                assert_eq!(requests.len(), 2);
+                assert!(result
+                    .messages
+                    .iter()
+                    .any(|message| message.content == "terminal race steer"));
+            }
+            Err(LoopControlError::Closed) => {
+                assert_eq!(requests.len(), 1);
+                assert!(!result
+                    .messages
+                    .iter()
+                    .any(|message| message.content == "terminal race steer"));
+            }
+            Err(LoopControlError::Rejected(reason)) => {
+                panic!("valid user steering command was rejected: {reason}")
+            }
+        }
+    }
 }

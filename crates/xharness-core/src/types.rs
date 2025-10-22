@@ -1,4 +1,4 @@
-use std::{fmt, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashSet, fmt, pin::Pin, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use futures::{future::BoxFuture, Stream};
@@ -6,86 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+pub use xharness_session::{Message as AgentMessage, MessageRole as Role, ToolCall};
+
 pub type ProviderStream =
     Pin<Box<dyn Stream<Item = Result<ProviderEvent, ProviderError>> + Send + 'static>>;
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Role {
-    System,
-    #[default]
-    User,
-    Assistant,
-    Tool,
-}
-
-impl Role {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::System => "system",
-            Self::User => "user",
-            Self::Assistant => "assistant",
-            Self::Tool => "tool",
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolCall {
-    pub id: String,
-    pub index: usize,
-    pub name: String,
-    pub arguments_json: String,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct AgentMessage {
-    pub role: Role,
-    #[serde(default)]
-    pub content: String,
-    #[serde(default)]
-    pub reasoning: String,
-    #[serde(default)]
-    pub tool_calls: Vec<ToolCall>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
-    #[serde(default)]
-    pub provider_items: Vec<Value>,
-    /// True when the assistant turn was cut short by runtime steering.
-    #[serde(default)]
-    pub interrupted: bool,
-}
-
-impl AgentMessage {
-    pub fn new(role: Role, content: impl Into<String>) -> Self {
-        Self {
-            role,
-            content: content.into(),
-            ..Self::default()
-        }
-    }
-
-    pub fn user(content: impl Into<String>) -> Self {
-        Self::new(Role::User, content)
-    }
-
-    pub fn system(content: impl Into<String>) -> Self {
-        Self::new(Role::System, content)
-    }
-
-    pub fn assistant(content: impl Into<String>) -> Self {
-        Self::new(Role::Assistant, content)
-    }
-
-    pub fn tool(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
-        Self {
-            role: Role::Tool,
-            content: content.into(),
-            tool_call_id: Some(tool_call_id.into()),
-            ..Self::default()
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolResult {
@@ -181,9 +105,76 @@ pub enum ProviderEvent {
         arguments_delta: String,
     },
     Completed {
-        usage: Option<Value>,
+        /// Adapters should set this whenever the wire protocol exposes a
+        /// terminal reason. `None` remains accepted for legacy/custom
+        /// adapters and is inferred from the presence of tool calls.
+        finish_reason: Option<FinishReason>,
+        usage: Option<TokenUsage>,
         provider_items: Vec<Value>,
     },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenUsage {
+    /// Uncached input tokens. Provider totals that include cached input are
+    /// normalized by subtracting `cache_read_tokens` and
+    /// `cache_write_tokens`.
+    #[serde(default)]
+    pub input_tokens: u64,
+    /// Visible, non-reasoning output tokens. Provider totals that include
+    /// reasoning are normalized by subtracting `reasoning_tokens`.
+    #[serde(default)]
+    pub output_tokens: u64,
+    #[serde(default)]
+    pub cache_read_tokens: u64,
+    #[serde(default)]
+    pub cache_write_tokens: u64,
+    #[serde(default)]
+    pub reasoning_tokens: u64,
+}
+
+impl TokenUsage {
+    pub fn saturating_add_assign(&mut self, other: &Self) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(other.cache_read_tokens);
+        self.cache_write_tokens = self
+            .cache_write_tokens
+            .saturating_add(other.cache_write_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FinishReason {
+    #[default]
+    Stop,
+    ToolCalls,
+    Length,
+    ContentFilter,
+    Incomplete(String),
+    Other(String),
+}
+
+impl FinishReason {
+    /// Only these reasons represent a complete, protocol-valid model turn.
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Stop | Self::ToolCalls)
+    }
+
+    pub fn description(&self) -> String {
+        match self {
+            Self::Stop => "stop".to_owned(),
+            Self::ToolCalls => "tool calls".to_owned(),
+            Self::Length => "output token limit".to_owned(),
+            Self::ContentFilter => "content filter".to_owned(),
+            Self::Incomplete(reason) => format!("incomplete: {reason}"),
+            Self::Other(reason) => format!("unrecognized finish reason: {reason}"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
@@ -222,6 +213,16 @@ impl ProviderError {
 
 #[async_trait]
 pub trait ModelProvider: Send + Sync + 'static {
+    /// Stable adapter identity written to durable request headers.
+    fn provider_name(&self) -> &str {
+        "custom"
+    }
+
+    /// Configured model identity when the adapter owns one.
+    fn model_name(&self) -> Option<&str> {
+        None
+    }
+
     async fn stream(
         &self,
         request: ProviderRequest,
@@ -274,6 +275,8 @@ pub enum LoopCommand {
 pub enum LoopControlError {
     #[error("loop is no longer accepting commands")]
     Closed,
+    #[error("loop command rejected: {0}")]
+    Rejected(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -329,10 +332,25 @@ pub struct LoopResult {
     pub final_text: String,
     #[serde(default)]
     pub messages: Vec<AgentMessage>,
+    /// Saturating sum of every completed model step that reported usage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Value>,
+    pub usage: Option<TokenUsage>,
+    /// Per-step usage in model request order, for requests whose provider
+    /// reported usage.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub step_usage: Vec<StepUsage>,
+    /// Finish reason of the most recent completed model request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<FinishReason>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepUsage {
+    pub step: usize,
+    pub usage: TokenUsage,
+    pub finish_reason: FinishReason,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -350,8 +368,25 @@ pub struct LoopConfig {
     pub max_tool_concurrency: usize,
     pub tool_result_limit_bytes: usize,
     pub provider_retries: usize,
+    /// Retained for configuration compatibility. Loop events are delivered
+    /// through a non-blocking unbounded channel, so this value is not currently
+    /// used as a channel capacity.
     pub event_buffer: usize,
     pub command_buffer: usize,
+}
+
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
+#[error("{message}")]
+pub struct LoopValidationError {
+    pub message: String,
+}
+
+impl LoopValidationError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
 }
 
 impl Default for LoopConfig {
@@ -367,12 +402,43 @@ impl Default for LoopConfig {
     }
 }
 
+impl LoopConfig {
+    pub fn validate(&self) -> Result<(), LoopValidationError> {
+        if self.max_steps == 0 {
+            return Err(LoopValidationError::new(
+                "max_steps must be greater than zero",
+            ));
+        }
+        if self.max_tool_concurrency == 0 {
+            return Err(LoopValidationError::new(
+                "max_tool_concurrency must be greater than zero",
+            ));
+        }
+        if self.tool_result_limit_bytes < crate::MIN_TOOL_RESULT_LIMIT_BYTES {
+            return Err(LoopValidationError::new(format!(
+                "tool_result_limit_bytes must be at least {}",
+                crate::MIN_TOOL_RESULT_LIMIT_BYTES
+            )));
+        }
+        if self.command_buffer == 0 {
+            return Err(LoopValidationError::new(
+                "command_buffer must be greater than zero",
+            ));
+        }
+        Ok(())
+    }
+}
+
 pub struct LoopRequest {
     pub provider: Arc<dyn ModelProvider>,
     pub messages: Vec<AgentMessage>,
     pub tools: Vec<ToolSpec>,
     pub session_id: Option<String>,
     pub session_store: Arc<dyn crate::SessionStore>,
+    /// Append-only source-of-truth store. When set, it replaces snapshot
+    /// restoration for this run; the legacy `session_store` remains a v0
+    /// migration bridge.
+    pub journal_store: Option<Arc<dyn xharness_session::Store>>,
     pub context_policy: Arc<dyn crate::ContextPolicy>,
     pub config: LoopConfig,
 }
@@ -385,8 +451,45 @@ impl LoopRequest {
             tools: Vec::new(),
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
+            journal_store: None,
             context_policy: Arc::new(crate::IdentityContextPolicy),
             config: LoopConfig::default(),
         }
+    }
+
+    /// Validates configuration and tool declarations without invoking the
+    /// provider, session store, context policy, or any tool handler.
+    pub fn validate(&self) -> Result<(), LoopValidationError> {
+        self.config.validate()?;
+        let mut names = HashSet::with_capacity(self.tools.len());
+        for (index, tool) in self.tools.iter().enumerate() {
+            let name = tool.definition.name.as_str();
+            if name.trim().is_empty() {
+                return Err(LoopValidationError::new(format!(
+                    "tool at index {index} has an empty name"
+                )));
+            }
+            if !names.insert(name) {
+                return Err(LoopValidationError::new(format!(
+                    "duplicate tool name: {name}"
+                )));
+            }
+            if tool.timeout.is_zero() {
+                return Err(LoopValidationError::new(format!(
+                    "tool {name} timeout must be greater than zero"
+                )));
+            }
+            if !tool.definition.parameters.is_object() {
+                return Err(LoopValidationError::new(format!(
+                    "tool {name} parameters schema must be a JSON object"
+                )));
+            }
+            if tool.concurrency == ToolConcurrency::Keyed && tool.resource_key_resolver.is_none() {
+                return Err(LoopValidationError::new(format!(
+                    "keyed tool {name} requires a resource key resolver"
+                )));
+            }
+        }
+        Ok(())
     }
 }

@@ -7,5 +7,7 @@ mod sse;
 pub use protocol::{
     build_openai_request, OpenAiProtocol, OpenAiStreamNormalizer, CHAT_COMPLETIONS, RESPONSES,
 };
-pub use provider::{OpenAiProvider, OpenAiProviderConfig};
-pub use sse::{SseEvent, SseParser};
+pub use provider::{OpenAiProvider, OpenAiProviderConfig, DEFAULT_ERROR_BODY_LIMIT_BYTES};
+pub use sse::{
+    SseEvent, SseParser, DEFAULT_SSE_EVENT_LIMIT_BYTES, DEFAULT_SSE_PENDING_LIMIT_BYTES,
+};

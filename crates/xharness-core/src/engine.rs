@@ -1,24 +1,33 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     pin::Pin,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     task::{Context, Poll},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
 use serde_json::Value;
-use tokio::sync::{mpsc, watch};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
+use xharness_session::{
+    AssistantChunk, EventData as SessionEventData, RequestHeader, Revision, SessionHeader,
+    Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
+};
 
 use crate::{
-    tool_result_for_model, AgentMessage, InjectionMode, LoopCommand, LoopControlError, LoopEvent,
-    LoopEventKind, LoopRequest, LoopResult, LoopStatus, ProviderError, ProviderEvent,
-    ProviderRequest, Role, SessionSnapshot, ToolCall, ToolConcurrency, ToolResult, ToolSpec,
+    tool_result_for_model, AgentMessage, FinishReason, InjectionMode, LoopCommand,
+    LoopControlError, LoopEvent, LoopEventKind, LoopRequest, LoopResult, LoopStatus, ProviderError,
+    ProviderEvent, ProviderRequest, Role, SessionSnapshot, StepUsage, TokenUsage, ToolCall,
+    ToolConcurrency, ToolResult, ToolSpec,
 };
 
 static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(1);
+const TOOL_CLEANUP_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StopReason {
@@ -28,10 +37,15 @@ enum StopReason {
 
 pub struct LoopRun {
     pub run_id: String,
-    events: ReceiverStream<LoopEvent>,
+    events: UnboundedReceiverStream<LoopEvent>,
     result: watch::Receiver<Option<LoopResult>>,
     cancellation: CancellationToken,
-    command_tx: mpsc::Sender<LoopCommand>,
+    command_tx: mpsc::Sender<CommandEnvelope>,
+}
+
+struct CommandEnvelope {
+    command: LoopCommand,
+    acknowledgement: oneshot::Sender<Result<(), LoopControlError>>,
 }
 
 impl LoopRun {
@@ -44,12 +58,21 @@ impl LoopRun {
         self.cancellation.cancel();
     }
 
-    /// Sends a live control command to the running loop.
+    /// Sends a live control command and waits until the runner has accepted it.
+    /// For message injection and steering, success means the message was queued
+    /// for the next applicable model boundary; it is not a durability receipt.
+    /// If the run wins a terminal race before handling the command, this returns
+    /// [`LoopControlError::Closed`] rather than a false success.
     pub async fn send(&self, command: LoopCommand) -> Result<(), LoopControlError> {
+        let (acknowledgement, accepted) = oneshot::channel();
         self.command_tx
-            .send(command)
+            .send(CommandEnvelope {
+                command,
+                acknowledgement,
+            })
             .await
-            .map_err(|_| LoopControlError::Closed)
+            .map_err(|_| LoopControlError::Closed)?;
+        accepted.await.unwrap_or(Err(LoopControlError::Closed))
     }
 
     pub async fn result(&mut self) -> LoopResult {
@@ -63,6 +86,8 @@ impl LoopRun {
                     final_text: String::new(),
                     messages: Vec::new(),
                     usage: None,
+                    step_usage: Vec::new(),
+                    finish_reason: None,
                     error: Some("loop task ended without publishing a result".to_owned()),
                 };
             }
@@ -88,28 +113,23 @@ impl Drop for LoopRun {
 pub struct LoopEngine;
 
 impl LoopEngine {
-    pub fn start(&self, mut request: LoopRequest) -> LoopRun {
-        if request.config.max_steps == 0 {
-            request.config.max_steps = 128;
-        }
-        if request.config.max_tool_concurrency == 0 {
-            request.config.max_tool_concurrency = 8;
-        }
-        if request.config.tool_result_limit_bytes == 0 {
-            request.config.tool_result_limit_bytes = 256 * 1024;
-        }
-        if request.config.event_buffer == 0 {
-            request.config.event_buffer = 128;
-        }
-        if request.config.command_buffer == 0 {
-            request.config.command_buffer = 64;
-        }
-
+    pub fn start(&self, request: LoopRequest) -> LoopRun {
+        let startup_error = request.validate().err().map(|error| error.to_string());
         let run_id = new_run_id();
         let cancellation = CancellationToken::new();
-        let (event_tx, event_rx) = mpsc::channel(request.config.event_buffer);
-        let (command_tx, command_rx) = mpsc::channel(request.config.command_buffer);
+        // Invalid zero-sized command buffers are reported as normal failed
+        // runs rather than panicking inside `tokio::sync::mpsc::channel`.
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (command_tx, command_rx) = mpsc::channel(request.config.command_buffer.max(1));
         let (result_tx, result_rx) = watch::channel(None);
+        let journal = request.journal_store.clone().map(|store| JournalState {
+            store,
+            session_id: request.session_id.clone().unwrap_or_else(|| run_id.clone()),
+            revision: Revision::ZERO,
+            turn: 0,
+            step_open: false,
+            turn_open: false,
+        });
         let runner = Runner {
             run_id: run_id.clone(),
             request,
@@ -119,6 +139,8 @@ impl LoopEngine {
             messages: Vec::new(),
             final_text: String::new(),
             usage: None,
+            step_usage: Vec::new(),
+            finish_reason: None,
             step: 0,
             tool_batch_complete: true,
             command_rx,
@@ -126,6 +148,8 @@ impl LoopEngine {
             pending_messages: VecDeque::new(),
             paused: false,
             approval_decisions: HashMap::new(),
+            startup_error,
+            journal,
         };
         tokio::spawn(async move {
             let result = runner.run().await;
@@ -133,7 +157,7 @@ impl LoopEngine {
         });
         LoopRun {
             run_id,
-            events: ReceiverStream::new(event_rx),
+            events: UnboundedReceiverStream::new(event_rx),
             result: result_rx,
             cancellation,
             command_tx,
@@ -150,28 +174,77 @@ fn new_run_id() -> String {
     format!("{timestamp}-{sequence}")
 }
 
+fn normalize_tool_call_ids(calls: &mut [ToolCall], run_id: &str, step: usize, namespace_all: bool) {
+    let mut used = HashSet::with_capacity(calls.len());
+    for (ordinal, call) in calls.iter_mut().enumerate() {
+        if !namespace_all && !call.id.is_empty() && used.insert(call.id.clone()) {
+            continue;
+        }
+
+        let base = format!("xh-{run_id}-{step}-{}-{ordinal}", call.index);
+        let mut candidate = base.clone();
+        let mut collision = 1usize;
+        while !used.insert(candidate.clone()) {
+            candidate = format!("{base}-{collision}");
+            collision += 1;
+        }
+        call.id = candidate;
+    }
+}
+
 struct Runner {
     run_id: String,
     request: LoopRequest,
     cancellation: CancellationToken,
-    event_tx: mpsc::Sender<LoopEvent>,
+    event_tx: mpsc::UnboundedSender<LoopEvent>,
     seq: u64,
     messages: Vec<AgentMessage>,
     final_text: String,
-    usage: Option<Value>,
+    usage: Option<TokenUsage>,
+    step_usage: Vec<StepUsage>,
+    finish_reason: Option<FinishReason>,
     step: usize,
     tool_batch_complete: bool,
-    command_rx: mpsc::Receiver<LoopCommand>,
+    command_rx: mpsc::Receiver<CommandEnvelope>,
     command_open: bool,
     pending_messages: VecDeque<AgentMessage>,
     paused: bool,
     approval_decisions: HashMap<String, ApprovalDecision>,
+    startup_error: Option<String>,
+    journal: Option<JournalState>,
+}
+
+struct JournalState {
+    store: Arc<dyn EventSessionStore>,
+    session_id: String,
+    revision: Revision,
+    turn: u32,
+    step_open: bool,
+    turn_open: bool,
 }
 
 impl Runner {
     async fn run(mut self) -> LoopResult {
+        if let Some(error) = self.startup_error.take() {
+            self.messages = self.request.messages.clone();
+            let _ = self
+                .emit(LoopEventKind::RunFailed {
+                    error: error.clone(),
+                })
+                .await;
+            return LoopResult {
+                status: LoopStatus::Failed,
+                final_text: String::new(),
+                messages: self.messages,
+                usage: None,
+                step_usage: Vec::new(),
+                finish_reason: None,
+                error: Some(error),
+            };
+        }
+
         let outcome = self.run_inner().await;
-        let (status, error, phase) = match outcome {
+        let (mut status, mut error, phase) = match outcome {
             Ok(status) => {
                 let phase = match status {
                     LoopStatus::Completed => "completed",
@@ -202,12 +275,23 @@ impl Runner {
             }
         };
 
+        if let Err(journal_error) = self.finalize_journal(status, error.as_deref()).await {
+            status = LoopStatus::Failed;
+            error = Some(journal_error.clone());
+            let _ = self
+                .emit(LoopEventKind::RunFailed {
+                    error: journal_error,
+                })
+                .await;
+        }
         let _ = self.snapshot(phase, self.tool_batch_complete).await;
         LoopResult {
             status,
             final_text: self.final_text,
             messages: self.messages,
             usage: self.usage,
+            step_usage: self.step_usage,
+            finish_reason: self.finish_reason,
             error,
         }
     }
@@ -219,19 +303,26 @@ impl Runner {
         while self.step < self.request.config.max_steps {
             self.settle_control_at_boundary().await?;
             self.step += 1;
+            self.journal_step_start().await?;
             let prepared = self
                 .request
                 .context_policy
                 .prepare(&self.messages)
                 .await
                 .map_err(RunFailure::Failed)?;
+            self.journal_request_header(&prepared).await?;
 
             let mut model = self.model_round(prepared).await?;
-            for call in &mut model.calls {
-                if call.id.is_empty() {
-                    call.id = format!("{}-{}-{}", self.run_id, self.step, call.index);
-                }
-            }
+            // The durable session contract requires call ids to be globally
+            // unique, while providers only guarantee identity within a single
+            // response. Journal-backed runs therefore use harness execution
+            // ids unconditionally. Raw provider ids remain in stream chunks.
+            normalize_tool_call_ids(
+                &mut model.calls,
+                &self.run_id,
+                self.step,
+                self.journal.is_some(),
+            );
 
             if model.interrupted {
                 if !model.text.is_empty() || !model.reasoning.is_empty() {
@@ -245,27 +336,69 @@ impl Runner {
                         provider_items: Vec::new(),
                         interrupted: true,
                     });
+                    let message = self
+                        .messages
+                        .last()
+                        .cloned()
+                        .expect("interrupted assistant was just appended");
+                    self.journal_assistant_message(&message, None).await?;
                     self.snapshot("assistant_interrupted", true).await?;
                 }
+                self.journal_step_end().await?;
                 self.settle_control_at_boundary().await?;
                 continue;
             }
 
+            let finish_reason_was_explicit = model.finish_reason.is_some();
+            let finish_reason = match model.finish_reason.take() {
+                Some(reason) => reason,
+                None if model.calls.is_empty() => FinishReason::Stop,
+                None => FinishReason::ToolCalls,
+            };
+            let finish_error = if finish_reason_was_explicit
+                && finish_reason == FinishReason::Stop
+                && !model.calls.is_empty()
+            {
+                Some(
+                    "model protocol mismatch: finish reason was stop but tool calls were emitted"
+                        .to_owned(),
+                )
+            } else if !finish_reason.is_success() {
+                Some(format!(
+                    "model output was not complete: {}",
+                    finish_reason.description()
+                ))
+            } else if finish_reason == FinishReason::ToolCalls && model.calls.is_empty() {
+                Some("model finished for tool calls but emitted no tool call".to_owned())
+            } else {
+                None
+            };
             let assistant = AgentMessage {
                 role: Role::Assistant,
                 content: model.text.clone(),
                 reasoning: model.reasoning,
-                tool_calls: model.calls.clone(),
+                tool_calls: if finish_error.is_none() {
+                    model.calls.clone()
+                } else {
+                    Vec::new()
+                },
                 tool_call_id: None,
                 provider_items: model.provider_items,
-                interrupted: false,
+                interrupted: finish_error.is_some(),
             };
+            self.journal_assistant_message(&assistant, model.usage.clone())
+                .await?;
             self.final_text = model.text;
-            self.usage = model.usage;
             self.messages.push(assistant);
             self.snapshot("assistant_saved", true).await?;
 
+            if let Some(error) = finish_error {
+                self.journal_step_end().await?;
+                return Err(RunFailure::Failed(error));
+            }
+
             if model.calls.is_empty() {
+                self.journal_step_end().await?;
                 if self.settle_control_at_boundary().await? {
                     continue;
                 }
@@ -280,11 +413,361 @@ impl Runner {
             self.snapshot("tool_batch_started", false).await?;
             self.execute_tool_batch(model.calls).await?;
             self.tool_batch_complete = true;
+            self.journal_step_end().await?;
             self.snapshot("tool_batch_saved", true).await?;
         }
 
         self.emit(LoopEventKind::LimitReached).await?;
         Ok(LoopStatus::LimitReached)
+    }
+
+    fn record_model_completion(&mut self, usage: Option<TokenUsage>, finish_reason: FinishReason) {
+        self.finish_reason = Some(finish_reason.clone());
+        let Some(usage) = usage else {
+            return;
+        };
+        self.usage
+            .get_or_insert_with(TokenUsage::default)
+            .saturating_add_assign(&usage);
+        self.step_usage.push(StepUsage {
+            step: self.step,
+            usage,
+            finish_reason,
+        });
+    }
+
+    async fn initialize_journal(&mut self) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let store = Arc::clone(&journal.store);
+        let session_id = journal.session_id.clone();
+        let mut session =
+            match store.load(&session_id).await.map_err(|error| {
+                RunFailure::Failed(format!("session journal load failed: {error}"))
+            })? {
+                Some(session) => session,
+                None => store
+                    .create(SessionHeader::new(&session_id))
+                    .await
+                    .map_err(|error| {
+                        RunFailure::Failed(format!("session journal create failed: {error}"))
+                    })?,
+            };
+
+        let mut recovery = session.outcome_unknown_recovery();
+        let last_turn = session
+            .events()
+            .iter()
+            .rev()
+            .find_map(|event| match event.data() {
+                SessionEventData::TurnStart { turn } => Some(*turn),
+                _ => None,
+            });
+        let last_turn_closed = last_turn.is_none_or(|turn| {
+            session.events().iter().rev().any(|event| {
+                matches!(event.data(), SessionEventData::TurnEnd { turn: closed, .. } if *closed == turn)
+            })
+        });
+        if let Some(turn) = last_turn.filter(|_| !last_turn_closed) {
+            let mut open_step = None;
+            for event in session.events().iter().rev() {
+                match event.data() {
+                    SessionEventData::StepEnd {
+                        turn: closed_turn, ..
+                    } if *closed_turn == turn => break,
+                    SessionEventData::StepStart {
+                        turn: open_turn,
+                        step,
+                    } if *open_turn == turn => {
+                        open_step = Some(*step);
+                        break;
+                    }
+                    SessionEventData::TurnStart { .. } => break,
+                    _ => {}
+                }
+            }
+            if let Some(step) = open_step {
+                recovery.push(SessionEventData::StepEnd { turn, step }.into());
+            }
+            recovery.push(
+                SessionEventData::TurnEnd {
+                    turn,
+                    reason: TurnEndReason::Interrupted,
+                }
+                .into(),
+            );
+        }
+        if !recovery.is_empty() {
+            store
+                .append(&session_id, session.revision(), recovery)
+                .await
+                .map_err(|error| {
+                    RunFailure::Failed(format!("session journal recovery failed: {error}"))
+                })?;
+            store.flush(&session_id).await.map_err(|error| {
+                RunFailure::Failed(format!("session journal recovery flush failed: {error}"))
+            })?;
+            session = store
+                .load(&session_id)
+                .await
+                .map_err(|error| {
+                    RunFailure::Failed(format!("session journal reload failed: {error}"))
+                })?
+                .ok_or_else(|| {
+                    RunFailure::Failed("session journal disappeared after recovery".to_owned())
+                })?;
+        }
+
+        self.messages = session.derive_messages();
+        let next_turn = last_turn
+            .unwrap_or_default()
+            .checked_add(1)
+            .ok_or_else(|| RunFailure::Failed("session turn counter overflow".to_owned()))?;
+        if let Some(journal) = self.journal.as_mut() {
+            journal.revision = session.revision();
+            journal.turn = next_turn;
+        }
+
+        let mut events = vec![SessionEventData::TurnStart { turn: next_turn }];
+        for message in &self.request.messages {
+            match message.role {
+                Role::User => events.push(SessionEventData::UserMessage {
+                    message: message.clone(),
+                }),
+                Role::System => {}
+                Role::Assistant | Role::Tool => {
+                    return Err(RunFailure::Failed(
+                        "event-sourced runs accept new user/system input only; resume assistant/tool history from the session journal"
+                            .to_owned(),
+                    ));
+                }
+            }
+        }
+        self.journal_append(events, true).await?;
+        if let Some(journal) = self.journal.as_mut() {
+            journal.turn_open = true;
+        }
+        self.messages.extend(self.request.messages.clone());
+        Ok(())
+    }
+
+    async fn journal_append(
+        &mut self,
+        events: Vec<SessionEventData>,
+        flush: bool,
+    ) -> Result<(), RunFailure> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let store = Arc::clone(&journal.store);
+        let session_id = journal.session_id.clone();
+        let revision = journal.revision;
+        let receipt = store
+            .append(
+                &session_id,
+                revision,
+                events.into_iter().map(Into::into).collect(),
+            )
+            .await
+            .map_err(|error| {
+                RunFailure::Failed(format!("session journal append failed: {error}"))
+            })?;
+        if flush {
+            store.flush(&session_id).await.map_err(|error| {
+                RunFailure::Failed(format!("session journal flush failed: {error}"))
+            })?;
+        }
+        if let Some(journal) = self.journal.as_mut() {
+            journal.revision = receipt.revision;
+        }
+        Ok(())
+    }
+
+    async fn journal_step_start(&mut self) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        let turn = journal.turn;
+        self.journal_append(vec![SessionEventData::StepStart { turn, step }], false)
+            .await?;
+        if let Some(journal) = self.journal.as_mut() {
+            journal.step_open = true;
+        }
+        Ok(())
+    }
+
+    async fn journal_request_header(&mut self, input: &[AgentMessage]) -> Result<(), RunFailure> {
+        if self.journal.is_none() {
+            return Ok(());
+        }
+        let provider = self.request.provider.provider_name().to_owned();
+        let model = self
+            .request
+            .provider
+            .model_name()
+            .unwrap_or("unknown")
+            .to_owned();
+        let system = input
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let tools = self
+            .request
+            .tools
+            .iter()
+            .map(|tool| serde_json::to_value(&tool.definition))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| {
+                RunFailure::Failed(format!("could not serialize tool schema: {error}"))
+            })?;
+        let mut header = RequestHeader::new(provider, model);
+        header.system = (!system.is_empty()).then_some(system);
+        header.tools = tools;
+        header.input = input.to_vec();
+        header
+            .options
+            .insert("step".to_owned(), Value::from(self.step as u64));
+        self.journal_append(vec![SessionEventData::RequestHeader { header }], true)
+            .await
+    }
+
+    async fn journal_chunk(&mut self, chunk: AssistantChunk) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        self.journal_append(
+            vec![SessionEventData::AssistantChunk { turn, step, chunk }],
+            false,
+        )
+        .await
+    }
+
+    async fn journal_assistant_message(
+        &mut self,
+        message: &AgentMessage,
+        usage: Option<TokenUsage>,
+    ) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let usage = usage
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| {
+                RunFailure::Failed(format!("could not serialize token usage: {error}"))
+            })?;
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        let mut events = vec![SessionEventData::AssistantMessage {
+            turn,
+            step,
+            message: message.clone(),
+            usage,
+        }];
+        events.extend(
+            message
+                .tool_calls
+                .iter()
+                .cloned()
+                .map(|call| SessionEventData::ToolCall { turn, step, call }),
+        );
+        self.journal_append(events, !message.tool_calls.is_empty())
+            .await
+    }
+
+    async fn journal_tool_results(
+        &mut self,
+        executions: &[ToolExecution],
+    ) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        let events = executions
+            .iter()
+            .map(|execution| SessionEventData::ToolResult {
+                turn,
+                step,
+                result: ToolResultData {
+                    call_id: execution.call.id.clone(),
+                    outcome: if execution.result.ok {
+                        ToolOutcome::Success
+                    } else {
+                        ToolOutcome::Error
+                    },
+                    content: execution.model_text.clone(),
+                    metadata: execution.result.metadata.clone(),
+                },
+            })
+            .collect();
+        self.journal_append(events, true).await
+    }
+
+    async fn journal_step_end(&mut self) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        if !journal.step_open {
+            return Ok(());
+        }
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        self.journal_append(vec![SessionEventData::StepEnd { turn, step }], false)
+            .await?;
+        if let Some(journal) = self.journal.as_mut() {
+            journal.step_open = false;
+        }
+        Ok(())
+    }
+
+    async fn finalize_journal(
+        &mut self,
+        status: LoopStatus,
+        error: Option<&str>,
+    ) -> Result<(), String> {
+        if self.journal.is_none() {
+            return Ok(());
+        }
+        self.journal_step_end()
+            .await
+            .map_err(|failure| failure.to_string())?;
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        if !journal.turn_open {
+            return Ok(());
+        }
+        let reason = match status {
+            LoopStatus::Completed => TurnEndReason::Completed,
+            LoopStatus::Cancelled => TurnEndReason::Cancelled,
+            LoopStatus::LimitReached => TurnEndReason::LimitReached,
+            LoopStatus::Failed => TurnEndReason::Failed {
+                error: error.unwrap_or("loop failed").to_owned(),
+            },
+        };
+        let turn = journal.turn;
+        self.journal_append(vec![SessionEventData::TurnEnd { turn, reason }], true)
+            .await
+            .map_err(|failure| failure.to_string())?;
+        if let Some(journal) = self.journal.as_mut() {
+            journal.turn_open = false;
+        }
+        Ok(())
     }
 
     async fn settle_control_at_boundary(&mut self) -> Result<bool, RunFailure> {
@@ -302,7 +785,26 @@ impl Runner {
         if self.pending_messages.is_empty() {
             return Ok(false);
         }
-        self.messages.extend(self.pending_messages.drain(..));
+        let pending = self.pending_messages.drain(..).collect::<Vec<_>>();
+        let mut events = Vec::new();
+        if self.journal.is_some() {
+            for message in &pending {
+                match message.role {
+                    Role::User => events.push(SessionEventData::UserMessage {
+                        message: message.clone(),
+                    }),
+                    Role::System => {}
+                    Role::Assistant | Role::Tool => {
+                        return Err(RunFailure::Failed(
+                            "event-sourced runtime injection accepts user/system messages only"
+                                .to_owned(),
+                        ));
+                    }
+                }
+            }
+            self.journal_append(events, true).await?;
+        }
+        self.messages.extend(pending);
         self.snapshot("message_injected", self.tool_batch_complete)
             .await?;
         Ok(true)
@@ -312,8 +814,10 @@ impl Runner {
         let mut interrupt = false;
         loop {
             match self.command_rx.try_recv() {
-                Ok(command) => {
-                    interrupt |= self.handle_command(command, allow_model_interrupt).await?;
+                Ok(envelope) => {
+                    interrupt |= self
+                        .handle_envelope(envelope, allow_model_interrupt)
+                        .await?;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => return Ok(interrupt),
                 Err(mpsc::error::TryRecvError::Disconnected) => {
@@ -321,6 +825,56 @@ impl Runner {
                     return Ok(interrupt);
                 }
             }
+        }
+    }
+
+    async fn handle_envelope(
+        &mut self,
+        envelope: CommandEnvelope,
+        allow_model_interrupt: bool,
+    ) -> Result<bool, RunFailure> {
+        let CommandEnvelope {
+            command,
+            acknowledgement,
+        } = envelope;
+        if let Err(error) = self.validate_command(&command) {
+            let _ = acknowledgement.send(Err(error));
+            return Ok(false);
+        }
+        if matches!(&command, LoopCommand::Cancel) {
+            // Publish acceptance before cancellation tears down the runner and
+            // closes the command receiver.
+            let _ = acknowledgement.send(Ok(()));
+            self.cancellation.cancel();
+            return Err(self.stopped_failure());
+        }
+
+        match self.handle_command(command, allow_model_interrupt).await {
+            Ok(interrupt) => {
+                let _ = acknowledgement.send(Ok(()));
+                Ok(interrupt)
+            }
+            Err(error) => {
+                let _ = acknowledgement.send(Err(LoopControlError::Closed));
+                Err(error)
+            }
+        }
+    }
+
+    fn validate_command(&self, command: &LoopCommand) -> Result<(), LoopControlError> {
+        if self.journal.is_none() {
+            return Ok(());
+        }
+        let message = match command {
+            LoopCommand::InjectMessage { message, .. } | LoopCommand::Steer(message) => message,
+            _ => return Ok(()),
+        };
+        if matches!(message.role, Role::User | Role::System) {
+            Ok(())
+        } else {
+            Err(LoopControlError::Rejected(
+                "journal-backed message injection accepts user/system roles only".to_owned(),
+            ))
         }
     }
 
@@ -362,10 +916,7 @@ impl Runner {
                 }
                 Ok(false)
             }
-            LoopCommand::Cancel => {
-                self.cancellation.cancel();
-                Err(self.stopped_failure())
-            }
+            LoopCommand::Cancel => unreachable!("cancel commands are handled by the envelope"),
             LoopCommand::ApproveTool { call_id } => {
                 self.store_approval(call_id, ApprovalDecision::Approved);
                 Ok(false)
@@ -396,13 +947,15 @@ impl Runner {
                 self.cancellation.cancel();
                 return Err(RunFailure::Stopped(StopReason::ConsumerStopped));
             }
-            let command = tokio::select! {
+            let envelope = tokio::select! {
                 _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
                 command = self.command_rx.recv() => command,
             };
-            match command {
-                Some(command) => {
-                    interrupt = self.handle_command(command, allow_model_interrupt).await?;
+            match envelope {
+                Some(envelope) => {
+                    interrupt = self
+                        .handle_envelope(envelope, allow_model_interrupt)
+                        .await?;
                 }
                 None => {
                     self.command_open = false;
@@ -442,7 +995,7 @@ impl Runner {
             step: self.step,
             kind,
         };
-        if self.event_tx.send(event).await.is_err() {
+        if self.event_tx.send(event).is_err() {
             self.cancellation.cancel();
             return Err(RunFailure::Stopped(StopReason::ConsumerStopped));
         }
@@ -450,6 +1003,9 @@ impl Runner {
     }
 
     async fn snapshot(&self, phase: &str, tool_batch_complete: bool) -> Result<(), RunFailure> {
+        if self.journal.is_some() {
+            return Ok(());
+        }
         let Some(session_id) = self.request.session_id.as_deref() else {
             return Ok(());
         };
@@ -470,6 +1026,9 @@ impl Runner {
     }
 
     async fn restore_messages(&mut self) -> Result<(), RunFailure> {
+        if self.journal.is_some() {
+            return self.initialize_journal().await;
+        }
         if let Some(session_id) = self.request.session_id.as_deref() {
             if let Some(snapshot) = self
                 .request
@@ -525,7 +1084,7 @@ impl Runner {
                 Box::pin(provider.stream(request, provider_cancellation.clone()));
             let stream = loop {
                 enum ProviderStart {
-                    Command(Option<LoopCommand>),
+                    Command(Option<CommandEnvelope>),
                     Ready(Result<crate::ProviderStream, ProviderError>),
                 }
                 let next = tokio::select! {
@@ -537,8 +1096,8 @@ impl Runner {
                 };
                 match next {
                     ProviderStart::Ready(stream) => break stream,
-                    ProviderStart::Command(Some(command)) => {
-                        let interrupt = self.handle_command(command, true).await?;
+                    ProviderStart::Command(Some(envelope)) => {
+                        let interrupt = self.handle_envelope(envelope, true).await?;
                         let interrupt = if self.paused && !interrupt {
                             self.wait_while_paused(true).await?
                         } else {
@@ -573,7 +1132,7 @@ impl Runner {
             let mut failure: Option<ProviderError> = None;
             loop {
                 enum ModelInput {
-                    Command(Option<LoopCommand>),
+                    Command(Option<CommandEnvelope>),
                     Provider(Option<Result<ProviderEvent, ProviderError>>),
                 }
                 let next = tokio::select! {
@@ -584,8 +1143,8 @@ impl Runner {
                     event = stream.next() => ModelInput::Provider(event),
                 };
                 match next {
-                    ModelInput::Command(Some(command)) => {
-                        let interrupt = self.handle_command(command, true).await?;
+                    ModelInput::Command(Some(envelope)) => {
+                        let interrupt = self.handle_envelope(envelope, true).await?;
                         let interrupt = if self.paused && !interrupt {
                             self.wait_while_paused(true).await?
                         } else {
@@ -604,11 +1163,15 @@ impl Runner {
                     ModelInput::Provider(Some(Ok(ProviderEvent::TextDelta(delta)))) => {
                         round.saw_delta = true;
                         round.text.push_str(&delta);
+                        self.journal_chunk(AssistantChunk::TextDelta(delta.clone()))
+                            .await?;
                         self.emit(LoopEventKind::TextDelta(delta)).await?;
                     }
                     ModelInput::Provider(Some(Ok(ProviderEvent::ReasoningDelta(delta)))) => {
                         round.saw_delta = true;
                         round.reasoning.push_str(&delta);
+                        self.journal_chunk(AssistantChunk::ReasoningDelta(delta.clone()))
+                            .await?;
                         self.emit(LoopEventKind::ReasoningDelta(delta)).await?;
                     }
                     ModelInput::Provider(Some(Ok(ProviderEvent::ToolCallDelta {
@@ -618,6 +1181,13 @@ impl Runner {
                         arguments_delta,
                     }))) => {
                         round.saw_delta = true;
+                        self.journal_chunk(AssistantChunk::ToolCallDelta {
+                            index,
+                            id: id.clone(),
+                            name: name.clone(),
+                            arguments_delta: arguments_delta.clone(),
+                        })
+                        .await?;
                         let call = round
                             .calls_by_index
                             .entry(index)
@@ -634,9 +1204,43 @@ impl Runner {
                         call.arguments_json.push_str(&arguments_delta);
                     }
                     ModelInput::Provider(Some(Ok(ProviderEvent::Completed {
+                        finish_reason,
                         usage,
                         provider_items,
                     }))) => {
+                        let effective_finish_reason = finish_reason.clone().unwrap_or({
+                            if round.calls_by_index.is_empty() {
+                                FinishReason::Stop
+                            } else {
+                                FinishReason::ToolCalls
+                            }
+                        });
+                        // Usage and terminal reason describe a provider request
+                        // that has already completed. Account for it before any
+                        // fallible journal operation so persistence failures do
+                        // not erase billed usage from LoopResult.
+                        self.record_model_completion(usage.clone(), effective_finish_reason);
+                        if let Some(usage) = usage.as_ref() {
+                            let value = serde_json::to_value(usage).map_err(|error| {
+                                RunFailure::Failed(format!(
+                                    "could not serialize token usage: {error}"
+                                ))
+                            })?;
+                            self.journal_chunk(AssistantChunk::Usage(value)).await?;
+                        }
+                        if let Some(reason) = finish_reason.as_ref() {
+                            let reason = match serde_json::to_value(reason).map_err(|error| {
+                                RunFailure::Failed(format!(
+                                    "could not serialize model finish reason: {error}"
+                                ))
+                            })? {
+                                Value::String(reason) => reason,
+                                reason => reason.to_string(),
+                            };
+                            self.journal_chunk(AssistantChunk::Finish { reason })
+                                .await?;
+                        }
+                        round.finish_reason = finish_reason;
                         round.usage = usage;
                         round.provider_items = provider_items;
                         round.completed = true;
@@ -730,7 +1334,7 @@ impl Runner {
                 return Err(RunFailure::Failed("tool scheduler deadlock".to_owned()));
             }
             enum ToolInput {
-                Command(Option<LoopCommand>),
+                Command(Option<CommandEnvelope>),
                 Completed(ToolExecution),
             }
             let input = tokio::select! {
@@ -743,8 +1347,8 @@ impl Runner {
                 },
             };
             let execution = match input {
-                ToolInput::Command(Some(command)) => {
-                    self.handle_command(command, false).await?;
+                ToolInput::Command(Some(envelope)) => {
+                    self.handle_envelope(envelope, false).await?;
                     continue;
                 }
                 ToolInput::Command(None) => {
@@ -764,7 +1368,9 @@ impl Runner {
             completed[order] = Some(execution);
         }
 
-        for execution in completed.into_iter().flatten() {
+        let completed = completed.into_iter().flatten().collect::<Vec<_>>();
+        self.journal_tool_results(&completed).await?;
+        for execution in completed {
             self.messages
                 .push(AgentMessage::tool(execution.call.id, execution.model_text));
         }
@@ -848,13 +1454,13 @@ impl Runner {
                 self.cancellation.cancel();
                 return Err(RunFailure::Stopped(StopReason::ConsumerStopped));
             }
-            let command = tokio::select! {
+            let envelope = tokio::select! {
                 _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
                 command = self.command_rx.recv() => command,
             };
-            match command {
-                Some(command) => {
-                    self.handle_command(command, false).await?;
+            match envelope {
+                Some(envelope) => {
+                    self.handle_envelope(envelope, false).await?;
                 }
                 None => self.command_open = false,
             }
@@ -888,7 +1494,8 @@ struct ModelRound {
     calls_by_index: std::collections::BTreeMap<usize, ToolCall>,
     calls: Vec<ToolCall>,
     provider_items: Vec<Value>,
-    usage: Option<Value>,
+    finish_reason: Option<FinishReason>,
+    usage: Option<TokenUsage>,
     completed: bool,
     saw_delta: bool,
     interrupted: bool,
@@ -1030,20 +1637,26 @@ async fn execute_tool(
             Err(_) => ToolResult::failure("tool handler panicked"),
             Ok(future) => {
                 let caught = std::panic::AssertUnwindSafe(future).catch_unwind();
+                tokio::pin!(caught);
+                let deadline = tokio::time::sleep(spec.timeout);
+                tokio::pin!(deadline);
                 tokio::select! {
-                    _ = cancellation.cancelled() => ToolResult::failure("tool call cancelled"),
-                    timed = tokio::time::timeout(spec.timeout, caught) => {
-                        match timed {
-                            Err(_) => {
-                                handler_cancellation.cancel();
-                                ToolResult::failure(format!(
-                                    "tool timed out after {} ms",
-                                    spec.timeout.as_millis()
-                                ))
-                            },
-                            Ok(Err(_)) => ToolResult::failure("tool handler panicked"),
-                            Ok(Ok(result)) => result,
-                        }
+                    _ = cancellation.cancelled() => {
+                        handler_cancellation.cancel();
+                        let _ = tokio::time::timeout(TOOL_CLEANUP_GRACE, &mut caught).await;
+                        ToolResult::failure("tool call cancelled")
+                    },
+                    _ = &mut deadline => {
+                        handler_cancellation.cancel();
+                        let _ = tokio::time::timeout(TOOL_CLEANUP_GRACE, &mut caught).await;
+                        ToolResult::failure(format!(
+                            "tool timed out after {} ms",
+                            spec.timeout.as_millis()
+                        ))
+                    },
+                    outcome = &mut caught => match outcome {
+                        Err(_) => ToolResult::failure("tool handler panicked"),
+                        Ok(result) => result,
                     }
                 }
             }
@@ -1058,9 +1671,11 @@ async fn execute_tool(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum RunFailure {
+    #[error("run stopped: {0:?}")]
     Stopped(StopReason),
+    #[error("{0}")]
     Failed(String),
 }
 
