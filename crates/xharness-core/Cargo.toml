@@ -15,6 +15,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
+xharness-context = { path = "../xharness-context" }
 xharness-session = { path = "../xharness-session" }
 
 [dev-dependencies]

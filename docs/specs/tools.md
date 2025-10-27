@@ -11,6 +11,10 @@
 Spec 包含模型可见定义、Handler、Timeout、Concurrency Mode、Approval Requirement 和
 可选 Resource-key Resolver。未声明并发的工具默认 `Exclusive`；并行必须显式开启。
 
+Registry 中存在工具不等于每次模型请求都必须发送它。Host/Prompt 层根据 Profile 与
+Capability 产生本 Step 的 Definition Projection；投影保持名称/Schema 稳定，并参与整体 Token
+预算。工具 Description 属于协议原生 Tool Definition，不是 System Prompt。
+
 ## 执行管线
 
 每次 `ToolExecutor::execute` 生成进程内唯一 `execution_id`，按下列顺序执行：
@@ -52,6 +56,7 @@ Guard 状态单调：后续阶段可以把 `allow` 收紧为 `ask` 或 `deny`，
 - JSON Schema 只实现实用的首版子集，不覆盖完整生态。
 - 持久 Tool Call 记账由 Session/Core 负责，不属于本 Crate。
 - Result Spill-to-disk 和 Output Schema Enforcement 尚未实现。
+- 尚无按平台 Readiness 自动生成的 Definition Projection；当前 Web Host 固定发送 14 个工具。
 
 ## 验收标准
 

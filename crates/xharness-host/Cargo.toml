@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Reusable provider-neutral host control plane for XHarness"
 
 [dependencies]
 async-stream.workspace = true
@@ -11,16 +12,11 @@ async-trait.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 xharness-api = { path = "../xharness-api" }
-xharness-coding-tools = { path = "../xharness-coding-tools" }
 xharness-core = { path = "../xharness-core" }
-xharness-platform = { path = "../xharness-platform" }
-xharness-provider-openai = { path = "../xharness-provider-openai" }
-xharness-server = { path = "../xharness-server" }
-xharness-terminal = { path = "../xharness-terminal" }
-xharness-web = { path = "../xharness-web" }
 
 [dev-dependencies]
 tower.workspace = true

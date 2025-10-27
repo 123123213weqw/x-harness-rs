@@ -9,6 +9,9 @@
 `SearchUnavailable`；Runtime 禁止伪造本地搜索或暗中选择凭据。Query 不能为空。结果数
 默认 8，并限制在 1–20。归一化结果包含 Title、URL、Snippet 和可选 Publish Date。
 
+Host 已知没有 Search Provider 时，下一模型请求不应继续投影 `web_search`；`web_fetch` 是否
+可用独立判断。动态移除工具不改变 Registry 中的稳定定义，也不得把 Search 凭据写进 Prompt。
+
 ## Fetch 契约
 
 Fetch 接收一个最长 2048 Byte 的匿名 HTTP(S) URL。禁止发送 Cookie、环境 Authorization

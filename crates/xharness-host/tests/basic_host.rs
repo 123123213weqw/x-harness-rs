@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -16,8 +16,9 @@ use xharness_api::{
     ApiBackend, ClientResponse, ClientResponseKind, RpcId, RpcMethod, RpcReceipt, RpcResult,
 };
 use xharness_core::{
-    FinishReason, ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream,
-    TokenUsage, ToolResult, ToolSpec,
+    ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface, FinishReason,
+    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, SurfaceEdit,
+    SurfaceEditKind, TokenUsage, ToolResult, ToolSpec,
 };
 use xharness_host::{BasicHost, HostConfig, NoTools, SessionToolFactory};
 
@@ -50,6 +51,57 @@ impl ModelProvider for TextProvider {
                 provider_items: Vec::new(),
             }),
         ])))
+    }
+}
+
+#[derive(Default)]
+struct CapturingProvider {
+    requests: Arc<Mutex<Vec<ProviderRequest>>>,
+}
+
+#[async_trait]
+impl ModelProvider for CapturingProvider {
+    fn provider_name(&self) -> &str {
+        "capture"
+    }
+
+    fn model_name(&self) -> Option<&str> {
+        Some("capture-model")
+    }
+
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        _cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.requests.lock().unwrap().push(request);
+        Ok(Box::pin(stream::iter([
+            Ok(ProviderEvent::TextDelta("projected".to_owned())),
+            Ok(ProviderEvent::Completed {
+                finish_reason: Some(FinishReason::Stop),
+                usage: None,
+                provider_items: Vec::new(),
+            }),
+        ])))
+    }
+}
+
+struct CompactingPolicy;
+
+#[async_trait]
+impl ContextPolicy for CompactingPolicy {
+    async fn prepare(&self, request: ContextRequest) -> Result<ContextSurface, ContextError> {
+        Ok(ContextSurface::transformed(
+            ContextPolicyId::new("host-test", 1),
+            request.messages.len(),
+            vec![xharness_core::AgentMessage::user("host projected context")],
+            vec![SurfaceEdit::new(
+                0,
+                request.messages.len(),
+                1,
+                SurfaceEditKind::HistoryCompacted,
+            )],
+        ))
     }
 }
 
@@ -122,6 +174,132 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn host_injects_the_configured_context_policy_into_each_turn() {
+    let root = std::env::temp_dir().join(format!("xharness-host-context-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "capture".to_owned();
+    config.model_id = "capture-model".to_owned();
+    let provider = Arc::new(CapturingProvider::default());
+    let host = BasicHost::new_with_context_policy(
+        config,
+        Some(provider.clone()),
+        Arc::new(NoTools),
+        Arc::new(CompactingPolicy),
+    );
+
+    let created = host
+        .call(
+            RpcId::new("context-create"),
+            RpcMethod::SessionCreate,
+            json!({"cwd": root}),
+            CancellationToken::new(),
+        )
+        .await;
+    let session_id = match created {
+        RpcResult::Success { value: Some(value) } => {
+            value["sessionId"].as_str().unwrap().to_owned()
+        }
+        other => panic!("create failed: {other:?}"),
+    };
+    assert!(host
+        .call(
+            RpcId::new("context-prompt"),
+            RpcMethod::SessionPrompt,
+            json!({
+                "sessionId": session_id,
+                "mode": "queue",
+                "content": [{"type": "text", "text": "full host history"}],
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .is_ok());
+
+    for _ in 0..100 {
+        if !provider.requests.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    {
+        let requests = provider.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].messages[0].content, "host projected context");
+    }
+
+    let snapshot = host.snapshot().await;
+    assert_eq!(
+        snapshot["sessions"][0]["messages"][0]["content"],
+        "full host history"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn unroutable_session_model_is_rejected_before_prompt_queueing() {
+    let root = std::env::temp_dir().join(format!("xharness-host-route-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "capture".to_owned();
+    config.model_id = "capture-model".to_owned();
+    let provider = Arc::new(CapturingProvider::default());
+    let host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+    let created = host
+        .call(
+            RpcId::new("route-create"),
+            RpcMethod::SessionCreate,
+            json!({"cwd": root}),
+            CancellationToken::new(),
+        )
+        .await;
+    let session_id = match created {
+        RpcResult::Success { value: Some(value) } => {
+            value["sessionId"].as_str().unwrap().to_owned()
+        }
+        other => panic!("create failed: {other:?}"),
+    };
+    assert!(host
+        .call(
+            RpcId::new("route-select"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "capture",
+                "model": "not-routable",
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .is_ok());
+    let prompt = host
+        .call(
+            RpcId::new("route-prompt"),
+            RpcMethod::SessionPrompt,
+            json!({
+                "sessionId": session_id,
+                "mode": "queue",
+                "content": [{"type": "text", "text": "must not run"}],
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(
+        prompt,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::ModelUnavailable,
+                ..
+            }
+        }
+    ));
+    assert!(provider.requests.lock().unwrap().is_empty());
+    let snapshot = host.snapshot().await;
+    assert_eq!(snapshot["sessions"][0]["running"], false);
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -306,7 +484,27 @@ async fn every_upstream_rpc_has_baseline_behavior() {
     )
     .await;
 
-    fx.value(RpcMethod::SettingsDescribe, json!({})).await;
+    let described_settings = fx.value(RpcMethod::SettingsDescribe, json!({})).await;
+    assert!(described_settings["namespaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|namespace| namespace["ns"] == "ui-onboarding"));
+    let onboarding = fx
+        .value(
+            RpcMethod::SettingsMutate,
+            json!({
+                "ns": "ui-onboarding",
+                "ops": [{
+                    "op": "set",
+                    "path": ["welcomeNoticeVersion"],
+                    "value": "2026-08-13.1"
+                }],
+                "expectedRevision": 0
+            }),
+        )
+        .await;
+    assert_eq!(onboarding["value"]["welcomeNoticeVersion"], "2026-08-13.1");
     fx.value(RpcMethod::SettingsOpenDocument, json!({})).await;
     let settings = fx
         .value(

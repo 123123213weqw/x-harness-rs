@@ -26,16 +26,24 @@ DeepSeek Web UI / future CLI
        openat/F_GETPATH        openat2/renameat2
 ```
 
-## Specifications and roadmap
+## 规范与路线图
 
-- [Architecture](docs/architecture.md)
-- [Per-crate specification index](docs/specs/README.md)
-- [Total TODO and delivery priorities](docs/TODO.md)
+- [总体架构](docs/architecture.md)
+- [逐模块规范索引](docs/specs/README.md)
+- [上下文预算与压缩](docs/specs/context.md)
+- [Prompt 组装与注入](docs/specs/prompt.md)
+- [运行、诊断与故障处理](docs/operations.md)
+- [Linux `.deb` 安装与沙箱自配置](docs/specs/linux-deb.md)
+- [总 TODO 与交付优先级](docs/TODO.md)
 
-Contract changes are incomplete until implementation, tests, specification,
-and TODO status agree.
+行为变更只有在实现、测试、规范和 TODO 状态一致后才算完成。
 
-## Workspace
+> **当前可用性提醒（2026-08-21）：** Web/Loop/14 工具已经贯通，但当前 Host 仍完整重放
+> 历史、每个 Step 固定发送全部工具、没有请求前 Token Guard；`AgentPreset.content` 也尚未
+> 作为 System Prompt 注入。大文件任务可能超过模型真实上下文。Linux Bubblewrap Probe 失败时，
+> `bash/glob/grep/terminal_open` 会按设计 fail closed。详见[运行诊断](docs/operations.md)。
+
+## 工作区模块
 
 ### `xharness-api` / `xharness-server`
 
@@ -47,13 +55,23 @@ and TODO status agree.
 
 ### `xharness-host`
 
+- 可复用的 Provider/平台无关 Host 控制面库
 - 52 个 RPC 已全部有基础状态行为，不再只是占位路由
 - Session/Workspace/预设/Goal/Settings/Credentials/模型目录的内存实现
 - `session.prompt` 直接驱动真实 Rust Loop，并投影 turn/step/chunk/tool 事件
 - Prompt FIFO、运行时 Steering/Cancel、工具审批与 `/api/respond` 恢复
-- `NativeToolFactory` 接入完整 14 工具，按 Session 隔离 Terminal
 - JSON Session export 与 Mux/Host 重连基线
-- `xharness-host` 二进制默认监听 `127.0.0.1:3080`
+- 可显式注入 `ContextPolicy`，兼容构造器当前默认 Identity
+- BasicHost 只通过 `AgentRuntime -> RunningTurn` 驱动任务，不直接持有 Provider、工具工厂或
+  ContextPolicy；当前 `LoopAgentRuntime` 是可替换兼容实现
+
+### `xharness-host-app`
+
+- 组合 OpenAI-compatible Provider、HTTP/WS Server 和原生 14 工具
+- `NativeToolFactory` 按 Workspace 缓存 Platform、按 Session 隔离 Terminal
+- 当前每个模型 Step 都发送完整 14 工具定义；Preset 只是 UI/Host 状态，尚未成为
+  Provider 请求中的 System Prompt
+- 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
 
 当前 Host 状态仍是进程内存：接口和最小功能已经贯通，但重启恢复、durable inbox、
 single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久层。
@@ -66,11 +84,19 @@ single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久�
 - 请求输出前的安全重试；已经产生 delta 后禁止重试
 - `parallel`、`keyed`、`exclusive` 工具调度，默认最多 8 路
 - 工具超时、取消、panic、未知工具和参数错误统一写回模型
-- 默认完整上下文重放，工具结果写回限制为 256 KiB
+- 默认完整上下文重放，单个工具结果写回限制为 256 KiB；这只是字节上限，不是 Token 预算
 - 默认最多 128 个模型步骤
 - Session 检查点和中断工具批次防重放
 - `LoopRun::send(LoopCommand)` 运行时控制：消息注入、Steering、暂停/恢复、取消
 - 可选的逐次工具审批；拒绝结果按普通工具错误安全写回模型
+
+### `xharness-context`
+
+- 从完整 Session Transcript 投影一次性的模型可见 `ContextSurface`
+- Policy 输入同时包含 Provider、Model、Step 与全部工具 Schema
+- Surface 替换记录源消息范围、替换数量、原因和 Policy 版本
+- Core 在 Provider I/O 前验证 Surface，并把审计元数据写入 Request Header
+- 当前默认仍是 `IdentityContextPolicy`；Token Guard、Prune 与 Summary 是下一阶段
 
 ### `xharness-provider-openai`
 
@@ -128,6 +154,8 @@ single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久�
 - Web：`web_search/web_fetch`
 - `CodingToolBundle::core_specs()` 可直接接入当前 `LoopRequest.tools`
 - 变更类工具默认要求宿主审批；`read/glob/grep/web` 可安全并行
+- `read` 当前模型接口只有 `path`，底层默认最多 256 KiB/2,000 行；分页参数和 Spill
+  仍属于上下文 P0 修复
 
 ### `xharness-terminal` / `xharness-web`
 
@@ -209,7 +237,7 @@ run.send(LoopCommand::Resume).await?;
 但已经启动的工具允许收尾；工具运行期间收到的 Steering 会延迟到完整工具批次之后，避免破坏
 assistant tool-call 与 tool result 的协议顺序。
 
-## Durable Session
+## 持久 Session
 
 设置 `journal_store` 后，事件日志会取代旧 snapshot store 成为历史真源。下面使用磁盘
 JSONL；测试或嵌入场景也可使用 `xharness_session::MemorySessionStore`：
@@ -253,13 +281,32 @@ XHARNESS_BASE_URL=http://your-model-server:8000/v1 \
 XHARNESS_MODEL=your-model \
 XHARNESS_API_KEY=optional-key \
 XHARNESS_PROTOCOL=chat \
-cargo run -p xharness-host
+cargo run -p xharness-host-app --bin xharness-host
 ```
 
 浏览器打开 `http://127.0.0.1:3080/`。`XHARNESS_PROTOCOL` 只能显式使用 `chat` 或
 `responses`，不会自动回退。没有配置模型时 Host 仍能启动和浏览状态，但
 `session.prompt` 会返回 `model-unavailable`。远程部署前必须先补认证/Origin 策略；当前
 安全默认是仅监听 loopback。
+
+模型服务的真实上下文以部署参数为准。例如 llama.cpp 的 `-c 53248` 代表整个请求窗口，
+System、历史、工具 Schema、模板和输出预留都要共享它。当前 Host 尚不会自动计量或压缩；
+长任务开始前请阅读[上下文预算规范](docs/specs/context.md)。
+
+## Linux `.deb`
+
+正式包在 `postinst` 中自动安装匹配当前 Ubuntu AppArmor ABI 的
+`bwrap-userns-restrict`，并以非特权用户验证 Workspace 写入、外部拒写、Network Namespace
+和 PID 后代清理。它不会关闭全局 User Namespace 加固，也不会自动切换 Full Access。
+
+遵守远程编译策略，从 Mac 发起：
+
+```bash
+scripts/remote-build-deb.sh WZU_Server
+```
+
+产物下载到本地 `dist/`。完整安装/升级/卸载契约见
+[`docs/specs/linux-deb.md`](docs/specs/linux-deb.md)。
 
 ## 远程开发
 
@@ -284,13 +331,14 @@ panic、重试边界、取消、步骤限制、UTF-8 截断、并发上限、key
 工具期间延迟 Steering、durable call-before-side-effect、outcome-unknown 恢复、JSONL
 CAS/损坏/断尾恢复，以及两个 OpenAI 协议的原生 HTTP 集成。
 
-## Roadmap
+## 路线图
 
-1. 把 `BasicHost` 迁移到长生命周期 Agent、durable inbox、single-writer lease
-2. CLI、配置/凭据边界与 macOS 原生发布验证
-3. Prompt/Provider Registry、上下文计量与压缩 surface
-4. Web Host 认证、断线游标恢复、健康检查与部署配置
-5. Skills、MCP、LSP、附件与 Subagent/Workflow 调度
+1. 请求前上下文预算、分页读取、大工具结果压缩和运行时能力投影
+2. 真正注入版本化 Coding System Prompt，并按 Step 投影可用工具
+3. 把 `BasicHost` 迁移到长生命周期 Agent、durable inbox、single-writer lease
+4. CLI、配置/凭据边界与 macOS 原生发布验证
+5. Web Host 认证、断线游标恢复、健康检查与部署配置
+6. Skills、MCP、LSP、附件与 Subagent/Workflow 调度
 
 完整任务、优先级和验收条件见 [`docs/TODO.md`](docs/TODO.md)；架构边界与
 不变量见 [`docs/architecture.md`](docs/architecture.md)。
