@@ -30,9 +30,15 @@ Create-if-absent 在平台支持时使用原子 No-replace Primitive。
 Read 受 Byte、Line、Long-line Policy 限制，返回 Diagnostic、Truncation、Bytes Read、
 Text 和权威 Version。“不存在”是强类型 Outcome，不是普通 I/O Error。
 
+底层默认 `max_bytes=256 KiB`、`max_lines=2,000`、`max_line_bytes=16 KiB`。这些是 Service
+的最坏情况保护，不是面向模型工具的推荐页大小。Coding Tool 必须在其上提供更小默认页、
+显式 Byte/Line Range 和继续读取 Cursor；读取多少内容与是否记录完整文件 Version 是两个
+独立概念，分页不能削弱 Observation CAS。
+
 ## 当前限制
 
 - v0 面向模型的仅是常规 UTF-8 Coding File。
+- 当前 `read` Tool 尚未把底层 Range/Limit 暴露给模型，仍固定使用上述默认上限。
 - 尚未暴露递归 Copy/Move/Delete、Chmod、目录创建、二进制写入和 Attachment/Blob Store。
 - 面对不协作的外部 Writer，Replace CAS 只能在发布前做最后一次 Best-effort Version
   Recheck；若外部修改发生在该瞬间之后，没有更强 OS/应用协调就无法事务化。
@@ -41,4 +47,5 @@ Text 和权威 Version。“不存在”是强类型 Outcome，不是普通 I/O 
 
 测试必须覆盖 Traversal/Symlink 拒绝、不存在观察、Blind/Stale Replace、Create/Edit/
 Replace 持久性、Read Limit/UTF-8、Parent Swap 检测，以及并发 Symlink Swap 竞态中绝不
-写出 Workspace。
+写出 Workspace。分页实现还必须覆盖 Cursor 连续性、行/字节边界、分页后 Version 稳定和
+大文件不一次进入模型上下文。

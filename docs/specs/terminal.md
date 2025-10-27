@@ -16,6 +16,11 @@ ASCII 字母、数字、`.`、`_`、`-`，只需在同一 Owner 内唯一。所�
 Byte Cursor 开始返回输出。`list` 只报告当前 Owner 的 Session。`close` 删除 Session，
 发送 TERM，等待配置 Grace，再发送 KILL（必要时回退到杀 Root Child），最后等待退出。
 
+Coding Bundle 中的 `terminal_open` 必须先经过 `NativePlatform::prepare_spawn`。Restricted
+Sandbox Probe 不可用时禁止创建裸 PTY；Host 应从下一模型 Step 移除 `terminal_open`。只有
+存在历史 Session 时才投影对应的 read/send/signal/close，并按原权限边界收尾，禁止跨模式
+复用。
+
 ## Scrollback
 
 输出持续从 PTY Master Drain 到有界 Scrollback。默认上限 1 MiB 和 10,000 行；任一超限

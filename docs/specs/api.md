@@ -72,6 +72,10 @@ Host 事件和流错误。序列化时必须把 payload 的 `type` 复制到外�
 没有这个假设，所以代码和测试必须记录精确的上游 Git revision。修改兼容 revision 前，
 必须先比较方法名、错误码、Schema 和事件 frame union。
 
+上下文预算、Prompt 注入和动态工具投影是 Rust Runtime 行为，不得为了修复它们随意新增 RPC。
+平台 Readiness 优先通过现有 `host.describe`/Host Event 的兼容 payload 投影；若上游封闭 Schema
+无法承载，必须先更新兼容快照与双端测试，不能只改 Rust 一侧。
+
 ## 当前限制
 
 - 很多业务 payload 仍是手工校验的 `serde_json::Value`，还未生成 Rust DTO。
@@ -83,3 +87,5 @@ Host 事件和流错误。序列化时必须把 payload 的 `type` 复制到外�
 测试必须验证全部 52 个有序方法、唯一性和解析，验证四象限 JSON、严格的
 result/receipt 判别字段、封闭错误码拼写，以及代表性的 Mux/Host 判别字段和
 camelCase 字段。
+Host 兼容测试还应证明 Context/Sandbox 业务失败以关联 Session 的事件或封闭业务错误呈现，
+不会被误写成未知路由或畸形传输。

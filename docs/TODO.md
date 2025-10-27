@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**基线日期：** 2026-08-20
+**基线日期：** 2026-08-21
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -24,17 +24,24 @@ Commit、Issue、PR 应引用这些 ID。
   下行 WebSocket、`/api/respond`、Export/Static 路由骨架。
 - [x] `DONE-16` Web Host 基线：52 RPC 全部有状态行为；真实 Loop Turn、14 个原生工具、
   审批响应、Mux/Host 事件投影、JSON Export 和 Loopback Server Binary 全部接通。
+- [x] `DONE-17` Context 第一阶段抽象：独立 `xharness-context`、一次性 Surface、Edit 来源
+  范围校验、Policy 版本与 Request Header 审计。
+- [x] `DONE-18` Host 组合解耦：`xharness-host` 只保留 Provider/平台无关控制面，
+  `xharness-host-app` 组合 OpenAI Adapter、Server、Platform、Terminal、Web 和原生工具；
+  Host 可显式注入 ContextPolicy。
+- [x] `DONE-19` Host Turn Runtime 解耦：定义 `AgentRuntime`、`AgentTurnRequest`、
+  `RunningTurn` 和 `ModelRoute`，BasicHost 不再直接持有 Provider/ToolFactory/ContextPolicy 或
+  创建 Loop；`LoopAgentRuntime` 作为当前兼容适配器。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
-- [ ] `P0-01` **轻量 CLI。** 实现 `xharness run`、Provider/Model/Base URL 参数、
-  Workspace/Policy 选择、流式 Text/Reasoning 渲染、审批提示、Ctrl-C Cancel、Exit Code 和
-  `config dump`。
-  **验收：** Linux 和 macOS 都能用一条命令运行真实 V100 测试任务。
+
 
 - [ ] `P0-02` **持久长生命周期 Agent 层。** 新增 `xharness-agent`：Agent、Turn、Step、
   Durable Inbox Message ID、Claim/Ack、Next-turn/Next-step 语义、Single-writer Session
   Lease 和重启续跑。
+  Host-facing `AgentRuntime -> RunningTurn` 替换边界已经完成，本项实现持久 Runtime 并替换
+  `LoopAgentRuntime`。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，
@@ -67,16 +74,41 @@ Commit、Issue、PR 应引用这些 ID。
   Reasoning、多并行 Call、Tool Failure、Cancel、Usage、Long Context。保存不含 Secret 的
   可复现 Fixture。
 
+- [ ] `P0-11` **请求前上下文硬预算。** 在 Provider I/O 前计量 System、消息、全部工具
+  Schema、协议模板和输出预留；窗口未知或预算超限时结构化失败。加入 2026-08-21 的
+  `64196 > 53248` 固定回归，断言超限时 Provider Attempt 为零。独立 `xharness-context`、
+  `ContextRequest -> ContextSurface`、Surface Edit 校验和 Request Header 审计已经完成；下一步
+  接 `xharness-token` 与 Hard Guard。
+
+- [ ] `P0-12` **大结果治理与分页 Read。** `read` 增加 Byte/Line Range 和下一页 Cursor，
+  默认降到适合模型的小页；工具原始输出落日志/Spill，模型 Surface 只保留确定性的
+  Head/Relevant/Tail、元数据和引用。不得破坏 Observation CAS。
+
+- [ ] `P0-13` **Platform Readiness 与动态工具投影。** Host 启动和 Workspace 初始化时运行
+  Sandbox/Search/PTY Probe，把结果投影给 UI；已确认不可用的工具不进入后续模型请求。
+  WZU_4080 的 `RTM_NEWADDR` Bubblewrap 失败必须有固定诊断测试，禁止无限重复调用。
+
+- [ ] `P0-14` **真实 Coding System Prompt 注入。** 把选中的 `AgentPreset.content` 通过有
+  版本的最小 Prompt Assembler 变成 `Role::System`，明确分页读取、不可用工具不重试、证据
+  足够即回答和审批规则。测试必须解析 Provider 请求体，而不是只检查 Host 内存。
+
+- [ ] `P0-15` **Linux `.deb` 自动沙箱配置。** 依赖声明、AppArmor 检测、官方
+  `bwrap-userns-restrict` 安装/升级/保留管理员文件、语法校验、四项真实隔离 Probe、状态 Hash、
+  远程打包和卸载已实现。剩余：在干净 Ubuntu 24.04 VM 完成 dpkg 矩阵，并在 WZU_4080 输入
+  管理员授权真实安装后，重启 Host 验证 Coding Tool。
+
 ## P1 — Coding 质量与上下文效率
 
 - [ ] `P1-01` **Prompt Registry。** 有序 System Section、Workspace Context、Tool Guidance、
   Variable、Provider-specific Section、确定性 Request Header Capture 和 Prompt Version ID。
+  `P0-14` 只交付最小可用注入，本项完成完整注册、Scope 与组合能力。
 
 - [ ] `P1-02` **LLM/Provider Registry。** 按 Provider/Model/Purpose 路由，把 Prepared Call
   绑定到一个注册 Adapter，暴露 Reasoning/Max-token 控制，并在不猜协议的情况下发现模型能力。
 
 - [ ] `P1-03` **Token Meter 与 Context Policy。** Provider-aware Token Estimate、最大输入
   Guard、确定性 Tool Output Reduce、Surface Replace，以及不修改原 Event Log 的可选 Summary。
+  `P0-11/P0-12` 先封死超窗，本项补 Provider-aware 精确计量、摘要和长期压缩策略。
 
 - [ ] `P1-04` **动态 Tool Projection。** 每个 Profile/Step 只发送相关工具，同时保持 Schema
   稳定。与始终发送 14 工具比较 Token/Cache 消耗和工具选择质量。
@@ -170,7 +202,8 @@ Commit、Issue、PR 应引用这些 ID。
   Schema Input 的 Property/Fuzz Test。
 - [ ] `REL-04` 每个 Durability Barrier 和 Tool Side-effect Boundary 的 Fault Injection。
 - [ ] `REL-05` TTFT Overhead、Event Throughput、JSONL Growth、Tool Scheduling、Long Context、
-  PTY Scrollback、Web Extraction Benchmark。
+  PTY Scrollback、Web Extraction Benchmark。Long Context 必须报告 System/Message/Tool/Template/
+  Output Reserve 分项，并包含多个并行大文件结果导致单 Step 暴涨的用例。
 - [ ] `REL-06` Semver/API Audit：Non-exhaustive Extensible Type、Builder、Deprecation Window、
   Changelog、Reproducible Lockfile、SBOM、License、Signed Artifact。
 - [ ] `REL-07` Security Regression：Symlink Race、Sandbox Escape、Process Descendant、SSRF/

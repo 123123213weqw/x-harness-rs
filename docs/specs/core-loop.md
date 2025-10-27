@@ -23,7 +23,11 @@
 ## Step 状态机
 
 ```text
-准备上下文
+从 Session 投影消息
+  -> 组装 System Prompt 与本 Step 工具子集
+  -> Context Policy 生成模型可见 Surface
+  -> 计量 System/消息/工具/模板并预留输出
+  -> 超预算则压缩或在本地失败
   -> 启动 Provider 流
   -> 发送 text/reasoning delta
   -> 按 index 聚合 tool-call 碎片
@@ -47,6 +51,7 @@
 - 仅当本次尝试尚未发送任何模型 delta 时允许重试；输出一旦可见，禁止通过重试复制。
 - Usage 必须按完成的 Step 保存，并使用饱和运算累计。
 - 即使 Provider 发出空 ID、重复 ID 或跨 Step 复用 ID，内部 Tool Call ID 也必须唯一。
+- Context/配置类 4xx 不得重试；请求前预算失败时 Provider Attempt 必须为零。
 
 ## 工具批次语义
 
@@ -58,6 +63,8 @@
 - 需要审批的工具在收到显式允许命令前禁止启动。
 - 取消/超时必须取消 Handler Token，并在 drop Handler Future 前提供有界清理时间。
 - 模型可见工具结果默认上限 256 KiB；所有合法配置上限下都必须保持 UTF-8 和 JSON 有效。
+- 256 KiB 只是单结果字节上限，不等于上下文安全。多结果、历史、System 与工具定义仍需由
+  整体 Token Budget 约束。
 
 ## 运行时控制
 
@@ -75,12 +82,20 @@
 
 - 默认最多 128 个模型 Step。
 - 默认最多 8 个并发工具。
+- 默认 `IdentityContextPolicy` 完整重放全部消息，没有 Token Meter、输出预留、Summary 或
+  Surface Replace；这会让长 Tool Result 在下一 Step 超过模型窗口。
+- Core 当前不知道目标模型的 `context_window_tokens`，Host 也未传入该能力。
 - 事件当前使用无界内部 Channel；按字节有界的 Event Journal/Subscription 已列入 TODO。
 - `LoopRun` 表示一次 Run，不是带持久 Inbox 的长生命周期 Agent。
 - Provider 自有 replay 状态当前仍以 JSON Value 暴露。
+
+完整目标契约见[上下文预算与压缩规范](context.md)。在该规范落地前，不能宣称 Long Context
+安全；Provider 返回 `exceed_context_size` 属于 Harness 请求准备缺陷，不是正常模型终态。
 
 ## 验收标准
 
 测试必须覆盖普通流、碎片/多工具调用、重试边界、全部 Finish Reason、Usage 累计、审批、
 全部并发模式、取消、Steering、Pause/Resume、Step 上限、非法请求前置失败、中断恢复、
 重复 Provider ID，以及不消费事件的宿主。
+另必须固定重放 `64,196 tokens -> 53,248 context` 样本，断言网络请求前被拦截，并验证三路
+并行大 Tool Result 不会绕过整体预算。

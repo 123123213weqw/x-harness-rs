@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+case ${1:-} in
+    purge)
+        rm -rf /var/lib/xharness/setup
+        ;;
+esac
+
+exit 0

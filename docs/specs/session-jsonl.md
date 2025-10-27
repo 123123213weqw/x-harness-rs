@@ -37,6 +37,8 @@ Lock 提供跨进程序列化。Backend 把存储错误映射成 `StoreError::Ba
 - 保证依赖本地文件系统正确支持 Advisory Lock 和 fsync；不承诺 NFS/Object Store 语义。
 - 尚无 Log Compaction、Encryption、Quota、GC 或索引查询。
 - 一个 Session 对应一个持续增长的文件。
+- 大 Tool Result 必须仍可作为原始审计事件持久化；模型上下文压缩属于独立 Surface/Spill
+  策略，禁止通过原地改写 JSONL 伪装成压缩。
 
 ## 验收标准
 

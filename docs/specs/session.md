@@ -33,6 +33,11 @@ Restore 和 Append 必须校验 Turn/Step 嵌套、坐标一致、消息角色�
 `derive_messages()` 必须确定、无副作用。它忽略只用于审计的 Chunk 和边界，同时逐字节
 保留完整 User、Assistant 和 Tool Message。
 
+完整 Transcript 与“下一次模型可见 Surface”必须分离。Context Policy 可以引用原始消息、
+追加 Summary/Spill Metadata 或选择 Surface Replace，但禁止覆盖/删除原始 Tool Result。
+Request Header 必须记录本次实际使用的消息 Revision、压缩 Policy Version 和预算分项，确保
+诊断时能解释为何模型看到的是某个子集。
+
 已经持久化但没有权威 Result 的 Tool Call 属于未完成。恢复可以追加标准化
 `outcome_unknown` Tool Result，但禁止执行该 Call。非幂等操作再次尝试前，Host 应先
 检查外部状态。
@@ -54,3 +59,5 @@ Restore 和 Append 必须校验 Turn/Step 嵌套、坐标一致、消息角色�
 
 测试必须覆盖每种事件的序列化、连续 Seq/Revision、过期 CAS 原子性、生命周期拒绝、
 消息投影、Tool 配对、Outcome-unknown 恢复、Store 值隔离和并发内存 Writer。
+未来 Compaction 测试必须证明原始导出逐字不变、Surface 可确定性重建、Tool Call/Result 配对
+不丢失，并能从压缩前 Revision 分叉。

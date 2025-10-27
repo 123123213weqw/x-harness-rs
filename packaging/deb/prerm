@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+case ${1:-} in
+    remove|deconfigure)
+        # Remove only a profile whose hash still matches the file installed by
+        # XHarness. Administrator-modified and pre-existing profiles survive.
+        /usr/lib/xharness/xharness-sandbox-setup remove || true
+        ;;
+esac
+
+exit 0

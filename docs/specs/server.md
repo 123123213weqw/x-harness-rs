@@ -31,6 +31,10 @@ POST 只接受 `application/json`，否则返回 415。畸形 JSON 是传输层 
 协议错误，应关闭连接；上行 RPC 和回答全部使用 HTTP。事件流结束后关闭 Socket。
 断线重连和历史基线恢复属于客户端/Agent Backend。
 
+Provider 的 Context 400、Sandbox Unavailable 和 Tool Failure 都是已经接受 Prompt 后产生的
+Agent 业务事件，传输层禁止把它们伪装成本路由的 HTTP 400。反过来，畸形 JSON/Content-Type
+仍只属于传输错误，两类错误必须可诊断地区分。
+
 ## 静态资源与生命周期
 
 `web_router` 可以挂载已经构建好的 Web dist，客户端路由 fallback 到 dist 的

@@ -1,0 +1,385 @@
+#!/bin/sh
+set -eu
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+PROFILE_NAME=bwrap-userns-restrict
+PROFILE_SOURCE=${XHARNESS_PROFILE_SOURCE:-/usr/share/apparmor/extra-profiles/$PROFILE_NAME}
+PROFILE_TARGET=${XHARNESS_PROFILE_TARGET:-/etc/apparmor.d/$PROFILE_NAME}
+STATE_DIR=${XHARNESS_SETUP_STATE_DIR:-/var/lib/xharness/setup}
+STATE_FILE=$STATE_DIR/sandbox-state.json
+OWNERSHIP_FILE=$STATE_DIR/bwrap-profile.owned
+BWRAP=${XHARNESS_BWRAP:-/usr/bin/bwrap}
+APPARMOR_PARSER=${XHARNESS_APPARMOR_PARSER:-/usr/sbin/apparmor_parser}
+VERIFY_USER=${XHARNESS_VERIFY_USER:-nobody}
+
+log() {
+    printf '%s\n' "xharness-sandbox-setup: $*" >&2
+}
+
+fail() {
+    log "ERROR: $*"
+    if state_is_writable; then
+        write_state failed "$(sanitize "$*")" false false false false false false || true
+    fi
+    exit 1
+}
+
+sanitize() {
+    printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._+:/,()=-'
+}
+
+sha256_file() {
+    sha256sum "$1" | awk '{print $1}'
+}
+
+read_sysctl() {
+    key=$1
+    if command -v sysctl >/dev/null 2>&1; then
+        sysctl -n "$key" 2>/dev/null || printf '%s' unavailable
+    else
+        path=/proc/sys/$(printf '%s' "$key" | tr . /)
+        if [ -r "$path" ]; then cat "$path"; else printf '%s' unavailable; fi
+    fi
+}
+
+apparmor_enabled() {
+    if [ "${XHARNESS_FORCE_APPARMOR_ENABLED:-}" = true ]; then return 0; fi
+    if [ "${XHARNESS_FORCE_APPARMOR_ENABLED:-}" = false ]; then return 1; fi
+    [ -r /sys/module/apparmor/parameters/enabled ] &&
+        grep -qx 'Y' /sys/module/apparmor/parameters/enabled
+}
+
+profile_loaded() {
+    if [ "${XHARNESS_FORCE_PROFILE_LOADED:-}" = true ]; then return 0; fi
+    if [ "${XHARNESS_FORCE_PROFILE_LOADED:-}" = false ]; then return 1; fi
+    if command -v aa-status >/dev/null 2>&1; then
+        aa_rc=0
+        aa_output=$(aa-status 2>&1) || aa_rc=$?
+        if printf '%s\n' "$aa_output" | grep -Eq '(^|[[:space:]])bwrap($|[[:space:]])'; then
+            return 0
+        fi
+        if [ "$aa_rc" -ne 0 ] &&
+            printf '%s\n' "$aa_output" | grep -qi 'not have enough privilege'; then
+            return 2
+        fi
+        return 1
+    elif [ -r /sys/kernel/security/apparmor/profiles ]; then
+        grep -Eq '^bwrap ' /sys/kernel/security/apparmor/profiles
+    else
+        return 2
+    fi
+}
+
+profile_loaded_value() {
+    if profile_loaded; then
+        printf '%s' true
+    else
+        rc=$?
+        if [ "$rc" -eq 2 ]; then
+            printf '%s' unknown
+        else
+            printf '%s' false
+        fi
+    fi
+}
+
+state_is_writable() {
+    if [ "$(id -u)" -eq 0 ] || [ "${XHARNESS_SETUP_TEST_ROOT:-0}" = 1 ]; then
+        return 0
+    fi
+    if [ -d "$STATE_DIR" ]; then
+        [ -w "$STATE_DIR" ]
+    else
+        [ -w "$(dirname "$STATE_DIR")" ]
+    fi
+}
+
+require_root() {
+    if [ "$(id -u)" -ne 0 ] && [ "${XHARNESS_SETUP_TEST_ROOT:-0}" != 1 ]; then
+        fail "install/remove requires root"
+    fi
+}
+
+write_state() {
+    status=$1
+    message=$2
+    apparmor=$3
+    profile=$4
+    workspace=$5
+    outside=$6
+    network=$7
+    mkdir -p "$STATE_DIR"
+    tmp=$STATE_FILE.tmp.$$
+    profile_hash=
+    source_hash=
+    profile_managed=false
+    [ -r "$PROFILE_TARGET" ] && profile_hash=$(sha256_file "$PROFILE_TARGET")
+    [ -r "$PROFILE_SOURCE" ] && source_hash=$(sha256_file "$PROFILE_SOURCE")
+    if [ -f "$OWNERSHIP_FILE" ] && [ -n "$profile_hash" ] &&
+        [ "$(cat "$OWNERSHIP_FILE")" = "$profile_hash" ]; then
+        profile_managed=true
+    fi
+    bwrap_version=$($BWRAP --version 2>/dev/null | head -n 1 || true)
+    bwrap_version=$(sanitize "$bwrap_version")
+    installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+    userns_clone=$(sanitize "$(read_sysctl kernel.unprivileged_userns_clone)")
+    apparmor_restrict=$(sanitize "$(read_sysctl kernel.apparmor_restrict_unprivileged_userns)")
+    max_userns=$(sanitize "$(read_sysctl user.max_user_namespaces)")
+    cat > "$tmp" <<STATE
+{
+  "schemaVersion": 1,
+  "status": "$status",
+  "message": "$message",
+  "checkedAt": "$installed_at",
+  "bwrapPath": "$BWRAP",
+  "bwrapVersion": "$bwrap_version",
+  "apparmorEnabled": $apparmor,
+  "apparmorRestrictsUnprivilegedUserns": "$apparmor_restrict",
+  "unprivilegedUsernsClone": "$userns_clone",
+  "maxUserNamespaces": "$max_userns",
+  "profileName": "$PROFILE_NAME",
+  "profilePath": "$PROFILE_TARGET",
+  "profileSourceSha256": "$source_hash",
+  "profileSha256": "$profile_hash",
+  "profileManagedByXHarness": $profile_managed,
+  "profileLoaded": $profile,
+  "verification": {
+    "workspaceWrite": $workspace,
+    "outsideWriteDenied": $outside,
+    "networkNamespaceIsolated": $network,
+    "pidDescendantCleaned": $8
+  }
+}
+STATE
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$STATE_FILE"
+}
+
+run_as_verify_user() {
+    if [ "$(id -u)" -eq 0 ]; then
+        id "$VERIFY_USER" >/dev/null 2>&1 || fail "verification user $VERIFY_USER does not exist"
+        runuser -u "$VERIFY_USER" -- "$@"
+    else
+        "$@"
+    fi
+}
+
+bwrap_run() {
+    workspace=$1
+    shift
+    run_as_verify_user "$BWRAP" \
+        --die-with-parent \
+        --unshare-all \
+        --unshare-pid \
+        --ro-bind / / \
+        --proc /proc \
+        --dev /dev \
+        --tmpfs /tmp \
+        --bind "$workspace" "$workspace" \
+        --chdir "$workspace" \
+        -- "$@"
+}
+
+verify_sandbox() {
+    [ -x "$BWRAP" ] || fail "$BWRAP is missing or not executable"
+    command -v runuser >/dev/null 2>&1 || {
+        [ "$(id -u)" -ne 0 ] || fail "runuser is required for unprivileged verification"
+    }
+
+    base=$(mktemp -d /var/tmp/xharness-sandbox-test.XXXXXX)
+    workspace=$base/workspace
+    outside=$base/outside
+    marker=$workspace/escaped-marker
+    mkdir -p "$workspace" "$outside"
+    chmod 0755 "$base"
+    chmod 0777 "$workspace" "$outside"
+    trap 'rm -rf "$base"' EXIT HUP INT TERM
+
+    workspace_ok=false
+    outside_ok=false
+    network_ok=false
+    pid_ok=false
+
+    if bwrap_run "$workspace" /bin/sh -eu -c '
+        printf inside > "$1/inside-created"
+        [ -d "$2" ] || exit 42
+        if { printf escape > "$2/outside-created"; } 2>/dev/null; then
+            exit 41
+        fi
+    ' xharness-test "$workspace" "$outside"; then
+        [ -f "$workspace/inside-created" ] || fail "workspace write probe produced no file"
+        workspace_ok=true
+        if [ ! -e "$outside/outside-created" ]; then
+            outside_ok=true
+        else
+            fail "sandbox allowed a write outside the workspace"
+        fi
+    else
+        fail "workspace/outside write isolation probe failed"
+    fi
+
+    host_net=$(readlink /proc/self/ns/net 2>/dev/null || true)
+    child_net=$(bwrap_run "$workspace" /bin/sh -eu -c '
+        awk '\''NR > 1 && $2 == "00000000" { found=1 } END { exit(found ? 1 : 0) }'\'' /proc/net/route
+        readlink /proc/self/ns/net
+    ' 2>/dev/null) || fail "network isolation probe failed"
+    if [ -n "$host_net" ] && [ -n "$child_net" ] && [ "$host_net" != "$child_net" ]; then
+        network_ok=true
+    else
+        fail "sandbox reused the host network namespace"
+    fi
+
+    if [ ! -x /usr/bin/setsid ]; then
+        fail "/usr/bin/setsid is required for PID descendant verification"
+    fi
+    worker=$workspace/delayed-worker.sh
+    cat > "$worker" <<'WORKER'
+#!/bin/sh
+/bin/sleep 1
+/usr/bin/touch "$1"
+WORKER
+    chmod 0755 "$worker"
+    bwrap_run "$workspace" /bin/sh -c \
+        '/usr/bin/setsid /bin/sh "$1" "$2" >/dev/null 2>&1 & exit 0' \
+        xharness-root "$worker" "$marker" || fail "PID namespace root probe failed"
+    sleep 2
+    if [ ! -e "$marker" ]; then
+        pid_ok=true
+    else
+        fail "setsid descendant survived sandbox teardown"
+    fi
+
+    rm -rf "$base"
+    trap - EXIT HUP INT TERM
+    VERIFY_WORKSPACE=$workspace_ok
+    VERIFY_OUTSIDE=$outside_ok
+    VERIFY_NETWORK=$network_ok
+    VERIFY_PID=$pid_ok
+}
+
+install_profile() {
+    apparmor_enabled || return 0
+    [ -r "$PROFILE_SOURCE" ] || fail "missing $PROFILE_SOURCE; install apparmor-profiles"
+    [ -x "$APPARMOR_PARSER" ] || fail "missing $APPARMOR_PARSER"
+
+    "$APPARMOR_PARSER" -Q "$PROFILE_SOURCE" >/dev/null || fail "AppArmor profile syntax validation failed"
+    mkdir -p "$STATE_DIR"
+
+    source_hash=$(sha256_file "$PROFILE_SOURCE")
+    if [ -e "$PROFILE_TARGET" ]; then
+        target_hash=$(sha256_file "$PROFILE_TARGET")
+        if [ -f "$OWNERSHIP_FILE" ] && [ "$(cat "$OWNERSHIP_FILE")" = "$target_hash" ]; then
+            if [ "$target_hash" != "$source_hash" ]; then
+                install -m 0644 "$PROFILE_SOURCE" "$PROFILE_TARGET"
+                printf '%s\n' "$source_hash" > "$OWNERSHIP_FILE"
+                log "updated the XHarness-managed AppArmor profile"
+            fi
+        elif [ "$target_hash" != "$source_hash" ]; then
+            log "preserving administrator-managed $PROFILE_TARGET"
+        fi
+    else
+        install -m 0644 "$PROFILE_SOURCE" "$PROFILE_TARGET"
+        printf '%s\n' "$source_hash" > "$OWNERSHIP_FILE"
+        chmod 0600 "$OWNERSHIP_FILE"
+        log "installed $PROFILE_TARGET"
+    fi
+
+    "$APPARMOR_PARSER" -Q "$PROFILE_TARGET" >/dev/null || fail "installed AppArmor profile syntax validation failed"
+    "$APPARMOR_PARSER" -r "$PROFILE_TARGET" >/dev/null || fail "could not load AppArmor profile"
+    profile_loaded || fail "AppArmor profile was parsed but is not loaded"
+}
+
+command_detect() {
+    printf 'apparmor_enabled=%s\n' "$(apparmor_enabled && echo true || echo false)"
+    printf 'apparmor_restrict_unprivileged_userns=%s\n' "$(read_sysctl kernel.apparmor_restrict_unprivileged_userns)"
+    printf 'unprivileged_userns_clone=%s\n' "$(read_sysctl kernel.unprivileged_userns_clone)"
+    printf 'max_user_namespaces=%s\n' "$(read_sysctl user.max_user_namespaces)"
+    printf 'bwrap=%s\n' "$([ -x "$BWRAP" ] && echo "$BWRAP" || echo unavailable)"
+    printf 'profile_source=%s\n' "$([ -r "$PROFILE_SOURCE" ] && echo "$PROFILE_SOURCE" || echo unavailable)"
+    printf 'profile_loaded=%s\n' "$(profile_loaded_value)"
+}
+
+command_install() {
+    require_root
+    [ "$(uname -s)" = Linux ] || fail "Linux is required"
+    [ -x "$BWRAP" ] || fail "missing $BWRAP; install bubblewrap"
+
+    clone=$(read_sysctl kernel.unprivileged_userns_clone)
+    max=$(read_sysctl user.max_user_namespaces)
+    [ "$clone" != 0 ] || fail "kernel.unprivileged_userns_clone is disabled"
+    [ "$max" = unavailable ] || [ "$max" -gt 0 ] 2>/dev/null || fail "user.max_user_namespaces is zero"
+
+    if apparmor_enabled; then
+        install_profile
+        apparmor=true
+        loaded=$(profile_loaded && echo true || echo false)
+    else
+        log "AppArmor is not enabled; continuing only if the real Bubblewrap verification succeeds"
+        apparmor=false
+        loaded=false
+    fi
+
+    verify_sandbox
+    write_state ready ok "$apparmor" "$loaded" "$VERIFY_WORKSPACE" "$VERIFY_OUTSIDE" "$VERIFY_NETWORK" "$VERIFY_PID"
+    log "sandbox installation and all isolation probes passed"
+}
+
+command_verify() {
+    verify_sandbox
+    if state_is_writable; then
+        apparmor=$(apparmor_enabled && echo true || echo false)
+        loaded=$(profile_loaded && echo true || echo false)
+        write_state ready ok "$apparmor" "$loaded" "$VERIFY_WORKSPACE" "$VERIFY_OUTSIDE" "$VERIFY_NETWORK" "$VERIFY_PID"
+    else
+        log "state is root-owned; verification result was not persisted"
+    fi
+    log "all isolation probes passed"
+}
+
+command_status() {
+    command_detect
+    if [ -r "$STATE_FILE" ]; then
+        printf '%s\n' 'state:'
+        cat "$STATE_FILE"
+    else
+        printf '%s\n' 'state=uninitialized'
+    fi
+}
+
+command_remove() {
+    require_root
+    if [ -f "$OWNERSHIP_FILE" ] && [ -f "$PROFILE_TARGET" ]; then
+        owned_hash=$(cat "$OWNERSHIP_FILE")
+        current_hash=$(sha256_file "$PROFILE_TARGET")
+        if [ "$owned_hash" = "$current_hash" ]; then
+            if [ -x "$APPARMOR_PARSER" ]; then
+                "$APPARMOR_PARSER" -R "$PROFILE_TARGET" >/dev/null 2>&1 || true
+            fi
+            rm -f "$PROFILE_TARGET"
+            log "removed XHarness-managed $PROFILE_TARGET"
+        else
+            log "preserving modified $PROFILE_TARGET"
+        fi
+    fi
+    rm -rf "$STATE_DIR"
+}
+
+usage() {
+    cat >&2 <<'USAGE'
+usage: xharness-sandbox-setup detect|install|verify|status|remove
+
+install/remove require root. verify uses an unprivileged account when invoked
+as root. The global AppArmor user-namespace restriction is never disabled.
+USAGE
+    exit 2
+}
+
+case ${1:-} in
+    detect) command_detect ;;
+    install) command_install ;;
+    verify) command_verify ;;
+    status) command_status ;;
+    remove) command_remove ;;
+    *) usage ;;
+esac

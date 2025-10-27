@@ -35,6 +35,10 @@ v0 只暴露以下 14 个稳定模型工具名：
 Metadata。Process Tool 报告 PID、Exit Code/Signal、Termination Reason、两条输出流、
 Truncation 和总 Byte Count。
 
+当前 `core_specs()` 会让 Host 在每个模型 Step 注入上述 14 个 `name/description/Schema`。
+这代表“工具定义已经注入”，不代表 Coding System Prompt 已经注入。最终实现必须根据平台
+Readiness、Search Provider、Profile 和 Step 选择稳定子集，并将选择写入 Request Header。
+
 ## 环境与路径
 
 Process Tool 只提供受管环境（PATH、Locale、Terminal/Pager 控制），不继承环境凭据。
@@ -47,6 +51,21 @@ Relative Cwd 固定在 Workspace；Absolute Cwd 仍需通过 Platform Sandbox Po
 `terminal_send` 的 Settle 只代表观察完成，后续进度要用 `terminal_read`/Status。
 `web_search` 用于发现来源，`web_fetch` 用于抓取一个已知 URL。
 
+如果 Sandbox Probe 已经返回确定性不可用，模型不应再次调用 `bash/glob/grep/terminal_open`；
+Host 必须在下一 Step 移除这些进程启动工具，而不是只靠错误字符串提示模型。已有 Terminal 的
+read/signal/close 按 Session 状态单独投影。一次工具失败后，模型应先
+判断是否已有足够证据；禁止为了“再看一个文件”无限扩大上下文。
+
+## 大输出与读取
+
+当前 `read` Schema 只有 `path`，底层默认最多读取 256 KiB、2,000 行、单行 16 KiB。
+这些限制用于内存安全，不是合适的模型上下文页大小。P0 必须增加显式 Byte/Line Range、下一页
+Cursor 和更小默认页；大结果使用 Spill Reference，并保留原始 Byte Count、Hash、Truncation
+与 Observation Version。
+
+`glob/grep/bash/terminal` 输出同样必须先经过工具级 Byte Cap，再进入全局 Context Policy。
+单个结果未超过 256 KiB 不代表多个结果可以安全并行写入下一次请求。
+
 ## 验证
 
 确定性集成测试注册全部 14 个名称，并执行真实 Write → Read → Edit → Bash 流程。
@@ -56,6 +75,8 @@ Relative Cwd 固定在 Workspace；Absolute Cwd 仍需通过 Platform Sandbox Po
 ## 当前限制
 
 - Description 仍是简洁 v0 版本；更丰富的“何时用/何时不用”和动态 Tool Subset 已计划。
+- `read` 尚无分页参数，可能一次向模型历史加入数万 Token。
+- Platform Probe 失败目前不会自动缩小下一 Step 的进程工具 Projection。
 - 尚无 Background Bash Job、Patch Tool、目录修改、Image Read、Browser、MCP、LSP 或
   Subagent Tool。
 - 完整 CLI/Host 还必须配置 Approval UX、Session Durability、Provider、Search Credential

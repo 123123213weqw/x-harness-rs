@@ -1,0 +1,17 @@
+[package]
+name = "xharness-context"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Provider-neutral model-visible context projection for XHarness"
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+xharness-session = { path = "../xharness-session" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
