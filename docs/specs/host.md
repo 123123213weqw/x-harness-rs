@@ -1,8 +1,9 @@
 # 有状态 Web Host 规范
 
 **Crate：** `xharness-host`（控制面库）、`xharness-host-app`（原生组合与二进制）
-**状态：** 上游 52 个 RPC 已有内存基础实现；真实 Rust Loop、14 个原生工具、流式投影、
-审批链路和 Session 导出已经接通。
+**状态：** 上游 52 个固定 RPC 已有内存基础实现；另接通 Typert `commands/list`、
+`commands/execute` 动态端点、权限投影、真实 Rust Loop、14 个原生工具、流式投影、审批链路
+和 Session 导出。
 **兼容快照：** `deepseek-harness@141eb6fef8`。
 
 ## 目标
@@ -50,6 +51,10 @@ Chat Completions 或 Responses，禁止自动回退。
 队列/事件投影只依赖这个契约，不再直接创建 Loop、调用 Tool Factory 或持有 Provider/Context。
 `LoopAgentRuntime` 负责把当前 LoopEngine 适配进来，并校验 Session 选择的 ModelRoute。以后替换
 为 Durable Agent/Inbox Runtime 时，不需要修改 52 个 RPC 和 Web 投影代码。
+
+固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
+方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
+HTTP 404。当前先实现 Web 权限控件依赖的 `commands/list` 和 `commands/execute`。
 
 当前 `AgentPreset.content` 只存在于 Host 状态/RPC 投影，`run_turn` 没有把它转换成
 `Role::System`。因此“UI 选中了 coding preset”和“模型收到 Coding System Prompt”不是一回事。
@@ -103,9 +108,28 @@ Session 事件、队列/投影变化和审批流量走 Mux；Host 生命周期�
 新的 Mux 订阅者会收到运行中 Session 与待审批项的基线。广播 lag 以 `stream/error`
 报告；目前尚无 cursor replay。
 
+## 权限预设
+
+当前产品提供两个会话级权限预设：
+
+- `workspace-write`：原生 Sandbox 限制到 Workspace，写入、终端和其他有副作用工具逐次审批。
+- `danger-full-access`（UI 显示为 **Full access**）：Web 客户端在切换前显示一次风险确认；确认后
+  当前 Session 使用无沙箱 Platform，并把工具审批策略设为 `never`，不再重复逐工具弹窗。
+
+`permissions` Session Projection 是 UI 的真源；切换通过 `/permission <preset>` 的
+`commands/execute` 动态端点完成，并顺序记录 `command/run`、`permission/preset`、
+`sandbox/mode`、`approval/policy`、`command/done`。运行中的 Session 禁止切换，避免一个 Turn
+混用两种权限。Settings 的 `permission.defaultPreset` 只决定之后创建的新 Session，同样由 Web
+Full access 风险确认保护。
+
+Host 在 Turn 启动时把权限快照放入 `AgentTurnRequest`；`NativeToolFactory` 按
+`(canonical workspace, permission preset)` 缓存 Platform。Full access 下，Shell/Terminal
+绕过 Seatbelt/Bubblewrap，结构化 Read/Write/Edit 以 `/` 为能力根，但相对路径仍从 Session
+Workspace 解析。
+
 ## 原生工具
 
-`xharness-host-app::NativeToolFactory` 为每个 canonical Workspace 缓存一个
+`xharness-host-app::NativeToolFactory` 为每个 canonical Workspace 与 Permission Preset 组合缓存一个
 `NativePlatform`，并共享按
 Owner 隔离的 Terminal 和 Web runtime。每个 Session 通过
 `CodingToolBundle::core_specs()` 得到稳定的 14 工具：
@@ -145,7 +169,7 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 - Credential 更新只是进程内配置，不能重建已经运行中的 Provider。
 - Agent Preset 尚未成为真实 System Prompt；缺少 Prompt Version 与请求体级验证。
 - 没有整体 Token Budget/Compaction；完整文件结果可能在下一 Step 触发 Context 400。
-- 固定 14 工具投影不会随 Sandbox/Search 能力变化。
+- 除 Full access 会关闭逐工具审批外，固定 14 工具投影仍不会随 Sandbox/Search 能力变化。
 
 ## 验收标准
 

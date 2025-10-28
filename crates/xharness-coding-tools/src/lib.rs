@@ -191,7 +191,7 @@ impl CodingToolBundle {
                 let session_id = Arc::clone(&session_id);
                 async move {
                     let path = required_string(&context, "path")?;
-                    let target = platform.filesystem().resolve(path).map_err(handler_error)?;
+                    let target = platform.resolve_file(path).map_err(handler_error)?;
                     let result = platform
                         .filesystem()
                         .read(&session_id, &target, ReadLimits::default())
@@ -239,7 +239,7 @@ impl CodingToolBundle {
                 async move {
                     let path = required_string(&context, "path")?;
                     let content = required_string(&context, "content")?;
-                    let target = platform.filesystem().resolve(path).map_err(handler_error)?;
+                    let target = platform.resolve_file(path).map_err(handler_error)?;
                     let result = platform
                         .filesystem()
                         .write(&session_id, &target, content.into_bytes())
@@ -284,7 +284,7 @@ impl CodingToolBundle {
                     let path = required_string(&context, "path")?;
                     let old = required_string(&context, "old")?;
                     let new = required_string(&context, "new")?;
-                    let target = platform.filesystem().resolve(path).map_err(handler_error)?;
+                    let target = platform.resolve_file(path).map_err(handler_error)?;
                     let result = platform
                         .filesystem()
                         .edit_literal(&session_id, &target, old, new)
@@ -329,7 +329,7 @@ impl CodingToolBundle {
                         args.push(OsString::from("--"));
                         args.push(OsString::from(path));
                     }
-                    let spec = SpawnSpec::new("rg", platform.filesystem().workspace_root())
+                    let spec = SpawnSpec::new("rg", platform.workspace_root())
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
@@ -377,7 +377,7 @@ impl CodingToolBundle {
                     args.push(OsString::from(
                         optional_string(&context, "path").unwrap_or("."),
                     ));
-                    let spec = SpawnSpec::new("rg", platform.filesystem().workspace_root())
+                    let spec = SpawnSpec::new("rg", platform.workspace_root())
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
@@ -791,7 +791,7 @@ fn resolve_cwd(
     platform: &NativePlatform,
     requested: Option<&str>,
 ) -> Result<PathBuf, ToolHandlerError> {
-    let root = platform.filesystem().workspace_root();
+    let root = platform.workspace_root();
     let path = match requested {
         None | Some("") => root.to_owned(),
         Some(path) if Path::new(path).is_absolute() => PathBuf::from(path),

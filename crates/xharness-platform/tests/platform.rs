@@ -37,7 +37,14 @@ async fn native_platform_composes_filesystem_process_and_policy() {
     assert_eq!(platform.kind(), PlatformKind::Linux);
     #[cfg(target_os = "macos")]
     assert_eq!(platform.kind(), PlatformKind::MacOS);
-    assert_eq!(platform.filesystem().workspace_root(), workspace.0);
+    assert_eq!(platform.workspace_root(), workspace.0);
+    assert_eq!(platform.filesystem().workspace_root(), PathBuf::from("/"));
+
+    let relative = platform.resolve_file("probe.txt").unwrap();
+    let absolute = platform
+        .resolve_file(workspace.0.join("probe.txt"))
+        .unwrap();
+    assert_eq!(relative.key(), absolute.key());
 
     let original = SpawnSpec::new("/bin/echo", &workspace.0).arg("hello");
     assert_eq!(

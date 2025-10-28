@@ -254,7 +254,7 @@ impl BasicHost {
         prompt: QueuedPrompt,
         control_rx: &mut mpsc::Receiver<DriverCommand>,
     ) -> Result<(), RpcError> {
-        let (turn, cwd, route, messages) = {
+        let (turn, cwd, route, permission, messages) = {
             let mut state = self.state.write().await;
             let session = state.sessions.get_mut(session_id).ok_or_else(|| {
                 rpc_error(
@@ -276,6 +276,7 @@ impl BasicHost {
                     model: session.model.model.clone(),
                     reasoning_effort: session.model.reasoning_effort.clone(),
                 },
+                session.permission_preset,
                 session.messages.clone(),
             )
         };
@@ -304,6 +305,7 @@ impl BasicHost {
                 session_id: session_id.to_owned(),
                 cwd,
                 route,
+                permission,
                 messages,
             })
             .await
