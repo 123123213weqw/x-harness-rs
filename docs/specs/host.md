@@ -130,6 +130,10 @@ Host 在 Turn 启动时把权限快照放入 `AgentTurnRequest`；`NativeToolFac
 绕过 Seatbelt/Bubblewrap，结构化 Read/Write/Edit 以 `/` 为能力根，但相对路径仍从 Session
 Workspace 解析。
 
+在 Durable Workspace Store 完成前，Host 启动时必须把配置的 canonical cwd 注册为
+`workspace-default`。这样重启后 `workspace.list` 不会返回空数组，Web Composer 仍可直接创建
+Session；额外工作区和 Session 当前仍属于内存态。
+
 ## 原生工具
 
 `xharness-host-app::NativeToolFactory` 为每个 canonical Workspace 与 Permission Preset 组合缓存一个

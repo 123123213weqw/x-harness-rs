@@ -39,6 +39,8 @@ Commit、Issue、PR 应引用这些 ID。
   Settings、`commands/list`/`commands/execute` 动态 Remote；前端一次风险确认后，Session 使用
   `danger-full-access + never`，原生工具获得系统范围文件/进程能力且不再逐工具审批；Full access
   已从 `SandboxMode` 移出，只绕过权限隔离，不绕过 `ProcessRuntime`。
+- [x] `DONE-22` Web 重启基线工作区：Host 启动时把 canonical cwd 注册为
+  `workspace-default`，避免内存状态重置后工作区选择器为空、Composer 看似无法点击。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
