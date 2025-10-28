@@ -3,7 +3,6 @@ use std::{fs, path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use xharness_coding_tools::{CodingToolBundle, STANDARD_TOOL_COUNT};
 use xharness_platform::{NativePlatform, PlatformConfig};
-use xharness_sandbox::SandboxMode;
 use xharness_terminal::TerminalRegistry;
 use xharness_tools::{
     ApprovalDecision, ApprovalProvider, ApprovalRequest, MiddlewareError, ToolExecutor, ToolRequest,
@@ -41,12 +40,8 @@ impl ApprovalProvider for ApproveAll {
 }
 
 async fn executor(workspace: &TempWorkspace) -> ToolExecutor {
-    let platform = Arc::new(
-        NativePlatform::new(
-            PlatformConfig::new(&workspace.0).sandbox_mode(SandboxMode::DangerFullAccess),
-        )
-        .unwrap(),
-    );
+    let platform =
+        Arc::new(NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap());
     let bundle = CodingToolBundle::new(
         platform,
         Arc::new(TerminalRegistry::default()),

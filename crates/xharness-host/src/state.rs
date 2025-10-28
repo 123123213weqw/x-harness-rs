@@ -31,7 +31,14 @@ impl PermissionPreset {
     }
 
     pub const fn sandbox_mode(self) -> &'static str {
-        self.as_str()
+        match self {
+            Self::WorkspaceWrite => "workspace-write",
+            Self::DangerFullAccess => "disabled",
+        }
+    }
+
+    pub const fn sandbox_enabled(self) -> bool {
+        matches!(self, Self::WorkspaceWrite)
     }
 
     pub const fn approval_policy(self) -> &'static str {
@@ -60,7 +67,7 @@ impl PermissionPreset {
                 {
                     "value": "danger-full-access",
                     "name": "danger-full-access",
-                    "description": "Full file access after one explicit risk confirmation."
+                    "description": "No permission sandbox after one explicit risk confirmation; processes remain managed."
                 }
             ],
             "currentValue": self.as_str(),

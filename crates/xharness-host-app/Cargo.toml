@@ -20,6 +20,5 @@ xharness-host = { path = "../xharness-host" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }
 xharness-server = { path = "../xharness-server" }
-xharness-sandbox = { path = "../xharness-sandbox" }
 xharness-terminal = { path = "../xharness-terminal" }
 xharness-web = { path = "../xharness-web" }

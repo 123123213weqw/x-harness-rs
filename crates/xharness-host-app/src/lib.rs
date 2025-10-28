@@ -13,7 +13,6 @@ use xharness_coding_tools::CodingToolBundle;
 use xharness_core::ToolSpec;
 use xharness_host::{PermissionPreset, SessionToolFactory};
 use xharness_platform::{NativePlatform, PlatformConfig};
-use xharness_sandbox::SandboxMode;
 use xharness_terminal::TerminalRegistry;
 use xharness_web::WebRuntime;
 
@@ -44,14 +43,11 @@ impl NativeToolFactory {
         if let Some(platform) = self.platforms.read().await.get(&key).cloned() {
             return Ok(platform);
         }
-        let sandbox_mode = match permission {
-            PermissionPreset::WorkspaceWrite => SandboxMode::WorkspaceWrite,
-            PermissionPreset::DangerFullAccess => SandboxMode::DangerFullAccess,
+        let config = match permission {
+            PermissionPreset::WorkspaceWrite => PlatformConfig::new(cwd),
+            PermissionPreset::DangerFullAccess => PlatformConfig::new(cwd).full_access(),
         };
-        let platform = Arc::new(
-            NativePlatform::new(PlatformConfig::new(cwd).sandbox_mode(sandbox_mode))
-                .map_err(|error| error.to_string())?,
-        );
+        let platform = Arc::new(NativePlatform::new(config).map_err(|error| error.to_string())?);
         let mut platforms = self.platforms.write().await;
         Ok(platforms
             .entry(key)

@@ -125,13 +125,10 @@ impl BwrapSandbox {
     }
 
     /// Convert one direct-exec spec into a direct `bwrap` invocation. The
-    /// unrestricted mode returns before any path validation or probing and is
-    /// exactly unchanged. Restricted modes never return the original spec when
-    /// Bubblewrap is unavailable.
+    /// Restricted modes never return the original spec when Bubblewrap is
+    /// unavailable. Full access is deliberately not a sandbox mode and must
+    /// bypass this adapter in the platform layer.
     pub async fn prepare(&self, mut spec: SpawnSpec) -> Result<SpawnSpec, SandboxError> {
-        if self.policy.mode() == SandboxMode::DangerFullAccess {
-            return Ok(spec);
-        }
         if spec.program.is_empty() {
             return Err(SandboxError::EmptyProgram);
         }
@@ -158,7 +155,6 @@ impl BwrapSandbox {
             SandboxMode::WorkspaceWrite => {
                 push_mount(&mut args, "--bind", &paths.workspace, &paths.workspace)
             }
-            SandboxMode::DangerFullAccess => unreachable!("handled before validation"),
         }
         args.push(OsString::from("--chdir"));
         args.push(paths.cwd.as_os_str().to_owned());

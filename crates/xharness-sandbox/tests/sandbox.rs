@@ -188,20 +188,6 @@ async fn workspace_write_adds_only_explicit_write_mount_and_network_capability()
 }
 
 #[tokio::test]
-async fn danger_full_access_is_byte_for_byte_passthrough_and_never_probes() {
-    let probe = FakeProbe::unavailable("must not run");
-    let sandbox = sandbox_with_probe(
-        SandboxPolicy::new("/definitely/missing", SandboxMode::DangerFullAccess),
-        &probe,
-    );
-    let original = SpawnSpec::new("program with spaces", "/missing/cwd")
-        .args(["a", "b c"])
-        .env("TOKEN", "preserved");
-    assert_eq!(sandbox.prepare(original.clone()).await.unwrap(), original);
-    assert_eq!(probe.calls(), 0);
-}
-
-#[tokio::test]
 async fn unavailable_probe_is_cached_and_restricted_modes_never_fall_back() {
     let tree = TestTree::new("unavailable");
     let workspace = tree.directory("workspace");

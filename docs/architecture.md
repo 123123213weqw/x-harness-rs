@@ -122,14 +122,15 @@ Prompt Registry 将 Preset、Workspace、工具指导和 Provider Section 按稳
 ```text
 bash/read/write/edit/glob/grep
   -> shell + filesystem service
-  -> xharness-platform（read-only/workspace-write/danger-full-access）
-  -> macOS Seatbelt / Linux Bubblewrap
+  -> xharness-platform（sandboxed(read-only/workspace-write) | full-access）
+  -> 受限时 macOS Seatbelt / Linux Bubblewrap；Full access 时无 Sandbox Adapter
   -> process runtime（process group + bounded output）
 ```
 
 PTY 是独立的 owner-scoped 持久服务，不是“一次性 Bash 的长时间版本”。Process Group 只是
 生命周期机制，硬后代隔离属于原生 Sandbox。受限 Backend Probe 失败必须 fail closed；
-`DangerFullAccess` 必须由操作者显式选择。
+`FullAccess` 必须由操作者显式选择。它位于 Platform 权限层而不是 Sandbox Mode 内：关闭
+Seatbelt/Bubblewrap 权限隔离，但仍通过 Process Runtime 托管进程生命周期。
 
 标准 Coding Bundle 的 14 个稳定名称为：
 

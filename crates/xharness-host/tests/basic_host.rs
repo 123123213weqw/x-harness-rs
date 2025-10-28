@@ -258,6 +258,14 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
             "command/done",
         ]
     );
+    let sandbox_event = history["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["event"]["type"] == "sandbox/mode")
+        .unwrap();
+    assert_eq!(sandbox_event["event"]["data"]["enabled"], false);
+    assert_eq!(sandbox_event["event"]["data"]["mode"], "disabled");
 
     let settings = fx.value(RpcMethod::SettingsDescribe, json!({})).await;
     let permission = settings["namespaces"]

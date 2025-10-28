@@ -350,7 +350,10 @@ impl BasicHost {
                 self.append_session_event(
                     &session_id,
                     "sandbox/mode",
-                    json!({"mode": preset.sandbox_mode()}),
+                    json!({
+                        "enabled": preset.sandbox_enabled(),
+                        "mode": preset.sandbox_mode(),
+                    }),
                     None,
                 )
                 .await?;
