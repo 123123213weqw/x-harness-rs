@@ -612,6 +612,20 @@ pub trait ApiBackend: Send + Sync + 'static {
         cancellation: CancellationToken,
     ) -> RpcResult;
 
+    /// Dispatch one generated Typert Remote endpoint such as
+    /// `commands/execute`.  These endpoints intentionally live outside the
+    /// fixed upstream [`RpcMethod`] directory.  Returning `None` keeps an
+    /// unknown endpoint at the transport-level HTTP 404 boundary.
+    async fn call_dynamic(
+        &self,
+        _rpc_id: RpcId,
+        _endpoint: &str,
+        _payload: Value,
+        _cancellation: CancellationToken,
+    ) -> Option<RpcResult> {
+        None
+    }
+
     async fn respond(&self, response: ClientResponse) -> RpcReceipt;
 
     fn mux_events(&self) -> EventStream;

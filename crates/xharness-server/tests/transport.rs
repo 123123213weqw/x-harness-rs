@@ -31,6 +31,17 @@ impl ApiBackend for FixtureBackend {
         RpcResult::success(json!({"method": method.as_str(), "payload": payload}))
     }
 
+    async fn call_dynamic(
+        &self,
+        _rpc_id: RpcId,
+        endpoint: &str,
+        payload: Value,
+        _cancellation: CancellationToken,
+    ) -> Option<RpcResult> {
+        (endpoint == "commands/list")
+            .then(|| RpcResult::success(json!({"endpoint": endpoint, "payload": payload})))
+    }
+
     async fn respond(&self, _response: ClientResponse) -> RpcReceipt {
         RpcReceipt::Accepted
     }
@@ -98,6 +109,26 @@ async fn every_upstream_method_has_one_post_route() {
         assert_eq!(body["result"]["ok"], true);
         assert_eq!(body["result"]["value"]["method"], method.as_str());
     }
+}
+
+#[tokio::test]
+async fn generated_remote_endpoint_uses_two_segment_route_without_widening_rpc_directory() {
+    let response = api_router(Arc::new(FixtureBackend))
+        .oneshot(post(
+            "/api/commands/list",
+            json!({
+                "type": "client-request",
+                "rpcId": "dynamic-1",
+                "method": "commands/list",
+                "payload": {"args": {"agentId": "session"}}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["result"]["ok"], true);
+    assert_eq!(body["result"]["value"]["endpoint"], "commands/list");
 }
 
 #[tokio::test]

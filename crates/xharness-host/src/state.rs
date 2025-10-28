@@ -8,6 +8,73 @@ use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 
 use crate::HostConfig;
 
+/// Product-level permission bundle advertised to the Web client and captured
+/// when a turn starts.  Full access is deliberately one preset instead of a
+/// loose pair of booleans so the UI can place one explicit risk gate in front
+/// of the transition.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionPreset {
+    #[default]
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+impl PermissionPreset {
+    pub const ALL: [Self; 2] = [Self::WorkspaceWrite, Self::DangerFullAccess];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::WorkspaceWrite => "workspace-write",
+            Self::DangerFullAccess => "danger-full-access",
+        }
+    }
+
+    pub const fn sandbox_mode(self) -> &'static str {
+        match self {
+            Self::WorkspaceWrite => "workspace-write",
+            Self::DangerFullAccess => "disabled",
+        }
+    }
+
+    pub const fn sandbox_enabled(self) -> bool {
+        matches!(self, Self::WorkspaceWrite)
+    }
+
+    pub const fn approval_policy(self) -> &'static str {
+        match self {
+            Self::WorkspaceWrite => "ask",
+            Self::DangerFullAccess => "never",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "workspace-write" => Some(Self::WorkspaceWrite),
+            "danger-full-access" => Some(Self::DangerFullAccess),
+            _ => None,
+        }
+    }
+
+    pub fn select(self) -> Value {
+        json!({
+            "options": [
+                {
+                    "value": "workspace-write",
+                    "name": "workspace-write",
+                    "description": "Write inside the workspace; wider operations require approval."
+                },
+                {
+                    "value": "danger-full-access",
+                    "name": "danger-full-access",
+                    "description": "No permission sandbox after one explicit risk confirmation; processes remain managed."
+                }
+            ],
+            "currentValue": self.as_str(),
+        })
+    }
+}
+
 pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -116,6 +183,7 @@ pub struct SessionRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub model: ModelSelection,
+    pub permission_preset: PermissionPreset,
     pub events: Vec<Value>,
     pub messages: Vec<AgentMessage>,
     #[serde(skip)]
@@ -166,6 +234,7 @@ impl SessionRecord {
                 json!({"title": title, "source": {"kind": "user"}}),
             );
         }
+        values.insert("permissions".to_owned(), self.permission_preset.select());
         Value::Object(values)
     }
 
@@ -192,6 +261,7 @@ impl SessionRecord {
 pub(crate) struct SettingsNamespace {
     pub ns: String,
     pub schema: Value,
+    pub base: Value,
     pub value: Value,
     pub user: Value,
     pub applies: String,
@@ -203,6 +273,7 @@ impl SettingsNamespace {
         json!({
             "ns": self.ns,
             "schema": self.schema,
+            "base": self.base,
             "value": self.value,
             "user": self.user,
             "applies": self.applies,
@@ -262,6 +333,10 @@ impl HostState {
                         "model": {"type": "string"},
                     },
                 }),
+                base: json!({
+                    "provider": config.provider_id,
+                    "model": config.model_id,
+                }),
                 value: json!({
                     "provider": config.provider_id,
                     "model": config.model_id,
@@ -285,9 +360,34 @@ impl HostState {
                     },
                     "additionalProperties": false,
                 }),
+                base: json!({}),
                 value: json!({}),
                 user: json!({}),
                 applies: "immediate".to_owned(),
+                revision: 0,
+            },
+        );
+        settings.insert(
+            "permission".to_owned(),
+            SettingsNamespace {
+                ns: "permission".to_owned(),
+                // Schemastery wire format consumed by the upstream Web
+                // permission row.  The two const nodes are the complete
+                // product preset catalog; Full access receives an additional
+                // confirmation modal in the client plugin.
+                schema: json!({
+                    "uid": 4,
+                    "refs": {
+                        "1": {"type": "const", "meta": {"description": "Workspace write"}, "value": "workspace-write"},
+                        "2": {"type": "const", "meta": {"description": "Full access"}, "value": "danger-full-access"},
+                        "3": {"type": "union", "list": [1, 2]},
+                        "4": {"type": "object", "dict": {"defaultPreset": 3}}
+                    }
+                }),
+                base: json!({"defaultPreset": "workspace-write"}),
+                value: json!({"defaultPreset": "workspace-write"}),
+                user: json!({}),
+                applies: "live".to_owned(),
                 revision: 0,
             },
         );

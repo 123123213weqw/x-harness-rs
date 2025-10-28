@@ -10,8 +10,10 @@ Capability 和可选 Read-only Cwd Root。
 
 - `ReadOnly`：Host 可见文件系统只读；临时空间可以写。
 - `WorkspaceWrite`：只有 Workspace 和临时空间可写。
-- `DangerFullAccess`：明确按原 SpawnSpec 原样透传。
 - Network 独立为 `Deny`/`Allow`；文件系统模式禁止暗中放开网络。
+
+`FullAccess` 不属于本 Crate，也不是 `SandboxMode`。产品确认后由 `xharness-platform` 直接不创建
+Sandbox Adapter；禁止在这里增加一个“什么都不做的沙箱模式”。
 
 受限模式下，如果原生 Backend 不可用或 Cwd 逃出所有声明 Root，必须 fail closed。
 
@@ -42,12 +44,12 @@ Canonicalize 并正确 Escape。
   Landlock Fallback。
 - Host 尚未在模型调用前把已缓存的 Probe 失败转成动态 Tool Availability；目前错误会在每个
   Process Tool 调用时重复出现。
-- `DangerFullAccess` 有意绕过隔离。
+- Full access 位于 Platform 权限层，本 Crate 只实现受限模式。
 
 ## 验收标准
 
 测试必须检查精确 Argv/Policy Mapping、Canonical Cwd 校验、Capability 分离、Probe
-不可用时 fail closed、Probe Cache、Passthrough、真实 Workspace Write 与 Host Denial，
+不可用时 fail closed、Probe Cache、真实 Workspace Write 与 Host Denial，
 以及 Linux PID Namespace 内 `setsid` 后代的真实清理。
 另需覆盖网络 Namespace/UID Map 分别被宿主禁止的 Probe Fixture，断言失败被缓存、受限命令
 没有启动、Host 能获得结构化 Capability Unavailable。
