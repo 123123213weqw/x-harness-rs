@@ -55,6 +55,9 @@ Commit、Issue、PR 应引用这些 ID。
   Lease 和重启续跑。
   Host-facing `AgentRuntime -> RunningTurn` 替换边界已经完成，本项实现持久 Runtime 并替换
   `LoopAgentRuntime`。
+  已完成：`agent/inbox/spliced` 事件、Next-turn/Next-step Replay、稳定 Message ID、原子 Claim
+  Prelude、进程内 Registry、Memory/File Lease、AgentSupervisor、多 Turn Driver、Idle Inject、
+  Active Turn 持久 Steering 和消费恢复去重。剩余：Host 内存 FIFO 替换、部署重启续跑与硬崩溃矩阵。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，

@@ -14,6 +14,8 @@ DeepSeek Web UI / future CLI
               |
  xharness-api + server + host
               |
+      Long-lived Agent
+              |
        Shared Loop Core
        |              |
  Model Provider   Tool Registry
@@ -82,7 +84,19 @@ Developer ID 签名、公证和本机安装验证。
 - 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
 
 当前 Host 状态仍是进程内存：接口和最小功能已经贯通，但重启恢复、durable inbox、
-single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久层。
+真正自主 Subagent 仍需接到 Agent/Session 持久层。`xharness-agent` 已实现 Durable Inbox、原子
+Claim、Supervisor、多 Turn/Steer、进程内 Registry 与本机 File Lease；尚未替换 BasicHost 的
+内存 FIFO。
+
+### `xharness-agent`
+
+- 复刻 DeepSeek Harness 的 `next-turn` / `next-step` 双 Inbox 语义
+- `agent/inbox/spliced` 事件可从 Session Log 完整重放，Pending 输入不进入模型历史
+- Claim 删除与 `turn/start + user/message` 支持同一 CAS Revision 原子提交
+- 进程内 Agent Registry；macOS/Linux File Lease 排除第二个进程同时驱动同一 Session
+- Idle/Running/Maintenance 生命周期状态机，从 Session 最后 Turn 坐标恢复
+- AgentSupervisor 自动连续消费多 Turn，Active Steer 先持久排队再中断并在恢复时按 ID 去重
+- 当前剩余 Host FIFO 替换和部署级硬崩溃矩阵
 
 ### `xharness-core`
 

@@ -15,7 +15,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_core::*;
 use xharness_session::{
-    AppendReceipt, AssistantChunk, EventData as SessionEventData,
+    AppendReceipt, AssistantChunk, EventData as SessionEventData, InboxMessage, InboxTarget,
     MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent, SessionHeader,
     SessionInspection, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
 };
@@ -1665,4 +1665,129 @@ async fn terminal_vs_steer_never_acknowledges_an_unapplied_command() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn durable_inbox_claim_and_turn_input_share_one_atomic_revision() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    journal
+        .create(SessionHeader::new("durable-inbox-turn"))
+        .await
+        .unwrap();
+    journal
+        .append(
+            "durable-inbox-turn",
+            Revision::ZERO,
+            vec![SessionEventData::AgentInboxSpliced {
+                target: InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 0,
+                inserted: vec![InboxMessage::user("prompt-id", "hello")],
+                outcome: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("done".to_owned())),
+        Ok(completed()),
+    ]]));
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("hello")]);
+    request.session_id = Some("durable-inbox-turn".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.journal_prelude.push(
+        SessionEventData::AgentInboxSpliced {
+            target: InboxTarget::NextTurn,
+            start: 0,
+            removed_count: 1,
+            inserted: Vec::new(),
+            outcome: None,
+        }
+        .into(),
+    );
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let session = journal.load("durable-inbox-turn").await.unwrap().unwrap();
+    let turn_start = session
+        .events()
+        .iter()
+        .find(|event| matches!(event.data(), SessionEventData::TurnStart { turn: 1 }))
+        .unwrap();
+    let claim = session
+        .events()
+        .iter()
+        .find(|event| {
+            matches!(
+                event.data(),
+                SessionEventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    removed_count: 1,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let user = session
+        .events()
+        .iter()
+        .find(|event| matches!(event.data(), SessionEventData::UserMessage { .. }))
+        .unwrap();
+    assert_eq!(turn_start.revision, claim.revision);
+    assert_eq!(claim.revision, user.revision);
+}
+
+#[tokio::test]
+async fn active_loop_adopts_intervening_durable_inbox_appends() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let provider = Arc::new(GatedProvider::new());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("live-inbox-writer".to_owned());
+    request.journal_store = Some(journal.clone());
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+            break;
+        }
+    }
+
+    let session = journal.load("live-inbox-writer").await.unwrap().unwrap();
+    journal
+        .append(
+            "live-inbox-writer",
+            session.revision(),
+            vec![SessionEventData::AgentInboxSpliced {
+                target: InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 0,
+                inserted: vec![InboxMessage::user("later", "next turn")],
+                outcome: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    provider.release_first.notify_one();
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+
+    let session = journal.load("live-inbox-writer").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|event| {
+        matches!(
+            event.data(),
+            SessionEventData::AgentInboxSpliced { inserted, .. }
+                if inserted.iter().any(|message| message.id == "later")
+        )
+    }));
+    assert!(session.events().iter().any(|event| {
+        matches!(
+            event.data(),
+            SessionEventData::TurnEnd {
+                turn: 1,
+                reason: TurnEndReason::Completed
+            }
+        )
+    }));
 }

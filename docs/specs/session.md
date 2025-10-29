@@ -18,8 +18,8 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
 
 ## 事件词汇
 
-v1 Log 覆盖 Turn Start/End、Step Start/End、User Message、Request Header、Assistant Chunk、
-完整 Assistant Message、Tool Call、Tool Result 和 End-seed Metadata。Tool 原始参数 JSON
+v1 Log 覆盖 Durable Agent Inbox Splice、Turn Start/End、Step Start/End、User Message、Request
+Header、Assistant Chunk、完整 Assistant Message、Tool Call、Tool Result 和 End-seed Metadata。Tool 原始参数 JSON
 必须保留。Provider 可见值放在 Request/Message 事件中；审批 UI 事件不能变成模型消息。
 
 ## 生命周期校验
@@ -50,8 +50,8 @@ Request Header 必须记录本次实际使用的消息 Revision、压缩 Policy 
 
 ## 当前限制
 
-- 尚无持久 Inbox、Claim/Lease、Branch、Compaction Surface、Attachment Store 或
-  Multi-writer Agent Ownership。
+- Durable Inbox Event、Claim Batch 和本机 Lease 位于 `xharness-agent`；Host 尚未完成迁移。
+- 尚无 Branch、Compaction Surface、Attachment Store 或远程 Multi-writer Fencing。
 - Message Content 仍以文本为主，尚无强类型多模态 Block。
 - Query Index 和二级投影不属于本 Crate。
 

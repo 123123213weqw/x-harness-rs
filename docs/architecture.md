@@ -35,7 +35,7 @@ DeepSeek Web UI / future CLI
                |
   +------------+-------------+
   |                          |
-xharness-agent（计划）   prompt/context（计划）
+xharness-agent（迁移中） prompt/context（计划）
   |                          |
   +--------- xharness-core --+
               |          |
@@ -74,6 +74,10 @@ Token Meter 或实际压缩策略。这个缺口已经在真实 53,248-token 服
 Host 控制面也已完成两层解耦：原生部署组合移动到 `xharness-host-app`；BasicHost 只通过
 `AgentRuntime -> RunningTurn` 驱动 Turn。当前 `LoopAgentRuntime` 是 v0 Loop 的兼容适配器，
 未来 Durable Agent/Inbox 实现替换该适配器，不触碰 Web RPC。
+
+`xharness-agent` 已交付 `agent/inbox/spliced` 可重放事件、Next-turn/Next-step 投影、Claim 与
+Turn 输入同 Revision 提交、进程内 Registry、AgentSupervisor、多 Turn Driver、持久 Steering，
+以及 macOS/Linux 文件 Lease。当前仍在把 `BasicHost` 的内存 FIFO 迁移到这条路径。
 
 ## 模块职责
 
@@ -158,7 +162,7 @@ Web UI 是 Session/Agent 状态的 Projection，不拥有模型历史。`xharnes
 2. Core 契约强化、Tool Registry 与原生 14 工具。**已实现基础版。**
 3. Web 兼容 API/Server/Host 和真实 Loop 投影。**已实现基础版。**
 4. 上下文预检、分页 Read、工具结果 Reduce、能力投影与真实 Prompt 注入。**当前 P0。**
-5. 长生命周期 Agent、Durable Inbox、Lease、结构化 Shutdown 与 CLI。**计划中。**
+5. 长生命周期 Agent、Durable Inbox、Lease、结构化 Shutdown 与 CLI。**Inbox/Lease 基础已实现，Driver 迁移中。**
 6. 认证、游标恢复、Attachment、Skills、MCP、LSP、Subagent 与 Workflow。**计划中。**
 
 先稳定事件、上下文和权限契约，再扩展 Web/Daemon/Subagent。否则每个客户端都会绑定临时内存
