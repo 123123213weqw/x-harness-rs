@@ -1608,6 +1608,196 @@ async fn event_journal_recovers_incomplete_tool_as_outcome_unknown_without_repla
 }
 
 #[tokio::test]
+async fn durable_crash_cut_matrix_closes_or_preserves_each_authoritative_boundary() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum CrashCut {
+        Claim,
+        Request,
+        ToolCall,
+        ToolResult,
+        StepEnd,
+        TurnEnd,
+    }
+
+    for cut in [
+        CrashCut::Claim,
+        CrashCut::Request,
+        CrashCut::ToolCall,
+        CrashCut::ToolResult,
+        CrashCut::StepEnd,
+        CrashCut::TurnEnd,
+    ] {
+        let session_id = format!("crash-cut-{cut:?}").to_ascii_lowercase();
+        let journal = Arc::new(EventMemorySessionStore::default());
+        journal
+            .create(SessionHeader::new(&session_id))
+            .await
+            .unwrap();
+        let mut events = vec![
+            SessionEventData::TurnStart { turn: 1 }.into(),
+            SessionEventData::UserMessage {
+                message: AgentMessage::user("durable original").with_id("original-input"),
+            }
+            .into(),
+        ];
+        if cut != CrashCut::Claim {
+            events.extend([
+                SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                SessionEventData::RequestHeader {
+                    header: xharness_session::RequestHeader::new("crashed", "model"),
+                }
+                .into(),
+            ]);
+        }
+        if matches!(cut, CrashCut::ToolCall | CrashCut::ToolResult) {
+            let call = ToolCall {
+                id: "durable-side-effect".to_owned(),
+                index: 0,
+                name: "dangerous".to_owned(),
+                arguments_json: "{}".to_owned(),
+            };
+            let mut assistant = AgentMessage::assistant("");
+            assistant.tool_calls.push(call.clone());
+            events.extend([
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call,
+                }
+                .into(),
+            ]);
+            if cut == CrashCut::ToolResult {
+                events.push(
+                    SessionEventData::ToolResult {
+                        turn: 1,
+                        step: 1,
+                        result: xharness_session::ToolResultData {
+                            call_id: "durable-side-effect".to_owned(),
+                            outcome: ToolOutcome::Success,
+                            content: "authoritative result".to_owned(),
+                            metadata: None,
+                        },
+                    }
+                    .into(),
+                );
+            }
+        }
+        if matches!(cut, CrashCut::StepEnd | CrashCut::TurnEnd) {
+            events.extend([
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: AgentMessage::assistant("durable answer").with_id("durable-answer"),
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::StepEnd { turn: 1, step: 1 }.into(),
+            ]);
+        }
+        if cut == CrashCut::TurnEnd {
+            events.push(
+                SessionEventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Completed,
+                }
+                .into(),
+            );
+        }
+        journal
+            .append(&session_id, Revision::ZERO, events)
+            .await
+            .unwrap();
+        journal.flush(&session_id).await.unwrap();
+
+        let provider = Arc::new(ScriptProvider::new([vec![
+            Ok(ProviderEvent::TextDelta("recovered".to_owned())),
+            Ok(completed()),
+        ]]));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let tool = ToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
+            let executions = Arc::clone(&executions);
+            move |_, _| {
+                executions.fetch_add(1, Ordering::SeqCst);
+                async { ToolResult::success("must not replay") }
+            }
+        });
+        let mut request =
+            LoopRequest::new(provider.clone(), vec![AgentMessage::user("recovery probe")]);
+        request.session_id = Some(session_id.clone());
+        request.journal_store = Some(journal.clone());
+        request.tools.push(tool);
+
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Completed, "cut={cut:?}");
+        assert_eq!(executions.load(Ordering::SeqCst), 0, "cut={cut:?}");
+        assert_eq!(provider.attempts(), 1, "cut={cut:?}");
+
+        let recovered = journal.load(&session_id).await.unwrap().unwrap();
+        assert_eq!(
+            recovered
+                .derive_messages()
+                .iter()
+                .filter(|message| message.id.as_deref() == Some("original-input"))
+                .count(),
+            1,
+            "cut={cut:?}"
+        );
+        let turn_one_end = recovered
+            .events()
+            .iter()
+            .find_map(|event| match event.data() {
+                SessionEventData::TurnEnd { turn: 1, reason } => Some(reason),
+                _ => None,
+            });
+        if cut == CrashCut::TurnEnd {
+            assert_eq!(turn_one_end, Some(&TurnEndReason::Completed), "cut={cut:?}");
+        } else {
+            assert_eq!(
+                turn_one_end,
+                Some(&TurnEndReason::Interrupted),
+                "cut={cut:?}"
+            );
+        }
+        assert!(recovered.events().iter().any(|event| matches!(
+            event.data(),
+            SessionEventData::TurnEnd {
+                turn: 2,
+                reason: TurnEndReason::Completed,
+            }
+        )));
+
+        let durable_results = recovered
+            .events()
+            .iter()
+            .filter_map(|event| match event.data() {
+                SessionEventData::ToolResult { result, .. }
+                    if result.call_id == "durable-side-effect" =>
+                {
+                    Some(result.outcome)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        match cut {
+            CrashCut::ToolCall => {
+                assert_eq!(durable_results, [ToolOutcome::OutcomeUnknown]);
+            }
+            CrashCut::ToolResult => {
+                assert_eq!(durable_results, [ToolOutcome::Success]);
+            }
+            _ => assert!(durable_results.is_empty(), "cut={cut:?}"),
+        }
+    }
+}
+
+#[tokio::test]
 async fn cancel_command_is_acknowledged_before_the_run_stops() {
     let provider = Arc::new(GatedProvider::new());
     let request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);

@@ -136,3 +136,7 @@ Revision、过期 Claim CAS 失败、Registry 身份复用、文件 Lease 互斥
 Inject、Active Steer、恢复去重和重启继续 Turn 编号。
 Host 替换阶段还必须硬杀进程并覆盖：Enqueue 后未领取、Request 前、Tool Call Flush 后、Tool
 Result Flush 后和 Turn End 后五个故障点，证明输入不丢且工具副作用不重复。
+
+当前测试已经把范围细化为 Admission、原子 Claim、Request Header、Tool Call、Tool Result、
+Step End、Turn End 七个持久切点，并用可验证日志前缀覆盖全部恢复语义。真实 Host 子进程
+SIGKILL 矩阵仍是发布门槛；确定性前缀测试不能替代内核 Page Cache、目录 Sync 和进程终止时序。

@@ -63,6 +63,9 @@ Commit、Issue、PR 应引用这些 ID。
   Runtime 调用前，以 RPC ID + 规范化 Payload SHA-256 做会话内幂等判定；并发同 Payload 只
   Admission 一次，不同 Payload 复用 ID fail closed。回执从完整 `agent/inbox/spliced` 历史
   重建，成功响应丢失、消息已消费或 Host 重启后重试都不会重复插入输入。
+- [x] `DONE-27` 七个持久切点的确定性恢复矩阵：Admission、Claim、Request Header、Tool Call、
+  Tool Result、Step End、Turn End。已证明未闭合 Turn 变为 `Interrupted`、已落账 Tool Call 只产
+  `OutcomeUnknown` 而不重放、权威 Tool Result/Completed Turn 保持不变、原输入只派生一次。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -82,7 +85,8 @@ Commit、Issue、PR 应引用这些 ID。
   `Store::list_headers`、Host 启动 Replay、Workspace/Session/History/Queue 重建和 Pending Turn
   显式 Wake 已完成；Host 内存 FIFO 已不再是模型执行输入的真源，只承担进程内 Web Projection
   与 Driver Attachment。剩余：把这份 Projection/FIFO 本身替换成可游标查询的持久视图，持久化
-  Workspace/Settings/Approval 和 Prompt 之外所有变更 RPC 的 Receipt，补七个硬崩溃点矩阵。
+  Workspace/Settings/Approval 和 Prompt 之外所有变更 RPC 的 Receipt；七点日志前缀恢复矩阵已
+  完成，剩余同七点的真实子进程 SIGKILL/重启矩阵。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，
