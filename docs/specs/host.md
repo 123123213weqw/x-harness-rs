@@ -18,7 +18,9 @@ Bundle、Platform、Terminal 或 Web Runtime。`xharness-host-app` 负责选择�
 链接默认 Web Server 和原生工具组合。
 
 当前 `BasicHost` 仍把 Workspace、Session 摘要、Web Queue Projection 和 Driver Attachment
-作为内存派生缓存，但 Prompt Admission、模型历史和 Agent Driver 已切到持久 Session/Inbox Store。
+作为内存派生缓存，但 Prompt Admission、模型历史、Web History 和 Agent Driver 已切到持久
+Session/Inbox Store。`session.history` 会在读取前刷新权威 Session Cut；运行中和启动恢复共用
+同一个纯投影函数，详细契约见 [Web Session 确定性投影](web-session-projection.md)。
 启动时会通过 `Store::list_headers` 从强类型日志重建 Session、History、模型路由、Workspace 归属和
 Pending Queue，并在订阅后续跑。它仍不是最终持久 Host Store；继续替换时禁止改变 52 个方法名、
 四象限 RPC 信封和事件帧形状。详细顺序见[Host 启动恢复规范](host-restore.md)。

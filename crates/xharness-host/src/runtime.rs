@@ -17,7 +17,7 @@ use xharness_core::{
     AgentMessage, ContextPolicy, InjectionMode, LoopCommand, LoopControlError, LoopEngine,
     LoopEvent, LoopRequest, LoopResult, LoopRun, LoopStatus, ModelProvider, Role,
 };
-use xharness_session::{SessionHeader, Store};
+use xharness_session::{Session, SessionHeader, Store};
 
 use crate::{PermissionPreset, SessionToolFactory};
 
@@ -125,6 +125,21 @@ pub trait AgentRuntime: Send + Sync + 'static {
     fn has_available_route(&self) -> bool;
 
     fn can_route(&self, route: &ModelRoute) -> bool;
+
+    /// Whether this runtime owns an append-only Session log that is the
+    /// authoritative source for browser history and restart projection.
+    fn has_authoritative_sessions(&self) -> bool {
+        false
+    }
+
+    /// Load one immutable authoritative cut. Ephemeral runtimes return `None`;
+    /// durable runtimes return the current Session when it has been created.
+    async fn authoritative_session(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<Session>, AgentRuntimeError> {
+        Ok(None)
+    }
 
     /// Reattach already-durable work after a Host restart. Ephemeral runtimes
     /// have no authoritative inbox and therefore report no recovered work.
@@ -282,6 +297,7 @@ pub struct DurableLoopAgentRuntime {
     provider_id: String,
     model_id: String,
     provider_available: bool,
+    store: Arc<dyn Store>,
     sessions: Arc<RwLock<HashMap<String, DurableSessionConfig>>>,
     supervisor: AgentSupervisor,
     prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
@@ -314,11 +330,12 @@ impl DurableLoopAgentRuntime {
             context_policy,
             sessions: Arc::clone(&sessions),
         });
-        let registry = Arc::new(AgentRegistry::new(store, leases));
+        let registry = Arc::new(AgentRegistry::new(Arc::clone(&store), leases));
         Self {
             provider_id: provider_id.into(),
             model_id: model_id.into(),
             provider_available,
+            store,
             sessions,
             supervisor: AgentSupervisor::new(registry, factory, event_capacity),
             prepared: Mutex::new(HashMap::new()),
@@ -399,6 +416,22 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         self.provider_available
             && route.provider == self.provider_id
             && route.model == self.model_id
+    }
+
+    fn has_authoritative_sessions(&self) -> bool {
+        true
+    }
+
+    async fn authoritative_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<Session>, AgentRuntimeError> {
+        self.store
+            .load(session_id)
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: format!("could not load durable session {session_id:?}: {error}"),
+            })
     }
 
     async fn resume_session(

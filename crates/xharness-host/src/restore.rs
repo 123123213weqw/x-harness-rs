@@ -99,11 +99,7 @@ impl BasicHost {
                 .collect::<VecDeque<_>>();
             let admissions = restored_admissions(&session);
             let projected_queue_len = queue.len();
-            let events = session
-                .events()
-                .iter()
-                .map(|event| restored_web_event(event, &route))
-                .collect::<Vec<_>>();
+            let events = project_session_events(&session, &route);
             let messages = session.derive_messages();
             let updated_at = session
                 .events()
@@ -141,6 +137,7 @@ impl BasicHost {
                 messages,
                 queue,
                 admissions,
+                authoritative_seq: Some(session.next_seq()),
                 control: None,
                 next_turn,
             };
@@ -280,7 +277,46 @@ fn restored_admissions(session: &Session) -> BTreeMap<String, QueuedPrompt> {
     admissions
 }
 
-fn restored_web_event(event: &LoggedEvent, route: &ModelRoute) -> Value {
+#[derive(Clone)]
+struct PromptView {
+    content: Vec<Value>,
+    source: Value,
+}
+
+pub(crate) fn project_session_events(session: &Session, route: &ModelRoute) -> Vec<Value> {
+    let prompts = prompt_views(session);
+    session
+        .events()
+        .iter()
+        .map(|event| restored_web_event(event, route, &prompts))
+        .collect()
+}
+
+fn prompt_views(session: &Session) -> BTreeMap<String, PromptView> {
+    let mut prompts = BTreeMap::new();
+    for event in session.events() {
+        let EventData::AgentInboxSpliced { inserted, .. } = event.data() else {
+            continue;
+        };
+        for input in inserted {
+            let prompt = restored_prompt(input);
+            prompts.insert(
+                input.id.clone(),
+                PromptView {
+                    content: prompt.content,
+                    source: prompt.source,
+                },
+            );
+        }
+    }
+    prompts
+}
+
+fn restored_web_event(
+    event: &LoggedEvent,
+    route: &ModelRoute,
+    prompts: &BTreeMap<String, PromptView>,
+) -> Value {
     let (event_type, data, surface_op) = match event.data() {
         EventData::AgentInboxSpliced { .. } | EventData::RequestHeader { .. } => {
             tagged_event_data(event.data())
@@ -310,7 +346,7 @@ fn restored_web_event(event: &LoggedEvent, route: &ModelRoute) -> Value {
         ),
         EventData::UserMessage { message } => (
             "user/message".to_owned(),
-            web_message(message, route, event.seq),
+            web_message(message, route, event.seq, prompts),
             Some("append"),
         ),
         EventData::AssistantChunk { turn, step, chunk } => (
@@ -332,7 +368,7 @@ fn restored_web_event(event: &LoggedEvent, route: &ModelRoute) -> Value {
             json!({
                 "turn": web_turn(*turn),
                 "step": step,
-                "message": web_message(message, route, event.seq),
+                "message": web_message(message, route, event.seq, prompts),
                 "usage": usage,
             }),
             Some("append"),
@@ -448,11 +484,26 @@ fn web_assistant_chunk(chunk: &AssistantChunk) -> Value {
     }
 }
 
-fn web_message(message: &Message, route: &ModelRoute, seq: u64) -> Value {
+fn web_message(
+    message: &Message,
+    route: &ModelRoute,
+    seq: u64,
+    prompts: &BTreeMap<String, PromptView>,
+) -> Value {
     let id = message
         .id
         .clone()
         .unwrap_or_else(|| format!("restored-{}-{seq}", message.role.as_str()));
+    if message.role == MessageRole::User {
+        if let Some(prompt) = prompts.get(&id) {
+            return json!({
+                "id": id,
+                "role": "user",
+                "content": prompt.content,
+                "source": prompt.source,
+            });
+        }
+    }
     let source = match message.role {
         MessageRole::Assistant => {
             json!({"kind": "model", "provider": route.provider, "model": route.model})
@@ -840,6 +891,136 @@ mod tests {
                 .sum::<usize>(),
             1,
             "a response-loss retry must not append a second durable input"
+        );
+    }
+
+    #[tokio::test]
+    async fn live_and_restarted_history_use_the_same_authoritative_projection() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let release = Arc::new(Notify::new());
+        let provider = Arc::new(GatedProvider {
+            calls: AtomicUsize::new(0),
+            release: Arc::clone(&release),
+            answers: Mutex::new(VecDeque::from(["stable answer".to_owned()])),
+        });
+        let provider_dyn: Arc<dyn ModelProvider> = provider.clone();
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider_dyn),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let live = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        let created = live
+            .call(
+                RpcId::new("projection-create"),
+                RpcMethod::SessionCreate,
+                json!({"sessionId": "projection-session", "cwd": cwd}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(created, RpcResult::Success { .. }));
+        let admitted = live
+            .call(
+                RpcId::new("projection-prompt"),
+                RpcMethod::SessionPrompt,
+                json!({
+                    "sessionId": "projection-session",
+                    "mode": "queue",
+                    "clientTimeZone": "Asia/Shanghai",
+                    "content": [{"type": "text", "text": "stable question"}],
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(admitted, RpcResult::Success { .. }));
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let completed = store
+                    .load("projection-session")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .events()
+                    .iter()
+                    .any(|event| matches!(event.data(), EventData::TurnEnd { .. }));
+                if completed {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("live turn completes");
+        let live_history = live
+            .call(
+                RpcId::new("projection-live-history"),
+                RpcMethod::SessionHistory,
+                json!({"sessionId": "projection-session", "maxMessages": 500}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(live_history),
+        } = live_history
+        else {
+            panic!("live history failed: {live_history:?}");
+        };
+
+        let restarted_runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let restarted = BasicHost::with_agent_runtime(config(&cwd), restarted_runtime);
+        let report = restarted
+            .restore_from_store(Arc::clone(&store))
+            .await
+            .unwrap();
+        assert!(report.issues.is_empty());
+        let restarted_history = restarted
+            .call(
+                RpcId::new("projection-restarted-history"),
+                RpcMethod::SessionHistory,
+                json!({"sessionId": "projection-session", "maxMessages": 500}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(restarted_history),
+        } = restarted_history
+        else {
+            panic!("restarted history failed: {restarted_history:?}");
+        };
+        assert_eq!(live_history["events"], restarted_history["events"]);
+        assert_eq!(
+            live_history["projections"],
+            restarted_history["projections"]
+        );
+        let user = live_history["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["event"]["type"] == "user/message")
+            .unwrap();
+        assert_eq!(
+            user["event"]["data"]["content"][0]["text"],
+            "stable question"
+        );
+        assert_eq!(
+            user["event"]["data"]["source"]["clientTimeZone"],
+            "Asia/Shanghai"
         );
     }
 }

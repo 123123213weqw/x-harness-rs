@@ -102,7 +102,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [x] `A-07` Agent Claim、`turn/start`、`user/message` 在同一 CAS Revision 提交。
 - [x] `A-07a` `session.prompt/subagent.prompt` 建立跨并发、消费和重启的持久 Admission Receipt；
   相同 RPC ID + Payload 幂等成功，不同 Payload 复用 ID fail closed。
-- [ ] `A-08` 把 Agent Event 确定性投影为冻结 Web Session Event。
+- [ ] `A-08` 把 Agent Event 确定性投影为冻结 Web Session Event。权威 History Cursor、运行/重启
+  同源纯投影和结构化 User Message 已完成；剩余 Approval、Provider Retry 等控制事件的强类型
+  持久化，以及冻结 48 Event 的逐项 Schema/Fixture 等价。
 - [ ] `A-09` 重启恢复 Workspace、Session、Inbox、运行终态和未决 Outcome。已完成由
   Session Header/Log 可推导的 Workspace、Session、History、模型路由、Next-turn Queue 和
   Pending Turn 和 Prompt RPC Receipt；未完成自定义 Workspace 元数据、Settings、Pending Approval、

@@ -4,6 +4,7 @@ use xharness_api::{RpcError, RpcErrorCode, RpcId};
 use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
 
 use crate::{
+    restore::project_session_events,
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute},
     state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
     BasicHost,
@@ -20,6 +21,81 @@ pub(crate) struct PromptAdmission {
 }
 
 impl BasicHost {
+    /// Refresh the browser history cache from the runtime-owned append-only
+    /// Session. The returned boolean distinguishes a durable runtime from the
+    /// legacy ephemeral adapter, even before a Session file exists.
+    pub(crate) async fn sync_authoritative_session(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, RpcError> {
+        if !self.agent_runtime.has_authoritative_sessions() {
+            return Ok(false);
+        }
+        let Some(session) = self
+            .agent_runtime
+            .authoritative_session(session_id)
+            .await
+            .map_err(agent_runtime_error)?
+        else {
+            return Ok(true);
+        };
+        let route = {
+            let state = self.state.read().await;
+            let record = state.sessions.get(session_id).ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::SessionNotFound,
+                    format!("session {session_id:?} was not found"),
+                    json!({"sessionId": session_id}),
+                )
+            })?;
+            ModelRoute {
+                provider: record.model.provider.clone(),
+                model: record.model.model.clone(),
+                reasoning_effort: record.model.reasoning_effort.clone(),
+            }
+        };
+        let projected = project_session_events(&session, &route);
+        let next_seq = session.next_seq();
+        let new_events =
+            {
+                let mut state = self.state.write().await;
+                let record = state
+                    .sessions
+                    .get_mut(session_id)
+                    .expect("session checked before projection");
+                let previous = record.authoritative_seq.unwrap_or_default();
+                let start = usize::try_from(previous)
+                    .map_err(|_| RpcError::internal("authoritative session cursor overflow"))?;
+                if start > projected.len() {
+                    return Err(RpcError::internal(format!(
+                        "authoritative session {session_id:?} moved behind cursor {previous}"
+                    )));
+                }
+                let new_events = projected[start..].to_vec();
+                record.events = projected;
+                record.authoritative_seq = Some(next_seq);
+                record.messages = session.derive_messages();
+                record.updated_at = session
+                    .events()
+                    .last()
+                    .map_or(record.created_at, |event| event.timestamp_ms);
+                if session.events().iter().any(|event| {
+                    matches!(event.data(), xharness_session::EventData::TurnStart { .. })
+                }) {
+                    record.blank = false;
+                }
+                new_events
+            };
+        for event in new_events {
+            self.push_mux(json!({
+                "type": "session/event",
+                "sessionId": session_id,
+                "event": event,
+            }));
+        }
+        Ok(true)
+    }
+
     pub(crate) async fn append_session_event(
         &self,
         session_id: &str,
@@ -357,23 +433,26 @@ impl BasicHost {
             )
         };
 
-        self.append_session_event(
-            session_id,
-            "turn/start",
-            json!({
-                "turn": turn,
-                "trigger": {"kind": "message", "source": {"kind": "user"}},
-            }),
-            None,
-        )
-        .await?;
-        self.append_session_event(
-            session_id,
-            "user/message",
-            web_user_message(&prompt.id, prompt.content, prompt.source),
-            Some("append"),
-        )
-        .await?;
+        let authoritative = self.sync_authoritative_session(session_id).await?;
+        if !authoritative {
+            self.append_session_event(
+                session_id,
+                "turn/start",
+                json!({
+                    "turn": turn,
+                    "trigger": {"kind": "message", "source": {"kind": "user"}},
+                }),
+                None,
+            )
+            .await?;
+            self.append_session_event(
+                session_id,
+                "user/message",
+                web_user_message(&prompt.id, prompt.content, prompt.source),
+                Some("append"),
+            )
+            .await?;
+        }
 
         let mut run = self
             .agent_runtime
@@ -393,8 +472,13 @@ impl BasicHost {
             tokio::select! {
                 event = run.next_event() => match event {
                     Some(event) => {
-                        self.project_loop_event(session_id, turn, &mut current_step, event)
-                            .await?;
+                        if authoritative {
+                            self.sync_authoritative_session(session_id).await?;
+                            self.project_authoritative_control_event(session_id, event).await?;
+                        } else {
+                            self.project_loop_event(session_id, turn, &mut current_step, event)
+                                .await?;
+                        }
                     }
                     None => break,
                 },
@@ -410,6 +494,17 @@ impl BasicHost {
         }
 
         let result = run.result().await;
+        if authoritative {
+            self.sync_authoritative_session(session_id).await?;
+            self.state
+                .write()
+                .await
+                .pending
+                .retain(|_, pending| match pending {
+                    PendingResponse::Approval { session_id: id, .. } => id != session_id,
+                });
+            return Ok(());
+        }
         if !result.final_text.is_empty() {
             let model = self
                 .state
@@ -486,6 +581,69 @@ impl BasicHost {
             None,
         )
         .await?;
+        Ok(())
+    }
+
+    async fn project_authoritative_control_event(
+        &self,
+        session_id: &str,
+        event: LoopEvent,
+    ) -> Result<(), RpcError> {
+        match event.kind {
+            LoopEventKind::ToolApprovalRequested { call } => {
+                let approval_id = call.id.clone();
+                let rpc_id = RpcId::new(self.mint_id("approval"));
+                let control = self
+                    .state
+                    .read()
+                    .await
+                    .sessions
+                    .get(session_id)
+                    .and_then(|session| session.control.clone())
+                    .ok_or_else(|| RpcError::internal("session control channel is unavailable"))?;
+                self.state.write().await.pending.insert(
+                    rpc_id.as_str().to_owned(),
+                    PendingResponse::Approval {
+                        session_id: session_id.to_owned(),
+                        approval_id: approval_id.clone(),
+                        call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        control,
+                    },
+                );
+                self.push_mux_correlated(
+                    rpc_id,
+                    json!({
+                        "type": "approval/requested",
+                        "sessionId": session_id,
+                        "approvalId": approval_id,
+                        "toolName": call.name,
+                        "callId": call.id,
+                        "reason": "This tool requires explicit approval.",
+                    }),
+                );
+            }
+            LoopEventKind::ToolApprovalResolved {
+                call,
+                approved,
+                reason: _,
+            } => {
+                self.push_mux(json!({
+                    "type": "approval/resolved",
+                    "sessionId": session_id,
+                    "approvalId": call.id,
+                    "outcome": if approved { "allowed-once" } else { "rejected" },
+                }));
+            }
+            LoopEventKind::RunFailed { error } => {
+                self.push_host(json!({
+                    "type": "host/agent-error",
+                    "sessionId": session_id,
+                    "message": error,
+                }));
+            }
+            _ => {}
+        }
         Ok(())
     }
 

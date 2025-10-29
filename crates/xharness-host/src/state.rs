@@ -194,6 +194,8 @@ pub struct SessionRecord {
     #[serde(skip)]
     pub(crate) admissions: BTreeMap<String, QueuedPrompt>,
     #[serde(skip)]
+    pub(crate) authoritative_seq: Option<u64>,
+    #[serde(skip)]
     pub(crate) control: Option<mpsc::Sender<DriverCommand>>,
     pub(crate) next_turn: u32,
 }

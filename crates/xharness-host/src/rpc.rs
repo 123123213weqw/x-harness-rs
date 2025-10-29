@@ -531,6 +531,7 @@ impl BasicHost {
             messages: Vec::new(),
             queue: Default::default(),
             admissions: Default::default(),
+            authoritative_seq: None,
             control: None,
             next_turn: 0,
         };
@@ -562,6 +563,7 @@ impl BasicHost {
 
     async fn session_history(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        self.sync_authoritative_session(&session_id).await?;
         let before_seq = optional_u64(payload, "beforeSeq")?;
         let max_messages = optional_u64(payload, "maxMessages")?
             .and_then(|value| usize::try_from(value).ok())
@@ -721,6 +723,7 @@ impl BasicHost {
             messages: source.messages.clone(),
             queue: Default::default(),
             admissions: Default::default(),
+            authoritative_seq: None,
             control: None,
             next_turn: source.next_turn,
         };
