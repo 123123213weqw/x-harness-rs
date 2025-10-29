@@ -1,0 +1,922 @@
+{
+  "agent_presets": [
+    {
+      "description": "具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。",
+      "directory": "code",
+      "name": "PTC 模式",
+      "source": "apps/cli/config/agent-presets/code/preset.yml"
+    },
+    {
+      "description": "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。",
+      "directory": "cordis",
+      "name": "创造模式",
+      "source": "apps/cli/config/agent-presets/cordis/preset.yml"
+    },
+    {
+      "description": "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。",
+      "directory": "minimal",
+      "name": "极简模式",
+      "source": "apps/cli/config/agent-presets/minimal/preset.yml"
+    },
+    {
+      "description": "功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。",
+      "directory": "standard",
+      "name": "标准模式",
+      "source": "apps/cli/config/agent-presets/standard/preset.yml"
+    }
+  ],
+  "packages": [
+    "@deepseek-ai/dsh-acp",
+    "@deepseek-ai/dsh-acp-demo",
+    "@deepseek-ai/dsh-acp-snapshot",
+    "@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-agent-default-model",
+    "@deepseek-ai/dsh-agent-instructions",
+    "@deepseek-ai/dsh-agent-loop",
+    "@deepseek-ai/dsh-agent-loop-testkit",
+    "@deepseek-ai/dsh-agent-presets",
+    "@deepseek-ai/dsh-agent-spine-demo",
+    "@deepseek-ai/dsh-agent-tool-presentation",
+    "@deepseek-ai/dsh-anonymous-user-id",
+    "@deepseek-ai/dsh-api-gateway",
+    "@deepseek-ai/dsh-api-remotes",
+    "@deepseek-ai/dsh-app-boot",
+    "@deepseek-ai/dsh-atomic-write",
+    "@deepseek-ai/dsh-attachment",
+    "@deepseek-ai/dsh-attachment-local",
+    "@deepseek-ai/dsh-base",
+    "@deepseek-ai/dsh-bash-local",
+    "@deepseek-ai/dsh-bash-sandbox",
+    "@deepseek-ai/dsh-brand",
+    "@deepseek-ai/dsh-client-connection",
+    "@deepseek-ai/dsh-client-hmr",
+    "@deepseek-ai/dsh-client-locale",
+    "@deepseek-ai/dsh-client-modules",
+    "@deepseek-ai/dsh-client-runtime",
+    "@deepseek-ai/dsh-client-test-runtime",
+    "@deepseek-ai/dsh-client-ui-agent-preset",
+    "@deepseek-ai/dsh-client-ui-attachment",
+    "@deepseek-ai/dsh-client-ui-brand-official",
+    "@deepseek-ai/dsh-client-ui-commands",
+    "@deepseek-ai/dsh-client-ui-conversation",
+    "@deepseek-ai/dsh-client-ui-cordis",
+    "@deepseek-ai/dsh-client-ui-deliverables",
+    "@deepseek-ai/dsh-client-ui-directory-picker-browse",
+    "@deepseek-ai/dsh-client-ui-directory-picker-native",
+    "@deepseek-ai/dsh-client-ui-goal",
+    "@deepseek-ai/dsh-client-ui-input-trigger",
+    "@deepseek-ai/dsh-client-ui-jobs",
+    "@deepseek-ai/dsh-client-ui-layout",
+    "@deepseek-ai/dsh-client-ui-message-feedback",
+    "@deepseek-ai/dsh-client-ui-model-selection",
+    "@deepseek-ai/dsh-client-ui-permission-presets",
+    "@deepseek-ai/dsh-client-ui-plan",
+    "@deepseek-ai/dsh-client-ui-primitives",
+    "@deepseek-ai/dsh-client-ui-reference",
+    "@deepseek-ai/dsh-client-ui-renderer",
+    "@deepseek-ai/dsh-client-ui-settings",
+    "@deepseek-ai/dsh-client-ui-settings-general",
+    "@deepseek-ai/dsh-client-ui-settings-models",
+    "@deepseek-ai/dsh-client-ui-settings-plugin-inventory",
+    "@deepseek-ai/dsh-client-ui-settings-plugins",
+    "@deepseek-ai/dsh-client-ui-sidebar",
+    "@deepseek-ai/dsh-client-ui-skill",
+    "@deepseek-ai/dsh-client-ui-slots",
+    "@deepseek-ai/dsh-client-ui-subagent",
+    "@deepseek-ai/dsh-client-ui-theme",
+    "@deepseek-ai/dsh-client-ui-tool",
+    "@deepseek-ai/dsh-client-ui-trajectory",
+    "@deepseek-ai/dsh-client-ui-user-questions",
+    "@deepseek-ai/dsh-client-ui-workflow-run",
+    "@deepseek-ai/dsh-client-ui-workspace",
+    "@deepseek-ai/dsh-client-web",
+    "@deepseek-ai/dsh-cmdline",
+    "@deepseek-ai/dsh-code-runtime",
+    "@deepseek-ai/dsh-code-runtime-python",
+    "@deepseek-ai/dsh-code-runtime-worker-thread",
+    "@deepseek-ai/dsh-command-compact",
+    "@deepseek-ai/dsh-command-feedback",
+    "@deepseek-ai/dsh-command-goal",
+    "@deepseek-ai/dsh-commands",
+    "@deepseek-ai/dsh-compaction",
+    "@deepseek-ai/dsh-compaction-basic",
+    "@deepseek-ai/dsh-compaction-tool-result-pruner",
+    "@deepseek-ai/dsh-cordis-client-runner",
+    "@deepseek-ai/dsh-cordis-host-runner",
+    "@deepseek-ai/dsh-credentials",
+    "@deepseek-ai/dsh-credentials-local",
+    "@deepseek-ai/dsh-e2b",
+    "@deepseek-ai/dsh-experimental-agent-team",
+    "@deepseek-ai/dsh-experimental-tool-agent-team",
+    "@deepseek-ai/dsh-file-reference",
+    "@deepseek-ai/dsh-file-reference-local",
+    "@deepseek-ai/dsh-fs",
+    "@deepseek-ai/dsh-fs-e2b",
+    "@deepseek-ai/dsh-fs-local",
+    "@deepseek-ai/dsh-fs-observation-policy",
+    "@deepseek-ai/dsh-fs-sandbox",
+    "@deepseek-ai/dsh-goal",
+    "@deepseek-ai/dsh-goal-round-driver",
+    "@deepseek-ai/dsh-headless",
+    "@deepseek-ai/dsh-home-paths",
+    "@deepseek-ai/dsh-hook-protocol",
+    "@deepseek-ai/dsh-hooks-claude-code",
+    "@deepseek-ai/dsh-hooks-codex",
+    "@deepseek-ai/dsh-host-apiproxy",
+    "@deepseek-ai/dsh-host-directory-picker",
+    "@deepseek-ai/dsh-host-directory-picker-auto",
+    "@deepseek-ai/dsh-host-directory-picker-browse",
+    "@deepseek-ai/dsh-host-directory-picker-native",
+    "@deepseek-ai/dsh-host-frontend-static",
+    "@deepseek-ai/dsh-host-plugin-inventory",
+    "@deepseek-ai/dsh-host-webserver",
+    "@deepseek-ai/dsh-invariants",
+    "@deepseek-ai/dsh-jobs",
+    "@deepseek-ai/dsh-jobs-local",
+    "@deepseek-ai/dsh-launch-environment",
+    "@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-llm-deepseek",
+    "@deepseek-ai/dsh-llm-mock-server",
+    "@deepseek-ai/dsh-llm-pi-ai",
+    "@deepseek-ai/dsh-llm-replay",
+    "@deepseek-ai/dsh-llm-retry",
+    "@deepseek-ai/dsh-loader-smoke",
+    "@deepseek-ai/dsh-lsp",
+    "@deepseek-ai/dsh-lsp-stdio",
+    "@deepseek-ai/dsh-mcp-client",
+    "@deepseek-ai/dsh-message-feedback",
+    "@deepseek-ai/dsh-native-command",
+    "@deepseek-ai/dsh-output-retention",
+    "@deepseek-ai/dsh-permission-presets",
+    "@deepseek-ai/dsh-persona",
+    "@deepseek-ai/dsh-plan-mode",
+    "@deepseek-ai/dsh-pwsh-local",
+    "@deepseek-ai/dsh-pwsh-sandbox",
+    "@deepseek-ai/dsh-repeat-tool-reminder",
+    "@deepseek-ai/dsh-sandbox",
+    "@deepseek-ai/dsh-sandbox-local",
+    "@deepseek-ai/dsh-sandbox-policy",
+    "@deepseek-ai/dsh-sandbox-windows-acl",
+    "@deepseek-ai/dsh-schedule",
+    "@deepseek-ai/dsh-scope",
+    "@deepseek-ai/dsh-sdk-client",
+    "@deepseek-ai/dsh-sdk-jsonrpc-demo",
+    "@deepseek-ai/dsh-sdk-jsonrpc-server",
+    "@deepseek-ai/dsh-sdk-protocol",
+    "@deepseek-ai/dsh-session",
+    "@deepseek-ai/dsh-session-checkpoint-policy",
+    "@deepseek-ai/dsh-session-log-export",
+    "@deepseek-ai/dsh-session-persistence",
+    "@deepseek-ai/dsh-session-persistence-jsonl",
+    "@deepseek-ai/dsh-session-persistence-sqlite",
+    "@deepseek-ai/dsh-session-projection",
+    "@deepseek-ai/dsh-session-projection-cache",
+    "@deepseek-ai/dsh-session-query",
+    "@deepseek-ai/dsh-session-query-sqlite",
+    "@deepseek-ai/dsh-session-reference",
+    "@deepseek-ai/dsh-session-stats",
+    "@deepseek-ai/dsh-session-telemetry",
+    "@deepseek-ai/dsh-session-telemetry-otel",
+    "@deepseek-ai/dsh-session-title",
+    "@deepseek-ai/dsh-session-title-all-prompts-llm",
+    "@deepseek-ai/dsh-session-title-first-prompt-llm",
+    "@deepseek-ai/dsh-session-title-llm",
+    "@deepseek-ai/dsh-settings",
+    "@deepseek-ai/dsh-settings-file",
+    "@deepseek-ai/dsh-shell",
+    "@deepseek-ai/dsh-shell-env",
+    "@deepseek-ai/dsh-skill",
+    "@deepseek-ai/dsh-skill-badge",
+    "@deepseek-ai/dsh-skill-filesystem",
+    "@deepseek-ai/dsh-spill",
+    "@deepseek-ai/dsh-spill-local",
+    "@deepseek-ai/dsh-spill-policy",
+    "@deepseek-ai/dsh-storage",
+    "@deepseek-ai/dsh-storage-domain",
+    "@deepseek-ai/dsh-storage-json",
+    "@deepseek-ai/dsh-storage-sqlite",
+    "@deepseek-ai/dsh-subagent",
+    "@deepseek-ai/dsh-subagent-acp",
+    "@deepseek-ai/dsh-subagent-claude-code",
+    "@deepseek-ai/dsh-subagent-codex",
+    "@deepseek-ai/dsh-subagent-dsh-sdk",
+    "@deepseek-ai/dsh-subagent-fork-in-process",
+    "@deepseek-ai/dsh-subagent-in-process-driver",
+    "@deepseek-ai/dsh-subagent-spawn-in-process",
+    "@deepseek-ai/dsh-subprocess",
+    "@deepseek-ai/dsh-subprocess-e2b",
+    "@deepseek-ai/dsh-subprocess-local",
+    "@deepseek-ai/dsh-system-prompt",
+    "@deepseek-ai/dsh-terminal",
+    "@deepseek-ai/dsh-terminal-bash",
+    "@deepseek-ai/dsh-time-context",
+    "@deepseek-ai/dsh-timeout",
+    "@deepseek-ai/dsh-tmux-context",
+    "@deepseek-ai/dsh-token-meter",
+    "@deepseek-ai/dsh-tool-ask-user",
+    "@deepseek-ai/dsh-tool-bash",
+    "@deepseek-ai/dsh-tool-bash-persistent",
+    "@deepseek-ai/dsh-tool-call-timeout-policy",
+    "@deepseek-ai/dsh-tool-cordis",
+    "@deepseek-ai/dsh-tool-fs",
+    "@deepseek-ai/dsh-tool-fs-search",
+    "@deepseek-ai/dsh-tool-goal",
+    "@deepseek-ai/dsh-tool-jobs",
+    "@deepseek-ai/dsh-tool-lsp",
+    "@deepseek-ai/dsh-tool-pwsh",
+    "@deepseek-ai/dsh-tool-pwsh-persistent",
+    "@deepseek-ai/dsh-tool-ralph",
+    "@deepseek-ai/dsh-tool-session-query",
+    "@deepseek-ai/dsh-tool-skill",
+    "@deepseek-ai/dsh-tool-str-replace-editor",
+    "@deepseek-ai/dsh-tool-subagent",
+    "@deepseek-ai/dsh-tool-subagent-control",
+    "@deepseek-ai/dsh-tool-subagent-report",
+    "@deepseek-ai/dsh-tool-terminal",
+    "@deepseek-ai/dsh-tool-todo",
+    "@deepseek-ai/dsh-tool-web",
+    "@deepseek-ai/dsh-tool-workflow",
+    "@deepseek-ai/dsh-tools",
+    "@deepseek-ai/dsh-typert-generator",
+    "@deepseek-ai/dsh-typert-loader",
+    "@deepseek-ai/dsh-typert-protocol",
+    "@deepseek-ai/dsh-typert-registry",
+    "@deepseek-ai/dsh-user-approval",
+    "@deepseek-ai/dsh-user-questions",
+    "@deepseek-ai/dsh-web",
+    "@deepseek-ai/dsh-web-app",
+    "@deepseek-ai/dsh-web-fetch-http",
+    "@deepseek-ai/dsh-web-search-deepseek",
+    "@deepseek-ai/dsh-web-search-exa",
+    "@deepseek-ai/dsh-web-search-perplexity",
+    "@deepseek-ai/dsh-workflow",
+    "@deepseek-ai/dsh-workflow-worker-thread",
+    "@deepseek-ai/dsh-workspace",
+    "@fixture/client",
+    "@fixture/domain",
+    "@fixture/host",
+    "@fixture/remote",
+    "@fixture/remote-workspace",
+    "@fixture/workspace",
+    "@fixture/write"
+  ],
+  "prompt_section_registrations": [
+    {
+      "expression": "HARNESS_SOURCE_SECTION",
+      "line": 824,
+      "literal": null,
+      "source": "packages/boot/app-boot/src/index.ts"
+    },
+    {
+      "expression": "'app:web-surface'",
+      "line": 237,
+      "literal": "app:web-surface",
+      "source": "packages/bundle/web-app/src/index.ts"
+    },
+    {
+      "expression": "'ui:deliverable-file-references'",
+      "line": 23,
+      "literal": "ui:deliverable-file-references",
+      "source": "packages/client/ui-deliverables/src/index.ts"
+    },
+    {
+      "expression": "'context:file-reference'",
+      "line": 70,
+      "literal": "context:file-reference",
+      "source": "packages/context/file-reference-local/src/index.ts"
+    },
+    {
+      "expression": "'team:policy'",
+      "line": 164,
+      "literal": "team:policy",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'tool:cordis'",
+      "line": 36,
+      "literal": "tool:cordis",
+      "source": "packages/extensions/tool-cordis/src/index.ts"
+    },
+    {
+      "expression": "'tool:glob'",
+      "line": 301,
+      "literal": "tool:glob",
+      "source": "packages/fs/tool-fs-search/src/glob.ts"
+    },
+    {
+      "expression": "'tool:grep'",
+      "line": 276,
+      "literal": "tool:grep",
+      "source": "packages/fs/tool-fs-search/src/grep.ts"
+    },
+    {
+      "expression": "'tool:edit'",
+      "line": 77,
+      "literal": "tool:edit",
+      "source": "packages/fs/tool-fs/src/edit.ts"
+    },
+    {
+      "expression": "'tool:read'",
+      "line": 70,
+      "literal": "tool:read",
+      "source": "packages/fs/tool-fs/src/read.ts"
+    },
+    {
+      "expression": "'tool:write'",
+      "line": 63,
+      "literal": "tool:write",
+      "source": "packages/fs/tool-fs/src/write.ts"
+    },
+    {
+      "expression": "'tool:goal'",
+      "line": 189,
+      "literal": "tool:goal",
+      "source": "packages/goal/tool-goal/src/index.ts"
+    },
+    {
+      "expression": "'tool:jobs'",
+      "line": 263,
+      "literal": "tool:jobs",
+      "source": "packages/jobs/tool-jobs/src/index.ts"
+    },
+    {
+      "expression": "'tool:lsp'",
+      "line": 104,
+      "literal": "tool:lsp",
+      "source": "packages/lsp/tool-lsp/src/index.ts"
+    },
+    {
+      "expression": "'plan:policy'",
+      "line": 229,
+      "literal": "plan:policy",
+      "source": "packages/plan/plan-mode/src/index.ts"
+    },
+    {
+      "expression": "PERSONA_SECTION",
+      "line": 61,
+      "literal": null,
+      "source": "packages/preset/persona/src/index.ts"
+    },
+    {
+      "expression": "'tool:session-query'",
+      "line": 60,
+      "literal": "tool:session-query",
+      "source": "packages/session-query/tool-session-query/src/index.ts"
+    },
+    {
+      "expression": "'tool:bash'",
+      "line": 236,
+      "literal": "tool:bash",
+      "source": "packages/shell/tool-bash/src/index.ts"
+    },
+    {
+      "expression": "'tool:pwsh'",
+      "line": 245,
+      "literal": "tool:pwsh",
+      "source": "packages/shell/tool-pwsh/src/index.ts"
+    },
+    {
+      "expression": "`tool:${STRUCTURED_OUTPUT_TOOL",
+      "line": 99,
+      "literal": null,
+      "source": "packages/subagent/subagent-in-process-driver/src/structured.ts"
+    },
+    {
+      "expression": "'deployment:persona'",
+      "line": 172,
+      "literal": "deployment:persona",
+      "source": "packages/subagent/subagent/src/child-agent.ts"
+    },
+    {
+      "expression": "'tool:report'",
+      "line": 54,
+      "literal": "tool:report",
+      "source": "packages/subagent/tool-subagent-report/src/index.ts"
+    },
+    {
+      "expression": "`tool:${toolName",
+      "line": 468,
+      "literal": null,
+      "source": "packages/subagent/tool-subagent/src/index.ts"
+    },
+    {
+      "expression": "'tool:pty'",
+      "line": 156,
+      "literal": "tool:pty",
+      "source": "packages/terminal/tool-terminal/src/index.ts"
+    },
+    {
+      "expression": "'tool:web_fetch'",
+      "line": 430,
+      "literal": "tool:web_fetch",
+      "source": "packages/web/tool-web/src/fetch.ts"
+    },
+    {
+      "expression": "'tool:web_search'",
+      "line": 316,
+      "literal": "tool:web_search",
+      "source": "packages/web/tool-web/src/search.ts"
+    },
+    {
+      "expression": "'tool:ralph'",
+      "line": 407,
+      "literal": "tool:ralph",
+      "source": "packages/workflow/tool-ralph/src/index.ts"
+    },
+    {
+      "expression": "`tool:${toolName",
+      "line": 212,
+      "literal": null,
+      "source": "packages/workflow/tool-workflow/src/index.ts"
+    }
+  ],
+  "rpc_methods": [
+    "session.list",
+    "session.search",
+    "session.create",
+    "session.history",
+    "session.models",
+    "session.selectModel",
+    "session.rename",
+    "session.fork",
+    "session.prompt",
+    "session.attachment",
+    "session.updateQueue",
+    "session.cancel",
+    "subagent.list",
+    "subagent.history",
+    "subagent.prompt",
+    "subagent.interrupt",
+    "host.describe",
+    "host.pickDirectory",
+    "host.listDirectory",
+    "host.createDirectory",
+    "host.openPath",
+    "workspace.list",
+    "workspace.create",
+    "workspace.rename",
+    "workspace.delete",
+    "workspace.insertBefore",
+    "workspace.insertSessionBefore",
+    "workspace.archiveSession",
+    "skill.list",
+    "agentPreset.list",
+    "agentPreset.select",
+    "agentPreset.read",
+    "agentPreset.copy",
+    "agentPreset.openDocument",
+    "agentPreset.remove",
+    "goal.create",
+    "goal.edit",
+    "goal.pause",
+    "goal.resume",
+    "goal.complete",
+    "goal.clear",
+    "settings.describe",
+    "settings.openDocument",
+    "settings.update",
+    "settings.replace",
+    "settings.mutate",
+    "credentials.describe",
+    "credentials.set",
+    "credentials.unset",
+    "llm.providers",
+    "llm.models",
+    "llm.discoverModels"
+  ],
+  "schema_version": 1,
+  "session_events": [
+    "agent-preset/selected",
+    "agent/inbox/spliced",
+    "approval/asked",
+    "approval/decided",
+    "approval/policy",
+    "assistant/chunk",
+    "assistant/message",
+    "command/done",
+    "command/run",
+    "compaction/end",
+    "compaction/prune",
+    "compaction/start",
+    "compaction/summary",
+    "feedback/record",
+    "goal/change",
+    "hook/invoked",
+    "hook/result",
+    "llm/retry",
+    "llm/retry-started",
+    "permission/preset",
+    "plan/mode",
+    "request/context",
+    "request/header",
+    "sandbox/mode",
+    "schedule/change",
+    "session/end-seed",
+    "session/title",
+    "session/title-llm-request",
+    "step/end",
+    "step/start",
+    "subagent/descriptor",
+    "team/member",
+    "team/message/delivered",
+    "team/message/queued",
+    "team/task",
+    "todo/write",
+    "tool-workflow/agent-end",
+    "tool-workflow/agent-start",
+    "tool-workflow/run-end",
+    "tool-workflow/run-start",
+    "tool/call",
+    "tool/code-dispatch",
+    "tool/code-dispatch-start",
+    "tool/result",
+    "turn/end",
+    "turn/start",
+    "user/message",
+    "web/deepseek-search-llm-request"
+  ],
+  "tool_registrations": [
+    {
+      "expression": "RUN_CODE_NAME",
+      "line": 298,
+      "literal": null,
+      "source": "packages/core/tools/src/code-mode.ts"
+    },
+    {
+      "expression": "<dynamic-or-missing>",
+      "line": 32,
+      "literal": null,
+      "source": "packages/core/tools/src/testing.ts"
+    },
+    {
+      "expression": "'spawn_teammate'",
+      "line": 173,
+      "literal": "spawn_teammate",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "toolName",
+      "line": 202,
+      "literal": null,
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'list_agents'",
+      "line": 225,
+      "literal": "list_agents",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'wait_agent'",
+      "line": 235,
+      "literal": "wait_agent",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'interrupt_agent'",
+      "line": 270,
+      "literal": "interrupt_agent",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'team_task_create'",
+      "line": 285,
+      "literal": "team_task_create",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'team_task_list'",
+      "line": 309,
+      "literal": "team_task_list",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'team_task_get'",
+      "line": 341,
+      "literal": "team_task_get",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'team_task_update'",
+      "line": 356,
+      "literal": "team_task_update",
+      "source": "packages/experimental/tool-agent-team/src/index.ts"
+    },
+    {
+      "expression": "'cordis_inspect_list'",
+      "line": 41,
+      "literal": "cordis_inspect_list",
+      "source": "packages/extensions/tool-cordis/src/index.ts"
+    },
+    {
+      "expression": "'cordis_inspect_query'",
+      "line": 60,
+      "literal": "cordis_inspect_query",
+      "source": "packages/extensions/tool-cordis/src/index.ts"
+    },
+    {
+      "expression": "'cordis_inspect_self'",
+      "line": 96,
+      "literal": "cordis_inspect_self",
+      "source": "packages/extensions/tool-cordis/src/index.ts"
+    },
+    {
+      "expression": "'cordis_define'",
+      "line": 148,
+      "literal": "cordis_define",
+      "source": "packages/extensions/tool-cordis/src/index.ts"
+    },
+    {
+      "expression": "'cordis_run'",
+      "line": 240,
+      "literal": "cordis_run",
+      "source": "packages/extensions/tool-cordis/src/index.ts"
+    },
+    {
+      "expression": "'cordis_stop'",
+      "line": 329,
+      "literal": "cordis_stop",
+      "source": "packages/extensions/tool-cordis/src/index.ts"
+    },
+    {
+      "expression": "'cordis_undefine'",
+      "line": 351,
+      "literal": "cordis_undefine",
+      "source": "packages/extensions/tool-cordis/src/index.ts"
+    },
+    {
+      "expression": "'glob'",
+      "line": 311,
+      "literal": "glob",
+      "source": "packages/fs/tool-fs-search/src/glob.ts"
+    },
+    {
+      "expression": "'grep'",
+      "line": 282,
+      "literal": "grep",
+      "source": "packages/fs/tool-fs-search/src/grep.ts"
+    },
+    {
+      "expression": "'edit'",
+      "line": 83,
+      "literal": "edit",
+      "source": "packages/fs/tool-fs/src/edit.ts"
+    },
+    {
+      "expression": "'read_image'",
+      "line": 130,
+      "literal": "read_image",
+      "source": "packages/fs/tool-fs/src/read-image.ts"
+    },
+    {
+      "expression": "'read'",
+      "line": 76,
+      "literal": "read",
+      "source": "packages/fs/tool-fs/src/read.ts"
+    },
+    {
+      "expression": "'write'",
+      "line": 69,
+      "literal": "write",
+      "source": "packages/fs/tool-fs/src/write.ts"
+    },
+    {
+      "expression": "'str_replace_editor'",
+      "line": 422,
+      "literal": "str_replace_editor",
+      "source": "packages/fs/tool-str-replace-editor/src/index.ts"
+    },
+    {
+      "expression": "'get_goal'",
+      "line": 195,
+      "literal": "get_goal",
+      "source": "packages/goal/tool-goal/src/index.ts"
+    },
+    {
+      "expression": "'create_goal'",
+      "line": 207,
+      "literal": "create_goal",
+      "source": "packages/goal/tool-goal/src/index.ts"
+    },
+    {
+      "expression": "'update_goal'",
+      "line": 234,
+      "literal": "update_goal",
+      "source": "packages/goal/tool-goal/src/index.ts"
+    },
+    {
+      "expression": "'ask_user_question'",
+      "line": 20,
+      "literal": "ask_user_question",
+      "source": "packages/interaction/tool-ask-user/src/index.ts"
+    },
+    {
+      "expression": "'job_output'",
+      "line": 302,
+      "literal": "job_output",
+      "source": "packages/jobs/tool-jobs/src/index.ts"
+    },
+    {
+      "expression": "'job_list'",
+      "line": 342,
+      "literal": "job_list",
+      "source": "packages/jobs/tool-jobs/src/index.ts"
+    },
+    {
+      "expression": "'job_kill'",
+      "line": 362,
+      "literal": "job_kill",
+      "source": "packages/jobs/tool-jobs/src/index.ts"
+    },
+    {
+      "expression": "'lsp'",
+      "line": 106,
+      "literal": "lsp",
+      "source": "packages/lsp/tool-lsp/src/index.ts"
+    },
+    {
+      "expression": "EXIT_PLAN_MODE",
+      "line": 325,
+      "literal": null,
+      "source": "packages/plan/plan-mode/src/index.ts"
+    },
+    {
+      "expression": "'schedule_create'",
+      "line": 317,
+      "literal": "schedule_create",
+      "source": "packages/schedule/schedule/src/tools.ts"
+    },
+    {
+      "expression": "'schedule_list'",
+      "line": 399,
+      "literal": "schedule_list",
+      "source": "packages/schedule/schedule/src/tools.ts"
+    },
+    {
+      "expression": "'schedule_delete'",
+      "line": 419,
+      "literal": "schedule_delete",
+      "source": "packages/schedule/schedule/src/tools.ts"
+    },
+    {
+      "expression": "'session_search'",
+      "line": 66,
+      "literal": "session_search",
+      "source": "packages/session-query/tool-session-query/src/index.ts"
+    },
+    {
+      "expression": "'session_event_search'",
+      "line": 76,
+      "literal": "session_event_search",
+      "source": "packages/session-query/tool-session-query/src/index.ts"
+    },
+    {
+      "expression": "'session_trace'",
+      "line": 86,
+      "literal": "session_trace",
+      "source": "packages/session-query/tool-session-query/src/index.ts"
+    },
+    {
+      "expression": "'session_event_trace'",
+      "line": 96,
+      "literal": "session_event_trace",
+      "source": "packages/session-query/tool-session-query/src/index.ts"
+    },
+    {
+      "expression": "'session_event_read'",
+      "line": 109,
+      "literal": "session_event_read",
+      "source": "packages/session-query/tool-session-query/src/index.ts"
+    },
+    {
+      "expression": "'bash'",
+      "line": 401,
+      "literal": "bash",
+      "source": "packages/shell/tool-bash-persistent/src/index.ts"
+    },
+    {
+      "expression": "'bash'",
+      "line": 242,
+      "literal": "bash",
+      "source": "packages/shell/tool-bash/src/index.ts"
+    },
+    {
+      "expression": "'pwsh'",
+      "line": 441,
+      "literal": "pwsh",
+      "source": "packages/shell/tool-pwsh-persistent/src/index.ts"
+    },
+    {
+      "expression": "'pwsh'",
+      "line": 252,
+      "literal": "pwsh",
+      "source": "packages/shell/tool-pwsh/src/index.ts"
+    },
+    {
+      "expression": "'skill'",
+      "line": 81,
+      "literal": "skill",
+      "source": "packages/skill/tool-skill/src/index.ts"
+    },
+    {
+      "expression": "'send_message'",
+      "line": 26,
+      "literal": "send_message",
+      "source": "packages/subagent/tool-subagent-control/src/index.ts"
+    },
+    {
+      "expression": "'interrupt_agent'",
+      "line": 79,
+      "literal": "interrupt_agent",
+      "source": "packages/subagent/tool-subagent-control/src/index.ts"
+    },
+    {
+      "expression": "'list_agents'",
+      "line": 92,
+      "literal": "list_agents",
+      "source": "packages/subagent/tool-subagent-control/src/list-agents.ts"
+    },
+    {
+      "expression": "'report'",
+      "line": 65,
+      "literal": "report",
+      "source": "packages/subagent/tool-subagent-report/src/index.ts"
+    },
+    {
+      "expression": "toolName",
+      "line": 306,
+      "literal": null,
+      "source": "packages/subagent/tool-subagent/src/index.ts"
+    },
+    {
+      "expression": "'terminal_open'",
+      "line": 162,
+      "literal": "terminal_open",
+      "source": "packages/terminal/tool-terminal/src/index.ts"
+    },
+    {
+      "expression": "'terminal_send'",
+      "line": 197,
+      "literal": "terminal_send",
+      "source": "packages/terminal/tool-terminal/src/index.ts"
+    },
+    {
+      "expression": "'terminal_read'",
+      "line": 296,
+      "literal": "terminal_read",
+      "source": "packages/terminal/tool-terminal/src/index.ts"
+    },
+    {
+      "expression": "'terminal_signal'",
+      "line": 329,
+      "literal": "terminal_signal",
+      "source": "packages/terminal/tool-terminal/src/index.ts"
+    },
+    {
+      "expression": "'terminal_close'",
+      "line": 354,
+      "literal": "terminal_close",
+      "source": "packages/terminal/tool-terminal/src/index.ts"
+    },
+    {
+      "expression": "'terminal_list'",
+      "line": 385,
+      "literal": "terminal_list",
+      "source": "packages/terminal/tool-terminal/src/index.ts"
+    },
+    {
+      "expression": "'todo_write'",
+      "line": 149,
+      "literal": "todo_write",
+      "source": "packages/todo/tool-todo/src/index.ts"
+    },
+    {
+      "expression": "'web_fetch'",
+      "line": 436,
+      "literal": "web_fetch",
+      "source": "packages/web/tool-web/src/fetch.ts"
+    },
+    {
+      "expression": "'web_search'",
+      "line": 324,
+      "literal": "web_search",
+      "source": "packages/web/tool-web/src/search.ts"
+    },
+    {
+      "expression": "'ralph'",
+      "line": 412,
+      "literal": "ralph",
+      "source": "packages/workflow/tool-ralph/src/index.ts"
+    },
+    {
+      "expression": "toolName",
+      "line": 217,
+      "literal": null,
+      "source": "packages/workflow/tool-workflow/src/index.ts"
+    }
+  ],
+  "upstream": {
+    "repository": "https://github.com/deepseek-ai/deepseek-harness",
+    "revision": "141eb6fef83422698aef7a981029e843e8161534"
+  }
+}
