@@ -56,4 +56,6 @@ core/provider/session ----------------X（禁止原生依赖）
 命令经过原生 Sandbox。两个目标平台家族都必须通过编译期 Lint。
 Capability 测试必须证明 Probe 只执行一次、错误原因稳定、动态工具投影可消费该报告，并且
 `FullAccess` 只有显式配置时才显示为可用；测试还必须证明其 `sandbox()` 为 `None`，而 `spawn()`
-仍返回受管 `ProcessHandle`。
+仍返回受管 `ProcessHandle`。Full access 的集成测试还必须真实读写 Workspace 外的绝对路径，
+从受管子进程连接 Loopback TCP Server，并分别验证 Timeout 与显式 Cancel 的终态；只断言配置枚举
+或最终 Argv 不算能力测试。

@@ -309,6 +309,23 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
     );
 }
 
+#[tokio::test]
+async fn configured_cwd_is_always_available_as_the_boot_workspace() {
+    let mut fx = Fixture::new();
+    let listed = fx.value(RpcMethod::WorkspaceList, json!({})).await;
+    let items = listed["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["workspaceId"], "workspace-default");
+    let canonical_root = std::fs::canonicalize(&fx.root).unwrap();
+    assert_eq!(items[0]["path"], canonical_root.to_string_lossy().as_ref());
+
+    let created = fx
+        .value(RpcMethod::WorkspaceCreate, json!({"path": fx.root}))
+        .await;
+    assert_eq!(created["created"], false);
+    assert_eq!(created["workspace"]["workspaceId"], "workspace-default");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn host_injects_the_configured_context_policy_into_each_turn() {
     let root = std::env::temp_dir().join(format!("xharness-host-context-{}", std::process::id()));
