@@ -15,10 +15,10 @@ use xharness_api::{
     ApiBackend, ClientResponse, EventStream, ReceiptRejection, RpcError, RpcErrorCode, RpcId,
     RpcMethod, RpcReceipt, RpcResult, ServerRequest, SessionExport,
 };
-use xharness_core::LoopCommand;
+use xharness_core::{AgentMessage, LoopCommand};
 
 use crate::{
-    driver::rpc_error,
+    driver::{agent_runtime_error, rpc_error},
     runtime::ModelRoute,
     state::{
         iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
@@ -902,9 +902,17 @@ impl BasicHost {
                 })?;
             match kind {
                 "remove" => {
+                    self.agent_runtime
+                        .remove_pending_input(&session_id, &item_id)
+                        .await
+                        .map_err(agent_runtime_error)?;
                     session.queue.remove(index);
                 }
                 "steer" => {
+                    self.agent_runtime
+                        .remove_pending_input(&session_id, &item_id)
+                        .await
+                        .map_err(agent_runtime_error)?;
                     steer_item = session.queue.remove(index);
                 }
                 "edit" => {
@@ -914,6 +922,14 @@ impl BasicHost {
                         .ok_or_else(|| bad_request("edit action requires content"))?
                         .clone();
                     let text = visible_text(&content);
+                    self.agent_runtime
+                        .replace_pending_input(
+                            &session_id,
+                            AgentMessage::new(xharness_core::Role::User, text.clone())
+                                .with_id(item_id.clone()),
+                        )
+                        .await
+                        .map_err(agent_runtime_error)?;
                     if let Some(item) = session.queue.get_mut(index) {
                         item.content = content;
                         item.text = text;

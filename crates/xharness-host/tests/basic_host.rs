@@ -11,6 +11,7 @@ use std::{
 use async_trait::async_trait;
 use futures::{stream, StreamExt};
 use serde_json::{json, Value};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
     ApiBackend, ClientResponse, ClientResponseKind, RpcId, RpcMethod, RpcReceipt, RpcResult,
@@ -20,7 +21,10 @@ use xharness_core::{
     ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, SurfaceEdit,
     SurfaceEditKind, TokenUsage, ToolResult, ToolSpec,
 };
-use xharness_host::{BasicHost, HostConfig, NoTools, PermissionPreset, SessionToolFactory};
+use xharness_host::{
+    AgentRuntime, AgentRuntimeError, AgentTurnRequest, BasicHost, HostConfig, LoopAgentRuntime,
+    ModelRoute, NoTools, PermissionPreset, RunningTurn, SessionToolFactory,
+};
 
 struct TextProvider;
 
@@ -87,6 +91,41 @@ impl ModelProvider for CapturingProvider {
 }
 
 struct CompactingPolicy;
+
+struct GatedAdmissionRuntime {
+    inner: LoopAgentRuntime,
+    entered: Arc<AtomicBool>,
+    release: Arc<Notify>,
+    admitted_message_id: Arc<Mutex<Option<String>>>,
+}
+
+#[async_trait]
+impl AgentRuntime for GatedAdmissionRuntime {
+    fn has_available_route(&self) -> bool {
+        self.inner.has_available_route()
+    }
+
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        self.inner.can_route(route)
+    }
+
+    async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
+        *self.admitted_message_id.lock().unwrap() = request
+            .messages
+            .last()
+            .and_then(|message| message.id.clone());
+        self.entered.store(true, Ordering::SeqCst);
+        self.release.notified().await;
+        Ok(())
+    }
+
+    async fn start_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.inner.start_turn(request).await
+    }
+}
 
 #[async_trait]
 impl ContextPolicy for CompactingPolicy {
@@ -449,6 +488,81 @@ async fn unroutable_session_model_is_rejected_before_prompt_queueing() {
     assert!(provider.requests.lock().unwrap().is_empty());
     let snapshot = host.snapshot().await;
     assert_eq!(snapshot["sessions"][0]["running"], false);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_id() {
+    let root = std::env::temp_dir().join(format!("xharness-host-admission-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "test".to_owned();
+    config.model_id = "test-model".to_owned();
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(Notify::new());
+    let admitted_message_id = Arc::new(Mutex::new(None));
+    let runtime = Arc::new(GatedAdmissionRuntime {
+        inner: LoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(Arc::new(TextProvider)),
+            Arc::new(NoTools),
+            Arc::new(xharness_core::IdentityContextPolicy),
+        ),
+        entered: Arc::clone(&entered),
+        release: Arc::clone(&release),
+        admitted_message_id: Arc::clone(&admitted_message_id),
+    });
+    let host = BasicHost::with_agent_runtime(config, runtime);
+    let created = host
+        .call(
+            RpcId::new("admission-create"),
+            RpcMethod::SessionCreate,
+            json!({"cwd": root}),
+            CancellationToken::new(),
+        )
+        .await;
+    let session_id = match created {
+        RpcResult::Success { value: Some(value) } => {
+            value["sessionId"].as_str().unwrap().to_owned()
+        }
+        other => panic!("create failed: {other:?}"),
+    };
+
+    let prompt_host = Arc::clone(&host);
+    let prompt = tokio::spawn(async move {
+        prompt_host
+            .call(
+                RpcId::new("admission-prompt"),
+                RpcMethod::SessionPrompt,
+                json!({
+                    "sessionId": session_id,
+                    "mode": "queue",
+                    "content": [{"type": "text", "text": "persist before ack"}],
+                }),
+                CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !entered.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("session.prompt never reached runtime admission");
+    assert!(entered.load(Ordering::SeqCst));
+    assert!(
+        !prompt.is_finished(),
+        "HTTP receipt escaped before admission"
+    );
+    assert_eq!(
+        admitted_message_id.lock().unwrap().as_deref(),
+        Some("admission-prompt")
+    );
+
+    release.notify_one();
+    assert!(prompt.await.unwrap().is_ok());
     let _ = std::fs::remove_dir_all(root);
 }
 

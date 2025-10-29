@@ -32,6 +32,10 @@ pub enum AgentEvent {
     },
     TurnStarted {
         turn: u32,
+        /// Stable durable inbox identities atomically claimed by this turn.
+        /// Host adapters use these identities to correlate a pre-admitted
+        /// HTTP prompt with its later event stream without relying on timing.
+        input_ids: Vec<String>,
     },
     TurnEvent {
         turn: u32,
@@ -301,6 +305,10 @@ impl DriverWorker {
                 return Ok(());
             }
             let (_expected_revision, claimed, deletion_events) = claim.into_loop_parts();
+            let input_ids = claimed
+                .iter()
+                .map(|message| message.id.clone())
+                .collect::<Vec<_>>();
             let input = claimed
                 .iter()
                 .map(|message| message.message.clone())
@@ -315,7 +323,9 @@ impl DriverWorker {
             request.journal_prelude = deletion_events;
 
             let turn = self.next_turn().await?;
-            let _ = self.events.send(AgentEvent::TurnStarted { turn });
+            let _ = self
+                .events
+                .send(AgentEvent::TurnStarted { turn, input_ids });
             let mut run = LoopEngine.start(request);
             loop {
                 tokio::select! {

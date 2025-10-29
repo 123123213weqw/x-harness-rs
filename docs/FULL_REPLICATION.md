@@ -82,8 +82,10 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 ### Batch A：兼容基线与持久 Web Agent
 
 > 当前进展：正式 Host 已切到 `DurableLoopAgentRuntime + JSONL + File Lease`，连续 Turn 历史由
-> Session Log 重放；但 HTTP Admission、Web Projection 和重启枚举仍依赖内存 Host，因此
-> `A-05/A-06/A-09` 尚不能勾选。静态目录生成器已记录 52 RPC、48 Session Event、63 个 Tool
+> Session Log 重放；HTTP `session.prompt` 已先 Flush Durable Inbox 再返回成功，Claim 与
+> Turn/Input 已在同一 CAS Revision，Queue Edit/Remove 也同步到 Inbox。Web Projection、Driver
+> Attachment 和重启枚举仍依赖内存 Host，因此 `A-05/A-09` 尚不能勾选。静态目录生成器已记录
+> 52 RPC、48 Session Event、63 个 Tool
 > 注册点、28 个 Prompt Section 注册点、4 个 Preset 和 233 个 Package；动态 Remote、Frame
 > Schema、Settings/Service Definition 仍待加入后才能完成 `A-01/A-02/A-03`。
 
@@ -92,8 +94,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [ ] `A-03` 生成 `docs/compat/` 机器可读 JSON 和中文矩阵。
 - [x] `A-04` 对远端 `b150a551b8d4` 生成相对 `141eb6fef8` 的增量审计，不修改上游工作树。
 - [ ] `A-05` 为 Host 建立持久 Session/Agent Backend，删除内存 Prompt FIFO 的真源地位。
-- [ ] `A-06` `session.prompt` 先写 Durable Inbox，再返回成功回执。
-- [ ] `A-07` Agent Claim、`turn/start`、`user/message` 在同一 CAS Revision 提交。
+- [x] `A-06` `session.prompt` 先写 Durable Inbox，再返回成功回执。
+- [x] `A-07` Agent Claim、`turn/start`、`user/message` 在同一 CAS Revision 提交。
 - [ ] `A-08` 把 Agent Event 确定性投影为冻结 Web Session Event。
 - [ ] `A-09` 重启恢复 Workspace、Session、Inbox、运行终态和未决 Outcome。
 - [ ] `A-10` 补 enqueue/claim/request/tool-call/tool-result/turn-end 七个硬崩溃点。

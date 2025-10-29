@@ -65,9 +65,12 @@ Commit、Issue、PR 应引用这些 ID。
   已完成：`agent/inbox/spliced` 事件、Next-turn/Next-step Replay、稳定 Message ID、原子 Claim
   Prelude、进程内 Registry、Memory/File Lease、AgentSupervisor、多 Turn Driver、Idle Inject、
   Active Turn 持久 Steering 和消费恢复去重。`xharness-host-app` 已默认组合
-  `DurableLoopAgentRuntime + JSONL Store + File Lease`，连续 Turn 的模型历史来自持久日志。
-  剩余：把 `session.prompt` 成功回执绑定到 Durable Inbox Flush、删除 Host 内存 FIFO 的真源
-  地位、从日志恢复 Web Projection，以及部署重启续跑与硬崩溃矩阵。
+  `DurableLoopAgentRuntime + JSONL Store + File Lease`，连续 Turn 的模型历史来自持久日志；
+  `session.prompt` 使用 RPC ID 作为稳定输入 ID，先完成 Durable Inbox Flush 才返回成功，
+  Queue Edit/Remove 同步写入 Inbox，多条预准入消息用 `TurnStarted.input_ids` 绑定各自缓冲事件流。
+  Host 内存 FIFO 已不再是模型执行输入的真源，但仍承担进程内 Web Projection 与 Driver Attachment。
+  剩余：从日志枚举并恢复 Workspace/Session/Queue/Web Projection，删除这份兼容 FIFO，补部署重启
+  续跑、重复 HTTP Admission 和七个硬崩溃点矩阵。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，
@@ -173,8 +176,9 @@ Commit、Issue、PR 应引用这些 ID。
 
 - [ ] `P2-01` **持久 Agent-backed Web API。** Carrier、52 方法目录、内存 CRUD、Start/
   Steer/Cancel/Approve、History Projection、Optional Capability Response 和 Export Body 已完成。
-  下一步用持久 Agent/Session/Inbox Store 替换 `BasicHost` 内存，增加 Health/Readiness，同时
-  保持冻结的线协议。
+  正式 Host 的 Prompt Admission、模型历史和 Agent Driver 已使用持久 Session/Inbox Store；
+  下一步把 Workspace/Session/Queue/History Projection、Approval 和枚举索引从 `BasicHost`
+  内存迁出，并增加 Health/Readiness，同时保持冻结的线协议。
 
 - [ ] `P2-02` **流式传输增强。** 提供带 Cursor Resume、Lag Detection、Reconnect 和
   Per-session Multiplexing 的 WebSocket/SSE 下行事件流。

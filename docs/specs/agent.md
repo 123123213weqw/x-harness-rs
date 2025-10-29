@@ -2,7 +2,8 @@
 
 **Crate：** `xharness-agent`
 **状态：** Durable Inbox、原子 Claim、AgentSupervisor、多 Turn Driver、运行时 Steering、进程内
-Registry、macOS/Linux 文件 Lease 与生命周期状态机已实现；Host 替换仍在迁移。
+Registry、macOS/Linux 文件 Lease 与生命周期状态机已实现；正式 Host 已完成持久 Prompt Admission，
+Web Projection 与重启枚举仍在迁移。
 **语义参考：** DeepSeek Harness `packages/core/agent`、`packages/core/agent-loop`、
 `packages/session/session-checkpoint-policy`。
 
@@ -99,11 +100,23 @@ Steer 进入 `user/message` 后如果进程在删除 Pending 项之前崩溃，�
 从 Session Log 派生旧历史，并把 Claim 删除、`turn/start` 和 `user/message` 写入同一 Revision。
 第二个 Turn 不再依赖 Host 兼容 DTO 中携带的旧历史。
 
+`AgentRuntime::admit_turn` 是 Web 成功回执之前的持久化屏障。`session.prompt` 把 RPC ID 写入
+`AgentMessage.id`，Durable Runtime 在 `followup()` 已 Append 并 Flush 后才返回；失败时 Host
+不得把消息加入成功队列或返回成功。每个预准入 Turn 在订阅 Agent 广播后再写 Inbox，并保留独立
+Receiver；`AgentEvent::TurnStarted.input_ids` 公布本轮原子领取的稳定 ID，使多个已经完成或正在
+排队的 Turn 仍能与各自 Web Driver 确定性关联，不以订阅时序猜测归属。
+
+Web Queue 的 Edit/Remove 在修改内存 Projection 前先调用 Durable Inbox Replace/Remove；如果输入
+已经被领取，操作结构化失败，禁止只修改 UI 造成真源分叉。当前 queued-to-steer 仍经过删除后再
+发送到活动控制面，不承诺跨两次操作的崩溃原子性；后续应增加 Inbox Target 原子 Move。
+
 ## 当前限制
 
-- Durable Inbox、Lease、Supervisor、多 Turn Driver 和 Active Turn Steering 已实现，正式
-  Host 的实际 Turn 已走持久 Runtime；但 `BasicHost` 的 Admission FIFO 和 Web Projection 仍在
-  内存中，HTTP 成功回执还没有直接绑定到 Inbox Flush。
+- Durable Inbox、Lease、Supervisor、多 Turn Driver、Active Turn Steering 和持久 HTTP
+  Admission 已实现，正式 Host 的实际 Turn 已走持久 Runtime；但 `BasicHost` 仍用内存 FIFO
+  附着 Web Driver、记录 Queue Projection，进程重启后还不会从 Session 目录自动恢复这些投影。
+- 同一进程内重复 Admission 在 Prepared Turn 存活时按稳定 ID 幂等；重启后的重复 RPC ID 尚未
+  建立持久 Receipt/Consumed 索引，不能宣称完整 Exactly-once HTTP 语义。
 - Pause、Approval 与 Event Subscription 仍属于当前 `LoopRun` 控制面；尚未成为可恢复 Agent
   Activation 状态。
 - 没有远程 Fencing Epoch、Scheduler、Subagent 或 Workflow。
