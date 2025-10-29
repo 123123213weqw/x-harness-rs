@@ -90,7 +90,7 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [ ] `A-01` 抽取冻结上游 52 RPC、动态 RPC、Host/Mux Frame、Session Event 目录。
 - [ ] `A-02` 抽取上游工具、Prompt Section、Settings、Profile、Service Definition 目录。
 - [ ] `A-03` 生成 `docs/compat/` 机器可读 JSON 和中文矩阵。
-- [ ] `A-04` 对远端 `b150a551b8d4` 生成相对 `141eb6fef8` 的增量审计，不修改上游工作树。
+- [x] `A-04` 对远端 `b150a551b8d4` 生成相对 `141eb6fef8` 的增量审计，不修改上游工作树。
 - [ ] `A-05` 为 Host 建立持久 Session/Agent Backend，删除内存 Prompt FIFO 的真源地位。
 - [ ] `A-06` `session.prompt` 先写 Durable Inbox，再返回成功回执。
 - [ ] `A-07` Agent Claim、`turn/start`、`user/message` 在同一 CAS Revision 提交。

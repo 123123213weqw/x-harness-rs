@@ -97,6 +97,9 @@ Commit、Issue、PR 应引用这些 ID。
 
 - [ ] `P0-09` **配置与凭据边界。** 强类型配置文件、环境覆盖、Provider/Search Secret
   Reference、Redacted Debug、Event Log 禁止 Secret、文件权限校验。不做 Plugin/HMR Loader。
+  候选上游 `b150a551b8d4` 新增 Authorization Seam；本项同时建立 Credential Store，然后新增
+  one-in-flight-per-key Authorization Flow/Interaction、Cancel/Settlement 和 Web Prompt/Notice
+  Projection。Authorization 不得进入模型 Prompt，Secret Prompt 不得进入任何日志。
 
 - [ ] `P0-10` **真实协议矩阵。** 针对支持端点运行 Chat/Responses 真实 Tool Loop，覆盖
   Reasoning、多并行 Call、Tool Failure、Cancel、Usage、Long Context。保存不含 Secret 的
