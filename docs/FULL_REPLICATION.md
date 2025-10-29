@@ -83,8 +83,10 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 
 > 当前进展：正式 Host 已切到 `DurableLoopAgentRuntime + JSONL + File Lease`，连续 Turn 历史由
 > Session Log 重放；HTTP `session.prompt` 已先 Flush Durable Inbox 再返回成功，Claim 与
-> Turn/Input 已在同一 CAS Revision，Queue Edit/Remove 也同步到 Inbox。Web Projection、Driver
-> Attachment 和重启枚举仍依赖内存 Host，因此 `A-05/A-09` 尚不能勾选。Catalog v2 已记录
+> Turn/Input 已在同一 CAS Revision，Queue Edit/Remove 也同步到 Inbox。JSONL 目录枚举、
+> Session/History/Workspace/Queue 启动 Replay、恢复前订阅与显式 Wake 已完成；Web Projection 和
+> Driver Attachment 仍是 Session Log 的进程内派生缓存，Settings/Approval/RPC Receipt 未持久化，
+> 因此 `A-09` 尚不能勾选。Catalog v2 已记录
 > 52 固定 RPC、26 动态 Typert RPC、Mux/Host 各 10 个 Frame、11 个转发 Host Event、48 Session
 > Event、63 个 Tool 注册点（53 个 Literal）、37 个 Prompt Component、6 个 Settings 注册点
 >（5 个静态 Namespace）、69 个 Service Definition、18 个 `ctx.provide`、4 个 Preset 和 233 个
@@ -94,11 +96,14 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [x] `A-02` 抽取上游工具、Prompt Section、Settings、Profile、Service Definition 目录。
 - [x] `A-03` 生成 `docs/compat/` 机器可读 JSON 和中文矩阵。
 - [x] `A-04` 对远端 `b150a551b8d4` 生成相对 `141eb6fef8` 的增量审计，不修改上游工作树。
-- [ ] `A-05` 为 Host 建立持久 Session/Agent Backend，删除内存 Prompt FIFO 的真源地位。
+- [x] `A-05` 为 Host 建立持久 Session/Agent Backend，删除内存 Prompt FIFO 的真源地位。
 - [x] `A-06` `session.prompt` 先写 Durable Inbox，再返回成功回执。
 - [x] `A-07` Agent Claim、`turn/start`、`user/message` 在同一 CAS Revision 提交。
 - [ ] `A-08` 把 Agent Event 确定性投影为冻结 Web Session Event。
-- [ ] `A-09` 重启恢复 Workspace、Session、Inbox、运行终态和未决 Outcome。
+- [ ] `A-09` 重启恢复 Workspace、Session、Inbox、运行终态和未决 Outcome。已完成由
+  Session Header/Log 可推导的 Workspace、Session、History、模型路由、Next-turn Queue 和
+  Pending Turn；未完成自定义 Workspace 元数据、Settings、Pending Approval、RPC Receipt 及
+  七个硬崩溃点下的终态矩阵。
 - [ ] `A-10` 补 enqueue/claim/request/tool-call/tool-result/turn-end 七个硬崩溃点。
 
 ### Batch B：工具身份与终止语义

@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**基线日期：** 2026-08-21
+**基线日期：** 2026-08-22
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -55,6 +55,10 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `DONE-24` 冻结上游兼容 Catalog v2：机器可读记录 52 固定 RPC、26 动态 Typert RPC、
   Mux/Host Frame、转发事件、48 Session Event、Tool、四类 Prompt Component、Settings、
   Service Definition/Provision、Preset 和 Package；生成器对重复目录和无法解析的 Remote fail fast。
+- [x] `DONE-25` 持久 Host 启动恢复第一阶段：`Store::list_headers` 可验证枚举 Memory/JSONL
+  会话；Host 从强类型日志重建 Session、History、模型路由、Workspace 归属和 Durable Queue；
+  恢复 Worker 必须先为每个稳定输入 ID 订阅，再显式 Wake，未领取输入续跑时不重复 Append；
+  真实 Host 子进程在同一状态目录重启后仍能列出 Session 和 Assistant History。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -71,9 +75,10 @@ Commit、Issue、PR 应引用这些 ID。
   `DurableLoopAgentRuntime + JSONL Store + File Lease`，连续 Turn 的模型历史来自持久日志；
   `session.prompt` 使用 RPC ID 作为稳定输入 ID，先完成 Durable Inbox Flush 才返回成功，
   Queue Edit/Remove 同步写入 Inbox，多条预准入消息用 `TurnStarted.input_ids` 绑定各自缓冲事件流。
-  Host 内存 FIFO 已不再是模型执行输入的真源，但仍承担进程内 Web Projection 与 Driver Attachment。
-  剩余：从日志枚举并恢复 Workspace/Session/Queue/Web Projection，删除这份兼容 FIFO，补部署重启
-  续跑、重复 HTTP Admission 和七个硬崩溃点矩阵。
+  `Store::list_headers`、Host 启动 Replay、Workspace/Session/History/Queue 重建和 Pending Turn
+  显式 Wake 已完成；Host 内存 FIFO 已不再是模型执行输入的真源，只承担进程内 Web Projection
+  与 Driver Attachment。剩余：把这份 Projection/FIFO 本身替换成可游标查询的持久视图，持久化
+  Workspace/Settings/Approval/RPC Receipt，补重复 HTTP Admission 和七个硬崩溃点矩阵。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，

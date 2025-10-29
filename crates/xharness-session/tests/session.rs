@@ -332,6 +332,7 @@ fn incomplete_calls_produce_pure_outcome_unknown_recovery_candidates() {
 #[tokio::test]
 async fn memory_store_create_load_flush_and_inspect_are_detached() {
     let store = MemorySessionStore::default();
+    store.create(header("z-session")).await.unwrap();
     let created = store.create(header("s1")).await.unwrap();
     assert_eq!(created.revision(), Revision::ZERO);
     assert!(matches!(
@@ -370,6 +371,17 @@ async fn memory_store_create_load_flush_and_inspect_are_detached() {
     assert_eq!(inspection.revision, Revision(1));
     assert_eq!(inspection.next_seq, 2);
     assert_eq!(inspection.events.as_slice(), authoritative.events());
+
+    assert_eq!(
+        store
+            .list_headers()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|header| header.id)
+            .collect::<Vec<_>>(),
+        ["s1", "z-session"]
+    );
 }
 
 #[tokio::test]

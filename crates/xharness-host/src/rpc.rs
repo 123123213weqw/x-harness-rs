@@ -922,11 +922,16 @@ impl BasicHost {
                         .ok_or_else(|| bad_request("edit action requires content"))?
                         .clone();
                     let text = visible_text(&content);
+                    let source = session.queue[index].source.clone();
                     self.agent_runtime
                         .replace_pending_input(
                             &session_id,
                             AgentMessage::new(xharness_core::Role::User, text.clone())
                                 .with_id(item_id.clone()),
+                            Some(json!({
+                                "content": content.clone(),
+                                "source": source.clone(),
+                            })),
                         )
                         .await
                         .map_err(agent_runtime_error)?;

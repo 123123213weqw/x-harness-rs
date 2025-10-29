@@ -10,6 +10,10 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use tokio::{process::Command, time};
 use tokio_tungstenite::connect_async;
+use xharness_session::{
+    EventData, Message, RequestHeader, Revision, SessionHeader, Store, TurnEndReason,
+};
+use xharness_session_jsonl::JsonlSessionStore;
 
 struct TempWorkspace(PathBuf);
 
@@ -76,13 +80,22 @@ fn spawn_host(address: SocketAddr, workspace: &Path) -> HostProcess {
 }
 
 async fn workspace_list(client: &Client, address: SocketAddr) -> Option<Value> {
+    rpc_call(client, address, "workspace.list", json!({})).await
+}
+
+async fn rpc_call(
+    client: &Client,
+    address: SocketAddr,
+    method: &str,
+    payload: Value,
+) -> Option<Value> {
     let response = client
-        .post(format!("http://{address}/api/workspace.list"))
+        .post(format!("http://{address}/api/{method}"))
         .json(&json!({
             "type": "client-request",
             "rpcId": "restart-test",
-            "method": "workspace.list",
-            "payload": {},
+            "method": method,
+            "payload": payload,
         }))
         .send()
         .await
@@ -115,6 +128,44 @@ async fn wait_for_workspace(client: &Client, address: SocketAddr, expected: &Pat
 #[tokio::test]
 async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
     let workspace = TempWorkspace::new();
+    let store = JsonlSessionStore::new(workspace.0.join(".xharness-state/sessions")).unwrap();
+    let mut header = SessionHeader::new("persisted-session");
+    header.cwd = Some(workspace.0.to_string_lossy().into_owned());
+    store.create(header).await.unwrap();
+    store
+        .append(
+            "persisted-session",
+            Revision::ZERO,
+            vec![
+                EventData::TurnStart { turn: 1 }.into(),
+                EventData::UserMessage {
+                    message: Message::user("survive restart").with_id("persisted-prompt"),
+                }
+                .into(),
+                EventData::StepStart { turn: 1, step: 1 }.into(),
+                EventData::RequestHeader {
+                    header: RequestHeader::new("openai-compatible", "unconfigured"),
+                }
+                .into(),
+                EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: Message::assistant("still here"),
+                    usage: None,
+                }
+                .into(),
+                EventData::StepEnd { turn: 1, step: 1 }.into(),
+                EventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Completed,
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    store.flush("persisted-session").await.unwrap();
+
     let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));
     let client = Client::new();
 
@@ -127,6 +178,26 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
             .len(),
         1
     );
+    let first_sessions = rpc_call(&client, address, "session.list", json!({}))
+        .await
+        .expect("first Host lists restored sessions");
+    assert_eq!(
+        first_sessions["result"]["value"]["items"][0]["sessionId"],
+        "persisted-session"
+    );
+    let first_history = rpc_call(
+        &client,
+        address,
+        "session.history",
+        json!({"sessionId": "persisted-session"}),
+    )
+    .await
+    .expect("first Host projects restored history");
+    assert!(first_history["result"]["value"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["event"]["type"] == "assistant/message"));
     let (mut first_socket, _) = connect_async(format!("ws://{address}/api/events.host"))
         .await
         .expect("first websocket connects");
@@ -150,6 +221,13 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
             .unwrap()
             .len(),
         1
+    );
+    let second_sessions = rpc_call(&client, address, "session.list", json!({}))
+        .await
+        .expect("second Host lists restored sessions");
+    assert_eq!(
+        second_sessions["result"]["value"]["items"][0]["sessionId"],
+        "persisted-session"
     );
     let (_second_socket, _) = connect_async(format!("ws://{address}/api/events.host"))
         .await

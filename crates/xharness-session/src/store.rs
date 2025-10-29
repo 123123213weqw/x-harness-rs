@@ -31,6 +31,15 @@ pub enum StoreError {
 /// Durable append-only storage seam.
 #[async_trait]
 pub trait Store: Send + Sync + 'static {
+    /// Enumerate every durable session known to this store.
+    ///
+    /// Implementations must return headers in ascending session-id order and
+    /// validate each discovered record before publishing it. This is the
+    /// startup discovery seam used by Hosts to rebuild projections after a
+    /// process restart; silently skipping a corrupt session would make
+    /// durable work disappear from the product surface.
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError>;
+
     /// Atomically register an empty session. Existing ids are never replaced.
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError>;
 
@@ -62,6 +71,18 @@ pub struct MemorySessionStore {
 
 #[async_trait]
 impl Store for MemorySessionStore {
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        let mut headers = self
+            .sessions
+            .read()
+            .await
+            .values()
+            .map(|session| session.header().clone())
+            .collect::<Vec<_>>();
+        headers.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(headers)
+    }
+
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
         let session = Session::new(header)?;
         let mut sessions = self.sessions.write().await;

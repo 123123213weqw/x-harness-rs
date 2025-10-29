@@ -47,6 +47,28 @@ pub struct AgentTurnRequest {
     pub route: ModelRoute,
     pub permission: PermissionPreset,
     pub messages: Vec<AgentMessage>,
+    /// Optional product/transport metadata retained beside the durable inbox
+    /// item. The Web Host stores its structured content blocks and source here
+    /// so queue replay does not collapse attachments into plain text.
+    pub input_metadata: Option<serde_json::Value>,
+}
+
+/// Stable configuration needed to reactivate one durable Agent session after
+/// Host startup. Pending input is discovered from the Session log rather than
+/// copied through this control-plane request.
+#[derive(Clone, Debug)]
+pub struct AgentSessionRequest {
+    pub session_id: String,
+    pub cwd: String,
+    pub route: ModelRoute,
+    pub permission: PermissionPreset,
+}
+
+/// Durable work attached during one startup-resume operation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AgentResumeReport {
+    pub pending_turns: usize,
+    pub pending_next_step: usize,
 }
 
 /// A live turn owned by the Host driver. This seam prevents Web control-plane
@@ -93,6 +115,15 @@ pub trait AgentRuntime: Send + Sync + 'static {
 
     fn can_route(&self, route: &ModelRoute) -> bool;
 
+    /// Reattach already-durable work after a Host restart. Ephemeral runtimes
+    /// have no authoritative inbox and therefore report no recovered work.
+    async fn resume_session(
+        &self,
+        _request: AgentSessionRequest,
+    ) -> Result<AgentResumeReport, AgentRuntimeError> {
+        Ok(AgentResumeReport::default())
+    }
+
     /// Durably admit one future turn before the Host acknowledges the client.
     /// Ephemeral runtimes use the default no-op and construct work in
     /// `start_turn`; durable runtimes must flush the input before returning.
@@ -115,6 +146,7 @@ pub trait AgentRuntime: Send + Sync + 'static {
         &self,
         _session_id: &str,
         _message: AgentMessage,
+        _input_metadata: Option<serde_json::Value>,
     ) -> Result<(), AgentRuntimeError> {
         Ok(())
     }
@@ -334,7 +366,7 @@ impl DurableLoopAgentRuntime {
             .followup(InboxMessage {
                 id: input_id.clone(),
                 message: input,
-                source: None,
+                source: request.input_metadata,
             })
             .await
             .map_err(agent_command_error)?;
@@ -356,6 +388,65 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         self.provider_available
             && route.provider == self.provider_id
             && route.model == self.model_id
+    }
+
+    async fn resume_session(
+        &self,
+        request: AgentSessionRequest,
+    ) -> Result<AgentResumeReport, AgentRuntimeError> {
+        if !self.can_route(&request.route) {
+            return Err(AgentRuntimeError::ModelUnavailable {
+                provider: request.route.provider,
+                model: request.route.model,
+            });
+        }
+        self.sessions.write().await.insert(
+            request.session_id.clone(),
+            DurableSessionConfig {
+                cwd: request.cwd.clone(),
+                permission: request.permission,
+            },
+        );
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd);
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
+        let snapshot =
+            handle
+                .inbox()
+                .snapshot()
+                .await
+                .map_err(|error| AgentRuntimeError::Preparation {
+                    message: error.to_string(),
+                })?;
+        let pending_turns = snapshot.next_turn().len();
+        let pending_next_step = snapshot.next_step().len();
+
+        // Subscribe once per stable input before the worker is allowed to
+        // wake. Each later Web driver can then consume only the turn whose
+        // TurnStarted frame names that input ID, even if the Agent completes
+        // several turns before the browser reconnects.
+        let mut prepared = self.prepared.lock().await;
+        for input in snapshot.next_turn() {
+            prepared
+                .entry((request.session_id.clone(), input.id.clone()))
+                .or_insert_with(|| PreparedDurableTurn {
+                    handle: handle.clone(),
+                    events: handle.subscribe(),
+                    input_id: input.id.clone(),
+                });
+        }
+        drop(prepared);
+        if pending_turns > 0 {
+            handle.wake().await.map_err(agent_command_error)?;
+        }
+        Ok(AgentResumeReport {
+            pending_turns,
+            pending_next_step,
+        })
     }
 
     async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
@@ -403,6 +494,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         &self,
         session_id: &str,
         mut message: AgentMessage,
+        input_metadata: Option<serde_json::Value>,
     ) -> Result<(), AgentRuntimeError> {
         if message.role != Role::User {
             return Err(AgentRuntimeError::Preparation {
@@ -428,7 +520,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 InboxMessage {
                     id: input_id.clone(),
                     message,
-                    source: None,
+                    source: input_metadata,
                 },
             )
             .await
@@ -705,6 +797,7 @@ mod tests {
                 route,
                 permission: PermissionPreset::WorkspaceWrite,
                 messages: vec![AgentMessage::user("hello")],
+                input_metadata: None,
             })
             .await
             .err()
@@ -744,6 +837,7 @@ mod tests {
             route: ModelRoute::new("test", "test-model"),
             permission: PermissionPreset::WorkspaceWrite,
             messages: vec![AgentMessage::user("first").with_id("prompt-1")],
+            input_metadata: None,
         };
         runtime.admit_turn(first_request.clone()).await.unwrap();
         let admitted = store.load("durable-host").await.unwrap().unwrap();
@@ -766,6 +860,7 @@ mod tests {
             // The durable Session, not this compatibility DTO, supplies the
             // prior turn to the second model request.
             messages: vec![AgentMessage::user("second").with_id("prompt-2")],
+            input_metadata: None,
         };
         runtime.admit_turn(second_request.clone()).await.unwrap();
         let mut second = runtime.start_turn(second_request).await.unwrap();
@@ -809,6 +904,7 @@ mod tests {
             route: ModelRoute::new("test", "test-model"),
             permission: PermissionPreset::WorkspaceWrite,
             messages: vec![AgentMessage::user("a").with_id("prompt-a")],
+            input_metadata: None,
         };
         let request_b = AgentTurnRequest {
             messages: vec![AgentMessage::user("b").with_id("prompt-b")],
@@ -853,6 +949,7 @@ mod tests {
             route: ModelRoute::new("test", "test-model"),
             permission: PermissionPreset::WorkspaceWrite,
             messages: vec![AgentMessage::user("first").with_id("prompt-first")],
+            input_metadata: None,
         };
         let queued = AgentTurnRequest {
             messages: vec![AgentMessage::user("old").with_id("prompt-queued")],
@@ -890,6 +987,7 @@ mod tests {
             .replace_pending_input(
                 "queue-mutations",
                 AgentMessage::user("edited").with_id("prompt-queued"),
+                None,
             )
             .await
             .unwrap();
@@ -911,5 +1009,83 @@ mod tests {
         release.notify_one();
         while running.next_event().await.is_some() {}
         assert_eq!(running.result().await.final_text, "released");
+    }
+
+    #[tokio::test]
+    async fn durable_runtime_resumes_pending_input_without_appending_a_duplicate() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut header = SessionHeader::new("runtime-resume");
+        header.cwd = Some("/workspace".to_owned());
+        let inbox = xharness_agent::DurableInbox::open(Arc::clone(&store), header)
+            .await
+            .unwrap();
+        inbox
+            .append(
+                xharness_agent::InboxTarget::NextTurn,
+                InboxMessage::user("restored-input", "continue after restart"),
+            )
+            .await
+            .unwrap();
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+            answers: Mutex::new(VecDeque::from(["restored answer".to_owned()])),
+        });
+        let runtime = DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        );
+        let report = runtime
+            .resume_session(AgentSessionRequest {
+                session_id: "runtime-resume".to_owned(),
+                cwd: "/workspace".to_owned(),
+                route: ModelRoute::new("test", "test-model"),
+                permission: PermissionPreset::WorkspaceWrite,
+            })
+            .await
+            .unwrap();
+        assert_eq!(report.pending_turns, 1);
+        assert_eq!(report.pending_next_step, 0);
+
+        let request = AgentTurnRequest {
+            session_id: "runtime-resume".to_owned(),
+            cwd: "/workspace".to_owned(),
+            route: ModelRoute::new("test", "test-model"),
+            permission: PermissionPreset::WorkspaceWrite,
+            messages: vec![AgentMessage::user("continue after restart").with_id("restored-input")],
+            input_metadata: None,
+        };
+        let mut running = runtime.start_turn(request).await.unwrap();
+        while running.next_event().await.is_some() {}
+        assert_eq!(running.result().await.final_text, "restored answer");
+
+        let session = store.load("runtime-resume").await.unwrap().unwrap();
+        let inserted = session
+            .events()
+            .iter()
+            .filter_map(|event| match event.data() {
+                xharness_session::EventData::AgentInboxSpliced { inserted, .. } => Some(
+                    inserted
+                        .iter()
+                        .filter(|message| message.id == "restored-input")
+                        .count(),
+                ),
+                _ => None,
+            })
+            .sum::<usize>();
+        assert_eq!(inserted, 1, "resume must not append the prompt again");
+        assert_eq!(
+            session
+                .derive_messages()
+                .iter()
+                .filter(|message| message.id.as_deref() == Some("restored-input"))
+                .count(),
+            1
+        );
     }
 }
