@@ -286,6 +286,7 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
         panic!("commands/list failed: {listed:?}");
     };
     assert_eq!(listed[0]["name"], "permission");
+    assert_eq!(listed[1]["name"], "plan");
 
     let switched = fx
         .host
@@ -388,6 +389,96 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
         second_history["projections"]["values"]["permissions"]["currentValue"],
         "danger-full-access"
     );
+}
+
+#[tokio::test]
+async fn idle_plan_command_is_log_backed_and_unsupported_payloads_fail_without_flipping() {
+    let mut fx = Fixture::new();
+    let created = fx
+        .value(
+            RpcMethod::SessionCreate,
+            json!({"cwd": fx.root.to_string_lossy()}),
+        )
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap().to_owned();
+
+    let unsupported = fx
+        .host
+        .call_dynamic(
+            RpcId::new("plan-message"),
+            "commands/execute",
+            json!({
+                "args": {
+                    "agentId": session_id,
+                    "line": "/plan investigate first",
+                    "images": [],
+                }
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let RpcResult::Success {
+        value: Some(unsupported),
+    } = unsupported
+    else {
+        panic!("plan command failed at transport level: {unsupported:?}");
+    };
+    assert_eq!(unsupported["result"]["kind"], "error");
+
+    let enabled = fx
+        .host
+        .call_dynamic(
+            RpcId::new("plan-on"),
+            "commands/execute",
+            json!({"args": {"agentId": session_id, "line": "/plan", "images": []}}),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(enabled.is_ok());
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId": session_id}))
+        .await;
+    assert_eq!(
+        history["projections"]["values"]["plan"],
+        json!({"active": true, "pending": false})
+    );
+    assert_eq!(
+        history["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry["event"]["type"] == "plan/mode")
+            .count(),
+        1
+    );
+
+    let rejected_off = fx
+        .host
+        .call_dynamic(
+            RpcId::new("plan-off-image"),
+            "commands/execute",
+            json!({
+                "args": {
+                    "agentId": session_id,
+                    "line": "/plan off",
+                    "images": [{"type": "image", "data": "ignored"}],
+                }
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let RpcResult::Success {
+        value: Some(rejected_off),
+    } = rejected_off
+    else {
+        panic!("plan off command failed at transport level: {rejected_off:?}");
+    };
+    assert_eq!(rejected_off["result"]["kind"], "error");
+    let snapshot = fx.host.snapshot().await;
+    assert_eq!(snapshot["sessions"][0]["planActive"], true);
 }
 
 #[tokio::test]

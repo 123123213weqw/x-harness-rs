@@ -12,7 +12,7 @@
 | Mux Frame | 10 | 10 | 判别字段名称 exact，业务字段另测 |
 | Host Frame | 10 | 10 | 判别字段名称 exact，业务字段另测 |
 | Forwarded Host Event | 11 | 1 | Frame 通用形状已支持，生产者逐项迁移 |
-| Session Event | 48 | 24 | 未覆盖事件进入稳定 TODO |
+| Session Event | 48 | 25 | 未覆盖事件进入稳定 TODO |
 | 静态 Literal Tool | 53 | 14 | 动态 Tool 另行人工审计 |
 | Prompt Component | 37 | — | Section/Context/Tool Provider/Variable 分开记录 |
 | Settings Namespace | 5 | 1 | Rust 当前仅有产品启动所需基线 |
@@ -179,7 +179,7 @@
 | `llm/retry` | 是 | `partial` |
 | `llm/retry-started` | 是 | `partial` |
 | `permission/preset` | 是 | `partial` |
-| `plan/mode` | 否 | `planned` |
+| `plan/mode` | 是 | `partial` |
 | `request/context` | 否 | `planned` |
 | `request/header` | 是 | `partial` |
 | `sandbox/mode` | 是 | `partial` |

@@ -2135,6 +2135,7 @@ async fn active_loop_adopts_intervening_durable_control_appends() {
                     }),
                 }
                 .into(),
+                SessionEventData::PlanMode { active: true }.into(),
             ],
         )
         .await

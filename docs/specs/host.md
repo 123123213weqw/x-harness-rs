@@ -67,7 +67,8 @@ Workspace 自定义元数据、Settings、Approval 和 RPC Receipt 建独立日�
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
-HTTP 404。当前先实现 Web 权限控件依赖的 `commands/list` 和 `commands/execute`。
+HTTP 404。当前先实现 Web 控件依赖的 `commands/list` 和 `commands/execute`；动态目录已暴露
+`permission` 与 `plan` 两个命令。
 
 当前 `AgentPreset.content` 只存在于 Host 状态/RPC 投影，`run_turn` 没有把它转换成
 `Role::System`。因此“UI 选中了 coding preset”和“模型收到 Coding System Prompt”不是一回事。
@@ -143,6 +144,12 @@ Session 事件、队列/投影变化和审批流量走 Mux；Host 生命周期�
 Full access 风险确认保护。Durable Runtime 在 RPC 返回前 CAS Append 并 Flush 这些事件；Host
 重启折叠最后一个 `permission/preset`，不会退回默认值。
 
+Idle Plan Mode 也走同一命令审计面：`/plan` 进入、`/plan off` 退出，成功时按
+`command/run → plan/mode → command/done` Flush，Session Projection 返回
+`plan={active,pending:false}`，重启折叠最后一条 `plan/mode`。重复选择相同状态是幂等成功，不能
+制造重复 `plan/mode`。当前运行中 Pending Pre-step、附带 Message/Image 的 Plan Steering、
+Plan Prompt Section 与 `exit_plan_mode` 工具尚未实现；这些输入必须明确失败，禁止静默丢弃。
+
 `session.rename` 与 `agentPreset.select` 也进入同一 Per-session Admission Fence：前者追加
 `session/title`，后者追加 `agent-preset/selected`。只有 Flush 成功才更新 Host 投影并返回；运行中
 允许 Rename，但禁止切换 Agent Preset。
@@ -211,6 +218,7 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
   loopback。
 - Credential 更新只是进程内配置，不能重建已经运行中的 Provider。
 - Agent Preset 尚未成为真实 System Prompt；缺少 Prompt Version 与请求体级验证。
+- Plan Mode 目前只完成 Idle 状态持久化；完整 Pre-step Steering、Prompt Section 和退出工具待补。
 - 没有整体 Token Budget/Compaction；完整文件结果可能在下一 Step 触发 Context 400。
 - 除 Full access 会关闭逐工具审批外，固定 14 工具投影仍不会随 Sandbox/Search 能力变化。
 

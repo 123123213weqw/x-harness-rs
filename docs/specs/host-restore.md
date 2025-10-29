@@ -62,6 +62,8 @@ Inbox，再改变 Web Projection。
   选择的最终状态可恢复，但相同 RPC ID 重试仍未进入通用 Exactly-once Receipt Store。
 - Web History 已按权威 Session Cursor 刷新和增量广播；Workspace/Settings 等非 Session 投影仍
   没有统一持久查询接口。
+- Idle Plan Mode 的最终 `active` 状态已由最后一条 `plan/mode` 恢复；运行中尚未接受的 Pending
+  Pre-step 选择不是可恢复状态，当前重启后一律投影为 `pending=false`。
 - queued-to-steer 是 Remove + Steer 两步，不是崩溃原子 Move。
 
 ## 验收
@@ -79,6 +81,7 @@ Inbox，再改变 Web Projection。
   使用空 `messageSeqs` 与 `source={kind:"user"}`，不进入模型消息。
 - Goal Mutation 使用全快照或 Clear Tombstone；Host 重启恢复 Revision、Phase、Objective、Round
   Budget、时间和 History/Projection，不依赖旧进程的 `goals` Map。
+- `/plan` 与 `/plan off` 的成功状态在返回前 Flush；Host 重启恢复最后的 Active 状态且不重放命令。
 - 真实 `xharness-host` 子进程在相同 State Dir 和端口重启后，`workspace.list`、`session.list`、
   `session.history` 与 WebSocket Carrier 均恢复。
 - 所有 Rust 测试必须同步到 `WZU_Server`，远程通过 Workspace Check/Test/Clippy。

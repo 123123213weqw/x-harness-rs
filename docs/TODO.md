@@ -89,6 +89,10 @@ Commit、Issue、PR 应引用这些 ID。
   `goal/change`；Create/Edit/Pause/Resume/Complete 使用 version 1 全快照，Clear 使用递增 Revision
   Tombstone。Session 校验 ID/Revision/Phase/时间和定义迁移，History/Projection 与重启从同一日志
   折叠，默认 `maxGoalRounds=256`。48 个冻结事件当前覆盖 24 个。
+- [x] `DONE-34` Idle Plan Mode 持久化基线：动态 Command 目录暴露 `/plan`，空参数进入、`off`
+  退出；成功选择以 `command/run → plan/mode → command/done` Flush 并投影 `{active,pending}`，
+  重启从最后事件恢复。运行中 Pending Pre-step、附带 Message/Image Steering 和 `exit_plan_mode`
+  仍归 `P0-14/P1-01`，当前 fail explicit 而非静默丢输入。48 个冻结事件覆盖 25 个。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
