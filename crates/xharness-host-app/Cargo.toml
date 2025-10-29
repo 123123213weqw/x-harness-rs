@@ -17,8 +17,11 @@ xharness-api = { path = "../xharness-api" }
 xharness-coding-tools = { path = "../xharness-coding-tools" }
 xharness-core = { path = "../xharness-core" }
 xharness-host = { path = "../xharness-host" }
+xharness-agent = { path = "../xharness-agent" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }
+xharness-session = { path = "../xharness-session" }
+xharness-session-jsonl = { path = "../xharness-session-jsonl" }
 xharness-server = { path = "../xharness-server" }
 xharness-terminal = { path = "../xharness-terminal" }
 xharness-web = { path = "../xharness-web" }

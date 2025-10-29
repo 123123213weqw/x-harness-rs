@@ -24,7 +24,8 @@ use xharness_api::{RpcId, ServerRequest};
 use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpec};
 
 pub use runtime::{
-    AgentRuntime, AgentRuntimeError, AgentTurnRequest, LoopAgentRuntime, ModelRoute, RunningTurn,
+    AgentRuntime, AgentRuntimeError, AgentTurnRequest, DurableLoopAgentRuntime, LoopAgentRuntime,
+    ModelRoute, RunningTurn,
 };
 pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, WorkspaceRecord};
 

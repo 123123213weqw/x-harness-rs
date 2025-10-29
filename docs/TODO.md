@@ -4,6 +4,13 @@
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
+全面复刻的里程碑、依赖关系、当前执行批次和上游同步规则见
+[`FULL_REPLICATION.md`](FULL_REPLICATION.md)。本文件保存稳定任务 ID 和验收条件；
+`FULL_REPLICATION.md` 是执行顺序和跨模块主控面板。
+
+当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
+`b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
+
 ## 已完成基础能力
 
 - [x] `DONE-01` Provider-neutral 流式 Loop 与多 Step 工具执行。
@@ -57,7 +64,10 @@ Commit、Issue、PR 应引用这些 ID。
   `LoopAgentRuntime`。
   已完成：`agent/inbox/spliced` 事件、Next-turn/Next-step Replay、稳定 Message ID、原子 Claim
   Prelude、进程内 Registry、Memory/File Lease、AgentSupervisor、多 Turn Driver、Idle Inject、
-  Active Turn 持久 Steering 和消费恢复去重。剩余：Host 内存 FIFO 替换、部署重启续跑与硬崩溃矩阵。
+  Active Turn 持久 Steering 和消费恢复去重。`xharness-host-app` 已默认组合
+  `DurableLoopAgentRuntime + JSONL Store + File Lease`，连续 Turn 的模型历史来自持久日志。
+  剩余：把 `session.prompt` 成功回执绑定到 Durable Inbox Flush、删除 Host 内存 FIFO 的真源
+  地位、从日志恢复 Web Projection，以及部署重启续跑与硬崩溃矩阵。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，

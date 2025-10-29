@@ -49,8 +49,13 @@ Chat Completions 或 Responses，禁止自动回退。
 
 第二阶段进一步定义 `AgentRuntime::start_turn(AgentTurnRequest) -> RunningTurn`。BasicHost 的
 队列/事件投影只依赖这个契约，不再直接创建 Loop、调用 Tool Factory 或持有 Provider/Context。
-`LoopAgentRuntime` 负责把当前 LoopEngine 适配进来，并校验 Session 选择的 ModelRoute。以后替换
-为 Durable Agent/Inbox Runtime 时，不需要修改 52 个 RPC 和 Web 投影代码。
+`LoopAgentRuntime` 保留给内嵌测试和兼容调用。正式 `xharness-host-app` 已使用
+`DurableLoopAgentRuntime`：JSONL Session 是模型历史真源，File Lease 排除另一进程同时驱动相同
+Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；52 个 RPC 和 Web 投影代码没有改变。
+
+当前仍是迁移中间态：`BasicHost` 的待运行 Prompt FIFO、Workspace、Session 摘要和 Web Event
+Projection 仍在内存中。下一阶段必须让 `session.prompt` 在返回成功前完成 Durable Inbox Append，
+并从 Session Log 恢复 Web Projection，之后才能删除 FIFO 和内存历史。
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
