@@ -18,7 +18,8 @@ use xharness_session::{
     AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
     EventData as SessionEventData, InboxMessage, InboxTarget,
     MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent, SessionHeader,
-    SessionInspection, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
+    SessionInspection, SessionTitleSource, Store as EventStore, StoreError, ToolOutcome,
+    TurnEndReason,
 };
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
@@ -2106,6 +2107,12 @@ async fn active_loop_adopts_intervening_durable_control_appends() {
                     kind: CommandResultKind::Success,
                     text: Some("unchanged".to_owned()),
                     source_event_seq: None,
+                }
+                .into(),
+                SessionEventData::SessionTitle {
+                    title: "renamed while running".to_owned(),
+                    message_seqs: Vec::new(),
+                    source: SessionTitleSource::User,
                 }
                 .into(),
             ],

@@ -126,7 +126,7 @@ impl BasicHost {
                 origin: Some("restored".to_owned()),
                 cwd: cwd.clone(),
                 agent_preset: restored_agent_preset(&session),
-                title: None,
+                title: restored_title(&session),
                 model: ModelSelection {
                     provider: route.provider.clone(),
                     model: route.model.clone(),
@@ -254,6 +254,15 @@ pub(crate) fn restored_agent_preset(session: &Session) -> Option<String> {
         .or_else(|| Some("coding".to_owned()))
 }
 
+pub(crate) fn restored_title(session: &Session) -> Option<String> {
+    session.events().iter().rev().find_map(|event| {
+        let EventData::SessionTitle { title, .. } = event.data() else {
+            return None;
+        };
+        Some(title.clone())
+    })
+}
+
 fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
     let (content, source, fingerprint) = input
         .source
@@ -361,6 +370,7 @@ fn restored_web_event(
         | EventData::ApprovalPolicy { .. }
         | EventData::CommandRun { .. }
         | EventData::CommandDone { .. }
+        | EventData::SessionTitle { .. }
         | EventData::LlmRetry { .. }
         | EventData::LlmRetryStarted { .. } => tagged_event_data(event.data()),
         EventData::TurnStart { turn } => (
@@ -922,6 +932,24 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(switched, RpcResult::Success { .. }));
+        let renamed = live
+            .call(
+                RpcId::new("policy-rename"),
+                RpcMethod::SessionRename,
+                json!({"sessionId": "policy-session", "title": "  Durable   policy  "}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(renamed, RpcResult::Success { .. }));
+        let selected = live
+            .call(
+                RpcId::new("policy-preset"),
+                RpcMethod::AgentPresetSelect,
+                json!({"sessionId": "policy-session", "agentPreset": "coding"}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(selected, RpcResult::Success { .. }));
 
         let durable = store.load("policy-session").await.unwrap().unwrap();
         assert_eq!(
@@ -939,6 +967,7 @@ mod tests {
                     EventData::SandboxMode { .. } => "sandbox/mode",
                     EventData::ApprovalPolicy { .. } => "approval/policy",
                     EventData::CommandDone { .. } => "command/done",
+                    EventData::SessionTitle { .. } => "session/title",
                     _ => "other",
                 })
                 .collect::<Vec<_>>(),
@@ -952,6 +981,8 @@ mod tests {
                 "sandbox/mode",
                 "approval/policy",
                 "command/done",
+                "session/title",
+                "agent-preset/selected",
             ]
         );
 
@@ -975,6 +1006,8 @@ mod tests {
             let state = restarted.state.read().await;
             let record = state.sessions.get("policy-session").unwrap();
             assert_eq!(record.permission_preset, PermissionPreset::DangerFullAccess);
+            assert_eq!(record.title.as_deref(), Some("Durable policy"));
+            assert_eq!(record.agent_preset.as_deref(), Some("coding"));
             record.events.clone()
         };
         let live_events = live.state.read().await.sessions["policy-session"]

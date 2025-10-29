@@ -194,6 +194,26 @@ pub enum CommandResultKind {
     Error,
 }
 
+/// Exact auxiliary route retained when an automatic title came from a model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionTitleModelProvenance {
+    pub provider: String,
+    pub model: String,
+}
+
+/// Durable owner of one accepted session title.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SessionTitleSource {
+    Fallback,
+    Provider {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<SessionTitleModelProvenance>,
+    },
+    User,
+}
+
 /// Provider-neutral failure retained by a durable model-retry audit record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -342,6 +362,14 @@ pub enum EventData {
             skip_serializing_if = "Option::is_none"
         )]
         source_event_seq: Option<Sequence>,
+    },
+    /// Latest-wins log-only title snapshot. It never enters model history.
+    #[serde(rename = "session/title")]
+    SessionTitle {
+        title: String,
+        #[serde(rename = "messageSeqs")]
+        message_seqs: Vec<Sequence>,
+        source: SessionTitleSource,
     },
     /// One durable provider retry scheduled after a failed request attempt.
     #[serde(rename = "llm/retry")]

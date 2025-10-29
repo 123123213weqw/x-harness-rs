@@ -19,7 +19,7 @@ use xharness_api::{
 use xharness_core::{AgentMessage, LoopCommand};
 use xharness_session::{
     ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData, SessionEvent,
-    SessionSandboxMode,
+    SessionSandboxMode, SessionTitleSource,
 };
 
 use crate::{
@@ -663,6 +663,7 @@ impl BasicHost {
 
     async fn session_rename(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        let _session_guard = self.lock_admission(&session_id).await;
         let title = required_string(payload, "title")?
             .split_whitespace()
             .collect::<Vec<_>>()
@@ -674,29 +675,41 @@ impl BasicHost {
                 json!({"sessionId": session_id}),
             ));
         }
-        {
+        if !self.state.read().await.sessions.contains_key(&session_id) {
+            return Err(session_not_found(&session_id));
+        }
+        self.commit_session_events(
+            &session_id,
+            vec![SessionEventData::SessionTitle {
+                title: title.clone(),
+                message_seqs: Vec::new(),
+                source: SessionTitleSource::User,
+            }
+            .into()],
+        )
+        .await?;
+        let seq = {
             let mut state = self.state.write().await;
-            state
+            let session = state
                 .sessions
                 .get_mut(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?
-                .title = Some(title.clone());
-        }
-        let event = self
-            .append_session_event(
-                &session_id,
-                "session/title",
-                json!({"title": title, "messageSeqs": [], "source": {"kind": "user"}}),
-                None,
-            )
-            .await?;
+                .ok_or_else(|| session_not_found(&session_id))?;
+            session.title = Some(title.clone());
+            session
+                .events
+                .iter()
+                .rev()
+                .find(|event| event["type"] == "session/title")
+                .and_then(|event| event["seq"].as_u64())
+                .ok_or_else(|| RpcError::internal("session/title append produced no event"))?
+        };
         self.push_projection(
             &session_id,
             "sessionTitle",
             json!({"title": title, "source": {"kind": "user"}}),
         )
         .await;
-        Ok(json!({"title": title, "seq": event["seq"]}))
+        Ok(json!({"title": title, "seq": seq}))
     }
 
     async fn session_fork(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -1504,22 +1517,39 @@ impl BasicHost {
     async fn agent_preset_select(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let preset = nonempty(required_string(payload, "agentPreset")?, "agentPreset")?;
-        let mut state = self.state.write().await;
-        if !state.presets.contains_key(&preset) {
-            return Err(preset_not_found(&preset));
+        let _session_guard = self.lock_admission(&session_id).await;
+        {
+            let state = self.state.read().await;
+            if !state.presets.contains_key(&preset) {
+                return Err(preset_not_found(&preset));
+            }
+            let session = state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?;
+            if session.running {
+                return Err(rpc_error(
+                    RpcErrorCode::AgentBusy,
+                    "cannot switch presets while the session is running",
+                    json!({"reason": "session-running"}),
+                ));
+            }
         }
-        let session = state
+        self.commit_session_events(
+            &session_id,
+            vec![SessionEventData::AgentPresetSelected {
+                agent_preset: preset.clone(),
+            }
+            .into()],
+        )
+        .await?;
+        self.state
+            .write()
+            .await
             .sessions
             .get_mut(&session_id)
-            .ok_or_else(|| session_not_found(&session_id))?;
-        if session.running {
-            return Err(rpc_error(
-                RpcErrorCode::AgentBusy,
-                "cannot switch presets while the session is running",
-                json!({"reason": "session-running"}),
-            ));
-        }
-        session.agent_preset = Some(preset.clone());
+            .ok_or_else(|| session_not_found(&session_id))?
+            .agent_preset = Some(preset.clone());
         Ok(json!({"agentPreset": preset}))
     }
 

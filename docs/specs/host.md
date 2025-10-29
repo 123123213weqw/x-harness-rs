@@ -142,6 +142,10 @@ Session 事件、队列/投影变化和审批流量走 Mux；Host 生命周期�
 Full access 风险确认保护。Durable Runtime 在 RPC 返回前 CAS Append 并 Flush 这些事件；Host
 重启折叠最后一个 `permission/preset`，不会退回默认值。
 
+`session.rename` 与 `agentPreset.select` 也进入同一 Per-session Admission Fence：前者追加
+`session/title`，后者追加 `agent-preset/selected`。只有 Flush 成功才更新 Host 投影并返回；运行中
+允许 Rename，但禁止切换 Agent Preset。
+
 Host 在 Turn 启动时把权限快照放入 `AgentTurnRequest`；`NativeToolFactory` 按
 `(canonical workspace, permission preset)` 缓存 Platform。Full access 下，Shell/Terminal
 绕过 Seatbelt/Bubblewrap，结构化 Read/Write/Edit 以 `/` 为能力根，但相对路径仍从 Session

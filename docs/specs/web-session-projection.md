@@ -51,7 +51,10 @@ Session 创建还会在返回前 Flush `agent-preset/selected`、`permission/pre
 Full access 的冻结线值为 `danger-full-access`，不是内部实现细节 `disabled`。Host 重启只折叠日志
 最后一个 Preset，不从进程内旧值猜测。
 
-冻结 48 个 Session Event 中目前已有 22 个强类型事件；其余 Compaction、Goal、Plan、Feedback、
+`session.rename` 与 `agentPreset.select` 同样先 Flush `session/title` / `agent-preset/selected`，再更新
+浏览器投影；Host 重启按日志最后值恢复，不依赖旧进程内存。
+
+冻结 48 个 Session Event 中目前已有 23 个强类型事件；其余 Compaction、Goal、Plan、Feedback、
 Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能提前标记完成。
 
 ## 失败语义

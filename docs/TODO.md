@@ -81,6 +81,10 @@ Commit、Issue、PR 应引用这些 ID。
   Flush Seam；创建时持久化 Agent Preset、Permission Preset、Sandbox Mode 与 Approval Policy，
   `/permission` 的 Command Run、策略三元组和 Command Done 按顺序落账。Full access 的冻结线值修正
   为 `danger-full-access`，Host 重启从日志恢复权限而非退回默认。48 个冻结事件当前覆盖 22 个。
+- [x] `DONE-32` Session Title 与 Agent Preset 持久化：`session.rename` 写入强类型、log-only、
+  latest-wins 的 `session/title`；`agentPreset.select` 复用 `agent-preset/selected`。两者均经过
+  Per-session Admission Fence 和 Flush Barrier 后才更新内存投影，重启从 Session Log 折叠恢复；
+  运行中 Rename 被 Core 视为允许的外部控制事件。48 个冻结事件当前覆盖 23 个。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -100,7 +104,8 @@ Commit、Issue、PR 应引用这些 ID。
   `Store::list_headers`、Host 启动 Replay、Workspace/Session/History/Queue 重建和 Pending Turn
   显式 Wake 已完成；Host 内存 FIFO 已不再是模型执行输入的真源，只承担进程内 Web Projection
   与 Driver Attachment。剩余：把这份 Projection/FIFO 本身替换成可游标查询的持久视图，持久化
-  Workspace/Settings/Pending Approval 和除 Permission Command 之外其他变更 RPC 的 Receipt。
+  Workspace/Settings/Pending Approval 和除 Permission Command 之外其他变更 RPC 的通用 Receipt；
+  Session Title 与 Agent Preset 选择的状态已持久化，但重复 RPC ID 的 Exactly-once Receipt 尚未统一。
   七点日志前缀和真实
   子进程 SIGKILL/同目录重启矩阵均已完成。
   Approval Asked/Decided、Provider Retry/Started、Agent/Permission/Sandbox/Approval Policy 与
