@@ -12,7 +12,7 @@
 | Mux Frame | 10 | 10 | 判别字段名称 exact，业务字段另测 |
 | Host Frame | 10 | 10 | 判别字段名称 exact，业务字段另测 |
 | Forwarded Host Event | 11 | 1 | Frame 通用形状已支持，生产者逐项迁移 |
-| Session Event | 48 | 16 | 未覆盖事件进入稳定 TODO |
+| Session Event | 48 | 22 | 未覆盖事件进入稳定 TODO |
 | 静态 Literal Tool | 53 | 14 | 动态 Tool 另行人工审计 |
 | Prompt Component | 37 | — | Section/Context/Tool Provider/Variable 分开记录 |
 | Settings Namespace | 5 | 1 | Rust 当前仅有产品启动所需基线 |
@@ -143,7 +143,7 @@
 
 | 事件 | Rust 生产者 | 等级 |
 | --- | --- | --- |
-| `agent-preset/selected` | 否 | `planned` |
+| `agent-preset/selected` | 是 | `partial` |
 | `commands/change` | 否 | `planned` |
 | `credentials/updated` | 否 | `planned` |
 | `cordis/request-run` | 否 | `planned` |
@@ -163,11 +163,11 @@
 | `agent/inbox/spliced` | 是 | `partial` |
 | `approval/asked` | 是 | `partial` |
 | `approval/decided` | 是 | `partial` |
-| `approval/policy` | 否 | `planned` |
+| `approval/policy` | 是 | `partial` |
 | `assistant/chunk` | 是 | `partial` |
 | `assistant/message` | 是 | `partial` |
-| `command/done` | 否 | `planned` |
-| `command/run` | 否 | `planned` |
+| `command/done` | 是 | `partial` |
+| `command/run` | 是 | `partial` |
 | `compaction/end` | 否 | `planned` |
 | `compaction/prune` | 否 | `planned` |
 | `compaction/start` | 否 | `planned` |
@@ -178,11 +178,11 @@
 | `hook/result` | 否 | `planned` |
 | `llm/retry` | 是 | `partial` |
 | `llm/retry-started` | 是 | `partial` |
-| `permission/preset` | 否 | `planned` |
+| `permission/preset` | 是 | `partial` |
 | `plan/mode` | 否 | `planned` |
 | `request/context` | 否 | `planned` |
 | `request/header` | 是 | `partial` |
-| `sandbox/mode` | 否 | `planned` |
+| `sandbox/mode` | 是 | `partial` |
 | `schedule/change` | 否 | `planned` |
 | `session/end-seed` | 是 | `partial` |
 | `session/title` | 否 | `planned` |

@@ -153,6 +153,47 @@ pub enum ApprovalOutcome {
     Unavailable,
 }
 
+/// Session-level answerer policy. Only `AllowedOnce` can grant a particular
+/// call; this value controls whether interactive asks are attempted at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApprovalPolicy {
+    Ask,
+    Never,
+}
+
+/// Session-level sandbox policy vocabulary shared by every enforcing tool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SessionSandboxMode {
+    ReadOnly,
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+/// Marks a policy value copied into a child activation rather than selected
+/// directly by the current session's user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PolicySource {
+    Delegation,
+}
+
+/// Human-facing origin of one slash-command invocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum CommandSource {
+    User,
+}
+
+/// Closed command result vocabulary projected directly by Web clients.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandResultKind {
+    Success,
+    Error,
+}
+
 /// Provider-neutral failure retained by a durable model-retry audit record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -222,6 +263,12 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Named Agent preset selected for subsequent turns in this session.
+    #[serde(rename = "agent-preset/selected")]
+    AgentPresetSelected {
+        #[serde(rename = "agentPreset")]
+        agent_preset: String,
+    },
     /// A normalized splice over one durable pending-input list. Replaying all
     /// such events after the seed reconstructs the exact live inbox.
     #[serde(rename = "agent/inbox/spliced")]
@@ -253,6 +300,48 @@ pub enum EventData {
     ApprovalDecided {
         id: String,
         outcome: ApprovalOutcome,
+    },
+    /// Named product preset whose fold controls sandbox and approval policy.
+    #[serde(rename = "permission/preset")]
+    PermissionPreset { preset: String },
+    /// Durable session sandbox-policy override; log-only, never model-facing.
+    #[serde(rename = "sandbox/mode")]
+    SandboxMode {
+        mode: SessionSandboxMode,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<PolicySource>,
+    },
+    /// Durable session approval-policy override; log-only, never model-facing.
+    #[serde(rename = "approval/policy")]
+    ApprovalPolicy {
+        policy: ApprovalPolicy,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<PolicySource>,
+    },
+    /// A resolved slash command entered its handler.
+    #[serde(rename = "command/run")]
+    CommandRun {
+        #[serde(rename = "commandId")]
+        command_id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        args: Option<String>,
+        source: CommandSource,
+    },
+    /// Settlement paired one-to-one with a prior `command/run`.
+    #[serde(rename = "command/done")]
+    CommandDone {
+        #[serde(rename = "commandId")]
+        command_id: String,
+        kind: CommandResultKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(
+            rename = "sourceEventSeq",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        source_event_seq: Option<Sequence>,
     },
     /// One durable provider retry scheduled after a failed request attempt.
     #[serde(rename = "llm/retry")]

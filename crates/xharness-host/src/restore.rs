@@ -115,7 +115,7 @@ impl BasicHost {
                 .max()
                 .unwrap_or_default();
             let blank = messages.is_empty() && !inbox.has_pending();
-            let permission = PermissionPreset::default();
+            let permission = restored_permission(&session);
             let record = SessionRecord {
                 session_id: session_id.clone(),
                 created_at: header.created_at_ms,
@@ -125,7 +125,7 @@ impl BasicHost {
                 parent_session_id: None,
                 origin: Some("restored".to_owned()),
                 cwd: cwd.clone(),
-                agent_preset: Some("coding".to_owned()),
+                agent_preset: restored_agent_preset(&session),
                 title: None,
                 model: ModelSelection {
                     provider: route.provider.clone(),
@@ -219,6 +219,39 @@ fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
             model: config.model_id.clone(),
             reasoning_effort: None,
         })
+}
+
+pub(crate) fn restored_permission(session: &Session) -> PermissionPreset {
+    for event in session.events().iter().rev() {
+        match event.data() {
+            EventData::PermissionPreset { preset } => {
+                if let Some(preset) = PermissionPreset::parse(preset) {
+                    return preset;
+                }
+            }
+            EventData::SandboxMode {
+                mode: xharness_session::SessionSandboxMode::DangerFullAccess,
+                ..
+            } => return PermissionPreset::DangerFullAccess,
+            EventData::SandboxMode { .. } => return PermissionPreset::WorkspaceWrite,
+            _ => {}
+        }
+    }
+    PermissionPreset::default()
+}
+
+pub(crate) fn restored_agent_preset(session: &Session) -> Option<String> {
+    session
+        .events()
+        .iter()
+        .rev()
+        .find_map(|event| {
+            let EventData::AgentPresetSelected { agent_preset } = event.data() else {
+                return None;
+            };
+            Some(agent_preset.clone())
+        })
+        .or_else(|| Some("coding".to_owned()))
 }
 
 fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
@@ -318,10 +351,16 @@ fn restored_web_event(
     prompts: &BTreeMap<String, PromptView>,
 ) -> Value {
     let (event_type, data, surface_op) = match event.data() {
-        EventData::AgentInboxSpliced { .. }
+        EventData::AgentPresetSelected { .. }
+        | EventData::AgentInboxSpliced { .. }
         | EventData::RequestHeader { .. }
         | EventData::ApprovalAsked { .. }
         | EventData::ApprovalDecided { .. }
+        | EventData::PermissionPreset { .. }
+        | EventData::SandboxMode { .. }
+        | EventData::ApprovalPolicy { .. }
+        | EventData::CommandRun { .. }
+        | EventData::CommandDone { .. }
         | EventData::LlmRetry { .. }
         | EventData::LlmRetryStarted { .. } => tagged_event_data(event.data()),
         EventData::TurnStart { turn } => (
@@ -841,6 +880,107 @@ mod tests {
         assert!(controls
             .iter()
             .all(|event| event.get("surfaceOp").is_none()));
+    }
+
+    #[tokio::test]
+    async fn permission_command_and_receipt_survive_a_host_restart() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let live = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        let created = live
+            .call(
+                RpcId::new("policy-create"),
+                RpcMethod::SessionCreate,
+                json!({"sessionId": "policy-session", "cwd": cwd}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(created, RpcResult::Success { .. }));
+        let switched = live
+            .call_dynamic(
+                RpcId::new("policy-command"),
+                "commands/execute",
+                json!({
+                    "args": {
+                        "agentId": "policy-session",
+                        "line": "/permission danger-full-access",
+                        "images": [],
+                    }
+                }),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(switched, RpcResult::Success { .. }));
+
+        let durable = store.load("policy-session").await.unwrap().unwrap();
+        assert_eq!(
+            restored_permission(&durable),
+            PermissionPreset::DangerFullAccess
+        );
+        assert_eq!(
+            durable
+                .events()
+                .iter()
+                .map(|event| match event.data() {
+                    EventData::AgentPresetSelected { .. } => "agent-preset/selected",
+                    EventData::CommandRun { .. } => "command/run",
+                    EventData::PermissionPreset { .. } => "permission/preset",
+                    EventData::SandboxMode { .. } => "sandbox/mode",
+                    EventData::ApprovalPolicy { .. } => "approval/policy",
+                    EventData::CommandDone { .. } => "command/done",
+                    _ => "other",
+                })
+                .collect::<Vec<_>>(),
+            [
+                "agent-preset/selected",
+                "permission/preset",
+                "sandbox/mode",
+                "approval/policy",
+                "command/run",
+                "permission/preset",
+                "sandbox/mode",
+                "approval/policy",
+                "command/done",
+            ]
+        );
+
+        let restarted_runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let restarted = BasicHost::with_agent_runtime(config(&cwd), restarted_runtime);
+        let report = restarted
+            .restore_from_store(Arc::clone(&store))
+            .await
+            .unwrap();
+        assert_eq!(report.restored_sessions, 1);
+        let restarted_events = {
+            let state = restarted.state.read().await;
+            let record = state.sessions.get("policy-session").unwrap();
+            assert_eq!(record.permission_preset, PermissionPreset::DangerFullAccess);
+            record.events.clone()
+        };
+        let live_events = live.state.read().await.sessions["policy-session"]
+            .events
+            .clone();
+        assert_eq!(restarted_events, live_events);
     }
 
     #[tokio::test]

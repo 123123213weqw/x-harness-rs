@@ -54,10 +54,11 @@ Inbox，再改变 Web Projection。
 
 ## 当前不承诺
 
-- Workspace 用户标题、排序、归档，Settings、Credential Override、Attachment Blob、Goal、Preset
-  与 Pending Approval 还没有独立持久日志。
-- Prompt RPC Receipt 已可从 Inbox 历史恢复；Workspace、Settings、Goal、Queue Action 等其他
-  变更 RPC 仍没有通用持久 Receipt/Consumed Store。
+- Workspace 用户标题、排序、归档，Settings、Credential Override、Attachment Blob、Goal 与
+  Pending Approval 还没有独立持久日志。Agent/Permission Preset 和它展开的 Sandbox/Approval
+  Policy 已进入 Session Log。
+- Prompt RPC Receipt 与 Permission Command Receipt 已可恢复；Workspace、Settings、Goal、Queue
+  Action 等其他变更 RPC 仍没有通用持久 Receipt/Consumed Store。
 - Web History 已按权威 Session Cursor 刷新和增量广播；Workspace/Settings 等非 Session 投影仍
   没有统一持久查询接口。
 - queued-to-steer 是 Remove + Steer 两步，不是崩溃原子 Move。
@@ -71,6 +72,8 @@ Inbox，再改变 Web Projection。
 - 七点日志前缀与真实子进程 SIGKILL 矩阵覆盖 Admission/Claim/Request/Tool Call/Tool Result/
   Step End/Turn End 的 Interrupted、OutcomeUnknown、权威结果保留和同目录重启。
 - Host 单元测试恢复 History、模型路由、Workspace、Web Event 与 Pending Turn。
+- Session 创建与 `/permission` 切换在返回前 Flush 强类型事件；Full access 重启后仍为
+  `danger-full-access + never`，Command Run/Done 顺序不变。
 - 真实 `xharness-host` 子进程在相同 State Dir 和端口重启后，`workspace.list`、`session.list`、
   `session.history` 与 WebSocket Carrier 均恢复。
 - 所有 Rust 测试必须同步到 `WZU_Server`，远程通过 Workspace Check/Test/Clippy。

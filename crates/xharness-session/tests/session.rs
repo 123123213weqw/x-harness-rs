@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use serde_json::json;
 use xharness_session::{
-    derive_messages, incomplete_tool_calls, ApprovalOutcome, AssistantChunk, EventData, LlmFailure,
-    LlmRetryMode, LoggedEvent, MemorySessionStore, Message, MessageRole, RequestHeader, Revision,
-    Session, SessionError, SessionEvent, SessionHeader, Store, StoreError, ToolCall, ToolOutcome,
-    ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
+    derive_messages, incomplete_tool_calls, ApprovalOutcome, ApprovalPolicy, AssistantChunk,
+    CommandResultKind, CommandSource, EventData, LlmFailure, LlmRetryMode, LoggedEvent,
+    MemorySessionStore, Message, MessageRole, PolicySource, RequestHeader, Revision, Session,
+    SessionError, SessionEvent, SessionHeader, SessionSandboxMode, Store, StoreError, ToolCall,
+    ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
 };
 
 fn header(id: &str) -> SessionHeader {
@@ -143,6 +144,9 @@ fn restore_rejects_sequence_gaps_and_bad_revisions() {
 #[test]
 fn every_first_version_event_round_trips_through_serde() {
     let events = vec![
+        event(EventData::AgentPresetSelected {
+            agent_preset: "coding".to_owned(),
+        }),
         event(EventData::RequestHeader {
             header: RequestHeader::new("openai", "gpt-test"),
         }),
@@ -155,6 +159,29 @@ fn every_first_version_event_round_trips_through_serde() {
         event(EventData::ApprovalDecided {
             id: "approval-1".to_owned(),
             outcome: ApprovalOutcome::AllowedOnce,
+        }),
+        event(EventData::PermissionPreset {
+            preset: "workspace-write".to_owned(),
+        }),
+        event(EventData::SandboxMode {
+            mode: SessionSandboxMode::WorkspaceWrite,
+            source: Some(PolicySource::Delegation),
+        }),
+        event(EventData::ApprovalPolicy {
+            policy: ApprovalPolicy::Ask,
+            source: None,
+        }),
+        event(EventData::CommandRun {
+            command_id: "command-1".to_owned(),
+            name: "permission".to_owned(),
+            args: Some(" danger-full-access".to_owned()),
+            source: CommandSource::User,
+        }),
+        event(EventData::CommandDone {
+            command_id: "command-1".to_owned(),
+            kind: CommandResultKind::Success,
+            text: Some("updated".to_owned()),
+            source_event_seq: None,
         }),
         event(EventData::LlmRetry {
             retry_id: "retry-1".to_owned(),
@@ -337,6 +364,57 @@ fn retry_audit_requires_request_route_and_ordered_started_pairs() {
                 turn: 1,
                 step: 1,
                 retry: 1,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+}
+
+#[test]
+fn command_lifecycle_and_permission_policy_are_durable_outside_turns() {
+    let mut session = Session::new(header("command-policy")).unwrap();
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::CommandRun {
+                    command_id: "command-1".to_owned(),
+                    name: "permission".to_owned(),
+                    args: Some(" danger-full-access".to_owned()),
+                    source: CommandSource::User,
+                }),
+                event(EventData::PermissionPreset {
+                    preset: "danger-full-access".to_owned(),
+                }),
+                event(EventData::SandboxMode {
+                    mode: SessionSandboxMode::DangerFullAccess,
+                    source: None,
+                }),
+                event(EventData::ApprovalPolicy {
+                    policy: ApprovalPolicy::Never,
+                    source: None,
+                }),
+                event(EventData::CommandDone {
+                    command_id: "command-1".to_owned(),
+                    kind: CommandResultKind::Success,
+                    text: Some("preset danger-full-access".to_owned()),
+                    source_event_seq: Some(1),
+                }),
+            ],
+            1,
+        )
+        .unwrap();
+
+    let revision = session.revision();
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::CommandDone {
+                command_id: "command-1".to_owned(),
+                kind: CommandResultKind::Success,
+                text: None,
+                source_event_seq: None,
             })
         ),
         Err(SessionError::InvalidLifecycle { .. })

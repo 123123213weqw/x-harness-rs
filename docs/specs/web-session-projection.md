@@ -46,8 +46,13 @@ History。兼容 `LoopAgentRuntime` 没有 Session 真源，可以继续使用�
   Provider Policy Registry 尚未实现。崩溃后存在 `approval/asked` 而没有 Decision 时会保留为
   审计事实并 fail closed，尚不能恢复成可继续点击的 Pending Approval；该能力归 `A-09`。
 
-冻结 48 个 Session Event 中目前已有 16 个强类型事件；其余 Approval Policy、Permission、
-Compaction、Goal、Subagent/Team 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能提前标记完成。
+Session 创建还会在返回前 Flush `agent-preset/selected`、`permission/preset`、`sandbox/mode` 与
+`approval/policy`。`/permission` 命令按 `command/run → policy triplet → command/done` 持久化；
+Full access 的冻结线值为 `danger-full-access`，不是内部实现细节 `disabled`。Host 重启只折叠日志
+最后一个 Preset，不从进程内旧值猜测。
+
+冻结 48 个 Session Event 中目前已有 22 个强类型事件；其余 Compaction、Goal、Plan、Feedback、
+Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能提前标记完成。
 
 ## 失败语义
 

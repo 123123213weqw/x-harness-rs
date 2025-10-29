@@ -76,7 +76,11 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `DONE-30` Approval/Provider Retry 持久控制事件：新增强类型 `approval/asked`、
   `approval/decided`、`llm/retry`、`llm/retry-started` 及生命周期校验；审批使用独立 ID，Asked/
   Decided 在工具副作用前 Flush，Provider Retry 在下一次 I/O 前以稳定链 ID 落账；Web History
-  从同一权威 Session 投影冻结字段。48 个冻结事件当前覆盖 16 个。
+  从同一权威 Session 投影冻结字段。该里程碑把 48 个冻结事件的强类型覆盖推进到 16 个。
+- [x] `DONE-31` Session 创建与权限命令持久化：Durable Runtime 提供 Turn 外强类型 Event CAS/
+  Flush Seam；创建时持久化 Agent Preset、Permission Preset、Sandbox Mode 与 Approval Policy，
+  `/permission` 的 Command Run、策略三元组和 Command Done 按顺序落账。Full access 的冻结线值修正
+  为 `danger-full-access`，Host 重启从日志恢复权限而非退回默认。48 个冻结事件当前覆盖 22 个。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -96,10 +100,12 @@ Commit、Issue、PR 应引用这些 ID。
   `Store::list_headers`、Host 启动 Replay、Workspace/Session/History/Queue 重建和 Pending Turn
   显式 Wake 已完成；Host 内存 FIFO 已不再是模型执行输入的真源，只承担进程内 Web Projection
   与 Driver Attachment。剩余：把这份 Projection/FIFO 本身替换成可游标查询的持久视图，持久化
-  Workspace/Settings/Approval 和 Prompt 之外所有变更 RPC 的 Receipt。七点日志前缀和真实
+  Workspace/Settings/Pending Approval 和除 Permission Command 之外其他变更 RPC 的 Receipt。
+  七点日志前缀和真实
   子进程 SIGKILL/同目录重启矩阵均已完成。
-  Approval Asked/Decided 与 Provider Retry/Started 已进入强类型 Session Log 和确定性 Web
-  History；剩余 Pending Approval 的可交互恢复和完整 48 Event 词汇继续归本项与 `P2-01`。
+  Approval Asked/Decided、Provider Retry/Started、Agent/Permission/Sandbox/Approval Policy 与
+  Permission Command Receipt 已进入强类型 Session Log 和确定性 Web History；剩余 Pending
+  Approval 的可交互恢复和完整 48 Event 词汇继续归本项与 `P2-01`。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，
