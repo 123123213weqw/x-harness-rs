@@ -58,7 +58,9 @@ Developer ID 签名、公证和本机安装验证。
 正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
 `session.prompt` 成功回执已绑定 Durable Inbox Flush。启动会枚举并恢复可由日志推导的
 Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。Web Projection 仍是内存
-派生缓存，Settings/Approval/RPC Receipt 尚未持久化，因此还不是完整 Exactly-once 恢复。
+派生缓存。Prompt RPC Receipt 可从完整 Inbox 历史重建，同 ID/同 Payload 的并发或重启重试不会
+重复 Admission；Settings、Approval 和其他变更 RPC Receipt 尚未持久化，因此还不是整个 API 的
+完整 Exactly-once 恢复。
 
 ## 工作区模块
 
@@ -103,7 +105,8 @@ History、Header Workspace、Durable Queue 并续跑 Pending Turn。仍需把 Pr
 - Idle/Running/Maintenance 生命周期状态机，从 Session 最后 Turn 坐标恢复
 - AgentSupervisor 自动连续消费多 Turn，Active Steer 先持久排队再中断并在恢复时按 ID 去重
 - 启动枚举、Pending Turn 先订阅后显式 Wake、无重复 Append 已完成
-- 当前剩余持久 Projection/Receipt/Approval 和部署级七点硬崩溃矩阵
+- Prompt Admission 的持久 Receipt/冲突检测已完成
+- 当前剩余持久 Projection、非 Prompt Receipt、Approval 和部署级七点硬崩溃矩阵
 
 ### `xharness-core`
 

@@ -159,10 +159,12 @@ pub(crate) struct QueuedPrompt {
     pub text: String,
     pub content: Vec<Value>,
     pub source: Value,
+    pub fingerprint: Option<String>,
 }
 
 pub(crate) struct DriverCommand {
     pub command: LoopCommand,
+    pub input_metadata: Option<Value>,
     pub acknowledgement: oneshot::Sender<Result<(), LoopControlError>>,
 }
 
@@ -189,6 +191,8 @@ pub struct SessionRecord {
     pub messages: Vec<AgentMessage>,
     #[serde(skip)]
     pub(crate) queue: VecDeque<QueuedPrompt>,
+    #[serde(skip)]
+    pub(crate) admissions: BTreeMap<String, QueuedPrompt>,
     #[serde(skip)]
     pub(crate) control: Option<mpsc::Sender<DriverCommand>>,
     pub(crate) next_turn: u32,

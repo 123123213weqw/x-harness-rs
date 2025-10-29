@@ -20,7 +20,7 @@ use std::{
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex, OwnedMutexGuard, RwLock};
 use xharness_api::{RpcId, ServerRequest};
 use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpec};
 
@@ -95,6 +95,7 @@ pub struct BasicHost {
     pub(crate) state: Arc<RwLock<state::HostState>>,
     pub(crate) mux_tx: broadcast::Sender<ServerRequest>,
     pub(crate) host_tx: broadcast::Sender<ServerRequest>,
+    admission_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
     next_id: Arc<AtomicU64>,
 }
 
@@ -146,6 +147,7 @@ impl BasicHost {
             agent_runtime,
             mux_tx,
             host_tx,
+            admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
         })
     }
@@ -157,6 +159,18 @@ impl BasicHost {
     pub(crate) fn mint_id(&self, prefix: &str) -> String {
         let ordinal = self.next_id.fetch_add(1, Ordering::Relaxed);
         format!("{prefix}-{}-{ordinal}", state::now_ms())
+    }
+
+    pub(crate) async fn lock_admission(&self, session_id: &str) -> OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self.admission_gates.lock().await;
+            Arc::clone(
+                gates
+                    .entry(session_id.to_owned())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        gate.lock_owned().await
     }
 
     pub(crate) fn push_mux(&self, payload: Value) {

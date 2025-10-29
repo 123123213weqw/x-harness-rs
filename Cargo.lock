@@ -2200,12 +2200,15 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
  "tower",
+ "xharness-agent",
  "xharness-api",
  "xharness-core",
+ "xharness-session",
 ]
 
 [[package]]
@@ -2218,6 +2221,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+ "xharness-agent",
  "xharness-api",
  "xharness-coding-tools",
  "xharness-core",
@@ -2225,6 +2229,8 @@ dependencies = [
  "xharness-platform",
  "xharness-provider-openai",
  "xharness-server",
+ "xharness-session",
+ "xharness-session-jsonl",
  "xharness-terminal",
  "xharness-web",
 ]

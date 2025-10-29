@@ -78,7 +78,18 @@ pub struct AgentResumeReport {
 pub trait RunningTurn: Send + 'static {
     async fn next_event(&mut self) -> Option<LoopEvent>;
 
-    async fn send(&self, command: LoopCommand) -> Result<(), LoopControlError>;
+    async fn send(&mut self, command: LoopCommand) -> Result<(), LoopControlError>;
+
+    /// Send one control command with optional durable product metadata. Plain
+    /// Loop runtimes ignore the metadata; durable runtimes retain it beside
+    /// injected/steering inbox input for restart receipt reconstruction.
+    async fn send_with_metadata(
+        &mut self,
+        command: LoopCommand,
+        _input_metadata: Option<serde_json::Value>,
+    ) -> Result<(), LoopControlError> {
+        self.send(command).await
+    }
 
     async fn result(&mut self) -> LoopResult;
 }
@@ -89,7 +100,7 @@ impl RunningTurn for LoopRun {
         self.next().await
     }
 
-    async fn send(&self, command: LoopCommand) -> Result<(), LoopControlError> {
+    async fn send(&mut self, command: LoopCommand) -> Result<(), LoopControlError> {
         LoopRun::send(self, command).await
     }
 
@@ -568,7 +579,11 @@ struct DurableRunningTurn {
 }
 
 impl DurableRunningTurn {
-    fn inbox_message(&self, mut message: AgentMessage) -> Result<InboxMessage, LoopControlError> {
+    fn inbox_message(
+        &self,
+        mut message: AgentMessage,
+        source: Option<serde_json::Value>,
+    ) -> Result<InboxMessage, LoopControlError> {
         if message.role != Role::User {
             return Err(LoopControlError::Rejected(
                 "durable steering currently accepts user messages only".to_owned(),
@@ -582,7 +597,7 @@ impl DurableRunningTurn {
         Ok(InboxMessage {
             id,
             message,
-            source: None,
+            source,
         })
     }
 
@@ -638,24 +653,25 @@ impl DurableRunningTurn {
         }
         None
     }
-}
 
-#[async_trait]
-impl RunningTurn for DurableRunningTurn {
-    async fn next_event(&mut self) -> Option<LoopEvent> {
-        self.receive_event().await
-    }
-
-    async fn send(&self, command: LoopCommand) -> Result<(), LoopControlError> {
+    async fn send_command(
+        &self,
+        command: LoopCommand,
+        input_metadata: Option<serde_json::Value>,
+    ) -> Result<(), LoopControlError> {
         let result = match command {
             LoopCommand::InjectMessage { message, mode } => {
-                let message = self.inbox_message(message)?;
+                let message = self.inbox_message(message, input_metadata)?;
                 match mode {
                     InjectionMode::NextStep => self.handle.inject(message).await,
                     InjectionMode::InterruptModel => self.handle.steer(message).await,
                 }
             }
-            LoopCommand::Steer(message) => self.handle.steer(self.inbox_message(message)?).await,
+            LoopCommand::Steer(message) => {
+                self.handle
+                    .steer(self.inbox_message(message, input_metadata)?)
+                    .await
+            }
             LoopCommand::Pause => self.handle.pause().await,
             LoopCommand::Resume => self.handle.resume().await,
             LoopCommand::Cancel => self.handle.cancel_turn().await,
@@ -665,6 +681,25 @@ impl RunningTurn for DurableRunningTurn {
             }
         };
         result.map_err(loop_control_error)
+    }
+}
+
+#[async_trait]
+impl RunningTurn for DurableRunningTurn {
+    async fn next_event(&mut self) -> Option<LoopEvent> {
+        self.receive_event().await
+    }
+
+    async fn send(&mut self, command: LoopCommand) -> Result<(), LoopControlError> {
+        self.send_command(command, None).await
+    }
+
+    async fn send_with_metadata(
+        &mut self,
+        command: LoopCommand,
+        input_metadata: Option<serde_json::Value>,
+    ) -> Result<(), LoopControlError> {
+        self.send_command(command, input_metadata).await
     }
 
     async fn result(&mut self) -> LoopResult {

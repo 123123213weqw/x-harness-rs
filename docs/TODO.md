@@ -59,6 +59,10 @@ Commit、Issue、PR 应引用这些 ID。
   会话；Host 从强类型日志重建 Session、History、模型路由、Workspace 归属和 Durable Queue；
   恢复 Worker 必须先为每个稳定输入 ID 订阅，再显式 Wake，未领取输入续跑时不重复 Append；
   真实 Host 子进程在同一状态目录重启后仍能列出 Session 和 Assistant History。
+- [x] `DONE-26` Prompt Admission 持久回执：`session.prompt` 与 `subagent.prompt` 在附件物化和
+  Runtime 调用前，以 RPC ID + 规范化 Payload SHA-256 做会话内幂等判定；并发同 Payload 只
+  Admission 一次，不同 Payload 复用 ID fail closed。回执从完整 `agent/inbox/spliced` 历史
+  重建，成功响应丢失、消息已消费或 Host 重启后重试都不会重复插入输入。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -78,7 +82,7 @@ Commit、Issue、PR 应引用这些 ID。
   `Store::list_headers`、Host 启动 Replay、Workspace/Session/History/Queue 重建和 Pending Turn
   显式 Wake 已完成；Host 内存 FIFO 已不再是模型执行输入的真源，只承担进程内 Web Projection
   与 Driver Attachment。剩余：把这份 Projection/FIFO 本身替换成可游标查询的持久视图，持久化
-  Workspace/Settings/Approval/RPC Receipt，补重复 HTTP Admission 和七个硬崩溃点矩阵。
+  Workspace/Settings/Approval 和 Prompt 之外所有变更 RPC 的 Receipt，补七个硬崩溃点矩阵。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，

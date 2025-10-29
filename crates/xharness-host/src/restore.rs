@@ -1,4 +1,8 @@
-use std::{collections::VecDeque, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    path::Path,
+    sync::Arc,
+};
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -93,6 +97,7 @@ impl BasicHost {
                 .iter()
                 .map(restored_prompt)
                 .collect::<VecDeque<_>>();
+            let admissions = restored_admissions(&session);
             let projected_queue_len = queue.len();
             let events = session
                 .events()
@@ -135,6 +140,7 @@ impl BasicHost {
                 events,
                 messages,
                 queue,
+                admissions,
                 control: None,
                 next_turn,
             };
@@ -219,7 +225,7 @@ fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
 }
 
 fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
-    let (content, source) = input
+    let (content, source, fingerprint) = input
         .source
         .as_ref()
         .and_then(Value::as_object)
@@ -227,12 +233,17 @@ fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
             Some((
                 metadata.get("content")?.as_array()?.clone(),
                 metadata.get("source").cloned()?,
+                metadata
+                    .get("rpcFingerprint")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
             ))
         })
         .unwrap_or_else(|| {
             (
                 vec![json!({"type": "text", "text": input.message.content})],
                 json!({"kind": "user", "restored": true}),
+                None,
             )
         });
     QueuedPrompt {
@@ -240,7 +251,33 @@ fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
         text: input.message.content.clone(),
         content,
         source,
+        fingerprint,
     }
+}
+
+fn restored_admissions(session: &Session) -> BTreeMap<String, QueuedPrompt> {
+    let session_id = &session.header().id;
+    let mut admissions = BTreeMap::new();
+    for event in session.events() {
+        let EventData::AgentInboxSpliced { inserted, .. } = event.data() else {
+            continue;
+        };
+        for input in inserted {
+            let metadata = input.source.as_ref().and_then(Value::as_object);
+            let belongs_to_session = metadata
+                .and_then(|value| value.get("rpcSessionId"))
+                .and_then(Value::as_str)
+                == Some(session_id.as_str());
+            if !belongs_to_session {
+                continue;
+            }
+            let prompt = restored_prompt(input);
+            if prompt.fingerprint.is_some() {
+                admissions.insert(prompt.id.clone(), prompt);
+            }
+        }
+    }
+    admissions
 }
 
 fn restored_web_event(event: &LoggedEvent, route: &ModelRoute) -> Value {
@@ -499,6 +536,7 @@ mod tests {
     use tokio::sync::Notify;
     use tokio_util::sync::CancellationToken;
     use xharness_agent::{DurableInbox, InboxMessage, InboxTarget, MemoryLeaseManager};
+    use xharness_api::{ApiBackend, RpcId, RpcMethod, RpcResult};
     use xharness_core::{
         FinishReason, IdentityContextPolicy, ModelProvider, ProviderError, ProviderEvent,
         ProviderRequest, ProviderStream,
@@ -710,5 +748,98 @@ mod tests {
             1
         );
         assert_eq!(session.derive_messages().last().unwrap().content, "done");
+    }
+
+    #[tokio::test]
+    async fn restore_rebuilds_prompt_receipts_before_runtime_resume() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut header = SessionHeader::new("receipt-session");
+        header.cwd = Some(cwd.to_string_lossy().into_owned());
+        let inbox = DurableInbox::open(Arc::clone(&store), header)
+            .await
+            .unwrap();
+        let content = vec![json!({"type": "text", "text": "admitted before crash"})];
+        let fingerprint = crate::rpc::prompt_fingerprint("queue", &content, None);
+        let mut input = InboxMessage::user("receipt-rpc", "admitted before crash");
+        input.source = Some(json!({
+            "content": content,
+            "source": {"kind": "user", "rpcId": "receipt-rpc"},
+            "rpcFingerprint": fingerprint,
+            "rpcSessionId": "receipt-session",
+        }));
+        inbox.append(InboxTarget::NextTurn, input).await.unwrap();
+
+        // No provider is configured. Restoration reports that pending work is
+        // not runnable, but admission receipts must still become queryable.
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let host = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
+        assert_eq!(report.restored_sessions, 1);
+        assert_eq!(report.issues.len(), 1);
+
+        let replay = host
+            .call(
+                RpcId::new("receipt-rpc"),
+                RpcMethod::SessionPrompt,
+                json!({
+                    "sessionId": "receipt-session",
+                    "mode": "queue",
+                    "content": [{"type": "text", "text": "admitted before crash"}],
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(replay, RpcResult::Success { .. }));
+
+        let conflict = host
+            .call(
+                RpcId::new("receipt-rpc"),
+                RpcMethod::SessionPrompt,
+                json!({
+                    "sessionId": "receipt-session",
+                    "mode": "queue",
+                    "content": [{"type": "text", "text": "different payload"}],
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            conflict,
+            RpcResult::Failure {
+                error: xharness_api::RpcError {
+                    code: xharness_api::RpcErrorCode::SessionConflict,
+                    ..
+                }
+            }
+        ));
+
+        let restored = store.load("receipt-session").await.unwrap().unwrap();
+        assert_eq!(
+            restored
+                .events()
+                .iter()
+                .filter_map(|event| match event.data() {
+                    EventData::AgentInboxSpliced { inserted, .. } => Some(
+                        inserted
+                            .iter()
+                            .filter(|message| message.id == "receipt-rpc")
+                            .count(),
+                    ),
+                    _ => None,
+                })
+                .sum::<usize>(),
+            1,
+            "a response-loss retry must not append a second durable input"
+        );
     }
 }

@@ -9,6 +9,16 @@ use crate::{
     BasicHost,
 };
 
+pub(crate) struct PromptAdmission {
+    pub rpc_id: RpcId,
+    pub session_id: String,
+    pub mode: String,
+    pub text: String,
+    pub content: Vec<Value>,
+    pub source: Value,
+    pub fingerprint: Option<String>,
+}
+
 impl BasicHost {
     pub(crate) async fn append_session_event(
         &self,
@@ -90,15 +100,18 @@ impl BasicHost {
         }));
     }
 
-    pub(crate) async fn enqueue_prompt(
-        &self,
-        rpc_id: RpcId,
-        session_id: &str,
-        mode: &str,
-        text: String,
-        content: Vec<Value>,
-        source: Value,
-    ) -> Result<(), RpcError> {
+    pub(crate) async fn enqueue_prompt(&self, admission: PromptAdmission) -> Result<(), RpcError> {
+        let PromptAdmission {
+            rpc_id,
+            session_id,
+            mode,
+            text,
+            content,
+            source,
+            fingerprint,
+        } = admission;
+        let session_id = session_id.as_str();
+        let mode = mode.as_str();
         let (steer_control, admission_request) = {
             let state = self.state.read().await;
             let session = state.sessions.get(session_id).ok_or_else(|| {
@@ -141,6 +154,8 @@ impl BasicHost {
                         input_metadata: Some(json!({
                             "content": content.clone(),
                             "source": source.clone(),
+                            "rpcFingerprint": fingerprint.clone(),
+                            "rpcSessionId": session_id,
                         })),
                     }),
                 )
@@ -148,11 +163,18 @@ impl BasicHost {
         };
 
         if let Some(control) = steer_control {
-            let message = AgentMessage::new(Role::User, text).with_id(rpc_id.as_str().to_owned());
+            let message =
+                AgentMessage::new(Role::User, text.clone()).with_id(rpc_id.as_str().to_owned());
             let (acknowledgement, accepted) = oneshot::channel();
             control
                 .send(DriverCommand {
                     command: LoopCommand::Steer(message),
+                    input_metadata: Some(json!({
+                        "content": content.clone(),
+                        "source": source.clone(),
+                        "rpcFingerprint": fingerprint.clone(),
+                        "rpcSessionId": session_id,
+                    })),
                     acknowledgement,
                 })
                 .await
@@ -179,6 +201,21 @@ impl BasicHost {
                         json!({"sessionId": session_id}),
                     )
                 })?;
+            {
+                let mut state = self.state.write().await;
+                if let Some(session) = state.sessions.get_mut(session_id) {
+                    session.admissions.insert(
+                        rpc_id.as_str().to_owned(),
+                        QueuedPrompt {
+                            id: rpc_id.as_str().to_owned(),
+                            text: text.clone(),
+                            content: content.clone(),
+                            source: source.clone(),
+                            fingerprint,
+                        },
+                    );
+                }
+            }
             self.append_session_event(
                 session_id,
                 "user/message",
@@ -212,10 +249,21 @@ impl BasicHost {
             })?;
             session.queue.push_back(QueuedPrompt {
                 id: rpc_id.as_str().to_owned(),
-                text,
-                content,
-                source,
+                text: text.clone(),
+                content: content.clone(),
+                source: source.clone(),
+                fingerprint: fingerprint.clone(),
             });
+            session.admissions.insert(
+                rpc_id.as_str().to_owned(),
+                QueuedPrompt {
+                    id: rpc_id.as_str().to_owned(),
+                    text,
+                    content,
+                    source,
+                    fingerprint,
+                },
+            );
             if !session.running {
                 let (control_tx, control_rx) = mpsc::channel(64);
                 session.running = true;
@@ -352,7 +400,9 @@ impl BasicHost {
                 },
                 command = control_rx.recv() => {
                     if let Some(command) = command {
-                        let result = run.send(command.command).await;
+                        let result = run
+                            .send_with_metadata(command.command, command.input_metadata)
+                            .await;
                         let _ = command.acknowledgement.send(result);
                     }
                 }
