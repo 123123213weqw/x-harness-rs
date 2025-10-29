@@ -78,7 +78,7 @@ async fn live_model_calls_real_tool_and_finishes_the_loop() {
     while let Some(event) = run.next().await {
         println!("step={} event={:?}", event.step, event.kind);
         match event.kind {
-            LoopEventKind::ToolApprovalRequested { call } => run
+            LoopEventKind::ToolApprovalRequested { call, .. } => run
                 .send(LoopCommand::ApproveTool { call_id: call.id })
                 .await
                 .expect("approve requested live tool"),

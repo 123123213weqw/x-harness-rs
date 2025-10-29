@@ -15,9 +15,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_core::*;
 use xharness_session::{
-    AppendReceipt, AssistantChunk, EventData as SessionEventData, InboxMessage, InboxTarget,
-    MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent, SessionHeader,
-    SessionInspection, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
+    AppendReceipt, ApprovalOutcome, AssistantChunk, EventData as SessionEventData, InboxMessage,
+    InboxTarget, MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent,
+    SessionHeader, SessionInspection, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
 };
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
@@ -373,7 +373,10 @@ async fn retries_only_before_the_first_delta() {
             Ok(completed()),
         ]),
     ]));
-    let request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("durable-retry".to_owned());
+    request.journal_store = Some(journal.clone());
     let (events, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
     assert_eq!(provider.attempts(), 3);
@@ -383,6 +386,50 @@ async fn retries_only_before_the_first_delta() {
             .filter(|event| matches!(event.kind, LoopEventKind::ModelRetry { .. }))
             .count(),
         2
+    );
+    let retry_events = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            LoopEventKind::ModelRetry {
+                retry_id,
+                attempt,
+                max_retries,
+                ..
+            } => Some((retry_id.clone(), *attempt, *max_retries)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(retry_events.len(), 2);
+    assert_eq!(retry_events[0].0, retry_events[1].0);
+    assert_eq!(retry_events[0].1, 1);
+    assert_eq!(retry_events[1].1, 2);
+    assert_eq!(retry_events[0].2, 2);
+
+    let session = journal.load("durable-retry").await.unwrap().unwrap();
+    let durable_retries = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::LlmRetry {
+                retry_id,
+                retry,
+                max_retries,
+                ..
+            } => Some(("scheduled", retry_id.clone(), *retry, *max_retries)),
+            SessionEventData::LlmRetryStarted {
+                retry_id, retry, ..
+            } => Some(("started", retry_id.clone(), *retry, None)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        durable_retries,
+        [
+            ("scheduled", retry_events[0].0.clone(), 1, Some(2)),
+            ("started", retry_events[0].0.clone(), 1, None),
+            ("scheduled", retry_events[0].0.clone(), 2, Some(2)),
+            ("started", retry_events[0].0.clone(), 2, None),
+        ]
     );
 
     let provider = Arc::new(ScriptProvider::new([vec![
@@ -993,18 +1040,32 @@ async fn approval_blocks_tool_start_until_host_approves() {
         }
     })
     .requires_approval();
+    let journal = Arc::new(EventMemorySessionStore::default());
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("durable-approval".to_owned());
+    request.journal_store = Some(journal.clone());
     request.tools.push(tool);
     let mut run = LoopEngine.start(request);
 
-    let call_id = loop {
+    let (approval_id, call_id) = loop {
         let event = run.next().await.unwrap();
-        if let LoopEventKind::ToolApprovalRequested { call } = event.kind {
-            break call.id;
+        if let LoopEventKind::ToolApprovalRequested { approval_id, call } = event.kind {
+            break (approval_id, call.id);
         }
     };
+    assert_ne!(approval_id, call_id);
     assert!(!call_id.is_empty());
     assert_eq!(executions.load(Ordering::SeqCst), 0);
+    let pending = journal.load("durable-approval").await.unwrap().unwrap();
+    assert!(pending.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ApprovalAsked { id, call_id: Some(id_call), .. }
+            if id == &approval_id && id_call == &call_id
+    )));
+    assert!(!pending.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ApprovalDecided { id, .. } if id == &approval_id
+    )));
     run.send(LoopCommand::ApproveTool {
         call_id: call_id.clone(),
     })
@@ -1019,6 +1080,77 @@ async fn approval_blocks_tool_start_until_host_approves() {
     assert!(saw_started);
     assert_eq!(executions.load(Ordering::SeqCst), 1);
     assert_eq!(run.result().await.status, LoopStatus::Completed);
+    let completed = journal.load("durable-approval").await.unwrap().unwrap();
+    let audit = completed
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ApprovalAsked { id, .. } => Some((id.clone(), None)),
+            SessionEventData::ApprovalDecided { id, outcome } => Some((id.clone(), Some(*outcome))),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        audit,
+        [
+            (approval_id.clone(), None),
+            (approval_id, Some(ApprovalOutcome::AllowedOnce)),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn cancellation_closes_every_durable_pending_approval() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(tool_delta(0, "first", "guarded", "{}")),
+        Ok(tool_delta(1, "second", "guarded", "{}")),
+        Ok(completed_for_calls()),
+    ]]));
+    let tool = ToolSpec::new(
+        "guarded",
+        "guarded",
+        json!({"type":"object"}),
+        |_, _| async { ToolResult::success("must not run") },
+    )
+    .requires_approval();
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("cancel-pending-approvals".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tools.push(tool);
+    let mut run = LoopEngine.start(request);
+
+    let mut asked = Vec::new();
+    while asked.len() < 2 {
+        let event = run.next().await.unwrap();
+        if let LoopEventKind::ToolApprovalRequested { approval_id, .. } = event.kind {
+            asked.push(approval_id);
+        }
+    }
+    run.cancel();
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+
+    let session = journal
+        .load("cancel-pending-approvals")
+        .await
+        .unwrap()
+        .unwrap();
+    let decided = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ApprovalDecided { id, outcome } => Some((id.clone(), *outcome)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        decided,
+        asked
+            .into_iter()
+            .map(|id| (id, ApprovalOutcome::Cancelled))
+            .collect::<Vec<_>>()
+    );
 }
 
 #[tokio::test]
@@ -1050,7 +1182,7 @@ async fn duplicate_provider_call_ids_get_unique_approval_ids() {
     let mut approval_ids = Vec::new();
     while approval_ids.len() < 2 {
         let event = run.next().await.unwrap();
-        if let LoopEventKind::ToolApprovalRequested { call } = event.kind {
+        if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
             approval_ids.push(call.id);
         }
     }

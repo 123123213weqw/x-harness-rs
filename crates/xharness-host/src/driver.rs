@@ -590,8 +590,7 @@ impl BasicHost {
         event: LoopEvent,
     ) -> Result<(), RpcError> {
         match event.kind {
-            LoopEventKind::ToolApprovalRequested { call } => {
-                let approval_id = call.id.clone();
+            LoopEventKind::ToolApprovalRequested { approval_id, call } => {
                 let rpc_id = RpcId::new(self.mint_id("approval"));
                 let control = self
                     .state
@@ -624,6 +623,7 @@ impl BasicHost {
                 );
             }
             LoopEventKind::ToolApprovalResolved {
+                approval_id,
                 call,
                 approved,
                 reason: _,
@@ -631,7 +631,8 @@ impl BasicHost {
                 self.push_mux(json!({
                     "type": "approval/resolved",
                     "sessionId": session_id,
-                    "approvalId": call.id,
+                    "approvalId": approval_id,
+                    "callId": call.id,
                     "outcome": if approved { "allowed-once" } else { "rejected" },
                 }));
             }
@@ -763,8 +764,19 @@ impl BasicHost {
                 )
                 .await?;
             }
-            LoopEventKind::ToolApprovalRequested { call } => {
-                let approval_id = call.id.clone();
+            LoopEventKind::ToolApprovalRequested { approval_id, call } => {
+                self.append_session_event(
+                    session_id,
+                    "approval/asked",
+                    json!({
+                        "id": approval_id,
+                        "toolName": call.name,
+                        "callId": call.id,
+                        "reason": "This tool requires explicit approval.",
+                    }),
+                    None,
+                )
+                .await?;
                 let rpc_id = RpcId::new(self.mint_id("approval"));
                 let control = self
                     .state
@@ -797,31 +809,61 @@ impl BasicHost {
                 );
             }
             LoopEventKind::ToolApprovalResolved {
+                approval_id,
                 call,
                 approved,
                 reason: _,
             } => {
+                self.append_session_event(
+                    session_id,
+                    "approval/decided",
+                    json!({
+                        "id": approval_id,
+                        "outcome": if approved { "allowed-once" } else { "rejected" },
+                    }),
+                    None,
+                )
+                .await?;
                 self.push_mux(json!({
                     "type": "approval/resolved",
                     "sessionId": session_id,
-                    "approvalId": call.id,
+                    "approvalId": approval_id,
+                    "callId": call.id,
                     "outcome": if approved { "allowed-once" } else { "rejected" },
                 }));
             }
-            LoopEventKind::ModelRetry { attempt, error } => {
+            LoopEventKind::ModelRetry {
+                retry_id,
+                attempt,
+                max_retries,
+                error,
+            } => {
                 self.append_session_event(
                     session_id,
                     "llm/retry",
                     json!({
+                        "retryId": retry_id,
                         "turn": turn,
                         "step": step,
                         "provider": self.config.provider_id,
                         "mode": "normal",
-                        "policyKey": "xharness",
+                        "policyKey": format!("xharness:normal:{max_retries}"),
                         "retry": attempt,
-                        "maxRetries": 2,
+                        "maxRetries": max_retries,
                         "delayMs": 0,
                         "failure": {"code": "TRANSPORT", "message": error},
+                    }),
+                    None,
+                )
+                .await?;
+                self.append_session_event(
+                    session_id,
+                    "llm/retry-started",
+                    json!({
+                        "retryId": retry_id,
+                        "turn": turn,
+                        "step": step,
+                        "retry": attempt,
                     }),
                     None,
                 )

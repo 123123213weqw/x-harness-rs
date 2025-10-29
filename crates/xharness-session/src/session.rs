@@ -304,6 +304,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         turn: u32,
         step: u32,
         request_header_seen: bool,
+        request_provider: Option<String>,
         assistant_calls: Option<Vec<crate::ToolCall>>,
         mirrored_calls: usize,
     }
@@ -333,6 +334,11 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
 
     let mut current_logged_revision = Revision::ZERO;
     let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
+    let mut approvals = HashMap::<String, bool>::new();
+    let mut retry_chains = HashMap::<(u32, u32, String, String), (String, u32)>::new();
+    let mut retry_owners = HashMap::<String, (u32, u32, String, String)>::new();
+    let mut scheduled_retries = HashMap::<(String, u32), (u32, u32)>::new();
+    let mut started_retries = std::collections::HashSet::<(String, u32)>::new();
     let mut open_turn = None::<u32>;
     let mut last_turn = 0u32;
     let mut open_step = None::<StepState>;
@@ -511,7 +517,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 }
                 open_step = None;
             }
-            EventData::RequestHeader { .. } => {
+            EventData::RequestHeader { header } => {
                 let Some(state) = open_step.as_mut() else {
                     return Err(lifecycle_error(
                         logged.seq,
@@ -530,7 +536,228 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         "request/header cannot follow assistant/message",
                     ));
                 }
+                if header.provider.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "request/header provider must be non-empty",
+                    ));
+                }
                 state.request_header_seen = true;
+                state.request_provider = Some(header.provider.clone());
+            }
+            EventData::ApprovalAsked {
+                id,
+                tool_name,
+                call_id,
+                ..
+            } => {
+                if open_turn.is_none() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "approval/asked requires an open turn",
+                    ));
+                }
+                if id.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "approval/asked id must be non-empty",
+                    ));
+                }
+                if tool_name.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "approval/asked toolName must be non-empty",
+                    ));
+                }
+                if approvals.insert(id.clone(), false).is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!("approval/asked repeats id {id:?}"),
+                    ));
+                }
+                if let Some(call_id) = call_id {
+                    let Some((settled, _, _)) = calls.get(call_id) else {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("approval/asked references unknown call id {call_id:?}"),
+                        ));
+                    };
+                    if *settled {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("approval/asked references settled call id {call_id:?}"),
+                        ));
+                    }
+                }
+            }
+            EventData::ApprovalDecided { id, .. } => {
+                if open_turn.is_none() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "approval/decided requires an open turn",
+                    ));
+                }
+                match approvals.get_mut(id) {
+                    None => {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("approval/decided has no matching ask for id {id:?}"),
+                        ));
+                    }
+                    Some(true) => {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("approval/decided repeats id {id:?}"),
+                        ));
+                    }
+                    Some(decided) => *decided = true,
+                }
+            }
+            EventData::LlmRetry {
+                retry_id,
+                turn,
+                step,
+                provider,
+                mode,
+                policy_key,
+                retry,
+                max_retries,
+                failure,
+                ..
+            } => {
+                let Some(state) = open_step.as_ref() else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry requires an open step",
+                    ));
+                };
+                if state.turn != *turn || state.step != *step {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry coordinates do not match the open step",
+                    ));
+                }
+                if retry_id.trim().is_empty()
+                    || provider.trim().is_empty()
+                    || policy_key.trim().is_empty()
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry identity, provider and policyKey must be non-empty",
+                    ));
+                }
+                if state.request_provider.as_deref() != Some(provider.as_str()) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry provider does not match request/header",
+                    ));
+                }
+                if *retry == 0 {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry retry must be positive",
+                    ));
+                }
+                match mode {
+                    crate::LlmRetryMode::Normal => {
+                        if max_retries.is_none_or(|maximum| maximum == 0 || *retry > maximum) {
+                            return Err(lifecycle_error(
+                                logged.seq,
+                                "normal llm/retry requires a positive maxRetries not below retry",
+                            ));
+                        }
+                    }
+                    crate::LlmRetryMode::Always => {
+                        if max_retries.is_some() {
+                            return Err(lifecycle_error(
+                                logged.seq,
+                                "always llm/retry must omit maxRetries",
+                            ));
+                        }
+                    }
+                }
+                if failure.message.trim().is_empty() || failure.code.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry failure message and code must be non-empty",
+                    ));
+                }
+                if failure
+                    .status
+                    .is_some_and(|status| !(100..=599).contains(&status))
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry failure status must be within 100..=599",
+                    ));
+                }
+                if failure.provider_retry_after_ms == Some(0) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry providerRetryAfterMs must be positive",
+                    ));
+                }
+                if failure.request_id.as_ref().is_some_and(|id| id.is_empty()) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry requestId must be non-empty when present",
+                    ));
+                }
+
+                let owner = (*turn, *step, provider.clone(), policy_key.clone());
+                if let Some(existing) = retry_owners.get(retry_id) {
+                    if existing != &owner {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("llm/retry id {retry_id:?} is owned by another chain"),
+                        ));
+                    }
+                } else {
+                    retry_owners.insert(retry_id.clone(), owner.clone());
+                }
+                let chain = retry_chains.entry(owner).or_insert((retry_id.clone(), 0));
+                if chain.0 != *retry_id || retry != &(chain.1.saturating_add(1)) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry must preserve retryId and increment retry by one",
+                    ));
+                }
+                chain.1 = *retry;
+                if scheduled_retries
+                    .insert((retry_id.clone(), *retry), (*turn, *step))
+                    .is_some()
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry repeats one scheduled attempt",
+                    ));
+                }
+            }
+            EventData::LlmRetryStarted {
+                retry_id,
+                turn,
+                step,
+                retry,
+            } => {
+                if open_step.as_ref().map(|state| (state.turn, state.step)) != Some((*turn, *step))
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry-started coordinates do not match the open step",
+                    ));
+                }
+                if scheduled_retries.get(&(retry_id.clone(), *retry)) != Some(&(*turn, *step)) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry-started has no matching scheduled retry",
+                    ));
+                }
+                if !started_retries.insert((retry_id.clone(), *retry)) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry-started repeats one scheduled attempt",
+                    ));
+                }
             }
             EventData::UserMessage { message } => {
                 if message.role != MessageRole::User {

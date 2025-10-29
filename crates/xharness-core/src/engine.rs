@@ -15,8 +15,9 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_session::{
-    AssistantChunk, EventData as SessionEventData, RequestHeader, Revision, SessionEvent,
-    SessionHeader, Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
+    ApprovalOutcome, AssistantChunk, EventData as SessionEventData, LlmFailure, LlmRetryMode,
+    RequestHeader, Revision, SessionEvent, SessionHeader, Store as EventSessionStore, ToolOutcome,
+    ToolResultData, TurnEndReason,
 };
 
 use crate::{
@@ -815,6 +816,130 @@ impl Runner {
         self.journal_append(events, true).await
     }
 
+    fn approval_id(&self, order: usize) -> String {
+        format!("xh-approval-{}-{}-{order}", self.run_id, self.step)
+    }
+
+    async fn journal_approval_asked(
+        &mut self,
+        approval_id: &str,
+        call: &ToolCall,
+    ) -> Result<(), RunFailure> {
+        self.journal_append(
+            vec![SessionEventData::ApprovalAsked {
+                id: approval_id.to_owned(),
+                tool_name: call.name.clone(),
+                call_id: Some(call.id.clone()),
+                reason: Some("This tool requires explicit approval.".to_owned()),
+            }],
+            true,
+        )
+        .await
+    }
+
+    async fn journal_approval_decided(
+        &mut self,
+        approval_id: &str,
+        outcome: ApprovalOutcome,
+    ) -> Result<(), RunFailure> {
+        self.journal_append(
+            vec![SessionEventData::ApprovalDecided {
+                id: approval_id.to_owned(),
+                outcome,
+            }],
+            true,
+        )
+        .await
+    }
+
+    async fn journal_cancel_pending_approvals(
+        &mut self,
+        pending_approval_ids: &mut Vec<String>,
+    ) -> Result<(), RunFailure> {
+        let events = pending_approval_ids
+            .drain(..)
+            .map(|id| SessionEventData::ApprovalDecided {
+                id,
+                outcome: ApprovalOutcome::Cancelled,
+            })
+            .collect();
+        self.journal_append(events, true).await
+    }
+
+    fn model_retry_id(&self) -> String {
+        format!("xh-retry-{}-{}", self.run_id, self.step)
+    }
+
+    async fn journal_model_retry_scheduled(
+        &mut self,
+        retry_id: &str,
+        retry: usize,
+        max_retries: usize,
+        error: &ProviderError,
+    ) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        let retry = u32::try_from(retry)
+            .map_err(|_| RunFailure::Failed("provider retry counter overflow".to_owned()))?;
+        let max_retries = u32::try_from(max_retries)
+            .map_err(|_| RunFailure::Failed("provider retry limit overflow".to_owned()))?;
+        let provider = self.request.provider.provider_name().to_owned();
+        let failure = LlmFailure {
+            message: error.message.clone(),
+            code: error
+                .http_status
+                .map_or_else(|| "TRANSPORT".to_owned(), |status| format!("HTTP_{status}")),
+            status: error.http_status,
+            provider_retry_after_ms: None,
+            request_id: None,
+        };
+        self.journal_append(
+            vec![SessionEventData::LlmRetry {
+                retry_id: retry_id.to_owned(),
+                turn,
+                step,
+                provider,
+                mode: LlmRetryMode::Normal,
+                policy_key: format!("xharness:normal:{max_retries}"),
+                retry,
+                max_retries: Some(max_retries),
+                delay_ms: 0,
+                failure,
+            }],
+            true,
+        )
+        .await
+    }
+
+    async fn journal_model_retry_started(
+        &mut self,
+        retry_id: &str,
+        retry: usize,
+    ) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        let retry = u32::try_from(retry)
+            .map_err(|_| RunFailure::Failed("provider retry counter overflow".to_owned()))?;
+        self.journal_append(
+            vec![SessionEventData::LlmRetryStarted {
+                retry_id: retry_id.to_owned(),
+                turn,
+                step,
+                retry,
+            }],
+            true,
+        )
+        .await
+    }
+
     async fn journal_step_end(&mut self) -> Result<(), RunFailure> {
         let Some(journal) = self.journal.as_ref() else {
             return Ok(());
@@ -1216,11 +1341,22 @@ impl Runner {
                 Ok(stream) => stream,
                 Err(error) => {
                     if error.retryable && !round.saw_delta && attempt < max_attempts {
-                        self.emit(LoopEventKind::ModelRetry {
+                        let retry_id = self.model_retry_id();
+                        self.journal_model_retry_scheduled(
+                            &retry_id,
                             attempt,
-                            error: error.message,
+                            self.request.config.provider_retries,
+                            &error,
+                        )
+                        .await?;
+                        self.emit(LoopEventKind::ModelRetry {
+                            retry_id: retry_id.clone(),
+                            attempt,
+                            max_retries: self.request.config.provider_retries,
+                            error: error.message.clone(),
                         })
                         .await?;
+                        self.journal_model_retry_started(&retry_id, attempt).await?;
                         continue;
                     }
                     return Err(RunFailure::Failed(error.message));
@@ -1363,11 +1499,22 @@ impl Runner {
             }
             let error = failure.expect("an incomplete provider attempt has an error");
             if error.retryable && !round.saw_delta && attempt < max_attempts {
-                self.emit(LoopEventKind::ModelRetry {
+                let retry_id = self.model_retry_id();
+                self.journal_model_retry_scheduled(
+                    &retry_id,
                     attempt,
-                    error: error.message,
+                    self.request.config.provider_retries,
+                    &error,
+                )
+                .await?;
+                self.emit(LoopEventKind::ModelRetry {
+                    retry_id: retry_id.clone(),
+                    attempt,
+                    max_retries: self.request.config.provider_retries,
+                    error: error.message.clone(),
                 })
                 .await?;
+                self.journal_model_retry_started(&retry_id, attempt).await?;
                 continue;
             }
             return Err(RunFailure::Failed(error.message));
@@ -1480,27 +1627,62 @@ impl Runner {
         scheduled: &mut [ScheduledTool],
         completed: &mut [Option<ToolExecution>],
     ) -> Result<usize, RunFailure> {
-        let approval_calls = scheduled
+        let approval_requests = scheduled
             .iter()
             .filter(|item| item.requires_approval())
-            .map(|item| item.call.clone())
+            .map(|item| (item.order, self.approval_id(item.order), item.call.clone()))
             .collect::<Vec<_>>();
-        for call in &approval_calls {
-            self.emit(LoopEventKind::ToolApprovalRequested { call: call.clone() })
-                .await?;
+        let mut pending_approval_ids = Vec::<String>::new();
+        for (_, approval_id, call) in &approval_requests {
+            self.journal_approval_asked(approval_id, call).await?;
+            pending_approval_ids.push(approval_id.clone());
+            if let Err(failure) = self
+                .emit(LoopEventKind::ToolApprovalRequested {
+                    approval_id: approval_id.clone(),
+                    call: call.clone(),
+                })
+                .await
+            {
+                self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                    .await?;
+                return Err(failure);
+            }
         }
 
         let mut rejected_count = 0;
         for item in scheduled.iter_mut().filter(|item| item.requires_approval()) {
-            let decision = self.wait_for_approval(&item.call.id).await?;
+            let approval_id = approval_requests
+                .iter()
+                .find_map(|(order, approval_id, _)| {
+                    (*order == item.order).then_some(approval_id.clone())
+                })
+                .expect("every approval-required tool received an approval identity");
+            let decision = match self.wait_for_approval(&item.call.id).await {
+                Ok(decision) => decision,
+                Err(failure) => {
+                    self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                        .await?;
+                    return Err(failure);
+                }
+            };
             match decision {
                 ApprovalDecision::Approved => {
-                    self.emit(LoopEventKind::ToolApprovalResolved {
-                        call: item.call.clone(),
-                        approved: true,
-                        reason: None,
-                    })
-                    .await?;
+                    self.journal_approval_decided(&approval_id, ApprovalOutcome::AllowedOnce)
+                        .await?;
+                    pending_approval_ids.retain(|pending| pending != &approval_id);
+                    if let Err(failure) = self
+                        .emit(LoopEventKind::ToolApprovalResolved {
+                            approval_id,
+                            call: item.call.clone(),
+                            approved: true,
+                            reason: None,
+                        })
+                        .await
+                    {
+                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
                 }
                 ApprovalDecision::Rejected(reason) => {
                     let reason = if reason.trim().is_empty() {
@@ -1508,12 +1690,22 @@ impl Runner {
                     } else {
                         reason
                     };
-                    self.emit(LoopEventKind::ToolApprovalResolved {
-                        call: item.call.clone(),
-                        approved: false,
-                        reason: Some(reason.clone()),
-                    })
-                    .await?;
+                    self.journal_approval_decided(&approval_id, ApprovalOutcome::Rejected)
+                        .await?;
+                    pending_approval_ids.retain(|pending| pending != &approval_id);
+                    if let Err(failure) = self
+                        .emit(LoopEventKind::ToolApprovalResolved {
+                            approval_id,
+                            call: item.call.clone(),
+                            approved: false,
+                            reason: Some(reason.clone()),
+                        })
+                        .await
+                    {
+                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
                     item.started = true;
                     let result = ToolResult::failure(format!("tool rejected: {reason}"));
                     let (model_text, _) =
@@ -1524,11 +1716,17 @@ impl Runner {
                         result,
                         model_text,
                     };
-                    self.emit(LoopEventKind::ToolCompleted {
-                        call: execution.call.clone(),
-                        result: execution.result.clone(),
-                    })
-                    .await?;
+                    if let Err(failure) = self
+                        .emit(LoopEventKind::ToolCompleted {
+                            call: execution.call.clone(),
+                            result: execution.result.clone(),
+                        })
+                        .await
+                    {
+                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
                     let order = execution.order;
                     completed[order] = Some(execution);
                     rejected_count += 1;
