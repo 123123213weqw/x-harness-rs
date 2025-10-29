@@ -67,8 +67,9 @@ Session 原始事件
 ```
 
 当前已经把 Context 从 Core 拆成独立 `xharness-context`，并建立一次性 Surface、替换来源范围
-和 Request Header 审计边界。Host 仍使用 `IdentityContextPolicy`，没有 Prompt Registry、
-Token Meter 或实际压缩策略。这个缺口已经在真实 53,248-token 服务上触发 64,196-token
+和 Request Header 审计边界。`xharness-prompt/v1` 已把 Preset/权限/Workspace/Workflow/Plan
+按稳定顺序真实注入并记录 Hash；完整动态 Registry 尚未实现。Host 仍使用
+`IdentityContextPolicy`，没有 Token Meter 或实际压缩策略。这个缺口已经在真实 53,248-token 服务上触发 64,196-token
 请求失败，因此是 P0，而不是可选性能优化。
 
 Host 控制面也已完成两层解耦：原生部署组合移动到 `xharness-host-app`；BasicHost 只通过
@@ -99,11 +100,12 @@ Transcript 投影和崩溃恢复。JSONL 是首个持久 Backend；后续 SQLite
 元数据。它不依赖任何推理后端，也不修改 Session 原始事件。当前只交付抽象和 Identity 策略；
 确定性裁剪、Token Budget 与 Summary 仍待实现。
 
-### `xharness-prompt` / Token 层（计划）
+### `xharness-prompt` / Token 层
 
-Prompt Registry 将 Preset、Workspace、工具指导和 Provider Section 按稳定版本组装。Context
-层负责 Token 预算、工具结果 Reduce、Spill Reference 与 Surface Replace。两者共同产生可
-审计的 Prepared Call；UI 中存在 Preset 记录不代表 System Prompt 已经注入。
+当前最小 Assembler 已将 Preset、权限、Workspace、Coding Workflow 和 Plan Policy 按稳定版本
+组装，并把 System 与 Section/Assembly Hash 写入 Request Header。完整 Registry 后续增加动态
+Scope、Variable、Skill 和 Provider Section。Context 层负责 Token 预算、工具结果 Reduce、
+Spill Reference 与 Surface Replace。两者共同产生可审计的 Prepared Call。
 
 ### `xharness-tools`
 

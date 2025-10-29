@@ -95,6 +95,30 @@ fn chat_request_and_stream_are_normalized() {
 }
 
 #[test]
+fn assembled_system_prompt_is_encoded_first_in_both_wire_protocols() {
+    let request = ProviderRequest {
+        messages: vec![
+            AgentMessage::system("versioned coding policy"),
+            AgentMessage::user("inspect"),
+        ],
+        tools: Vec::new(),
+        step: 1,
+    };
+    let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
+    assert_eq!(chat["messages"][0]["role"], "system");
+    assert_eq!(chat["messages"][0]["content"], "versioned coding policy");
+    assert_eq!(chat["messages"][1]["role"], "user");
+
+    let responses = build_openai_request(OpenAiProtocol::Responses, "model", &request);
+    assert_eq!(responses["input"][0]["role"], "system");
+    assert_eq!(
+        responses["input"][0]["content"][0]["text"],
+        "versioned coding policy"
+    );
+    assert_eq!(responses["input"][1]["role"], "user");
+}
+
+#[test]
 fn responses_request_replays_opaque_items_and_normalizes_lifecycle() {
     let mut assistant = AgentMessage::assistant("ignored because opaque item exists");
     assistant.provider_items.push(json!({

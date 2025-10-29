@@ -285,6 +285,9 @@ impl BasicHost {
                     json!({"provider": route.provider, "model": route.model}),
                 ));
             }
+            let prompt = state
+                .prompt_assembly(session_id)
+                .map_err(RpcError::internal)?;
             if mode == "steer" && session.running {
                 (session.control.clone(), None)
             } else {
@@ -299,6 +302,7 @@ impl BasicHost {
                         cwd: session.cwd.clone(),
                         route,
                         permission: session.permission_preset,
+                        prompt: Some(prompt),
                         messages,
                         input_metadata: Some(json!({
                             "content": content.clone(),
@@ -534,6 +538,13 @@ impl BasicHost {
                 cwd,
                 route,
                 permission,
+                prompt: self
+                    .state
+                    .read()
+                    .await
+                    .prompt_assembly(session_id)
+                    .map(Some)
+                    .map_err(RpcError::internal)?,
                 messages,
                 input_metadata: None,
             })
@@ -632,7 +643,15 @@ impl BasicHost {
         {
             let mut state = self.state.write().await;
             if let Some(session) = state.sessions.get_mut(session_id) {
-                session.messages = result.messages.clone();
+                // System Prompt is a per-request assembly captured by the
+                // Request Header, not transcript history or the next turn's
+                // mutable message cache.
+                session.messages = result
+                    .messages
+                    .iter()
+                    .filter(|message| message.role != Role::System)
+                    .cloned()
+                    .collect();
             }
             state.pending.retain(|_, pending| match pending {
                 PendingResponse::Approval { session_id: id, .. } => id != session_id,

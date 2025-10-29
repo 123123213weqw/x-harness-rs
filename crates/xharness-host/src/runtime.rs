@@ -17,6 +17,7 @@ use xharness_core::{
     AgentMessage, ContextPolicy, InjectionMode, LoopCommand, LoopControlError, LoopEngine,
     LoopEvent, LoopRequest, LoopResult, LoopRun, LoopStatus, ModelProvider, Role,
 };
+use xharness_prompt::PromptAssembly;
 use xharness_session::{Session, SessionEvent, SessionHeader, Store, StoreError};
 
 use crate::{PermissionPreset, SessionToolFactory};
@@ -46,6 +47,8 @@ pub struct AgentTurnRequest {
     pub cwd: String,
     pub route: ModelRoute,
     pub permission: PermissionPreset,
+    /// Deterministic System Prompt selected by the Host for this turn.
+    pub prompt: Option<PromptAssembly>,
     pub messages: Vec<AgentMessage>,
     /// Optional product/transport metadata retained beside the durable inbox
     /// item. The Web Host stores its structured content blocks and source here
@@ -62,6 +65,8 @@ pub struct AgentSessionRequest {
     pub cwd: String,
     pub route: ModelRoute,
     pub permission: PermissionPreset,
+    /// Prompt restored for already-durable pending turns.
+    pub prompt: Option<PromptAssembly>,
 }
 
 /// Durable work attached during one startup-resume operation.
@@ -254,6 +259,7 @@ impl AgentRuntime for LoopAgentRuntime {
             .map_err(|message| AgentRuntimeError::Preparation { message })?;
         let mut loop_request = LoopRequest::new(provider, request.messages);
         loop_request.session_id = Some(request.session_id);
+        loop_request.prompt = request.prompt;
         loop_request.tools = tools;
         loop_request.context_policy = Arc::clone(&self.context_policy);
         Ok(Box::new(LoopEngine.start(loop_request)))
@@ -264,6 +270,7 @@ impl AgentRuntime for LoopAgentRuntime {
 struct DurableSessionConfig {
     cwd: String,
     permission: PermissionPreset,
+    prompt: Option<PromptAssembly>,
 }
 
 struct DurableTurnFactory {
@@ -293,6 +300,7 @@ impl TurnRequestFactory for DurableTurnFactory {
             .tools(agent_id, &config.cwd, config.permission)
             .await?;
         let mut request = LoopRequest::new(provider, input);
+        request.prompt = config.prompt;
         request.tools = tools;
         request.context_policy = Arc::clone(&self.context_policy);
         Ok(request)
@@ -393,6 +401,7 @@ impl DurableLoopAgentRuntime {
             DurableSessionConfig {
                 cwd: request.cwd.clone(),
                 permission: request.permission,
+                prompt: request.prompt.clone(),
             },
         );
         let mut header = SessionHeader::new(&request.session_id);
@@ -524,6 +533,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             DurableSessionConfig {
                 cwd: request.cwd.clone(),
                 permission: request.permission,
+                prompt: request.prompt,
             },
         );
         let mut header = SessionHeader::new(&request.session_id);
@@ -939,6 +949,7 @@ mod tests {
                 cwd: "/workspace".to_owned(),
                 route,
                 permission: PermissionPreset::WorkspaceWrite,
+                prompt: None,
                 messages: vec![AgentMessage::user("hello")],
                 input_metadata: None,
             })
@@ -979,6 +990,7 @@ mod tests {
             cwd: "/workspace".to_owned(),
             route: ModelRoute::new("test", "test-model"),
             permission: PermissionPreset::WorkspaceWrite,
+            prompt: None,
             messages: vec![AgentMessage::user("first").with_id("prompt-1")],
             input_metadata: None,
         };
@@ -1000,6 +1012,7 @@ mod tests {
             cwd: "/workspace".to_owned(),
             route: ModelRoute::new("test", "test-model"),
             permission: PermissionPreset::WorkspaceWrite,
+            prompt: None,
             // The durable Session, not this compatibility DTO, supplies the
             // prior turn to the second model request.
             messages: vec![AgentMessage::user("second").with_id("prompt-2")],
@@ -1046,6 +1059,7 @@ mod tests {
             cwd: "/workspace".to_owned(),
             route: ModelRoute::new("test", "test-model"),
             permission: PermissionPreset::WorkspaceWrite,
+            prompt: None,
             messages: vec![AgentMessage::user("a").with_id("prompt-a")],
             input_metadata: None,
         };
@@ -1091,6 +1105,7 @@ mod tests {
             cwd: "/workspace".to_owned(),
             route: ModelRoute::new("test", "test-model"),
             permission: PermissionPreset::WorkspaceWrite,
+            prompt: None,
             messages: vec![AgentMessage::user("first").with_id("prompt-first")],
             input_metadata: None,
         };
@@ -1189,6 +1204,7 @@ mod tests {
                 cwd: "/workspace".to_owned(),
                 route: ModelRoute::new("test", "test-model"),
                 permission: PermissionPreset::WorkspaceWrite,
+                prompt: None,
             })
             .await
             .unwrap();
@@ -1200,6 +1216,7 @@ mod tests {
             cwd: "/workspace".to_owned(),
             route: ModelRoute::new("test", "test-model"),
             permission: PermissionPreset::WorkspaceWrite,
+            prompt: None,
             messages: vec![AgentMessage::user("continue after restart").with_id("restored-input")],
             input_metadata: None,
         };

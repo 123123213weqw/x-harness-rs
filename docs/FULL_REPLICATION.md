@@ -62,7 +62,7 @@ DeepSeek Web UI / CLI / ACP
 | `M00` | 冻结上游目录、RPC、事件、工具、Prompt、Settings 兼容基线 | 已完成 | 全部 |
 | `M01` | 持久 Agent 接管 Web Host，重启不丢输入、不重复副作用 | 进行中 | Web、Subagent |
 | `M02` | 统一 Tool Runtime、Execution ID 和结构化 Shutdown | 部分完成 | MCP、Jobs |
-| `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | 部分完成 | 长上下文、质量 |
+| `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | 部分完成（最小 Prompt 已注入） | 长上下文、质量 |
 | `M04` | Linux/macOS 原生工具、Readiness 和动态工具投影 | 部分完成 | 日常使用 |
 | `M05` | Web 持久状态、游标续传、认证和完整 UI Projection | 部分完成 | 产品发布 |
 | `M06` | Git、MCP、Skills、LSP、本地代码索引 | 未开始 | 高级 Coding |
@@ -130,8 +130,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 
 ### Batch C：Prompt、Context、Token、Provider
 
-- [ ] `C-01` 实现有序 Prompt Registry 和版本化 Request Header。
-- [ ] `C-02` 真实注入 Coding Preset，而不是只在 Web 中保存文本。
+- [ ] `C-01` 实现完整有序 Prompt Registry；最小 `xharness-prompt/v1` 组装和版本化 Request
+  Header 已完成，剩余动态注册、Scope、Variable 与 Provider Section。
+- [x] `C-02` 真实注入 Coding Preset，而不是只在 Web 中保存文本。
 - [ ] `C-03` 实现 Provider/Model/Purpose Registry 和能力发现。
 - [ ] `C-04` 实现 Tokenizer 抽象与安全估算后备。
 - [ ] `C-05` Provider I/O 前计量 System/消息/工具 Schema/协议模板/输出预留。

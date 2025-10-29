@@ -14,6 +14,7 @@ use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_core::*;
+use xharness_prompt::{PromptAssembler, PromptSection};
 use xharness_session::{
     AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
     EventData as SessionEventData, GoalChange, GoalChangeKind, GoalPhase, GoalSnapshot,
@@ -98,6 +99,25 @@ impl ContextPolicy for RecordingCompactionPolicy {
             ContextPolicyId::new("test-compaction", 1),
             request.messages.len(),
             vec![AgentMessage::user("compacted surface")],
+            vec![SurfaceEdit::new(
+                0,
+                request.messages.len(),
+                1,
+                SurfaceEditKind::HistoryCompacted,
+            )],
+        ))
+    }
+}
+
+struct DroppingSystemPolicy;
+
+#[async_trait]
+impl ContextPolicy for DroppingSystemPolicy {
+    async fn prepare(&self, request: ContextRequest) -> Result<ContextSurface, ContextError> {
+        Ok(ContextSurface::transformed(
+            ContextPolicyId::new("drops-system", 1),
+            request.messages.len(),
+            vec![AgentMessage::user("history only")],
             vec![SurfaceEdit::new(
                 0,
                 request.messages.len(),
@@ -1576,6 +1596,86 @@ async fn event_journal_records_model_input_and_tool_call_before_side_effects() {
         request_header.options["context"]["visible_message_count"],
         1
     );
+}
+
+#[tokio::test]
+async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_header() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("done".to_owned())),
+        Ok(completed()),
+    ]]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let prompt = PromptAssembler
+        .assemble([
+            PromptSection::new("identity", "1", "System identity."),
+            PromptSection::new("workflow", "2", "Inspect, then answer."),
+        ])
+        .unwrap();
+    let expected_audit = prompt.audit().clone();
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("hello")]);
+    request.session_id = Some("prompt-audit".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.prompt = Some(prompt);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].messages[0].role, Role::System);
+    assert_eq!(
+        requests[0].messages[0].content,
+        "System identity.\n\nInspect, then answer."
+    );
+    assert_eq!(requests[0].messages[1].content, "hello");
+
+    let session = journal.load("prompt-audit").await.unwrap().unwrap();
+    let header = session
+        .events()
+        .iter()
+        .find_map(|event| match event.data() {
+            SessionEventData::RequestHeader { header } => Some(header),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        header.system.as_deref(),
+        Some("System identity.\n\nInspect, then answer.")
+    );
+    assert_eq!(
+        header.options["prompt"],
+        serde_json::to_value(expected_audit).unwrap()
+    );
+    assert_eq!(
+        header.options["toolDefinitionsSha256"]
+            .as_str()
+            .unwrap()
+            .len(),
+        64
+    );
+    assert!(session
+        .derive_messages()
+        .iter()
+        .all(|message| message.role != xharness_session::MessageRole::System));
+}
+
+#[tokio::test]
+async fn context_policy_cannot_silently_remove_or_rewrite_the_assembled_prompt() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let prompt = PromptAssembler
+        .assemble([PromptSection::new("identity", "1", "must remain")])
+        .unwrap();
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("hello")]);
+    request.prompt = Some(prompt);
+    request.context_policy = Arc::new(DroppingSystemPolicy);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert!(result
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("context policy removed"));
+    assert_eq!(provider.attempts(), 0);
 }
 
 #[tokio::test]

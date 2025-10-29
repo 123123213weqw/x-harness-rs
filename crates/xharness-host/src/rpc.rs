@@ -16,7 +16,7 @@ use xharness_api::{
     ApiBackend, ClientResponse, EventStream, ReceiptRejection, RpcError, RpcErrorCode, RpcId,
     RpcMethod, RpcReceipt, RpcResult, ServerRequest, SessionExport,
 };
-use xharness_core::{AgentMessage, LoopCommand};
+use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_session::{
     ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData,
     GoalChange as SessionGoalChange, GoalChangeKind, GoalClearChange, GoalClearOperation,
@@ -1170,6 +1170,7 @@ impl BasicHost {
     }
 
     async fn send_control(&self, session_id: &str, command: LoopCommand) -> Result<(), RpcError> {
+        let cancel_is_idempotent = matches!(&command, LoopCommand::Cancel);
         let control = self
             .state
             .read()
@@ -1183,18 +1184,29 @@ impl BasicHost {
             return Ok(());
         };
         let (acknowledgement, accepted) = oneshot::channel();
-        control
+        if control
             .send(DriverCommand {
                 command,
                 input_metadata: None,
                 acknowledgement,
             })
             .await
-            .map_err(|_| RpcError::internal("session driver is no longer available"))?;
-        accepted
-            .await
-            .map_err(|_| RpcError::internal("session driver closed without acknowledgement"))?
-            .map_err(|error| RpcError::internal(error.to_string()))
+            .is_err()
+        {
+            return if cancel_is_idempotent {
+                Ok(())
+            } else {
+                Err(RpcError::internal("session driver is no longer available"))
+            };
+        }
+        match accepted.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(LoopControlError::Closed)) | Err(_) if cancel_is_idempotent => Ok(()),
+            Ok(Err(error)) => Err(RpcError::internal(error.to_string())),
+            Err(_) => Err(RpcError::internal(
+                "session driver closed without acknowledgement",
+            )),
+        }
     }
 
     async fn subagent_list(&self, payload: &Value) -> Result<Value, RpcError> {

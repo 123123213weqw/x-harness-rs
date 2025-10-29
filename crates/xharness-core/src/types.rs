@@ -436,6 +436,9 @@ impl LoopConfig {
 pub struct LoopRequest {
     pub provider: Arc<dyn ModelProvider>,
     pub messages: Vec<AgentMessage>,
+    /// Deterministic model-facing System Prompt. It is reassembled for each
+    /// turn and never becomes transcript history.
+    pub prompt: Option<xharness_prompt::PromptAssembly>,
     pub tools: Vec<ToolSpec>,
     pub session_id: Option<String>,
     pub session_store: Arc<dyn crate::SessionStore>,
@@ -456,6 +459,7 @@ impl LoopRequest {
         Self {
             provider,
             messages,
+            prompt: None,
             tools: Vec::new(),
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
@@ -470,6 +474,16 @@ impl LoopRequest {
     /// provider, session store, context policy, or any tool handler.
     pub fn validate(&self) -> Result<(), LoopValidationError> {
         self.config.validate()?;
+        if self.prompt.is_some()
+            && self
+                .messages
+                .iter()
+                .any(|message| message.role == Role::System)
+        {
+            return Err(LoopValidationError::new(
+                "prompt assembly and explicit system messages cannot be combined",
+            ));
+        }
         if !self.journal_prelude.is_empty() && self.journal_store.is_none() {
             return Err(LoopValidationError::new(
                 "journal_prelude requires journal_store",

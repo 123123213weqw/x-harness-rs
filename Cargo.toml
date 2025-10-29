@@ -10,6 +10,7 @@ members = [
     "crates/xharness-provider-openai",
     "crates/xharness-process",
     "crates/xharness-platform",
+    "crates/xharness-prompt",
     "crates/xharness-sandbox",
     "crates/xharness-session",
     "crates/xharness-session-jsonl",

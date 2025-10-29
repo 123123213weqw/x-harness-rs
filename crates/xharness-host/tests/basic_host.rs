@@ -18,8 +18,8 @@ use xharness_api::{
 };
 use xharness_core::{
     ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface, FinishReason,
-    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, SurfaceEdit,
-    SurfaceEditKind, TokenUsage, ToolResult, ToolSpec,
+    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Role,
+    SurfaceEdit, SurfaceEditKind, TokenUsage, ToolResult, ToolSpec,
 };
 use xharness_host::{
     AgentRuntime, AgentRuntimeError, AgentTurnRequest, BasicHost, HostConfig, LoopAgentRuntime,
@@ -167,10 +167,17 @@ impl AgentRuntime for GatedPersistenceRuntime {
 #[async_trait]
 impl ContextPolicy for CompactingPolicy {
     async fn prepare(&self, request: ContextRequest) -> Result<ContextSurface, ContextError> {
+        let mut messages = request
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .cloned()
+            .collect::<Vec<_>>();
+        messages.push(xharness_core::AgentMessage::user("host projected context"));
         Ok(ContextSurface::transformed(
             ContextPolicyId::new("host-test", 1),
             request.messages.len(),
-            vec![xharness_core::AgentMessage::user("host projected context")],
+            messages,
             vec![SurfaceEdit::new(
                 0,
                 request.messages.len(),
@@ -550,7 +557,8 @@ async fn host_injects_the_configured_context_policy_into_each_turn() {
     {
         let requests = provider.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].messages[0].content, "host projected context");
+        assert_eq!(requests[0].messages[0].role, Role::System);
+        assert_eq!(requests[0].messages[1].content, "host projected context");
     }
 
     let snapshot = host.snapshot().await;
@@ -558,6 +566,75 @@ async fn host_injects_the_configured_context_policy_into_each_turn() {
         snapshot["sessions"][0]["messages"][0]["content"],
         "full host history"
     );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_prompt() {
+    let root = std::env::temp_dir().join(format!("xharness-host-prompt-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "capture".to_owned();
+    config.model_id = "capture-model".to_owned();
+    let provider = Arc::new(CapturingProvider::default());
+    let host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+
+    let created = host
+        .call(
+            RpcId::new("prompt-create"),
+            RpcMethod::SessionCreate,
+            json!({"cwd": root}),
+            CancellationToken::new(),
+        )
+        .await;
+    let session_id = match created {
+        RpcResult::Success { value: Some(value) } => {
+            value["sessionId"].as_str().unwrap().to_owned()
+        }
+        other => panic!("create failed: {other:?}"),
+    };
+    let selected = host
+        .call_dynamic(
+            RpcId::new("prompt-plan"),
+            "commands/execute",
+            json!({"args": {"agentId": session_id, "line": "/plan", "images": []}}),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("plan command is mounted");
+    assert!(matches!(selected, RpcResult::Success { .. }));
+
+    assert!(host
+        .call(
+            RpcId::new("prompt-run"),
+            RpcMethod::SessionPrompt,
+            json!({
+                "sessionId": session_id,
+                "mode": "queue",
+                "content": [{"type": "text", "text": "show the exact prompt"}],
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .is_ok());
+
+    for _ in 0..100 {
+        if !provider.requests.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let requests = provider.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].messages[0].role, Role::System);
+    let system = &requests[0].messages[0].content;
+    assert!(system.contains("You are a coding agent."));
+    assert!(system.contains("workspace-write isolation"));
+    assert!(system.contains("current read tool has bounded output"));
+    assert!(system.contains("Once the evidence is sufficient, answer directly."));
+    assert!(system.contains("Plan mode is active."));
+    assert_eq!(requests[0].messages[1].content, "show the exact prompt");
+    drop(requests);
     let _ = std::fs::remove_dir_all(root);
 }
 
