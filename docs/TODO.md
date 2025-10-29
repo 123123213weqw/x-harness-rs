@@ -52,6 +52,9 @@ Commit、Issue、PR 应引用这些 ID。
   和 WebSocket Carrier；Full access 验证 Workspace 外绝对路径读写、Loopback 网络、Timeout/
   Cancel 仍走受管 Process Group；真实 Chromium 覆盖风险确认取消/确认，并在 TCP 承载连续失败
   至少 8 次后重新拉取 Host、Workspace、Session、History、Settings 与权限投影。
+- [x] `DONE-24` 冻结上游兼容 Catalog v2：机器可读记录 52 固定 RPC、26 动态 Typert RPC、
+  Mux/Host Frame、转发事件、48 Session Event、Tool、四类 Prompt Component、Settings、
+  Service Definition/Provision、Preset 和 Package；生成器对重复目录和无法解析的 Remote fail fast。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

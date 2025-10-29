@@ -59,7 +59,7 @@ DeepSeek Web UI / CLI / ACP
 
 | 里程碑 | 目标 | 当前状态 | 阻塞后续 |
 | --- | --- | --- | --- |
-| `M00` | 冻结上游目录、RPC、事件、工具、Prompt、Settings 兼容基线 | 进行中 | 全部 |
+| `M00` | 冻结上游目录、RPC、事件、工具、Prompt、Settings 兼容基线 | 已完成 | 全部 |
 | `M01` | 持久 Agent 接管 Web Host，重启不丢输入、不重复副作用 | 进行中 | Web、Subagent |
 | `M02` | 统一 Tool Runtime、Execution ID 和结构化 Shutdown | 部分完成 | MCP、Jobs |
 | `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | 部分完成 | 长上下文、质量 |
@@ -84,14 +84,15 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 > 当前进展：正式 Host 已切到 `DurableLoopAgentRuntime + JSONL + File Lease`，连续 Turn 历史由
 > Session Log 重放；HTTP `session.prompt` 已先 Flush Durable Inbox 再返回成功，Claim 与
 > Turn/Input 已在同一 CAS Revision，Queue Edit/Remove 也同步到 Inbox。Web Projection、Driver
-> Attachment 和重启枚举仍依赖内存 Host，因此 `A-05/A-09` 尚不能勾选。静态目录生成器已记录
-> 52 RPC、48 Session Event、63 个 Tool
-> 注册点、28 个 Prompt Section 注册点、4 个 Preset 和 233 个 Package；动态 Remote、Frame
-> Schema、Settings/Service Definition 仍待加入后才能完成 `A-01/A-02/A-03`。
+> Attachment 和重启枚举仍依赖内存 Host，因此 `A-05/A-09` 尚不能勾选。Catalog v2 已记录
+> 52 固定 RPC、26 动态 Typert RPC、Mux/Host 各 10 个 Frame、11 个转发 Host Event、48 Session
+> Event、63 个 Tool 注册点（53 个 Literal）、37 个 Prompt Component、6 个 Settings 注册点
+>（5 个静态 Namespace）、69 个 Service Definition、18 个 `ctx.provide`、4 个 Preset 和 233 个
+> Package；`A-01/A-02/A-03` 已完成，后续升级用同一 Schema 生成 Delta。
 
-- [ ] `A-01` 抽取冻结上游 52 RPC、动态 RPC、Host/Mux Frame、Session Event 目录。
-- [ ] `A-02` 抽取上游工具、Prompt Section、Settings、Profile、Service Definition 目录。
-- [ ] `A-03` 生成 `docs/compat/` 机器可读 JSON 和中文矩阵。
+- [x] `A-01` 抽取冻结上游 52 RPC、动态 RPC、Host/Mux Frame、Session Event 目录。
+- [x] `A-02` 抽取上游工具、Prompt Section、Settings、Profile、Service Definition 目录。
+- [x] `A-03` 生成 `docs/compat/` 机器可读 JSON 和中文矩阵。
 - [x] `A-04` 对远端 `b150a551b8d4` 生成相对 `141eb6fef8` 的增量审计，不修改上游工作树。
 - [ ] `A-05` 为 Host 建立持久 Session/Agent Backend，删除内存 Prompt FIFO 的真源地位。
 - [x] `A-06` `session.prompt` 先写 Durable Inbox，再返回成功回执。
