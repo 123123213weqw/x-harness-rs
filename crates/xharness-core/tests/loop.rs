@@ -16,7 +16,8 @@ use tokio_util::sync::CancellationToken;
 use xharness_core::*;
 use xharness_session::{
     AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
-    EventData as SessionEventData, InboxMessage, InboxTarget,
+    EventData as SessionEventData, GoalChange, GoalChangeKind, GoalPhase, GoalSnapshot,
+    GoalSnapshotChange, GoalSnapshotOperation, InboxMessage, InboxTarget,
     MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent, SessionHeader,
     SessionInspection, SessionTitleSource, Store as EventStore, StoreError, ToolOutcome,
     TurnEndReason,
@@ -2113,6 +2114,25 @@ async fn active_loop_adopts_intervening_durable_control_appends() {
                     title: "renamed while running".to_owned(),
                     message_seqs: Vec::new(),
                     source: SessionTitleSource::User,
+                }
+                .into(),
+                SessionEventData::GoalChange {
+                    change: GoalChange::Snapshot(GoalSnapshotChange {
+                        kind: GoalChangeKind::GoalChange,
+                        version: 1,
+                        operation: GoalSnapshotOperation::Create,
+                        goal: GoalSnapshot {
+                            id: "goal-live".to_owned(),
+                            revision: 1,
+                            objective: "finish safely".to_owned(),
+                            phase: GoalPhase::Active,
+                            blocked_reason: None,
+                            max_goal_rounds: 8,
+                        },
+                        rounds_started: 0,
+                        created_at: 1,
+                        updated_at: 1,
+                    }),
                 }
                 .into(),
             ],

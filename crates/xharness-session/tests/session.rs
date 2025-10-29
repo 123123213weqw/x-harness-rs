@@ -3,10 +3,12 @@ use std::sync::Arc;
 use serde_json::json;
 use xharness_session::{
     derive_messages, incomplete_tool_calls, ApprovalOutcome, ApprovalPolicy, AssistantChunk,
-    CommandResultKind, CommandSource, EventData, LlmFailure, LlmRetryMode, LoggedEvent,
-    MemorySessionStore, Message, MessageRole, PolicySource, RequestHeader, Revision, Session,
-    SessionError, SessionEvent, SessionHeader, SessionSandboxMode, SessionTitleSource, Store,
-    StoreError, ToolCall, ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
+    CommandResultKind, CommandSource, EventData, GoalChange, GoalChangeKind, GoalClearChange,
+    GoalClearOperation, GoalPhase, GoalRef, GoalSnapshot, GoalSnapshotChange,
+    GoalSnapshotOperation, LlmFailure, LlmRetryMode, LoggedEvent, MemorySessionStore, Message,
+    MessageRole, PolicySource, RequestHeader, Revision, Session, SessionError, SessionEvent,
+    SessionHeader, SessionSandboxMode, SessionTitleSource, Store, StoreError, ToolCall,
+    ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
 };
 
 fn header(id: &str) -> SessionHeader {
@@ -29,6 +31,34 @@ fn call(id: &str, index: usize) -> ToolCall {
         name: "read_file".to_owned(),
         arguments_json: r#"{"path":"README.md"}"#.to_owned(),
     }
+}
+
+fn goal_snapshot_event(
+    revision: u64,
+    objective: &str,
+    phase: GoalPhase,
+    max_goal_rounds: u64,
+    operation: GoalSnapshotOperation,
+    updated_at: u64,
+) -> SessionEvent {
+    event(EventData::GoalChange {
+        change: GoalChange::Snapshot(GoalSnapshotChange {
+            kind: GoalChangeKind::GoalChange,
+            version: 1,
+            operation,
+            goal: GoalSnapshot {
+                id: "goal-1".to_owned(),
+                revision,
+                objective: objective.to_owned(),
+                phase,
+                blocked_reason: None,
+                max_goal_rounds,
+            },
+            rounds_started: 0,
+            created_at: 10,
+            updated_at,
+        }),
+    })
 }
 
 #[test]
@@ -188,6 +218,14 @@ fn every_first_version_event_round_trips_through_serde() {
             message_seqs: Vec::new(),
             source: SessionTitleSource::User,
         }),
+        goal_snapshot_event(
+            1,
+            "Ship it",
+            GoalPhase::Active,
+            8,
+            GoalSnapshotOperation::Create,
+            10,
+        ),
         event(EventData::LlmRetry {
             retry_id: "retry-1".to_owned(),
             turn: 1,
@@ -257,6 +295,21 @@ fn every_first_version_event_round_trips_through_serde() {
     assert_eq!(asked["data"]["toolName"], "bash");
     assert_eq!(asked["data"]["callId"], "call-wire");
     assert!(asked["data"].get("tool_name").is_none());
+
+    let goal = serde_json::to_value(goal_snapshot_event(
+        1,
+        "Wire goal",
+        GoalPhase::Active,
+        8,
+        GoalSnapshotOperation::Create,
+        10,
+    ))
+    .unwrap();
+    assert_eq!(goal["type"], "goal/change");
+    assert_eq!(goal["data"]["kind"], "goal/change");
+    assert_eq!(goal["data"]["operation"], "create");
+    assert_eq!(goal["data"]["goal"]["maxGoalRounds"], 8);
+    assert!(goal["data"].get("change").is_none());
 }
 
 #[test]
@@ -463,6 +516,88 @@ fn session_title_source_and_message_sequences_are_validated_atomically() {
                 message_seqs: vec![0],
                 source: SessionTitleSource::User,
             })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+}
+
+#[test]
+fn goal_changes_require_full_monotonic_snapshots_and_a_revisioned_tombstone() {
+    let mut session = Session::new(header("goal-lifecycle")).unwrap();
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                goal_snapshot_event(
+                    1,
+                    "Ship it",
+                    GoalPhase::Active,
+                    8,
+                    GoalSnapshotOperation::Create,
+                    10,
+                ),
+                goal_snapshot_event(
+                    2,
+                    "Ship safely",
+                    GoalPhase::Active,
+                    10,
+                    GoalSnapshotOperation::Edit,
+                    11,
+                ),
+                goal_snapshot_event(
+                    3,
+                    "Ship safely",
+                    GoalPhase::Paused,
+                    10,
+                    GoalSnapshotOperation::Pause,
+                    12,
+                ),
+                goal_snapshot_event(
+                    4,
+                    "Ship safely",
+                    GoalPhase::Active,
+                    10,
+                    GoalSnapshotOperation::Resume,
+                    13,
+                ),
+                goal_snapshot_event(
+                    5,
+                    "Ship safely",
+                    GoalPhase::Complete,
+                    10,
+                    GoalSnapshotOperation::Complete,
+                    14,
+                ),
+                event(EventData::GoalChange {
+                    change: GoalChange::Clear(GoalClearChange {
+                        kind: GoalChangeKind::GoalChange,
+                        version: 1,
+                        operation: GoalClearOperation::Clear,
+                        cleared: GoalRef {
+                            id: "goal-1".to_owned(),
+                            revision: 6,
+                        },
+                        cleared_at: 15,
+                    }),
+                }),
+            ],
+            15,
+        )
+        .unwrap();
+    let revision = session.revision();
+
+    assert!(matches!(
+        session.append(
+            revision,
+            goal_snapshot_event(
+                1,
+                "Reused identity",
+                GoalPhase::Active,
+                8,
+                GoalSnapshotOperation::Create,
+                16,
+            )
         ),
         Err(SessionError::InvalidLifecycle { .. })
     ));

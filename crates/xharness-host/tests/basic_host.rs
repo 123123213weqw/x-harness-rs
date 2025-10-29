@@ -943,7 +943,7 @@ async fn every_upstream_rpc_has_baseline_behavior() {
     for (method, status) in [
         (RpcMethod::GoalPause, "paused"),
         (RpcMethod::GoalResume, "active"),
-        (RpcMethod::GoalComplete, "completed"),
+        (RpcMethod::GoalComplete, "complete"),
     ] {
         let response = fx
             .value(method, json!({"sessionId": session_id, "ref": goal_ref}))

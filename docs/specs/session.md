@@ -18,12 +18,13 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
 
 ## 事件词汇
 
-当前强类型 Log 覆盖冻结目录中的 23 个事件：
+当前强类型 Log 覆盖冻结目录中的 24 个事件：
 
 - Agent/权限控制面：`agent-preset/selected`、`agent/inbox/spliced`、`permission/preset`、
   `sandbox/mode`、`approval/policy`；
 - 审批和命令审计：`approval/asked`、`approval/decided`、`command/run`、`command/done`；
 - Session 元数据：`session/title`（latest-wins、log-only，不进入模型历史）；
+- 长期任务：`goal/change`（version 1 全快照或递增 Revision 的 Clear Tombstone）；
 - Provider 生命周期：`request/header`、`llm/retry`、`llm/retry-started`、`assistant/chunk`、
   `assistant/message`；
 - Turn/Step 和工具：`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、
@@ -44,6 +45,10 @@ Approval ID 与 Command ID 必须分别唯一并严格一问一答/一开一闭�
 `sourceEventSeq` 引用此前的非 Command 事件；错误结果不能伪造这个引用。Provider Retry 使用稳定
 Retry ID 串联 Scheduled/Started 边界。策略枚举采用封闭词汇，Full access 在线协议中的 Sandbox
 Mode 固定为 `danger-full-access`。
+
+Goal Change 必须保持同一 ID 的 Revision 连续递增；Create 从新 ID 的 Active Revision 1 开始，
+Edit 只能修改 Objective/Max Rounds，Pause/Resume/Complete/Block 必须满足 Phase 转移，Clear 保留
+下一 Revision 的 Tombstone。时间不得倒退，Blocked Reason 只允许随 Blocked Phase 出现。
 
 ## 投影与恢复
 

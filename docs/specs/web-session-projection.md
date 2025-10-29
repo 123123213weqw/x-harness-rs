@@ -54,7 +54,10 @@ Full access 的冻结线值为 `danger-full-access`，不是内部实现细节 `
 `session.rename` 与 `agentPreset.select` 同样先 Flush `session/title` / `agent-preset/selected`，再更新
 浏览器投影；Host 重启按日志最后值恢复，不依赖旧进程内存。
 
-冻结 48 个 Session Event 中目前已有 23 个强类型事件；其余 Compaction、Goal、Plan、Feedback、
+Goal 的每个 Mutation 先 Flush `goal/change` 全快照或 Clear Tombstone；History、尾页 `goal`
+Projection 与重启恢复均折叠同一事件流。
+
+冻结 48 个 Session Event 中目前已有 24 个强类型事件；其余 Compaction、Plan、Feedback、
 Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能提前标记完成。
 
 ## 失败语义
