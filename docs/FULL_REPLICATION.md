@@ -108,9 +108,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
   Pending Turn 和 Prompt RPC Receipt；未完成自定义 Workspace 元数据、Settings、Pending Approval、
   其他变更 RPC Receipt 及
   七个硬崩溃点下的终态矩阵。
-- [ ] `A-10` 补 Admission/Claim/Request Header/Tool Call/Tool Result/Step End/Turn End 七个硬崩溃点。
-  七个权威日志前缀的确定性恢复矩阵已完成；尚需在相同 State Dir 上逐点 SIGKILL 真实子进程并
-  重启验证，完成前本项不勾选。
+- [x] `A-10` Admission/Claim/Request Header/Tool Call/Tool Result/Step End/Turn End 七点均有
+  确定性日志前缀测试和真实子进程 SIGKILL；父进程在相同 State Dir 重启正式 JSONL Host/Core，
+  验证不丢输入、不重放 Tool、Interrupted/OutcomeUnknown 和权威结果保留。
 
 ### Batch B：工具身份与终止语义
 
