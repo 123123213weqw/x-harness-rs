@@ -50,6 +50,37 @@ fn unannotated_tools_default_to_the_exclusive_lane() {
 }
 
 #[tokio::test]
+async fn caller_supplied_execution_id_reaches_context_and_result_unchanged() {
+    assert!(ToolRequest::new("echo", r#"{"value":"x"}"#)
+        .with_execution_id("  ")
+        .is_err());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(ToolSpec::new(definition("echo"), {
+            let seen = Arc::clone(&seen);
+            move |context| {
+                let seen = Arc::clone(&seen);
+                async move {
+                    seen.lock().await.push(context.execution_id.to_string());
+                    Ok(ToolOutput::text("ok"))
+                }
+            }
+        }))
+        .await
+        .unwrap();
+    let result = ToolExecutor::new(registry)
+        .execute(
+            ToolRequest::new("echo", r#"{"value":"x"}"#)
+                .with_execution_id("session/turn/step/call")
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(result.execution_id.as_str(), "session/turn/step/call");
+    assert_eq!(seen.lock().await.as_slice(), ["session/turn/step/call"]);
+}
+
+#[tokio::test]
 async fn registry_rejects_duplicate_names_atomically() {
     let registry = ToolRegistry::new();
     registry

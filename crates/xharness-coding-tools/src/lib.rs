@@ -111,22 +111,26 @@ impl CodingToolBundle {
                 .expect("definition came from the same registry");
             let name = definition.name.clone();
             let executor = Arc::clone(&executor);
-            let mut core = xharness_core::ToolSpec::new(
+            let mut core = xharness_core::ToolSpec::new_contextual(
                 definition.name,
                 definition.description,
                 definition.parameters,
-                move |arguments, cancellation| {
+                move |invocation| {
                     let executor = Arc::clone(&executor);
                     let name = name.clone();
                     async move {
-                        let arguments_json =
-                            serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_owned());
-                        let result = executor
-                            .execute(
-                                ToolRequest::new(name, arguments_json)
-                                    .with_cancellation(cancellation),
-                            )
-                            .await;
+                        let arguments_json = serde_json::to_string(&invocation.arguments)
+                            .unwrap_or_else(|_| "{}".to_owned());
+                        let request = match ToolRequest::new(name, arguments_json)
+                            .with_cancellation(invocation.cancellation)
+                            .with_execution_id(invocation.execution_id)
+                        {
+                            Ok(request) => request,
+                            Err(error) => {
+                                return xharness_core::ToolResult::failure(error.to_string());
+                            }
+                        };
+                        let result = executor.execute(request).await;
                         bridge_result(result)
                     }
                 },

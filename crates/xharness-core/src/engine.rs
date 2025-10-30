@@ -2458,7 +2458,12 @@ async fn execute_tool(
         let handler_token = cancellation.child_token();
         let handler_cancellation = handler_token.clone();
         let future = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            handler(arguments, handler_token)
+            handler(crate::ToolInvocation {
+                execution_id: item.call.id.clone(),
+                provider_call_id: item.call.provider_call_id.clone(),
+                arguments,
+                cancellation: handler_token,
+            })
         }));
         match future {
             Err(_) => ToolResult::failure("tool handler panicked"),

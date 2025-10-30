@@ -6,7 +6,8 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    ResourceKeyResolver, ToolConcurrency, ToolDefinition, ToolHandler, ToolResult, ToolSpec,
+    ResourceKeyResolver, ToolConcurrency, ToolDefinition, ToolHandler, ToolInvocation, ToolResult,
+    ToolSpec,
 };
 
 /// Smallest supported model-facing tool-result budget.
@@ -29,8 +30,35 @@ impl ToolSpec {
         F: Fn(Value, CancellationToken) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ToolResult> + Send + 'static,
     {
-        let handler: ToolHandler =
-            Arc::new(move |arguments, cancellation| handler(arguments, cancellation).boxed());
+        let handler: ToolHandler = Arc::new(move |invocation| {
+            handler(invocation.arguments, invocation.cancellation).boxed()
+        });
+        Self::from_handler(name, description, parameters, handler)
+    }
+
+    /// Register a handler that receives the durable invocation identity.
+    /// This is the migration seam for `xharness-tools`; ordinary embedders may
+    /// continue using [`Self::new`].
+    pub fn new_contextual<F, Fut>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: Value,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ToolInvocation) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ToolResult> + Send + 'static,
+    {
+        let handler: ToolHandler = Arc::new(move |invocation| handler(invocation).boxed());
+        Self::from_handler(name, description, parameters, handler)
+    }
+
+    fn from_handler(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: Value,
+        handler: ToolHandler,
+    ) -> Self {
         Self {
             definition: ToolDefinition {
                 name: name.into(),

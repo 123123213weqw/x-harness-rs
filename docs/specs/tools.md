@@ -17,7 +17,9 @@ Capability 产生本 Step 的 Definition Projection；投影保持名称/Schema 
 
 ## 执行管线
 
-每次 `ToolExecutor::execute` 生成进程内唯一 `execution_id`，按下列顺序执行：
+每次 `ToolExecutor::execute` 都绑定一个 `execution_id`：Agent/Core 已经把 Tool Call 持久落账时，
+调用方必须传入该 Durable ID；独立嵌入且没有上层 Journal 时，Executor 才生成进程内唯一 ID。
+同一个值必须原样进入 Middleware、Approval、Handler、Observer 和最终 Result。执行顺序如下：
 
 ```text
 查找 -> 解析 JSON Object -> Schema 校验
@@ -55,6 +57,8 @@ Guard 状态单调：后续阶段可以把 `allow` 收紧为 `ask` 或 `deny`，
 
 - JSON Schema 只实现实用的首版子集，不覆盖完整生态。
 - 持久 Tool Call 记账由 Session/Core 负责，不属于本 Crate。
+- Core 到正式 Runtime 的迁移桥已经传递 Durable Execution ID，但 Core 仍重复执行一层
+  Scheduling/Approval/Timeout；删除重复管线后才能淘汰兼容 `xharness-core::ToolSpec`。
 - Result Spill-to-disk 和 Output Schema Enforcement 尚未实现。
 - Host 已按 Platform/Search/Terminal Readiness 生成 Definition Projection；Profile/Step 级策略
   与投影审计仍待完整实现。
