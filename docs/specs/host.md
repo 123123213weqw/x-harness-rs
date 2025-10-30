@@ -17,8 +17,9 @@ Bundle、Platform、Terminal 或 Web Runtime。`xharness-host-app` 负责选择�
 `xharness-host` 可执行文件。未来 CLI、Daemon 或嵌入式宿主可以直接复用控制面库，而无需
 链接默认 Web Server 和原生工具组合。
 
-当前 `BasicHost` 仍把 Workspace、Session 摘要、Web Queue Projection 和 Driver Attachment
-作为内存派生缓存，但 Prompt Admission、模型历史、Web History 和 Agent Driver 已切到持久
+当前 `BasicHost` 仍把 Session 摘要、Web Queue Projection 和 Driver Attachment 作为内存派生
+缓存，但 Workspace/Settings 已进入独立 Control Log，Prompt Admission、模型历史、Web History
+和 Agent Driver 已切到持久
 Session/Inbox Store。`session.history` 会在读取前刷新权威 Session Cut；运行中和启动恢复共用
 同一个纯投影函数，详细契约见 [Web Session 确定性投影](web-session-projection.md)。
 启动时会通过 `Store::list_headers` 从强类型日志重建 Session、History、模型路由、Workspace 归属和
@@ -63,8 +64,8 @@ Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；`AgentRuntime::ad
 RPC ID 同时是稳定 Inbox ID；Queue Edit/Remove 先修改持久 Inbox，再更新内存 Projection。
 `BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责。它现在能从 Session Log 和
 JSONL 目录确定性重建可推导投影；History 已直接按 Cursor 查询权威日志且内存只留有界尾部，
-下一阶段要让 Queue 也直接按 Cursor 查询持久投影，并为
-Workspace 自定义元数据、Settings、Approval 和 RPC Receipt 建独立日志，最终删除兼容缓存。
+下一阶段要让 Queue 也直接按 Cursor 查询持久投影，并把通用 Mutation Receipt 扩展到其他
+Session/Goal/Preset/Attachment RPC，补 Credential Reference，最终删除兼容缓存。
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持

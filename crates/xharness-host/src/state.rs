@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
+use xharness_control::{ControlRevision, MutationReceipt};
 use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_prompt::{PromptAssembler, PromptAssembly, PromptSection};
 
@@ -384,6 +385,8 @@ pub(crate) enum PendingResponse {
 }
 
 pub(crate) struct HostState {
+    pub control_revision: ControlRevision,
+    pub mutation_receipts: BTreeMap<String, MutationReceipt>,
     pub sessions: BTreeMap<String, SessionRecord>,
     pub workspaces: BTreeMap<String, WorkspaceRecord>,
     pub workspace_order: Vec<String>,
@@ -513,6 +516,8 @@ impl HostState {
             }
         }
         Self {
+            control_revision: ControlRevision::ZERO,
+            mutation_receipts: BTreeMap::new(),
             sessions: BTreeMap::new(),
             workspaces,
             workspace_order,

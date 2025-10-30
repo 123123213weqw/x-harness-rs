@@ -3,6 +3,7 @@ use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::net::TcpListener;
 use xharness_agent::FileLeaseManager;
 use xharness_api::ApiBackend;
+use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::IdentityContextPolicy;
 use xharness_host::{BasicHost, DurableLoopAgentRuntime, HostConfig};
 use xharness_host_app::NativeToolFactory;
@@ -41,7 +42,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tools = NativeToolFactory::new(WebRuntime::default());
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
+    let control_dir = args.state_dir.join("control");
     let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?);
+    let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     let runtime = Arc::new(
         DurableLoopAgentRuntime::new(
@@ -56,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_token_guard(config.token_guard.clone()),
     );
-    let host = BasicHost::with_agent_runtime(config, runtime);
+    let host = BasicHost::with_agent_runtime_and_control_store(config, runtime, control_store);
     let restore = host.restore_from_store(store).await?;
     eprintln!(
         "xharness restored {} sessions and resumed {} pending turns ({} issues)",

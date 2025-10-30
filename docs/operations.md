@@ -5,8 +5,8 @@
 本文记录当前 Rust Web Host 的运行边界。生产能力以源码和各项规范为准；这里不给尚未实现的
 自动降级制造假象。
 
-Host 默认把 Agent Session JSONL 和跨进程 Lease 保存在平台数据目录的 `sessions/` 与
-`leases/`：macOS 为 `~/Library/Application Support/XHarness`，Linux 为
+Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保存在平台数据目录的
+`sessions/`、`control/` 与 `leases/`：macOS 为 `~/Library/Application Support/XHarness`，Linux 为
 `${XDG_DATA_HOME:-~/.local/share}/xharness`。可用 `XHARNESS_STATE_DIR` 或 `--state-dir` 覆盖；
 测试、临时部署和多实例运行必须使用独立目录。
 

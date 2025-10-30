@@ -1662,6 +1662,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -2166,6 +2167,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-control"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fs2",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
 name = "xharness-core"
 version = "0.1.0"
 dependencies = [
@@ -2210,6 +2225,7 @@ dependencies = [
  "tower",
  "xharness-agent",
  "xharness-api",
+ "xharness-control",
  "xharness-core",
  "xharness-prompt",
  "xharness-session",
@@ -2230,6 +2246,7 @@ dependencies = [
  "xharness-agent",
  "xharness-api",
  "xharness-coding-tools",
+ "xharness-control",
  "xharness-core",
  "xharness-host",
  "xharness-platform",
