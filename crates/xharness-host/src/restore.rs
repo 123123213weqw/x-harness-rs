@@ -43,6 +43,24 @@ pub struct HostRestoreReport {
     pub issues: Vec<HostRestoreIssue>,
 }
 
+/// One bounded suffix of the deterministic Web projection. Sequence numbers
+/// stay identical to the append-only Session log, so eviction never changes a
+/// browser cursor.
+pub(crate) struct ProjectedEventTail {
+    pub(crate) base_seq: u64,
+    pub(crate) next_seq: u64,
+    pub(crate) bytes: usize,
+    pub(crate) events: Vec<Value>,
+}
+
+/// Cursor page returned from the authoritative append-only Session rather
+/// than from the Host's bounded live tail.
+pub(crate) struct ProjectedHistoryPage {
+    pub(crate) events: Vec<Value>,
+    pub(crate) has_more: bool,
+    pub(crate) as_of_seq: Option<u64>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum HostRestoreError {
     #[error(transparent)]
@@ -105,7 +123,12 @@ impl BasicHost {
             let admissions = restored_admissions(&session);
             let projected_queue_len = queue.len();
             let pending_approval_count = session.pending_tool_approvals().len();
-            let events = project_session_events(&session, &route);
+            let tail = project_session_event_tail(
+                &session,
+                &route,
+                self.config.session_event_cache_capacity,
+                self.config.session_event_cache_bytes,
+            );
             let messages = session.derive_messages();
             let updated_at = session
                 .events()
@@ -143,11 +166,13 @@ impl BasicHost {
                 permission_preset: permission,
                 plan_active,
                 goal: goal.clone(),
-                events,
+                events: tail.events,
+                event_base_seq: tail.base_seq,
+                event_cache_bytes: tail.bytes,
                 messages,
                 queue,
                 admissions,
-                authoritative_seq: Some(session.next_seq()),
+                authoritative_seq: Some(tail.next_seq),
                 control: None,
                 next_turn,
             };
@@ -427,12 +452,93 @@ struct PromptView {
     source: Value,
 }
 
-pub(crate) fn project_session_events(session: &Session, route: &ModelRoute) -> Vec<Value> {
+pub(crate) fn project_session_event_range(
+    session: &Session,
+    route: &ModelRoute,
+    start: usize,
+    end: usize,
+) -> Vec<Value> {
     let prompts = prompt_views(session);
-    session
-        .events()
+    project_session_event_range_with_prompts(session, route, &prompts, start, end)
+}
+
+pub(crate) fn project_session_event_tail(
+    session: &Session,
+    route: &ModelRoute,
+    max_events: usize,
+    max_bytes: usize,
+) -> ProjectedEventTail {
+    let end = session.events().len();
+    let prompts = prompt_views(session);
+    let max_events = max_events.max(1);
+    let max_bytes = max_bytes.max(1);
+    let mut reversed = Vec::new();
+    let mut bytes = 0usize;
+
+    for event in session.events().iter().rev().take(max_events) {
+        let projected = restored_web_event(event, route, &prompts);
+        let event_bytes = serde_json::to_vec(&projected)
+            .map(|encoded| encoded.len())
+            .unwrap_or(max_bytes.saturating_add(1));
+        if event_bytes > max_bytes.saturating_sub(bytes) {
+            break;
+        }
+        bytes = bytes.saturating_add(event_bytes);
+        reversed.push(projected);
+    }
+    reversed.reverse();
+    let start = end.saturating_sub(reversed.len());
+    ProjectedEventTail {
+        base_seq: u64::try_from(start).unwrap_or(u64::MAX),
+        next_seq: session.next_seq(),
+        bytes,
+        events: reversed,
+    }
+}
+
+pub(crate) fn project_session_history(
+    session: &Session,
+    route: &ModelRoute,
+    before_seq: Option<u64>,
+    max_messages: usize,
+) -> ProjectedHistoryPage {
+    let end = before_seq
+        .and_then(|seq| usize::try_from(seq).ok())
+        .map_or(session.events().len(), |seq| {
+            seq.min(session.events().len())
+        });
+    let mut start = end;
+    let mut messages = 0usize;
+    while start > 0 && messages < max_messages.max(1) {
+        start -= 1;
+        if matches!(
+            session.events()[start].data(),
+            EventData::UserMessage { .. }
+                | EventData::AssistantMessage { .. }
+                | EventData::ToolResult { .. }
+        ) {
+            messages += 1;
+        }
+    }
+    ProjectedHistoryPage {
+        events: project_session_event_range(session, route, start, end),
+        has_more: start > 0,
+        as_of_seq: session.next_seq().checked_sub(1),
+    }
+}
+
+fn project_session_event_range_with_prompts(
+    session: &Session,
+    route: &ModelRoute,
+    prompts: &BTreeMap<String, PromptView>,
+    start: usize,
+    end: usize,
+) -> Vec<Value> {
+    let end = end.min(session.events().len());
+    let start = start.min(end);
+    session.events()[start..end]
         .iter()
-        .map(|event| restored_web_event(event, route, &prompts))
+        .map(|event| restored_web_event(event, route, prompts))
         .collect()
 }
 
@@ -752,8 +858,8 @@ mod tests {
     };
     use xharness_session::{
         ApprovalOutcome, EventData, LlmFailure, LlmRetryMode, MemorySessionStore, Message,
-        RequestHeader, Revision, SessionEvent, SessionHeader, Store, ToolCall, ToolOutcome,
-        ToolResultData, TurnEndReason,
+        RequestHeader, Revision, Session, SessionEvent, SessionHeader, Store, ToolCall,
+        ToolOutcome, ToolResultData, TurnEndReason,
     };
 
     use super::*;
@@ -859,6 +965,135 @@ mod tests {
         config.provider_display_name = "Test".to_owned();
         config.model_id = "test-model".to_owned();
         config
+    }
+
+    fn closed_text_turn(turn: u32, user: &str, assistant: &str) -> Vec<SessionEvent> {
+        vec![
+            EventData::TurnStart { turn }.into(),
+            EventData::UserMessage {
+                message: Message::user(user).with_id(format!("user-{turn}")),
+            }
+            .into(),
+            EventData::StepStart { turn, step: 1 }.into(),
+            EventData::RequestHeader {
+                header: RequestHeader::new("test", "test-model"),
+            }
+            .into(),
+            EventData::AssistantMessage {
+                turn,
+                step: 1,
+                message: Message::assistant(assistant).with_id(format!("assistant-{turn}")),
+                usage: None,
+            }
+            .into(),
+            EventData::StepEnd { turn, step: 1 }.into(),
+            EventData::TurnEnd {
+                turn,
+                reason: TurnEndReason::Completed,
+            }
+            .into(),
+        ]
+    }
+
+    #[test]
+    fn authoritative_history_pages_are_independent_of_the_bounded_live_tail() {
+        let mut session = Session::new(SessionHeader::new("paged")).unwrap();
+        let events = (1..=6)
+            .flat_map(|turn| {
+                closed_text_turn(turn, &format!("question-{turn}"), &format!("answer-{turn}"))
+            })
+            .collect::<Vec<_>>();
+        session.append_batch_at(Revision::ZERO, events, 1).unwrap();
+        let route = ModelRoute::new("test", "test-model");
+
+        let tail = project_session_event_tail(&session, &route, 5, usize::MAX);
+        assert_eq!(tail.events.len(), 5);
+        assert_eq!(tail.base_seq, session.next_seq() - 5);
+        assert_eq!(tail.next_seq, session.next_seq());
+        assert_eq!(tail.events[0]["seq"], tail.base_seq);
+        let byte_evicted = project_session_event_tail(&session, &route, usize::MAX, 1);
+        assert!(byte_evicted.events.is_empty());
+        assert_eq!(byte_evicted.base_seq, session.next_seq());
+        assert_eq!(byte_evicted.bytes, 0);
+
+        let newest = project_session_history(&session, &route, None, 2);
+        assert!(newest.has_more);
+        assert_eq!(newest.as_of_seq, session.next_seq().checked_sub(1));
+        assert!(newest
+            .events
+            .iter()
+            .any(|event| event["data"].to_string().contains("question-6")));
+        assert!(newest
+            .events
+            .iter()
+            .any(|event| event["data"].to_string().contains("answer-6")));
+        let cursor = newest.events[0]["seq"].as_u64().unwrap();
+        let previous = project_session_history(&session, &route, Some(cursor), 2);
+        assert!(previous
+            .events
+            .iter()
+            .all(|event| event["seq"].as_u64().unwrap() < cursor));
+        assert!(previous
+            .events
+            .iter()
+            .any(|event| event["data"].to_string().contains("question-5")));
+    }
+
+    #[tokio::test]
+    async fn durable_history_remains_complete_after_tail_eviction_and_restart() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut header = SessionHeader::new("bounded-history");
+        header.cwd = Some(cwd.to_string_lossy().into_owned());
+        store.create(header).await.unwrap();
+        let events = (1..=6)
+            .flat_map(|turn| {
+                closed_text_turn(turn, &format!("question-{turn}"), &format!("answer-{turn}"))
+            })
+            .collect::<Vec<_>>();
+        store
+            .append("bounded-history", Revision::ZERO, events)
+            .await
+            .unwrap();
+
+        for _restart in 0..2 {
+            let runtime = Arc::new(DurableLoopAgentRuntime::new(
+                "test",
+                "test-model",
+                None,
+                Arc::new(NoTools),
+                Arc::new(IdentityContextPolicy),
+                Arc::clone(&store),
+                Arc::new(MemoryLeaseManager::default()),
+                64,
+            ));
+            let mut host_config = config(&cwd);
+            host_config.session_event_cache_capacity = 5;
+            host_config.session_event_cache_bytes = usize::MAX;
+            let host = BasicHost::with_agent_runtime(host_config, runtime);
+            host.restore_from_store(Arc::clone(&store)).await.unwrap();
+            {
+                let state = host.state.read().await;
+                let record = &state.sessions["bounded-history"];
+                assert_eq!(record.events.len(), 5);
+                assert_eq!(record.event_base_seq, record.next_event_seq() - 5);
+                assert_eq!(record.last_event_seq(), Some(41));
+            }
+            let history = host
+                .call(
+                    RpcId::new(format!("history-{_restart}")),
+                    RpcMethod::SessionHistory,
+                    json!({"sessionId": "bounded-history", "maxMessages": 500}),
+                    CancellationToken::new(),
+                )
+                .await;
+            let RpcResult::Success { value: Some(value) } = history else {
+                panic!("history failed: {history:?}");
+            };
+            assert_eq!(value["events"].as_array().unwrap().len(), 42);
+            assert_eq!(value["projections"]["asOfSeq"], 41);
+            assert_eq!(value["hasMore"], false);
+        }
     }
 
     #[tokio::test]
@@ -1027,7 +1262,7 @@ mod tests {
             model: "test-model".to_owned(),
             reasoning_effort: None,
         };
-        let projected = project_session_events(&session, &route);
+        let projected = project_session_event_range(&session, &route, 0, session.events().len());
         let controls = projected
             .iter()
             .filter(|event| {

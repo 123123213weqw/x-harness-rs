@@ -44,6 +44,14 @@ pub struct HostConfig {
     /// Provider/model context admission configured by the product host.
     pub token_guard: Option<TokenGuard>,
     pub event_capacity: usize,
+    /// Maximum number of projected Session events retained in Host memory for
+    /// a durable session. Older history remains queryable from the append-only
+    /// Session store through `session.history`.
+    pub session_event_cache_capacity: usize,
+    /// Serialized byte budget for the same durable projection tail. A single
+    /// event larger than this budget is delivered live and remains durable,
+    /// but is not pinned in Host memory.
+    pub session_event_cache_bytes: usize,
 }
 
 impl HostConfig {
@@ -61,6 +69,8 @@ impl HostConfig {
             model_id: "unconfigured".to_owned(),
             token_guard: None,
             event_capacity: 2_048,
+            session_event_cache_capacity: 2_048,
+            session_event_cache_bytes: 16 * 1024 * 1024,
         }
     }
 }

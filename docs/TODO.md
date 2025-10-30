@@ -133,6 +133,11 @@ Commit、Issue、PR 应引用这些 ID。
   执行，拒绝则写回 Tool Error。Agent 在 Host 订阅后显式唤醒恢复 Turn，Web 重新生成可回答的
   `approval/requested` RPC；Provider 只从下一 Step 继续，既不伪造新 User Turn，也不把未批准
   Tool 写成 `outcome_unknown`。测试覆盖 Core、Agent/Host 和 Provider Native Call ID 重放。
+- [x] `DONE-43` 持久 Web History 游标与有界尾缓存：Durable `session.history` 不再从
+  `SessionRecord.events` 切片，而是按 `beforeSeq + maxMessages` 直接查询并纯投影权威 Session
+  Log；Host 仅保留按 Event 数和序列化 Byte 双预算约束的连续尾部，Sequence 不因驱逐重编号。
+  Session Search 与 Fork 同样读取权威日志。测试覆盖尾缓存已驱逐 37/42 个事件后仍能取回完整
+  42 个事件、跨页 Cursor 严格递减，以及 Host 重启前后等价。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -150,9 +155,10 @@ Commit、Issue、PR 应引用这些 ID。
   `session.prompt` 使用 RPC ID 作为稳定输入 ID，先完成 Durable Inbox Flush 才返回成功，
   Queue Edit/Remove 同步写入 Inbox，多条预准入消息用 `TurnStarted.input_ids` 绑定各自缓冲事件流。
   `Store::list_headers`、Host 启动 Replay、Workspace/Session/History/Queue 重建和 Pending Turn
-  显式 Wake 已完成；Host 内存 FIFO 已不再是模型执行输入的真源，只承担进程内 Web Projection
-  与 Driver Attachment。剩余：把这份 Projection/FIFO 本身替换成可游标查询的持久视图，持久化
-  Workspace/Settings/Pending Approval 和除 Permission Command 之外其他变更 RPC 的通用 Receipt；
+  显式 Wake 已完成；History 已按 Cursor 直接查询权威日志，Host Event Projection 只保留有界
+  尾部。Host 内存 FIFO 已不再是模型执行输入的真源，只承担 Driver Attachment 和即时 Queue
+  Projection。剩余：把 Queue Projection 改为持久游标视图，持久化 Workspace 自定义元数据、
+  Settings 和除 Permission Command 之外其他变更 RPC 的通用 Receipt；
   Session Title 与 Agent Preset 选择的状态已持久化，但重复 RPC ID 的 Exactly-once Receipt 尚未统一。
   七点通用日志前缀和包含 Approval Asked 的八点真实子进程 SIGKILL/同目录重启矩阵均已完成。
   Approval Asked/Decided、Provider Retry/Started、Agent/Permission/Sandbox/Approval Policy 与

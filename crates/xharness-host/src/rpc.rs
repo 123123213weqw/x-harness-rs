@@ -26,6 +26,7 @@ use xharness_session::{
 
 use crate::{
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
+    restore::{project_session_event_range, project_session_history},
     runtime::ModelRoute,
     state::{
         iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
@@ -148,7 +149,7 @@ impl ApiBackend for BasicHost {
                     json!({
                         "type": "session/subscribed",
                         "sessionId": session.session_id,
-                        "lastSeq": session.events.len() as i64 - 1,
+                        "lastSeq": session.last_event_seq_i64(),
                     }),
                 ));
                 for (key, value) in session
@@ -164,7 +165,7 @@ impl ApiBackend for BasicHost {
                             "sessionId": session.session_id,
                             "key": key,
                             "value": value,
-                            "seq": session.events.len() as i64 - 1,
+                            "seq": session.last_event_seq_i64(),
                         }),
                     ));
                 }
@@ -526,6 +527,48 @@ impl BasicHost {
             ));
         }
         let state = self.state.read().await;
+        let session_ids = state
+            .sessions
+            .keys()
+            .filter(|session_id| !state.archived_sessions.contains(*session_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if self.agent_runtime.has_authoritative_sessions() {
+            drop(state);
+            let mut matches = Vec::new();
+            for session_id in session_ids {
+                if cancellation.is_cancelled() {
+                    return Err(rpc_error(
+                        RpcErrorCode::Cancelled,
+                        "session search was cancelled",
+                        json!({}),
+                    ));
+                }
+                let Some(session) = self
+                    .agent_runtime
+                    .authoritative_session(&session_id)
+                    .await
+                    .map_err(agent_runtime_error)?
+                else {
+                    continue;
+                };
+                if let Some(text) = session.events().iter().find_map(|event| {
+                    let text = serde_json::to_string(event).unwrap_or_default();
+                    text.to_lowercase().contains(&query).then_some(text)
+                }) {
+                    matches.push(json!({
+                        "sessionId": session_id,
+                        "snippet": truncate_chars(&text, 240),
+                    }));
+                }
+                if matches.len() > MAX_SEARCH_RESULTS {
+                    break;
+                }
+            }
+            let has_more = matches.len() > MAX_SEARCH_RESULTS;
+            matches.truncate(MAX_SEARCH_RESULTS);
+            return Ok(json!({"items": matches, "hasMore": has_more}));
+        }
         let mut matches = Vec::new();
         for session in state.sessions.values() {
             if state.archived_sessions.contains(&session.session_id) {
@@ -639,6 +682,8 @@ impl BasicHost {
             plan_active: false,
             goal: None,
             events: Vec::new(),
+            event_base_seq: 0,
+            event_cache_bytes: 0,
             messages: Vec::new(),
             queue: Default::default(),
             admissions: Default::default(),
@@ -703,14 +748,59 @@ impl BasicHost {
             .and_then(|value| usize::try_from(value).ok())
             .unwrap_or(DEFAULT_HISTORY_MESSAGES)
             .clamp(1, MAX_HISTORY_MESSAGES);
+
+        if self.agent_runtime.has_authoritative_sessions() {
+            let durable = self
+                .agent_runtime
+                .authoritative_session(&session_id)
+                .await
+                .map_err(agent_runtime_error)?
+                .ok_or_else(|| session_not_found(&session_id))?;
+            let (route, projections) = {
+                let state = self.state.read().await;
+                let session = state
+                    .sessions
+                    .get(&session_id)
+                    .ok_or_else(|| session_not_found(&session_id))?;
+                (
+                    ModelRoute {
+                        provider: session.model.provider.clone(),
+                        model: session.model.model.clone(),
+                        reasoning_effort: session.model.reasoning_effort.clone(),
+                    },
+                    session.projection_values(),
+                )
+            };
+            let page = project_session_history(&durable, &route, before_seq, max_messages);
+            let events = page
+                .events
+                .into_iter()
+                .map(|event| json!({"event": event}))
+                .collect::<Vec<_>>();
+            let mut value = json!({"events": events, "hasMore": page.has_more});
+            if before_seq.is_none() {
+                value.as_object_mut().expect("history is object").insert(
+                    "projections".to_owned(),
+                    json!({
+                        "asOfSeq": page.as_of_seq.and_then(|seq| i64::try_from(seq).ok()).unwrap_or(-1),
+                        "values": projections,
+                    }),
+                );
+            }
+            return Ok(value);
+        }
+
         let state = self.state.read().await;
         let session = state
             .sessions
             .get(&session_id)
             .ok_or_else(|| session_not_found(&session_id))?;
-        let end = before_seq
-            .and_then(|seq| usize::try_from(seq).ok())
-            .map_or(session.events.len(), |seq| seq.min(session.events.len()));
+        let end_seq = before_seq
+            .unwrap_or_else(|| session.next_event_seq())
+            .min(session.next_event_seq());
+        let end = usize::try_from(end_seq.saturating_sub(session.event_base_seq))
+            .unwrap_or(usize::MAX)
+            .min(session.events.len());
         let mut start = end;
         let mut messages = 0usize;
         while start > 0 && messages < max_messages {
@@ -726,12 +816,15 @@ impl BasicHost {
             .iter()
             .map(|event| json!({"event": event}))
             .collect::<Vec<_>>();
-        let mut value = json!({"events": events, "hasMore": start > 0});
+        let mut value = json!({
+            "events": events,
+            "hasMore": start > 0 || session.event_base_seq > 0,
+        });
         if before_seq.is_none() {
             value.as_object_mut().expect("history is object").insert(
                 "projections".to_owned(),
                 json!({
-                    "asOfSeq": session.events.len() as i64 - 1,
+                    "asOfSeq": session.last_event_seq_i64(),
                     "values": session.projection_values(),
                 }),
             );
@@ -832,27 +925,81 @@ impl BasicHost {
     async fn session_fork(&self, payload: &Value) -> Result<Value, RpcError> {
         let source_id = required_string(payload, "sessionId")?;
         let at_seq = optional_u64(payload, "atSeq")?;
-        let mut state = self.state.write().await;
-        let source = state
-            .sessions
-            .get(&source_id)
-            .ok_or_else(|| session_not_found(&source_id))?;
-        if source.events.is_empty() {
+        let (cwd, agent_preset, title, model, permission_preset, plan_active, goal, next_turn) = {
+            let state = self.state.read().await;
+            let source = state
+                .sessions
+                .get(&source_id)
+                .ok_or_else(|| session_not_found(&source_id))?;
+            (
+                source.cwd.clone(),
+                source.agent_preset.clone(),
+                source.title.clone(),
+                source.model.clone(),
+                source.permission_preset,
+                source.plan_active,
+                source.goal.clone(),
+                source.next_turn,
+            )
+        };
+        let route = ModelRoute {
+            provider: model.provider.clone(),
+            model: model.model.clone(),
+            reasoning_effort: model.reasoning_effort.clone(),
+        };
+        let durable_source = if self.agent_runtime.has_authoritative_sessions() {
+            self.agent_runtime
+                .authoritative_session(&source_id)
+                .await
+                .map_err(agent_runtime_error)?
+        } else {
+            None
+        };
+        let (child_events, child_messages, durable_events) = if let Some(source) = durable_source {
+            let end = at_seq
+                .and_then(|seq| usize::try_from(seq.saturating_add(1)).ok())
+                .map_or(source.events().len(), |end| end.min(source.events().len()));
+            (
+                project_session_event_range(&source, &route, 0, end),
+                xharness_session::derive_messages(&source.events()[..end]),
+                Some(
+                    source.events()[..end]
+                        .iter()
+                        .map(|event| event.event.clone())
+                        .collect::<Vec<_>>(),
+                ),
+            )
+        } else {
+            let state = self.state.read().await;
+            let source = state
+                .sessions
+                .get(&source_id)
+                .ok_or_else(|| session_not_found(&source_id))?;
+            let mut events = source.events.clone();
+            if let Some(at_seq) = at_seq {
+                let keep = usize::try_from(
+                    at_seq
+                        .saturating_add(1)
+                        .saturating_sub(source.event_base_seq),
+                )
+                .unwrap_or(usize::MAX)
+                .min(events.len());
+                events.truncate(keep);
+            }
+            (events, source.messages.clone(), None)
+        };
+        if child_events.is_empty() {
             return Err(rpc_error(
                 RpcErrorCode::ForkUnavailable,
                 "session has no completed history to fork",
                 json!({"sessionId": source_id}),
             ));
         }
-        let mut child_events = source.events.clone();
-        if let Some(at_seq) = at_seq {
-            let keep = usize::try_from(at_seq.saturating_add(1))
-                .unwrap_or(usize::MAX)
-                .min(child_events.len());
-            child_events.truncate(keep);
-        }
         let child_id = self.mint_id("session");
         let now = now_ms();
+        let child_event_bytes = child_events.iter().fold(0usize, |total, event| {
+            total.saturating_add(serde_json::to_vec(event).map_or(0, |encoded| encoded.len()))
+        });
         let child = SessionRecord {
             session_id: child_id.clone(),
             created_at: now,
@@ -861,22 +1008,24 @@ impl BasicHost {
             blank: false,
             parent_session_id: Some(source_id.clone()),
             origin: None,
-            cwd: source.cwd.clone(),
-            agent_preset: source.agent_preset.clone(),
-            title: source.title.clone(),
-            model: source.model.clone(),
-            permission_preset: source.permission_preset,
-            plan_active: source.plan_active,
-            goal: source.goal.clone(),
+            cwd: cwd.clone(),
+            agent_preset,
+            title,
+            model,
+            permission_preset,
+            plan_active,
+            goal,
             events: child_events,
-            messages: source.messages.clone(),
+            event_base_seq: 0,
+            event_cache_bytes: child_event_bytes,
+            messages: child_messages,
             queue: Default::default(),
             admissions: Default::default(),
             authoritative_seq: None,
             control: None,
-            next_turn: source.next_turn,
+            next_turn,
         };
-        let cwd = child.cwd.clone();
+        let mut state = self.state.write().await;
         state.sessions.insert(child_id.clone(), child);
         let mut changed_workspace = None;
         for workspace in state.workspaces.values_mut() {
@@ -888,6 +1037,12 @@ impl BasicHost {
             }
         }
         drop(state);
+        if let Some(events) = durable_events {
+            if let Err(error) = self.commit_session_events(&child_id, events).await {
+                self.state.write().await.sessions.remove(&child_id);
+                return Err(error);
+            }
+        }
         self.push_host(json!({
             "type": "host/session-added",
             "sessionId": child_id,

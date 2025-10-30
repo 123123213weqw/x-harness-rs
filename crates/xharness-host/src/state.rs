@@ -217,7 +217,14 @@ pub struct SessionRecord {
     pub plan_active: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<GoalState>,
+    /// Bounded tail cache for durable runtimes; complete history is served
+    /// from the authoritative Session log. Ephemeral runtimes keep base zero
+    /// and retain their complete compatibility history here.
     pub events: Vec<Value>,
+    #[serde(skip)]
+    pub(crate) event_base_seq: u64,
+    #[serde(skip)]
+    pub(crate) event_cache_bytes: usize,
     pub messages: Vec<AgentMessage>,
     #[serde(skip)]
     pub(crate) queue: VecDeque<QueuedPrompt>,
@@ -231,6 +238,41 @@ pub struct SessionRecord {
 }
 
 impl SessionRecord {
+    pub(crate) fn next_event_seq(&self) -> u64 {
+        self.authoritative_seq.unwrap_or_else(|| {
+            self.event_base_seq
+                .saturating_add(u64::try_from(self.events.len()).unwrap_or(u64::MAX))
+        })
+    }
+
+    pub(crate) fn last_event_seq(&self) -> Option<u64> {
+        self.next_event_seq().checked_sub(1)
+    }
+
+    pub(crate) fn last_event_seq_i64(&self) -> i64 {
+        self.last_event_seq()
+            .and_then(|seq| i64::try_from(seq).ok())
+            .unwrap_or(-1)
+    }
+
+    pub(crate) fn replace_authoritative_tail(
+        &mut self,
+        base_seq: u64,
+        next_seq: u64,
+        events: Vec<Value>,
+        bytes: usize,
+    ) {
+        debug_assert!(base_seq <= next_seq);
+        debug_assert_eq!(
+            base_seq.saturating_add(u64::try_from(events.len()).unwrap_or(u64::MAX)),
+            next_seq
+        );
+        self.events = events;
+        self.event_base_seq = base_seq;
+        self.event_cache_bytes = bytes;
+        self.authoritative_seq = Some(next_seq);
+    }
+
     pub(crate) fn summary(&self) -> Value {
         let mut value = json!({
             "sessionId": self.session_id,
@@ -239,7 +281,7 @@ impl SessionRecord {
             "blank": self.blank,
             "cwd": self.cwd,
             "projections": {
-                "asOfSeq": self.events.len() as i64 - 1,
+                "asOfSeq": self.last_event_seq_i64(),
                 "values": self.projection_values(),
             },
         });
