@@ -33,7 +33,8 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-terminal` | [持久 PTY](terminal.md) | 已在 Unix 实现 |
 | `xharness-web` | [网页搜索与抓取](web.md) | 已实现 |
 | `xharness-coding-tools` | [标准 14 工具包](coding-tools.md) | 已实现并通过真实 Loop 测试 |
-| `xharness-context` | [上下文预算与压缩](context.md) | Surface 抽象已实现；Token Guard/Compaction 仍是 P0 |
+| `xharness-context` | [上下文预算与压缩](context.md) | Surface 抽象已实现；Compaction 计划中 |
+| `xharness-token` | [上下文预算与压缩](context.md) | TokenMeter、保守后备与请求前 Hard Guard 已实现 |
 | `xharness-prompt` | [Prompt 组装与注入](prompt.md) | v1 最小确定性注入已实现；完整 Registry 计划中 |
 | Linux Packaging | [`.deb` 安装与沙箱自配置](linux-deb.md) | Helper/打包已实现；真实 4080 安装待管理员授权 |
 

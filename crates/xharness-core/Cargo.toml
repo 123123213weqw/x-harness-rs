@@ -19,6 +19,7 @@ tokio-util.workspace = true
 xharness-context = { path = "../xharness-context" }
 xharness-prompt = { path = "../xharness-prompt" }
 xharness-session = { path = "../xharness-session" }
+xharness-token = { path = "../xharness-token" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

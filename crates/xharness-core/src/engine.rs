@@ -26,7 +26,8 @@ use crate::{
     tool_result_for_model, AgentMessage, ContextRequest, ContextSurface, FinishReason,
     InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind, LoopRequest,
     LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role, SessionSnapshot,
-    StepUsage, TokenUsage, ToolCall, ToolConcurrency, ToolResult, ToolSpec,
+    StepUsage, TokenBudgetReport, TokenEstimateRequest, TokenUsage, ToolCall, ToolConcurrency,
+    ToolResult, ToolSpec,
 };
 
 static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -324,7 +325,7 @@ impl Runner {
                     self.request.provider.model_name(),
                 )
                 .with_step(self.step)
-                .with_tools(context_tools);
+                .with_tools(context_tools.clone());
             let prepared = self
                 .request
                 .context_policy
@@ -335,7 +336,9 @@ impl Runner {
                 .validate()
                 .map_err(|error| RunFailure::Failed(error.to_string()))?;
             self.validate_prompt_surface(&prepared)?;
-            self.journal_request_header(&prepared).await?;
+            let token_budget = self.check_token_budget(&prepared, &context_tools)?;
+            self.journal_request_header(&prepared, token_budget.as_ref())
+                .await?;
             let prepared = prepared.into_messages();
 
             let mut model = self.model_round(prepared).await?;
@@ -483,6 +486,40 @@ impl Runner {
             ));
         }
         Ok(())
+    }
+
+    fn check_token_budget(
+        &self,
+        surface: &ContextSurface,
+        tools: &[Value],
+    ) -> Result<Option<TokenBudgetReport>, RunFailure> {
+        let Some(guard) = &self.request.token_guard else {
+            return Ok(None);
+        };
+        let mut system_messages = Vec::new();
+        let mut conversation_messages = Vec::new();
+        for message in &surface.messages {
+            let encoded = serde_json::to_value(message).map_err(|error| {
+                RunFailure::Failed(format!(
+                    "could not serialize message for token guard: {error}"
+                ))
+            })?;
+            if message.role == Role::System {
+                system_messages.push(encoded);
+            } else {
+                conversation_messages.push(encoded);
+            }
+        }
+        guard
+            .check(&TokenEstimateRequest {
+                provider: self.request.provider.provider_name().to_owned(),
+                model: self.request.provider.model_name().map(str::to_owned),
+                system_messages,
+                conversation_messages,
+                tools: tools.to_vec(),
+            })
+            .map(Some)
+            .map_err(|error| RunFailure::Failed(format!("token budget rejected request: {error}")))
     }
 
     async fn initialize_journal(&mut self) -> Result<(), RunFailure> {
@@ -725,7 +762,11 @@ impl Runner {
         Ok(())
     }
 
-    async fn journal_request_header(&mut self, surface: &ContextSurface) -> Result<(), RunFailure> {
+    async fn journal_request_header(
+        &mut self,
+        surface: &ContextSurface,
+        token_budget: Option<&TokenBudgetReport>,
+    ) -> Result<(), RunFailure> {
         if self.journal.is_none() {
             return Ok(());
         }
@@ -765,6 +806,14 @@ impl Runner {
                 "prompt".to_owned(),
                 serde_json::to_value(prompt.audit()).map_err(|error| {
                     RunFailure::Failed(format!("could not serialize prompt audit: {error}"))
+                })?,
+            );
+        }
+        if let Some(report) = token_budget {
+            header.options.insert(
+                "tokenBudget".to_owned(),
+                serde_json::to_value(report).map_err(|error| {
+                    RunFailure::Failed(format!("could not serialize token budget report: {error}"))
                 })?,
             );
         }
@@ -1358,6 +1407,11 @@ impl Runner {
                 messages: messages.clone(),
                 tools: tool_definitions.clone(),
                 step: self.step,
+                max_output_tokens: self
+                    .request
+                    .token_guard
+                    .as_ref()
+                    .map(|guard| guard.budget().reserved_output_tokens),
             };
             let provider_cancellation = self.cancellation.child_token();
             let provider = self.request.provider.clone();

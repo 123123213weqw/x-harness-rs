@@ -21,6 +21,7 @@ xharness-agent = { path = "../xharness-agent" }
 xharness-core = { path = "../xharness-core" }
 xharness-prompt = { path = "../xharness-prompt" }
 xharness-session = { path = "../xharness-session" }
+xharness-token = { path = "../xharness-token" }
 
 [dev-dependencies]
 tower.workspace = true

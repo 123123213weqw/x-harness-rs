@@ -14,9 +14,9 @@
 Pending/Event 字节预算和错误 Body 预算。流预算为零的配置必须在网络 I/O 前失败。
 Debug 输出必须隐藏 API Key。
 
-当前 Config 不包含权威 `context_window_tokens`，Provider 也不会自动查询 llama.cpp 的启动
-参数。未来模型能力必须由 LLM Registry/部署配置显式提供给 Prepared Call；Adapter 禁止根据
-一次 400 错误猜窗口后自动重发。
+Provider Config 不自动查询 llama.cpp 的启动参数。正式 Host 通过 `xharness-token` 的显式部署
+配置把窗口绑定到 Prepared Call；未来模型能力由 LLM Registry 提供。Adapter 禁止根据一次
+400 错误猜窗口后自动重发。
 
 端点派生规则：
 
@@ -35,6 +35,9 @@ Schema）。工具 Schema 必须放进协议原生 `tools` 字段，禁止插入
 Chat 使用 Assistant `tool_calls` 和 `role=tool` 结果。Responses 使用 `store=false`、
 无状态完整重放、原生 Function Call/Output Item，并保留 Reasoning 端点重放所需的 Opaque
 Provider Item。
+
+Prepared Call 的 Provider-neutral `max_output_tokens` 在 Chat Completions 映射为 `max_tokens`，
+在 Responses 映射为 `max_output_tokens`。该值来自已验证 Token Budget 的输出预留。
 
 ## 流归一化
 

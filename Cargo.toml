@@ -16,6 +16,7 @@ members = [
     "crates/xharness-session-jsonl",
     "crates/xharness-server",
     "crates/xharness-terminal",
+    "crates/xharness-token",
     "crates/xharness-tools",
     "crates/xharness-web",
     "crates/xharness-coding-tools",

@@ -92,6 +92,9 @@ pub struct ProviderRequest {
     pub messages: Vec<AgentMessage>,
     pub tools: Vec<ToolDefinition>,
     pub step: usize,
+    /// Provider-neutral generation ceiling. Adapters map this to their native
+    /// `max_tokens`/`max_output_tokens` request field.
+    pub max_output_tokens: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -439,6 +442,9 @@ pub struct LoopRequest {
     /// Deterministic model-facing System Prompt. It is reassembled for each
     /// turn and never becomes transcript history.
     pub prompt: Option<xharness_prompt::PromptAssembly>,
+    /// Hard admission guard evaluated after context projection and before any
+    /// provider I/O. Production hosts should always configure one.
+    pub token_guard: Option<xharness_token::TokenGuard>,
     pub tools: Vec<ToolSpec>,
     pub session_id: Option<String>,
     pub session_store: Arc<dyn crate::SessionStore>,
@@ -460,6 +466,7 @@ impl LoopRequest {
             provider,
             messages,
             prompt: None,
+            token_guard: None,
             tools: Vec::new(),
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),

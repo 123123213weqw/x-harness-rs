@@ -46,6 +46,7 @@ fn chat_request_and_stream_are_normalized() {
             parameters: json!({"type":"object"}),
         }],
         step: 1,
+        max_output_tokens: None,
     };
     let body = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
     assert_eq!(body["tools"][0]["function"]["name"], "echo");
@@ -103,11 +104,13 @@ fn assembled_system_prompt_is_encoded_first_in_both_wire_protocols() {
         ],
         tools: Vec::new(),
         step: 1,
+        max_output_tokens: Some(4_096),
     };
     let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
     assert_eq!(chat["messages"][0]["role"], "system");
     assert_eq!(chat["messages"][0]["content"], "versioned coding policy");
     assert_eq!(chat["messages"][1]["role"], "user");
+    assert_eq!(chat["max_tokens"], 4_096);
 
     let responses = build_openai_request(OpenAiProtocol::Responses, "model", &request);
     assert_eq!(responses["input"][0]["role"], "system");
@@ -116,6 +119,7 @@ fn assembled_system_prompt_is_encoded_first_in_both_wire_protocols() {
         "versioned coding policy"
     );
     assert_eq!(responses["input"][1]["role"], "user");
+    assert_eq!(responses["max_output_tokens"], 4_096);
 }
 
 #[test]
@@ -130,6 +134,7 @@ fn responses_request_replays_opaque_items_and_normalizes_lifecycle() {
         messages: vec![assistant, AgentMessage::tool("call-1", "output")],
         tools: Vec::new(),
         step: 2,
+        max_output_tokens: None,
     };
     let body = build_openai_request(OpenAiProtocol::Responses, "model", &request);
     assert_eq!(body["store"], false);
@@ -281,6 +286,7 @@ async fn native_http_provider_streams_both_protocols() {
             messages: vec![AgentMessage::user("hello")],
             tools: Vec::new(),
             step: 1,
+            max_output_tokens: None,
         };
         let mut stream = provider
             .stream(request, CancellationToken::new())
@@ -337,6 +343,7 @@ async fn provider_bounds_http_error_bodies() {
         messages: vec![AgentMessage::user("hello")],
         tools: Vec::new(),
         step: 1,
+        max_output_tokens: None,
     };
     let error = match provider.stream(request, CancellationToken::new()).await {
         Ok(_) => panic!("HTTP error unexpectedly produced a stream"),
