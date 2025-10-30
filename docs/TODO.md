@@ -150,6 +150,12 @@ Commit、Issue、PR 应引用这些 ID。
   `agentPreset.select` 和 6 个 Goal RPC 共 9 个变更接口支持同 ID/同 Payload 跨重启逐字重放，
   ID 冲突 fail closed；模型选择以 `session/model-selected` latest-wins 事件恢复，不再依赖最近一次
   Request Header。Web History 只投影隐藏的回执占位，不暴露 Fingerprint 或 Response Body。
+- [x] `DONE-46` Durable Inbox 权威 Web Queue：`session/queue` 不再读取 Host Driver FIFO，而是从
+  Session Log 的完整 `agent/inbox/spliced` 历史折叠 `next-turn + next-step`。三种 Placement 固定为
+  `queued/steering/context`，每次 Insert/Edit/Remove/Claim 后发送完整快照；Mux 重连为所有 Session
+  发送 subscribed/projection，并为非空 Inbox 发送 Queue Baseline。`session.updateQueue` 先修改
+  Durable Inbox，Claim 竞态返回 `queue-item-not-found`，非文本 Edit 返回冻结 Attachment Error；
+  Host FIFO 只保留 RunningTurn Attachment，不再是真源。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -168,11 +174,11 @@ Commit、Issue、PR 应引用这些 ID。
   Queue Edit/Remove 同步写入 Inbox，多条预准入消息用 `TurnStarted.input_ids` 绑定各自缓冲事件流。
   `Store::list_headers`、Host 启动 Replay、Workspace/Session/History/Queue 重建和 Pending Turn
   显式 Wake 已完成；History 已按 Cursor 直接查询权威日志，Host Event Projection 只保留有界
-  尾部。Host 内存 FIFO 已不再是模型执行输入的真源，只承担 Driver Attachment 和即时 Queue
-  Projection。Workspace 自定义元数据、排序、归档与 Settings 已进入独立 Host Control Log，相关
+  尾部。Web Queue 已从完整 Durable Inbox 折叠两条列表并在重连发送 Baseline；Host 内存 FIFO
+  只承担 Driver Attachment。Workspace 自定义元数据、排序、归档与 Settings 已进入独立 Host Control Log，相关
   9 个变更 RPC 使用通用 Exactly-once Receipt。Session Log 内的 Rename、Model Select、Preset
-  Select 和 6 个 Goal RPC 也已使用同 Revision 原子 Receipt。剩余：把 Queue Projection 改为
-  持久游标视图，将同一 Receipt 框架扩展到 Session Create/Fork、Queue/Cancel/Attachment、Preset
+  Select 和 6 个 Goal RPC 也已使用同 Revision 原子 Receipt。剩余：将同一 Receipt 框架扩展到
+  Session Create/Fork、Queue/Cancel/Attachment、Preset
   Copy/Remove 等变更 RPC，并实现 Secret-free Credential Reference Store；
   七点通用日志前缀和包含 Approval Asked 的八点真实子进程 SIGKILL/同目录重启矩阵均已完成。
   Approval Asked/Decided、Provider Retry/Started、Agent/Permission/Sandbox/Approval Policy 与

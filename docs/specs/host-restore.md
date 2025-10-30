@@ -8,7 +8,7 @@
 
 Host 进程退出后，已经成功 Flush 的 Session、模型历史和 Pending Input 不能从 Web 中消失，
 也不能为了重新附着 Web Driver 而再次 Append 同一输入。Append-only Session Log 是唯一真源；
-`BasicHost.sessions/events/queue` 都只是可以丢弃并重建的 Web Projection；其中 `events` 只保留
+`BasicHost.sessions/events/projected_queue` 都只是可以丢弃并重建的 Web Projection；其中 `events` 只保留
 按 Event 数和序列化 Byte 双预算限制的连续尾部，完整 History 始终从 Session Store 查询。
 
 ## 固定恢复顺序
@@ -61,6 +61,11 @@ Runtime。相同 ID 配不同 Payload 必须返回 `SessionConflict`。每会话
 Queue Edit 必须同时替换 Durable Message 和这段元数据；Queue Remove 必须先成功修改 Durable
 Inbox，再改变 Web Projection。
 
+Queue Baseline 必须从同一 Session Cut 折叠完整 `next-turn + next-step`，顺序和 Placement 分别为
+`queued`、User Source 的 `steering`、非 User Source 的 `context`。Mux 重连必须为所有 Session 发送
+Subscribed/Projection，并为非空 Inbox 发送完整 Queue Snapshot；空列表通过最近一次实时 `[]`
+收敛。Host Driver FIFO 不得作为重连基线或 Queue Item 存在性的证据。
+
 ## 当前不承诺
 
 - Workspace 用户标题、顺序、Session 顺序、归档与 Settings 已有独立 Control Log；Credential
@@ -69,7 +74,8 @@ Inbox，再改变 Web Projection。
 - Prompt RPC Receipt、Permission Command Receipt、Workspace/Settings 共 9 个变更 RPC，以及
   Session Rename/Model Select、Preset Select 和 6 个 Goal RPC 的 Session 原子 Receipt 已可恢复；
   Session Create/Fork、Queue/Cancel/Attachment、Preset Copy/Remove 等仍未统一接入。
-- Web History 已按权威 Session Cursor 分页查询、使用有界尾缓存并增量广播；Workspace/Settings
+- Web History 已按权威 Session Cursor 分页查询、使用有界尾缓存并增量广播；Queue 已按权威
+  Durable Inbox 发送实时完整快照和重连 Baseline；Workspace/Settings
   等非 Session 投影仍没有统一持久查询接口。
 - Idle Plan Mode 的最终 `active` 状态已由最后一条 `plan/mode` 恢复；运行中尚未接受的 Pending
   Pre-step 选择不是可恢复状态，当前重启后一律投影为 `pending=false`。

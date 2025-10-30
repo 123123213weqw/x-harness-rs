@@ -30,7 +30,7 @@ use crate::{
     control::{settings_snapshot, workspace_snapshot},
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
     restore::{project_session_event_range, project_session_history},
-    runtime::ModelRoute,
+    runtime::{AgentRuntimeError, ModelRoute},
     state::{
         iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
         PendingResponse, SessionRecord, SettingsNamespace, WorkspaceRecord,
@@ -149,7 +149,7 @@ impl ApiBackend for BasicHost {
             let baseline = {
             let state = state.read().await;
             let mut frames = Vec::new();
-            for session in state.sessions.values().filter(|session| session.running) {
+            for session in state.sessions.values() {
                 frames.push(ServerRequest::new(
                     RpcId::new(mint_stream_id(&next_id, "subscribed")),
                     "session/subscribed",
@@ -173,6 +173,18 @@ impl ApiBackend for BasicHost {
                             "key": key,
                             "value": value,
                             "seq": session.last_event_seq_i64(),
+                        }),
+                    ));
+                }
+                let items = session.queue_view();
+                if !items.is_empty() {
+                    frames.push(ServerRequest::new(
+                        RpcId::new(mint_stream_id(&next_id, "queue")),
+                        "session/queue",
+                        json!({
+                            "type": "session/queue",
+                            "sessionId": session.session_id,
+                            "items": items,
                         }),
                     ));
                 }
@@ -693,6 +705,7 @@ impl BasicHost {
             event_cache_bytes: 0,
             messages: Vec::new(),
             queue: Default::default(),
+            projected_queue: Default::default(),
             admissions: Default::default(),
             mutation_receipts: Default::default(),
             authoritative_seq: None,
@@ -1065,6 +1078,7 @@ impl BasicHost {
             event_cache_bytes: child_event_bytes,
             messages: child_messages,
             queue: Default::default(),
+            projected_queue: Default::default(),
             admissions: Default::default(),
             mutation_receipts: Default::default(),
             authoritative_seq: None,
@@ -1275,6 +1289,7 @@ impl BasicHost {
 
     async fn session_update_queue(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        let _session_guard = self.lock_admission(&session_id).await;
         let item_id = required_string(payload, "itemId")?;
         let action = payload
             .get("action")
@@ -1284,71 +1299,107 @@ impl BasicHost {
             .get("kind")
             .and_then(Value::as_str)
             .ok_or_else(|| bad_request("action.kind is required"))?;
+        let authoritative = self.agent_runtime.has_authoritative_sessions();
+        let item = {
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?;
+            let item = if authoritative {
+                session
+                    .projected_queue
+                    .iter()
+                    .find(|item| item.id == item_id)
+                    .cloned()
+            } else {
+                session
+                    .queue
+                    .iter()
+                    .find(|item| item.id == item_id)
+                    .cloned()
+            };
+            item.ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::QueueItemNotFound,
+                    "queued item is no longer pending",
+                    json!({"itemId": item_id}),
+                )
+            })?
+        };
         let mut steer_item = None;
+        let mut replacement = None;
+        match kind {
+            "remove" | "steer" => {
+                self.agent_runtime
+                    .remove_pending_input(&session_id, &item_id)
+                    .await
+                    .map_err(|error| queue_item_not_found(&item_id, error))?;
+                if kind == "steer" {
+                    steer_item = Some(item);
+                }
+            }
+            "edit" => {
+                let content = action
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| bad_request("edit action requires content"))?
+                    .clone();
+                if content
+                    .iter()
+                    .any(|block| block.get("type").and_then(Value::as_str) != Some("text"))
+                {
+                    return Err(rpc_error(
+                        RpcErrorCode::AttachmentError,
+                        "queue edits accept text content only",
+                        json!({"reason": "QUEUE_EDIT_NON_TEXT"}),
+                    ));
+                }
+                let text = visible_text(&content);
+                self.agent_runtime
+                    .replace_pending_input(
+                        &session_id,
+                        AgentMessage::new(xharness_core::Role::User, text.clone())
+                            .with_id(item_id.clone()),
+                        Some(json!({
+                            "content": content.clone(),
+                            "source": item.source.clone(),
+                            "rpcFingerprint": item.fingerprint,
+                            "rpcSessionId": session_id,
+                        })),
+                    )
+                    .await
+                    .map_err(|error| queue_item_not_found(&item_id, error))?;
+                replacement = Some((content, text));
+            }
+            _ => return Err(bad_request("unsupported queue action")),
+        }
+
+        // The Host driver FIFO is only an attachment index. Keep it aligned
+        // for work not yet handed to RunningTurn, but never use it as the Web
+        // queue authority when a durable Session exists.
         {
             let mut state = self.state.write().await;
             let session = state
                 .sessions
                 .get_mut(&session_id)
                 .ok_or_else(|| session_not_found(&session_id))?;
-            let index = session
-                .queue
-                .iter()
-                .position(|item| item.id == item_id)
-                .ok_or_else(|| {
-                    rpc_error(
-                        RpcErrorCode::QueueItemNotFound,
-                        "queue item was not found",
-                        json!({"itemId": item_id}),
-                    )
-                })?;
-            match kind {
-                "remove" => {
-                    self.agent_runtime
-                        .remove_pending_input(&session_id, &item_id)
-                        .await
-                        .map_err(agent_runtime_error)?;
-                    session.queue.remove(index);
-                }
-                "steer" => {
-                    self.agent_runtime
-                        .remove_pending_input(&session_id, &item_id)
-                        .await
-                        .map_err(agent_runtime_error)?;
-                    steer_item = session.queue.remove(index);
-                }
-                "edit" => {
-                    let content = action
-                        .get("content")
-                        .and_then(Value::as_array)
-                        .ok_or_else(|| bad_request("edit action requires content"))?
-                        .clone();
-                    let text = visible_text(&content);
-                    let source = session.queue[index].source.clone();
-                    let fingerprint = session.queue[index].fingerprint.clone();
-                    self.agent_runtime
-                        .replace_pending_input(
-                            &session_id,
-                            AgentMessage::new(xharness_core::Role::User, text.clone())
-                                .with_id(item_id.clone()),
-                            Some(json!({
-                                "content": content.clone(),
-                                "source": source.clone(),
-                                "rpcFingerprint": fingerprint,
-                                "rpcSessionId": session_id,
-                            })),
-                        )
-                        .await
-                        .map_err(agent_runtime_error)?;
+            if let Some(index) = session.queue.iter().position(|item| item.id == item_id) {
+                if let Some((content, text)) = replacement {
                     if let Some(item) = session.queue.get_mut(index) {
                         item.content = content;
                         item.text = text;
                     }
+                } else {
+                    session.queue.remove(index);
                 }
-                _ => return Err(bad_request("unsupported queue action")),
             }
         }
-        self.emit_queue(&session_id).await;
+        if authoritative {
+            self.sync_authoritative_session(&session_id).await?;
+        } else {
+            self.emit_queue(&session_id).await;
+        }
         if let Some(item) = steer_item {
             self.enqueue_prompt(PromptAdmission {
                 rpc_id: RpcId::new(item.id),
@@ -3109,6 +3160,14 @@ fn validate_credential_ref(reference: &str) -> Result<(), RpcError> {
         ));
     }
     Ok(())
+}
+
+fn queue_item_not_found(item_id: &str, error: AgentRuntimeError) -> RpcError {
+    rpc_error(
+        RpcErrorCode::QueueItemNotFound,
+        "queued item is no longer pending",
+        json!({"itemId": item_id, "reason": error.to_string()}),
+    )
 }
 
 fn mint_stream_id(next_id: &AtomicU64, prefix: &str) -> String {
