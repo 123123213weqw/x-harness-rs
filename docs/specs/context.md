@@ -105,7 +105,7 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 - 当前正式 Host 安装保守 Byte Meter；Provider-aware 精确 Tokenizer 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。
 - `read` 已分页；其他工具结果仍缺统一 Spill/Reduce。
-- 每个 Step 固定发送全部 14 个工具 Schema。
+- Host 已按 Platform/Search/Terminal Readiness 发送工具子集；Profile/Step 级投影仍待实现。
 - 工具 Schema 和 System/Message/Protocol 分项已经记录；Provider 原生 Chat Template 的精确开销
   仍需要 Provider-aware Meter。
 

@@ -113,6 +113,11 @@ Commit、Issue、PR 应引用这些 ID。
   `head_tail/v1` JSON Envelope，保留 UTF-8 安全头尾、原始 Byte 数、遗漏 Byte 数和 SHA-256；
   相同输入逐字稳定，极小预算继续使用合法 JSON 前缀后备。原始 `ToolResult` 仍通过运行事件交给
   宿主，但持久内容寻址 Spill/Reference 与历史 Surface Replace 尚未实现。
+- [x] `DONE-39` 原生平台 Readiness 与模型工具动态投影：`NativePlatform` 对同一 Workspace/
+  Permission 组合只 Probe 一次并缓存强类型 `CapabilityReport`；Host 在每次模型 Step 前根据
+  Sandbox、Search Provider 与现存 Terminal 状态裁剪工具。受限进程不可用时移除
+  `bash/glob/grep/terminal_open`，未配置 Search 时移除 `web_search`；Full access 明确报告
+  `none-full-access`，不会为探测偷偷创建 Sandbox。确定性测试覆盖不可用能力的模型可见子集。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -189,9 +194,10 @@ Commit、Issue、PR 应引用这些 ID。
   Cursor 延续原限制且文件变化后拒绝拼接；单结果超限使用带 Hash/Byte 统计的确定性 Head/Tail
   Envelope。剩余：原始大输出持久 Spill/Reference、Relevant 片段选择和历史 Surface Replace。
 
-- [ ] `P0-13` **Platform Readiness 与动态工具投影。** Host 启动和 Workspace 初始化时运行
-  Sandbox/Search/PTY Probe，把结果投影给 UI；已确认不可用的工具不进入后续模型请求。
-  WZU_4080 的 `RTM_NEWADDR` Bubblewrap 失败必须有固定诊断测试，禁止无限重复调用。
+- [ ] `P0-13` **Platform Readiness 与动态工具投影。** 模型请求侧已完成：Host 缓存
+  Sandbox/Search/PTY Readiness，并在每个 Step 只发送实际可用工具；已确认失败的 Sandbox 不会
+  被每轮重复 Probe。剩余：把同一报告接入 Web UI 的 Workspace Readiness 投影，并补
+  WZU_4080 `RTM_NEWADDR` Bubblewrap 失败的固定诊断夹具与浏览器提示回归。
 
 - [x] `P0-14` **真实 Coding System Prompt 注入。** 把选中的 `AgentPreset.content` 通过有
   版本的最小 Prompt Assembler 变成 `Role::System`，明确分页读取、不可用工具不重试、证据

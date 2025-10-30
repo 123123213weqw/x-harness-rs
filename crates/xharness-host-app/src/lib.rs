@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use xharness_coding_tools::CodingToolBundle;
 use xharness_core::ToolSpec;
 use xharness_host::{PermissionPreset, SessionToolFactory};
-use xharness_platform::{NativePlatform, PlatformConfig};
+use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
 use xharness_terminal::TerminalRegistry;
 use xharness_web::WebRuntime;
 
@@ -23,6 +23,13 @@ pub struct NativeToolFactory {
     terminals: Arc<TerminalRegistry>,
     web: Arc<WebRuntime>,
     platforms: RwLock<BTreeMap<(String, PermissionPreset), Arc<NativePlatform>>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeToolReadiness {
+    pub platform: CapabilityReport,
+    pub search_available: bool,
+    pub existing_terminals: usize,
 }
 
 impl NativeToolFactory {
@@ -54,6 +61,40 @@ impl NativeToolFactory {
             .or_insert_with(|| Arc::clone(&platform))
             .clone())
     }
+
+    pub async fn readiness(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+    ) -> Result<NativeToolReadiness, String> {
+        let platform = self.platform(cwd, permission).await?;
+        let terminals = self
+            .terminals
+            .list(session_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(NativeToolReadiness {
+            platform: platform.capability_report().await,
+            search_available: self.web.has_search_provider(),
+            existing_terminals: terminals.len(),
+        })
+    }
+}
+
+fn project_tools(specs: &mut Vec<ToolSpec>, readiness: &NativeToolReadiness) {
+    let process_available = readiness.platform.restricted_process.is_available();
+    let terminal_open_available = readiness.platform.terminal_open.is_available();
+    let terminal_management_available = terminal_open_available || readiness.existing_terminals > 0;
+    specs.retain(|spec| match spec.definition.name.as_str() {
+        "bash" | "glob" | "grep" => process_available,
+        "terminal_open" => terminal_open_available,
+        "terminal_send" | "terminal_read" | "terminal_signal" | "terminal_close" => {
+            terminal_management_available
+        }
+        "web_search" => readiness.search_available,
+        _ => true,
+    });
 }
 
 #[async_trait]
@@ -65,6 +106,7 @@ impl SessionToolFactory for NativeToolFactory {
         permission: PermissionPreset,
     ) -> Result<Vec<ToolSpec>, String> {
         let platform = self.platform(cwd, permission).await?;
+        let readiness = self.readiness(session_id, cwd, permission).await?;
         let mut specs = CodingToolBundle::new(
             platform,
             Arc::clone(&self.terminals),
@@ -75,6 +117,7 @@ impl SessionToolFactory for NativeToolFactory {
         .core_specs()
         .await
         .map_err(|error| error.to_string())?;
+        project_tools(&mut specs, &readiness);
         if permission == PermissionPreset::DangerFullAccess {
             for spec in &mut specs {
                 spec.requires_approval = false;
@@ -87,14 +130,19 @@ impl SessionToolFactory for NativeToolFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use xharness_platform::CapabilityState;
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 
     struct TempWorkspace(std::path::PathBuf);
 
     impl TempWorkspace {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
-                "xharness-host-app-permission-{}",
-                std::process::id()
+                "xharness-host-app-permission-{}-{}",
+                std::process::id(),
+                NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed),
             ));
             let _ = std::fs::remove_dir_all(&path);
             std::fs::create_dir_all(&path).unwrap();
@@ -124,5 +172,57 @@ mod tests {
             .await
             .unwrap();
         assert!(full_access.iter().all(|spec| !spec.requires_approval));
+        assert!(full_access
+            .iter()
+            .all(|spec| spec.definition.name != "web_search"));
+        assert!(full_access
+            .iter()
+            .any(|spec| spec.definition.name == "bash"));
+    }
+
+    #[tokio::test]
+    async fn unavailable_capabilities_are_removed_before_model_projection() {
+        let workspace = TempWorkspace::new();
+        let platform =
+            Arc::new(NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap());
+        let mut specs = CodingToolBundle::new(
+            platform,
+            Arc::new(TerminalRegistry::with_defaults()),
+            Arc::new(WebRuntime::default()),
+            "session",
+            "session",
+        )
+        .core_specs()
+        .await
+        .unwrap();
+        project_tools(
+            &mut specs,
+            &NativeToolReadiness {
+                platform: CapabilityReport {
+                    filesystem_read: CapabilityState::Available,
+                    filesystem_mutation: CapabilityState::Available,
+                    restricted_process: CapabilityState::Unavailable {
+                        reason: "RTM_NEWADDR denied".to_owned(),
+                    },
+                    terminal_open: CapabilityState::Unavailable {
+                        reason: "RTM_NEWADDR denied".to_owned(),
+                    },
+                    process_network: CapabilityState::Unavailable {
+                        reason: "RTM_NEWADDR denied".to_owned(),
+                    },
+                    sandbox_backend: "bubblewrap".to_owned(),
+                },
+                search_available: false,
+                existing_terminals: 0,
+            },
+        );
+        let names = specs
+            .iter()
+            .map(|spec| spec.definition.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            ["edit", "read", "terminal_list", "web_fetch", "write"]
+        );
     }
 }

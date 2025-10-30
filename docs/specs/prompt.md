@@ -61,8 +61,8 @@ Session Export 应能回答“这一轮模型实际看到了什么”，而不�
 
 - 尚无运行时 Section 注册、Scope、Variable、Skill 或 Provider-specific Section；这些属于
   `P1-01` 完整 Registry。
-- 全部 14 个工具定义仍随每个 Step 发送，尚无 Capability/Step 动态投影。
-- Prompt 与工具已产生 Hash，但尚未接请求前 Token Budget Guard。
+- Host 已按 Capability/Search/Terminal 状态投影工具子集；Profile/Step 级规则尚未完成。
+- Prompt 与工具 Hash 已接入请求前 Token Budget Guard。
 - 用户自定义 Preset 文档本身仍未持久化；恢复时缺失的 Preset 会 fail closed。
 
 ## 验收标准

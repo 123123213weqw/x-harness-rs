@@ -4,7 +4,8 @@
 可测试的 Agent Loop；macOS 作为首要本地开发平台，Linux 作为服务器平台。
 
 当前开发版已完成可嵌入 Loop、OpenAI-compatible Provider、append-only Session、
-14 个原生 Coding 工具，以及兼容 DeepSeek Harness Web 的第一版 Rust Host。目标不是
+14 个原生 Coding 工具（按运行时能力动态投影），以及兼容 DeepSeek Harness Web 的第一版
+Rust Host。目标不是
 把所有能力继续堆进一个 `while`，而是把模型、历史、工具策略、Web 投影和原生执行
 能力拆成 typed service。模型 Provider 只由共享核心调用，macOS/Linux 差异收敛在
 最下层，并在编译期选择实现。
@@ -387,8 +388,8 @@ Workspace 外读写/网络/进程清理，以及真实 Chromium 的权限确认�
 
 ## 路线图
 
-1. 请求前上下文预算、分页读取、大工具结果压缩和运行时能力投影
-2. 完整 Prompt Registry、请求前 Token Guard，并按 Step 投影可用工具
+1. 大工具结果持久 Spill、历史 Surface 压缩和 Web Readiness 投影
+2. 完整 Prompt Registry、Provider-aware Tokenizer，并按 Profile/Step 进一步裁剪工具
 3. 把 `BasicHost` 迁移到长生命周期 Agent、durable inbox、single-writer lease
 4. CLI、配置/凭据边界与 macOS 原生发布验证
 5. Web Host 认证、断线游标恢复、健康检查与部署配置

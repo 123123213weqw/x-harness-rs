@@ -35,10 +35,10 @@ v0 只暴露以下 14 个稳定模型工具名：
 Metadata。Process Tool 报告 PID、Exit Code/Signal、Termination Reason、两条输出流、
 Truncation 和总 Byte Count。
 
-当前 `core_specs()` 会让 Host 在每个模型 Step 注入上述 14 个 `name/description/Schema`。
-最小 Coding System Prompt 已由独立 `xharness-prompt` 注入；工具定义仍是另一条协议字段。
-最终实现必须根据平台 Readiness、Search Provider、Profile 和 Step 选择稳定子集，并将选择写入
-Request Header。
+`core_specs()` 仍能生成完整的 14 工具候选集；正式 Host 会在每个模型 Step 前根据平台
+Readiness、Search Provider 和现存 Terminal 投影稳定子集。最小 Coding System Prompt 已由独立
+`xharness-prompt` 注入，工具定义仍是另一条协议字段。Profile/Step 级进一步裁剪和完整选择审计
+仍待实现。
 
 ## 环境与路径
 
@@ -76,9 +76,9 @@ Core 对超限单结果使用确定性 Head/Tail Envelope；单个结果未超�
 
 ## 当前限制
 
-- Description 仍是简洁 v0 版本；更丰富的“何时用/何时不用”和动态 Tool Subset 已计划。
+- Description 仍是简洁 v0 版本；更丰富的“何时用/何时不用”和 Profile/Step Tool Subset 已计划。
 - `read` 已分页，但其他工具输出和历史 Tool Result 尚无统一 Spill/Reduce。
-- Platform Probe 失败目前不会自动缩小下一 Step 的进程工具 Projection。
+- Platform Probe 失败已自动缩小进程工具 Projection；相同 Readiness 尚未投影到 Web UI。
 - 尚无 Background Bash Job、Patch Tool、目录修改、Image Read、Browser、MCP、LSP 或
   Subagent Tool。
 - 完整 CLI/Host 还必须配置 Approval UX、Session Durability、Provider、Search Credential
