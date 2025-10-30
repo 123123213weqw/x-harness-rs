@@ -18,8 +18,8 @@ use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
 use xharness_session::{
     ApprovalOutcome, AssistantChunk, EventData as SessionEventData, LlmFailure, LlmRetryMode,
-    RequestHeader, Revision, SessionEvent, SessionHeader, Store as EventSessionStore, ToolOutcome,
-    ToolResultData, TurnEndReason,
+    PendingToolApproval, RequestHeader, Revision, SessionEvent, SessionHeader,
+    Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
 };
 
 use crate::{
@@ -340,6 +340,7 @@ impl LoopEngine {
             approval_decisions: HashMap::new(),
             startup_error,
             journal,
+            recovered_tool_batch: None,
         };
         let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
@@ -410,6 +411,7 @@ struct Runner {
     approval_decisions: HashMap<String, ApprovalDecision>,
     startup_error: Option<String>,
     journal: Option<JournalState>,
+    recovered_tool_batch: Option<RecoveredToolBatch>,
 }
 
 struct JournalState {
@@ -498,6 +500,15 @@ impl Runner {
     async fn run_inner(&mut self) -> Result<LoopStatus, RunFailure> {
         self.restore_messages().await?;
         self.snapshot("input_saved", true).await?;
+
+        if let Some(recovery) = self.recovered_tool_batch.take() {
+            self.tool_batch_complete = false;
+            self.resume_tool_batch(recovery).await?;
+            self.tool_batch_complete = true;
+            self.journal_step_end().await?;
+            self.reload_journal_messages().await?;
+            self.snapshot("recovered_tool_batch_saved", true).await?;
+        }
 
         while self.step < self.request.config.max_steps {
             self.settle_control_at_boundary().await?;
@@ -734,7 +745,6 @@ impl Runner {
                     })?,
             };
 
-        let mut recovery = session.outcome_unknown_recovery();
         let last_turn = session
             .events()
             .iter()
@@ -748,8 +758,9 @@ impl Runner {
                 matches!(event.data(), SessionEventData::TurnEnd { turn: closed, .. } if *closed == turn)
             })
         });
-        if let Some(turn) = last_turn.filter(|_| !last_turn_closed) {
-            let mut open_step = None;
+        let open_turn = last_turn.filter(|_| !last_turn_closed);
+        let mut open_step = None;
+        if let Some(turn) = open_turn {
             for event in session.events().iter().rev() {
                 match event.data() {
                     SessionEventData::StepEnd {
@@ -766,6 +777,58 @@ impl Runner {
                     _ => {}
                 }
             }
+        }
+
+        let pending_approvals = match (open_turn, open_step) {
+            (Some(turn), Some(step)) => session
+                .pending_tool_approvals()
+                .into_iter()
+                .filter(|approval| approval.turn == turn && approval.step == step)
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        if !pending_approvals.is_empty() {
+            if !self.request.messages.is_empty() || !self.request.journal_prelude.is_empty() {
+                return Err(RunFailure::Failed(
+                    "session has a pending tool approval; resume it before admitting new input"
+                        .to_owned(),
+                ));
+            }
+            let turn = open_turn.expect("pending approval belongs to an open turn");
+            let step = open_step.expect("pending approval belongs to an open step");
+            let pending_by_call = pending_approvals
+                .into_iter()
+                .map(|approval| (approval.call_id.clone(), approval))
+                .collect::<HashMap<_, _>>();
+            let calls = xharness_session::incomplete_tool_calls(session.events())
+                .into_iter()
+                .filter(|pending| pending.turn == turn && pending.step == step)
+                .map(|pending| RecoveredToolCall {
+                    approval: pending_by_call.get(&pending.call.id).cloned(),
+                    call: pending.call,
+                })
+                .collect::<Vec<_>>();
+            if !calls.iter().any(|call| call.approval.is_some()) {
+                return Err(RunFailure::Failed(
+                    "session approval recovery lost its referenced tool call".to_owned(),
+                ));
+            }
+            self.messages = self.prompt_prefixed(session.derive_messages());
+            self.step = usize::try_from(step)
+                .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+            self.recovered_tool_batch = Some(RecoveredToolBatch { calls });
+            if let Some(journal) = self.journal.as_mut() {
+                journal.revision = session.revision();
+                journal.next_seq = session.next_seq();
+                journal.turn = turn;
+                journal.step_open = true;
+                journal.turn_open = true;
+            }
+            return Ok(());
+        }
+
+        let mut recovery = session.outcome_unknown_recovery();
+        if let Some(turn) = open_turn {
             if let Some(step) = open_step {
                 recovery.push(SessionEventData::StepEnd { turn, step }.into());
             }
@@ -833,6 +896,27 @@ impl Runner {
             journal.turn_open = true;
         }
         self.messages.extend(self.request.messages.clone());
+        Ok(())
+    }
+
+    async fn reload_journal_messages(&mut self) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let store = Arc::clone(&journal.store);
+        let session_id = journal.session_id.clone();
+        let session = store
+            .load(&session_id)
+            .await
+            .map_err(|error| RunFailure::Failed(format!("session journal reload failed: {error}")))?
+            .ok_or_else(|| {
+                RunFailure::Failed("session journal disappeared during recovery".to_owned())
+            })?;
+        self.messages = self.prompt_prefixed(session.derive_messages());
+        if let Some(journal) = self.journal.as_mut() {
+            journal.revision = session.revision();
+            journal.next_seq = session.next_seq();
+        }
         Ok(())
     }
 
@@ -1091,11 +1175,7 @@ impl Runner {
                 step,
                 result: ToolResultData {
                     call_id: execution.call.id.clone(),
-                    outcome: if execution.result.ok {
-                        ToolOutcome::Success
-                    } else {
-                        ToolOutcome::Error
-                    },
+                    outcome: execution.outcome,
                     content: execution.model_text.clone(),
                     metadata: execution.result.metadata.clone(),
                 },
@@ -1830,14 +1910,134 @@ impl Runner {
             .enumerate()
             .map(|(order, call)| ScheduledTool::new(order, call, &self.request.tools))
             .collect::<Vec<_>>();
-        let mut active: FuturesUnordered<ToolFuture> = FuturesUnordered::new();
-        let mut active_modes = HashMap::<usize, (ToolConcurrency, String)>::new();
         let mut completed = std::iter::repeat_with(|| None)
             .take(scheduled.len())
             .collect::<Vec<Option<ToolExecution>>>();
-        let mut completed_count = self
+        let completed_count = self
             .resolve_tool_approvals(&mut scheduled, &mut completed)
             .await?;
+        self.run_tool_scheduler(&mut scheduled, &mut completed, completed_count)
+            .await?;
+        self.finalize_tool_batch(completed).await
+    }
+
+    async fn resume_tool_batch(&mut self, recovery: RecoveredToolBatch) -> Result<(), RunFailure> {
+        let mut scheduled = recovery
+            .calls
+            .iter()
+            .enumerate()
+            .map(|(order, recovered)| {
+                ScheduledTool::new(order, recovered.call.clone(), &self.request.tools)
+            })
+            .collect::<Vec<_>>();
+        let mut completed = std::iter::repeat_with(|| None)
+            .take(scheduled.len())
+            .collect::<Vec<Option<ToolExecution>>>();
+        let mut completed_count = 0usize;
+        let mut pending_approval_ids = recovery
+            .calls
+            .iter()
+            .filter_map(|call| call.approval.as_ref().map(|approval| approval.id.clone()))
+            .collect::<Vec<_>>();
+
+        for (order, recovered) in recovery.calls.into_iter().enumerate() {
+            let Some(approval) = recovered.approval else {
+                scheduled[order].started = true;
+                let result = ToolResult::failure(xharness_session::OUTCOME_UNKNOWN_CONTENT);
+                let execution = ToolExecution {
+                    order,
+                    call: recovered.call,
+                    outcome: ToolOutcome::OutcomeUnknown,
+                    result,
+                    model_text: xharness_session::OUTCOME_UNKNOWN_CONTENT.to_owned(),
+                };
+                self.emit(LoopEventKind::ToolCompleted {
+                    call: execution.call.clone(),
+                    result: execution.result.clone(),
+                })
+                .await?;
+                completed[order] = Some(execution);
+                completed_count += 1;
+                continue;
+            };
+
+            self.emit(LoopEventKind::ToolApprovalRequested {
+                approval_id: approval.id.clone(),
+                call: recovered.call.clone(),
+            })
+            .await?;
+            let decision = match self.wait_for_approval(&recovered.call.id).await {
+                Ok(decision) => decision,
+                Err(failure) => {
+                    self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                        .await?;
+                    return Err(failure);
+                }
+            };
+            match decision {
+                ApprovalDecision::Approved => {
+                    self.journal_approval_decided(&approval.id, ApprovalOutcome::AllowedOnce)
+                        .await?;
+                    pending_approval_ids.retain(|pending| pending != &approval.id);
+                    self.emit(LoopEventKind::ToolApprovalResolved {
+                        approval_id: approval.id,
+                        call: recovered.call,
+                        approved: true,
+                        reason: None,
+                    })
+                    .await?;
+                }
+                ApprovalDecision::Rejected(reason) => {
+                    let reason = if reason.trim().is_empty() {
+                        "rejected by host".to_owned()
+                    } else {
+                        reason
+                    };
+                    self.journal_approval_decided(&approval.id, ApprovalOutcome::Rejected)
+                        .await?;
+                    pending_approval_ids.retain(|pending| pending != &approval.id);
+                    self.emit(LoopEventKind::ToolApprovalResolved {
+                        approval_id: approval.id,
+                        call: recovered.call.clone(),
+                        approved: false,
+                        reason: Some(reason.clone()),
+                    })
+                    .await?;
+                    scheduled[order].started = true;
+                    let result = ToolResult::failure(format!("tool rejected: {reason}"));
+                    let (model_text, _) =
+                        tool_result_for_model(&result, self.request.config.tool_result_limit_bytes);
+                    let execution = ToolExecution {
+                        order,
+                        call: recovered.call,
+                        outcome: ToolOutcome::Error,
+                        result,
+                        model_text,
+                    };
+                    self.emit(LoopEventKind::ToolCompleted {
+                        call: execution.call.clone(),
+                        result: execution.result.clone(),
+                    })
+                    .await?;
+                    completed[order] = Some(execution);
+                    completed_count += 1;
+                }
+            }
+        }
+
+        self.run_tool_scheduler(&mut scheduled, &mut completed, completed_count)
+            .await?;
+        self.finalize_tool_batch(completed).await
+    }
+
+    async fn run_tool_scheduler(
+        &mut self,
+        scheduled: &mut [ScheduledTool],
+        completed: &mut [Option<ToolExecution>],
+        mut completed_count: usize,
+    ) -> Result<(), RunFailure> {
+        let mut active: FuturesUnordered<ToolFuture> = FuturesUnordered::new();
+        let mut active_modes = HashMap::<usize, (ToolConcurrency, String)>::new();
 
         while completed_count < scheduled.len() {
             self.drain_commands(false).await?;
@@ -1914,6 +2114,13 @@ impl Runner {
             completed[order] = Some(execution);
         }
 
+        Ok(())
+    }
+
+    async fn finalize_tool_batch(
+        &mut self,
+        completed: Vec<Option<ToolExecution>>,
+    ) -> Result<(), RunFailure> {
         let completed = completed.into_iter().flatten().collect::<Vec<_>>();
         self.journal_tool_results(&completed).await?;
         for execution in completed {
@@ -2016,6 +2223,7 @@ impl Runner {
                     let execution = ToolExecution {
                         order: item.order,
                         call: item.call.clone(),
+                        outcome: ToolOutcome::Error,
                         result,
                         model_text,
                     };
@@ -2114,6 +2322,15 @@ enum ApprovalDecision {
     Rejected(String),
 }
 
+struct RecoveredToolBatch {
+    calls: Vec<RecoveredToolCall>,
+}
+
+struct RecoveredToolCall {
+    call: ToolCall,
+    approval: Option<PendingToolApproval>,
+}
+
 #[derive(Clone)]
 struct ScheduledTool {
     order: usize,
@@ -2191,6 +2408,7 @@ impl ScheduledTool {
 struct ToolExecution {
     order: usize,
     call: ToolCall,
+    outcome: ToolOutcome,
     result: ToolResult,
     model_text: String,
 }
@@ -2274,6 +2492,11 @@ async fn execute_tool(
     ToolExecution {
         order: item.order,
         call: item.call,
+        outcome: if result.ok {
+            ToolOutcome::Success
+        } else {
+            ToolOutcome::Error
+        },
         result,
         model_text,
     }

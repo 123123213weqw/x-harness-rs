@@ -9,7 +9,7 @@ use crate::{
         project_session_events, restored_agent_preset, restored_goal, restored_permission,
         restored_plan_mode, restored_title,
     },
-    runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute},
+    runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute, RunningTurn},
     state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
     BasicHost,
 };
@@ -475,6 +475,59 @@ impl BasicHost {
                 }));
             }
         }
+    }
+
+    /// Project a turn that was already open at process death and reattached
+    /// by the durable runtime. It deliberately bypasses the prompt queue: the
+    /// original user input, assistant tool call and approval ask are already
+    /// authoritative Session facts. Once recovery settles, normal queued
+    /// turns continue through the same control channel.
+    pub(crate) async fn drive_recovered_turn(
+        self,
+        session_id: String,
+        mut run: Box<dyn RunningTurn>,
+        mut control_rx: mpsc::Receiver<DriverCommand>,
+    ) {
+        let outcome = async {
+            loop {
+                tokio::select! {
+                    event = run.next_event() => match event {
+                        Some(event) => {
+                            self.sync_authoritative_session(&session_id).await?;
+                            self.project_authoritative_control_event(&session_id, event).await?;
+                        }
+                        None => break,
+                    },
+                    command = control_rx.recv() => {
+                        if let Some(command) = command {
+                            let result = run
+                                .send_with_metadata(command.command, command.input_metadata)
+                                .await;
+                            let _ = command.acknowledgement.send(result);
+                        }
+                    }
+                }
+            }
+            let _ = run.result().await;
+            self.sync_authoritative_session(&session_id).await?;
+            self.state
+                .write()
+                .await
+                .pending
+                .retain(|_, pending| match pending {
+                    PendingResponse::Approval { session_id: id, .. } => id != &session_id,
+                });
+            Ok::<(), RpcError>(())
+        }
+        .await;
+        if let Err(error) = outcome {
+            self.push_host(json!({
+                "type": "host/agent-error",
+                "sessionId": session_id,
+                "message": error.message,
+            }));
+        }
+        self.drive_session(session_id, control_rx).await;
     }
 
     async fn run_turn(

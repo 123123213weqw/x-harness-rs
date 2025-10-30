@@ -66,9 +66,10 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `DONE-27` 七个持久切点的确定性恢复矩阵：Admission、Claim、Request Header、Tool Call、
   Tool Result、Step End、Turn End。已证明未闭合 Turn 变为 `Interrupted`、已落账 Tool Call 只产
   `OutcomeUnknown` 而不重放、权威 Tool Result/Completed Turn 保持不变、原输入只派生一次。
-- [x] `DONE-28` 七点真实 SIGKILL 矩阵：独立子进程使用正式 JSONL Store，在每个权威切点写入
-  Ready Marker 后由父进程发送 SIGKILL；随后在同一 State Dir 重启 Durable Host/Core。七点均
-  验证 Admission 不丢不重、Tool 不重放、Interrupted/OutcomeUnknown/权威终态符合规范。
+- [x] `DONE-28` 八点真实 SIGKILL 矩阵：独立子进程使用正式 JSONL Store，在 Admission、Claim、
+  Request Header、Tool Call、Approval Asked、Tool Result、Step End、Turn End 写入 Ready Marker
+  后由父进程发送 SIGKILL；随后在同一 State Dir 重启 Durable Host/Core。矩阵验证 Admission
+  不丢不重、未审批 Tool 不执行、未知 Tool 不重放、Interrupted/OutcomeUnknown/权威终态符合规范。
 - [x] `DONE-29` Web History 权威投影：Durable Runtime 暴露不可变 Session Cut，History 查询和
   Driver 按 Session Sequence 刷新同一纯投影；运行中与重启后的 Events/Projections 逐字相等，
   User 的结构化 Content、Source 与 Timezone 从 Inbox 元数据恢复。内存 Event DTO 不再是正式
@@ -127,6 +128,11 @@ Commit、Issue、PR 应引用这些 ID。
   非阻塞 Ring Journal。慢消费者收到强类型 `events_lagged { missed, resume_seq }`，可通过
   `subscribe_events_from(resume_seq)` 从最早保留事件继续；完全不消费事件不会阻塞 `result()`，
   单个超大事件也会被逐出而不是突破内存预算。Drop、Cancel 和工具清理竞态保持确定终态。
+- [x] `DONE-42` Pending Approval 跨重启续跑：Session 纯投影区分“尚未越过审批边界”和
+  “工具结果未知”；Core 在原 Turn/Step 上重发相同 Approval ID，只有再次收到 Allowed-once 才
+  执行，拒绝则写回 Tool Error。Agent 在 Host 订阅后显式唤醒恢复 Turn，Web 重新生成可回答的
+  `approval/requested` RPC；Provider 只从下一 Step 继续，既不伪造新 User Turn，也不把未批准
+  Tool 写成 `outcome_unknown`。测试覆盖 Core、Agent/Host 和 Provider Native Call ID 重放。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -148,11 +154,11 @@ Commit、Issue、PR 应引用这些 ID。
   与 Driver Attachment。剩余：把这份 Projection/FIFO 本身替换成可游标查询的持久视图，持久化
   Workspace/Settings/Pending Approval 和除 Permission Command 之外其他变更 RPC 的通用 Receipt；
   Session Title 与 Agent Preset 选择的状态已持久化，但重复 RPC ID 的 Exactly-once Receipt 尚未统一。
-  七点日志前缀和真实
-  子进程 SIGKILL/同目录重启矩阵均已完成。
+  七点通用日志前缀和包含 Approval Asked 的八点真实子进程 SIGKILL/同目录重启矩阵均已完成。
   Approval Asked/Decided、Provider Retry/Started、Agent/Permission/Sandbox/Approval Policy 与
-  Permission Command Receipt 已进入强类型 Session Log 和确定性 Web History；剩余 Pending
-  Approval 的可交互恢复和完整 48 Event 词汇继续归本项与 `P2-01`。
+  Permission Command Receipt 已进入强类型 Session Log 和确定性 Web History；Pending Approval
+  已能在重启后按原 Approval/Execution ID 重新投影并继续回答。剩余完整 48 Event 词汇继续归本项
+  与 `P2-01`。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，

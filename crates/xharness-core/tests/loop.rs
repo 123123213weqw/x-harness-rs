@@ -1237,6 +1237,134 @@ async fn approval_blocks_tool_start_until_host_approves() {
 }
 
 #[tokio::test]
+async fn restart_resumes_undecided_approval_without_replaying_or_unknowning_the_tool() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    journal
+        .create(SessionHeader::new("resume-approval"))
+        .await
+        .unwrap();
+    let call = ToolCall {
+        id: "execution-1".to_owned(),
+        provider_call_id: Some("provider-call-1".to_owned()),
+        index: 0,
+        name: "guarded".to_owned(),
+        arguments_json: "{}".to_owned(),
+    };
+    let mut assistant = AgentMessage::assistant("");
+    assistant.tool_calls.push(call.clone());
+    journal
+        .append(
+            "resume-approval",
+            Revision::ZERO,
+            vec![
+                SessionEventData::TurnStart { turn: 1 }.into(),
+                SessionEventData::UserMessage {
+                    message: AgentMessage::user("run"),
+                }
+                .into(),
+                SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call.clone(),
+                }
+                .into(),
+                SessionEventData::ApprovalAsked {
+                    id: "approval-stable".to_owned(),
+                    tool_name: "guarded".to_owned(),
+                    call_id: Some(call.id.clone()),
+                    reason: Some("requires approval".to_owned()),
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    journal.flush("resume-approval").await.unwrap();
+
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("continued".to_owned())),
+        Ok(completed()),
+    ]]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tool = ToolSpec::new("guarded", "guarded", json!({"type":"object"}), {
+        let executions = Arc::clone(&executions);
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("recovered result") }
+        }
+    })
+    .requires_approval();
+    let mut request = LoopRequest::new(provider.clone(), Vec::new());
+    request.session_id = Some("resume-approval".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tools.push(tool);
+    let mut run = LoopEngine.start(request);
+
+    let event = run.next().await.unwrap();
+    let kind = event.kind;
+    let LoopEventKind::ToolApprovalRequested { approval_id, call } = kind else {
+        panic!("expected recovered approval, got {kind:?}");
+    };
+    assert_eq!(approval_id, "approval-stable");
+    assert_eq!(call.id, "execution-1");
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.attempts(), 0);
+
+    run.send(LoopCommand::ApproveTool {
+        call_id: call.id.clone(),
+    })
+    .await
+    .unwrap();
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text, "continued");
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.attempts(), 1);
+    assert_eq!(provider.requests()[0].step, 2);
+    assert_eq!(
+        provider.requests()[0].messages[1].tool_calls[0].id,
+        "execution-1"
+    );
+    assert_eq!(
+        provider.requests()[0].messages[2].tool_call_id.as_deref(),
+        Some("provider-call-1")
+    );
+
+    let session = journal.load("resume-approval").await.unwrap().unwrap();
+    assert_eq!(session.pending_tool_approvals().len(), 0);
+    assert_eq!(
+        session
+            .events()
+            .iter()
+            .filter(|event| matches!(event.data(), SessionEventData::ApprovalAsked { .. }))
+            .count(),
+        1,
+        "recovery must reuse the durable approval identity"
+    );
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ToolResult { result, .. }
+            if result.call_id == "execution-1"
+                && result.outcome == ToolOutcome::Success
+    )));
+    assert!(!session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ToolResult { result, .. }
+            if result.call_id == "execution-1"
+                && result.outcome == ToolOutcome::OutcomeUnknown
+    )));
+}
+
+#[tokio::test]
 async fn cancellation_closes_every_durable_pending_approval() {
     let provider = Arc::new(ScriptProvider::new([vec![
         Ok(tool_delta(0, "first", "guarded", "{}")),

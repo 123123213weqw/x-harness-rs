@@ -18,8 +18,10 @@ Host 进程退出后，已经成功 Flush 的 Session、模型历史和 Pending 
 4. 从 Header CWD 恢复 Workspace 归属；当前配置目录映射到 `workspace-default`，其他目录生成
    确定性的 recovered Workspace。
 5. 把所有强类型事件确定性转换为 Web Event；Durable Turn 的一基坐标转换成 Web 的零基坐标。
-6. 对每个 Pending `next-turn` 输入，先创建独立 Agent Event Receiver 和 Prepared Turn。
-7. 所有 Receiver 就绪后才调用 `DurableAgentHandle::wake()`；Activation 本身禁止自动执行旧输入。
+6. 对每个 Pending `next-turn` 输入，先创建独立 Agent Event Receiver 和 Prepared Turn。若日志
+   存在未决 `approval/asked`，同时以稳定 Approval ID 创建 Recovery Receiver。
+7. 所有 Receiver 就绪后才调用 `recover_open_turn()` 和 `wake()`；Activation 本身禁止自动执行
+   旧输入或旧审批。
 8. Runtime 返回的 Pending 数必须与 Host Projection 相同，否则启动 fail closed。
 9. 最后创建进程内 Control Channel 和 Web Driver。Host 开始监听后，客户端可从
    `session.list/history` 获取恢复基线。
@@ -32,9 +34,12 @@ Host 进程退出后，已经成功 Flush 的 Session、模型历史和 Pending 
   整体恢复失败，Host 不监听端口。
 - 历史 Model Route 当前不可用：Session 和 Queue 仍显示，记录 `HostRestoreIssue`，但不启动 Driver。
 - 仅有 `next-step`、没有 `next-turn`：保留等待，不凭空制造 Turn；下一次 Followup 原子领取它。
-- Tool Call 已记录但无 Result：下一次 Core Journal 初始化追加 `outcome_unknown`，禁止自动重放工具。
-- 开放 Turn/Step：下一次 Core Journal 初始化闭合为 `Interrupted`；当前阶段不会恢复中断点内的
-  Provider 流或 Pending Approval。
+- Tool Call 已记录但无 Result：下一次 Core Journal 初始化追加 `outcome_unknown`，禁止自动重放
+  工具；但未决 Approval 证明工具尚未获准，必须走下一条交互恢复规则。
+- `approval/asked` 已 Flush、`approval/decided` 缺失：保持原开放 Turn/Step，重新投影一个可回答的
+  `approval/requested` Server RPC。Allowed-once 后首次执行，Rejected 后写 Tool Error；不新增
+  User Message 或 Turn。
+- 其他开放 Turn/Step：下一次 Core Journal 初始化闭合为 `Interrupted`；Provider 流不恢复。
 
 ## 数据保真
 
@@ -54,9 +59,9 @@ Inbox，再改变 Web Projection。
 
 ## 当前不承诺
 
-- Workspace 用户标题、排序、归档，Settings、Credential Override、Attachment Blob 与 Pending
-  Approval 还没有独立持久日志。Agent/Permission Preset、Goal 和展开的 Sandbox/Approval Policy
-  已进入 Session Log。
+- Workspace 用户标题、排序、归档，Settings、Credential Override 与 Attachment Blob 还没有独立
+  持久日志。Pending Approval 已由 Session Log 恢复；Agent/Permission Preset、Goal 和展开的
+  Sandbox/Approval Policy 已进入 Session Log。
 - Prompt RPC Receipt 与 Permission Command Receipt 已可恢复；Workspace、Settings、Queue
   Action 等其他变更 RPC 仍没有通用持久 Receipt/Consumed Store。Session Title 与 Agent Preset
   选择的最终状态可恢复，但相同 RPC ID 重试仍未进入通用 Exactly-once Receipt Store。
@@ -72,9 +77,12 @@ Inbox，再改变 Web Projection。
 - Worker 对已存在 Pending Input 保持休眠，订阅后显式 Wake 才执行。
 - Runtime 恢复 Pending Input 后只出现一次 Inbox Insert 和一次 User Message。
 - 同 RPC ID + Prompt Payload 的并发/重启重试只出现一次 Inbox Insert；Payload 不同则冲突。
-- 七点日志前缀与真实子进程 SIGKILL 矩阵覆盖 Admission/Claim/Request/Tool Call/Tool Result/
-  Step End/Turn End 的 Interrupted、OutcomeUnknown、权威结果保留和同目录重启。
+- 七点通用日志前缀覆盖 Admission/Claim/Request/Tool Call/Tool Result/Step End/Turn End；真实
+  子进程 SIGKILL 矩阵另覆盖 Approval Asked，共八点，验证 Interrupted、OutcomeUnknown、未批准
+  工具不执行、权威结果保留和同目录重启。
 - Host 单元测试恢复 History、模型路由、Workspace、Web Event 与 Pending Turn。
+- Host 重启测试恢复同一 Approval/Execution/Provider Call ID；响应前执行计数和 Provider Attempt
+  均为零，Allowed-once 后恰好执行一次并从下一 Step 继续。
 - Session 创建与 `/permission` 切换在返回前 Flush 强类型事件；Full access 重启后仍为
   `danger-full-access + never`，Command Run/Done 顺序不变。
 - `session.rename` 和 `agentPreset.select` 在返回前 Flush，重启后保留 Title/Preset；显式用户标题

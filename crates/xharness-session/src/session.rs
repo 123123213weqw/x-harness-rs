@@ -263,28 +263,82 @@ impl Session {
 pub fn derive_messages(events: &[LoggedEvent]) -> Vec<Message> {
     let mut provider_call_ids = HashMap::<String, String>::new();
     let mut messages = Vec::new();
+    let mut call_order = Vec::<String>::new();
+    let mut tool_results = HashMap::<String, String>::new();
+
+    fn flush_tool_results(
+        messages: &mut Vec<Message>,
+        call_order: &mut Vec<String>,
+        tool_results: &mut HashMap<String, String>,
+        provider_call_ids: &HashMap<String, String>,
+    ) {
+        for call_id in call_order.drain(..) {
+            let Some(content) = tool_results.remove(&call_id) else {
+                continue;
+            };
+            messages.push(Message::tool(
+                provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
+                content,
+            ));
+        }
+        // A valid log associates results with the current assistant batch.
+        // Preserve a deterministic fallback for legacy snapshots whose audit
+        // events predate that lifecycle invariant.
+        let mut leftovers = tool_results.drain().collect::<Vec<_>>();
+        leftovers.sort_by(|left, right| left.0.cmp(&right.0));
+        for (call_id, content) in leftovers {
+            messages.push(Message::tool(
+                provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
+                content,
+            ));
+        }
+    }
+
     for logged in events {
         match logged.data() {
-            EventData::UserMessage { message } => messages.push(message.clone()),
+            EventData::UserMessage { message } => {
+                flush_tool_results(
+                    &mut messages,
+                    &mut call_order,
+                    &mut tool_results,
+                    &provider_call_ids,
+                );
+                messages.push(message.clone());
+            }
             EventData::AssistantMessage { message, .. } => {
+                flush_tool_results(
+                    &mut messages,
+                    &mut call_order,
+                    &mut tool_results,
+                    &provider_call_ids,
+                );
                 for call in &message.tool_calls {
                     provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
                 }
+                call_order.extend(message.tool_calls.iter().map(|call| call.id.clone()));
                 messages.push(message.clone());
             }
             EventData::ToolCall { call, .. } => {
                 provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
             }
-            EventData::ToolResult { result, .. } => messages.push(Message::tool(
-                provider_call_ids
-                    .get(&result.call_id)
-                    .cloned()
-                    .unwrap_or_else(|| result.call_id.clone()),
-                result.content.clone(),
-            )),
+            EventData::ToolResult { result, .. } => {
+                tool_results.insert(result.call_id.clone(), result.content.clone());
+            }
+            EventData::StepEnd { .. } | EventData::TurnEnd { .. } => flush_tool_results(
+                &mut messages,
+                &mut call_order,
+                &mut tool_results,
+                &provider_call_ids,
+            ),
             _ => {}
         }
     }
+    flush_tool_results(
+        &mut messages,
+        &mut call_order,
+        &mut tool_results,
+        &provider_call_ids,
+    );
     messages
 }
 

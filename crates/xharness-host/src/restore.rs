@@ -38,6 +38,7 @@ pub struct HostRestoreReport {
     pub discovered_sessions: usize,
     pub restored_sessions: usize,
     pub resumed_pending_turns: usize,
+    pub resumed_pending_approvals: usize,
     pub waiting_next_step_inputs: usize,
     pub issues: Vec<HostRestoreIssue>,
 }
@@ -103,6 +104,7 @@ impl BasicHost {
                 .collect::<VecDeque<_>>();
             let admissions = restored_admissions(&session);
             let projected_queue_len = queue.len();
+            let pending_approval_count = session.pending_tool_approvals().len();
             let events = project_session_events(&session, &route);
             let messages = session.derive_messages();
             let updated_at = session
@@ -160,7 +162,7 @@ impl BasicHost {
             }
             report.restored_sessions += 1;
             report.waiting_next_step_inputs += inbox.next_step().len();
-            if projected_queue_len > 0 {
+            if projected_queue_len > 0 || pending_approval_count > 0 {
                 let prompt = self
                     .state
                     .read()
@@ -177,6 +179,7 @@ impl BasicHost {
                     permission,
                     prompt,
                     projected_queue_len,
+                    pending_approval_count,
                 ));
             }
         }
@@ -184,7 +187,9 @@ impl BasicHost {
         // The runtime subscribes and prepares every recovered input before it
         // wakes the durable Agent. Only after that succeeds do we publish the
         // Host-owned driver/control projection.
-        for (session_id, cwd, route, permission, prompt, projected_count) in resumable {
+        for (session_id, cwd, route, permission, prompt, projected_count, projected_approvals) in
+            resumable
+        {
             match self
                 .agent_runtime
                 .resume_session(AgentSessionRequest {
@@ -205,6 +210,16 @@ impl BasicHost {
                         });
                     }
                     report.resumed_pending_turns += runtime_report.pending_turns;
+                    if runtime_report.recovered_approval_work_id.is_some() {
+                        report.resumed_pending_approvals += projected_approvals;
+                    } else if projected_approvals > 0 {
+                        report.issues.push(HostRestoreIssue {
+                            session_id: session_id.clone(),
+                            message: "runtime did not attach the durable pending approval"
+                                .to_owned(),
+                        });
+                        continue;
+                    }
                     let (control_tx, control_rx) = mpsc::channel::<DriverCommand>(64);
                     {
                         let mut state = self.state.write().await;
@@ -216,7 +231,30 @@ impl BasicHost {
                         record.control = Some(control_tx);
                     }
                     let host = self.as_ref().clone();
-                    tokio::spawn(async move { host.drive_session(session_id, control_rx).await });
+                    if let Some(work_id) = runtime_report.recovered_approval_work_id {
+                        let recovered = self
+                            .agent_runtime
+                            .take_resumed_turn(&session_id, &work_id)
+                            .await
+                            .map_err(|error| HostRestoreError::InvalidInbox {
+                                session_id: session_id.clone(),
+                                message: error.to_string(),
+                            })?
+                            .ok_or_else(|| HostRestoreError::InvalidInbox {
+                                session_id: session_id.clone(),
+                                message: format!(
+                                    "runtime lost recovered approval work {work_id:?}"
+                                ),
+                            })?;
+                        tokio::spawn(async move {
+                            host.drive_recovered_turn(session_id, recovered, control_rx)
+                                .await
+                        });
+                    } else {
+                        tokio::spawn(
+                            async move { host.drive_session(session_id, control_rx).await },
+                        );
+                    }
                 }
                 Err(error) => report.issues.push(HostRestoreIssue {
                     session_id,
@@ -701,23 +739,27 @@ mod tests {
     };
 
     use async_trait::async_trait;
-    use futures::stream;
+    use futures::{stream, StreamExt};
     use tokio::sync::Notify;
     use tokio_util::sync::CancellationToken;
     use xharness_agent::{DurableInbox, InboxMessage, InboxTarget, MemoryLeaseManager};
-    use xharness_api::{ApiBackend, RpcId, RpcMethod, RpcResult};
+    use xharness_api::{
+        ApiBackend, ClientResponse, ClientResponseKind, RpcId, RpcMethod, RpcResult,
+    };
     use xharness_core::{
         FinishReason, IdentityContextPolicy, ModelProvider, ProviderError, ProviderEvent,
-        ProviderRequest, ProviderStream,
+        ProviderRequest, ProviderStream, ToolResult, ToolSpec,
     };
     use xharness_session::{
         ApprovalOutcome, EventData, LlmFailure, LlmRetryMode, MemorySessionStore, Message,
-        RequestHeader, Revision, SessionEvent, SessionHeader, Store, ToolCall, ToolResultData,
-        TurnEndReason,
+        RequestHeader, Revision, SessionEvent, SessionHeader, Store, ToolCall, ToolOutcome,
+        ToolResultData, TurnEndReason,
     };
 
     use super::*;
-    use crate::{DurableLoopAgentRuntime, HostConfig, NoTools};
+    use crate::{
+        DurableLoopAgentRuntime, HostConfig, NoTools, PermissionPreset, SessionToolFactory,
+    };
 
     struct GatedProvider {
         calls: AtomicUsize,
@@ -751,6 +793,63 @@ mod tests {
                     provider_items: Vec::new(),
                 }),
             ])))
+        }
+    }
+
+    struct ApprovalRecoveryProvider {
+        requests: Arc<Mutex<Vec<ProviderRequest>>>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for ApprovalRecoveryProvider {
+        fn provider_name(&self) -> &str {
+            "test"
+        }
+
+        fn model_name(&self) -> Option<&str> {
+            Some("test-model")
+        }
+
+        async fn stream(
+            &self,
+            request: ProviderRequest,
+            _cancellation: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            self.requests.lock().unwrap().push(request);
+            Ok(Box::pin(stream::iter([
+                Ok(ProviderEvent::TextDelta("recovered".to_owned())),
+                Ok(ProviderEvent::Completed {
+                    finish_reason: Some(FinishReason::Stop),
+                    usage: None,
+                    provider_items: Vec::new(),
+                }),
+            ])))
+        }
+    }
+
+    struct ApprovalRecoveryTools {
+        executions: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl SessionToolFactory for ApprovalRecoveryTools {
+        async fn tools(
+            &self,
+            _session_id: &str,
+            _cwd: &str,
+            _permission: PermissionPreset,
+        ) -> Result<Vec<ToolSpec>, String> {
+            let executions = Arc::clone(&self.executions);
+            Ok(vec![ToolSpec::new(
+                "guarded",
+                "approval recovery fixture",
+                serde_json::json!({"type":"object"}),
+                move |_, _| {
+                    executions.fetch_add(1, Ordering::SeqCst);
+                    async { ToolResult::success("recovered tool result") }
+                },
+            )
+            .requires_approval()])
         }
     }
 
@@ -957,6 +1056,163 @@ mod tests {
         assert!(controls
             .iter()
             .all(|event| event.get("surfaceOp").is_none()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn restore_reattaches_pending_approval_and_executes_only_after_web_response() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut header = SessionHeader::new("approval-restart");
+        header.cwd = Some(cwd.to_string_lossy().into_owned());
+        store.create(header).await.unwrap();
+        let call = ToolCall {
+            id: "execution-restart".to_owned(),
+            provider_call_id: Some("provider-restart".to_owned()),
+            index: 0,
+            name: "guarded".to_owned(),
+            arguments_json: "{}".to_owned(),
+        };
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls.push(call.clone());
+        store
+            .append(
+                "approval-restart",
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("run guarded tool").with_id("original-prompt"),
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::RequestHeader {
+                        header: RequestHeader::new("test", "test-model"),
+                    }
+                    .into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call: call.clone(),
+                    }
+                    .into(),
+                    EventData::ApprovalAsked {
+                        id: "approval-restart-stable".to_owned(),
+                        tool_name: "guarded".to_owned(),
+                        call_id: Some(call.id.clone()),
+                        reason: Some("requires explicit approval".to_owned()),
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        store.flush("approval-restart").await.unwrap();
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let provider: Arc<dyn ModelProvider> = Arc::new(ApprovalRecoveryProvider {
+            requests: Arc::clone(&requests),
+        });
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider),
+            Arc::new(ApprovalRecoveryTools {
+                executions: Arc::clone(&executions),
+            }),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let host = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        let mut mux = host.mux_events();
+        let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
+        assert_eq!(report.resumed_pending_approvals, 1);
+        assert_eq!(report.resumed_pending_turns, 0);
+        assert!(report.issues.is_empty());
+
+        let approval = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let frame = mux.next().await.expect("mux remained open");
+                if frame.payload["type"] == "approval/requested" {
+                    break frame;
+                }
+            }
+        })
+        .await
+        .expect("recovered approval was not projected");
+        assert_eq!(approval.payload["approvalId"], "approval-restart-stable");
+        assert_eq!(approval.payload["callId"], "execution-restart");
+        assert_eq!(executions.load(Ordering::SeqCst), 0);
+        assert!(requests.lock().unwrap().is_empty());
+
+        let receipt = host
+            .respond(ClientResponse {
+                kind: ClientResponseKind::ClientResponse,
+                rpc_id: approval.rpc_id,
+                result: RpcResult::success(serde_json::json!({
+                    "sessionId": "approval-restart",
+                    "approvalId": "approval-restart-stable",
+                    "outcome": "allowed-once",
+                })),
+            })
+            .await;
+        assert_eq!(receipt, xharness_api::RpcReceipt::Accepted);
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let session = store.load("approval-restart").await.unwrap().unwrap();
+                if session.events().iter().any(|event| {
+                    matches!(
+                        event.data(),
+                        EventData::TurnEnd {
+                            turn: 1,
+                            reason: TurnEndReason::Completed
+                        }
+                    )
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("recovered turn did not finish");
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        {
+            let requests = requests.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].step, 2);
+            assert_eq!(
+                requests[0].messages.last().unwrap().tool_call_id.as_deref(),
+                Some("provider-restart")
+            );
+        }
+
+        let session = store.load("approval-restart").await.unwrap().unwrap();
+        assert_eq!(session.pending_tool_approvals().len(), 0);
+        assert_eq!(
+            session
+                .events()
+                .iter()
+                .filter(|event| matches!(event.data(), EventData::ApprovalAsked { .. }))
+                .count(),
+            1
+        );
+        assert!(session.events().iter().any(|event| matches!(
+            event.data(),
+            EventData::ToolResult { result, .. }
+                if result.call_id == "execution-restart"
+                    && result.outcome == ToolOutcome::Success
+        )));
     }
 
     #[tokio::test]

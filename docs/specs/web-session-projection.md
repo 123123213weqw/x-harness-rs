@@ -43,8 +43,9 @@ History。兼容 `LoopAgentRuntime` 没有 Session 真源，可以继续使用�
 - Session Validator 会检查审批成对关系、Tool Call 引用、Retry 路由与 Request Header 一致、
   Normal/Always Policy 字段、Retry ID 所有权以及 Started 一一对应。
 - 当前 Core 只生产 `normal + delayMs=0` 的网络重试；类型和投影已能表达 `always`，但带退避的
-  Provider Policy Registry 尚未实现。崩溃后存在 `approval/asked` 而没有 Decision 时会保留为
-  审计事实并 fail closed，尚不能恢复成可继续点击的 Pending Approval；该能力归 `A-09`。
+  Provider Policy Registry 尚未实现。崩溃后存在 `approval/asked` 而没有 Decision 时，Host 会
+  在订阅恢复 Turn 后生成新的相关 Server RPC；History 仍保留同一 Asked，回答写入唯一 Decided，
+  因而刷新或重启后可以继续点击且不会复制审计事件。
 
 Session 创建还会在返回前 Flush `agent-preset/selected`、`permission/preset`、`sandbox/mode` 与
 `approval/policy`。`/permission` 命令按 `command/run → policy triplet → command/done` 持久化；
@@ -81,6 +82,8 @@ Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不�
 - History 查询可以吸收尚未由 Driver 推送的日志尾部，但不能制造第二条 User/Assistant Message。
 - Ephemeral Runtime 的既有 Loop 投影测试继续通过。
 - Approval Asked 必须先于 UI Request 和 Tool Side Effect 持久化；Decided 必须先于 Tool Start。
+- 重启恢复的 Approval 必须复用原 Approval/Execution ID，回答前 Provider Attempt 和工具执行均为
+  零；允许后恰好执行一次，拒绝后永不执行。
 - 每个 Retry 必须按 `retry → retry-started → 下一 Provider Attempt` 排序，运行与重启投影一致。
 - Idle Plan 切换必须在 RPC 成功前 Flush；重启后 History 与 Projection 的 `active` 必须相同，
   不支持的运行中或多模态输入必须失败且不得改变当前状态。
