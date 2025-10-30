@@ -57,12 +57,18 @@ Provider Error。Usage 桶必须互不重叠：未缓存输入、可见输出、
 - 协议截断/Incomplete 必须转成强类型 Finish Reason，不能伪装成功。
 - 流结束但没有合法生命周期 Completion 属于错误。
 
+## Tool Call 身份重放
+
+Core 持久化的 `ToolCall.id` 是全 Session 唯一 Execution ID，`provider_call_id` 是线协议原生
+身份。Chat Assistant `tool_calls[].id`、Chat Tool `tool_call_id`、Responses
+`function_call.call_id` 和 `function_call_output.call_id` 必须成对使用 Provider ID；Approval、
+Journal 与 Web Audit 继续使用 Execution ID。Responses 存在 Opaque Provider Item 时仍原样重放，
+Tool Result 从对应持久 Tool Call 恢复 Provider ID。旧日志没有该字段时回退到 Execution ID。
+
 ## 当前限制
 
 - 每个 Adapter 实例只绑定一个 Provider/Model。
 - Provider 路由和按用途选模型属于后续 LLM Registry。
-- 在 namespaced Journal ID 能无歧义重放前，Responses 的 Execution ID 与 Provider 原生
-  Call ID 仍需显式稳定映射。
 - Tool Schema/Prompt 缓存依赖具体 Provider，本层不控制。
 - 尚无统一模型 Capability（Context Window、最大输出、Tokenizer、工具/多模态支持）注册表。
 

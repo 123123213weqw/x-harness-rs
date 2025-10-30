@@ -182,6 +182,9 @@ fn new_run_id() -> String {
 fn normalize_tool_call_ids(calls: &mut [ToolCall], run_id: &str, step: usize, namespace_all: bool) {
     let mut used = HashSet::with_capacity(calls.len());
     for (ordinal, call) in calls.iter_mut().enumerate() {
+        if call.provider_call_id.is_none() && !call.id.is_empty() {
+            call.provider_call_id = Some(call.id.clone());
+        }
         if !namespace_all && !call.id.is_empty() && used.insert(call.id.clone()) {
             continue;
         }
@@ -1367,7 +1370,8 @@ impl Runner {
                                     &interrupted,
                                     self.request.config.tool_result_limit_bytes,
                                 );
-                                self.messages.push(AgentMessage::tool(call.id, content));
+                                self.messages
+                                    .push(AgentMessage::tool(call.provider_id(), content));
                             }
                             self.snapshot("interrupted_tool_batch_closed", true).await?;
                         }
@@ -1728,8 +1732,10 @@ impl Runner {
         let completed = completed.into_iter().flatten().collect::<Vec<_>>();
         self.journal_tool_results(&completed).await?;
         for execution in completed {
-            self.messages
-                .push(AgentMessage::tool(execution.call.id, execution.model_text));
+            self.messages.push(AgentMessage::tool(
+                execution.call.provider_id(),
+                execution.model_text,
+            ));
         }
         Ok(())
     }

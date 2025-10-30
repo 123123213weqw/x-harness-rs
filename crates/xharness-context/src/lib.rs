@@ -247,6 +247,7 @@ mod tests {
             reasoning: "reason".to_owned(),
             tool_calls: vec![ToolCall {
                 id: "call-1".to_owned(),
+                provider_call_id: None,
                 index: 0,
                 name: "read".to_owned(),
                 arguments_json: r#"{"path":"a"}"#.to_owned(),

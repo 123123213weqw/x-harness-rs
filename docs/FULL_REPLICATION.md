@@ -122,7 +122,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 ### Batch B：工具身份与终止语义
 
 - [ ] `B-01` Core 全面迁移到 `xharness-tools`，删除重复调度器。
-- [ ] `B-02` 内部 `execution_id` 与 `provider_call_id` 分离并稳定持久化。
+- [x] `B-02` 内部 `execution_id` 与 `provider_call_id` 已分离并稳定持久化；两种 OpenAI
+  协议重放使用 Provider ID，Journal/Approval/Result 使用 Execution ID。
 - [ ] `B-03` Approval、Journal、Middleware、Event、Result 全链使用同一 Execution ID。
 - [ ] `B-04` Provider/Tool/Process 放入结构化 Task Scope。
 - [ ] `B-05` Cancel 先 Signal，再 Join/强制清理，最后发布终态。

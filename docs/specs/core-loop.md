@@ -51,6 +51,8 @@
 - 仅当本次尝试尚未发送任何模型 delta 时允许重试；输出一旦可见，禁止通过重试复制。
 - Usage 必须按完成的 Step 保存，并使用饱和运算累计。
 - 即使 Provider 发出空 ID、重复 ID 或跨 Step 复用 ID，内部 Tool Call ID 也必须唯一。
+- Tool Call 同时保留全局唯一的内部 Execution ID 和 Provider 原生 Call ID；调度、审批、日志与
+  结果关联使用前者，下一轮 Provider 请求使用后者。
 - Context/配置类 4xx 不得重试；请求前预算失败时 Provider Attempt 必须为零。
 
 ## 工具批次语义

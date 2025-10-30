@@ -118,6 +118,11 @@ Commit、Issue、PR 应引用这些 ID。
   Sandbox、Search Provider 与现存 Terminal 状态裁剪工具。受限进程不可用时移除
   `bash/glob/grep/terminal_open`，未配置 Search 时移除 `web_search`；Full access 明确报告
   `none-full-access`，不会为探测偷偷创建 Sandbox。确定性测试覆盖不可用能力的模型可见子集。
+- [x] `DONE-40` Tool 双重身份与 Provider Replay：每个调用分别持久化全 Session 唯一的
+  Harness `execution_id` 与 Provider 原生 `provider_call_id`；Journal、Approval、Tool Result 和
+  Web 审计继续使用前者，Chat/Responses 的 Assistant Tool Call 与 Tool Output 统一使用后者。
+  旧日志缺少原生 ID 时确定性回退到 Execution ID，Responses Opaque Item 与
+  `function_call_output.call_id` 不再错配。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -150,9 +155,10 @@ Commit、Issue、PR 应引用这些 ID。
   淘汰兼容 `xharness-core::ToolSpec`。同一个 Execution ID 必须贯穿 Journal、Approval、
   Middleware、Event 和 Result。
 
-- [ ] `P0-04` **Provider Call ID 映射。** 分别保存内部 Execution ID 和 Provider Native
-  Call ID。修复 Responses Opaque Item Replay，确保 `function_call_output.call_id` 匹配
-  Provider Item，同时审计事件保留稳定 Namespaced ID。
+- [x] `P0-04` **Provider Call ID 映射。** `ToolCall` 已分别保存内部 Execution ID 和
+  Provider Native Call ID。Responses Opaque Item Replay、无 Opaque Responses 和 Chat 均保证
+  Tool Output ID 与 Assistant Call 匹配；审计事件继续使用稳定 Namespaced ID。测试覆盖跨 Step
+  复用 Provider ID、旧日志回退、Session 重放和两种真实请求体编码。
 
 - [ ] `P0-05` **有界事件投递。** 用 Append-only、按 Byte 计量的 Journal 和非阻塞
   Subscription 替换无界 Loop Event Channel，并提供明确 Lag/Resume Cursor。忽略事件的
