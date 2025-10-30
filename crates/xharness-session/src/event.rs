@@ -194,6 +194,25 @@ pub enum CommandResultKind {
     Error,
 }
 
+/// Exactly-once receipt for a session-scoped product mutation.
+///
+/// This is an internal harness audit fact rather than a model message. The
+/// state-changing session event and this receipt are appended in the same CAS
+/// revision, so a lost HTTP response can be replayed without repeating the
+/// mutation or advancing a second revision.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionMutationReceipt {
+    pub rpc_id: String,
+    pub method: String,
+    pub fingerprint: String,
+    pub response: Value,
+    /// Optional response field filled from the immediately preceding durable
+    /// state event's sequence when the receipt is projected by the Host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_event_seq_field: Option<String>,
+}
+
 /// Exact auxiliary route retained when an automatic title came from a model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionTitleModelProvenance {
@@ -384,6 +403,19 @@ pub enum EventData {
         #[serde(rename = "agentPreset")]
         agent_preset: String,
     },
+    /// Latest-wins model route selected for subsequent turns in this session.
+    /// This is a control-plane fact and never enters model-visible history.
+    #[serde(rename = "session/model-selected")]
+    SessionModelSelected {
+        provider: String,
+        model: String,
+        #[serde(
+            rename = "reasoningEffort",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        reasoning_effort: Option<String>,
+    },
     /// A normalized splice over one durable pending-input list. Replaying all
     /// such events after the seed reconstructs the exact live inbox.
     #[serde(rename = "agent/inbox/spliced")]
@@ -472,6 +504,11 @@ pub enum EventData {
         #[serde(flatten)]
         change: GoalChange,
     },
+    /// Internal, log-only receipt paired atomically with a session-scoped
+    /// state mutation. Web history exposes only a redacted hidden placeholder,
+    /// never the fingerprint or response body.
+    #[serde(rename = "xharness/mutation-committed")]
+    SessionMutationCommitted { receipt: SessionMutationReceipt },
     /// Last-wins log-only collaboration mode selection.
     #[serde(rename = "plan/mode")]
     PlanMode { active: bool },

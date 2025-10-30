@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 use xharness_control::{ControlRevision, MutationReceipt};
 use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_prompt::{PromptAssembler, PromptAssembly, PromptSection};
+use xharness_session::SessionMutationReceipt;
 
 use crate::HostConfig;
 
@@ -190,6 +191,25 @@ pub(crate) struct QueuedPrompt {
     pub fingerprint: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ProjectedSessionMutationReceipt {
+    pub receipt: SessionMutationReceipt,
+    pub state_event_seq: u64,
+}
+
+impl ProjectedSessionMutationReceipt {
+    pub(crate) fn response(&self) -> Value {
+        let mut response = self.receipt.response.clone();
+        if let Some(field) = &self.receipt.response_event_seq_field {
+            response
+                .as_object_mut()
+                .expect("validated session mutation response is an object")
+                .insert(field.clone(), json!(self.state_event_seq));
+        }
+        response
+    }
+}
+
 pub(crate) struct DriverCommand {
     pub command: LoopCommand,
     pub input_metadata: Option<Value>,
@@ -231,6 +251,8 @@ pub struct SessionRecord {
     pub(crate) queue: VecDeque<QueuedPrompt>,
     #[serde(skip)]
     pub(crate) admissions: BTreeMap<String, QueuedPrompt>,
+    #[serde(skip)]
+    pub(crate) mutation_receipts: BTreeMap<String, ProjectedSessionMutationReceipt>,
     #[serde(skip)]
     pub(crate) authoritative_seq: Option<u64>,
     #[serde(skip)]

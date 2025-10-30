@@ -6,8 +6,30 @@ use xharness_control::{
     mutation_fingerprint, ControlError, ControlEvent, ControlProjection, MutationReceipt,
     SettingsSnapshot, WorkspaceSnapshot,
 };
+use xharness_session::{EventData as SessionEventData, SessionEvent, SessionMutationReceipt};
 
 use crate::{state::WorkspaceRecord, BasicHost};
+
+pub(crate) struct SessionMutationResponse {
+    pub(crate) value: Value,
+    pub(crate) event_seq_field: Option<String>,
+}
+
+impl SessionMutationResponse {
+    pub(crate) fn fixed(value: Value) -> Self {
+        Self {
+            value,
+            event_seq_field: None,
+        }
+    }
+
+    pub(crate) fn with_event_seq(value: Value, field: impl Into<String>) -> Self {
+        Self {
+            value,
+            event_seq_field: Some(field.into()),
+        }
+    }
+}
 
 impl BasicHost {
     /// Restore Host-global state before Session replay. Session-derived
@@ -202,6 +224,91 @@ impl BasicHost {
             }
             Err(error) => Err(control_error(error)),
         }
+    }
+
+    /// Replay one session-scoped mutation after a lost HTTP response. The
+    /// receipt lives in the same Session revision as its state event rather
+    /// than in the Host-global control log.
+    pub(crate) async fn replay_session_mutation_receipt(
+        &self,
+        session_id: &str,
+        rpc_id: &RpcId,
+        method: RpcMethod,
+        payload: &Value,
+    ) -> Result<Option<Value>, RpcError> {
+        if self.agent_runtime.has_authoritative_sessions() {
+            self.sync_authoritative_session(session_id).await?;
+        }
+        let fingerprint = mutation_fingerprint(method.as_str(), payload);
+        let state = self.state.read().await;
+        let session = state.sessions.get(session_id).ok_or_else(|| {
+            crate::driver::rpc_error(
+                RpcErrorCode::SessionNotFound,
+                format!("session {session_id:?} was not found"),
+                serde_json::json!({"sessionId": session_id}),
+            )
+        })?;
+        let Some(receipt) = session.mutation_receipts.get(rpc_id.as_str()) else {
+            return Ok(None);
+        };
+        if receipt.receipt.method == method.as_str() && receipt.receipt.fingerprint == fingerprint {
+            return Ok(Some(receipt.response()));
+        }
+        Err(control_conflict(
+            rpc_id,
+            "RPC id already committed in this session with another method or payload",
+        ))
+    }
+
+    /// Atomically append session state events and their exactly-once receipt,
+    /// flush the authoritative Session, then refresh the Host projection.
+    pub(crate) async fn commit_session_mutation(
+        &self,
+        session_id: &str,
+        rpc_id: &RpcId,
+        method: RpcMethod,
+        payload: &Value,
+        mut events: Vec<SessionEvent>,
+        response: SessionMutationResponse,
+    ) -> Result<Value, RpcError> {
+        if events.is_empty() {
+            return Err(RpcError::internal(
+                "session mutation must contain at least one state event",
+            ));
+        }
+        let receipt = SessionMutationReceipt {
+            rpc_id: rpc_id.as_str().to_owned(),
+            method: method.as_str().to_owned(),
+            fingerprint: mutation_fingerprint(method.as_str(), payload),
+            response: response.value.clone(),
+            response_event_seq_field: response.event_seq_field,
+        };
+        events.push(
+            SessionEventData::SessionMutationCommitted {
+                receipt: receipt.clone(),
+            }
+            .into(),
+        );
+        self.commit_session_events(session_id, events).await?;
+        let projected = {
+            let mut state = self.state.write().await;
+            let session = state.sessions.get_mut(session_id).ok_or_else(|| {
+                crate::driver::rpc_error(
+                    RpcErrorCode::SessionNotFound,
+                    format!("session {session_id:?} was not found"),
+                    serde_json::json!({"sessionId": session_id}),
+                )
+            })?;
+            let projected = crate::state::ProjectedSessionMutationReceipt {
+                receipt: receipt.clone(),
+                state_event_seq: session.next_event_seq().saturating_sub(2),
+            };
+            session
+                .mutation_receipts
+                .insert(receipt.rpc_id.clone(), projected.clone());
+            projected
+        };
+        Ok(projected.response())
     }
 }
 

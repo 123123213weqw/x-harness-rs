@@ -985,10 +985,12 @@ impl Runner {
                             !matches!(
                                 event.data(),
                                 SessionEventData::AgentInboxSpliced { .. }
+                                    | SessionEventData::SessionModelSelected { .. }
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }
                                     | SessionEventData::SessionTitle { .. }
                                     | SessionEventData::GoalChange { .. }
+                                    | SessionEventData::SessionMutationCommitted { .. }
                                     | SessionEventData::PlanMode { .. }
                             )
                         })

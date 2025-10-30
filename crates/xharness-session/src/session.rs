@@ -408,6 +408,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut retry_owners = HashMap::<String, (u32, u32, String, String)>::new();
     let mut scheduled_retries = HashMap::<(String, u32), (u32, u32)>::new();
     let mut started_retries = std::collections::HashSet::<(String, u32)>::new();
+    let mut mutation_receipts = std::collections::HashSet::<String>::new();
+    let mut mutation_revisions = std::collections::HashSet::<u64>::new();
     let mut open_turn = None::<u32>;
     let mut last_turn = 0u32;
     let mut open_step = None::<StepState>;
@@ -458,6 +460,23 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     return Err(lifecycle_error(
                         logged.seq,
                         "agent-preset/selected value must be non-empty",
+                    ));
+                }
+            }
+            EventData::SessionModelSelected {
+                provider,
+                model,
+                reasoning_effort,
+            } => {
+                if provider.trim().is_empty()
+                    || model.trim().is_empty()
+                    || reasoning_effort
+                        .as_ref()
+                        .is_some_and(|value| value.trim().is_empty())
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "session/model-selected provider, model and optional reasoning effort must be non-empty",
                     ));
                 }
             }
@@ -925,6 +944,48 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     current_goal = None;
                 }
             },
+            EventData::SessionMutationCommitted { receipt } => {
+                let paired_with_state = position > 0
+                    && events[position - 1].revision == logged.revision
+                    && !matches!(
+                        events[position - 1].data(),
+                        EventData::SessionMutationCommitted { .. }
+                    );
+                let ends_revision = events
+                    .get(position.saturating_add(1))
+                    .is_none_or(|next| next.revision != logged.revision);
+                let fingerprint_is_valid = receipt.fingerprint.len() == 64
+                    && receipt
+                        .fingerprint
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase());
+                let response_seq_field_is_valid = receipt
+                    .response_event_seq_field
+                    .as_ref()
+                    .is_none_or(|field| {
+                        !field.trim().is_empty()
+                            && !field.contains('\0')
+                            && receipt
+                                .response
+                                .as_object()
+                                .is_some_and(|response| !response.contains_key(field))
+                    });
+                if receipt.rpc_id.trim().is_empty()
+                    || receipt.method.trim().is_empty()
+                    || !fingerprint_is_valid
+                    || !response_seq_field_is_valid
+                    || !paired_with_state
+                    || !ends_revision
+                    || contains_populated_secret(&receipt.response)
+                    || !mutation_receipts.insert(receipt.rpc_id.clone())
+                    || !mutation_revisions.insert(logged.revision.0)
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "xharness/mutation-committed must be unique, secret-free, valid and end a state-mutation revision",
+                    ));
+                }
+            }
             EventData::LlmRetry {
                 retry_id,
                 turn,
@@ -1260,6 +1321,26 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         });
     }
     Ok(())
+}
+
+fn contains_populated_secret(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(object) => object.iter().any(|(key, value)| {
+            let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+            let sensitive = normalized.contains("password")
+                || normalized.contains("authorization")
+                || normalized.contains("apikey")
+                || normalized.ends_with("token")
+                || normalized.ends_with("secret");
+            let populated = !matches!(value, serde_json::Value::Null)
+                && !matches!(value, serde_json::Value::String(text) if text.is_empty())
+                && !matches!(value, serde_json::Value::Array(items) if items.is_empty())
+                && !matches!(value, serde_json::Value::Object(items) if items.is_empty());
+            (sensitive && populated) || contains_populated_secret(value)
+        }),
+        serde_json::Value::Array(values) => values.iter().any(contains_populated_secret),
+        _ => false,
+    }
 }
 
 pub(crate) fn unix_timestamp_ms() -> u64 {

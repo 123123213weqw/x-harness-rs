@@ -16,7 +16,8 @@ Host 进程退出后，已经成功 Flush 的 Session、模型历史和 Pending 
 1. HTTP Listener 暴露前先加载并校验 Host Control Log，恢复 Workspace/Settings/Mutation Receipt。
 2. 调用 Session `Store::list_headers()`；枚举结果必须已排序、已验证。
 3. 对每个 Header 完整 `load()`，重放 `InboxProjection` 和 `derive_messages()`。
-4. 从最后一个 `request/header` 恢复 Provider/Model/Reasoning Route；没有 Header 时使用当前配置。
+4. 从最后一个 `session/model-selected` 或 `request/header`（按日志顺序 latest-wins）恢复
+   Provider/Model/Reasoning Route；两者都没有时使用当前配置。
 5. 从 Header CWD 恢复 Workspace 归属；当前配置目录映射到 `workspace-default`，其他目录生成
    确定性的 recovered Workspace。
 6. 再次应用 Control Workspace 顺序/Tombstone，避免 Session 归属覆盖用户定制。
@@ -65,8 +66,9 @@ Inbox，再改变 Web Projection。
 - Workspace 用户标题、顺序、Session 顺序、归档与 Settings 已有独立 Control Log；Credential
   Reference 与 Attachment Blob 尚未持久化。Pending Approval 已由 Session Log 恢复；Agent/
   Permission Preset、Goal 和展开的 Sandbox/Approval Policy 已进入 Session Log。
-- Prompt RPC Receipt、Permission Command Receipt，以及 Workspace/Settings 共 9 个变更 RPC 的
-  通用 Receipt 已可恢复；Session/Goal/Preset/Attachment 等其他变更 RPC 仍未统一接入。
+- Prompt RPC Receipt、Permission Command Receipt、Workspace/Settings 共 9 个变更 RPC，以及
+  Session Rename/Model Select、Preset Select 和 6 个 Goal RPC 的 Session 原子 Receipt 已可恢复；
+  Session Create/Fork、Queue/Cancel/Attachment、Preset Copy/Remove 等仍未统一接入。
 - Web History 已按权威 Session Cursor 分页查询、使用有界尾缓存并增量广播；Workspace/Settings
   等非 Session 投影仍没有统一持久查询接口。
 - Idle Plan Mode 的最终 `active` 状态已由最后一条 `plan/mode` 恢复；运行中尚未接受的 Pending
@@ -89,6 +91,9 @@ Inbox，再改变 Web Projection。
   `danger-full-access + never`，Command Run/Done 顺序不变。
 - `session.rename` 和 `agentPreset.select` 在返回前 Flush，重启后保留 Title/Preset；显式用户标题
   使用空 `messageSeqs` 与 `source={kind:"user"}`，不进入模型消息。
+- `session.selectModel` 在返回前把 Route 与 Receipt 原子 Flush；重启后即使尚未产生新的
+  `request/header` 也恢复 Provider/Model/Reasoning Effort。上述 Session/Goal/Preset RPC 的相同 ID
+  重试逐字返回原响应，不同 Payload 冲突且不追加第二个状态事件。
 - Goal Mutation 使用全快照或 Clear Tombstone；Host 重启恢复 Revision、Phase、Objective、Round
   Budget、时间和 History/Projection，不依赖旧进程的 `goals` Map。
 - `/plan` 与 `/plan off` 的成功状态在返回前 Flush；Host 重启恢复最后的 Active 状态且不重放命令。

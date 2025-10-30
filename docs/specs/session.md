@@ -24,6 +24,9 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
   `sandbox/mode`、`approval/policy`；
 - 审批和命令审计：`approval/asked`、`approval/decided`、`command/run`、`command/done`；
 - Session 元数据：`session/title`（latest-wins、log-only，不进入模型历史）；
+- Host 内部控制事实：`session/model-selected`（latest-wins 模型路由）与
+  `xharness/mutation-committed`（Exactly-once RPC Receipt）；两者不进入模型历史，也不计入冻结的
+  上游 48 Event 覆盖数；
 - 长期任务：`goal/change`（version 1 全快照或递增 Revision 的 Clear Tombstone）；
 - 交互模式：`plan/mode`（latest-wins、log-only，只保存 `active`，不进入模型历史）；
 - Provider 生命周期：`request/header`、`llm/retry`、`llm/retry-started`、`assistant/chunk`、
@@ -58,6 +61,13 @@ Edit 只能修改 Objective/Max Rounds，Pause/Resume/Complete/Block 必须满�
 Plan Mode 当前只持久化已经接受的稳定状态：不存在事件等价于 `active=false`，恢复时折叠最后一条
 `plan/mode`。运行中尚未到达 Pre-step 的 Pending 选择不是稳定状态，不能伪造成 `plan/mode`。
 
+Session 级状态变更若需要 Exactly-once 语义，必须把状态事件与
+`xharness/mutation-committed` 放在同一 CAS Revision；Receipt 必须是该 Revision 最后一条事件，
+RPC ID 和 Receipt Revision 在 Session 内唯一，Fingerprint 为 64 位小写十六进制，Response 递归
+禁止 Secret。相同 ID/Method/Fingerprint 返回已保存响应，不得再次写状态；同 ID 不同 Payload
+必须冲突。`session.rename` 的动态 Sequence 由回执引用前一状态事件补回；Web History 仅保留隐藏、
+脱敏的内部占位以维持连续 Cursor，不能输出 Fingerprint 或 Response。
+
 ## 投影与恢复
 
 `derive_messages()` 必须确定、无副作用。它忽略只用于审计的 Chunk 和边界，同时逐字节
@@ -90,8 +100,9 @@ Allowed-once 之后才能首次执行。已经 Decided Allowed 但 Result 缺失
 ## 当前限制
 
 - Durable Inbox Event、Claim Batch、本机 Lease 和 Pending Approval 恢复已由 `xharness-agent`
-  接入 Host；Workspace、Settings 和首批通用 Mutation Receipt 已由独立 `xharness-control` 持久化，
-  不污染模型 Session 词汇。其余 Host Mutation 与 Credential Reference 仍待迁移。
+  接入 Host；Workspace、Settings 和首批通用 Mutation Receipt 已由独立 `xharness-control` 持久化。
+  Rename、Model Select、Preset Select 和 Goal 使用 Session 内原子 Receipt；其余 Host Mutation 与
+  Credential Reference 仍待迁移。
 - Plan Mode 已有 Idle 状态日志，但运行中 Pending Pre-step、带 Message/Image 的 Steering、
   Plan Prompt Section 和 `exit_plan_mode` 工具尚未实现。
 - 尚无 Branch、Compaction Surface、Attachment Store 或远程 Multi-writer Fencing。
