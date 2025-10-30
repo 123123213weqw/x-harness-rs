@@ -368,11 +368,54 @@ async fn result_does_not_require_draining_more_events_than_the_legacy_buffer() {
     assert_eq!(result.status, LoopStatus::Completed);
     assert_eq!(result.final_text.len(), DELTAS);
 
-    let mut event_count = 0usize;
-    while run.next().await.is_some() {
-        event_count += 1;
-    }
-    assert_eq!(event_count, DELTAS + 1);
+    let lag = run.next().await.expect("lag marker");
+    let resume_seq = match lag.kind {
+        LoopEventKind::EventsLagged { missed, resume_seq } => {
+            assert_eq!(missed, DELTAS as u64);
+            resume_seq
+        }
+        other => panic!("expected lag marker, got {other:?}"),
+    };
+    let mut replay = run.subscribe_events_from(resume_seq);
+    assert!(matches!(
+        replay.next().await.unwrap().kind,
+        LoopEventKind::RunCompleted { .. }
+    ));
+    assert!(replay.next().await.is_none());
+    assert!(matches!(
+        run.next().await.unwrap().kind,
+        LoopEventKind::RunCompleted { .. }
+    ));
+    assert!(run.next().await.is_none());
+}
+
+#[tokio::test]
+async fn oversized_events_are_evicted_under_the_byte_budget_with_a_resume_cursor() {
+    let huge = "x".repeat(16 * 1024);
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta(huge.clone())),
+        Ok(completed()),
+    ]]));
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.config.event_buffer = 128;
+    request.config.event_buffer_bytes = 512;
+    let mut run = LoopEngine.start(request);
+
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text, huge);
+    let lag = run
+        .next()
+        .await
+        .expect("oversized events produce a lag marker");
+    assert!(matches!(
+        lag.kind,
+        LoopEventKind::EventsLagged {
+            missed: 2,
+            resume_seq: 3,
+        }
+    ));
+    assert!(run.next().await.is_none());
 }
 
 #[tokio::test]
@@ -731,6 +774,14 @@ fn loop_request_validation_rejects_invalid_config_and_tools() {
         .unwrap_err()
         .to_string()
         .contains("tool_result_limit_bytes"));
+
+    let mut request = LoopRequest::new(provider.clone(), vec![]);
+    request.config.event_buffer_bytes = 0;
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("event_buffer_bytes"));
 
     let mut request = LoopRequest::new(provider.clone(), vec![]);
     request

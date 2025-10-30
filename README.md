@@ -385,6 +385,8 @@ panic、重试边界、取消、步骤限制、UTF-8 截断、并发上限、key
 工具期间延迟 Steering、durable call-before-side-effect、outcome-unknown 恢复、JSONL
 CAS/损坏/断尾恢复、两个 OpenAI 协议的原生 HTTP 集成、真实 Host 进程重启、Full access
 Workspace 外读写/网络/进程清理，以及真实 Chromium 的权限确认和 retry #8 后完整基线恢复。
+Loop 运行事件使用按数量与 Byte 双预算的非阻塞 Journal，测试覆盖慢消费者 Lag、Resume Cursor、
+完全不消费和单个超大事件。
 浏览器黑盒测试的环境变量和运行方法见
 [`tests/web-e2e/README.md`](tests/web-e2e/README.md)。
 
