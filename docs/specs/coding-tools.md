@@ -17,7 +17,7 @@ v0 只暴露以下 14 个稳定模型工具名：
 | 工具 | 必填输入 | 并发 | 审批 | 契约 |
 |---|---|---:|---:|---|
 | `bash` | `command` | exclusive | 是 | 在平台沙箱执行一次 `/bin/bash -lc` |
-| `read` | `path` | parallel | 否 | 有界读取并记录 Observation |
+| `read` | `path` | parallel | 否 | 分页读取、版本绑定 Cursor 并记录 Observation |
 | `write` | `path`, `content` | 按 path keyed | 是 | Create/Observed-version 原子 Replace |
 | `edit` | `path`, `old`, `new` | 按 path keyed | 是 | 恰好一次 UTF-8 Literal Replace |
 | `glob` | `pattern` | parallel | 否 | 直接 Argv `rg --files -g` |
@@ -59,10 +59,10 @@ read/signal/close 按 Session 状态单独投影。一次工具失败后，模�
 
 ## 大输出与读取
 
-当前 `read` Schema 只有 `path`，底层默认最多读取 256 KiB、2,000 行、单行 16 KiB。
-这些限制用于内存安全，不是合适的模型上下文页大小。P0 必须增加显式 Byte/Line Range、下一页
-Cursor 和更小默认页；大结果使用 Spill Reference，并保留原始 Byte Count、Hash、Truncation
-与 Observation Version。
+`read` 默认页为 32 KiB/400 行，支持 `offset`、`start_line`、`limit`、`line_limit` 与
+`next_cursor`。`cursor` 不能与起点或新 Limit 混用；它固定原页限制并绑定文件 SHA-256，避免
+文件变化后错误拼页。结果保留完整 Byte Count、页起点、捕获 Byte、Hash、Truncation 与
+Observation Version。大结果 Spill Reference 仍待实现。
 
 `glob/grep/bash/terminal` 输出同样必须先经过工具级 Byte Cap，再进入全局 Context Policy。
 单个结果未超过 256 KiB 不代表多个结果可以安全并行写入下一次请求。
@@ -76,7 +76,7 @@ Cursor 和更小默认页；大结果使用 Spill Reference，并保留原始 By
 ## 当前限制
 
 - Description 仍是简洁 v0 版本；更丰富的“何时用/何时不用”和动态 Tool Subset 已计划。
-- `read` 尚无分页参数，可能一次向模型历史加入数万 Token。
+- `read` 已分页，但其他工具输出和历史 Tool Result 尚无统一 Spill/Reduce。
 - Platform Probe 失败目前不会自动缩小下一 Step 的进程工具 Projection。
 - 尚无 Background Bash Job、Patch Tool、目录修改、Image Read、Browser、MCP、LSP 或
   Subagent Tool。

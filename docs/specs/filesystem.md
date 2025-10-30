@@ -30,15 +30,17 @@ Create-if-absent 在平台支持时使用原子 No-replace Primitive。
 Read 受 Byte、Line、Long-line Policy 限制，返回 Diagnostic、Truncation、Bytes Read、
 Text 和权威 Version。“不存在”是强类型 Outcome，不是普通 I/O Error。
 
-底层默认 `max_bytes=256 KiB`、`max_lines=2,000`、`max_line_bytes=16 KiB`。这些是 Service
-的最坏情况保护，不是面向模型工具的推荐页大小。Coding Tool 必须在其上提供更小默认页、
-显式 Byte/Line Range 和继续读取 Cursor；读取多少内容与是否记录完整文件 Version 是两个
-独立概念，分页不能削弱 Observation CAS。
+底层兼容 `read()` 默认 `max_bytes=256 KiB`、`max_lines=2,000`、`max_line_bytes=16 KiB`。
+`read_page()` 接受 Byte Offset、1-based Start Line 或 Opaque Cursor。Coding Tool 默认使用
+32 KiB/400 行，允许显式 Byte/Line 起点和限制；下一页 Cursor 同时绑定完整文件 SHA-256 与
+原页限制。文件变化后 Cursor 返回 Stale，而不是把不同版本内容拼在一起。底层仍扫描并计算
+完整 Version，分页不能削弱 Observation CAS。
 
 ## 当前限制
 
 - v0 面向模型的仅是常规 UTF-8 Coding File。
-- 当前 `read` Tool 尚未把底层 Range/Limit 暴露给模型，仍固定使用上述默认上限。
+- 分页当前仍需扫描完整文件以计算权威 SHA-256；这是正确性优先的实现，超大文件的增量
+  Version/内容寻址索引属于后续性能工作。
 - 尚未暴露递归 Copy/Move/Delete、Chmod、目录创建、二进制写入和 Attachment/Blob Store。
 - 面对不协作的外部 Writer，Replace CAS 只能在发布前做最后一次 Best-effort Version
   Recheck；若外部修改发生在该瞬间之后，没有更强 OS/应用协调就无法事务化。

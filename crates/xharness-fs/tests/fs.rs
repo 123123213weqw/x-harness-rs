@@ -11,7 +11,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use xharness_fs::{FsError, FsService, Observation, ReadDiagnostic, ReadLimits, ReadOutcome};
+use xharness_fs::{
+    FsError, FsService, Observation, ReadCursor, ReadDiagnostic, ReadLimits, ReadOutcome, ReadStart,
+};
 
 static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -369,4 +371,63 @@ async fn read_limits_and_utf8_diagnostics_are_safe() {
     assert!(invalid_read
         .diagnostics
         .contains(&ReadDiagnostic::InvalidUtf8 { offset: 1 }));
+}
+
+#[tokio::test]
+async fn paged_read_cursor_is_contiguous_line_aware_and_version_bound() {
+    let workspace = TestDir::new("paged-read");
+    let service = FsService::new(workspace.path()).unwrap();
+    fs::write(
+        workspace.path().join("pages.txt"),
+        "zero\none\ntwo\nthree\n",
+    )
+    .unwrap();
+    let target = service.resolve("pages.txt").unwrap();
+    let limits = ReadLimits {
+        max_bytes: 64,
+        max_lines: 1,
+        max_line_bytes: 64,
+    };
+
+    let ReadOutcome::File(first) = service
+        .read_page("paged", &target, ReadStart::Line(2), limits)
+        .await
+        .unwrap()
+    else {
+        panic!("file unexpectedly absent");
+    };
+    assert_eq!(first.text, "one\n");
+    assert_eq!(first.page_start_offset, 5);
+    assert_eq!(first.page_start_line, 2);
+    assert_eq!(first.captured_bytes, 4);
+    assert_eq!(first.total_bytes, 19);
+    let cursor = first.next_cursor.expect("first page must continue");
+    assert_eq!(ReadCursor::parse(&cursor.encode()).unwrap(), cursor);
+
+    let ReadOutcome::File(second) = service
+        .read_page("paged", &target, ReadStart::Cursor(cursor.clone()), limits)
+        .await
+        .unwrap()
+    else {
+        panic!("file unexpectedly absent");
+    };
+    assert_eq!(second.text, "two\n");
+    assert_eq!(second.page_start_line, 3);
+    assert_eq!(second.page_start_offset, cursor.offset());
+
+    fs::write(workspace.path().join("pages.txt"), "changed\n").unwrap();
+    let stale = service
+        .read_page("paged", &target, ReadStart::Cursor(cursor), limits)
+        .await
+        .unwrap_err();
+    assert!(matches!(stale, FsError::StaleReadCursor { .. }));
+    assert!(matches!(
+        ReadCursor::parse("v1:not-a-number:bad"),
+        Err(FsError::InvalidReadCursor)
+    ));
+    let non_ascii_digest = format!("v1:0:4:1:4:{}", "é".repeat(32));
+    assert!(matches!(
+        ReadCursor::parse(&non_ascii_digest),
+        Err(FsError::InvalidReadCursor)
+    ));
 }

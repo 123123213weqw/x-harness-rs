@@ -1,6 +1,7 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
+use serde_json::Value;
 use xharness_coding_tools::{CodingToolBundle, STANDARD_TOOL_COUNT};
 use xharness_platform::{NativePlatform, PlatformConfig};
 use xharness_terminal::TerminalRegistry;
@@ -106,6 +107,36 @@ async fn fourteen_tools_register_and_basic_file_shell_flow_runs() {
         .await;
     assert!(read.is_ok(), "{read:?}");
     assert!(read.output.unwrap().content.contains("alpha beta"));
+
+    fs::write(workspace.0.join("pages.txt"), "one\ntwo\nthree\n").unwrap();
+    let first_page = executor
+        .execute(ToolRequest::new(
+            "read",
+            r#"{"path":"pages.txt","line_limit":1}"#,
+        ))
+        .await;
+    assert!(first_page.is_ok(), "{first_page:?}");
+    let first_page: Value = serde_json::from_str(&first_page.output.unwrap().content).unwrap();
+    assert_eq!(first_page["content"], "one\n");
+    let cursor = first_page["next_cursor"].as_str().unwrap();
+    let second_page = executor
+        .execute(ToolRequest::new(
+            "read",
+            serde_json::json!({"path":"pages.txt", "cursor":cursor}).to_string(),
+        ))
+        .await;
+    assert!(second_page.is_ok(), "{second_page:?}");
+    let second_page: Value = serde_json::from_str(&second_page.output.unwrap().content).unwrap();
+    assert_eq!(second_page["content"], "two\n");
+    let mut forged = cursor.split(':').collect::<Vec<_>>();
+    forged[2] = "999999999";
+    let forged_page = executor
+        .execute(ToolRequest::new(
+            "read",
+            serde_json::json!({"path":"pages.txt", "cursor":forged.join(":")}).to_string(),
+        ))
+        .await;
+    assert!(!forged_page.is_ok());
 
     let edit = executor
         .execute(ToolRequest::new(

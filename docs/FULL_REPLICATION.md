@@ -137,14 +137,15 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [x] `C-04` 实现 Tokenizer 抽象与安全估算后备。
 - [x] `C-05` Provider I/O 前计量 System/消息/工具 Schema/协议模板/输出预留。
 - [x] `C-06` 固化 `64196 > 53248` 为 Provider Attempt=0 的回归。
-- [ ] `C-07` 分页 Read、Tool Result Spill 和 Head/Relevant/Tail Surface。
+- [ ] `C-07` 分页 Read、Tool Result Spill 和 Head/Relevant/Tail Surface。分页 Read 与版本绑定
+  Cursor 已完成；Spill/Surface Reduce 待完成。
 - [ ] `C-08` Surface Replace/摘要不删除原 Event Log。
 
 ### Batch D：平台与 14+ 工具
 
 - [ ] `D-01` 启动时探测 Sandbox、PTY、Search、Browser、Git、LSP 能力。
 - [ ] `D-02` 不可用工具从模型请求和 Web 工具目录中同时移除。
-- [ ] `D-03` 扩展 FS：list/mkdir/move/copy/delete/patch/image/binary/paged-read。
+- [ ] `D-03` 扩展 FS：list/mkdir/move/copy/delete/patch/image/binary/paged-read。Paged Read 已完成。
 - [ ] `D-04` 后台 Job Registry、重启 Outcome、Spill 和 Process-tree 清理。
 - [ ] `D-05` Terminal Resize、OSC133、Foreground PGID、Settle Reason。
 - [ ] `D-06` Web Search Provider、引用对象、正文提取、缓存和 SSRF/Rebinding。
