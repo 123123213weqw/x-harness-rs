@@ -137,8 +137,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [x] `C-04` 实现 Tokenizer 抽象与安全估算后备。
 - [x] `C-05` Provider I/O 前计量 System/消息/工具 Schema/协议模板/输出预留。
 - [x] `C-06` 固化 `64196 > 53248` 为 Provider Attempt=0 的回归。
-- [ ] `C-07` 分页 Read、Tool Result Spill 和 Head/Relevant/Tail Surface。分页 Read 与版本绑定
-  Cursor 已完成；Spill/Surface Reduce 待完成。
+- [ ] `C-07` 分页 Read、Tool Result Spill 和 Head/Relevant/Tail Surface。分页 Read、版本绑定
+  Cursor 与单结果确定性 Head/Tail Envelope 已完成；Spill、Relevant 与历史 Surface Replace 待完成。
 - [ ] `C-08` Surface Replace/摘要不删除原 Event Log。
 
 ### Batch D：平台与 14+ 工具

@@ -109,6 +109,10 @@ Commit、Issue、PR 应引用这些 ID。
   绑定完整文件 SHA-256，文件变化后继续读取 fail stale；底层仍完整计算 Version 并保持
   Observation CAS。测试覆盖 Line 起点、连续 Cursor、UTF-8 边界、Cursor Roundtrip、版本变化
   和模型工具真实两页读取。
+- [x] `DONE-38` 确定性 Tool Result Head/Tail Reduce：超过单结果模型预算时优先生成
+  `head_tail/v1` JSON Envelope，保留 UTF-8 安全头尾、原始 Byte 数、遗漏 Byte 数和 SHA-256；
+  相同输入逐字稳定，极小预算继续使用合法 JSON 前缀后备。原始 `ToolResult` 仍通过运行事件交给
+  宿主，但持久内容寻址 Spill/Reference 与历史 Surface Replace 尚未实现。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -182,8 +186,8 @@ Commit、Issue、PR 应引用这些 ID。
   默认降到适合模型的小页；工具原始输出落日志/Spill，模型 Surface 只保留确定性的
   Head/Relevant/Tail、元数据和引用。不得破坏 Observation CAS。
   已完成：模型 Schema 的 Byte/Line 起点、页大小/行数和版本绑定 Cursor；默认 32 KiB/400 行，
-  Cursor 延续原限制且文件变化后拒绝拼接。剩余：原始大输出 Spill、确定性
-  Head/Relevant/Tail Surface 和持久引用。
+  Cursor 延续原限制且文件变化后拒绝拼接；单结果超限使用带 Hash/Byte 统计的确定性 Head/Tail
+  Envelope。剩余：原始大输出持久 Spill/Reference、Relevant 片段选择和历史 Surface Replace。
 
 - [ ] `P0-13` **Platform Readiness 与动态工具投影。** Host 启动和 Workspace 初始化时运行
   Sandbox/Search/PTY Probe，把结果投影给 UI；已确认不可用的工具不进入后续模型请求。

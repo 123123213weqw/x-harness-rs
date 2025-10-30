@@ -116,7 +116,8 @@ History、Header Workspace、Durable Queue 并续跑 Pending Turn。仍需把 Pr
 - 请求输出前的安全重试；已经产生 delta 后禁止重试
 - `parallel`、`keyed`、`exclusive` 工具调度，默认最多 8 路
 - 工具超时、取消、panic、未知工具和参数错误统一写回模型
-- 默认完整上下文重放，单个工具结果写回限制为 256 KiB；这只是字节上限，不是 Token 预算
+- 默认完整上下文重放，单个工具结果写回限制为 256 KiB；超限使用确定性 UTF-8 Head/Tail
+  Envelope（含原始/遗漏 Byte 与 SHA-256），但这仍不是整体 Token 预算或持久 Spill
 - 默认最多 128 个模型步骤
 - Session 检查点和中断工具批次防重放
 - `LoopRun::send(LoopCommand)` 运行时控制：消息注入、Steering、暂停/恢复、取消
