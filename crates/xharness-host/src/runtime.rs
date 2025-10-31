@@ -273,15 +273,15 @@ impl AgentRuntime for LoopAgentRuntime {
             });
         }
         let provider = Arc::clone(self.provider.as_ref().expect("route checked provider"));
-        let tools = self
+        let tool_executor = self
             .tool_factory
-            .tools(&request.session_id, &request.cwd, request.permission)
+            .executor(&request.session_id, &request.cwd, request.permission)
             .await
             .map_err(|message| AgentRuntimeError::Preparation { message })?;
         let mut loop_request = LoopRequest::new(provider, request.messages);
         loop_request.session_id = Some(request.session_id);
         loop_request.prompt = request.prompt;
-        loop_request.tools = tools;
+        loop_request.tool_executor = Some(tool_executor);
         loop_request.context_policy = Arc::clone(&self.context_policy);
         loop_request.token_guard = self.token_guard.clone();
         Ok(Box::new(LoopEngine.start(loop_request)))
@@ -318,13 +318,13 @@ impl TurnRequestFactory for DurableTurnFactory {
                 .as_ref()
                 .ok_or_else(|| "model provider is unavailable".to_owned())?,
         );
-        let tools = self
+        let tool_executor = self
             .tool_factory
-            .tools(agent_id, &config.cwd, config.permission)
+            .executor(agent_id, &config.cwd, config.permission)
             .await?;
         let mut request = LoopRequest::new(provider, input);
         request.prompt = config.prompt;
-        request.tools = tools;
+        request.tool_executor = Some(tool_executor);
         request.context_policy = Arc::clone(&self.context_policy);
         request.token_guard = self
             .token_guard

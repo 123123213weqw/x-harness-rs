@@ -184,7 +184,7 @@ Workspace 解析。
 `xharness-host-app::NativeToolFactory` 为每个 canonical Workspace 与 Permission Preset 组合缓存一个
 `NativePlatform`，并共享按
 Owner 隔离的 Terminal 和 Web runtime。每个 Session 通过
-`CodingToolBundle::core_specs()` 得到稳定的 14 工具：
+`CodingToolBundle::specs()` 得到稳定的 14 工具，Readiness 投影后注册为正式 `ToolExecutor`：
 
 ```text
 bash read write edit glob grep

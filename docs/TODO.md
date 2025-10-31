@@ -169,6 +169,14 @@ Commit、Issue、PR 应引用这些 ID。
   副作用；Lifecycle Error/Panic 均 fail closed。Batch Drop/Cancel 会广播到全部 Call Token，调用方
   可继续等待 Result 收敛。该 Runtime 已具备接管 Core Scheduler 的独立契约，Core 接线与旧实现
   删除继续属于 `P0-03`。
+- [x] `DONE-49` 正式 Tool Runtime 接管生产 Host：`LoopRequest` 新增互斥的
+  `tool_executor` 边界，模型 Tool Definition、Context/Token Budget、Request Header、Fresh Batch 与
+  Pending Approval Recovery 均读取同一个 Registry/Executor。Core 通过 Channel Bridge 把 Web
+  Command 转为正式 Approval Provider，并在 `ToolLifecycle::started` Ack 前发布 Tool Started；
+  Completion 真实顺序投影、Result 模型顺序落账。`SessionToolFactory` 现在返回 Executor，原生 14
+  工具、Full Access 裁剪和 Durable Host 默认全部走新路径；`core_specs()`、自动批准适配器及
+  Coding Tools 对 Core 的生产依赖已删除。旧 `LoopRequest.tools` 仅为尚未迁移的 Embedder/Test
+  保留，不能和新 Executor 同时配置。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -205,10 +213,10 @@ Commit、Issue、PR 应引用这些 ID。
   Middleware、Event 和 Result。
   已完成：Durable Execution ID 已贯穿 Journal、Core Event/Approval、`ToolInvocation`、
   `xharness-tools` Middleware/Approval/Handler/Observer 与 Result；未提供 ID 的独立 Executor 调用仍
-  安全生成进程内唯一 ID。剩余：让 `ToolExecutor` 独占 Batch Scheduling、Schema、Approval、
-  Timeout/Panic/Cancel 执行语义，删除 Core 的重复实现和 `core_specs()` 兼容反向适配。
-  `xharness-tools::ToolBatchRun` 和副作用前 Lifecycle Ack 已实现，下一切片把 Core Command/
-  Approval/Journal Event 接到这两个正式入口。
+  安全生成进程内唯一 ID。`ToolExecutor` 已独占生产路径的 Batch Scheduling、Schema、Approval、
+  Timeout/Panic/Cancel，`ToolBatchRun`、副作用前 Lifecycle Ack、Core Command/Journal Bridge 和
+  `core_specs()` 删除均已完成。剩余是迁移 Core 自身的旧兼容测试/外部 Embedder，随后删除
+  `LoopRequest.tools`、`xharness-core::ToolSpec`、`ScheduledTool` 和旧 Approval/Scheduler 分支。
 
 - [x] `P0-04` **Provider Call ID 映射。** `ToolCall` 已分别保存内部 Execution ID 和
   Provider Native Call ID。Responses Opaque Item Replay、无 Opaque Responses 和 Chat 均保证

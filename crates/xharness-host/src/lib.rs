@@ -24,8 +24,9 @@ use serde_json::{json, Value};
 use tokio::sync::{broadcast, Mutex, OwnedMutexGuard, RwLock};
 use xharness_api::{RpcId, ServerRequest};
 use xharness_control::{ControlStore, MemoryControlStore};
-use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpec};
+use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider};
 use xharness_token::TokenGuard;
+use xharness_tools::{ToolExecutor, ToolRegistry};
 
 pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
 pub use runtime::{
@@ -79,12 +80,12 @@ impl HostConfig {
 
 #[async_trait]
 pub trait SessionToolFactory: Send + Sync + 'static {
-    async fn tools(
+    async fn executor(
         &self,
         session_id: &str,
         cwd: &str,
         permission: PermissionPreset,
-    ) -> Result<Vec<ToolSpec>, String>;
+    ) -> Result<ToolExecutor, String>;
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -92,13 +93,13 @@ pub struct NoTools;
 
 #[async_trait]
 impl SessionToolFactory for NoTools {
-    async fn tools(
+    async fn executor(
         &self,
         _session_id: &str,
         _cwd: &str,
         _permission: PermissionPreset,
-    ) -> Result<Vec<ToolSpec>, String> {
-        Ok(Vec::new())
+    ) -> Result<ToolExecutor, String> {
+        Ok(ToolExecutor::new(Arc::new(ToolRegistry::new())))
     }
 }
 

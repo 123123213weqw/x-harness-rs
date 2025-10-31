@@ -10,10 +10,10 @@ use std::{collections::BTreeMap, sync::Arc};
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 use xharness_coding_tools::CodingToolBundle;
-use xharness_core::ToolSpec;
 use xharness_host::{PermissionPreset, SessionToolFactory};
 use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
 use xharness_terminal::TerminalRegistry;
+use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
 use xharness_web::WebRuntime;
 
 /// Native Linux/macOS implementation of the standard fourteen-tool factory.
@@ -99,12 +99,12 @@ fn project_tools(specs: &mut Vec<ToolSpec>, readiness: &NativeToolReadiness) {
 
 #[async_trait]
 impl SessionToolFactory for NativeToolFactory {
-    async fn tools(
+    async fn executor(
         &self,
         session_id: &str,
         cwd: &str,
         permission: PermissionPreset,
-    ) -> Result<Vec<ToolSpec>, String> {
+    ) -> Result<ToolExecutor, String> {
         let platform = self.platform(cwd, permission).await?;
         let readiness = self.readiness(session_id, cwd, permission).await?;
         let mut specs = CodingToolBundle::new(
@@ -114,16 +114,21 @@ impl SessionToolFactory for NativeToolFactory {
             session_id,
             session_id,
         )
-        .core_specs()
-        .await
-        .map_err(|error| error.to_string())?;
+        .specs();
         project_tools(&mut specs, &readiness);
         if permission == PermissionPreset::DangerFullAccess {
             for spec in &mut specs {
                 spec.requires_approval = false;
             }
         }
-        Ok(specs)
+        let registry = Arc::new(ToolRegistry::new());
+        for spec in specs {
+            registry
+                .register(spec)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(ToolExecutor::new(registry))
     }
 }
 
@@ -162,22 +167,41 @@ mod tests {
         let factory = NativeToolFactory::new(WebRuntime::default());
         let cwd = workspace.0.to_string_lossy();
         let guarded = factory
-            .tools("guarded", &cwd, PermissionPreset::WorkspaceWrite)
+            .executor("guarded", &cwd, PermissionPreset::WorkspaceWrite)
             .await
             .unwrap();
-        assert!(guarded.iter().any(|spec| spec.requires_approval));
+        let guarded_names = guarded.registry().definitions().await;
+        assert!(!guarded_names.is_empty());
+        assert!(
+            guarded
+                .registry()
+                .get("write")
+                .await
+                .unwrap()
+                .requires_approval
+        );
 
         let full_access = factory
-            .tools("full", &cwd, PermissionPreset::DangerFullAccess)
+            .executor("full", &cwd, PermissionPreset::DangerFullAccess)
             .await
             .unwrap();
-        assert!(full_access.iter().all(|spec| !spec.requires_approval));
-        assert!(full_access
+        let full_definitions = full_access.registry().definitions().await;
+        for definition in &full_definitions {
+            assert!(
+                !full_access
+                    .registry()
+                    .get(&definition.name)
+                    .await
+                    .unwrap()
+                    .requires_approval
+            );
+        }
+        assert!(full_definitions
             .iter()
-            .all(|spec| spec.definition.name != "web_search"));
-        assert!(full_access
+            .all(|definition| definition.name != "web_search"));
+        assert!(full_definitions
             .iter()
-            .any(|spec| spec.definition.name == "bash"));
+            .any(|definition| definition.name == "bash"));
     }
 
     #[tokio::test]
@@ -192,9 +216,7 @@ mod tests {
             "session",
             "session",
         )
-        .core_specs()
-        .await
-        .unwrap();
+        .specs();
         project_tools(
             &mut specs,
             &NativeToolReadiness {
@@ -216,10 +238,11 @@ mod tests {
                 existing_terminals: 0,
             },
         );
-        let names = specs
+        let mut names = specs
             .iter()
             .map(|spec| spec.definition.name.as_str())
             .collect::<Vec<_>>();
+        names.sort_unstable();
         assert_eq!(
             names,
             ["edit", "read", "terminal_list", "web_fetch", "write"]

@@ -27,6 +27,7 @@ xharness-server = { path = "../xharness-server" }
 xharness-terminal = { path = "../xharness-terminal" }
 xharness-token = { path = "../xharness-token" }
 xharness-web = { path = "../xharness-web" }
+xharness-tools = { path = "../xharness-tools" }
 
 [dev-dependencies]
 futures.workspace = true

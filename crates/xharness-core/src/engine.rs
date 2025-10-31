@@ -9,6 +9,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use async_trait::async_trait;
 use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -20,6 +21,13 @@ use xharness_session::{
     ApprovalOutcome, AssistantChunk, EventData as SessionEventData, LlmFailure, LlmRetryMode,
     PendingToolApproval, RequestHeader, Revision, SessionEvent, SessionHeader,
     Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
+};
+use xharness_tools::{
+    ApprovalDecision as RuntimeApprovalDecision, ApprovalProvider as RuntimeApprovalProvider,
+    ApprovalRequest as RuntimeApprovalRequest, MiddlewareError as RuntimeMiddlewareError,
+    ToolBatchEvent as RuntimeBatchEvent, ToolBatchRequest as RuntimeBatchRequest,
+    ToolExecutionContext as RuntimeExecutionContext, ToolLifecycle as RuntimeToolLifecycle,
+    ToolRequest as RuntimeToolRequest,
 };
 
 use crate::{
@@ -514,11 +522,10 @@ impl Runner {
             self.settle_control_at_boundary().await?;
             self.step += 1;
             self.journal_step_start().await?;
-            let context_tools = self
-                .request
-                .tools
+            let tool_definitions = self.tool_definitions().await;
+            let context_tools = tool_definitions
                 .iter()
-                .map(|tool| serde_json::to_value(&tool.definition))
+                .map(serde_json::to_value)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| {
                     RunFailure::Failed(format!("could not serialize tool schema: {error}"))
@@ -541,11 +548,11 @@ impl Runner {
                 .map_err(|error| RunFailure::Failed(error.to_string()))?;
             self.validate_prompt_surface(&prepared)?;
             let token_budget = self.check_token_budget(&prepared, &context_tools)?;
-            self.journal_request_header(&prepared, token_budget.as_ref())
+            self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
                 .await?;
             let prepared = prepared.into_messages();
 
-            let mut model = self.model_round(prepared).await?;
+            let mut model = self.model_round(prepared, tool_definitions).await?;
             // The durable session contract requires call ids to be globally
             // unique, while providers only guarantee identity within a single
             // response. Journal-backed runs therefore use harness execution
@@ -1044,6 +1051,7 @@ impl Runner {
     async fn journal_request_header(
         &mut self,
         surface: &ContextSurface,
+        tools: &[Value],
         token_budget: Option<&TokenBudgetReport>,
     ) -> Result<(), RunFailure> {
         if self.journal.is_none() {
@@ -1063,22 +1071,13 @@ impl Runner {
             .map(|message| message.content.as_str())
             .collect::<Vec<_>>()
             .join("\n\n");
-        let tools = self
-            .request
-            .tools
-            .iter()
-            .map(|tool| serde_json::to_value(&tool.definition))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                RunFailure::Failed(format!("could not serialize tool schema: {error}"))
-            })?;
         let mut header = RequestHeader::new(provider, model);
         header.system = (!system.is_empty()).then_some(system);
         header.options.insert(
             "toolDefinitionsSha256".to_owned(),
             Value::String(sha256_json(&tools)?),
         );
-        header.tools = tools;
+        header.tools = tools.to_vec();
         header.input = surface.messages.clone();
         if let Some(prompt) = &self.request.prompt {
             header.options.insert(
@@ -1661,13 +1660,11 @@ impl Runner {
         visible
     }
 
-    async fn model_round(&mut self, messages: Vec<AgentMessage>) -> Result<ModelRound, RunFailure> {
-        let tool_definitions = self
-            .request
-            .tools
-            .iter()
-            .map(|tool| tool.definition.clone())
-            .collect::<Vec<_>>();
+    async fn model_round(
+        &mut self,
+        messages: Vec<AgentMessage>,
+        tool_definitions: Vec<crate::ToolDefinition>,
+    ) -> Result<ModelRound, RunFailure> {
         let max_attempts = self.request.config.provider_retries.saturating_add(1);
         let mut round = ModelRound::default();
 
@@ -1906,7 +1903,32 @@ impl Runner {
         ))
     }
 
+    async fn tool_definitions(&self) -> Vec<crate::ToolDefinition> {
+        match &self.request.tool_executor {
+            Some(executor) => executor
+                .registry()
+                .definitions()
+                .await
+                .into_iter()
+                .map(|definition| crate::ToolDefinition {
+                    name: definition.name,
+                    description: definition.description,
+                    parameters: definition.parameters,
+                })
+                .collect(),
+            None => self
+                .request
+                .tools
+                .iter()
+                .map(|tool| tool.definition.clone())
+                .collect(),
+        }
+    }
+
     async fn execute_tool_batch(&mut self, calls: Vec<ToolCall>) -> Result<(), RunFailure> {
+        if self.request.tool_executor.is_some() {
+            return self.execute_runtime_tool_batch(calls).await;
+        }
         let mut scheduled = calls
             .into_iter()
             .enumerate()
@@ -1923,7 +1945,269 @@ impl Runner {
         self.finalize_tool_batch(completed).await
     }
 
+    async fn execute_runtime_tool_batch(&mut self, calls: Vec<ToolCall>) -> Result<(), RunFailure> {
+        let call_count = calls.len();
+        let calls = calls.into_iter().enumerate().collect::<Vec<_>>();
+        let completed = self.run_runtime_tool_batch(calls, &HashMap::new()).await?;
+        let mut ordered = std::iter::repeat_with(|| None)
+            .take(call_count)
+            .collect::<Vec<_>>();
+        for execution in completed {
+            let order = execution.order;
+            ordered[order] = Some(execution);
+        }
+        self.finalize_tool_batch(ordered).await
+    }
+
+    async fn run_runtime_tool_batch(
+        &mut self,
+        calls: Vec<(usize, ToolCall)>,
+        recovered_approvals: &HashMap<String, String>,
+    ) -> Result<Vec<ToolExecution>, RunFailure> {
+        let executor = self
+            .request
+            .tool_executor
+            .clone()
+            .expect("runtime path requires a configured tool executor");
+        let (signal_tx, mut signal_rx) = mpsc::unbounded_channel();
+        let bridge = Arc::new(CoreToolRuntimeBridge { signal_tx });
+        let executor = executor
+            .with_approval_provider(bridge.clone())
+            .with_lifecycle(bridge);
+        let mut requests = Vec::with_capacity(calls.len());
+        for (order, call) in &calls {
+            let request = RuntimeToolRequest::new(&call.name, &call.arguments_json)
+                .with_cancellation(self.cancellation.child_token())
+                .requiring_approval(recovered_approvals.contains_key(&call.id))
+                .with_execution_id(call.id.clone())
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
+            requests.push(RuntimeBatchRequest::new(*order, request));
+        }
+        let mut batch = executor
+            .start_batch(requests, self.request.config.max_tool_concurrency)
+            .await
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        let mut completion_count = 0usize;
+        let mut pending_approval_ids = Vec::<String>::new();
+
+        while completion_count < calls.len() {
+            enum RuntimeInput {
+                Command(Option<CommandEnvelope>),
+                Signal(Option<ToolRuntimeSignal>),
+                Batch(Option<RuntimeBatchEvent>),
+            }
+            let input = tokio::select! {
+                biased;
+                command = self.command_rx.recv(), if self.command_open => {
+                    RuntimeInput::Command(command)
+                }
+                signal = signal_rx.recv() => RuntimeInput::Signal(signal),
+                event = batch.next_event() => RuntimeInput::Batch(event),
+            };
+            match input {
+                RuntimeInput::Command(Some(envelope)) => {
+                    if let Err(failure) = self.handle_envelope(envelope, false).await {
+                        batch.cancel();
+                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
+                }
+                RuntimeInput::Command(None) => {
+                    self.command_open = false;
+                }
+                RuntimeInput::Signal(Some(signal)) => {
+                    if let Err(failure) = self
+                        .handle_runtime_tool_signal(
+                            signal,
+                            &calls,
+                            recovered_approvals,
+                            &mut pending_approval_ids,
+                        )
+                        .await
+                    {
+                        batch.cancel();
+                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
+                }
+                RuntimeInput::Signal(None) => {
+                    batch.cancel();
+                    return Err(RunFailure::Failed(
+                        "tool runtime lifecycle channel closed before batch completion".to_owned(),
+                    ));
+                }
+                RuntimeInput::Batch(Some(RuntimeBatchEvent::Completed(completed))) => {
+                    let call = calls
+                        .iter()
+                        .find_map(|(order, call)| (*order == completed.order).then_some(call))
+                        .ok_or_else(|| {
+                            RunFailure::Failed(format!(
+                                "tool runtime returned invalid batch order {}",
+                                completed.order
+                            ))
+                        })?;
+                    if completed.result.execution_id.as_str() != call.id {
+                        batch.cancel();
+                        return Err(RunFailure::Failed(format!(
+                            "tool runtime execution id mismatch for order {}",
+                            completed.order
+                        )));
+                    }
+                    let result = runtime_tool_result(&completed.result);
+                    self.emit(LoopEventKind::ToolCompleted {
+                        call: call.clone(),
+                        result,
+                    })
+                    .await?;
+                    completion_count += 1;
+                }
+                RuntimeInput::Batch(None) => {
+                    return Err(RunFailure::Failed(
+                        "tool runtime batch stopped before every result completed".to_owned(),
+                    ));
+                }
+            }
+        }
+
+        let ordered = batch
+            .result()
+            .await
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        let completed = ordered
+            .into_iter()
+            .map(|completed| {
+                let call = calls
+                    .iter()
+                    .find_map(|(order, call)| (*order == completed.order).then_some(call.clone()))
+                    .ok_or_else(|| {
+                        RunFailure::Failed(format!(
+                            "tool runtime returned invalid final order {}",
+                            completed.order
+                        ))
+                    })?;
+                let result = runtime_tool_result(&completed.result);
+                let (model_text, _) =
+                    tool_result_for_model(&result, self.request.config.tool_result_limit_bytes);
+                Ok(ToolExecution {
+                    order: completed.order,
+                    call,
+                    outcome: if result.ok {
+                        ToolOutcome::Success
+                    } else {
+                        ToolOutcome::Error
+                    },
+                    result,
+                    model_text,
+                })
+            })
+            .collect::<Result<Vec<_>, RunFailure>>()?;
+        Ok(completed)
+    }
+
+    async fn handle_runtime_tool_signal(
+        &mut self,
+        signal: ToolRuntimeSignal,
+        calls: &[(usize, ToolCall)],
+        recovered_approvals: &HashMap<String, String>,
+        pending_approval_ids: &mut Vec<String>,
+    ) -> Result<(), RunFailure> {
+        match signal {
+            ToolRuntimeSignal::Approval {
+                execution_id,
+                reasons,
+                response,
+            } => {
+                let _approval_reasons = reasons;
+                let (order, call) = calls
+                    .iter()
+                    .find(|(_, call)| call.id == execution_id)
+                    .ok_or_else(|| {
+                        RunFailure::Failed(format!(
+                            "tool runtime requested approval for unknown execution {execution_id:?}"
+                        ))
+                    })?;
+                let (approval_id, recovered) = match recovered_approvals.get(&execution_id) {
+                    Some(approval_id) => (approval_id.clone(), true),
+                    None => (self.approval_id(*order), false),
+                };
+                if !recovered {
+                    self.journal_approval_asked(&approval_id, call).await?;
+                }
+                pending_approval_ids.push(approval_id.clone());
+                self.emit(LoopEventKind::ToolApprovalRequested {
+                    approval_id: approval_id.clone(),
+                    call: call.clone(),
+                })
+                .await?;
+                let decision = self.wait_for_approval(&execution_id).await?;
+                let (runtime, outcome, approved, reason) = match decision {
+                    ApprovalDecision::Approved => (
+                        RuntimeApprovalDecision::Approved,
+                        ApprovalOutcome::AllowedOnce,
+                        true,
+                        None,
+                    ),
+                    ApprovalDecision::Rejected(reason) => {
+                        let reason = if reason.trim().is_empty() {
+                            "rejected by host".to_owned()
+                        } else {
+                            reason
+                        };
+                        (
+                            RuntimeApprovalDecision::Denied {
+                                reason: reason.clone(),
+                            },
+                            ApprovalOutcome::Rejected,
+                            false,
+                            Some(reason),
+                        )
+                    }
+                };
+                self.journal_approval_decided(&approval_id, outcome).await?;
+                pending_approval_ids.retain(|pending| pending != &approval_id);
+                self.emit(LoopEventKind::ToolApprovalResolved {
+                    approval_id,
+                    call: call.clone(),
+                    approved,
+                    reason,
+                })
+                .await?;
+                response.send(Ok(runtime)).map_err(|_| {
+                    RunFailure::Failed(
+                        "tool runtime stopped while receiving approval decision".to_owned(),
+                    )
+                })?;
+                Ok(())
+            }
+            ToolRuntimeSignal::Started {
+                execution_id,
+                acknowledgement,
+            } => {
+                let call = calls
+                    .iter()
+                    .find_map(|(_, call)| (call.id == execution_id).then_some(call))
+                    .ok_or_else(|| {
+                        RunFailure::Failed(format!(
+                            "tool runtime started unknown execution {execution_id:?}"
+                        ))
+                    })?;
+                self.emit(LoopEventKind::ToolStarted(call.clone())).await?;
+                acknowledgement.send(Ok(())).map_err(|_| {
+                    RunFailure::Failed(
+                        "tool runtime stopped before lifecycle acknowledgement".to_owned(),
+                    )
+                })?;
+                Ok(())
+            }
+        }
+    }
+
     async fn resume_tool_batch(&mut self, recovery: RecoveredToolBatch) -> Result<(), RunFailure> {
+        if self.request.tool_executor.is_some() {
+            return self.resume_runtime_tool_batch(recovery).await;
+        }
         let mut scheduled = recovery
             .calls
             .iter()
@@ -2029,6 +2313,54 @@ impl Runner {
 
         self.run_tool_scheduler(&mut scheduled, &mut completed, completed_count)
             .await?;
+        self.finalize_tool_batch(completed).await
+    }
+
+    async fn resume_runtime_tool_batch(
+        &mut self,
+        recovery: RecoveredToolBatch,
+    ) -> Result<(), RunFailure> {
+        let call_count = recovery.calls.len();
+        let mut completed = std::iter::repeat_with(|| None)
+            .take(call_count)
+            .collect::<Vec<Option<ToolExecution>>>();
+        let mut pending = Vec::<(usize, ToolCall)>::new();
+        let mut recovered_approvals = HashMap::<String, String>::new();
+
+        for (order, recovered) in recovery.calls.into_iter().enumerate() {
+            match recovered.approval {
+                Some(approval) => {
+                    recovered_approvals.insert(recovered.call.id.clone(), approval.id);
+                    pending.push((order, recovered.call));
+                }
+                None => {
+                    let result = ToolResult::failure(xharness_session::OUTCOME_UNKNOWN_CONTENT);
+                    let execution = ToolExecution {
+                        order,
+                        call: recovered.call,
+                        outcome: ToolOutcome::OutcomeUnknown,
+                        result,
+                        model_text: xharness_session::OUTCOME_UNKNOWN_CONTENT.to_owned(),
+                    };
+                    self.emit(LoopEventKind::ToolCompleted {
+                        call: execution.call.clone(),
+                        result: execution.result.clone(),
+                    })
+                    .await?;
+                    completed[order] = Some(execution);
+                }
+            }
+        }
+
+        if !pending.is_empty() {
+            for execution in self
+                .run_runtime_tool_batch(pending, &recovered_approvals)
+                .await?
+            {
+                let order = execution.order;
+                completed[order] = Some(execution);
+            }
+        }
         self.finalize_tool_batch(completed).await
     }
 
@@ -2322,6 +2654,75 @@ struct ModelRound {
 enum ApprovalDecision {
     Approved,
     Rejected(String),
+}
+
+enum ToolRuntimeSignal {
+    Approval {
+        execution_id: String,
+        reasons: Vec<String>,
+        response: oneshot::Sender<Result<RuntimeApprovalDecision, RuntimeMiddlewareError>>,
+    },
+    Started {
+        execution_id: String,
+        acknowledgement: oneshot::Sender<Result<(), RuntimeMiddlewareError>>,
+    },
+}
+
+struct CoreToolRuntimeBridge {
+    signal_tx: mpsc::UnboundedSender<ToolRuntimeSignal>,
+}
+
+#[async_trait]
+impl RuntimeApprovalProvider for CoreToolRuntimeBridge {
+    async fn request_approval(
+        &self,
+        request: RuntimeApprovalRequest,
+    ) -> Result<RuntimeApprovalDecision, RuntimeMiddlewareError> {
+        let (response, receiver) = oneshot::channel();
+        self.signal_tx
+            .send(ToolRuntimeSignal::Approval {
+                execution_id: request.context.execution_id.to_string(),
+                reasons: request.reasons,
+                response,
+            })
+            .map_err(|_| RuntimeMiddlewareError::new("core tool approval channel is closed"))?;
+        receiver
+            .await
+            .map_err(|_| RuntimeMiddlewareError::new("core tool approval response was dropped"))?
+    }
+}
+
+#[async_trait]
+impl RuntimeToolLifecycle for CoreToolRuntimeBridge {
+    async fn started(
+        &self,
+        context: &RuntimeExecutionContext,
+    ) -> Result<(), RuntimeMiddlewareError> {
+        let (acknowledgement, receiver) = oneshot::channel();
+        self.signal_tx
+            .send(ToolRuntimeSignal::Started {
+                execution_id: context.execution_id.to_string(),
+                acknowledgement,
+            })
+            .map_err(|_| RuntimeMiddlewareError::new("core tool lifecycle channel is closed"))?;
+        receiver.await.map_err(|_| {
+            RuntimeMiddlewareError::new("core tool lifecycle acknowledgement was dropped")
+        })?
+    }
+}
+
+fn runtime_tool_result(result: &xharness_tools::ToolResult) -> ToolResult {
+    match (&result.output, &result.failure) {
+        (Some(output), None) => ToolResult {
+            ok: true,
+            content: output.content.clone(),
+            error: String::new(),
+            truncated: false,
+            metadata: output.metadata.clone(),
+        },
+        (_, Some(failure)) => ToolResult::failure(failure.message.clone()),
+        (None, None) => ToolResult::failure("tool runtime returned neither output nor failure"),
+    }
 }
 
 struct RecoveredToolBatch {

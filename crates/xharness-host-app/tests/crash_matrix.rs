@@ -30,6 +30,11 @@ use xharness_session::{
     Store, StoreError, ToolOutcome, TurnEndReason,
 };
 use xharness_session_jsonl::JsonlSessionStore;
+use xharness_tools::{
+    ToolDefinition as RuntimeToolDefinition, ToolExecutor as RuntimeToolExecutor,
+    ToolOutput as RuntimeToolOutput, ToolRegistry as RuntimeToolRegistry,
+    ToolSpec as RuntimeToolSpec,
+};
 
 const SESSION_ID: &str = "sigkill-session";
 
@@ -414,23 +419,31 @@ struct RecoveryToolFactory {
 
 #[async_trait]
 impl SessionToolFactory for RecoveryToolFactory {
-    async fn tools(
+    async fn executor(
         &self,
         _session_id: &str,
         _cwd: &str,
         _permission: PermissionPreset,
-    ) -> Result<Vec<ToolSpec>, String> {
+    ) -> Result<RuntimeToolExecutor, String> {
         let executions = Arc::clone(&self.executions);
-        Ok(vec![ToolSpec::new(
-            "dangerous",
-            "dangerous",
-            json!({"type": "object"}),
-            move |_, _| {
-                executions.fetch_add(1, Ordering::SeqCst);
-                async { ToolResult::success("recovered approved side effect") }
-            },
-        )
-        .requires_approval()])
+        let registry = Arc::new(RuntimeToolRegistry::new());
+        registry
+            .register(
+                RuntimeToolSpec::new(
+                    RuntimeToolDefinition::new("dangerous", "dangerous", json!({"type": "object"})),
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("recovered approved side effect"))
+                        }
+                    },
+                )
+                .requiring_approval(true),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(RuntimeToolExecutor::new(registry))
     }
 }
 
