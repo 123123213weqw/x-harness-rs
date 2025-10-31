@@ -243,6 +243,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 缺失、异常、panic 或超时的审批 provider 全部 fail closed
 - handler timeout/panic/cancel 与 middleware panic 不会炸掉 Agent Loop
 - `parallel/keyed/exclusive` declarative gate；同 key 串行、exclusive 形成全局屏障
+- `ToolBatchRun` 统一 Model-order 调度、Batch 并发上限、真实完成事件和稳定重放顺序
+- `ToolLifecycle::started` 在 Handler 副作用前等待宿主持久边界，失败或 Panic 时 fail closed
 
 ## 最小嵌入
 

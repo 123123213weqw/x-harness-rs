@@ -162,6 +162,13 @@ Commit、Issue、PR 应引用这些 ID。
   不再另造进程内身份。Provider 原生 `provider_call_id` 仍只用于线协议重放。已覆盖非法外部 ID、
   Executor 原样传播以及 Journal → Core Handler 的一致性回归；Core 重复 Scheduling/Approval
   的删除仍属于 `P0-03` 下一阶段。
+- [x] `DONE-48` 正式 Tool Batch Scheduler 与副作用边界：`xharness-tools` 新增 Model-order
+  Batch Runtime，统一执行全局并发上限、Parallel、Keyed FIFO 与 Exclusive Barrier；完成事件按
+  真实完成顺序输出，最终 Result 按原始调用顺序重排。新增 `ToolLifecycle::started`，只有 Policy、
+  Approval、Concurrency Admission 和宿主 Durable Start Acknowledge 全部成功后 Handler 才能产生
+  副作用；Lifecycle Error/Panic 均 fail closed。Batch Drop/Cancel 会广播到全部 Call Token，调用方
+  可继续等待 Result 收敛。该 Runtime 已具备接管 Core Scheduler 的独立契约，Core 接线与旧实现
+  删除继续属于 `P0-03`。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -200,6 +207,8 @@ Commit、Issue、PR 应引用这些 ID。
   `xharness-tools` Middleware/Approval/Handler/Observer 与 Result；未提供 ID 的独立 Executor 调用仍
   安全生成进程内唯一 ID。剩余：让 `ToolExecutor` 独占 Batch Scheduling、Schema、Approval、
   Timeout/Panic/Cancel 执行语义，删除 Core 的重复实现和 `core_specs()` 兼容反向适配。
+  `xharness-tools::ToolBatchRun` 和副作用前 Lifecycle Ack 已实现，下一切片把 Core Command/
+  Approval/Journal Event 接到这两个正式入口。
 
 - [x] `P0-04` **Provider Call ID 映射。** `ToolCall` 已分别保存内部 Execution ID 和
   Provider Native Call ID。Responses Opaque Item Replay、无 Opaque Responses 和 Chat 均保证

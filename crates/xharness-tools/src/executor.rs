@@ -20,7 +20,7 @@ use crate::{
     validate_arguments, ApprovalDecision, ApprovalProvider, ApprovalRequest, AroundMiddleware,
     AroundNext, ExecutionId, FinalizeMiddleware, GuardDecision, GuardVerdict, MonotonicGuard,
     PostMiddleware, PreMiddleware, ToolConcurrency, ToolExecutionContext, ToolHandlerError,
-    ToolObserver, ToolOutcome, ToolOutput, ToolRegistry, ToolSpec,
+    ToolLifecycle, ToolObserver, ToolOutcome, ToolOutput, ToolRegistry, ToolSpec,
 };
 
 static NEXT_EXECUTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -74,6 +74,7 @@ pub enum ToolFailureKind {
     ApprovalUnavailable,
     ApprovalDenied,
     Concurrency,
+    Lifecycle,
     Handler,
     TimedOut,
     Panicked,
@@ -144,6 +145,7 @@ pub struct ToolExecutor {
     post: Arc<[Arc<dyn PostMiddleware>]>,
     finalize: Arc<[Arc<dyn FinalizeMiddleware>]>,
     observers: Arc<[Arc<dyn ToolObserver>]>,
+    lifecycle: Option<Arc<dyn ToolLifecycle>>,
     approval: Option<Arc<dyn ApprovalProvider>>,
     approval_timeout: Duration,
     concurrency: ConcurrencyGate,
@@ -161,6 +163,7 @@ impl ToolExecutor {
             post: Arc::from([]),
             finalize: Arc::from([]),
             observers: Arc::from([]),
+            lifecycle: None,
             approval: None,
             approval_timeout: Self::DEFAULT_APPROVAL_TIMEOUT,
             concurrency: ConcurrencyGate::default(),
@@ -194,6 +197,13 @@ impl ToolExecutor {
 
     pub fn with_observers(mut self, observers: Vec<Arc<dyn ToolObserver>>) -> Self {
         self.observers = observers.into();
+        self
+    }
+
+    /// Install the host lifecycle sink used to durably acknowledge the
+    /// side-effect boundary before a handler starts.
+    pub fn with_lifecycle(mut self, lifecycle: Arc<dyn ToolLifecycle>) -> Self {
+        self.lifecycle = Some(lifecycle);
         self
     }
 
@@ -455,6 +465,30 @@ impl ToolExecutor {
             ));
         }
 
+        if let Some(lifecycle) = &self.lifecycle {
+            let notified = AssertUnwindSafe(lifecycle.started(context))
+                .catch_unwind()
+                .await;
+            match notified {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    return ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::Lifecycle,
+                        format!("tool lifecycle failed closed: {}", error.message),
+                    ));
+                }
+                Err(panic) => {
+                    return ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::Lifecycle,
+                        format!(
+                            "tool lifecycle panicked and failed closed: {}",
+                            panic_message(panic)
+                        ),
+                    ));
+                }
+            }
+        }
+
         let next = AroundNext {
             middleware: Arc::clone(&self.around),
             index: 0,
@@ -605,6 +639,7 @@ impl fmt::Debug for ToolExecutor {
             .field("post", &self.post.len())
             .field("finalize", &self.finalize.len())
             .field("observers", &self.observers.len())
+            .field("lifecycle_configured", &self.lifecycle.is_some())
             .field("approval_configured", &self.approval.is_some())
             .field("approval_timeout", &self.approval_timeout)
             .finish_non_exhaustive()

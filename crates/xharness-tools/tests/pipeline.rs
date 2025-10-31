@@ -14,9 +14,10 @@ use tokio_util::sync::CancellationToken;
 use xharness_tools::{
     ApprovalDecision, ApprovalProvider, ApprovalRequest, AroundMiddleware, AroundNext,
     ExecutorConfigError, FinalizeMiddleware, GuardDecision, MiddlewareError, MonotonicGuard,
-    PostMiddleware, PreMiddleware, RegistryError, ToolConcurrency, ToolDefinition,
-    ToolExecutionContext, ToolExecutor, ToolFailureKind, ToolObserver, ToolOutcome, ToolOutput,
-    ToolRegistry, ToolRequest, ToolResult, ToolSpec,
+    PostMiddleware, PreMiddleware, RegistryError, ToolBatchEvent, ToolBatchRequest,
+    ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolExecutor, ToolFailureKind,
+    ToolLifecycle, ToolObserver, ToolOutcome, ToolOutput, ToolRegistry, ToolRequest, ToolResult,
+    ToolSpec,
 };
 
 fn definition(name: &str) -> ToolDefinition {
@@ -734,4 +735,145 @@ async fn keyed_concurrency_serializes_equal_keys_but_not_distinct_keys() {
     );
     assert!(first.is_ok() && second.is_ok());
     assert_eq!(activity.max_active.load(Ordering::SeqCst), 2);
+}
+
+struct RecordingLifecycle {
+    seen: Arc<Mutex<Vec<String>>>,
+    fail: bool,
+}
+
+#[async_trait]
+impl ToolLifecycle for RecordingLifecycle {
+    async fn started(&self, context: &ToolExecutionContext) -> Result<(), MiddlewareError> {
+        self.seen
+            .lock()
+            .await
+            .push(context.execution_id.to_string());
+        if self.fail {
+            Err(MiddlewareError::new("durable start boundary unavailable"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[tokio::test]
+async fn lifecycle_is_acknowledged_before_handler_side_effects_and_fails_closed() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let handler_calls = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(ToolSpec::new(definition("effect"), {
+            let handler_calls = Arc::clone(&handler_calls);
+            move |_context| {
+                let handler_calls = Arc::clone(&handler_calls);
+                async move {
+                    handler_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(ToolOutput::text("effect"))
+                }
+            }
+        }))
+        .await
+        .unwrap();
+    let executor = ToolExecutor::new(registry).with_lifecycle(Arc::new(RecordingLifecycle {
+        seen: Arc::clone(&seen),
+        fail: true,
+    }));
+    let result = executor
+        .execute(
+            ToolRequest::new("effect", r#"{"value":"x"}"#)
+                .with_execution_id("durable/effect/1")
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(result.failure_kind(), Some(ToolFailureKind::Lifecycle));
+    assert_eq!(handler_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(seen.lock().await.as_slice(), ["durable/effect/1"]);
+}
+
+#[tokio::test]
+async fn batch_scheduler_owns_limit_barriers_completion_order_and_replay_order() {
+    let activity = Arc::new(Activity::default());
+    let timeline = Arc::new(Mutex::new(Vec::<String>::new()));
+    let registry = Arc::new(ToolRegistry::new());
+
+    for (name, delay_ms, mode) in [
+        ("slow", 40u64, ToolConcurrency::Parallel),
+        ("fast", 5u64, ToolConcurrency::Parallel),
+        ("barrier", 1u64, ToolConcurrency::Exclusive),
+        ("after", 1u64, ToolConcurrency::Parallel),
+    ] {
+        registry
+            .register(
+                ToolSpec::new(definition(name), {
+                    let activity = Arc::clone(&activity);
+                    let timeline = Arc::clone(&timeline);
+                    let name = name.to_owned();
+                    move |_context| {
+                        let activity = Arc::clone(&activity);
+                        let timeline = Arc::clone(&timeline);
+                        let name = name.clone();
+                        async move {
+                            activity.enter();
+                            timeline.lock().await.push(format!("{name}:start"));
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                            timeline.lock().await.push(format!("{name}:end"));
+                            activity.exit();
+                            Ok(ToolOutput::text(name))
+                        }
+                    }
+                })
+                .with_concurrency(mode),
+            )
+            .await
+            .unwrap();
+    }
+
+    let executor = ToolExecutor::new(registry);
+    let requests = ["slow", "fast", "barrier", "after"]
+        .into_iter()
+        .enumerate()
+        .map(|(order, name)| {
+            ToolBatchRequest::new(
+                order,
+                ToolRequest::new(name, r#"{"value":"x"}"#)
+                    .with_execution_id(format!("batch/{order}"))
+                    .unwrap(),
+            )
+        })
+        .collect();
+    let mut batch = executor.start_batch(requests, 2).await.unwrap();
+    let mut completion_order = Vec::new();
+    while let Some(event) = batch.next_event().await {
+        let ToolBatchEvent::Completed(completed) = event;
+        completion_order.push(completed.order);
+    }
+    let results = batch.result().await.unwrap();
+
+    assert_eq!(completion_order, [1, 0, 2, 3]);
+    assert_eq!(
+        results
+            .iter()
+            .map(|result| result.order)
+            .collect::<Vec<_>>(),
+        [0, 1, 2, 3]
+    );
+    assert_eq!(activity.max_active.load(Ordering::SeqCst), 2);
+    let timeline = timeline.lock().await;
+    let slow_end = timeline.iter().position(|item| item == "slow:end").unwrap();
+    let fast_end = timeline.iter().position(|item| item == "fast:end").unwrap();
+    let barrier_start = timeline
+        .iter()
+        .position(|item| item == "barrier:start")
+        .unwrap();
+    let barrier_end = timeline
+        .iter()
+        .position(|item| item == "barrier:end")
+        .unwrap();
+    let after_start = timeline
+        .iter()
+        .position(|item| item == "after:start")
+        .unwrap();
+    assert!(barrier_start > slow_end && barrier_start > fast_end);
+    assert!(after_start > barrier_end);
 }
