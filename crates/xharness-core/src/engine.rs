@@ -26,8 +26,8 @@ use xharness_tools::{
     ApprovalDecision as RuntimeApprovalDecision, ApprovalProvider as RuntimeApprovalProvider,
     ApprovalRequest as RuntimeApprovalRequest, MiddlewareError as RuntimeMiddlewareError,
     ToolBatchEvent as RuntimeBatchEvent, ToolBatchRequest as RuntimeBatchRequest,
-    ToolExecutionContext as RuntimeExecutionContext, ToolLifecycle as RuntimeToolLifecycle,
-    ToolRequest as RuntimeToolRequest,
+    ToolBatchRun as RuntimeBatchRun, ToolExecutionContext as RuntimeExecutionContext,
+    ToolLifecycle as RuntimeToolLifecycle, ToolRequest as RuntimeToolRequest,
 };
 
 use crate::{
@@ -1989,15 +1989,18 @@ impl Runner {
             .map_err(|error| RunFailure::Failed(error.to_string()))?;
         let mut completion_count = 0usize;
         let mut pending_approval_ids = Vec::<String>::new();
+        let mut pending_runtime_approvals = Vec::<PendingRuntimeApproval>::new();
 
         while completion_count < calls.len() {
             enum RuntimeInput {
+                Cancelled,
                 Command(Option<CommandEnvelope>),
                 Signal(Option<ToolRuntimeSignal>),
                 Batch(Option<RuntimeBatchEvent>),
             }
             let input = tokio::select! {
                 biased;
+                _ = self.cancellation.cancelled() => RuntimeInput::Cancelled,
                 command = self.command_rx.recv(), if self.command_open => {
                     RuntimeInput::Command(command)
                 }
@@ -2005,10 +2008,14 @@ impl Runner {
                 event = batch.next_event() => RuntimeInput::Batch(event),
             };
             match input {
+                RuntimeInput::Cancelled => {
+                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
+                        .await?;
+                    return Err(self.stopped_failure());
+                }
                 RuntimeInput::Command(Some(envelope)) => {
                     if let Err(failure) = self.handle_envelope(envelope, false).await {
-                        batch.cancel();
-                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                        self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
                             .await?;
                         return Err(failure);
                     }
@@ -2023,17 +2030,18 @@ impl Runner {
                             &calls,
                             recovered_approvals,
                             &mut pending_approval_ids,
+                            &mut pending_runtime_approvals,
                         )
                         .await
                     {
-                        batch.cancel();
-                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                        self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
                             .await?;
                         return Err(failure);
                     }
                 }
                 RuntimeInput::Signal(None) => {
-                    batch.cancel();
+                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
+                        .await?;
                     return Err(RunFailure::Failed(
                         "tool runtime lifecycle channel closed before batch completion".to_owned(),
                     ));
@@ -2064,11 +2072,18 @@ impl Runner {
                     completion_count += 1;
                 }
                 RuntimeInput::Batch(None) => {
+                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
+                        .await?;
                     return Err(RunFailure::Failed(
                         "tool runtime batch stopped before every result completed".to_owned(),
                     ));
                 }
             }
+            self.resolve_runtime_approval_decisions(
+                &mut pending_runtime_approvals,
+                &mut pending_approval_ids,
+            )
+            .await?;
         }
 
         let ordered = batch
@@ -2106,12 +2121,39 @@ impl Runner {
         Ok(completed)
     }
 
+    async fn cancel_runtime_tool_batch(
+        &mut self,
+        batch: &mut RuntimeBatchRun,
+        pending_approval_ids: &mut Vec<String>,
+    ) -> Result<(), RunFailure> {
+        batch.cancel();
+        let journal = self
+            .journal_cancel_pending_approvals(pending_approval_ids)
+            .await;
+        let settled = tokio::time::timeout(
+            TOOL_CLEANUP_GRACE.saturating_add(Duration::from_secs(1)),
+            batch.result(),
+        )
+        .await;
+        journal?;
+        match settled {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(RunFailure::Failed(format!(
+                "cancelled tool batch failed to settle: {error}"
+            ))),
+            Err(_) => Err(RunFailure::Failed(
+                "cancelled tool batch exceeded its cleanup grace".to_owned(),
+            )),
+        }
+    }
+
     async fn handle_runtime_tool_signal(
         &mut self,
         signal: ToolRuntimeSignal,
         calls: &[(usize, ToolCall)],
         recovered_approvals: &HashMap<String, String>,
         pending_approval_ids: &mut Vec<String>,
+        pending_runtime_approvals: &mut Vec<PendingRuntimeApproval>,
     ) -> Result<(), RunFailure> {
         match signal {
             ToolRuntimeSignal::Approval {
@@ -2141,44 +2183,12 @@ impl Runner {
                     call: call.clone(),
                 })
                 .await?;
-                let decision = self.wait_for_approval(&execution_id).await?;
-                let (runtime, outcome, approved, reason) = match decision {
-                    ApprovalDecision::Approved => (
-                        RuntimeApprovalDecision::Approved,
-                        ApprovalOutcome::AllowedOnce,
-                        true,
-                        None,
-                    ),
-                    ApprovalDecision::Rejected(reason) => {
-                        let reason = if reason.trim().is_empty() {
-                            "rejected by host".to_owned()
-                        } else {
-                            reason
-                        };
-                        (
-                            RuntimeApprovalDecision::Denied {
-                                reason: reason.clone(),
-                            },
-                            ApprovalOutcome::Rejected,
-                            false,
-                            Some(reason),
-                        )
-                    }
-                };
-                self.journal_approval_decided(&approval_id, outcome).await?;
-                pending_approval_ids.retain(|pending| pending != &approval_id);
-                self.emit(LoopEventKind::ToolApprovalResolved {
+                pending_runtime_approvals.push(PendingRuntimeApproval {
+                    execution_id,
                     approval_id,
                     call: call.clone(),
-                    approved,
-                    reason,
-                })
-                .await?;
-                response.send(Ok(runtime)).map_err(|_| {
-                    RunFailure::Failed(
-                        "tool runtime stopped while receiving approval decision".to_owned(),
-                    )
-                })?;
+                    response,
+                });
                 Ok(())
             }
             ToolRuntimeSignal::Started {
@@ -2202,6 +2212,64 @@ impl Runner {
                 Ok(())
             }
         }
+    }
+
+    async fn resolve_runtime_approval_decisions(
+        &mut self,
+        pending: &mut Vec<PendingRuntimeApproval>,
+        pending_approval_ids: &mut Vec<String>,
+    ) -> Result<(), RunFailure> {
+        if self.paused {
+            return Ok(());
+        }
+        let mut index = 0usize;
+        while index < pending.len() {
+            let Some(decision) = self.approval_decisions.remove(&pending[index].execution_id)
+            else {
+                index += 1;
+                continue;
+            };
+            let approval = pending.remove(index);
+            let (runtime, outcome, approved, reason) = match decision {
+                ApprovalDecision::Approved => (
+                    RuntimeApprovalDecision::Approved,
+                    ApprovalOutcome::AllowedOnce,
+                    true,
+                    None,
+                ),
+                ApprovalDecision::Rejected(reason) => {
+                    let reason = if reason.trim().is_empty() {
+                        "rejected by host".to_owned()
+                    } else {
+                        reason
+                    };
+                    (
+                        RuntimeApprovalDecision::Denied {
+                            reason: reason.clone(),
+                        },
+                        ApprovalOutcome::Rejected,
+                        false,
+                        Some(reason),
+                    )
+                }
+            };
+            self.journal_approval_decided(&approval.approval_id, outcome)
+                .await?;
+            pending_approval_ids.retain(|id| id != &approval.approval_id);
+            self.emit(LoopEventKind::ToolApprovalResolved {
+                approval_id: approval.approval_id,
+                call: approval.call,
+                approved,
+                reason,
+            })
+            .await?;
+            approval.response.send(Ok(runtime)).map_err(|_| {
+                RunFailure::Failed(
+                    "tool runtime stopped while receiving approval decision".to_owned(),
+                )
+            })?;
+        }
+        Ok(())
     }
 
     async fn resume_tool_batch(&mut self, recovery: RecoveredToolBatch) -> Result<(), RunFailure> {
@@ -2666,6 +2734,13 @@ enum ToolRuntimeSignal {
         execution_id: String,
         acknowledgement: oneshot::Sender<Result<(), RuntimeMiddlewareError>>,
     },
+}
+
+struct PendingRuntimeApproval {
+    execution_id: String,
+    approval_id: String,
+    call: ToolCall,
+    response: oneshot::Sender<Result<RuntimeApprovalDecision, RuntimeMiddlewareError>>,
 }
 
 struct CoreToolRuntimeBridge {

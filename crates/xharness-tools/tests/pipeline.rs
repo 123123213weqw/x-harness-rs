@@ -9,7 +9,7 @@ use std::{
 
 use async_trait::async_trait;
 use serde_json::json;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Barrier, Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 use xharness_tools::{
     ApprovalDecision, ApprovalProvider, ApprovalRequest, AroundMiddleware, AroundNext,
@@ -768,6 +768,18 @@ struct RecordingLifecycle {
     fail: bool,
 }
 
+struct PendingLifecycle {
+    entered: Arc<Notify>,
+}
+
+#[async_trait]
+impl ToolLifecycle for PendingLifecycle {
+    async fn started(&self, _context: &ToolExecutionContext) -> Result<(), MiddlewareError> {
+        self.entered.notify_one();
+        std::future::pending().await
+    }
+}
+
 #[async_trait]
 impl ToolLifecycle for RecordingLifecycle {
     async fn started(&self, context: &ToolExecutionContext) -> Result<(), MiddlewareError> {
@@ -815,6 +827,51 @@ async fn lifecycle_is_acknowledged_before_handler_side_effects_and_fails_closed(
     assert_eq!(result.failure_kind(), Some(ToolFailureKind::Lifecycle));
     assert_eq!(handler_calls.load(Ordering::SeqCst), 0);
     assert_eq!(seen.lock().await.as_slice(), ["durable/effect/1"]);
+}
+
+#[tokio::test]
+async fn cancellation_unblocks_a_pending_lifecycle_ack_without_running_the_handler() {
+    let entered = Arc::new(Notify::new());
+    let handler_calls = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(ToolSpec::new(definition("effect"), {
+            let handler_calls = Arc::clone(&handler_calls);
+            move |_context| {
+                let handler_calls = Arc::clone(&handler_calls);
+                async move {
+                    handler_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(ToolOutput::text("must not run"))
+                }
+            }
+        }))
+        .await
+        .unwrap();
+    let executor = ToolExecutor::new(registry).with_lifecycle(Arc::new(PendingLifecycle {
+        entered: Arc::clone(&entered),
+    }));
+    let mut batch = executor
+        .start_batch(
+            vec![ToolBatchRequest::new(
+                0,
+                ToolRequest::new("effect", r#"{"value":"x"}"#),
+            )],
+            1,
+        )
+        .await
+        .unwrap();
+    entered.notified().await;
+
+    batch.cancel();
+    while batch.next_event().await.is_some() {}
+    let results = batch.result().await.unwrap();
+
+    assert_eq!(handler_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0].result.failure_kind(),
+        Some(ToolFailureKind::Cancelled)
+    );
 }
 
 #[tokio::test]
@@ -902,4 +959,84 @@ async fn batch_scheduler_owns_limit_barriers_completion_order_and_replay_order()
         .unwrap();
     assert!(barrier_start > slow_end && barrier_start > fast_end);
     assert!(after_start > barrier_end);
+}
+
+#[tokio::test]
+async fn batch_rejects_invalid_shape_and_empty_batch_settles_cleanly() {
+    let executor = ToolExecutor::new(Arc::new(ToolRegistry::new()));
+
+    let zero = executor.start_batch(Vec::new(), 0).await.err().unwrap();
+    assert_eq!(zero, xharness_tools::ToolBatchError::ZeroConcurrency);
+
+    let duplicate = executor
+        .start_batch(
+            vec![
+                ToolBatchRequest::new(7, ToolRequest::new("missing", "{}")),
+                ToolBatchRequest::new(7, ToolRequest::new("missing", "{}")),
+            ],
+            1,
+        )
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(duplicate, xharness_tools::ToolBatchError::DuplicateOrder(7));
+
+    let mut empty = executor.start_batch(Vec::new(), 1).await.unwrap();
+    assert!(empty.next_event().await.is_none());
+    assert!(empty.result().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn batch_cancel_waits_for_each_cooperative_handler_to_quiesce() {
+    let entered = Arc::new(Barrier::new(3));
+    let cleaned = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(
+            ToolSpec::new(definition("cooperative"), {
+                let entered = Arc::clone(&entered);
+                let cleaned = Arc::clone(&cleaned);
+                move |context| {
+                    let entered = Arc::clone(&entered);
+                    let cleaned = Arc::clone(&cleaned);
+                    async move {
+                        entered.wait().await;
+                        context.cancellation.cancelled().await;
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        cleaned.fetch_add(1, Ordering::SeqCst);
+                        Ok(ToolOutput::text("cleaned"))
+                    }
+                }
+            })
+            .with_concurrency(ToolConcurrency::Parallel),
+        )
+        .await
+        .unwrap();
+    let executor = ToolExecutor::new(registry);
+    let requests = (0..2)
+        .map(|order| {
+            ToolBatchRequest::new(
+                order,
+                ToolRequest::new("cooperative", r#"{"value":"x"}"#)
+                    .with_execution_id(format!("cancel/{order}"))
+                    .unwrap(),
+            )
+        })
+        .collect();
+    let mut batch = executor.start_batch(requests, 2).await.unwrap();
+    entered.wait().await;
+
+    batch.cancel();
+    let mut completions = 0;
+    while batch.next_event().await.is_some() {
+        completions += 1;
+    }
+    let results = batch.result().await.unwrap();
+
+    assert_eq!(completions, 2);
+    assert_eq!(cleaned.load(Ordering::SeqCst), 2);
+    assert_eq!(results.len(), 2);
+    assert!(results
+        .iter()
+        .all(|result| result.result.failure_kind() == Some(ToolFailureKind::Cancelled)));
 }

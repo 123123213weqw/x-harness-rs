@@ -20,7 +20,7 @@ use xharness_agent::{DurableInbox, FileLeaseManager, InboxMessage, InboxTarget};
 use xharness_api::{ApiBackend, ClientResponse, ClientResponseKind, RpcResult};
 use xharness_core::{
     AgentMessage, FinishReason, LoopEngine, LoopRequest, LoopStatus, ModelProvider, ProviderError,
-    ProviderEvent, ProviderRequest, ProviderStream, ToolResult, ToolSpec,
+    ProviderEvent, ProviderRequest, ProviderStream,
 };
 use xharness_host::{
     BasicHost, DurableLoopAgentRuntime, HostConfig, NoTools, PermissionPreset, SessionToolFactory,
@@ -294,23 +294,33 @@ async fn crash_cut_worker() {
 
     let crash_store = Arc::new(CrashStore::new(inner, cut, root.clone()));
     let executions = Arc::new(AtomicUsize::new(0));
-    let mut tool = ToolSpec::new("dangerous", "dangerous", json!({"type": "object"}), {
-        let executions = Arc::clone(&executions);
-        move |_, _| {
-            executions.fetch_add(1, Ordering::SeqCst);
-            async { ToolResult::success("side effect completed") }
-        }
-    });
-    if cut == CrashCut::ApprovalAsked {
-        tool = tool.requires_approval();
-    }
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("dangerous", "dangerous", json!({"type": "object"})),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("side effect completed"))
+                        }
+                    }
+                },
+            )
+            .requiring_approval(cut == CrashCut::ApprovalAsked),
+        )
+        .await
+        .unwrap();
     let mut request = LoopRequest::new(
         Arc::new(CrashProvider { cut }),
         vec![AgentMessage::user("durable original").with_id("claimed-input")],
     );
     request.session_id = Some(SESSION_ID.to_owned());
     request.journal_store = Some(crash_store);
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
     while run.next().await.is_some() {}
     panic!("worker completed without reaching crash cut {cut:?}");
@@ -537,13 +547,23 @@ async fn recover_approval(root: &Path, store: Arc<JsonlSessionStore>) {
 
 async fn recover_core_cut(cut: CrashCut, store: Arc<JsonlSessionStore>) {
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("dangerous", "dangerous", json!({"type": "object"}), {
-        let executions = Arc::clone(&executions);
-        move |_, _| {
-            executions.fetch_add(1, Ordering::SeqCst);
-            async { ToolResult::success("must not replay") }
-        }
-    });
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(RuntimeToolSpec::new(
+            RuntimeToolDefinition::new("dangerous", "dangerous", json!({"type": "object"})),
+            {
+                let executions = Arc::clone(&executions);
+                move |_context| {
+                    let executions = Arc::clone(&executions);
+                    async move {
+                        executions.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("must not replay"))
+                    }
+                }
+            },
+        ))
+        .await
+        .unwrap();
     let store_trait: Arc<dyn Store> = store.clone();
     let mut request = LoopRequest::new(
         Arc::new(RecoveryProvider),
@@ -551,7 +571,7 @@ async fn recover_core_cut(cut: CrashCut, store: Arc<JsonlSessionStore>) {
     );
     request.session_id = Some(SESSION_ID.to_owned());
     request.journal_store = Some(store_trait);
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
     while run.next().await.is_some() {}
     let result = run.result().await;

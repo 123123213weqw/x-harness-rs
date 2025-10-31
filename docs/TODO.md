@@ -177,6 +177,12 @@ Commit、Issue、PR 应引用这些 ID。
   工具、Full Access 裁剪和 Durable Host 默认全部走新路径；`core_specs()`、自动批准适配器及
   Coding Tools 对 Core 的生产依赖已删除。旧 `LoopRequest.tools` 仅为尚未迁移的 Embedder/Test
   保留，不能和新 Executor 同时配置。
+- [x] `DONE-50` 正式 Tool Runtime 回归矩阵：Core 的恢复审批、并行审批、拒绝、重复 Provider
+  Call ID、取消和 Crash Cut 已迁移到 `ToolExecutor` 路径；补齐 Registry Definition 投影、未知
+  工具、坏 JSON、Schema Error、空 Batch、重复 Order、零并发和 Cooperative Quiescence 测试。
+  测试发现并修复了 Core Bridge 串行等待单个审批导致第二个并行审批永远无法投影的问题；现在
+  多个 Approval 先全部发布，再按 Execution ID 独立决议。取消会关闭所有已落账 Approval，并在
+  返回 Run Result 前等待正式 Batch 收敛；等待 Lifecycle Ack 时取消也不会启动 Handler。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
