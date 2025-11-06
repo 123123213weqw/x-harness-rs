@@ -68,7 +68,8 @@ Tool Result 从对应持久 Tool Call 恢复 Provider ID。旧日志没有该字
 ## 当前限制
 
 - 每个 Adapter 实例只绑定一个 Provider/Model。
-- Provider 路由和按用途选模型属于后续 LLM Registry。
+- Host 层 [`ModelRegistry`](model-registry.md) 已能把多个 Adapter 实例绑定到不同公共路由；按
+  Purpose 选模型仍未实现。
 - Tool Schema/Prompt 缓存依赖具体 Provider，本层不控制。
 - 尚无统一模型 Capability（Context Window、最大输出、Tokenizer、工具/多模态支持）注册表。
 

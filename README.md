@@ -365,6 +365,22 @@ cargo run -p xharness-host-app --bin xharness-host
 `session.prompt` 会返回 `model-unavailable`。远程部署前必须先补认证/Origin 策略；当前
 安全默认是仅监听 loopback。
 
+同一个 Host 同时接入 4080、V100 或云端接口时，使用
+`XHARNESS_PROVIDERS_FILE` / `--providers-file` 加载多路由 JSON：
+
+```bash
+XHARNESS_PROVIDERS_FILE=$PWD/config/providers.example.json \
+XHARNESS_WORKSPACE=/path/to/project \
+XHARNESS_WEB_DIST=/path/to/deepseek-harness/apps/web/dist \
+xharness-host --bind 127.0.0.1:3082
+```
+
+配置中的公共 `provider/model` 是 Web 与 Session 使用的稳定路由；`upstream_model` 是具体
+OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立声明 Context Window、输出预留和
+安全余量。云端凭据只通过 `api_key_env` 引用环境变量，禁止写入配置文件。配置示例见
+[`config/providers.example.json`](config/providers.example.json)，完整不变量见
+[LLM/Provider Registry 规范](docs/specs/model-registry.md)。旧的单接口参数保持兼容。
+
 模型服务的真实上下文以部署参数为准。例如 llama.cpp 的 `-c 53248` 代表整个请求窗口，
 System、历史、工具 Schema、模板和输出预留都要共享它。配置模型但没有
 `XHARNESS_CONTEXT_WINDOW`（或 `--context-window`）时，正式 Host 会拒绝启动；超限请求在网络前

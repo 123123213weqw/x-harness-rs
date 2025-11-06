@@ -1750,8 +1750,10 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         let runtime = Arc::new(DurableLoopAgentRuntime::new(
             "test",
-            "test-model",
-            None,
+            "selected-model",
+            Some(Arc::new(ApprovalRecoveryProvider {
+                requests: Arc::new(Mutex::new(Vec::new())),
+            })),
             Arc::new(NoTools),
             Arc::new(IdentityContextPolicy),
             Arc::clone(&store),
@@ -1882,8 +1884,10 @@ mod tests {
 
         let restarted_runtime = Arc::new(DurableLoopAgentRuntime::new(
             "test",
-            "test-model",
-            None,
+            "selected-model",
+            Some(Arc::new(ApprovalRecoveryProvider {
+                requests: Arc::new(Mutex::new(Vec::new())),
+            })),
             Arc::new(NoTools),
             Arc::new(IdentityContextPolicy),
             Arc::clone(&store),

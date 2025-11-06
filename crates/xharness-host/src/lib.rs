@@ -31,7 +31,8 @@ use xharness_tools::{ToolExecutor, ToolRegistry};
 pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
 pub use runtime::{
     AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
-    DurableLoopAgentRuntime, LoopAgentRuntime, ModelRoute, RunningTurn,
+    DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelRegistry, ModelRegistryError,
+    ModelRoute, RegisteredModel, RunningTurn,
 };
 pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, WorkspaceRecord};
 

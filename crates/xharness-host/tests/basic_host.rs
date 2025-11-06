@@ -23,7 +23,7 @@ use xharness_core::{
 };
 use xharness_host::{
     AgentRuntime, AgentRuntimeError, AgentTurnRequest, BasicHost, HostConfig, LoopAgentRuntime,
-    ModelRoute, NoTools, PermissionPreset, RunningTurn, SessionToolFactory,
+    ModelDescriptor, ModelRoute, NoTools, PermissionPreset, RunningTurn, SessionToolFactory,
 };
 use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, ToolSpec};
 
@@ -105,6 +105,38 @@ struct GatedPersistenceRuntime {
     entered: Arc<AtomicBool>,
     release: Arc<Notify>,
     persist_calls: Arc<Mutex<usize>>,
+}
+
+struct CatalogRuntime;
+
+#[async_trait]
+impl AgentRuntime for CatalogRuntime {
+    fn has_available_route(&self) -> bool {
+        true
+    }
+
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        matches!(
+            (route.provider.as_str(), route.model.as_str()),
+            ("gpu-4080", "qwen-4080") | ("gpu-v100", "qwen-v100")
+        )
+    }
+
+    fn model_catalog(&self) -> Vec<ModelDescriptor> {
+        vec![
+            ModelDescriptor::new("gpu-4080", "RTX 4080", "qwen-4080", "Qwen · 4080"),
+            ModelDescriptor::new("gpu-v100", "V100 Server", "qwen-v100", "Qwen · V100"),
+        ]
+    }
+
+    async fn start_turn(
+        &self,
+        _request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "catalog fixture does not execute turns".to_owned(),
+        })
+    }
 }
 
 #[async_trait]
@@ -662,7 +694,7 @@ async fn unroutable_session_model_is_rejected_before_prompt_queueing() {
         }
         other => panic!("create failed: {other:?}"),
     };
-    assert!(host
+    let selection = host
         .call(
             RpcId::new("route-select"),
             RpcMethod::SessionSelectModel,
@@ -673,22 +705,9 @@ async fn unroutable_session_model_is_rejected_before_prompt_queueing() {
             }),
             CancellationToken::new(),
         )
-        .await
-        .is_ok());
-    let prompt = host
-        .call(
-            RpcId::new("route-prompt"),
-            RpcMethod::SessionPrompt,
-            json!({
-                "sessionId": session_id,
-                "mode": "queue",
-                "content": [{"type": "text", "text": "must not run"}],
-            }),
-            CancellationToken::new(),
-        )
         .await;
     assert!(matches!(
-        prompt,
+        selection,
         RpcResult::Failure {
             error: xharness_api::RpcError {
                 code: xharness_api::RpcErrorCode::ModelUnavailable,
@@ -699,6 +718,92 @@ async fn unroutable_session_model_is_rejected_before_prompt_queueing() {
     assert!(provider.requests.lock().unwrap().is_empty());
     let snapshot = host.snapshot().await;
     assert_eq!(snapshot["sessions"][0]["running"], false);
+    assert_eq!(snapshot["sessions"][0]["model"]["model"], "capture-model");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
+    let root = std::env::temp_dir().join(format!("xharness-host-catalog-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "gpu-4080".to_owned();
+    config.provider_display_name = "RTX 4080".to_owned();
+    config.model_id = "qwen-4080".to_owned();
+    let host = BasicHost::with_agent_runtime(config, Arc::new(CatalogRuntime));
+
+    let providers = host
+        .call(
+            RpcId::new("catalog-providers"),
+            RpcMethod::LlmProviders,
+            json!({}),
+            CancellationToken::new(),
+        )
+        .await;
+    let providers = match providers {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("provider catalog failed: {other:?}"),
+    };
+    assert_eq!(providers["providers"].as_array().unwrap().len(), 2);
+    assert_eq!(providers["providers"][1]["provider"], "gpu-v100");
+
+    let models = host
+        .call(
+            RpcId::new("catalog-models"),
+            RpcMethod::LlmModels,
+            json!({}),
+            CancellationToken::new(),
+        )
+        .await;
+    let models = match models {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("model catalog failed: {other:?}"),
+    };
+    assert_eq!(models["groups"].as_array().unwrap().len(), 2);
+    assert_eq!(models["groups"][1]["models"][0]["id"], "qwen-v100");
+
+    let created = host
+        .call(
+            RpcId::new("catalog-create"),
+            RpcMethod::SessionCreate,
+            json!({"cwd": root}),
+            CancellationToken::new(),
+        )
+        .await;
+    let session_id = match created {
+        RpcResult::Success { value: Some(value) } => {
+            value["sessionId"].as_str().unwrap().to_owned()
+        }
+        other => panic!("session create failed: {other:?}"),
+    };
+    let selected = host
+        .call(
+            RpcId::new("catalog-select"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "gpu-v100",
+                "model": "qwen-v100",
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(selected, RpcResult::Success { .. }));
+    let current = host
+        .call(
+            RpcId::new("catalog-current"),
+            RpcMethod::SessionModels,
+            json!({"sessionId": session_id}),
+            CancellationToken::new(),
+        )
+        .await;
+    let current = match current {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("session models failed: {other:?}"),
+    };
+    assert_eq!(current["current"]["provider"], "gpu-v100");
+    assert_eq!(current["current"]["model"], "qwen-v100");
+    assert_eq!(current["routable"], true);
     let _ = std::fs::remove_dir_all(root);
 }
 

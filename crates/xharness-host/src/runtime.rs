@@ -31,6 +31,182 @@ pub struct ModelRoute {
     pub reasoning_effort: Option<String>,
 }
 
+/// Browser-visible metadata for one model route accepted by the runtime.
+///
+/// The route identity is intentionally separate from the adapter's upstream
+/// model string. For example, `llama-v100/qwen` and
+/// `llama-4080/qwen` may both use the OpenAI-compatible adapter while pointing
+/// at different endpoints and wire-level model names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelDescriptor {
+    pub provider: String,
+    pub provider_display_name: String,
+    pub model: String,
+    pub model_display_name: String,
+}
+
+impl ModelDescriptor {
+    pub fn new(
+        provider: impl Into<String>,
+        provider_display_name: impl Into<String>,
+        model: impl Into<String>,
+        model_display_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            provider: provider.into(),
+            provider_display_name: provider_display_name.into(),
+            model: model.into(),
+            model_display_name: model_display_name.into(),
+        }
+    }
+
+    pub fn route(&self) -> ModelRoute {
+        ModelRoute::new(&self.provider, &self.model)
+    }
+}
+
+/// One immutable Provider/Model binding used by [`ModelRegistry`].
+#[derive(Clone)]
+pub struct RegisteredModel {
+    descriptor: ModelDescriptor,
+    provider: Arc<dyn ModelProvider>,
+    token_guard: Option<TokenGuard>,
+}
+
+impl RegisteredModel {
+    pub fn new(descriptor: ModelDescriptor, provider: Arc<dyn ModelProvider>) -> Self {
+        Self {
+            descriptor,
+            provider,
+            token_guard: None,
+        }
+    }
+
+    pub fn with_token_guard(mut self, token_guard: Option<TokenGuard>) -> Self {
+        self.token_guard = token_guard;
+        self
+    }
+
+    pub fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ModelRegistryError {
+    #[error("provider and model route identifiers must be non-empty")]
+    EmptyRoute,
+    #[error("provider and model display names must be non-empty")]
+    EmptyDisplayName,
+    #[error("model route {provider}/{model} is registered more than once")]
+    DuplicateRoute { provider: String, model: String },
+    #[error("default model route {provider}/{model} is not registered")]
+    DefaultRouteUnavailable { provider: String, model: String },
+}
+
+/// Provider-neutral registry that resolves a selected Host route to one bound
+/// adapter and its context budget.
+///
+/// Registry order is stable and is reused by the Web model picker. Adapters
+/// are wrapped so durable request headers retain the public route identity,
+/// while the inner adapter remains free to use a different upstream model
+/// string in its wire request.
+#[derive(Clone, Default)]
+pub struct ModelRegistry {
+    entries: HashMap<(String, String), RegisteredModel>,
+    order: Vec<(String, String)>,
+}
+
+impl ModelRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register(&mut self, mut model: RegisteredModel) -> Result<(), ModelRegistryError> {
+        let descriptor = &model.descriptor;
+        if descriptor.provider.trim().is_empty() || descriptor.model.trim().is_empty() {
+            return Err(ModelRegistryError::EmptyRoute);
+        }
+        if descriptor.provider_display_name.trim().is_empty()
+            || descriptor.model_display_name.trim().is_empty()
+        {
+            return Err(ModelRegistryError::EmptyDisplayName);
+        }
+        let key = (descriptor.provider.clone(), descriptor.model.clone());
+        if self.entries.contains_key(&key) {
+            return Err(ModelRegistryError::DuplicateRoute {
+                provider: key.0,
+                model: key.1,
+            });
+        }
+        model.provider = Arc::new(RouteBoundProvider {
+            provider_id: descriptor.provider.clone(),
+            model_id: descriptor.model.clone(),
+            inner: model.provider,
+        });
+        self.order.push(key.clone());
+        self.entries.insert(key, model);
+        Ok(())
+    }
+
+    pub fn can_route(&self, route: &ModelRoute) -> bool {
+        self.entries
+            .contains_key(&(route.provider.clone(), route.model.clone()))
+    }
+
+    pub fn models(&self) -> Vec<ModelDescriptor> {
+        self.order
+            .iter()
+            .filter_map(|key| self.entries.get(key))
+            .map(|model| model.descriptor.clone())
+            .collect()
+    }
+
+    pub fn token_guard(&self, route: &ModelRoute) -> Option<TokenGuard> {
+        self.resolve(route)
+            .and_then(|model| model.token_guard.clone())
+    }
+
+    fn resolve(&self, route: &ModelRoute) -> Option<&RegisteredModel> {
+        self.entries
+            .get(&(route.provider.clone(), route.model.clone()))
+    }
+
+    fn set_token_guard(&mut self, route: &ModelRoute, token_guard: Option<TokenGuard>) {
+        if let Some(model) = self
+            .entries
+            .get_mut(&(route.provider.clone(), route.model.clone()))
+        {
+            model.token_guard = token_guard;
+        }
+    }
+}
+
+struct RouteBoundProvider {
+    provider_id: String,
+    model_id: String,
+    inner: Arc<dyn ModelProvider>,
+}
+
+#[async_trait]
+impl ModelProvider for RouteBoundProvider {
+    fn provider_name(&self) -> &str {
+        &self.provider_id
+    }
+
+    fn model_name(&self) -> Option<&str> {
+        Some(&self.model_id)
+    }
+
+    async fn stream(
+        &self,
+        request: xharness_core::ProviderRequest,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Result<xharness_core::ProviderStream, xharness_core::ProviderError> {
+        self.inner.stream(request, cancellation).await
+    }
+}
+
 impl ModelRoute {
     pub fn new(provider: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
@@ -134,6 +310,12 @@ pub trait AgentRuntime: Send + Sync + 'static {
     fn has_available_route(&self) -> bool;
 
     fn can_route(&self, route: &ModelRoute) -> bool;
+
+    /// Stable model catalog exposed to the Web picker. A route returned here
+    /// must also be accepted by [`Self::can_route`].
+    fn model_catalog(&self) -> Vec<ModelDescriptor> {
+        Vec::new()
+    }
 
     /// Whether this runtime owns an append-only Session log that is the
     /// authoritative source for browser history and restart projection.
@@ -262,6 +444,18 @@ impl AgentRuntime for LoopAgentRuntime {
             && route.model == self.model_id
     }
 
+    fn model_catalog(&self) -> Vec<ModelDescriptor> {
+        if self.provider.is_none() {
+            return Vec::new();
+        }
+        vec![ModelDescriptor::new(
+            &self.provider_id,
+            &self.provider_id,
+            &self.model_id,
+            &self.model_id,
+        )]
+    }
+
     async fn start_turn(
         &self,
         request: AgentTurnRequest,
@@ -293,13 +487,13 @@ struct DurableSessionConfig {
     cwd: String,
     permission: PermissionPreset,
     prompt: Option<PromptAssembly>,
+    route: ModelRoute,
 }
 
 struct DurableTurnFactory {
-    provider: Option<Arc<dyn ModelProvider>>,
+    models: Arc<StdRwLock<ModelRegistry>>,
     tool_factory: Arc<dyn SessionToolFactory>,
     context_policy: Arc<dyn ContextPolicy>,
-    token_guard: Arc<StdRwLock<Option<TokenGuard>>>,
     sessions: Arc<RwLock<HashMap<String, DurableSessionConfig>>>,
 }
 
@@ -313,11 +507,16 @@ impl TurnRequestFactory for DurableTurnFactory {
             .get(agent_id)
             .cloned()
             .ok_or_else(|| format!("durable agent {agent_id:?} has no Host configuration"))?;
-        let provider = Arc::clone(
-            self.provider
-                .as_ref()
-                .ok_or_else(|| "model provider is unavailable".to_owned())?,
-        );
+        let (provider, token_guard) = {
+            let models = self.models.read().expect("model registry lock poisoned");
+            let model = models.resolve(&config.route).ok_or_else(|| {
+                format!(
+                    "model route {}/{} is unavailable",
+                    config.route.provider, config.route.model
+                )
+            })?;
+            (Arc::clone(&model.provider), model.token_guard.clone())
+        };
         let tool_executor = self
             .tool_factory
             .executor(agent_id, &config.cwd, config.permission)
@@ -326,11 +525,7 @@ impl TurnRequestFactory for DurableTurnFactory {
         request.prompt = config.prompt;
         request.tool_executor = Some(tool_executor);
         request.context_policy = Arc::clone(&self.context_policy);
-        request.token_guard = self
-            .token_guard
-            .read()
-            .expect("token guard lock poisoned")
-            .clone();
+        request.token_guard = token_guard;
         Ok(request)
     }
 }
@@ -343,15 +538,13 @@ impl TurnRequestFactory for DurableTurnFactory {
 /// The Web DTO cache is not authoritative. A later Host-store migration can
 /// rebuild it from this runtime's Session log without changing [`AgentRuntime`].
 pub struct DurableLoopAgentRuntime {
-    provider_id: String,
-    model_id: String,
-    provider_available: bool,
+    models: Arc<StdRwLock<ModelRegistry>>,
+    default_route: ModelRoute,
     store: Arc<dyn Store>,
     sessions: Arc<RwLock<HashMap<String, DurableSessionConfig>>>,
     supervisor: AgentSupervisor,
     prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
     next_control_id: Arc<AtomicU64>,
-    token_guard: Arc<StdRwLock<Option<TokenGuard>>>,
 }
 
 struct PreparedDurableTurn {
@@ -372,32 +565,73 @@ impl DurableLoopAgentRuntime {
         leases: Arc<dyn LeaseManager>,
         event_capacity: usize,
     ) -> Self {
-        let provider_available = provider.is_some();
-        let sessions = Arc::new(RwLock::new(HashMap::new()));
-        let token_guard = Arc::new(StdRwLock::new(None));
-        let factory = Arc::new(DurableTurnFactory {
-            provider,
+        let provider_id = provider_id.into();
+        let model_id = model_id.into();
+        let default_route = ModelRoute::new(&provider_id, &model_id);
+        let mut models = ModelRegistry::new();
+        if let Some(provider) = provider {
+            models
+                .register(RegisteredModel::new(
+                    ModelDescriptor::new(&provider_id, &provider_id, &model_id, &model_id),
+                    provider,
+                ))
+                .expect("single model registry entry is valid");
+        }
+        Self::from_registry(
+            default_route,
+            models,
             tool_factory,
             context_policy,
-            token_guard: Arc::clone(&token_guard),
+            store,
+            leases,
+            event_capacity,
+        )
+        .expect("single model registry default route is valid")
+    }
+
+    /// Build one durable runtime that can route every registered model while
+    /// retaining a single Agent supervisor and Session authority.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_registry(
+        default_route: ModelRoute,
+        models: ModelRegistry,
+        tool_factory: Arc<dyn SessionToolFactory>,
+        context_policy: Arc<dyn ContextPolicy>,
+        store: Arc<dyn Store>,
+        leases: Arc<dyn LeaseManager>,
+        event_capacity: usize,
+    ) -> Result<Self, ModelRegistryError> {
+        if !models.entries.is_empty() && !models.can_route(&default_route) {
+            return Err(ModelRegistryError::DefaultRouteUnavailable {
+                provider: default_route.provider,
+                model: default_route.model,
+            });
+        }
+        let sessions = Arc::new(RwLock::new(HashMap::new()));
+        let models = Arc::new(StdRwLock::new(models));
+        let factory = Arc::new(DurableTurnFactory {
+            models: Arc::clone(&models),
+            tool_factory,
+            context_policy,
             sessions: Arc::clone(&sessions),
         });
         let registry = Arc::new(AgentRegistry::new(Arc::clone(&store), leases));
-        Self {
-            provider_id: provider_id.into(),
-            model_id: model_id.into(),
-            provider_available,
+        Ok(Self {
+            models,
+            default_route,
             store,
             sessions,
             supervisor: AgentSupervisor::new(registry, factory, event_capacity),
             prepared: Mutex::new(HashMap::new()),
             next_control_id: Arc::new(AtomicU64::new(1)),
-            token_guard,
-        }
+        })
     }
 
     pub fn with_token_guard(self, token_guard: Option<TokenGuard>) -> Self {
-        *self.token_guard.write().expect("token guard lock poisoned") = token_guard;
+        self.models
+            .write()
+            .expect("model registry lock poisoned")
+            .set_token_guard(&self.default_route, token_guard);
         self
     }
 
@@ -439,6 +673,7 @@ impl DurableLoopAgentRuntime {
                 cwd: request.cwd.clone(),
                 permission: request.permission,
                 prompt: request.prompt.clone(),
+                route: request.route,
             },
         );
         let mut header = SessionHeader::new(&request.session_id);
@@ -480,13 +715,26 @@ impl DurableLoopAgentRuntime {
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
     fn has_available_route(&self) -> bool {
-        self.provider_available
+        !self
+            .models
+            .read()
+            .expect("model registry lock poisoned")
+            .entries
+            .is_empty()
     }
 
     fn can_route(&self, route: &ModelRoute) -> bool {
-        self.provider_available
-            && route.provider == self.provider_id
-            && route.model == self.model_id
+        self.models
+            .read()
+            .expect("model registry lock poisoned")
+            .can_route(route)
+    }
+
+    fn model_catalog(&self) -> Vec<ModelDescriptor> {
+        self.models
+            .read()
+            .expect("model registry lock poisoned")
+            .models()
     }
 
     fn has_authoritative_sessions(&self) -> bool {
@@ -583,6 +831,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 cwd: request.cwd.clone(),
                 permission: request.permission,
                 prompt: request.prompt,
+                route: request.route,
             },
         );
         let mut header = SessionHeader::new(&request.session_id);
@@ -1130,6 +1379,73 @@ mod tests {
             contents,
             ["first", "first answer", "second", "second answer"]
         );
+    }
+
+    #[tokio::test]
+    async fn durable_registry_routes_each_turn_and_journals_public_route_identity() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut models = ModelRegistry::new();
+        models
+            .register(RegisteredModel::new(
+                ModelDescriptor::new("gpu-4080", "RTX 4080", "qwen", "Qwen on 4080"),
+                Arc::new(ScriptProvider {
+                    answers: Mutex::new(VecDeque::from(["answer-4080".to_owned()])),
+                }),
+            ))
+            .unwrap();
+        models
+            .register(RegisteredModel::new(
+                ModelDescriptor::new("gpu-v100", "V100 Server", "qwen", "Qwen on V100"),
+                Arc::new(ScriptProvider {
+                    answers: Mutex::new(VecDeque::from(["answer-v100".to_owned()])),
+                }),
+            ))
+            .unwrap();
+        let runtime = DurableLoopAgentRuntime::from_registry(
+            ModelRoute::new("gpu-4080", "qwen"),
+            models,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        )
+        .unwrap();
+        assert_eq!(runtime.model_catalog().len(), 2);
+        assert!(runtime.can_route(&ModelRoute::new("gpu-v100", "qwen")));
+
+        for (ordinal, provider, expected) in [
+            (1, "gpu-4080", "answer-4080"),
+            (2, "gpu-v100", "answer-v100"),
+        ] {
+            let request = AgentTurnRequest {
+                session_id: "routed-host".to_owned(),
+                cwd: "/workspace".to_owned(),
+                route: ModelRoute::new(provider, "qwen"),
+                permission: PermissionPreset::WorkspaceWrite,
+                prompt: None,
+                messages: vec![AgentMessage::user(format!("prompt-{ordinal}"))
+                    .with_id(format!("prompt-{ordinal}"))],
+                input_metadata: None,
+            };
+            runtime.admit_turn(request.clone()).await.unwrap();
+            let mut running = runtime.start_turn(request).await.unwrap();
+            while running.next_event().await.is_some() {}
+            assert_eq!(running.result().await.final_text, expected);
+        }
+
+        let session = store.load("routed-host").await.unwrap().unwrap();
+        let routes = session
+            .events()
+            .iter()
+            .filter_map(|event| match event.data() {
+                xharness_session::EventData::RequestHeader { header } => {
+                    Some((header.provider.as_str(), header.model.as_str()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(routes, [("gpu-4080", "qwen"), ("gpu-v100", "qwen")]);
     }
 
     #[tokio::test]

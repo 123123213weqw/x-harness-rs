@@ -888,6 +888,21 @@ impl BasicHost {
             model,
             reasoning_effort,
         };
+        let route = ModelRoute {
+            provider: selected.provider.clone(),
+            model: selected.model.clone(),
+            reasoning_effort: selected.reasoning_effort.clone(),
+        };
+        if !self.agent_runtime.can_route(&route) {
+            return Err(rpc_error(
+                RpcErrorCode::ModelUnavailable,
+                format!(
+                    "model route {}/{} is unavailable",
+                    route.provider, route.model
+                ),
+                json!({"provider": route.provider, "model": route.model}),
+            ));
+        }
         if let Some(response) = self
             .replay_session_mutation_receipt(
                 &session_id,
@@ -2684,16 +2699,23 @@ impl BasicHost {
 
     async fn llm_providers(&self, payload: &Value) -> Result<Value, RpcError> {
         require_object(payload)?;
-        Ok(json!({
-            "providers": [{
-                "provider": self.config.provider_id,
-                "displayName": self.config.provider_display_name,
+        let mut providers = Vec::new();
+        for model in self.agent_runtime.model_catalog() {
+            if providers.iter().any(|provider: &Value| {
+                provider.get("provider").and_then(Value::as_str) == Some(&model.provider)
+            }) {
+                continue;
+            }
+            providers.push(json!({
+                "provider": model.provider,
+                "displayName": model.provider_display_name,
                 "settingsNs": "xharness",
                 "settingsPath": [],
-                "active": self.agent_runtime.has_available_route(),
+                "active": true,
                 "declared": true,
-            }],
-        }))
+            }));
+        }
+        Ok(json!({"providers": providers}))
     }
 
     async fn llm_models(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -2703,20 +2725,41 @@ impl BasicHost {
 
     async fn llm_discover_models(&self, payload: &Value) -> Result<Value, RpcError> {
         nonempty(required_string(payload, "settingsNs")?, "settingsNs")?;
-        Ok(json!({
-            "models": [{"id": self.config.model_id, "name": self.config.model_id}],
-        }))
+        let models = self
+            .agent_runtime
+            .model_catalog()
+            .into_iter()
+            .map(|model| {
+                json!({
+                    "id": model.model,
+                    "name": model.model_display_name,
+                    "provider": model.provider,
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"models": models}))
     }
 
     fn model_groups(&self) -> Vec<Value> {
-        if !self.agent_runtime.has_available_route() {
-            return Vec::new();
+        let mut groups: Vec<(String, String, Vec<Value>)> = Vec::new();
+        for model in self.agent_runtime.model_catalog() {
+            if let Some((_, _, models)) = groups
+                .iter_mut()
+                .find(|(provider, _, _)| provider == &model.provider)
+            {
+                models.push(json!({"id": model.model, "name": model.model_display_name}));
+            } else {
+                groups.push((
+                    model.provider,
+                    model.provider_display_name,
+                    vec![json!({"id": model.model, "name": model.model_display_name})],
+                ));
+            }
         }
-        vec![json!({
-            "id": self.config.provider_id,
-            "name": self.config.provider_display_name,
-            "models": [{"id": self.config.model_id, "name": self.config.model_id}],
-        })]
+        groups
+            .into_iter()
+            .map(|(id, name, models)| json!({"id": id, "name": name, "models": models}))
+            .collect()
     }
 
     async fn respond_pending(&self, response: ClientResponse) -> RpcReceipt {

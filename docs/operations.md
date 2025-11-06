@@ -36,6 +36,42 @@ Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保�
   仍在内存中，因此尚不是整个 API 的完整 Exactly-once 恢复。
 - 正式 Host 已安装请求前 Token Guard；配置模型时必须显式声明真实窗口。当前没有自动上下文
   压缩，超限会在本地失败且 Provider Attempt 为零。
+- 一个 Host 可以从 `XHARNESS_PROVIDERS_FILE` 加载多个 OpenAI-compatible 路由。Web 只连接
+  Host，4080/V100 的 Base URL、协议、上游模型名和窗口预算由 Registry 分别管理。
+
+## 多 Provider 部署
+
+推荐让远端模型服务只监听服务器 loopback，再通过 SSH 转发到运行 Web Host 的机器：
+
+```bash
+ssh -N -L 127.0.0.1:19626:127.0.0.1:19626 WZU_4080
+ssh -N -J WZU_4080 -L 127.0.0.1:8000:127.0.0.1:8000 WZU_Server
+```
+
+随后复制并修改 `config/providers.example.json`，再用：
+
+```bash
+XHARNESS_PROVIDERS_FILE=/absolute/path/providers.json \
+xharness-host --bind 127.0.0.1:3082
+```
+
+启动检查必须分别请求每个 Base URL 的 `/models` 和一次最小生成；SSH Forward 存活不代表远端
+模型端口正在监听。配置修改目前需要重启 Host。历史 Session 若选择了已删除路由，仍可浏览，
+但 Pending Turn 必须保持 `model-unavailable`，禁止悄悄切到默认 GPU。
+
+当前 WZU_Server 的系统 vLLM/PyTorch CUDA 13 wheel 不包含 V100 `sm_70` kernel，会在启动时返回
+`no kernel image is available`。在完成原生 vLLM 重编译前，可用仓库中的单用户部署桥：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/v100-openai-transformers.py \
+  --model /path/to/Qwen3.5-9B \
+  --served-model qwen3.5-9b-v100 \
+  --context-window 32768 \
+  --host 127.0.0.1 --port 8000
+```
+
+该桥只负责把 Transformers/Qwen XML 工具调用正规化为流式 Chat Completions；Loop、审批、工具、
+Session 和路由仍全部在 Rust Host。它按单用户串行请求，不是高并发生产推理服务器。
 
 ## Sandbox Probe 失败
 

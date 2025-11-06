@@ -144,7 +144,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [ ] `C-01` 实现完整有序 Prompt Registry；最小 `xharness-prompt/v1` 组装和版本化 Request
   Header 已完成，剩余动态注册、Scope、Variable 与 Provider Section。
 - [x] `C-02` 真实注入 Coding Preset，而不是只在 Web 中保存文本。
-- [ ] `C-03` 实现 Provider/Model/Purpose Registry 和能力发现。
+- [ ] `C-03` 实现 Provider/Model/Purpose Registry 和能力发现。Provider/Model 多路由、公共
+  Route 与上游模型名分离、每路由 Token Guard、JSON 配置和 Web 目录已实现；Purpose、
+  Reasoning 原生控制与模型 Capability 发现仍待完成。
 - [x] `C-04` 实现 Tokenizer 抽象与安全估算后备。
 - [x] `C-05` Provider I/O 前计量 System/消息/工具 Schema/协议模板/输出预留。
 - [x] `C-06` 固化 `64196 > 53248` 为 Provider Attempt=0 的回归。

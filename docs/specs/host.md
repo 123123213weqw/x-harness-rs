@@ -60,6 +60,11 @@ Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；`AgentRuntime::ad
 `remove_pending_input` 和 `replace_pending_input` 把持久准入与 Web Queue 变更置于统一边界，
 52 个 RPC 和 Web 投影代码没有改变。
 
+正式 Runtime 已组合 [`ModelRegistry`](model-registry.md)。同一个 Supervisor 可以按 Session
+选择把不同 Turn 路由到 4080、V100 或云端 Adapter；Provider 公共身份、上游模型名和每路由
+Token Guard 相互分离。Web 的 `llm.providers`、`llm.models`、`session.models` 直接投影该
+Registry；未注册选择在写入 Session 前返回 `model-unavailable`。
+
 当前仍是迁移中间态：`session.prompt` 已在返回成功前完成 Durable Inbox Append + Flush，
 RPC ID 同时是稳定 Inbox ID；Queue Edit/Remove 先修改持久 Inbox，再更新内存 Projection。
 `BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责。它现在能从 Session Log 和
@@ -96,7 +101,7 @@ Plan Policy 确定性组装，并作为每轮第一个 `Role::System` 进入 Pro
 - **Settings（5）：** 带 namespace revision 的描述、打开、更新、替换、变更。
 - **Credentials（3）：** 仅返回“是否存在”，支持内存 set/unset；禁止返回值本身，
   禁止覆盖环境变量拥有的凭据引用。
-- **LLM（3）：** 已配置 Provider、模型和基础发现投影。
+- **LLM（3）：** 多 Provider/Model Registry、稳定分组目录和显式配置发现投影。
 
 不支持的原生 UI 能力必须返回明确的业务错误或中性 Optional 结果，不能表现为路由缺失。
 
@@ -113,10 +118,10 @@ Durable Inbox，再加入 Web Projection 并返回成功。正式 Agent 领取�
 Projection。Steering 交给活跃 `RunningTurn`；取消只停止当前 Turn，不删除排队输入。File Lease
 提供单机跨进程所有权；远程多主机仍需要 Fencing Epoch。
 
-每个 Step 当前通过默认 `IdentityContextPolicy` 完整重放 `session.messages`，并固定注入完整
-14 工具。Host 没有读取目标模型 Context Window、预留输出或在 Provider I/O 前计量请求。
-正式 Driver 必须改成：Preset/System 组装 → Capability Tool Projection → Context Surface →
-Token Guard → Prepared Call，并把实际输入版本写入 Request Header。
+每个 Step 当前通过默认 `IdentityContextPolicy` 完整重放 `session.messages`。Host 已按平台能力
+投影工具，并从选中 Registry Route 读取真实 Context Window、输出预留和安全余量，在 Provider
+I/O 前执行 Token Guard。完整自动 Context Compaction、Provider-aware 精确 Tokenizer 和按模型
+Capability 进一步裁剪仍未实现。
 
 ## 审批与事件流
 

@@ -296,6 +296,9 @@ Commit、Issue、PR 应引用这些 ID。
 
 - [ ] `P1-02` **LLM/Provider Registry。** 按 Provider/Model/Purpose 路由，把 Prepared Call
   绑定到一个注册 Adapter，暴露 Reasoning/Max-token 控制，并在不猜协议的情况下发现模型能力。
+  **已完成基础切片：** 单 Host 多 Provider/Model Registry、公共路由与上游模型名分离、每路由
+  Token Guard、JSON 配置、Web 模型目录和选择前 fail-closed 校验。**剩余：** Purpose 路由、
+  Reasoning 原生字段、模型 Capability/Tokenizer 注册、凭据服务绑定和安全热重载。
 
 - [ ] `P1-03` **Token Meter 与 Context Policy。** Provider-aware Token Estimate、最大输入
   Guard、确定性 Tool Output Reduce、Surface Replace，以及不修改原 Event Log 的可选 Summary。
