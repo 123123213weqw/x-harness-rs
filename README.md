@@ -4,7 +4,8 @@
 可测试的 Agent Loop；macOS 作为首要本地开发平台，Linux 作为服务器平台。
 
 当前开发版已完成可嵌入 Loop、OpenAI-compatible Provider、append-only Session、
-14 个原生 Coding 工具，以及兼容 DeepSeek Harness Web 的第一版 Rust Host。目标不是
+14 个原生 Coding 工具（按运行时能力动态投影），以及兼容 DeepSeek Harness Web 的第一版
+Rust Host。目标不是
 把所有能力继续堆进一个 `while`，而是把模型、历史、工具策略、Web 投影和原生执行
 能力拆成 typed service。模型 Provider 只由共享核心调用，macOS/Linux 差异收敛在
 最下层，并在编译期选择实现。
@@ -13,6 +14,8 @@
 DeepSeek Web UI / future CLI
               |
  xharness-api + server + host
+              |
+      Long-lived Agent
               |
        Shared Loop Core
        |              |
@@ -29,6 +32,8 @@ DeepSeek Web UI / future CLI
 ## 规范与路线图
 
 - [总体架构](docs/architecture.md)
+- [全面复刻主控计划](docs/FULL_REPLICATION.md)
+- [冻结上游兼容矩阵](docs/compat/MATRIX.md)
 - [逐模块规范索引](docs/specs/README.md)
 - [上下文预算与压缩](docs/specs/context.md)
 - [Prompt 组装与注入](docs/specs/prompt.md)
@@ -46,10 +51,22 @@ FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产�
 该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
 Developer ID 签名、公证和本机安装验证。
 
-> **当前可用性提醒（2026-08-21）：** Web/Loop/14 工具已经贯通，但当前 Host 仍完整重放
-> 历史、每个 Step 固定发送全部工具、没有请求前 Token Guard；`AgentPreset.content` 也尚未
-> 作为 System Prompt 注入。大文件任务可能超过模型真实上下文。Linux Bubblewrap Probe 失败时，
+> **当前可用性提醒（2026-08-22）：** Web/Loop/14 工具、版本化最小 Coding System Prompt 和
+> 请求前 Hard Token Guard 已经贯通。当前 Host 仍完整重放历史，但每个 Step 已按平台 Readiness
+> 动态发送可用工具；
+> 大文件任务超限时会在本地明确失败，但尚不会自动压缩。Linux Bubblewrap Probe 失败时，
 > `bash/glob/grep/terminal_open` 会按设计 fail closed。详见[运行诊断](docs/operations.md)。
+
+正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
+`session.prompt` 成功回执已绑定 Durable Inbox Flush。启动会枚举并恢复可由日志推导的
+Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。History 直接按稳定 Cursor
+查询权威 Session Log，Host 只保留受 Event/Byte 双预算约束的投影尾缓存；Web Queue 从 Durable
+`next-turn + next-step` 折叠并在变化及重连发送完整快照。Workspace/Settings 与
+对应 Mutation Receipt 已进入独立、Secret-free 的 Host Control JSONL。Prompt RPC Receipt 可从
+完整 Inbox 历史重建；Session Rename/Model Select、Preset Select 和 6 个 Goal RPC 也已把状态与
+Receipt 在同一 Session Revision 原子提交。同 ID/同 Payload 的并发或重启重试不会重复变更；Pending
+Approval 已能在原 Turn/Step 上跨重启继续回答。Create/Fork、Queue/Cancel/Attachment 等其他变更
+RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once 恢复。
 
 ## 工作区模块
 
@@ -77,12 +94,31 @@ Developer ID 签名、公证和本机安装验证。
 
 - 组合 OpenAI-compatible Provider、HTTP/WS Server 和原生 14 工具
 - `NativeToolFactory` 按 Workspace 缓存 Platform、按 Session 隔离 Terminal
-- 当前每个模型 Step 都发送完整 14 工具定义；Preset 只是 UI/Host 状态，尚未成为
-  Provider 请求中的 System Prompt
+- 当前每个模型 Step 按 Sandbox/Search/Terminal Readiness 投影 14 工具的可用子集；选中 Preset
+  已经通过 `xharness-prompt/v1`
+  成为 Provider 请求中的第一个 System Message
 - 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
 
-当前 Host 状态仍是进程内存：接口和最小功能已经贯通，但重启恢复、durable inbox、
-single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久层。
+当前 Host 的 Web DTO 是进程内派生缓存，但持久真源已经是 Agent/Session：重启会恢复 Session、
+History、Header Workspace、Durable Queue 并续跑 Pending Turn/Pending Approval。History 已按
+`beforeSeq/maxMessages` 直接游标查询权威日志；Queue 也从 Durable Inbox 折叠 `queued/steering/context`
+并在 Mux 重连发送 Baseline。Workspace/Settings 的 9 个变更 RPC，以及 Session
+Rename/Model Select、Preset Select 和 6 个 Goal RPC 已通用 Exactly-once。仍需持久化 Queue、
+Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent。
+
+### `xharness-agent`
+
+- 复刻 DeepSeek Harness 的 `next-turn` / `next-step` 双 Inbox 语义
+- `agent/inbox/spliced` 事件可从 Session Log 完整重放，Pending 输入不进入模型历史
+- Claim 删除与 `turn/start + user/message` 支持同一 CAS Revision 原子提交
+- 进程内 Agent Registry；macOS/Linux File Lease 排除第二个进程同时驱动同一 Session
+- Idle/Running/Maintenance 生命周期状态机，从 Session 最后 Turn 坐标恢复
+- AgentSupervisor 自动连续消费多 Turn，Active Steer 先持久排队再中断并在恢复时按 ID 去重
+- 启动枚举、Pending Turn 先订阅后显式 Wake、无重复 Append 已完成
+- Prompt Admission 的持久 Receipt/冲突检测已完成
+- Pending Approval 可用原 Approval/Execution ID 在重启后恢复，回答前不会执行 Tool
+- 当前剩余 Queue 原子 Move/Mutation Receipt、Credential Reference 与其他非 Prompt Receipt；
+  部署级八点硬崩溃矩阵已完成
 
 ### `xharness-core`
 
@@ -92,7 +128,8 @@ single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久�
 - 请求输出前的安全重试；已经产生 delta 后禁止重试
 - `parallel`、`keyed`、`exclusive` 工具调度，默认最多 8 路
 - 工具超时、取消、panic、未知工具和参数错误统一写回模型
-- 默认完整上下文重放，单个工具结果写回限制为 256 KiB；这只是字节上限，不是 Token 预算
+- 默认完整上下文重放，单个工具结果写回限制为 256 KiB；超限使用确定性 UTF-8 Head/Tail
+  Envelope（含原始/遗漏 Byte 与 SHA-256），但这仍不是整体 Token 预算或持久 Spill
 - 默认最多 128 个模型步骤
 - Session 检查点和中断工具批次防重放
 - `LoopRun::send(LoopCommand)` 运行时控制：消息注入、Steering、暂停/恢复、取消
@@ -104,13 +141,29 @@ single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久�
 - Policy 输入同时包含 Provider、Model、Step 与全部工具 Schema
 - Surface 替换记录源消息范围、替换数量、原因和 Policy 版本
 - Core 在 Provider I/O 前验证 Surface，并把审计元数据写入 Request Header
-- 当前默认仍是 `IdentityContextPolicy`；Token Guard、Prune 与 Summary 是下一阶段
+- 当前默认仍是 `IdentityContextPolicy`；Prune 与 Summary 是下一阶段
+
+### `xharness-token`
+
+- Provider-neutral `TokenMeter`，不依赖 llama.cpp 或任一推理后端
+- 当前提供保守 UTF-8/JSON Byte Meter；后续精确 Tokenizer 实现同一 Trait
+- Core 在 Provider I/O 前执行 Hard Guard，预算报告写入 Request Header
+- 正式 Host 配置模型时强制声明 Context Window，并把输出预留下发给 Provider
+
+### `xharness-prompt`
+
+- 按稳定顺序组装 Preset、权限、Workspace、Coding Workflow 和 Plan Policy
+- 每个 Section、最终 System 和整个 Assembly 均有可审计版本/Hash
+- Core 在历史前注入 System，并把 Prompt Audit 与 Tool Definition Hash 写入 Request Header
+- System 不进入 Session Transcript；Chat Completions/Responses 请求体均有顺序测试
 
 ### `xharness-provider-openai`
 
 - Chat Completions 与 Responses API，协议显式选择
 - 增量 SSE：任意网络分片、CRLF、多行 data 和 UTF-8 边界
 - Responses 使用 `store=false` 并保留 opaque provider items
+- Harness Execution ID 与 Provider Call ID 分离持久化；Chat/Responses Tool Output 使用正确的
+  Provider 原生关联 ID
 - API Key 不进入 Session，并在 `Debug` 输出中脱敏
 
 ### `xharness-session`
@@ -128,6 +181,14 @@ single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久�
 - 严格校验 revision/seq/格式；中间损坏立即拒绝
 - 可恢复未写完的最终 JSON 行，并在下次 append 时修复尾部
 - `create_new` 防覆盖、Session ID 路径约束、symlink 拒绝与显式 `sync_data`
+
+### `xharness-control`
+
+- Host 全局状态与 Agent Session 分离：Workspace、Settings、归档和 Mutation Receipt 独立落账
+- 每次变更用一个 CAS Revision 原子提交状态事件与通用 Receipt，再经过显式 Flush 才返回成功
+- Memory 与跨进程锁定的 JSONL Store 共享相同投影；最终 Torn JSON 行可恢复，中间损坏 fail closed
+- 相同 RPC ID/Method/Payload 重放原响应，不同 Payload 复用 ID 冲突
+- Settings/Receipt 在写盘前递归拒绝非空 Password、Token、Secret、Authorization 与 API Key 字段
 
 ### `xharness-process`
 
@@ -160,10 +221,11 @@ single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久�
 - 基础工具：`bash/read/write/edit/glob/grep`
 - 持久 PTY：`terminal_open/send/read/signal/close/list`
 - Web：`web_search/web_fetch`
-- `CodingToolBundle::core_specs()` 可直接接入当前 `LoopRequest.tools`
+- `CodingToolBundle::specs()` 经 Capability 投影后注册为 `ToolExecutor`，直接接入
+  `LoopRequest.tool_executor`
 - 变更类工具默认要求宿主审批；`read/glob/grep/web` 可安全并行
-- `read` 当前模型接口只有 `path`，底层默认最多 256 KiB/2,000 行；分页参数和 Spill
-  仍属于上下文 P0 修复
+- `read` 默认 32 KiB/400 行，支持 `offset`、`start_line`、`limit`、`line_limit` 和版本绑定
+  `next_cursor`；大结果 Spill 仍属于上下文 P0 修复
 
 ### `xharness-terminal` / `xharness-web`
 
@@ -175,12 +237,15 @@ single-writer lease 和真正自主 Subagent 仍需接到 Agent/Session 持久�
 ### `xharness-tools`
 
 - 唯一名称 Registry、确定性 schema 列表与 JSON object/schema 校验
-- 每次调用生成独立 `execution_id`，所有失败均物化为结构化结果
+- 已有 Durable Journal 时接收并原样贯通 `execution_id`；独立调用时才生成进程内 ID，所有失败均
+  物化为结构化结果
 - `pre → monotonic guards → approval → around → handler → post → finalize → observer`
 - guard 只允许把权限从 allow 收紧到 ask/deny，后续 middleware 不能反向放宽
 - 缺失、异常、panic 或超时的审批 provider 全部 fail closed
 - handler timeout/panic/cancel 与 middleware panic 不会炸掉 Agent Loop
 - `parallel/keyed/exclusive` declarative gate；同 key 串行、exclusive 形成全局屏障
+- `ToolBatchRun` 统一 Model-order 调度、Batch 并发上限、真实完成事件和稳定重放顺序
+- `ToolLifecycle::started` 在 Handler 副作用前等待宿主持久边界，失败或 Panic 时 fail closed
 
 ## 最小嵌入
 
@@ -287,6 +352,9 @@ XHARNESS_WORKSPACE=/path/to/project \
 XHARNESS_WEB_DIST=/path/to/deepseek-harness/apps/web/dist \
 XHARNESS_BASE_URL=http://your-model-server:8000/v1 \
 XHARNESS_MODEL=your-model \
+XHARNESS_CONTEXT_WINDOW=53248 \
+XHARNESS_MAX_OUTPUT_TOKENS=4096 \
+XHARNESS_TOKEN_SAFETY_MARGIN=1024 \
 XHARNESS_API_KEY=optional-key \
 XHARNESS_PROTOCOL=chat \
 cargo run -p xharness-host-app --bin xharness-host
@@ -297,9 +365,26 @@ cargo run -p xharness-host-app --bin xharness-host
 `session.prompt` 会返回 `model-unavailable`。远程部署前必须先补认证/Origin 策略；当前
 安全默认是仅监听 loopback。
 
+同一个 Host 同时接入 4080、V100 或云端接口时，使用
+`XHARNESS_PROVIDERS_FILE` / `--providers-file` 加载多路由 JSON：
+
+```bash
+XHARNESS_PROVIDERS_FILE=$PWD/config/providers.example.json \
+XHARNESS_WORKSPACE=/path/to/project \
+XHARNESS_WEB_DIST=/path/to/deepseek-harness/apps/web/dist \
+xharness-host --bind 127.0.0.1:3082
+```
+
+配置中的公共 `provider/model` 是 Web 与 Session 使用的稳定路由；`upstream_model` 是具体
+OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立声明 Context Window、输出预留和
+安全余量。云端凭据只通过 `api_key_env` 引用环境变量，禁止写入配置文件。配置示例见
+[`config/providers.example.json`](config/providers.example.json)，完整不变量见
+[LLM/Provider Registry 规范](docs/specs/model-registry.md)。旧的单接口参数保持兼容。
+
 模型服务的真实上下文以部署参数为准。例如 llama.cpp 的 `-c 53248` 代表整个请求窗口，
-System、历史、工具 Schema、模板和输出预留都要共享它。当前 Host 尚不会自动计量或压缩；
-长任务开始前请阅读[上下文预算规范](docs/specs/context.md)。
+System、历史、工具 Schema、模板和输出预留都要共享它。配置模型但没有
+`XHARNESS_CONTEXT_WINDOW`（或 `--context-window`）时，正式 Host 会拒绝启动；超限请求在网络前
+失败。当前尚不会自动压缩，长任务开始前请阅读[上下文预算规范](docs/specs/context.md)。
 
 ## Linux `.deb`
 
@@ -339,13 +424,15 @@ panic、重试边界、取消、步骤限制、UTF-8 截断、并发上限、key
 工具期间延迟 Steering、durable call-before-side-effect、outcome-unknown 恢复、JSONL
 CAS/损坏/断尾恢复、两个 OpenAI 协议的原生 HTTP 集成、真实 Host 进程重启、Full access
 Workspace 外读写/网络/进程清理，以及真实 Chromium 的权限确认和 retry #8 后完整基线恢复。
+Loop 运行事件使用按数量与 Byte 双预算的非阻塞 Journal，测试覆盖慢消费者 Lag、Resume Cursor、
+完全不消费和单个超大事件。
 浏览器黑盒测试的环境变量和运行方法见
 [`tests/web-e2e/README.md`](tests/web-e2e/README.md)。
 
 ## 路线图
 
-1. 请求前上下文预算、分页读取、大工具结果压缩和运行时能力投影
-2. 真正注入版本化 Coding System Prompt，并按 Step 投影可用工具
+1. 大工具结果持久 Spill、历史 Surface 压缩和 Web Readiness 投影
+2. 完整 Prompt Registry、Provider-aware Tokenizer，并按 Profile/Step 进一步裁剪工具
 3. 把 `BasicHost` 迁移到长生命周期 Agent、durable inbox、single-writer lease
 4. CLI、配置/凭据边界与 macOS 原生发布验证
 5. Web Host 认证、断线游标恢复、健康检查与部署配置

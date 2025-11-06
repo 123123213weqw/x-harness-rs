@@ -1,23 +1,25 @@
 # 标准 Coding 工具包规范
 
 **Crate：** `xharness-coding-tools`
-**状态：** 14 个工具已实现；正式 Registry 和 Core 兼容桥均可使用。
+**状态：** 14 个工具已实现；生产 Host 已统一使用正式 Registry/Executor。
 
 ## 组合
 
 `CodingToolBundle` 绑定一个 `NativePlatform`、`TerminalRegistry`、`WebRuntime`、Session ID
 和 Owner ID。`specs()` 返回正式 `xharness-tools` Spec；`register/registry` 填充唯一
-Registry；`core_specs()` 把同一个 Executor 适配到当前 `xharness-core::ToolSpec`。
+Registry；生产 Host 将投影后的 Spec 注册为一个 `ToolExecutor`，直接赋给
+`LoopRequest.tool_executor`。Core 已落账的 Durable Execution ID 原样绑定到内部 `ToolRequest`。
 
-兼容桥禁止绕过正式 Schema 校验、并发、Timeout 或 Result Mapping。桥仍存在期间，交互式
-审批由 Core 管理。
+旧 `core_specs()` 兼容桥和自动批准 Provider 已删除。交互式审批由 Core 的 Runtime Bridge
+实现 `ApprovalProvider`，真正的 Schema、Policy、调度、Timeout 和 Handler 生命周期只有正式
+Executor 一层。
 
 v0 只暴露以下 14 个稳定模型工具名：
 
 | 工具 | 必填输入 | 并发 | 审批 | 契约 |
 |---|---|---:|---:|---|
 | `bash` | `command` | exclusive | 是 | 在平台沙箱执行一次 `/bin/bash -lc` |
-| `read` | `path` | parallel | 否 | 有界读取并记录 Observation |
+| `read` | `path` | parallel | 否 | 分页读取、版本绑定 Cursor 并记录 Observation |
 | `write` | `path`, `content` | 按 path keyed | 是 | Create/Observed-version 原子 Replace |
 | `edit` | `path`, `old`, `new` | 按 path keyed | 是 | 恰好一次 UTF-8 Literal Replace |
 | `glob` | `pattern` | parallel | 否 | 直接 Argv `rg --files -g` |
@@ -35,9 +37,10 @@ v0 只暴露以下 14 个稳定模型工具名：
 Metadata。Process Tool 报告 PID、Exit Code/Signal、Termination Reason、两条输出流、
 Truncation 和总 Byte Count。
 
-当前 `core_specs()` 会让 Host 在每个模型 Step 注入上述 14 个 `name/description/Schema`。
-这代表“工具定义已经注入”，不代表 Coding System Prompt 已经注入。最终实现必须根据平台
-Readiness、Search Provider、Profile 和 Step 选择稳定子集，并将选择写入 Request Header。
+`specs()` 生成完整的 14 工具候选集；正式 Host 会在每个模型 Step 前根据平台
+Readiness、Search Provider 和现存 Terminal 投影稳定子集。最小 Coding System Prompt 已由独立
+`xharness-prompt` 注入，工具定义仍是另一条协议字段。Profile/Step 级进一步裁剪和完整选择审计
+仍待实现。
 
 ## 环境与路径
 
@@ -58,13 +61,14 @@ read/signal/close 按 Session 状态单独投影。一次工具失败后，模�
 
 ## 大输出与读取
 
-当前 `read` Schema 只有 `path`，底层默认最多读取 256 KiB、2,000 行、单行 16 KiB。
-这些限制用于内存安全，不是合适的模型上下文页大小。P0 必须增加显式 Byte/Line Range、下一页
-Cursor 和更小默认页；大结果使用 Spill Reference，并保留原始 Byte Count、Hash、Truncation
-与 Observation Version。
+`read` 默认页为 32 KiB/400 行，支持 `offset`、`start_line`、`limit`、`line_limit` 与
+`next_cursor`。`cursor` 不能与起点或新 Limit 混用；它固定原页限制并绑定文件 SHA-256，避免
+文件变化后错误拼页。结果保留完整 Byte Count、页起点、捕获 Byte、Hash、Truncation 与
+Observation Version。大结果 Spill Reference 仍待实现。
 
 `glob/grep/bash/terminal` 输出同样必须先经过工具级 Byte Cap，再进入全局 Context Policy。
-单个结果未超过 256 KiB 不代表多个结果可以安全并行写入下一次请求。
+Core 对超限单结果使用确定性 Head/Tail Envelope；单个结果未超过 256 KiB 不代表多个结果可以
+安全并行写入下一次请求，持久 Spill/历史 Surface Reduce 仍待实现。
 
 ## 验证
 
@@ -72,11 +76,24 @@ Cursor 和更小默认页；大结果使用 Spill Reference，并保留原始 By
 可选 Live Test 把全部 Schema 发给 V100 上的 Qwen，观察模型选择 `write`、请求审批、真实
 修改文件、重放 Tool Result、进入第二个模型 Step，最终 `Completed`。
 
+正式 Runtime 的回归矩阵还固定以下边界：
+
+- Registry Definition 是模型请求中 Tool Schema 的唯一来源；旧 Core Spec 与新 Executor 同时
+  配置必须在 Provider I/O 前失败。
+- 未知工具、坏 JSON 和 Schema Error 只生成失败 Tool Result，不触发 Lifecycle/Handler，也不
+  中止整个 Agent Loop。
+- 多个并行 Approval 必须全部可见，决议按 Execution ID 关联；拒绝绝不触发 Tool Started。
+- Batch 的空输入、零并发、重复 Order、并发上限、Keyed FIFO、Exclusive Barrier、完成顺序和
+  模型重放顺序均有确定性测试。
+- Cancel/Drop 会广播到每个 Call；Cooperative Handler 清理和 Pending Lifecycle Ack 收敛后，
+  Batch/Run 才能结束。Durable SIGKILL Matrix 使用同一正式 Runtime 覆盖 Tool Call、Approval
+  Asked、Tool Result、Step End 和 Turn End 切点。
+
 ## 当前限制
 
-- Description 仍是简洁 v0 版本；更丰富的“何时用/何时不用”和动态 Tool Subset 已计划。
-- `read` 尚无分页参数，可能一次向模型历史加入数万 Token。
-- Platform Probe 失败目前不会自动缩小下一 Step 的进程工具 Projection。
+- Description 仍是简洁 v0 版本；更丰富的“何时用/何时不用”和 Profile/Step Tool Subset 已计划。
+- `read` 已分页，但其他工具输出和历史 Tool Result 尚无统一 Spill/Reduce。
+- Platform Probe 失败已自动缩小进程工具 Projection；相同 Readiness 尚未投影到 Web UI。
 - 尚无 Background Bash Job、Patch Tool、目录修改、Image Read、Browser、MCP、LSP 或
   Subagent Tool。
 - 完整 CLI/Host 还必须配置 Approval UX、Session Durability、Provider、Search Credential

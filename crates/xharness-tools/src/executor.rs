@@ -20,7 +20,7 @@ use crate::{
     validate_arguments, ApprovalDecision, ApprovalProvider, ApprovalRequest, AroundMiddleware,
     AroundNext, ExecutionId, FinalizeMiddleware, GuardDecision, GuardVerdict, MonotonicGuard,
     PostMiddleware, PreMiddleware, ToolConcurrency, ToolExecutionContext, ToolHandlerError,
-    ToolObserver, ToolOutcome, ToolOutput, ToolRegistry, ToolSpec,
+    ToolLifecycle, ToolObserver, ToolOutcome, ToolOutput, ToolRegistry, ToolSpec,
 };
 
 static NEXT_EXECUTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -32,6 +32,10 @@ pub struct ToolRequest {
     pub name: String,
     pub arguments_json: String,
     pub cancellation: CancellationToken,
+    pub execution_id: Option<ExecutionId>,
+    /// Fail-safe per-invocation override, used when a durable pending approval
+    /// is resumed under a newly projected registry.
+    pub requires_approval: bool,
 }
 
 impl ToolRequest {
@@ -40,11 +44,29 @@ impl ToolRequest {
             name: name.into(),
             arguments_json: arguments_json.into(),
             cancellation: CancellationToken::new(),
+            execution_id: None,
+            requires_approval: false,
         }
     }
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
         self.cancellation = cancellation;
+        self
+    }
+
+    /// Bind an already-durable Harness execution identity. The executor uses
+    /// this exact value in middleware, approvals, observers and its result
+    /// instead of minting a process-local identity.
+    pub fn with_execution_id(
+        mut self,
+        execution_id: impl Into<String>,
+    ) -> Result<Self, crate::ExecutionIdError> {
+        self.execution_id = Some(ExecutionId::new(execution_id)?);
+        Ok(self)
+    }
+
+    pub fn requiring_approval(mut self, required: bool) -> Self {
+        self.requires_approval = required;
         self
     }
 }
@@ -61,6 +83,7 @@ pub enum ToolFailureKind {
     ApprovalUnavailable,
     ApprovalDenied,
     Concurrency,
+    Lifecycle,
     Handler,
     TimedOut,
     Panicked,
@@ -131,6 +154,7 @@ pub struct ToolExecutor {
     post: Arc<[Arc<dyn PostMiddleware>]>,
     finalize: Arc<[Arc<dyn FinalizeMiddleware>]>,
     observers: Arc<[Arc<dyn ToolObserver>]>,
+    lifecycle: Option<Arc<dyn ToolLifecycle>>,
     approval: Option<Arc<dyn ApprovalProvider>>,
     approval_timeout: Duration,
     concurrency: ConcurrencyGate,
@@ -148,6 +172,7 @@ impl ToolExecutor {
             post: Arc::from([]),
             finalize: Arc::from([]),
             observers: Arc::from([]),
+            lifecycle: None,
             approval: None,
             approval_timeout: Self::DEFAULT_APPROVAL_TIMEOUT,
             concurrency: ConcurrencyGate::default(),
@@ -184,6 +209,13 @@ impl ToolExecutor {
         self
     }
 
+    /// Install the host lifecycle sink used to durably acknowledge the
+    /// side-effect boundary before a handler starts.
+    pub fn with_lifecycle(mut self, lifecycle: Arc<dyn ToolLifecycle>) -> Self {
+        self.lifecycle = Some(lifecycle);
+        self
+    }
+
     pub fn with_approval_provider(mut self, approval: Arc<dyn ApprovalProvider>) -> Self {
         self.approval = Some(approval);
         self
@@ -204,7 +236,10 @@ impl ToolExecutor {
     }
 
     pub async fn execute(&self, request: ToolRequest) -> ToolResult {
-        let execution_id = next_execution_id();
+        let execution_id = request
+            .execution_id
+            .clone()
+            .unwrap_or_else(next_execution_id);
         let started_at_ms = unix_timestamp_ms();
         let started = Instant::now();
         let name = request.name.clone();
@@ -274,7 +309,12 @@ impl ToolExecutor {
         } else if let Some(failure) = self.run_pre(&context).await {
             ToolOutcome::failure(failure)
         } else {
-            let verdict = self.run_guards(&context, spec.requires_approval).await;
+            let verdict = self
+                .run_guards(
+                    &context,
+                    spec.requires_approval || request.requires_approval,
+                )
+                .await;
             match verdict {
                 GuardVerdict::Deny { reasons } => ToolOutcome::failure(ToolFailure::new(
                     ToolFailureKind::GuardDenied,
@@ -439,6 +479,40 @@ impl ToolExecutor {
             ));
         }
 
+        if let Some(lifecycle) = &self.lifecycle {
+            let notified = AssertUnwindSafe(lifecycle.started(context)).catch_unwind();
+            tokio::pin!(notified);
+            let notified = tokio::select! {
+                biased;
+                _ = request_cancellation.cancelled() => {
+                    context.cancellation.cancel();
+                    return ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::Cancelled,
+                        "tool invocation was cancelled before lifecycle acknowledgement",
+                    ));
+                }
+                notified = &mut notified => notified,
+            };
+            match notified {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    return ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::Lifecycle,
+                        format!("tool lifecycle failed closed: {}", error.message),
+                    ));
+                }
+                Err(panic) => {
+                    return ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::Lifecycle,
+                        format!(
+                            "tool lifecycle panicked and failed closed: {}",
+                            panic_message(panic)
+                        ),
+                    ));
+                }
+            }
+        }
+
         let next = AroundNext {
             middleware: Arc::clone(&self.around),
             index: 0,
@@ -589,6 +663,7 @@ impl fmt::Debug for ToolExecutor {
             .field("post", &self.post.len())
             .field("finalize", &self.finalize.len())
             .field("observers", &self.observers.len())
+            .field("lifecycle_configured", &self.lifecycle.is_some())
             .field("approval_configured", &self.approval.is_some())
             .field("approval_timeout", &self.approval_timeout)
             .finish_non_exhaustive()

@@ -4,7 +4,9 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
+mod control;
 mod driver;
+mod restore;
 mod rpc;
 mod runtime;
 mod state;
@@ -19,12 +21,18 @@ use std::{
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex, OwnedMutexGuard, RwLock};
 use xharness_api::{RpcId, ServerRequest};
-use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpec};
+use xharness_control::{ControlStore, MemoryControlStore};
+use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider};
+use xharness_token::TokenGuard;
+use xharness_tools::{ToolExecutor, ToolRegistry};
 
+pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
 pub use runtime::{
-    AgentRuntime, AgentRuntimeError, AgentTurnRequest, LoopAgentRuntime, ModelRoute, RunningTurn,
+    AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
+    DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelRegistry, ModelRegistryError,
+    ModelRoute, RegisteredModel, RunningTurn,
 };
 pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, WorkspaceRecord};
 
@@ -37,7 +45,17 @@ pub struct HostConfig {
     pub provider_id: String,
     pub provider_display_name: String,
     pub model_id: String,
+    /// Provider/model context admission configured by the product host.
+    pub token_guard: Option<TokenGuard>,
     pub event_capacity: usize,
+    /// Maximum number of projected Session events retained in Host memory for
+    /// a durable session. Older history remains queryable from the append-only
+    /// Session store through `session.history`.
+    pub session_event_cache_capacity: usize,
+    /// Serialized byte budget for the same durable projection tail. A single
+    /// event larger than this budget is delivered live and remains durable,
+    /// but is not pinned in Host memory.
+    pub session_event_cache_bytes: usize,
 }
 
 impl HostConfig {
@@ -53,19 +71,22 @@ impl HostConfig {
             provider_id: "openai-compatible".to_owned(),
             provider_display_name: "OpenAI compatible".to_owned(),
             model_id: "unconfigured".to_owned(),
+            token_guard: None,
             event_capacity: 2_048,
+            session_event_cache_capacity: 2_048,
+            session_event_cache_bytes: 16 * 1024 * 1024,
         }
     }
 }
 
 #[async_trait]
 pub trait SessionToolFactory: Send + Sync + 'static {
-    async fn tools(
+    async fn executor(
         &self,
         session_id: &str,
         cwd: &str,
         permission: PermissionPreset,
-    ) -> Result<Vec<ToolSpec>, String>;
+    ) -> Result<ToolExecutor, String>;
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -73,13 +94,13 @@ pub struct NoTools;
 
 #[async_trait]
 impl SessionToolFactory for NoTools {
-    async fn tools(
+    async fn executor(
         &self,
         _session_id: &str,
         _cwd: &str,
         _permission: PermissionPreset,
-    ) -> Result<Vec<ToolSpec>, String> {
-        Ok(Vec::new())
+    ) -> Result<ToolExecutor, String> {
+        Ok(ToolExecutor::new(Arc::new(ToolRegistry::new())))
     }
 }
 
@@ -90,8 +111,11 @@ pub struct BasicHost {
     pub(crate) config: HostConfig,
     pub(crate) agent_runtime: Arc<dyn AgentRuntime>,
     pub(crate) state: Arc<RwLock<state::HostState>>,
+    pub(crate) control_store: Arc<dyn ControlStore>,
+    pub(crate) control_gate: Arc<Mutex<()>>,
     pub(crate) mux_tx: broadcast::Sender<ServerRequest>,
     pub(crate) host_tx: broadcast::Sender<ServerRequest>,
+    admission_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
     next_id: Arc<AtomicU64>,
 }
 
@@ -118,13 +142,16 @@ impl BasicHost {
         tool_factory: Arc<dyn SessionToolFactory>,
         context_policy: Arc<dyn ContextPolicy>,
     ) -> Arc<Self> {
-        let agent_runtime = Arc::new(LoopAgentRuntime::new(
-            config.provider_id.clone(),
-            config.model_id.clone(),
-            provider,
-            tool_factory,
-            context_policy,
-        ));
+        let agent_runtime = Arc::new(
+            LoopAgentRuntime::new(
+                config.provider_id.clone(),
+                config.model_id.clone(),
+                provider,
+                tool_factory,
+                context_policy,
+            )
+            .with_token_guard(config.token_guard.clone()),
+        );
         Self::with_agent_runtime(config, agent_runtime)
     }
 
@@ -134,6 +161,21 @@ impl BasicHost {
         config: HostConfig,
         agent_runtime: Arc<dyn AgentRuntime>,
     ) -> Arc<Self> {
+        Self::with_agent_runtime_and_control_store(
+            config,
+            agent_runtime,
+            Arc::new(MemoryControlStore::default()),
+        )
+    }
+
+    /// Compose an Agent runtime with an independently durable Host-global
+    /// control log. Production uses JSONL; embedded callers may use the
+    /// in-memory implementation while preserving identical mutation semantics.
+    pub fn with_agent_runtime_and_control_store(
+        config: HostConfig,
+        agent_runtime: Arc<dyn AgentRuntime>,
+        control_store: Arc<dyn ControlStore>,
+    ) -> Arc<Self> {
         let capacity = config.event_capacity.max(16);
         let (mux_tx, _) = broadcast::channel(capacity);
         let (host_tx, _) = broadcast::channel(capacity);
@@ -141,8 +183,11 @@ impl BasicHost {
             state: Arc::new(RwLock::new(state::HostState::new(&config))),
             config,
             agent_runtime,
+            control_store,
+            control_gate: Arc::new(Mutex::new(())),
             mux_tx,
             host_tx,
+            admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
         })
     }
@@ -154,6 +199,18 @@ impl BasicHost {
     pub(crate) fn mint_id(&self, prefix: &str) -> String {
         let ordinal = self.next_id.fetch_add(1, Ordering::Relaxed);
         format!("{prefix}-{}-{ordinal}", state::now_ms())
+    }
+
+    pub(crate) async fn lock_admission(&self, session_id: &str) -> OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self.admission_gates.lock().await;
+            Arc::clone(
+                gates
+                    .entry(session_id.to_owned())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        gate.lock_owned().await
     }
 
     pub(crate) fn push_mux(&self, payload: Value) {

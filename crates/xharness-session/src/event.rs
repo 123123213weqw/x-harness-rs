@@ -8,6 +8,46 @@ use crate::{Message, ToolCall};
 /// Monotonic position in a session log.
 pub type Sequence = u64;
 
+/// One of the two ordered durable input lists owned by a long-lived agent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InboxTarget {
+    /// An ordinary prompt waiting to open its own turn.
+    NextTurn,
+    /// Context or steering waiting for the nearest later model step.
+    NextStep,
+}
+
+/// Identified user input retained in the durable inbox until a step claims it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InboxMessage {
+    /// Stable identity used by queue editing, deduplication and UI projection.
+    pub id: String,
+    /// Provider-neutral model-facing content. Its role must be `user`.
+    pub message: Message,
+    /// Transport- or product-specific provenance retained for audit/UI replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Value>,
+}
+
+impl InboxMessage {
+    pub fn user(id: impl Into<String>, content: impl Into<String>) -> Self {
+        let id = id.into();
+        Self {
+            message: Message::user(content).with_id(id.clone()),
+            id,
+            source: None,
+        }
+    }
+}
+
+/// Why an inbox splice deliberately discarded pending input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InboxSpliceOutcome {
+    Cancelled,
+}
+
 /// Single-writer generation used by compare-and-swap appends.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -103,6 +143,225 @@ pub enum ToolOutcome {
     OutcomeUnknown,
 }
 
+/// Closed, fail-safe outcome of one human approval request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApprovalOutcome {
+    AllowedOnce,
+    Rejected,
+    Cancelled,
+    Unavailable,
+}
+
+/// Session-level answerer policy. Only `AllowedOnce` can grant a particular
+/// call; this value controls whether interactive asks are attempted at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApprovalPolicy {
+    Ask,
+    Never,
+}
+
+/// Session-level sandbox policy vocabulary shared by every enforcing tool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SessionSandboxMode {
+    ReadOnly,
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+/// Marks a policy value copied into a child activation rather than selected
+/// directly by the current session's user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PolicySource {
+    Delegation,
+}
+
+/// Human-facing origin of one slash-command invocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum CommandSource {
+    User,
+}
+
+/// Closed command result vocabulary projected directly by Web clients.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandResultKind {
+    Success,
+    Error,
+}
+
+/// Exactly-once receipt for a session-scoped product mutation.
+///
+/// This is an internal harness audit fact rather than a model message. The
+/// state-changing session event and this receipt are appended in the same CAS
+/// revision, so a lost HTTP response can be replayed without repeating the
+/// mutation or advancing a second revision.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionMutationReceipt {
+    pub rpc_id: String,
+    pub method: String,
+    pub fingerprint: String,
+    pub response: Value,
+    /// Optional response field filled from the immediately preceding durable
+    /// state event's sequence when the receipt is projected by the Host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_event_seq_field: Option<String>,
+}
+
+/// Exact auxiliary route retained when an automatic title came from a model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionTitleModelProvenance {
+    pub provider: String,
+    pub model: String,
+}
+
+/// Durable owner of one accepted session title.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SessionTitleSource {
+    Fallback,
+    Provider {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<SessionTitleModelProvenance>,
+    },
+    User,
+}
+
+/// Durable phase of a long-running goal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GoalPhase {
+    Active,
+    Paused,
+    Blocked,
+    Complete,
+}
+
+/// Stable machine and human explanation present only for a blocked goal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalBlockReason {
+    pub code: String,
+    pub message: String,
+}
+
+/// Full durable goal state carried by every non-clear mutation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSnapshot {
+    pub id: String,
+    pub revision: u64,
+    pub objective: String,
+    pub phase: GoalPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<GoalBlockReason>,
+    pub max_goal_rounds: u64,
+}
+
+/// Stable operation vocabulary for a full goal snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GoalSnapshotOperation {
+    Create,
+    Edit,
+    Pause,
+    Resume,
+    Complete,
+    Block,
+}
+
+/// Constant self-description retained inside an upstream `goal/change` body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GoalChangeKind {
+    #[serde(rename = "goal/change")]
+    GoalChange,
+}
+
+/// Full-snapshot durable goal mutation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSnapshotChange {
+    pub kind: GoalChangeKind,
+    pub version: u8,
+    pub operation: GoalSnapshotOperation,
+    pub goal: GoalSnapshot,
+    pub rounds_started: u64,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+/// Clear tombstone retained after the current goal disappears.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalClearChange {
+    pub kind: GoalChangeKind,
+    pub version: u8,
+    pub operation: GoalClearOperation,
+    pub cleared: GoalRef,
+    pub cleared_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GoalClearOperation {
+    Clear,
+}
+
+/// Compare-and-set identity shared by goal snapshots and clear tombstones.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoalRef {
+    pub id: String,
+    pub revision: u64,
+}
+
+/// Exact upstream event-body union.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GoalChange {
+    Snapshot(GoalSnapshotChange),
+    Clear(GoalClearChange),
+}
+
+/// Provider-neutral failure retained by a durable model-retry audit record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmFailure {
+    pub message: String,
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_retry_after_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
+impl LlmFailure {
+    pub fn transport(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: "TRANSPORT".to_owned(),
+            status: None,
+            provider_retry_after_ms: None,
+            request_id: None,
+        }
+    }
+}
+
+/// Retry policy mode recorded at the durable scheduling boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmRetryMode {
+    Normal,
+    Always,
+}
+
 /// One durable tool outcome. The model-facing message is derived from these
 /// fields instead of being stored as a second copy.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -138,8 +397,152 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Named Agent preset selected for subsequent turns in this session.
+    #[serde(rename = "agent-preset/selected")]
+    AgentPresetSelected {
+        #[serde(rename = "agentPreset")]
+        agent_preset: String,
+    },
+    /// Latest-wins model route selected for subsequent turns in this session.
+    /// This is a control-plane fact and never enters model-visible history.
+    #[serde(rename = "session/model-selected")]
+    SessionModelSelected {
+        provider: String,
+        model: String,
+        #[serde(
+            rename = "reasoningEffort",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        reasoning_effort: Option<String>,
+    },
+    /// A normalized splice over one durable pending-input list. Replaying all
+    /// such events after the seed reconstructs the exact live inbox.
+    #[serde(rename = "agent/inbox/spliced")]
+    AgentInboxSpliced {
+        target: InboxTarget,
+        start: usize,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        removed_count: usize,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        inserted: Vec<InboxMessage>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<InboxSpliceOutcome>,
+    },
     #[serde(rename = "request/header")]
     RequestHeader { header: RequestHeader },
+    /// Log-only audit fact written before an approval answerer is consulted.
+    #[serde(rename = "approval/asked")]
+    ApprovalAsked {
+        id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(rename = "callId", default, skip_serializing_if = "Option::is_none")]
+        call_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    /// Log-only decision paired one-to-one with an `approval/asked` event.
+    #[serde(rename = "approval/decided")]
+    ApprovalDecided {
+        id: String,
+        outcome: ApprovalOutcome,
+    },
+    /// Named product preset whose fold controls sandbox and approval policy.
+    #[serde(rename = "permission/preset")]
+    PermissionPreset { preset: String },
+    /// Durable session sandbox-policy override; log-only, never model-facing.
+    #[serde(rename = "sandbox/mode")]
+    SandboxMode {
+        mode: SessionSandboxMode,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<PolicySource>,
+    },
+    /// Durable session approval-policy override; log-only, never model-facing.
+    #[serde(rename = "approval/policy")]
+    ApprovalPolicy {
+        policy: ApprovalPolicy,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<PolicySource>,
+    },
+    /// A resolved slash command entered its handler.
+    #[serde(rename = "command/run")]
+    CommandRun {
+        #[serde(rename = "commandId")]
+        command_id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        args: Option<String>,
+        source: CommandSource,
+    },
+    /// Settlement paired one-to-one with a prior `command/run`.
+    #[serde(rename = "command/done")]
+    CommandDone {
+        #[serde(rename = "commandId")]
+        command_id: String,
+        kind: CommandResultKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(
+            rename = "sourceEventSeq",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        source_event_seq: Option<Sequence>,
+    },
+    /// Latest-wins log-only title snapshot. It never enters model history.
+    #[serde(rename = "session/title")]
+    SessionTitle {
+        title: String,
+        #[serde(rename = "messageSeqs")]
+        message_seqs: Vec<Sequence>,
+        source: SessionTitleSource,
+    },
+    /// Full latest-wins goal snapshot or revisioned clear tombstone.
+    #[serde(rename = "goal/change")]
+    GoalChange {
+        #[serde(flatten)]
+        change: GoalChange,
+    },
+    /// Internal, log-only receipt paired atomically with a session-scoped
+    /// state mutation. Web history exposes only a redacted hidden placeholder,
+    /// never the fingerprint or response body.
+    #[serde(rename = "xharness/mutation-committed")]
+    SessionMutationCommitted { receipt: SessionMutationReceipt },
+    /// Last-wins log-only collaboration mode selection.
+    #[serde(rename = "plan/mode")]
+    PlanMode { active: bool },
+    /// One durable provider retry scheduled after a failed request attempt.
+    #[serde(rename = "llm/retry")]
+    LlmRetry {
+        #[serde(rename = "retryId")]
+        retry_id: String,
+        turn: u32,
+        step: u32,
+        provider: String,
+        mode: LlmRetryMode,
+        #[serde(rename = "policyKey")]
+        policy_key: String,
+        retry: u32,
+        #[serde(
+            rename = "maxRetries",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        max_retries: Option<u32>,
+        #[serde(rename = "delayMs")]
+        delay_ms: u64,
+        failure: LlmFailure,
+    },
+    /// Durable transition immediately before the scheduled retry begins.
+    #[serde(rename = "llm/retry-started")]
+    LlmRetryStarted {
+        #[serde(rename = "retryId")]
+        retry_id: String,
+        turn: u32,
+        step: u32,
+        retry: u32,
+    },
     #[serde(rename = "turn/start")]
     TurnStart { turn: u32 },
     #[serde(rename = "turn/end")]
@@ -178,6 +581,10 @@ pub enum EventData {
     },
     #[serde(rename = "session/end-seed")]
     SessionEndSeed,
+}
+
+const fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 /// An event waiting to receive its durable log coordinates.

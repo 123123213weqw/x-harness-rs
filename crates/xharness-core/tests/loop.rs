@@ -14,10 +14,19 @@ use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_core::*;
+use xharness_prompt::{PromptAssembler, PromptSection};
 use xharness_session::{
-    AppendReceipt, AssistantChunk, EventData as SessionEventData,
+    AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
+    EventData as SessionEventData, GoalChange, GoalChangeKind, GoalPhase, GoalSnapshot,
+    GoalSnapshotChange, GoalSnapshotOperation, InboxMessage, InboxTarget,
     MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent, SessionHeader,
-    SessionInspection, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
+    SessionInspection, SessionTitleSource, Store as EventStore, StoreError, ToolOutcome,
+    TurnEndReason,
+};
+use xharness_tools::{
+    ToolConcurrency as RuntimeToolConcurrency, ToolDefinition as RuntimeToolDefinition,
+    ToolExecutor as RuntimeToolExecutor, ToolOutput as RuntimeToolOutput,
+    ToolRegistry as RuntimeToolRegistry, ToolSpec as RuntimeToolSpec,
 };
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
@@ -105,6 +114,44 @@ impl ContextPolicy for RecordingCompactionPolicy {
     }
 }
 
+struct DroppingSystemPolicy;
+
+#[async_trait]
+impl ContextPolicy for DroppingSystemPolicy {
+    async fn prepare(&self, request: ContextRequest) -> Result<ContextSurface, ContextError> {
+        Ok(ContextSurface::transformed(
+            ContextPolicyId::new("drops-system", 1),
+            request.messages.len(),
+            vec![AgentMessage::user("history only")],
+            vec![SurfaceEdit::new(
+                0,
+                request.messages.len(),
+                1,
+                SurfaceEditKind::HistoryCompacted,
+            )],
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct FixedTokenMeter {
+    total: u64,
+}
+
+impl TokenMeter for FixedTokenMeter {
+    fn id(&self) -> &str {
+        "test-fixed/v1"
+    }
+
+    fn estimate(&self, _request: &TokenEstimateRequest) -> Result<TokenBreakdown, TokenMeterError> {
+        Ok(TokenBreakdown {
+            protocol_tokens: self.total,
+            total_input_tokens: self.total,
+            ..TokenBreakdown::default()
+        })
+    }
+}
+
 #[derive(Clone)]
 struct GatedProvider {
     requests: Arc<Mutex<Vec<ProviderRequest>>>,
@@ -167,6 +214,10 @@ struct FailAssistantJournal {
 
 #[async_trait]
 impl EventStore for FailAssistantJournal {
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        self.inner.list_headers().await
+    }
+
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
         self.inner.create(header).await
     }
@@ -312,7 +363,7 @@ async fn result_does_not_require_draining_more_events_than_the_legacy_buffer() {
         .collect::<Vec<_>>();
     script.push(Ok(completed()));
     let provider = Arc::new(ScriptProvider::new([script]));
-    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
     request.config.event_buffer = 1;
     let mut run = LoopEngine.start(request);
 
@@ -322,11 +373,54 @@ async fn result_does_not_require_draining_more_events_than_the_legacy_buffer() {
     assert_eq!(result.status, LoopStatus::Completed);
     assert_eq!(result.final_text.len(), DELTAS);
 
-    let mut event_count = 0usize;
-    while run.next().await.is_some() {
-        event_count += 1;
-    }
-    assert_eq!(event_count, DELTAS + 1);
+    let lag = run.next().await.expect("lag marker");
+    let resume_seq = match lag.kind {
+        LoopEventKind::EventsLagged { missed, resume_seq } => {
+            assert_eq!(missed, DELTAS as u64);
+            resume_seq
+        }
+        other => panic!("expected lag marker, got {other:?}"),
+    };
+    let mut replay = run.subscribe_events_from(resume_seq);
+    assert!(matches!(
+        replay.next().await.unwrap().kind,
+        LoopEventKind::RunCompleted { .. }
+    ));
+    assert!(replay.next().await.is_none());
+    assert!(matches!(
+        run.next().await.unwrap().kind,
+        LoopEventKind::RunCompleted { .. }
+    ));
+    assert!(run.next().await.is_none());
+}
+
+#[tokio::test]
+async fn oversized_events_are_evicted_under_the_byte_budget_with_a_resume_cursor() {
+    let huge = "x".repeat(16 * 1024);
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta(huge.clone())),
+        Ok(completed()),
+    ]]));
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.config.event_buffer = 128;
+    request.config.event_buffer_bytes = 512;
+    let mut run = LoopEngine.start(request);
+
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text, huge);
+    let lag = run
+        .next()
+        .await
+        .expect("oversized events produce a lag marker");
+    assert!(matches!(
+        lag.kind,
+        LoopEventKind::EventsLagged {
+            missed: 2,
+            resume_seq: 3,
+        }
+    ));
+    assert!(run.next().await.is_none());
 }
 
 #[tokio::test]
@@ -360,6 +454,47 @@ async fn aggregates_fragmented_tool_calls_and_returns_errors_to_model() {
 }
 
 #[tokio::test]
+async fn contextual_tool_handler_receives_the_journal_execution_id() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "provider-call", "inspect", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let tool = ToolSpec::new_contextual("inspect", "inspect", json!({"type":"object"}), {
+        let seen = Arc::clone(&seen);
+        move |invocation| {
+            let seen = Arc::clone(&seen);
+            async move {
+                seen.lock()
+                    .unwrap()
+                    .push((invocation.execution_id, invocation.provider_call_id));
+                ToolResult::success("ok")
+            }
+        }
+    });
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("contextual-tool-id".to_owned());
+    request.journal_store = Some(journal);
+    request.tools.push(tool);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let call = &result.messages[1].tool_calls[0];
+    assert_eq!(call.provider_call_id.as_deref(), Some("provider-call"));
+    assert_eq!(
+        seen.lock().unwrap().as_slice(),
+        [(call.id.clone(), Some("provider-call".to_owned()))]
+    );
+}
+
+#[tokio::test]
 async fn retries_only_before_the_first_delta() {
     let provider = Arc::new(ScriptProvider::with_attempts([
         Err(ProviderError::retryable("temporary 1")),
@@ -369,7 +504,10 @@ async fn retries_only_before_the_first_delta() {
             Ok(completed()),
         ]),
     ]));
-    let request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("durable-retry".to_owned());
+    request.journal_store = Some(journal.clone());
     let (events, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
     assert_eq!(provider.attempts(), 3);
@@ -379,6 +517,50 @@ async fn retries_only_before_the_first_delta() {
             .filter(|event| matches!(event.kind, LoopEventKind::ModelRetry { .. }))
             .count(),
         2
+    );
+    let retry_events = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            LoopEventKind::ModelRetry {
+                retry_id,
+                attempt,
+                max_retries,
+                ..
+            } => Some((retry_id.clone(), *attempt, *max_retries)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(retry_events.len(), 2);
+    assert_eq!(retry_events[0].0, retry_events[1].0);
+    assert_eq!(retry_events[0].1, 1);
+    assert_eq!(retry_events[1].1, 2);
+    assert_eq!(retry_events[0].2, 2);
+
+    let session = journal.load("durable-retry").await.unwrap().unwrap();
+    let durable_retries = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::LlmRetry {
+                retry_id,
+                retry,
+                max_retries,
+                ..
+            } => Some(("scheduled", retry_id.clone(), *retry, *max_retries)),
+            SessionEventData::LlmRetryStarted {
+                retry_id, retry, ..
+            } => Some(("started", retry_id.clone(), *retry, None)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        durable_retries,
+        [
+            ("scheduled", retry_events[0].0.clone(), 1, Some(2)),
+            ("started", retry_events[0].0.clone(), 1, None),
+            ("scheduled", retry_events[0].0.clone(), 2, Some(2)),
+            ("started", retry_events[0].0.clone(), 2, None),
+        ]
     );
 
     let provider = Arc::new(ScriptProvider::new([vec![
@@ -597,6 +779,25 @@ fn tool_result_cap_is_utf8_safe_and_valid_json() {
 }
 
 #[test]
+fn tool_result_reduction_is_deterministic_and_preserves_head_tail_and_digest() {
+    let content = format!("HEAD-{}-TAIL", "middle".repeat(1_000));
+    let result = ToolResult::success(content.clone());
+    let (first, truncated) = tool_result_for_model(&result, 512);
+    let (second, _) = tool_result_for_model(&result, 512);
+    assert!(truncated);
+    assert_eq!(first, second);
+    assert!(first.len() <= 512);
+    let value: Value = serde_json::from_str(&first).unwrap();
+    assert_eq!(value["reduction"]["strategy"], "head_tail/v1");
+    assert_eq!(value["reduction"]["original_bytes"], content.len());
+    assert!(value["reduction"]["omitted_bytes"].as_u64().unwrap() > 0);
+    assert_eq!(value["reduction"]["sha256"].as_str().unwrap().len(), 64);
+    let excerpt = value["content"].as_str().unwrap();
+    assert!(excerpt.starts_with("HEAD-"));
+    assert!(excerpt.ends_with("-TAIL"));
+}
+
+#[test]
 fn tool_result_cap_never_produces_invalid_json() {
     let result = ToolResult::success("content");
     for limit in 0..MIN_TOOL_RESULT_LIMIT_BYTES {
@@ -621,6 +822,14 @@ fn loop_request_validation_rejects_invalid_config_and_tools() {
         .contains("tool_result_limit_bytes"));
 
     let mut request = LoopRequest::new(provider.clone(), vec![]);
+    request.config.event_buffer_bytes = 0;
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("event_buffer_bytes"));
+
+    let mut request = LoopRequest::new(provider.clone(), vec![]);
     request
         .tools
         .push(ToolSpec::new("", "empty", json!({}), |_, _| async {
@@ -642,6 +851,22 @@ fn loop_request_validation_rejects_invalid_config_and_tools() {
         .unwrap_err()
         .to_string()
         .contains("duplicate tool name"));
+
+    let mut request = LoopRequest::new(provider.clone(), vec![]);
+    request.tool_executor = Some(RuntimeToolExecutor::new(Arc::new(
+        RuntimeToolRegistry::new(),
+    )));
+    request.tools.push(ToolSpec::new(
+        "legacy",
+        "legacy",
+        json!({"type":"object"}),
+        |_, _| async { ToolResult::success("") },
+    ));
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("cannot be configured together"));
 
     let mut request = LoopRequest::new(provider.clone(), vec![]);
     request.tools.push(
@@ -687,17 +912,57 @@ async fn invalid_request_fails_before_the_provider_is_called() {
 }
 
 #[tokio::test]
+async fn hard_token_budget_rejects_64196_before_a_53248_provider_attempt() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let guard = TokenGuard::new(
+        Arc::new(FixedTokenMeter { total: 64_196 }),
+        TokenBudget {
+            context_window_tokens: 53_248,
+            reserved_output_tokens: 4_096,
+            safety_margin_tokens: 1_024,
+        },
+    )
+    .unwrap();
+    assert_eq!(guard.budget().available_input_tokens(), 48_128);
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("large turn")]);
+    request.token_guard = Some(guard);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.attempts(), 0);
+    let error = result.error.unwrap();
+    assert!(error.contains("64196"), "{error}");
+    assert!(error.contains("context=53248"), "{error}");
+}
+
+#[tokio::test]
 async fn cancellation_stops_a_running_tool() {
     let provider = Arc::new(ScriptProvider::new([vec![
         Ok(tool_delta(0, "wait", "wait", "{}")),
         Ok(completed_for_calls()),
     ]]));
-    let tool = ToolSpec::new("wait", "wait", json!({}), |_, token| async move {
-        token.cancelled().await;
-        ToolResult::failure("cancelled")
-    });
+    let cleaned = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(RuntimeToolSpec::new(
+            RuntimeToolDefinition::new("wait", "wait", json!({"type":"object"})),
+            {
+                let cleaned = Arc::clone(&cleaned);
+                move |context| {
+                    let cleaned = Arc::clone(&cleaned);
+                    async move {
+                        context.cancellation.cancelled().await;
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        cleaned.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("cancelled"))
+                    }
+                }
+            },
+        ))
+        .await
+        .unwrap();
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
     while let Some(event) = run.next().await {
         if matches!(event.kind, LoopEventKind::ToolStarted(_)) {
@@ -705,6 +970,7 @@ async fn cancellation_stops_a_running_tool() {
         }
     }
     assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+    assert_eq!(cleaned.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -802,6 +1068,7 @@ async fn interrupted_tool_batch_is_closed_without_replay() {
     let mut assistant = AgentMessage::assistant("");
     assistant.tool_calls.push(ToolCall {
         id: "side-effect".to_owned(),
+        provider_call_id: None,
         index: 0,
         name: "dangerous".to_owned(),
         arguments_json: "{}".to_owned(),
@@ -989,18 +1256,32 @@ async fn approval_blocks_tool_start_until_host_approves() {
         }
     })
     .requires_approval();
+    let journal = Arc::new(EventMemorySessionStore::default());
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("durable-approval".to_owned());
+    request.journal_store = Some(journal.clone());
     request.tools.push(tool);
     let mut run = LoopEngine.start(request);
 
-    let call_id = loop {
+    let (approval_id, call_id) = loop {
         let event = run.next().await.unwrap();
-        if let LoopEventKind::ToolApprovalRequested { call } = event.kind {
-            break call.id;
+        if let LoopEventKind::ToolApprovalRequested { approval_id, call } = event.kind {
+            break (approval_id, call.id);
         }
     };
+    assert_ne!(approval_id, call_id);
     assert!(!call_id.is_empty());
     assert_eq!(executions.load(Ordering::SeqCst), 0);
+    let pending = journal.load("durable-approval").await.unwrap().unwrap();
+    assert!(pending.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ApprovalAsked { id, call_id: Some(id_call), .. }
+            if id == &approval_id && id_call == &call_id
+    )));
+    assert!(!pending.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ApprovalDecided { id, .. } if id == &approval_id
+    )));
     run.send(LoopCommand::ApproveTool {
         call_id: call_id.clone(),
     })
@@ -1015,6 +1296,370 @@ async fn approval_blocks_tool_start_until_host_approves() {
     assert!(saw_started);
     assert_eq!(executions.load(Ordering::SeqCst), 1);
     assert_eq!(run.result().await.status, LoopStatus::Completed);
+    let completed = journal.load("durable-approval").await.unwrap().unwrap();
+    let audit = completed
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ApprovalAsked { id, .. } => Some((id.clone(), None)),
+            SessionEventData::ApprovalDecided { id, outcome } => Some((id.clone(), Some(*outcome))),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        audit,
+        [
+            (approval_id.clone(), None),
+            (approval_id, Some(ApprovalOutcome::AllowedOnce)),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn formal_tool_runtime_owns_approval_lifecycle_and_batch_execution() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "provider-runtime", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new(
+                    "guarded",
+                    "guarded",
+                    json!({"type":"object","additionalProperties":false}),
+                ),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            assert!(context.execution_id.as_str().contains("xh-"));
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("allowed"))
+                        }
+                    }
+                },
+            )
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("formal-tool-runtime".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+    let mut run = LoopEngine.start(request);
+
+    let call_id = loop {
+        let event = run.next().await.unwrap();
+        if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
+            break call.id;
+        }
+    };
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    run.send(LoopCommand::ApproveTool {
+        call_id: call_id.clone(),
+    })
+    .await
+    .unwrap();
+
+    let mut saw_started = false;
+    let mut saw_completed = false;
+    while let Some(event) = run.next().await {
+        match event.kind {
+            LoopEventKind::ToolStarted(call) if call.id == call_id => saw_started = true,
+            LoopEventKind::ToolCompleted { call, result } if call.id == call_id => {
+                assert!(result.ok);
+                saw_completed = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_started && saw_completed);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    let requests = provider.requests();
+    assert_eq!(requests[0].tools.len(), 1);
+    assert_eq!(requests[0].tools[0].name, "guarded");
+    assert_eq!(requests[0].tools[0].description, "guarded");
+    assert_eq!(requests[0].tools[0].parameters["type"], "object");
+    let session = journal.load("formal-tool-runtime").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ToolResult { result, .. } if result.call_id == call_id
+    )));
+}
+
+#[tokio::test]
+async fn formal_tool_runtime_materializes_unknown_and_invalid_calls_without_starting_handlers() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "unknown", "missing", "{}")),
+            Ok(tool_delta(1, "malformed", "guarded", "{")),
+            Ok(tool_delta(2, "schema", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("handled".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(RuntimeToolSpec::new(
+            RuntimeToolDefinition::new(
+                "guarded",
+                "guarded",
+                json!({
+                    "type":"object",
+                    "required":["value"],
+                    "properties":{"value":{"type":"string"}},
+                    "additionalProperties":false
+                }),
+            ),
+            {
+                let executions = Arc::clone(&executions);
+                move |_context| {
+                    let executions = Arc::clone(&executions);
+                    async move {
+                        executions.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("must not run"))
+                    }
+                }
+            },
+        ))
+        .await
+        .unwrap();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+
+    let (events, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text, "handled");
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event.kind, LoopEventKind::ToolStarted(_))));
+    let tool_messages = result
+        .messages
+        .iter()
+        .filter(|message| message.role == Role::Tool)
+        .collect::<Vec<_>>();
+    assert_eq!(tool_messages.len(), 3);
+    assert!(tool_messages[0].content.contains("unknown tool"));
+    assert!(tool_messages[1].content.contains("valid JSON"));
+    assert!(tool_messages[2].content.contains("required property"));
+}
+
+#[tokio::test]
+async fn restart_resumes_undecided_approval_without_replaying_or_unknowning_the_tool() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    journal
+        .create(SessionHeader::new("resume-approval"))
+        .await
+        .unwrap();
+    let call = ToolCall {
+        id: "execution-1".to_owned(),
+        provider_call_id: Some("provider-call-1".to_owned()),
+        index: 0,
+        name: "guarded".to_owned(),
+        arguments_json: "{}".to_owned(),
+    };
+    let mut assistant = AgentMessage::assistant("");
+    assistant.tool_calls.push(call.clone());
+    journal
+        .append(
+            "resume-approval",
+            Revision::ZERO,
+            vec![
+                SessionEventData::TurnStart { turn: 1 }.into(),
+                SessionEventData::UserMessage {
+                    message: AgentMessage::user("run"),
+                }
+                .into(),
+                SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call.clone(),
+                }
+                .into(),
+                SessionEventData::ApprovalAsked {
+                    id: "approval-stable".to_owned(),
+                    tool_name: "guarded".to_owned(),
+                    call_id: Some(call.id.clone()),
+                    reason: Some("requires approval".to_owned()),
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    journal.flush("resume-approval").await.unwrap();
+
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("continued".to_owned())),
+        Ok(completed()),
+    ]]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("recovered result"))
+                        }
+                    }
+                },
+            )
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
+    let mut request = LoopRequest::new(provider.clone(), Vec::new());
+    request.session_id = Some("resume-approval".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+    let mut run = LoopEngine.start(request);
+
+    let event = run.next().await.unwrap();
+    let kind = event.kind;
+    let LoopEventKind::ToolApprovalRequested { approval_id, call } = kind else {
+        panic!("expected recovered approval, got {kind:?}");
+    };
+    assert_eq!(approval_id, "approval-stable");
+    assert_eq!(call.id, "execution-1");
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.attempts(), 0);
+
+    run.send(LoopCommand::ApproveTool {
+        call_id: call.id.clone(),
+    })
+    .await
+    .unwrap();
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text, "continued");
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.attempts(), 1);
+    assert_eq!(provider.requests()[0].step, 2);
+    assert_eq!(
+        provider.requests()[0].messages[1].tool_calls[0].id,
+        "execution-1"
+    );
+    assert_eq!(
+        provider.requests()[0].messages[2].tool_call_id.as_deref(),
+        Some("provider-call-1")
+    );
+
+    let session = journal.load("resume-approval").await.unwrap().unwrap();
+    assert_eq!(session.pending_tool_approvals().len(), 0);
+    assert_eq!(
+        session
+            .events()
+            .iter()
+            .filter(|event| matches!(event.data(), SessionEventData::ApprovalAsked { .. }))
+            .count(),
+        1,
+        "recovery must reuse the durable approval identity"
+    );
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ToolResult { result, .. }
+            if result.call_id == "execution-1"
+                && result.outcome == ToolOutcome::Success
+    )));
+    assert!(!session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ToolResult { result, .. }
+            if result.call_id == "execution-1"
+                && result.outcome == ToolOutcome::OutcomeUnknown
+    )));
+}
+
+#[tokio::test]
+async fn cancellation_closes_every_durable_pending_approval() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(tool_delta(0, "first", "guarded", "{}")),
+        Ok(tool_delta(1, "second", "guarded", "{}")),
+        Ok(completed_for_calls()),
+    ]]));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                |_context| async { Ok(RuntimeToolOutput::text("must not run")) },
+            )
+            .with_concurrency(RuntimeToolConcurrency::Parallel)
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("cancel-pending-approvals".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+    let mut run = LoopEngine.start(request);
+
+    let mut asked = Vec::new();
+    while asked.len() < 2 {
+        let event = run.next().await.unwrap();
+        if let LoopEventKind::ToolApprovalRequested { approval_id, .. } = event.kind {
+            asked.push(approval_id);
+        }
+    }
+    run.cancel();
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+
+    let session = journal
+        .load("cancel-pending-approvals")
+        .await
+        .unwrap()
+        .unwrap();
+    let decided = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ApprovalDecided { id, outcome } => Some((id.clone(), *outcome)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        decided,
+        asked
+            .into_iter()
+            .map(|id| (id, ApprovalOutcome::Cancelled))
+            .collect::<Vec<_>>()
+    );
 }
 
 #[tokio::test]
@@ -1031,22 +1676,35 @@ async fn duplicate_provider_call_ids_get_unique_approval_ids() {
         ],
     ]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("guarded", "guarded", json!({}), {
-        let executions = executions.clone();
-        move |_, _| {
-            executions.fetch_add(1, Ordering::SeqCst);
-            async { ToolResult::success("allowed") }
-        }
-    })
-    .requires_approval();
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("allowed"))
+                        }
+                    }
+                },
+            )
+            .with_concurrency(RuntimeToolConcurrency::Parallel)
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
 
     let mut approval_ids = Vec::new();
     while approval_ids.len() < 2 {
         let event = run.next().await.unwrap();
-        if let LoopEventKind::ToolApprovalRequested { call } = event.kind {
+        if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
             approval_ids.push(call.id);
         }
     }
@@ -1080,16 +1738,28 @@ async fn rejected_tool_never_runs_and_failure_is_written_back() {
         ],
     ]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("guarded", "guarded", json!({}), {
-        let executions = executions.clone();
-        move |_, _| {
-            executions.fetch_add(1, Ordering::SeqCst);
-            async { ToolResult::success("unexpected") }
-        }
-    })
-    .requires_approval();
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("unexpected"))
+                        }
+                    }
+                },
+            )
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
 
     while let Some(event) = run.next().await {
@@ -1111,7 +1781,7 @@ async fn rejected_tool_never_runs_and_failure_is_written_back() {
     let result = run.result().await;
     assert!(!saw_started);
     assert_eq!(executions.load(Ordering::SeqCst), 0);
-    assert!(result.messages[2].content.contains("tool rejected"));
+    assert!(result.messages[2].content.contains("approval denied"));
     assert!(result.messages[2].content.contains("unsafe arguments"));
 }
 
@@ -1440,6 +2110,104 @@ async fn event_journal_records_model_input_and_tool_call_before_side_effects() {
 }
 
 #[tokio::test]
+async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_header() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("done".to_owned())),
+        Ok(completed()),
+    ]]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let prompt = PromptAssembler
+        .assemble([
+            PromptSection::new("identity", "1", "System identity."),
+            PromptSection::new("workflow", "2", "Inspect, then answer."),
+        ])
+        .unwrap();
+    let expected_audit = prompt.audit().clone();
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("hello")]);
+    request.session_id = Some("prompt-audit".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.prompt = Some(prompt);
+    request.token_guard = Some(
+        TokenGuard::new(
+            Arc::new(FixedTokenMeter { total: 42 }),
+            TokenBudget {
+                context_window_tokens: 8_192,
+                reserved_output_tokens: 1_024,
+                safety_margin_tokens: 256,
+            },
+        )
+        .unwrap(),
+    );
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].messages[0].role, Role::System);
+    assert_eq!(
+        requests[0].messages[0].content,
+        "System identity.\n\nInspect, then answer."
+    );
+    assert_eq!(requests[0].messages[1].content, "hello");
+    assert_eq!(requests[0].max_output_tokens, Some(1_024));
+
+    let session = journal.load("prompt-audit").await.unwrap().unwrap();
+    let header = session
+        .events()
+        .iter()
+        .find_map(|event| match event.data() {
+            SessionEventData::RequestHeader { header } => Some(header),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        header.system.as_deref(),
+        Some("System identity.\n\nInspect, then answer.")
+    );
+    assert_eq!(
+        header.options["prompt"],
+        serde_json::to_value(expected_audit).unwrap()
+    );
+    assert_eq!(
+        header.options["toolDefinitionsSha256"]
+            .as_str()
+            .unwrap()
+            .len(),
+        64
+    );
+    assert_eq!(header.options["tokenBudget"]["meter"], "test-fixed/v1");
+    assert_eq!(header.options["tokenBudget"]["availableInputTokens"], 6_912);
+    assert_eq!(
+        header.options["tokenBudget"]["estimate"]["totalInputTokens"],
+        42
+    );
+    assert!(session
+        .derive_messages()
+        .iter()
+        .all(|message| message.role != xharness_session::MessageRole::System));
+}
+
+#[tokio::test]
+async fn context_policy_cannot_silently_remove_or_rewrite_the_assembled_prompt() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let prompt = PromptAssembler
+        .assemble([PromptSection::new("identity", "1", "must remain")])
+        .unwrap();
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("hello")]);
+    request.prompt = Some(prompt);
+    request.context_policy = Arc::new(DroppingSystemPolicy);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert!(result
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("context policy removed"));
+    assert_eq!(provider.attempts(), 0);
+}
+
+#[tokio::test]
 async fn journal_namespaces_reused_provider_call_ids_across_steps() {
     let provider = Arc::new(ScriptProvider::new([
         vec![
@@ -1490,6 +2258,18 @@ async fn journal_namespaces_reused_provider_call_ids_across_steps() {
     assert_ne!(execution_ids[0], execution_ids[1]);
     assert!(execution_ids.iter().all(|id| id.starts_with("xh-")));
     assert!(execution_ids.iter().all(|id| id != "provider-reused"));
+    let persisted_provider_ids = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ToolCall { call, .. } => call.provider_call_id.as_deref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        persisted_provider_ids,
+        ["provider-reused", "provider-reused"]
+    );
 
     let raw_provider_ids = session
         .events()
@@ -1513,6 +2293,13 @@ async fn journal_namespaces_reused_provider_call_ids_across_steps() {
         })
         .collect::<Vec<_>>();
     assert_eq!(result_ids, execution_ids);
+    let replayed_tool_ids = result
+        .messages
+        .iter()
+        .filter(|message| message.role == Role::Tool)
+        .filter_map(|message| message.tool_call_id.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(replayed_tool_ids, ["provider-reused", "provider-reused"]);
 }
 
 #[tokio::test]
@@ -1524,6 +2311,7 @@ async fn event_journal_recovers_incomplete_tool_as_outcome_unknown_without_repla
         .unwrap();
     let call = ToolCall {
         id: "side-effect".to_owned(),
+        provider_call_id: None,
         index: 0,
         name: "dangerous".to_owned(),
         arguments_json: "{}".to_owned(),
@@ -1604,12 +2392,227 @@ async fn event_journal_recovers_incomplete_tool_as_outcome_unknown_without_repla
 }
 
 #[tokio::test]
+async fn durable_crash_cut_matrix_closes_or_preserves_each_authoritative_boundary() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum CrashCut {
+        Claim,
+        Request,
+        ToolCall,
+        ToolResult,
+        StepEnd,
+        TurnEnd,
+    }
+
+    for cut in [
+        CrashCut::Claim,
+        CrashCut::Request,
+        CrashCut::ToolCall,
+        CrashCut::ToolResult,
+        CrashCut::StepEnd,
+        CrashCut::TurnEnd,
+    ] {
+        let session_id = format!("crash-cut-{cut:?}").to_ascii_lowercase();
+        let journal = Arc::new(EventMemorySessionStore::default());
+        journal
+            .create(SessionHeader::new(&session_id))
+            .await
+            .unwrap();
+        let mut events = vec![
+            SessionEventData::TurnStart { turn: 1 }.into(),
+            SessionEventData::UserMessage {
+                message: AgentMessage::user("durable original").with_id("original-input"),
+            }
+            .into(),
+        ];
+        if cut != CrashCut::Claim {
+            events.extend([
+                SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                SessionEventData::RequestHeader {
+                    header: xharness_session::RequestHeader::new("crashed", "model"),
+                }
+                .into(),
+            ]);
+        }
+        if matches!(cut, CrashCut::ToolCall | CrashCut::ToolResult) {
+            let call = ToolCall {
+                id: "durable-side-effect".to_owned(),
+                provider_call_id: None,
+                index: 0,
+                name: "dangerous".to_owned(),
+                arguments_json: "{}".to_owned(),
+            };
+            let mut assistant = AgentMessage::assistant("");
+            assistant.tool_calls.push(call.clone());
+            events.extend([
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call,
+                }
+                .into(),
+            ]);
+            if cut == CrashCut::ToolResult {
+                events.push(
+                    SessionEventData::ToolResult {
+                        turn: 1,
+                        step: 1,
+                        result: xharness_session::ToolResultData {
+                            call_id: "durable-side-effect".to_owned(),
+                            outcome: ToolOutcome::Success,
+                            content: "authoritative result".to_owned(),
+                            metadata: None,
+                        },
+                    }
+                    .into(),
+                );
+            }
+        }
+        if matches!(cut, CrashCut::StepEnd | CrashCut::TurnEnd) {
+            events.extend([
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: AgentMessage::assistant("durable answer").with_id("durable-answer"),
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::StepEnd { turn: 1, step: 1 }.into(),
+            ]);
+        }
+        if cut == CrashCut::TurnEnd {
+            events.push(
+                SessionEventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Completed,
+                }
+                .into(),
+            );
+        }
+        journal
+            .append(&session_id, Revision::ZERO, events)
+            .await
+            .unwrap();
+        journal.flush(&session_id).await.unwrap();
+
+        let provider = Arc::new(ScriptProvider::new([vec![
+            Ok(ProviderEvent::TextDelta("recovered".to_owned())),
+            Ok(completed()),
+        ]]));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let tool = ToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
+            let executions = Arc::clone(&executions);
+            move |_, _| {
+                executions.fetch_add(1, Ordering::SeqCst);
+                async { ToolResult::success("must not replay") }
+            }
+        });
+        let mut request =
+            LoopRequest::new(provider.clone(), vec![AgentMessage::user("recovery probe")]);
+        request.session_id = Some(session_id.clone());
+        request.journal_store = Some(journal.clone());
+        request.tools.push(tool);
+
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Completed, "cut={cut:?}");
+        assert_eq!(executions.load(Ordering::SeqCst), 0, "cut={cut:?}");
+        assert_eq!(provider.attempts(), 1, "cut={cut:?}");
+
+        let recovered = journal.load(&session_id).await.unwrap().unwrap();
+        assert_eq!(
+            recovered
+                .derive_messages()
+                .iter()
+                .filter(|message| message.id.as_deref() == Some("original-input"))
+                .count(),
+            1,
+            "cut={cut:?}"
+        );
+        let turn_one_end = recovered
+            .events()
+            .iter()
+            .find_map(|event| match event.data() {
+                SessionEventData::TurnEnd { turn: 1, reason } => Some(reason),
+                _ => None,
+            });
+        if cut == CrashCut::TurnEnd {
+            assert_eq!(turn_one_end, Some(&TurnEndReason::Completed), "cut={cut:?}");
+        } else {
+            assert_eq!(
+                turn_one_end,
+                Some(&TurnEndReason::Interrupted),
+                "cut={cut:?}"
+            );
+        }
+        assert!(recovered.events().iter().any(|event| matches!(
+            event.data(),
+            SessionEventData::TurnEnd {
+                turn: 2,
+                reason: TurnEndReason::Completed,
+            }
+        )));
+
+        let durable_results = recovered
+            .events()
+            .iter()
+            .filter_map(|event| match event.data() {
+                SessionEventData::ToolResult { result, .. }
+                    if result.call_id == "durable-side-effect" =>
+                {
+                    Some(result.outcome)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        match cut {
+            CrashCut::ToolCall => {
+                assert_eq!(durable_results, [ToolOutcome::OutcomeUnknown]);
+            }
+            CrashCut::ToolResult => {
+                assert_eq!(durable_results, [ToolOutcome::Success]);
+            }
+            _ => assert!(durable_results.is_empty(), "cut={cut:?}"),
+        }
+    }
+}
+
+#[tokio::test]
 async fn cancel_command_is_acknowledged_before_the_run_stops() {
-    let provider = Arc::new(GatedProvider::new());
-    let request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(tool_delta(0, "wait", "wait", "{}")),
+        Ok(completed_for_calls()),
+    ]]));
+    let cleaned = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(RuntimeToolSpec::new(
+            RuntimeToolDefinition::new("wait", "wait", json!({"type":"object"})),
+            {
+                let cleaned = Arc::clone(&cleaned);
+                move |context| {
+                    let cleaned = Arc::clone(&cleaned);
+                    async move {
+                        context.cancellation.cancelled().await;
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        cleaned.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("cancelled"))
+                    }
+                }
+            },
+        ))
+        .await
+        .unwrap();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
     while let Some(event) = run.next().await {
-        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+        if matches!(event.kind, LoopEventKind::ToolStarted(_)) {
             break;
         }
     }
@@ -1617,6 +2620,7 @@ async fn cancel_command_is_acknowledged_before_the_run_stops() {
     assert_eq!(run.send(LoopCommand::Cancel).await, Ok(()));
     while run.next().await.is_some() {}
     assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+    assert_eq!(cleaned.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -1665,4 +2669,171 @@ async fn terminal_vs_steer_never_acknowledges_an_unapplied_command() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn durable_inbox_claim_and_turn_input_share_one_atomic_revision() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    journal
+        .create(SessionHeader::new("durable-inbox-turn"))
+        .await
+        .unwrap();
+    journal
+        .append(
+            "durable-inbox-turn",
+            Revision::ZERO,
+            vec![SessionEventData::AgentInboxSpliced {
+                target: InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 0,
+                inserted: vec![InboxMessage::user("prompt-id", "hello")],
+                outcome: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("done".to_owned())),
+        Ok(completed()),
+    ]]));
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("hello")]);
+    request.session_id = Some("durable-inbox-turn".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.journal_prelude.push(
+        SessionEventData::AgentInboxSpliced {
+            target: InboxTarget::NextTurn,
+            start: 0,
+            removed_count: 1,
+            inserted: Vec::new(),
+            outcome: None,
+        }
+        .into(),
+    );
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let session = journal.load("durable-inbox-turn").await.unwrap().unwrap();
+    let turn_start = session
+        .events()
+        .iter()
+        .find(|event| matches!(event.data(), SessionEventData::TurnStart { turn: 1 }))
+        .unwrap();
+    let claim = session
+        .events()
+        .iter()
+        .find(|event| {
+            matches!(
+                event.data(),
+                SessionEventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    removed_count: 1,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let user = session
+        .events()
+        .iter()
+        .find(|event| matches!(event.data(), SessionEventData::UserMessage { .. }))
+        .unwrap();
+    assert_eq!(turn_start.revision, claim.revision);
+    assert_eq!(claim.revision, user.revision);
+}
+
+#[tokio::test]
+async fn active_loop_adopts_intervening_durable_control_appends() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let provider = Arc::new(GatedProvider::new());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("live-inbox-writer".to_owned());
+    request.journal_store = Some(journal.clone());
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+            break;
+        }
+    }
+
+    let session = journal.load("live-inbox-writer").await.unwrap().unwrap();
+    journal
+        .append(
+            "live-inbox-writer",
+            session.revision(),
+            vec![
+                SessionEventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    start: 0,
+                    removed_count: 0,
+                    inserted: vec![InboxMessage::user("later", "next turn")],
+                    outcome: None,
+                }
+                .into(),
+                SessionEventData::CommandRun {
+                    command_id: "external-command".to_owned(),
+                    name: "permission".to_owned(),
+                    args: Some(String::new()),
+                    source: CommandSource::User,
+                }
+                .into(),
+                SessionEventData::CommandDone {
+                    command_id: "external-command".to_owned(),
+                    kind: CommandResultKind::Success,
+                    text: Some("unchanged".to_owned()),
+                    source_event_seq: None,
+                }
+                .into(),
+                SessionEventData::SessionTitle {
+                    title: "renamed while running".to_owned(),
+                    message_seqs: Vec::new(),
+                    source: SessionTitleSource::User,
+                }
+                .into(),
+                SessionEventData::GoalChange {
+                    change: GoalChange::Snapshot(GoalSnapshotChange {
+                        kind: GoalChangeKind::GoalChange,
+                        version: 1,
+                        operation: GoalSnapshotOperation::Create,
+                        goal: GoalSnapshot {
+                            id: "goal-live".to_owned(),
+                            revision: 1,
+                            objective: "finish safely".to_owned(),
+                            phase: GoalPhase::Active,
+                            blocked_reason: None,
+                            max_goal_rounds: 8,
+                        },
+                        rounds_started: 0,
+                        created_at: 1,
+                        updated_at: 1,
+                    }),
+                }
+                .into(),
+                SessionEventData::PlanMode { active: true }.into(),
+            ],
+        )
+        .await
+        .unwrap();
+    provider.release_first.notify_one();
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+
+    let session = journal.load("live-inbox-writer").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|event| {
+        matches!(
+            event.data(),
+            SessionEventData::AgentInboxSpliced { inserted, .. }
+                if inserted.iter().any(|message| message.id == "later")
+        )
+    }));
+    assert!(session.events().iter().any(|event| {
+        matches!(
+            event.data(),
+            SessionEventData::TurnEnd {
+                turn: 1,
+                reason: TurnEndReason::Completed
+            }
+        )
+    }));
 }

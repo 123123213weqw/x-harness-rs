@@ -9,17 +9,28 @@ use std::{
 
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
     ApiBackend, ClientResponse, EventStream, ReceiptRejection, RpcError, RpcErrorCode, RpcId,
     RpcMethod, RpcReceipt, RpcResult, ServerRequest, SessionExport,
 };
-use xharness_core::LoopCommand;
+use xharness_control::ControlEvent;
+use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
+use xharness_session::{
+    ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData,
+    GoalChange as SessionGoalChange, GoalChangeKind, GoalClearChange, GoalClearOperation,
+    GoalPhase, GoalRef as DurableGoalRef, GoalSnapshotChange, GoalSnapshotOperation, SessionEvent,
+    SessionSandboxMode, SessionTitleSource,
+};
 
 use crate::{
-    driver::rpc_error,
-    runtime::ModelRoute,
+    control::SessionMutationResponse,
+    control::{settings_snapshot, workspace_snapshot},
+    driver::{agent_runtime_error, rpc_error, PromptAdmission},
+    restore::{project_session_event_range, project_session_history},
+    runtime::{AgentRuntimeError, ModelRoute},
     state::{
         iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
         PendingResponse, SessionRecord, SettingsNamespace, WorkspaceRecord,
@@ -47,8 +58,8 @@ impl ApiBackend for BasicHost {
             RpcMethod::SessionCreate => self.session_create(&payload).await,
             RpcMethod::SessionHistory => self.session_history(&payload).await,
             RpcMethod::SessionModels => self.session_models(&payload).await,
-            RpcMethod::SessionSelectModel => self.session_select_model(&payload).await,
-            RpcMethod::SessionRename => self.session_rename(&payload).await,
+            RpcMethod::SessionSelectModel => self.session_select_model(rpc_id, &payload).await,
+            RpcMethod::SessionRename => self.session_rename(rpc_id, &payload).await,
             RpcMethod::SessionFork => self.session_fork(&payload).await,
             RpcMethod::SessionPrompt => self.session_prompt(rpc_id, &payload).await,
             RpcMethod::SessionAttachment => self.session_attachment(&payload).await,
@@ -64,32 +75,36 @@ impl ApiBackend for BasicHost {
             RpcMethod::HostCreateDirectory => self.host_create_directory(&payload).await,
             RpcMethod::HostOpenPath => self.host_open_path(&payload).await,
             RpcMethod::WorkspaceList => self.workspace_list(&payload).await,
-            RpcMethod::WorkspaceCreate => self.workspace_create(&payload).await,
-            RpcMethod::WorkspaceRename => self.workspace_rename(&payload).await,
-            RpcMethod::WorkspaceDelete => self.workspace_delete(&payload).await,
-            RpcMethod::WorkspaceInsertBefore => self.workspace_insert_before(&payload).await,
-            RpcMethod::WorkspaceInsertSessionBefore => {
-                self.workspace_insert_session_before(&payload).await
+            RpcMethod::WorkspaceCreate => self.workspace_create(rpc_id, &payload).await,
+            RpcMethod::WorkspaceRename => self.workspace_rename(rpc_id, &payload).await,
+            RpcMethod::WorkspaceDelete => self.workspace_delete(rpc_id, &payload).await,
+            RpcMethod::WorkspaceInsertBefore => {
+                self.workspace_insert_before(rpc_id, &payload).await
             }
-            RpcMethod::WorkspaceArchiveSession => self.workspace_archive_session(&payload).await,
+            RpcMethod::WorkspaceInsertSessionBefore => {
+                self.workspace_insert_session_before(rpc_id, &payload).await
+            }
+            RpcMethod::WorkspaceArchiveSession => {
+                self.workspace_archive_session(rpc_id, &payload).await
+            }
             RpcMethod::SkillList => self.skill_list(&payload).await,
             RpcMethod::AgentPresetList => self.agent_preset_list(&payload).await,
-            RpcMethod::AgentPresetSelect => self.agent_preset_select(&payload).await,
+            RpcMethod::AgentPresetSelect => self.agent_preset_select(rpc_id, &payload).await,
             RpcMethod::AgentPresetRead => self.agent_preset_read(&payload).await,
             RpcMethod::AgentPresetCopy => self.agent_preset_copy(&payload).await,
             RpcMethod::AgentPresetOpenDocument => self.agent_preset_open_document(&payload).await,
             RpcMethod::AgentPresetRemove => self.agent_preset_remove(&payload).await,
-            RpcMethod::GoalCreate => self.goal_create(&payload).await,
-            RpcMethod::GoalEdit => self.goal_edit(&payload).await,
-            RpcMethod::GoalPause => self.goal_transition(&payload, "paused").await,
-            RpcMethod::GoalResume => self.goal_transition(&payload, "active").await,
-            RpcMethod::GoalComplete => self.goal_transition(&payload, "completed").await,
-            RpcMethod::GoalClear => self.goal_clear(&payload).await,
+            RpcMethod::GoalCreate => self.goal_create(rpc_id, &payload).await,
+            RpcMethod::GoalEdit => self.goal_edit(rpc_id, &payload).await,
+            RpcMethod::GoalPause => self.goal_transition(rpc_id, &payload, "paused").await,
+            RpcMethod::GoalResume => self.goal_transition(rpc_id, &payload, "active").await,
+            RpcMethod::GoalComplete => self.goal_transition(rpc_id, &payload, "complete").await,
+            RpcMethod::GoalClear => self.goal_clear(rpc_id, &payload).await,
             RpcMethod::SettingsDescribe => self.settings_describe(&payload).await,
             RpcMethod::SettingsOpenDocument => self.settings_open_document(&payload).await,
-            RpcMethod::SettingsUpdate => self.settings_update(&payload).await,
-            RpcMethod::SettingsReplace => self.settings_replace(&payload).await,
-            RpcMethod::SettingsMutate => self.settings_mutate(&payload).await,
+            RpcMethod::SettingsUpdate => self.settings_update(rpc_id, &payload).await,
+            RpcMethod::SettingsReplace => self.settings_replace(rpc_id, &payload).await,
+            RpcMethod::SettingsMutate => self.settings_mutate(rpc_id, &payload).await,
             RpcMethod::CredentialsDescribe => self.credentials_describe(&payload).await,
             RpcMethod::CredentialsSet => self.credentials_set(&payload).await,
             RpcMethod::CredentialsUnset => self.credentials_unset(&payload).await,
@@ -134,14 +149,14 @@ impl ApiBackend for BasicHost {
             let baseline = {
             let state = state.read().await;
             let mut frames = Vec::new();
-            for session in state.sessions.values().filter(|session| session.running) {
+            for session in state.sessions.values() {
                 frames.push(ServerRequest::new(
                     RpcId::new(mint_stream_id(&next_id, "subscribed")),
                     "session/subscribed",
                     json!({
                         "type": "session/subscribed",
                         "sessionId": session.session_id,
-                        "lastSeq": session.events.len() as i64 - 1,
+                        "lastSeq": session.last_event_seq_i64(),
                     }),
                 ));
                 for (key, value) in session
@@ -157,7 +172,19 @@ impl ApiBackend for BasicHost {
                             "sessionId": session.session_id,
                             "key": key,
                             "value": value,
-                            "seq": session.events.len() as i64 - 1,
+                            "seq": session.last_event_seq_i64(),
+                        }),
+                    ));
+                }
+                let items = session.queue_view();
+                if !items.is_empty() {
+                    frames.push(ServerRequest::new(
+                        RpcId::new(mint_stream_id(&next_id, "queue")),
+                        "session/queue",
+                        json!({
+                            "type": "session/queue",
+                            "sessionId": session.session_id,
+                            "items": items,
                         }),
                     ));
                 }
@@ -270,11 +297,18 @@ impl BasicHost {
         if !self.state.read().await.sessions.contains_key(&session_id) {
             return Err(session_not_found(&session_id));
         }
-        Ok(json!([{
-            "name": "permission",
-            "description": "Switch the permission preset (sandbox mode + approval policy)",
-            "input": {"hint": "<preset>"},
-        }]))
+        Ok(json!([
+            {
+                "name": "permission",
+                "description": "Switch the permission preset (sandbox mode + approval policy)",
+                "input": {"hint": "<preset>"},
+            },
+            {
+                "name": "plan",
+                "description": "Enter or leave plan mode",
+                "input": {"hint": "[off|message]", "images": true},
+            }
+        ]))
     }
 
     async fn commands_execute(&self, payload: &Value) -> Result<Option<Value>, RpcError> {
@@ -282,23 +316,30 @@ impl BasicHost {
             .get("args")
             .ok_or_else(|| bad_request("commands/execute requires args"))?;
         let session_id = required_string(args, "agentId")?;
+        let _session_guard = self.lock_admission(&session_id).await;
         let line = required_string(args, "line")?;
         let images = required_array(args, "images")?;
+
+        if let Some(raw_input) = plan_command_input(&line) {
+            return self
+                .execute_plan_command(&session_id, raw_input, images)
+                .await
+                .map(Some);
+        }
 
         let Some(raw_input) = permission_command_input(&line) else {
             return Ok(None);
         };
         let command_id = self.mint_id("command");
-        self.append_session_event(
+        self.commit_session_events(
             &session_id,
-            "command/run",
-            json!({
-                "commandId": command_id,
-                "name": "permission",
-                "args": raw_input,
-                "source": {"kind": "user"},
-            }),
-            None,
+            vec![SessionEventData::CommandRun {
+                command_id: command_id.clone(),
+                name: "permission".to_owned(),
+                args: Some(raw_input.to_owned()),
+                source: CommandSource::User,
+            }
+            .into()],
         )
         .await?;
 
@@ -321,49 +362,29 @@ impl BasicHost {
                 ),
             })
         } else if let Some(preset) = crate::PermissionPreset::parse(raw_input.trim()) {
-            let busy = {
-                let mut state = self.state.write().await;
-                let session = state
-                    .sessions
-                    .get_mut(&session_id)
-                    .ok_or_else(|| session_not_found(&session_id))?;
-                if session.running {
-                    true
-                } else {
-                    session.permission_preset = preset;
-                    false
-                }
-            };
+            let busy = self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .running;
             if busy {
                 json!({
                     "kind": "error",
                     "text": "cannot change permissions while the session is running",
                 })
             } else {
-                self.append_session_event(
-                    &session_id,
-                    "permission/preset",
-                    json!({"preset": preset.as_str()}),
-                    None,
-                )
-                .await?;
-                self.append_session_event(
-                    &session_id,
-                    "sandbox/mode",
-                    json!({
-                        "enabled": preset.sandbox_enabled(),
-                        "mode": preset.sandbox_mode(),
-                    }),
-                    None,
-                )
-                .await?;
-                self.append_session_event(
-                    &session_id,
-                    "approval/policy",
-                    json!({"policy": preset.approval_policy()}),
-                    None,
-                )
-                .await?;
+                self.commit_session_events(&session_id, permission_events(preset))
+                    .await?;
+                self.state
+                    .write()
+                    .await
+                    .sessions
+                    .get_mut(&session_id)
+                    .ok_or_else(|| session_not_found(&session_id))?
+                    .permission_preset = preset;
                 self.push_projection(&session_id, "permissions", preset.select())
                     .await;
                 json!({"kind": "success", "text": format!("preset {}", preset.as_str())})
@@ -378,18 +399,121 @@ impl BasicHost {
             })
         };
 
-        self.append_session_event(
+        let kind = match result["kind"].as_str() {
+            Some("success") => CommandResultKind::Success,
+            _ => CommandResultKind::Error,
+        };
+        self.commit_session_events(
             &session_id,
-            "command/done",
-            json!({
-                "commandId": command_id,
-                "kind": result["kind"],
-                "text": result["text"],
-            }),
-            None,
+            vec![SessionEventData::CommandDone {
+                command_id: command_id.clone(),
+                kind,
+                text: result["text"].as_str().map(str::to_owned),
+                source_event_seq: None,
+            }
+            .into()],
         )
         .await?;
         Ok(Some(json!({"commandId": command_id, "result": result})))
+    }
+
+    async fn execute_plan_command(
+        &self,
+        session_id: &str,
+        raw_input: &str,
+        images: &[Value],
+    ) -> Result<Value, RpcError> {
+        let command_id = self.mint_id("command");
+        self.commit_session_events(
+            session_id,
+            vec![SessionEventData::CommandRun {
+                command_id: command_id.clone(),
+                name: "plan".to_owned(),
+                args: Some(raw_input.to_owned()),
+                source: CommandSource::User,
+            }
+            .into()],
+        )
+        .await?;
+
+        let message = raw_input.trim();
+        let result = if message == "off" && !images.is_empty() {
+            json!({"kind": "error", "text": "Image attachments cannot accompany /plan off."})
+        } else if (message != "off" && !message.is_empty()) || !images.is_empty() {
+            json!({
+                "kind": "error",
+                "text": "Plan-mode messages and images require the pending pre-step steering path, which is not available in this host build.",
+            })
+        } else {
+            let (running, current) = {
+                let state = self.state.read().await;
+                let session = state
+                    .sessions
+                    .get(session_id)
+                    .ok_or_else(|| session_not_found(session_id))?;
+                (session.running, session.plan_active)
+            };
+            let wanted = message != "off";
+            if running {
+                json!({
+                    "kind": "error",
+                    "text": "cannot switch plan mode while the session is running until pending pre-step selection is implemented",
+                })
+            } else if current == wanted {
+                json!({
+                    "kind": "success",
+                    "text": if wanted {
+                        "Plan mode is already active."
+                    } else {
+                        "Plan mode is already inactive."
+                    },
+                })
+            } else {
+                self.commit_session_events(
+                    session_id,
+                    vec![SessionEventData::PlanMode { active: wanted }.into()],
+                )
+                .await?;
+                self.state
+                    .write()
+                    .await
+                    .sessions
+                    .get_mut(session_id)
+                    .ok_or_else(|| session_not_found(session_id))?
+                    .plan_active = wanted;
+                self.push_projection(
+                    session_id,
+                    "plan",
+                    json!({"active": wanted, "pending": false}),
+                )
+                .await;
+                json!({
+                    "kind": "success",
+                    "text": if wanted {
+                        "Plan mode on. Use /plan off to leave."
+                    } else {
+                        "Plan mode off."
+                    },
+                })
+            }
+        };
+
+        let kind = match result["kind"].as_str() {
+            Some("success") => CommandResultKind::Success,
+            _ => CommandResultKind::Error,
+        };
+        self.commit_session_events(
+            session_id,
+            vec![SessionEventData::CommandDone {
+                command_id: command_id.clone(),
+                kind,
+                text: result["text"].as_str().map(str::to_owned),
+                source_event_seq: None,
+            }
+            .into()],
+        )
+        .await?;
+        Ok(json!({"commandId": command_id, "result": result}))
     }
 
     async fn session_list(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -422,6 +546,48 @@ impl BasicHost {
             ));
         }
         let state = self.state.read().await;
+        let session_ids = state
+            .sessions
+            .keys()
+            .filter(|session_id| !state.archived_sessions.contains(*session_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if self.agent_runtime.has_authoritative_sessions() {
+            drop(state);
+            let mut matches = Vec::new();
+            for session_id in session_ids {
+                if cancellation.is_cancelled() {
+                    return Err(rpc_error(
+                        RpcErrorCode::Cancelled,
+                        "session search was cancelled",
+                        json!({}),
+                    ));
+                }
+                let Some(session) = self
+                    .agent_runtime
+                    .authoritative_session(&session_id)
+                    .await
+                    .map_err(agent_runtime_error)?
+                else {
+                    continue;
+                };
+                if let Some(text) = session.events().iter().find_map(|event| {
+                    let text = serde_json::to_string(event).unwrap_or_default();
+                    text.to_lowercase().contains(&query).then_some(text)
+                }) {
+                    matches.push(json!({
+                        "sessionId": session_id,
+                        "snippet": truncate_chars(&text, 240),
+                    }));
+                }
+                if matches.len() > MAX_SEARCH_RESULTS {
+                    break;
+                }
+            }
+            let has_more = matches.len() > MAX_SEARCH_RESULTS;
+            matches.truncate(MAX_SEARCH_RESULTS);
+            return Ok(json!({"items": matches, "hasMore": has_more}));
+        }
         let mut matches = Vec::new();
         for session in state.sessions.values() {
             if state.archived_sessions.contains(&session.session_id) {
@@ -451,6 +617,13 @@ impl BasicHost {
         }
         let requested_id = optional_string(payload, "sessionId")?;
         let preset = optional_string(payload, "agentPreset")?;
+        let session_id = requested_id.unwrap_or_else(|| self.mint_id("session"));
+        // Creating a named session participates in the same per-session admission
+        // fence as prompts and control commands.  The guard is intentionally held
+        // until the initial durable policy events have crossed their flush barrier,
+        // so an idempotent concurrent create can never observe a half-created
+        // in-memory record and return success before its receipt is durable.
+        let _session_guard = self.lock_admission(&session_id).await;
         let mut state = self.state.write().await;
         if let Some(preset) = &preset {
             if !state.presets.contains_key(preset) {
@@ -486,7 +659,6 @@ impl BasicHost {
                 json!({"path": cwd}),
             )
         })?;
-        let session_id = requested_id.unwrap_or_else(|| self.mint_id("session"));
         if let Some(existing) = state.sessions.get(&session_id) {
             if existing.cwd != cwd {
                 return Err(rpc_error(
@@ -526,9 +698,17 @@ impl BasicHost {
             title: None,
             model: ModelSelection::from_config(&self.config),
             permission_preset,
+            plan_active: false,
+            goal: None,
             events: Vec::new(),
+            event_base_seq: 0,
+            event_cache_bytes: 0,
             messages: Vec::new(),
             queue: Default::default(),
+            projected_queue: Default::default(),
+            admissions: Default::default(),
+            mutation_receipts: Default::default(),
+            authoritative_seq: None,
             control: None,
             next_turn: 0,
         };
@@ -542,6 +722,29 @@ impl BasicHost {
             serde_json::to_value(workspace).ok()
         });
         drop(state);
+        let mut initial_events = effective_preset
+            .iter()
+            .map(|agent_preset| {
+                SessionEventData::AgentPresetSelected {
+                    agent_preset: agent_preset.clone(),
+                }
+                .into()
+            })
+            .collect::<Vec<SessionEvent>>();
+        initial_events.extend(permission_events(permission_preset));
+        if let Err(error) = self
+            .commit_session_events(&session_id, initial_events)
+            .await
+        {
+            let mut state = self.state.write().await;
+            state.sessions.remove(&session_id);
+            for workspace in state.workspaces.values_mut() {
+                workspace
+                    .session_ids
+                    .retain(|candidate| candidate != &session_id);
+            }
+            return Err(error);
+        }
         self.push_host(json!({
             "type": "host/session-added",
             "sessionId": session_id,
@@ -560,19 +763,65 @@ impl BasicHost {
 
     async fn session_history(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        self.sync_authoritative_session(&session_id).await?;
         let before_seq = optional_u64(payload, "beforeSeq")?;
         let max_messages = optional_u64(payload, "maxMessages")?
             .and_then(|value| usize::try_from(value).ok())
             .unwrap_or(DEFAULT_HISTORY_MESSAGES)
             .clamp(1, MAX_HISTORY_MESSAGES);
+
+        if self.agent_runtime.has_authoritative_sessions() {
+            let durable = self
+                .agent_runtime
+                .authoritative_session(&session_id)
+                .await
+                .map_err(agent_runtime_error)?
+                .ok_or_else(|| session_not_found(&session_id))?;
+            let (route, projections) = {
+                let state = self.state.read().await;
+                let session = state
+                    .sessions
+                    .get(&session_id)
+                    .ok_or_else(|| session_not_found(&session_id))?;
+                (
+                    ModelRoute {
+                        provider: session.model.provider.clone(),
+                        model: session.model.model.clone(),
+                        reasoning_effort: session.model.reasoning_effort.clone(),
+                    },
+                    session.projection_values(),
+                )
+            };
+            let page = project_session_history(&durable, &route, before_seq, max_messages);
+            let events = page
+                .events
+                .into_iter()
+                .map(|event| json!({"event": event}))
+                .collect::<Vec<_>>();
+            let mut value = json!({"events": events, "hasMore": page.has_more});
+            if before_seq.is_none() {
+                value.as_object_mut().expect("history is object").insert(
+                    "projections".to_owned(),
+                    json!({
+                        "asOfSeq": page.as_of_seq.and_then(|seq| i64::try_from(seq).ok()).unwrap_or(-1),
+                        "values": projections,
+                    }),
+                );
+            }
+            return Ok(value);
+        }
+
         let state = self.state.read().await;
         let session = state
             .sessions
             .get(&session_id)
             .ok_or_else(|| session_not_found(&session_id))?;
-        let end = before_seq
-            .and_then(|seq| usize::try_from(seq).ok())
-            .map_or(session.events.len(), |seq| seq.min(session.events.len()));
+        let end_seq = before_seq
+            .unwrap_or_else(|| session.next_event_seq())
+            .min(session.next_event_seq());
+        let end = usize::try_from(end_seq.saturating_sub(session.event_base_seq))
+            .unwrap_or(usize::MAX)
+            .min(session.events.len());
         let mut start = end;
         let mut messages = 0usize;
         while start > 0 && messages < max_messages {
@@ -588,12 +837,15 @@ impl BasicHost {
             .iter()
             .map(|event| json!({"event": event}))
             .collect::<Vec<_>>();
-        let mut value = json!({"events": events, "hasMore": start > 0});
+        let mut value = json!({
+            "events": events,
+            "hasMore": start > 0 || session.event_base_seq > 0,
+        });
         if before_seq.is_none() {
             value.as_object_mut().expect("history is object").insert(
                 "projections".to_owned(),
                 json!({
-                    "asOfSeq": session.events.len() as i64 - 1,
+                    "asOfSeq": session.last_event_seq_i64(),
                     "values": session.projection_values(),
                 }),
             );
@@ -621,8 +873,13 @@ impl BasicHost {
         }))
     }
 
-    async fn session_select_model(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn session_select_model(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        let _session_guard = self.lock_admission(&session_id).await;
         let provider = nonempty(required_string(payload, "provider")?, "provider")?;
         let model = nonempty(required_string(payload, "model")?, "model")?;
         let reasoning_effort = optional_string(payload, "reasoningEffort")?;
@@ -631,17 +888,59 @@ impl BasicHost {
             model,
             reasoning_effort,
         };
+        let route = ModelRoute {
+            provider: selected.provider.clone(),
+            model: selected.model.clone(),
+            reasoning_effort: selected.reasoning_effort.clone(),
+        };
+        if !self.agent_runtime.can_route(&route) {
+            return Err(rpc_error(
+                RpcErrorCode::ModelUnavailable,
+                format!(
+                    "model route {}/{} is unavailable",
+                    route.provider, route.model
+                ),
+                json!({"provider": route.provider, "model": route.model}),
+            ));
+        }
+        if let Some(response) = self
+            .replay_session_mutation_receipt(
+                &session_id,
+                &rpc_id,
+                RpcMethod::SessionSelectModel,
+                payload,
+            )
+            .await?
+        {
+            return Ok(response);
+        }
+        let response = self
+            .commit_session_mutation(
+                &session_id,
+                &rpc_id,
+                RpcMethod::SessionSelectModel,
+                payload,
+                vec![SessionEventData::SessionModelSelected {
+                    provider: selected.provider.clone(),
+                    model: selected.model.clone(),
+                    reasoning_effort: selected.reasoning_effort.clone(),
+                }
+                .into()],
+                SessionMutationResponse::fixed(json!({"selected": selected})),
+            )
+            .await?;
         let mut state = self.state.write().await;
         let session = state
             .sessions
             .get_mut(&session_id)
             .ok_or_else(|| session_not_found(&session_id))?;
-        session.model = selected.clone();
-        Ok(json!({"selected": selected}))
+        session.model = selected;
+        Ok(response)
     }
 
-    async fn session_rename(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn session_rename(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        let _session_guard = self.lock_admission(&session_id).await;
         let title = required_string(payload, "title")?
             .split_whitespace()
             .collect::<Vec<_>>()
@@ -653,55 +952,127 @@ impl BasicHost {
                 json!({"sessionId": session_id}),
             ));
         }
-        {
-            let mut state = self.state.write().await;
-            state
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?
-                .title = Some(title.clone());
-        }
-        let event = self
-            .append_session_event(
+        if let Some(response) = self
+            .replay_session_mutation_receipt(
                 &session_id,
-                "session/title",
-                json!({"title": title, "messageSeqs": [], "source": {"kind": "user"}}),
-                None,
+                &rpc_id,
+                RpcMethod::SessionRename,
+                payload,
+            )
+            .await?
+        {
+            return Ok(response);
+        }
+        let response = self
+            .commit_session_mutation(
+                &session_id,
+                &rpc_id,
+                RpcMethod::SessionRename,
+                payload,
+                vec![SessionEventData::SessionTitle {
+                    title: title.clone(),
+                    message_seqs: Vec::new(),
+                    source: SessionTitleSource::User,
+                }
+                .into()],
+                SessionMutationResponse::with_event_seq(json!({"title": title}), "seq"),
             )
             .await?;
+        {
+            let mut state = self.state.write().await;
+            let session = state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?;
+            session.title = Some(title.clone());
+        }
         self.push_projection(
             &session_id,
             "sessionTitle",
             json!({"title": title, "source": {"kind": "user"}}),
         )
         .await;
-        Ok(json!({"title": title, "seq": event["seq"]}))
+        Ok(response)
     }
 
     async fn session_fork(&self, payload: &Value) -> Result<Value, RpcError> {
         let source_id = required_string(payload, "sessionId")?;
         let at_seq = optional_u64(payload, "atSeq")?;
-        let mut state = self.state.write().await;
-        let source = state
-            .sessions
-            .get(&source_id)
-            .ok_or_else(|| session_not_found(&source_id))?;
-        if source.events.is_empty() {
+        let (cwd, agent_preset, title, model, permission_preset, plan_active, goal, next_turn) = {
+            let state = self.state.read().await;
+            let source = state
+                .sessions
+                .get(&source_id)
+                .ok_or_else(|| session_not_found(&source_id))?;
+            (
+                source.cwd.clone(),
+                source.agent_preset.clone(),
+                source.title.clone(),
+                source.model.clone(),
+                source.permission_preset,
+                source.plan_active,
+                source.goal.clone(),
+                source.next_turn,
+            )
+        };
+        let route = ModelRoute {
+            provider: model.provider.clone(),
+            model: model.model.clone(),
+            reasoning_effort: model.reasoning_effort.clone(),
+        };
+        let durable_source = if self.agent_runtime.has_authoritative_sessions() {
+            self.agent_runtime
+                .authoritative_session(&source_id)
+                .await
+                .map_err(agent_runtime_error)?
+        } else {
+            None
+        };
+        let (child_events, child_messages, durable_events) = if let Some(source) = durable_source {
+            let end = at_seq
+                .and_then(|seq| usize::try_from(seq.saturating_add(1)).ok())
+                .map_or(source.events().len(), |end| end.min(source.events().len()));
+            (
+                project_session_event_range(&source, &route, 0, end),
+                xharness_session::derive_messages(&source.events()[..end]),
+                Some(
+                    source.events()[..end]
+                        .iter()
+                        .map(|event| event.event.clone())
+                        .collect::<Vec<_>>(),
+                ),
+            )
+        } else {
+            let state = self.state.read().await;
+            let source = state
+                .sessions
+                .get(&source_id)
+                .ok_or_else(|| session_not_found(&source_id))?;
+            let mut events = source.events.clone();
+            if let Some(at_seq) = at_seq {
+                let keep = usize::try_from(
+                    at_seq
+                        .saturating_add(1)
+                        .saturating_sub(source.event_base_seq),
+                )
+                .unwrap_or(usize::MAX)
+                .min(events.len());
+                events.truncate(keep);
+            }
+            (events, source.messages.clone(), None)
+        };
+        if child_events.is_empty() {
             return Err(rpc_error(
                 RpcErrorCode::ForkUnavailable,
                 "session has no completed history to fork",
                 json!({"sessionId": source_id}),
             ));
         }
-        let mut child_events = source.events.clone();
-        if let Some(at_seq) = at_seq {
-            let keep = usize::try_from(at_seq.saturating_add(1))
-                .unwrap_or(usize::MAX)
-                .min(child_events.len());
-            child_events.truncate(keep);
-        }
         let child_id = self.mint_id("session");
         let now = now_ms();
+        let child_event_bytes = child_events.iter().fold(0usize, |total, event| {
+            total.saturating_add(serde_json::to_vec(event).map_or(0, |encoded| encoded.len()))
+        });
         let child = SessionRecord {
             session_id: child_id.clone(),
             created_at: now,
@@ -710,18 +1081,26 @@ impl BasicHost {
             blank: false,
             parent_session_id: Some(source_id.clone()),
             origin: None,
-            cwd: source.cwd.clone(),
-            agent_preset: source.agent_preset.clone(),
-            title: source.title.clone(),
-            model: source.model.clone(),
-            permission_preset: source.permission_preset,
+            cwd: cwd.clone(),
+            agent_preset,
+            title,
+            model,
+            permission_preset,
+            plan_active,
+            goal,
             events: child_events,
-            messages: source.messages.clone(),
+            event_base_seq: 0,
+            event_cache_bytes: child_event_bytes,
+            messages: child_messages,
             queue: Default::default(),
+            projected_queue: Default::default(),
+            admissions: Default::default(),
+            mutation_receipts: Default::default(),
+            authoritative_seq: None,
             control: None,
-            next_turn: source.next_turn,
+            next_turn,
         };
-        let cwd = child.cwd.clone();
+        let mut state = self.state.write().await;
         state.sessions.insert(child_id.clone(), child);
         let mut changed_workspace = None;
         for workspace in state.workspaces.values_mut() {
@@ -733,6 +1112,12 @@ impl BasicHost {
             }
         }
         drop(state);
+        if let Some(events) = durable_events {
+            if let Err(error) = self.commit_session_events(&child_id, events).await {
+                self.state.write().await.sessions.remove(&child_id);
+                return Err(error);
+            }
+        }
         self.push_host(json!({
             "type": "host/session-added",
             "sessionId": child_id,
@@ -752,10 +1137,9 @@ impl BasicHost {
         if mode != "queue" && mode != "steer" {
             return Err(bad_request("mode must be queue or steer"));
         }
-        let content = required_array(payload, "content")?;
-        let (text, durable) = self.admit_prompt_content(&session_id, content).await?;
-        let mut source = json!({"kind": "user", "rpcId": rpc_id.as_str()});
-        if let Some(zone) = optional_string(payload, "clientTimeZone")? {
+        let content = required_array(payload, "content")?.clone();
+        let client_time_zone = optional_string(payload, "clientTimeZone")?;
+        if let Some(zone) = &client_time_zone {
             if zone.trim().is_empty() || zone.contains('\0') {
                 return Err(rpc_error(
                     RpcErrorCode::InvalidTimeZone,
@@ -763,14 +1147,61 @@ impl BasicHost {
                     json!({"clientTimeZone": zone}),
                 ));
             }
+        }
+        let fingerprint = prompt_fingerprint(&mode, &content, client_time_zone.as_deref());
+        let _admission_guard = self.lock_admission(&session_id).await;
+        if self
+            .is_duplicate_admission(&session_id, rpc_id.as_str(), &fingerprint)
+            .await?
+        {
+            return Ok(json!({"accepted": true}));
+        }
+
+        // Attachment materialization is deliberately after receipt lookup:
+        // retrying a successfully admitted request must not mint duplicates.
+        let (text, durable) = self.admit_prompt_content(&session_id, &content).await?;
+        let mut source = json!({"kind": "user", "rpcId": rpc_id.as_str()});
+        if let Some(zone) = client_time_zone {
             source
                 .as_object_mut()
                 .expect("source is object")
                 .insert("clientTimeZone".to_owned(), json!(zone));
         }
-        self.enqueue_prompt(rpc_id, &session_id, &mode, text, durable, source)
-            .await?;
+        self.enqueue_prompt(PromptAdmission {
+            rpc_id,
+            session_id,
+            mode,
+            text,
+            content: durable,
+            source,
+            fingerprint: Some(fingerprint),
+        })
+        .await?;
         Ok(json!({"accepted": true}))
+    }
+
+    async fn is_duplicate_admission(
+        &self,
+        session_id: &str,
+        rpc_id: &str,
+        fingerprint: &str,
+    ) -> Result<bool, RpcError> {
+        let state = self.state.read().await;
+        let session = state
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| session_not_found(session_id))?;
+        let Some(previous) = session.admissions.get(rpc_id) else {
+            return Ok(false);
+        };
+        if previous.fingerprint.as_deref() == Some(fingerprint) {
+            return Ok(true);
+        }
+        Err(rpc_error(
+            RpcErrorCode::SessionConflict,
+            "rpc id was already admitted with a different prompt payload",
+            json!({"sessionId": session_id, "rpcId": rpc_id}),
+        ))
     }
 
     async fn admit_prompt_content(
@@ -873,6 +1304,7 @@ impl BasicHost {
 
     async fn session_update_queue(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        let _session_guard = self.lock_admission(&session_id).await;
         let item_id = required_string(payload, "itemId")?;
         let action = payload
             .get("action")
@@ -882,56 +1314,117 @@ impl BasicHost {
             .get("kind")
             .and_then(Value::as_str)
             .ok_or_else(|| bad_request("action.kind is required"))?;
+        let authoritative = self.agent_runtime.has_authoritative_sessions();
+        let item = {
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?;
+            let item = if authoritative {
+                session
+                    .projected_queue
+                    .iter()
+                    .find(|item| item.id == item_id)
+                    .cloned()
+            } else {
+                session
+                    .queue
+                    .iter()
+                    .find(|item| item.id == item_id)
+                    .cloned()
+            };
+            item.ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::QueueItemNotFound,
+                    "queued item is no longer pending",
+                    json!({"itemId": item_id}),
+                )
+            })?
+        };
         let mut steer_item = None;
+        let mut replacement = None;
+        match kind {
+            "remove" | "steer" => {
+                self.agent_runtime
+                    .remove_pending_input(&session_id, &item_id)
+                    .await
+                    .map_err(|error| queue_item_not_found(&item_id, error))?;
+                if kind == "steer" {
+                    steer_item = Some(item);
+                }
+            }
+            "edit" => {
+                let content = action
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| bad_request("edit action requires content"))?
+                    .clone();
+                if content
+                    .iter()
+                    .any(|block| block.get("type").and_then(Value::as_str) != Some("text"))
+                {
+                    return Err(rpc_error(
+                        RpcErrorCode::AttachmentError,
+                        "queue edits accept text content only",
+                        json!({"reason": "QUEUE_EDIT_NON_TEXT"}),
+                    ));
+                }
+                let text = visible_text(&content);
+                self.agent_runtime
+                    .replace_pending_input(
+                        &session_id,
+                        AgentMessage::new(xharness_core::Role::User, text.clone())
+                            .with_id(item_id.clone()),
+                        Some(json!({
+                            "content": content.clone(),
+                            "source": item.source.clone(),
+                            "rpcFingerprint": item.fingerprint,
+                            "rpcSessionId": session_id,
+                        })),
+                    )
+                    .await
+                    .map_err(|error| queue_item_not_found(&item_id, error))?;
+                replacement = Some((content, text));
+            }
+            _ => return Err(bad_request("unsupported queue action")),
+        }
+
+        // The Host driver FIFO is only an attachment index. Keep it aligned
+        // for work not yet handed to RunningTurn, but never use it as the Web
+        // queue authority when a durable Session exists.
         {
             let mut state = self.state.write().await;
             let session = state
                 .sessions
                 .get_mut(&session_id)
                 .ok_or_else(|| session_not_found(&session_id))?;
-            let index = session
-                .queue
-                .iter()
-                .position(|item| item.id == item_id)
-                .ok_or_else(|| {
-                    rpc_error(
-                        RpcErrorCode::QueueItemNotFound,
-                        "queue item was not found",
-                        json!({"itemId": item_id}),
-                    )
-                })?;
-            match kind {
-                "remove" => {
-                    session.queue.remove(index);
-                }
-                "steer" => {
-                    steer_item = session.queue.remove(index);
-                }
-                "edit" => {
-                    let content = action
-                        .get("content")
-                        .and_then(Value::as_array)
-                        .ok_or_else(|| bad_request("edit action requires content"))?
-                        .clone();
-                    let text = visible_text(&content);
+            if let Some(index) = session.queue.iter().position(|item| item.id == item_id) {
+                if let Some((content, text)) = replacement {
                     if let Some(item) = session.queue.get_mut(index) {
                         item.content = content;
                         item.text = text;
                     }
+                } else {
+                    session.queue.remove(index);
                 }
-                _ => return Err(bad_request("unsupported queue action")),
             }
         }
-        self.emit_queue(&session_id).await;
+        if authoritative {
+            self.sync_authoritative_session(&session_id).await?;
+        } else {
+            self.emit_queue(&session_id).await;
+        }
         if let Some(item) = steer_item {
-            self.enqueue_prompt(
-                RpcId::new(item.id),
-                &session_id,
-                "steer",
-                item.text,
-                item.content,
-                item.source,
-            )
+            self.enqueue_prompt(PromptAdmission {
+                rpc_id: RpcId::new(item.id),
+                session_id,
+                mode: "steer".to_owned(),
+                text: item.text,
+                content: item.content,
+                source: item.source,
+                fingerprint: item.fingerprint,
+            })
             .await?;
         }
         Ok(json!({"accepted": true}))
@@ -944,6 +1437,7 @@ impl BasicHost {
     }
 
     async fn send_control(&self, session_id: &str, command: LoopCommand) -> Result<(), RpcError> {
+        let cancel_is_idempotent = matches!(&command, LoopCommand::Cancel);
         let control = self
             .state
             .read()
@@ -957,17 +1451,29 @@ impl BasicHost {
             return Ok(());
         };
         let (acknowledgement, accepted) = oneshot::channel();
-        control
+        if control
             .send(DriverCommand {
                 command,
+                input_metadata: None,
                 acknowledgement,
             })
             .await
-            .map_err(|_| RpcError::internal("session driver is no longer available"))?;
-        accepted
-            .await
-            .map_err(|_| RpcError::internal("session driver closed without acknowledgement"))?
-            .map_err(|error| RpcError::internal(error.to_string()))
+            .is_err()
+        {
+            return if cancel_is_idempotent {
+                Ok(())
+            } else {
+                Err(RpcError::internal("session driver is no longer available"))
+            };
+        }
+        match accepted.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(LoopControlError::Closed)) | Err(_) if cancel_is_idempotent => Ok(()),
+            Ok(Err(error)) => Err(RpcError::internal(error.to_string())),
+            Err(_) => Err(RpcError::internal(
+                "session driver closed without acknowledgement",
+            )),
+        }
     }
 
     async fn subagent_list(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -1013,15 +1519,24 @@ impl BasicHost {
         }
         let child = required_string(payload, "childSessionId")?;
         let content = required_array(payload, "content")?.clone();
+        let fingerprint = prompt_fingerprint("continuable", &content, None);
+        let _admission_guard = self.lock_admission(&child).await;
+        if self
+            .is_duplicate_admission(&child, rpc_id.as_str(), &fingerprint)
+            .await?
+        {
+            return Ok(json!({"messageId": rpc_id.as_str()}));
+        }
         let text = visible_text(&content);
-        self.enqueue_prompt(
-            rpc_id.clone(),
-            &child,
-            "queue",
+        self.enqueue_prompt(PromptAdmission {
+            rpc_id: rpc_id.clone(),
+            session_id: child,
+            mode: "queue".to_owned(),
             text,
             content,
-            json!({"kind": "user", "rpcId": rpc_id.as_str()}),
-        )
+            source: json!({"kind": "user", "rpcId": rpc_id.as_str()}),
+            fingerprint: Some(fingerprint),
+        })
         .await?;
         Ok(json!({"messageId": rpc_id.as_str()}))
     }
@@ -1201,7 +1716,14 @@ impl BasicHost {
         }))
     }
 
-    async fn workspace_create(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_create(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceCreate, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let raw_path = required_string(payload, "path")?;
         let path = canonical_directory(&raw_path).map_err(|message| {
             rpc_error(
@@ -1210,13 +1732,23 @@ impl BasicHost {
                 json!({"path": raw_path}),
             )
         })?;
-        let mut state = self.state.write().await;
+        let state = self.state.read().await;
         if let Some(existing) = state
             .workspaces
             .values()
             .find(|workspace| workspace.path == path)
         {
-            return Ok(json!({"workspace": existing, "created": false}));
+            let response = json!({"workspace": existing, "created": false});
+            drop(state);
+            return self
+                .commit_control_mutation(
+                    &rpc_id,
+                    RpcMethod::WorkspaceCreate,
+                    payload,
+                    Vec::new(),
+                    response,
+                )
+                .await;
         }
         let id = self.mint_id("workspace");
         let now = iso_now();
@@ -1234,54 +1766,128 @@ impl BasicHost {
             created_at: now.clone(),
             updated_at: now,
         };
-        state.workspace_order.push(id.clone());
-        state.workspaces.insert(id, workspace.clone());
+        let mut order = state.workspace_order.clone();
+        order.push(id);
         drop(state);
+        let response = json!({"workspace": workspace, "created": true});
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceCreate,
+                payload,
+                vec![
+                    ControlEvent::WorkspaceDefined {
+                        workspace: workspace_snapshot(&workspace),
+                    },
+                    ControlEvent::WorkspaceOrderSet {
+                        workspace_ids: order,
+                    },
+                ],
+                response,
+            )
+            .await?;
         self.push_host(json!({"type": "host/workspace-changed", "workspace": workspace}));
-        Ok(json!({"workspace": workspace, "created": true}))
+        Ok(response)
     }
 
-    async fn workspace_rename(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_rename(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceRename, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let id = required_string(payload, "workspaceId")?;
         let title = required_string(payload, "title")?.trim().to_owned();
         if title.is_empty() {
             return Err(bad_request("workspace title must not be blank"));
         }
-        let mut state = self.state.write().await;
-        let workspace = state
+        let state = self.state.read().await;
+        let mut workspace = state
             .workspaces
-            .get_mut(&id)
+            .get(&id)
+            .cloned()
             .ok_or_else(|| workspace_not_found(&id))?;
         workspace.title = title;
         workspace.updated_at = iso_now();
-        let value = serde_json::to_value(&*workspace)
+        let value = serde_json::to_value(&workspace)
             .map_err(|error| RpcError::internal(error.to_string()))?;
         drop(state);
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceRename,
+                payload,
+                vec![ControlEvent::WorkspaceDefined {
+                    workspace: workspace_snapshot(&workspace),
+                }],
+                json!({"workspace": value}),
+            )
+            .await?;
         self.push_host(json!({"type": "host/workspace-changed", "workspace": value}));
-        Ok(json!({"workspace": value}))
+        Ok(response)
     }
 
-    async fn workspace_delete(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_delete(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceDelete, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let id = required_string(payload, "workspaceId")?;
-        let mut state = self.state.write().await;
-        if state.workspaces.remove(&id).is_none() {
+        let state = self.state.read().await;
+        if !state.workspaces.contains_key(&id) {
             return Err(workspace_not_found(&id));
         }
-        state.workspace_order.retain(|candidate| candidate != &id);
-        let order = state.workspace_order.clone();
+        let order = state
+            .workspace_order
+            .iter()
+            .filter(|candidate| *candidate != &id)
+            .cloned()
+            .collect::<Vec<_>>();
         drop(state);
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceDelete,
+                payload,
+                vec![
+                    ControlEvent::WorkspaceRemoved {
+                        workspace_id: id.clone(),
+                    },
+                    ControlEvent::WorkspaceOrderSet {
+                        workspace_ids: order.clone(),
+                    },
+                ],
+                json!({"deleted": true}),
+            )
+            .await?;
         self.push_host(json!({"type": "host/workspace-removed", "workspaceId": id}));
         self.push_host(json!({
             "type": "host/workspace-order-changed",
             "workspaceIds": order,
         }));
-        Ok(json!({"deleted": true}))
+        Ok(response)
     }
 
-    async fn workspace_insert_before(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_insert_before(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceInsertBefore, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let id = required_string(payload, "workspaceId")?;
         let before = optional_string(payload, "beforeWorkspaceId")?;
-        let mut state = self.state.write().await;
+        let state = self.state.read().await;
         if !state.workspaces.contains_key(&id) {
             return Err(workspace_not_found(&id));
         }
@@ -1294,37 +1900,59 @@ impl BasicHost {
                 ));
             }
         }
-        state.workspace_order.retain(|candidate| candidate != &id);
+        let mut order = state
+            .workspace_order
+            .iter()
+            .filter(|candidate| *candidate != &id)
+            .cloned()
+            .collect::<Vec<_>>();
         let index = before
             .as_ref()
-            .and_then(|anchor| {
-                state
-                    .workspace_order
-                    .iter()
-                    .position(|candidate| candidate == anchor)
-            })
-            .unwrap_or(state.workspace_order.len());
-        state.workspace_order.insert(index, id);
-        let order = state.workspace_order.clone();
+            .and_then(|anchor| order.iter().position(|candidate| candidate == anchor))
+            .unwrap_or(order.len());
+        order.insert(index, id);
         drop(state);
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceInsertBefore,
+                payload,
+                vec![ControlEvent::WorkspaceOrderSet {
+                    workspace_ids: order.clone(),
+                }],
+                json!({"workspaceIds": order}),
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/workspace-order-changed",
             "workspaceIds": order,
         }));
-        Ok(json!({"workspaceIds": order}))
+        Ok(response)
     }
 
-    async fn workspace_insert_session_before(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_insert_session_before(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceInsertSessionBefore, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let workspace_id = required_string(payload, "workspaceId")?;
         let session_id = required_string(payload, "sessionId")?;
         let before = optional_string(payload, "beforeSessionId")?;
-        let mut state = self.state.write().await;
+        let state = self.state.read().await;
         if !state.sessions.contains_key(&session_id) {
             return Err(session_not_found(&session_id));
         }
-        let workspace = state
+        let mut workspace = state
             .workspaces
-            .get_mut(&workspace_id)
+            .get(&workspace_id)
+            .cloned()
             .ok_or_else(|| workspace_not_found(&workspace_id))?;
         if let Some(before) = &before {
             if before == &session_id || !workspace.session_ids.contains(before) {
@@ -1349,27 +1977,61 @@ impl BasicHost {
             .unwrap_or(workspace.session_ids.len());
         workspace.session_ids.insert(index, session_id);
         workspace.updated_at = iso_now();
-        let value = serde_json::to_value(&*workspace)
+        let value = serde_json::to_value(&workspace)
             .map_err(|error| RpcError::internal(error.to_string()))?;
         drop(state);
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceInsertSessionBefore,
+                payload,
+                vec![ControlEvent::WorkspaceDefined {
+                    workspace: workspace_snapshot(&workspace),
+                }],
+                json!({"workspace": value}),
+            )
+            .await?;
         self.push_host(json!({"type": "host/workspace-changed", "workspace": value}));
-        Ok(json!({"workspace": value}))
+        Ok(response)
     }
 
-    async fn workspace_archive_session(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_archive_session(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceArchiveSession, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let session_id = required_string(payload, "sessionId")?;
-        let mut state = self.state.write().await;
+        let state = self.state.read().await;
         if !state.sessions.contains_key(&session_id) {
             return Err(session_not_found(&session_id));
         }
-        state.archived_sessions.insert(session_id);
-        let archived = state.archived_sessions.clone();
+        let mut archived = state.archived_sessions.clone();
+        archived.insert(session_id);
         drop(state);
+        let archived_ids = archived.iter().cloned().collect::<Vec<_>>();
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceArchiveSession,
+                payload,
+                vec![ControlEvent::ArchivedSessionsSet {
+                    session_ids: archived_ids,
+                }],
+                json!({"archivedSessionIds": archived}),
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/archived-sessions-changed",
             "archivedSessionIds": archived,
         }));
-        Ok(json!({"archivedSessionIds": archived}))
+        Ok(response)
     }
 
     async fn skill_list(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -1397,26 +2059,59 @@ impl BasicHost {
         }))
     }
 
-    async fn agent_preset_select(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn agent_preset_select(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let preset = nonempty(required_string(payload, "agentPreset")?, "agentPreset")?;
-        let mut state = self.state.write().await;
-        if !state.presets.contains_key(&preset) {
-            return Err(preset_not_found(&preset));
+        let _session_guard = self.lock_admission(&session_id).await;
+        if let Some(response) = self
+            .replay_session_mutation_receipt(
+                &session_id,
+                &rpc_id,
+                RpcMethod::AgentPresetSelect,
+                payload,
+            )
+            .await?
+        {
+            return Ok(response);
         }
-        let session = state
+        {
+            let state = self.state.read().await;
+            if !state.presets.contains_key(&preset) {
+                return Err(preset_not_found(&preset));
+            }
+            let session = state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?;
+            if session.running {
+                return Err(rpc_error(
+                    RpcErrorCode::AgentBusy,
+                    "cannot switch presets while the session is running",
+                    json!({"reason": "session-running"}),
+                ));
+            }
+        }
+        let response = json!({"agentPreset": preset});
+        self.commit_session_mutation(
+            &session_id,
+            &rpc_id,
+            RpcMethod::AgentPresetSelect,
+            payload,
+            vec![SessionEventData::AgentPresetSelected {
+                agent_preset: preset.clone(),
+            }
+            .into()],
+            SessionMutationResponse::fixed(response.clone()),
+        )
+        .await?;
+        self.state
+            .write()
+            .await
             .sessions
             .get_mut(&session_id)
-            .ok_or_else(|| session_not_found(&session_id))?;
-        if session.running {
-            return Err(rpc_error(
-                RpcErrorCode::AgentBusy,
-                "cannot switch presets while the session is running",
-                json!({"reason": "session-running"}),
-            ));
-        }
-        session.agent_preset = Some(preset.clone());
-        Ok(json!({"agentPreset": preset}))
+            .ok_or_else(|| session_not_found(&session_id))?
+            .agent_preset = Some(preset.clone());
+        Ok(response)
     }
 
     async fn agent_preset_read(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -1492,31 +2187,70 @@ impl BasicHost {
         Ok(json!({}))
     }
 
-    async fn goal_create(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn goal_create(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let objective = nonempty(required_string(payload, "objective")?, "objective")?;
-        let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?;
-        if max_goal_rounds == Some(0) {
+        let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?.unwrap_or(256);
+        if max_goal_rounds == 0 {
             return Err(bad_request("maxGoalRounds must be positive"));
         }
-        let mut state = self.state.write().await;
-        if !state.sessions.contains_key(&session_id) {
-            return Err(session_not_found(&session_id));
+        let _session_guard = self.lock_admission(&session_id).await;
+        if let Some(response) = self
+            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalCreate, payload)
+            .await?
+        {
+            return Ok(response);
         }
+        {
+            let state = self.state.read().await;
+            if !state.sessions.contains_key(&session_id) {
+                return Err(session_not_found(&session_id));
+            }
+            if state
+                .goals
+                .get(&session_id)
+                .is_some_and(|goal| goal.phase != GoalPhase::Complete)
+            {
+                return Err(bad_request("session already has a non-complete goal"));
+            }
+        }
+        let now = now_ms();
         let goal = GoalState {
             id: self.mint_id("goal"),
             revision: 1,
             objective,
             max_goal_rounds,
-            status: "active".to_owned(),
+            phase: GoalPhase::Active,
+            blocked_reason: None,
+            rounds_started: 0,
+            created_at: now,
+            updated_at: now,
         };
-        state.goals.insert(session_id.clone(), goal.clone());
-        drop(state);
-        self.push_projection(&session_id, "goal", json!(goal)).await;
-        Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
+        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+        self.commit_session_mutation(
+            &session_id,
+            &rpc_id,
+            RpcMethod::GoalCreate,
+            payload,
+            vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Create)],
+            SessionMutationResponse::fixed(response.clone()),
+        )
+        .await?;
+        {
+            let mut state = self.state.write().await;
+            state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .goal = Some(goal.clone());
+            state.goals.insert(session_id.clone(), goal.clone());
+        }
+        self.push_projection(&session_id, "goal", goal.projection())
+            .await;
+        Ok(response)
     }
 
-    async fn goal_edit(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn goal_edit(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let objective = optional_string(payload, "objective")?;
         let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?;
@@ -1524,15 +2258,28 @@ impl BasicHost {
             return Err(bad_request("goal.edit requires objective or maxGoalRounds"));
         }
         let expected = goal_ref(payload)?;
-        let mut state = self.state.write().await;
-        let goal = state.goals.get_mut(&session_id).ok_or_else(|| {
-            rpc_error(
-                RpcErrorCode::BadRequest,
-                "session has no active goal",
-                json!({"issues": []}),
-            )
-        })?;
-        require_goal_ref(goal, &expected)?;
+        let _session_guard = self.lock_admission(&session_id).await;
+        if let Some(response) = self
+            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalEdit, payload)
+            .await?
+        {
+            return Ok(response);
+        }
+        let mut goal = self
+            .state
+            .read()
+            .await
+            .goals
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::BadRequest,
+                    "session has no active goal",
+                    json!({"issues": []}),
+                )
+            })?;
+        require_goal_ref(&goal, &expected)?;
         if let Some(objective) = objective {
             goal.objective = nonempty(objective, "objective")?;
         }
@@ -1540,45 +2287,172 @@ impl BasicHost {
             if rounds == 0 {
                 return Err(bad_request("maxGoalRounds must be positive"));
             }
-            goal.max_goal_rounds = Some(rounds);
+            goal.max_goal_rounds = rounds;
         }
         goal.revision = goal.revision.saturating_add(1);
-        let goal = goal.clone();
-        drop(state);
-        self.push_projection(&session_id, "goal", json!(goal)).await;
-        Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
+        goal.updated_at = now_ms().max(goal.updated_at);
+        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+        self.commit_session_mutation(
+            &session_id,
+            &rpc_id,
+            RpcMethod::GoalEdit,
+            payload,
+            vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Edit)],
+            SessionMutationResponse::fixed(response.clone()),
+        )
+        .await?;
+        {
+            let mut state = self.state.write().await;
+            state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .goal = Some(goal.clone());
+            state.goals.insert(session_id.clone(), goal.clone());
+        }
+        self.push_projection(&session_id, "goal", goal.projection())
+            .await;
+        Ok(response)
     }
 
-    async fn goal_transition(&self, payload: &Value, status: &str) -> Result<Value, RpcError> {
+    async fn goal_transition(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+        transition: &str,
+    ) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let expected = goal_ref(payload)?;
-        let mut state = self.state.write().await;
-        let goal = state
-            .goals
-            .get_mut(&session_id)
-            .ok_or_else(|| bad_request("session has no goal"))?;
-        require_goal_ref(goal, &expected)?;
-        goal.status = status.to_owned();
-        goal.revision = goal.revision.saturating_add(1);
-        let goal = goal.clone();
-        drop(state);
-        self.push_projection(&session_id, "goal", json!(goal)).await;
-        Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
-    }
-
-    async fn goal_clear(&self, payload: &Value) -> Result<Value, RpcError> {
-        let session_id = required_string(payload, "sessionId")?;
-        let expected = goal_ref(payload)?;
-        let mut state = self.state.write().await;
-        let goal = state
+        let _session_guard = self.lock_admission(&session_id).await;
+        let method = match transition {
+            "paused" => RpcMethod::GoalPause,
+            "active" => RpcMethod::GoalResume,
+            "complete" => RpcMethod::GoalComplete,
+            _ => return Err(RpcError::internal("unknown goal transition")),
+        };
+        if let Some(response) = self
+            .replay_session_mutation_receipt(&session_id, &rpc_id, method, payload)
+            .await?
+        {
+            return Ok(response);
+        }
+        let mut goal = self
+            .state
+            .read()
+            .await
             .goals
             .get(&session_id)
+            .cloned()
             .ok_or_else(|| bad_request("session has no goal"))?;
-        require_goal_ref(goal, &expected)?;
-        state.goals.remove(&session_id);
-        drop(state);
+        require_goal_ref(&goal, &expected)?;
+        let (operation, phase, valid) = match transition {
+            "paused" => (
+                GoalSnapshotOperation::Pause,
+                GoalPhase::Paused,
+                goal.phase == GoalPhase::Active,
+            ),
+            "active" => (
+                GoalSnapshotOperation::Resume,
+                GoalPhase::Active,
+                matches!(
+                    goal.phase,
+                    GoalPhase::Active | GoalPhase::Paused | GoalPhase::Blocked
+                ) && goal.rounds_started < goal.max_goal_rounds,
+            ),
+            "complete" => (
+                GoalSnapshotOperation::Complete,
+                GoalPhase::Complete,
+                goal.phase != GoalPhase::Complete,
+            ),
+            _ => unreachable!("transition was validated above"),
+        };
+        if !valid {
+            return Err(bad_request(format!(
+                "cannot {transition} goal from phase {:?}",
+                goal.phase
+            )));
+        }
+        goal.phase = phase;
+        goal.blocked_reason = None;
+        goal.revision = goal.revision.saturating_add(1);
+        goal.updated_at = now_ms().max(goal.updated_at);
+        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+        self.commit_session_mutation(
+            &session_id,
+            &rpc_id,
+            method,
+            payload,
+            vec![goal_snapshot_event(&goal, operation)],
+            SessionMutationResponse::fixed(response.clone()),
+        )
+        .await?;
+        {
+            let mut state = self.state.write().await;
+            state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .goal = Some(goal.clone());
+            state.goals.insert(session_id.clone(), goal.clone());
+        }
+        self.push_projection(&session_id, "goal", goal.projection())
+            .await;
+        Ok(response)
+    }
+
+    async fn goal_clear(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let session_id = required_string(payload, "sessionId")?;
+        let expected = goal_ref(payload)?;
+        let _session_guard = self.lock_admission(&session_id).await;
+        if let Some(response) = self
+            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalClear, payload)
+            .await?
+        {
+            return Ok(response);
+        }
+        let goal = self
+            .state
+            .read()
+            .await
+            .goals
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| bad_request("session has no goal"))?;
+        require_goal_ref(&goal, &expected)?;
+        let cleared = DurableGoalRef {
+            id: goal.id.clone(),
+            revision: goal.revision.saturating_add(1),
+        };
+        let response = json!({"cleared": true});
+        self.commit_session_mutation(
+            &session_id,
+            &rpc_id,
+            RpcMethod::GoalClear,
+            payload,
+            vec![SessionEventData::GoalChange {
+                change: SessionGoalChange::Clear(GoalClearChange {
+                    kind: GoalChangeKind::GoalChange,
+                    version: 1,
+                    operation: GoalClearOperation::Clear,
+                    cleared,
+                    cleared_at: now_ms().max(goal.updated_at),
+                }),
+            }
+            .into()],
+            SessionMutationResponse::fixed(response.clone()),
+        )
+        .await?;
+        {
+            let mut state = self.state.write().await;
+            state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .goal = None;
+            state.goals.remove(&session_id);
+        }
         self.push_projection(&session_id, "goal", Value::Null).await;
-        Ok(json!({"cleared": true}))
+        Ok(response)
     }
 
     async fn settings_describe(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -1596,7 +2470,14 @@ impl BasicHost {
         Ok(json!({"opened": true}))
     }
 
-    async fn settings_update(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn settings_update(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::SettingsUpdate, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let ns = nonempty(required_string(payload, "ns")?, "ns")?;
         let patch = payload
             .get("patch")
@@ -1607,17 +2488,29 @@ impl BasicHost {
         if ns == "permission" {
             validate_permission_patch(&patch)?;
         }
-        let mut state = self.state.write().await;
-        let namespace = state
+        let state = self.state.read().await;
+        let mut namespace = state
             .settings
-            .get_mut(&ns)
+            .get(&ns)
+            .cloned()
             .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(namespace, expected)?;
+        check_revision(&namespace, expected)?;
         merge_object(&mut namespace.user, &Value::Object(patch));
         merge_object(&mut namespace.value, &namespace.user);
         namespace.revision = namespace.revision.saturating_add(1);
         let view = namespace.view();
         drop(state);
+        let view = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::SettingsUpdate,
+                payload,
+                vec![ControlEvent::SettingsSet {
+                    settings: settings_snapshot(&namespace),
+                }],
+                view,
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
@@ -1626,7 +2519,14 @@ impl BasicHost {
         Ok(view)
     }
 
-    async fn settings_replace(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn settings_replace(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::SettingsReplace, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let ns = nonempty(required_string(payload, "ns")?, "ns")?;
         let section = payload
             .get("section")
@@ -1637,17 +2537,29 @@ impl BasicHost {
         if ns == "permission" {
             validate_permission_section(&section)?;
         }
-        let mut state = self.state.write().await;
-        let namespace = state
+        let state = self.state.read().await;
+        let mut namespace = state
             .settings
-            .get_mut(&ns)
+            .get(&ns)
+            .cloned()
             .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(namespace, expected)?;
+        check_revision(&namespace, expected)?;
         namespace.user = Value::Object(section.clone());
         namespace.value = Value::Object(section);
         namespace.revision = namespace.revision.saturating_add(1);
         let view = namespace.view();
         drop(state);
+        let view = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::SettingsReplace,
+                payload,
+                vec![ControlEvent::SettingsSet {
+                    settings: settings_snapshot(&namespace),
+                }],
+                view,
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
@@ -1656,16 +2568,24 @@ impl BasicHost {
         Ok(view)
     }
 
-    async fn settings_mutate(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn settings_mutate(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::SettingsMutate, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let ns = nonempty(required_string(payload, "ns")?, "ns")?;
         let ops = required_array(payload, "ops")?.clone();
         let expected = optional_u64(payload, "expectedRevision")?;
-        let mut state = self.state.write().await;
-        let namespace = state
+        let state = self.state.read().await;
+        let mut namespace = state
             .settings
-            .get_mut(&ns)
+            .get(&ns)
+            .cloned()
             .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(namespace, expected)?;
+        check_revision(&namespace, expected)?;
         for op in ops {
             let kind = op
                 .get("op")
@@ -1707,6 +2627,17 @@ impl BasicHost {
         namespace.revision = namespace.revision.saturating_add(1);
         let view = namespace.view();
         drop(state);
+        let view = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::SettingsMutate,
+                payload,
+                vec![ControlEvent::SettingsSet {
+                    settings: settings_snapshot(&namespace),
+                }],
+                view,
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
@@ -1768,16 +2699,23 @@ impl BasicHost {
 
     async fn llm_providers(&self, payload: &Value) -> Result<Value, RpcError> {
         require_object(payload)?;
-        Ok(json!({
-            "providers": [{
-                "provider": self.config.provider_id,
-                "displayName": self.config.provider_display_name,
+        let mut providers = Vec::new();
+        for model in self.agent_runtime.model_catalog() {
+            if providers.iter().any(|provider: &Value| {
+                provider.get("provider").and_then(Value::as_str) == Some(&model.provider)
+            }) {
+                continue;
+            }
+            providers.push(json!({
+                "provider": model.provider,
+                "displayName": model.provider_display_name,
                 "settingsNs": "xharness",
                 "settingsPath": [],
-                "active": self.agent_runtime.has_available_route(),
+                "active": true,
                 "declared": true,
-            }],
-        }))
+            }));
+        }
+        Ok(json!({"providers": providers}))
     }
 
     async fn llm_models(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -1787,20 +2725,41 @@ impl BasicHost {
 
     async fn llm_discover_models(&self, payload: &Value) -> Result<Value, RpcError> {
         nonempty(required_string(payload, "settingsNs")?, "settingsNs")?;
-        Ok(json!({
-            "models": [{"id": self.config.model_id, "name": self.config.model_id}],
-        }))
+        let models = self
+            .agent_runtime
+            .model_catalog()
+            .into_iter()
+            .map(|model| {
+                json!({
+                    "id": model.model,
+                    "name": model.model_display_name,
+                    "provider": model.provider,
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"models": models}))
     }
 
     fn model_groups(&self) -> Vec<Value> {
-        if !self.agent_runtime.has_available_route() {
-            return Vec::new();
+        let mut groups: Vec<(String, String, Vec<Value>)> = Vec::new();
+        for model in self.agent_runtime.model_catalog() {
+            if let Some((_, _, models)) = groups
+                .iter_mut()
+                .find(|(provider, _, _)| provider == &model.provider)
+            {
+                models.push(json!({"id": model.model, "name": model.model_display_name}));
+            } else {
+                groups.push((
+                    model.provider,
+                    model.provider_display_name,
+                    vec![json!({"id": model.model, "name": model.model_display_name})],
+                ));
+            }
         }
-        vec![json!({
-            "id": self.config.provider_id,
-            "name": self.config.provider_display_name,
-            "models": [{"id": self.config.model_id, "name": self.config.model_id}],
-        })]
+        groups
+            .into_iter()
+            .map(|(id, name, models)| json!({"id": id, "name": name, "models": models}))
+            .collect()
     }
 
     async fn respond_pending(&self, response: ClientResponse) -> RpcReceipt {
@@ -1852,6 +2811,7 @@ impl BasicHost {
                 if control
                     .send(DriverCommand {
                         command,
+                        input_metadata: None,
                         acknowledgement,
                     })
                     .await
@@ -1867,6 +2827,28 @@ impl BasicHost {
             }
         }
     }
+}
+
+pub(crate) fn prompt_fingerprint(
+    mode: &str,
+    content: &[Value],
+    client_time_zone: Option<&str>,
+) -> String {
+    let canonical = json!({
+        "version": 1,
+        "mode": mode,
+        "content": content,
+        "clientTimeZone": client_time_zone,
+    });
+    let encoded = serde_json::to_vec(&canonical).expect("JSON value serialization cannot fail");
+    let digest = Sha256::digest(encoded);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(64);
+    for byte in digest {
+        output.push(HEX[usize::from(byte >> 4)] as char);
+        output.push(HEX[usize::from(byte & 0x0f)] as char);
+    }
+    output
 }
 
 fn require_object(value: &Value) -> Result<&Map<String, Value>, RpcError> {
@@ -2047,6 +3029,55 @@ fn permission_command_input(line: &str) -> Option<&str> {
     }
 }
 
+fn plan_command_input(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("/plan")?;
+    if rest.is_empty() || matches!(rest.chars().next(), Some(' ' | '\t' | '\n' | '\r')) {
+        Some(rest)
+    } else {
+        None
+    }
+}
+
+fn permission_events(preset: crate::PermissionPreset) -> Vec<SessionEvent> {
+    vec![
+        SessionEventData::PermissionPreset {
+            preset: preset.as_str().to_owned(),
+        }
+        .into(),
+        SessionEventData::SandboxMode {
+            mode: match preset {
+                crate::PermissionPreset::WorkspaceWrite => SessionSandboxMode::WorkspaceWrite,
+                crate::PermissionPreset::DangerFullAccess => SessionSandboxMode::DangerFullAccess,
+            },
+            source: None,
+        }
+        .into(),
+        SessionEventData::ApprovalPolicy {
+            policy: match preset {
+                crate::PermissionPreset::WorkspaceWrite => ApprovalPolicy::Ask,
+                crate::PermissionPreset::DangerFullAccess => ApprovalPolicy::Never,
+            },
+            source: None,
+        }
+        .into(),
+    ]
+}
+
+fn goal_snapshot_event(goal: &GoalState, operation: GoalSnapshotOperation) -> SessionEvent {
+    SessionEventData::GoalChange {
+        change: SessionGoalChange::Snapshot(GoalSnapshotChange {
+            kind: GoalChangeKind::GoalChange,
+            version: 1,
+            operation,
+            goal: goal.snapshot(),
+            rounds_started: goal.rounds_started,
+            created_at: goal.created_at,
+            updated_at: goal.updated_at,
+        }),
+    }
+    .into()
+}
+
 #[derive(Clone, Debug)]
 struct GoalRef {
     id: String,
@@ -2172,6 +3203,14 @@ fn validate_credential_ref(reference: &str) -> Result<(), RpcError> {
         ));
     }
     Ok(())
+}
+
+fn queue_item_not_found(item_id: &str, error: AgentRuntimeError) -> RpcError {
+    rpc_error(
+        RpcErrorCode::QueueItemNotFound,
+        "queued item is no longer pending",
+        json!({"itemId": item_id, "reason": error.to_string()}),
+    )
 }
 
 fn mint_stream_id(next_id: &AtomicU64, prefix: &str) -> String {

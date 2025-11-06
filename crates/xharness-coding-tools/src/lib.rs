@@ -13,17 +13,15 @@ use std::{
     time::Duration,
 };
 
-use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
-use xharness_fs::{ReadLimits, ReadOutcome};
+use xharness_fs::{ReadCursor, ReadLimits, ReadOutcome, ReadStart};
 use xharness_platform::NativePlatform;
 use xharness_process::{ProcessOutput, SpawnSpec};
 use xharness_terminal::{TerminalOpenSpec, TerminalRegistry, TerminalSignal};
 use xharness_tools::{
-    ApprovalDecision, ApprovalProvider, ApprovalRequest, MiddlewareError, RegistryError,
-    ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolExecutor, ToolHandlerError,
-    ToolOutput, ToolRegistry, ToolRequest, ToolSpec,
+    RegistryError, ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolHandlerError,
+    ToolOutput, ToolRegistry, ToolSpec,
 };
 use xharness_web::WebRuntime;
 
@@ -31,6 +29,10 @@ pub const STANDARD_TOOL_COUNT: usize = 14;
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(610);
+const DEFAULT_READ_PAGE_BYTES: u64 = 32 * 1024;
+const MAX_READ_PAGE_BYTES: u64 = 64 * 1024;
+const DEFAULT_READ_PAGE_LINES: u64 = 400;
+const MAX_READ_PAGE_LINES: u64 = 1_000;
 
 #[derive(Clone)]
 pub struct CodingToolBundle {
@@ -90,56 +92,6 @@ impl CodingToolBundle {
         Ok(registry)
     }
 
-    /// Build the compatibility registrations consumed by the current
-    /// `xharness-core` loop. Core owns the user approval handshake; the inner
-    /// policy executor receives only that already-approved invocation.
-    pub async fn core_specs(&self) -> Result<Vec<xharness_core::ToolSpec>, RegistryError> {
-        let registry = self.registry().await?;
-        let executor = Arc::new(
-            ToolExecutor::new(Arc::clone(&registry))
-                .with_approval_provider(Arc::new(CoreDelegatedApproval)),
-        );
-        let mut output = Vec::with_capacity(STANDARD_TOOL_COUNT);
-        for definition in registry.definitions().await {
-            let spec = registry
-                .get(&definition.name)
-                .await
-                .expect("definition came from the same registry");
-            let name = definition.name.clone();
-            let executor = Arc::clone(&executor);
-            let mut core = xharness_core::ToolSpec::new(
-                definition.name,
-                definition.description,
-                definition.parameters,
-                move |arguments, cancellation| {
-                    let executor = Arc::clone(&executor);
-                    let name = name.clone();
-                    async move {
-                        let arguments_json =
-                            serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_owned());
-                        let result = executor
-                            .execute(
-                                ToolRequest::new(name, arguments_json)
-                                    .with_cancellation(cancellation),
-                            )
-                            .await;
-                        bridge_result(result)
-                    }
-                },
-            )
-            .timeout(spec.timeout);
-            core.concurrency = match spec.concurrency {
-                ToolConcurrency::Parallel => xharness_core::ToolConcurrency::Parallel,
-                ToolConcurrency::Keyed => xharness_core::ToolConcurrency::Keyed,
-                ToolConcurrency::Exclusive => xharness_core::ToolConcurrency::Exclusive,
-            };
-            core.resource_key_resolver = spec.resource_key_resolver.clone();
-            core.requires_approval = spec.requires_approval;
-            output.push(core);
-        }
-        Ok(output)
-    }
-
     fn bash_spec(&self) -> ToolSpec {
         let platform = Arc::clone(&self.platform);
         ToolSpec::new(
@@ -183,18 +135,94 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "read",
-                "Read an allowed file and record its version for safe later edits.",
-                path_schema(false),
+                "Read one bounded UTF-8 file page and record its version for safe edits. Continue with next_cursor; use start_line or offset only for the first page.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "offset": {"type": "integer"},
+                        "start_line": {"type": "integer"},
+                        "cursor": {"type": "string"},
+                        "limit": {"type": "integer"},
+                        "line_limit": {"type": "integer"}
+                    },
+                    "required": ["path"],
+                    "additionalProperties": false
+                }),
             ),
             move |context| {
                 let platform = Arc::clone(&platform);
                 let session_id = Arc::clone(&session_id);
                 async move {
                     let path = required_string(&context, "path")?;
+                    let cursor = optional_string(&context, "cursor");
+                    let offset = optional_u64(&context, "offset");
+                    let start_line = optional_u64(&context, "start_line");
+                    if usize::from(cursor.is_some())
+                        + usize::from(offset.is_some())
+                        + usize::from(start_line.is_some())
+                        > 1
+                    {
+                        return Err(ToolHandlerError::new(
+                            "read accepts only one of cursor, offset, or start_line",
+                        ));
+                    }
+                    if cursor.is_some()
+                        && (context.arguments.get("limit").is_some()
+                            || context.arguments.get("line_limit").is_some())
+                    {
+                        return Err(ToolHandlerError::new(
+                            "read cursor already fixes page limits; do not combine it with limit or line_limit",
+                        ));
+                    }
+                    let start = if let Some(cursor) = cursor {
+                        let cursor = ReadCursor::parse(cursor).map_err(handler_error)?;
+                        let limits = cursor.limits();
+                        if limits.max_bytes > MAX_READ_PAGE_BYTES as usize
+                            || limits.max_lines > MAX_READ_PAGE_LINES as usize
+                            || limits.max_line_bytes > 16 * 1024
+                        {
+                            return Err(ToolHandlerError::new(
+                                "read cursor page limits exceed the model-facing safety cap",
+                            ));
+                        }
+                        ReadStart::Cursor(cursor)
+                    } else if let Some(start_line) = start_line {
+                        if start_line == 0 {
+                            return Err(ToolHandlerError::new(
+                                "read start_line is one-based and must be greater than zero",
+                            ));
+                        }
+                        ReadStart::Line(start_line)
+                    } else {
+                        ReadStart::Byte(offset.unwrap_or(0))
+                    };
+                    let limit = bounded_read_value(
+                        optional_u64(&context, "limit").unwrap_or(DEFAULT_READ_PAGE_BYTES),
+                        4,
+                        MAX_READ_PAGE_BYTES,
+                        "limit",
+                    )?;
+                    let line_limit = bounded_read_value(
+                        optional_u64(&context, "line_limit")
+                            .unwrap_or(DEFAULT_READ_PAGE_LINES),
+                        1,
+                        MAX_READ_PAGE_LINES,
+                        "line_limit",
+                    )?;
                     let target = platform.resolve_file(path).map_err(handler_error)?;
                     let result = platform
                         .filesystem()
-                        .read(&session_id, &target, ReadLimits::default())
+                        .read_page(
+                            &session_id,
+                            &target,
+                            start,
+                            ReadLimits {
+                                max_bytes: limit,
+                                max_lines: line_limit,
+                                max_line_bytes: 16 * 1024,
+                            },
+                        )
                         .await
                         .map_err(handler_error)?;
                     match result {
@@ -205,6 +233,11 @@ impl CodingToolBundle {
                             "path": target.display(),
                             "content": read.text,
                             "bytes_read": read.bytes_read,
+                            "page_start_offset": read.page_start_offset,
+                            "page_start_line": read.page_start_line,
+                            "captured_bytes": read.captured_bytes,
+                            "total_bytes": read.total_bytes,
+                            "next_cursor": read.next_cursor.map(|cursor| cursor.encode()),
                             "truncated": read.truncated,
                             "sha256": read.version.sha256_hex(),
                             "diagnostics": format!("{:?}", read.diagnostics)
@@ -694,32 +727,6 @@ impl CodingToolBundle {
     }
 }
 
-struct CoreDelegatedApproval;
-
-#[async_trait]
-impl ApprovalProvider for CoreDelegatedApproval {
-    async fn request_approval(
-        &self,
-        _request: ApprovalRequest,
-    ) -> Result<ApprovalDecision, MiddlewareError> {
-        Ok(ApprovalDecision::Approved)
-    }
-}
-
-fn bridge_result(result: xharness_tools::ToolResult) -> xharness_core::ToolResult {
-    match (result.output, result.failure) {
-        (Some(output), None) => xharness_core::ToolResult {
-            ok: true,
-            content: output.content,
-            error: String::new(),
-            truncated: false,
-            metadata: output.metadata,
-        },
-        (_, Some(failure)) => xharness_core::ToolResult::failure(failure.message),
-        (None, None) => xharness_core::ToolResult::failure("tool executor returned no outcome"),
-    }
-}
-
 trait SpawnSpecExt {
     fn envs(self, environment: BTreeMap<OsString, OsString>) -> Self;
 }
@@ -834,6 +841,21 @@ fn optional_bool(context: &ToolExecutionContext, name: &str) -> Option<bool> {
     context.arguments.get(name).and_then(Value::as_bool)
 }
 
+fn bounded_read_value(
+    value: u64,
+    minimum: u64,
+    maximum: u64,
+    name: &str,
+) -> Result<usize, ToolHandlerError> {
+    if !(minimum..=maximum).contains(&value) {
+        return Err(ToolHandlerError::new(format!(
+            "read {name} must be between {minimum} and {maximum}"
+        )));
+    }
+    usize::try_from(value)
+        .map_err(|_| ToolHandlerError::new(format!("read {name} does not fit this platform")))
+}
+
 fn handler_error(error: impl std::fmt::Display) -> ToolHandlerError {
     ToolHandlerError::new(error.to_string())
 }
@@ -853,24 +875,6 @@ fn name_schema() -> Value {
         "required": ["name"],
         "additionalProperties": false
     })
-}
-
-fn path_schema(content: bool) -> Value {
-    if content {
-        json!({
-            "type": "object",
-            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-            "required": ["path", "content"],
-            "additionalProperties": false
-        })
-    } else {
-        json!({
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
-            "additionalProperties": false
-        })
-    }
 }
 
 fn path_key(arguments: &Value) -> Option<String> {

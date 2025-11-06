@@ -2,10 +2,12 @@ use std::{future::Future, sync::Arc, time::Duration};
 
 use futures::FutureExt;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    ResourceKeyResolver, ToolConcurrency, ToolDefinition, ToolHandler, ToolResult, ToolSpec,
+    ResourceKeyResolver, ToolConcurrency, ToolDefinition, ToolHandler, ToolInvocation, ToolResult,
+    ToolSpec,
 };
 
 /// Smallest supported model-facing tool-result budget.
@@ -28,8 +30,35 @@ impl ToolSpec {
         F: Fn(Value, CancellationToken) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ToolResult> + Send + 'static,
     {
-        let handler: ToolHandler =
-            Arc::new(move |arguments, cancellation| handler(arguments, cancellation).boxed());
+        let handler: ToolHandler = Arc::new(move |invocation| {
+            handler(invocation.arguments, invocation.cancellation).boxed()
+        });
+        Self::from_handler(name, description, parameters, handler)
+    }
+
+    /// Register a handler that receives the durable invocation identity.
+    /// This is the migration seam for `xharness-tools`; ordinary embedders may
+    /// continue using [`Self::new`].
+    pub fn new_contextual<F, Fut>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: Value,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ToolInvocation) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ToolResult> + Send + 'static,
+    {
+        let handler: ToolHandler = Arc::new(move |invocation| handler(invocation).boxed());
+        Self::from_handler(name, description, parameters, handler)
+    }
+
+    fn from_handler(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: Value,
+        handler: ToolHandler,
+    ) -> Self {
         Self {
             definition: ToolDefinition {
                 name: name.into(),
@@ -92,6 +121,63 @@ fn encode_tool_result(result: &ToolResult, content: &str, error: &str, truncated
     .expect("serializing a JSON object cannot fail")
 }
 
+fn utf8_suffix(value: &str, max_bytes: usize) -> &str {
+    if value.len() <= max_bytes {
+        return value;
+    }
+    let mut start = value.len().saturating_sub(max_bytes);
+    while start < value.len() && !value.is_char_boundary(start) {
+        start += 1;
+    }
+    &value[start..]
+}
+
+fn sha256_hex(value: &str) -> String {
+    let mut output = String::with_capacity(64);
+    for byte in Sha256::digest(value.as_bytes()) {
+        use std::fmt::Write as _;
+        let _ = write!(output, "{byte:02x}");
+    }
+    output
+}
+
+fn head_tail_excerpt(source: &str, keep_bytes: usize) -> (String, usize) {
+    let head_budget = keep_bytes.saturating_mul(2) / 3;
+    let head = utf8_prefix(source, head_budget);
+    let tail = utf8_suffix(&source[head.len()..], keep_bytes.saturating_sub(head.len()));
+    let omitted = source
+        .len()
+        .saturating_sub(head.len())
+        .saturating_sub(tail.len());
+    (
+        format!("{head}\n...[{omitted} UTF-8 bytes omitted by head_tail/v1]...\n{tail}"),
+        omitted,
+    )
+}
+
+fn encode_reduced_tool_result(
+    result: &ToolResult,
+    excerpt: &str,
+    source_is_error: bool,
+    original_bytes: usize,
+    omitted_bytes: usize,
+    sha256: &str,
+) -> String {
+    serde_json::to_string(&json!({
+        "ok": result.ok,
+        "content": if source_is_error { "" } else { excerpt },
+        "error": if source_is_error { excerpt } else { "" },
+        "truncated": true,
+        "reduction": {
+            "strategy": "head_tail/v1",
+            "original_bytes": original_bytes,
+            "omitted_bytes": omitted_bytes,
+            "sha256": sha256,
+        }
+    }))
+    .expect("serializing a JSON object cannot fail")
+}
+
 /// Produces the bounded JSON value written back to the model. The original
 /// [`ToolResult`] remains untouched and is emitted in `ToolCompleted`.
 pub fn tool_result_for_model(result: &ToolResult, max_bytes: usize) -> (String, bool) {
@@ -112,6 +198,35 @@ pub fn tool_result_for_model(result: &ToolResult, max_bytes: usize) -> (String, 
     } else {
         &result.content
     };
+    let source_is_error = result.content.is_empty();
+    let digest = sha256_hex(source);
+    let mut low = 0usize;
+    let mut high = source.len();
+    let mut reduced = None;
+    while low <= high {
+        let midpoint = low + (high - low) / 2;
+        let (excerpt, omitted) = head_tail_excerpt(source, midpoint);
+        let candidate = encode_reduced_tool_result(
+            result,
+            &excerpt,
+            source_is_error,
+            source.len(),
+            omitted,
+            &digest,
+        );
+        if candidate.len() <= max_bytes {
+            reduced = Some(candidate);
+            low = midpoint.saturating_add(1);
+        } else if midpoint == 0 {
+            break;
+        } else {
+            high = midpoint - 1;
+        }
+    }
+    if let Some(reduced) = reduced {
+        return (reduced, true);
+    }
+
     let mut low = 0usize;
     let mut high = source.len();
     let mut best = String::new();

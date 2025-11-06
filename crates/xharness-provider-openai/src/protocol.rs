@@ -50,6 +50,9 @@ pub fn build_openai_request(
             if !tools.is_empty() {
                 root["tools"] = Value::Array(tools);
             }
+            if let Some(max_output_tokens) = request.max_output_tokens {
+                root["max_tokens"] = Value::from(max_output_tokens);
+            }
             root
         }
         OpenAiProtocol::Responses => {
@@ -66,6 +69,9 @@ pub fn build_openai_request(
             });
             if !tools.is_empty() {
                 root["tools"] = Value::Array(tools);
+            }
+            if let Some(max_output_tokens) = request.max_output_tokens {
+                root["max_output_tokens"] = Value::from(max_output_tokens);
             }
             root
         }
@@ -110,7 +116,7 @@ fn encode_chat_message(message: &AgentMessage) -> Value {
                     .iter()
                     .map(|call| {
                         json!({
-                            "id": call.id,
+                            "id": call.provider_id(),
                             "type": "function",
                             "function": {
                                 "name": call.name,
@@ -155,7 +161,7 @@ fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
 fn encode_response_tool_call(call: &ToolCall) -> Value {
     json!({
         "type": "function_call",
-        "call_id": call.id,
+        "call_id": call.provider_id(),
         "name": call.name,
         "arguments": call.arguments_json,
     })

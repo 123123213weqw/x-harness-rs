@@ -12,20 +12,28 @@ path = "src/main.rs"
 
 [dependencies]
 async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 xharness-api = { path = "../xharness-api" }
 xharness-coding-tools = { path = "../xharness-coding-tools" }
 xharness-core = { path = "../xharness-core" }
+xharness-control = { path = "../xharness-control" }
 xharness-host = { path = "../xharness-host" }
+xharness-agent = { path = "../xharness-agent" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }
+xharness-session = { path = "../xharness-session" }
+xharness-session-jsonl = { path = "../xharness-session-jsonl" }
 xharness-server = { path = "../xharness-server" }
 xharness-terminal = { path = "../xharness-terminal" }
+xharness-token = { path = "../xharness-token" }
 xharness-web = { path = "../xharness-web" }
+xharness-tools = { path = "../xharness-tools" }
 
 [dev-dependencies]
 futures.workspace = true
 reqwest.workspace = true
-serde_json.workspace = true
 tokio = { workspace = true, features = ["process"] }
 tokio-tungstenite.workspace = true
+tokio-util.workspace = true

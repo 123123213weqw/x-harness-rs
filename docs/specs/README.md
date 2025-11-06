@@ -19,7 +19,8 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 |---|---|---|
 | `xharness-api` | [Web 线协议](api.md) | 已实现 52 个 RPC 及 frame/envelope 目录 |
 | `xharness-server` | [Web 服务承载层](server.md) | 已实现 HTTP/WS/静态资源承载 |
-| `xharness-host` / `host-app` | [有状态 Web Host](host.md) | 控制面与原生组合已拆分；52 个基础行为已实现 |
+| `xharness-host` / `host-app` | [有状态 Web Host](host.md)、[LLM/Provider Registry](model-registry.md)、[启动恢复](host-restore.md)、[Web Session 投影](web-session-projection.md) | 52 个基础行为；多 Provider/Model 路由；History 直接刷新权威 Session；可恢复 Queue/Pending Turn |
+| `xharness-agent` | [长生命周期 Agent](agent.md) | Inbox、Supervisor、多 Turn/Steer、Registry、本机 Lease 与恢复 Wake 已实现 |
 | `xharness-core` | [核心 Agent Loop](core-loop.md) | 已实现，已在 Linux 测试 |
 | `xharness-provider-openai` | [OpenAI-compatible Provider](provider-openai.md) | 已实现，协议和真实 Chat 已测试 |
 | `xharness-session` | [事件溯源 Session](session.md) | 已实现 |
@@ -32,8 +33,9 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-terminal` | [持久 PTY](terminal.md) | 已在 Unix 实现 |
 | `xharness-web` | [网页搜索与抓取](web.md) | 已实现 |
 | `xharness-coding-tools` | [标准 14 工具包](coding-tools.md) | 已实现并通过真实 Loop 测试 |
-| `xharness-context` | [上下文预算与压缩](context.md) | Surface 抽象已实现；Token Guard/Compaction 仍是 P0 |
-| Prompt Registry | [Prompt 组装与注入](prompt.md) | P0 最小注入待实现；完整 Registry 计划中 |
+| `xharness-context` | [上下文预算与压缩](context.md) | Surface 抽象已实现；Compaction 计划中 |
+| `xharness-token` | [上下文预算与压缩](context.md) | TokenMeter、保守后备与请求前 Hard Guard 已实现 |
+| `xharness-prompt` | [Prompt 组装与注入](prompt.md) | v1 最小确定性注入已实现；完整 Registry 计划中 |
 | Linux Packaging | [`.deb` 安装与沙箱自配置](linux-deb.md) | Helper/打包已实现；真实 4080 安装待管理员授权 |
 
 部署和故障定位见 [`../operations.md`](../operations.md)。该文档记录平台 Probe、模型真实窗口、

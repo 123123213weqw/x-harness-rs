@@ -7,12 +7,14 @@
 //! id and returns a materialized result, including invalid input, denial,
 //! timeout, cancellation, and panic paths.
 
+mod batch;
 mod definition;
 mod executor;
 mod middleware;
 mod registry;
 mod schema;
 
+pub use batch::*;
 pub use definition::*;
 pub use executor::*;
 pub use middleware::*;

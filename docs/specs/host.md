@@ -17,9 +17,14 @@ Bundle、Platform、Terminal 或 Web Runtime。`xharness-host-app` 负责选择�
 `xharness-host` 可执行文件。未来 CLI、Daemon 或嵌入式宿主可以直接复用控制面库，而无需
 链接默认 Web Server 和原生工具组合。
 
-当前 `BasicHost` 有意把控制面状态放在内存中。它是可执行的兼容基线，不是最终持久
-Agent Store。未来替换成持久 Agent/inbox 时，禁止改变 52 个方法名、四象限 RPC 信封
-和事件帧形状。
+当前 `BasicHost` 仍把 Session 摘要、Web Queue Projection 和 Driver Attachment 作为内存派生
+缓存，但 Workspace/Settings 已进入独立 Control Log，Prompt Admission、模型历史、Web History
+和 Agent Driver 已切到持久
+Session/Inbox Store。`session.history` 会在读取前刷新权威 Session Cut；运行中和启动恢复共用
+同一个纯投影函数，详细契约见 [Web Session 确定性投影](web-session-projection.md)。
+启动时会通过 `Store::list_headers` 从强类型日志重建 Session、History、模型路由、Workspace 归属和
+Pending Queue，并在订阅后续跑。它仍不是最终持久 Host Store；继续替换时禁止改变 52 个方法名、
+四象限 RPC 信封和事件帧形状。详细顺序见[Host 启动恢复规范](host-restore.md)。
 
 ## 组合结构
 
@@ -49,16 +54,34 @@ Chat Completions 或 Responses，禁止自动回退。
 
 第二阶段进一步定义 `AgentRuntime::start_turn(AgentTurnRequest) -> RunningTurn`。BasicHost 的
 队列/事件投影只依赖这个契约，不再直接创建 Loop、调用 Tool Factory 或持有 Provider/Context。
-`LoopAgentRuntime` 负责把当前 LoopEngine 适配进来，并校验 Session 选择的 ModelRoute。以后替换
-为 Durable Agent/Inbox Runtime 时，不需要修改 52 个 RPC 和 Web 投影代码。
+`LoopAgentRuntime` 保留给内嵌测试和兼容调用。正式 `xharness-host-app` 已使用
+`DurableLoopAgentRuntime`：JSONL Session 是模型历史真源，File Lease 排除另一进程同时驱动相同
+Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；`AgentRuntime::admit_turn`、
+`remove_pending_input` 和 `replace_pending_input` 把持久准入与 Web Queue 变更置于统一边界，
+52 个 RPC 和 Web 投影代码没有改变。
+
+正式 Runtime 已组合 [`ModelRegistry`](model-registry.md)。同一个 Supervisor 可以按 Session
+选择把不同 Turn 路由到 4080、V100 或云端 Adapter；Provider 公共身份、上游模型名和每路由
+Token Guard 相互分离。Web 的 `llm.providers`、`llm.models`、`session.models` 直接投影该
+Registry；未注册选择在写入 Session 前返回 `model-unavailable`。
+
+当前仍是迁移中间态：`session.prompt` 已在返回成功前完成 Durable Inbox Append + Flush，
+RPC ID 同时是稳定 Inbox ID；Queue Edit/Remove 先修改持久 Inbox，再更新内存 Projection。
+`BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责。它现在能从 Session Log 和
+JSONL 目录确定性重建可推导投影；History 已直接按 Cursor 查询权威日志且内存只留有界尾部，
+下一阶段要让 Queue 也直接按 Cursor 查询持久投影，并把通用 Mutation Receipt 扩展到其他
+Session/Goal/Preset/Attachment RPC，补 Credential Reference，最终删除兼容缓存。
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
-HTTP 404。当前先实现 Web 权限控件依赖的 `commands/list` 和 `commands/execute`。
+HTTP 404。当前先实现 Web 控件依赖的 `commands/list` 和 `commands/execute`；动态目录已暴露
+`permission` 与 `plan` 两个命令。
 
-当前 `AgentPreset.content` 只存在于 Host 状态/RPC 投影，`run_turn` 没有把它转换成
-`Role::System`。因此“UI 选中了 coding preset”和“模型收到 Coding System Prompt”不是一回事。
-当前只有工具 `name/description/Schema` 被 Provider 请求注入。
+选中的 `AgentPreset.content` 已由 `xharness-prompt/v1` 与权限、Workspace、Coding Workflow、
+Plan Policy 确定性组装，并作为每轮第一个 `Role::System` 进入 Provider 请求。Request Header
+记录 Section/Assembly/System 与工具定义 Hash；System 不进入 Transcript。正式 Host 已组合
+`xharness-token` Hard Guard；完整动态 Prompt Registry、自动 Context Compaction 和按能力裁剪
+工具仍未实现。
 
 ## RPC 基础实现
 
@@ -73,29 +96,32 @@ HTTP 404。当前先实现 Web 权限控件依赖的 `commands/list` 和 `comman
 - **Workspace（7）：** 列表、创建、重命名、删除、排序、Session 排序、归档投影。
 - **Skill（1）：** 确定性的内置 coding skill 目录。
 - **Agent Preset（6）：** 列表、选择、读取、复制、打开文档投影、删除。
-- **Goal（6）：** 带 revision 校验的创建、编辑、暂停、恢复、完成、清除。
+- **Goal（6）：** 带 Revision 校验的创建、编辑、暂停、恢复、完成、清除；每次成功 Mutation 先
+  Flush `goal/change` version 1 全快照，Clear 保留下一 Revision Tombstone。默认 Round 上限 256。
 - **Settings（5）：** 带 namespace revision 的描述、打开、更新、替换、变更。
 - **Credentials（3）：** 仅返回“是否存在”，支持内存 set/unset；禁止返回值本身，
   禁止覆盖环境变量拥有的凭据引用。
-- **LLM（3）：** 已配置 Provider、模型和基础发现投影。
+- **LLM（3）：** 多 Provider/Model Registry、稳定分组目录和显式配置发现投影。
 
 不支持的原生 UI 能力必须返回明确的业务错误或中性 Optional 结果，不能表现为路由缺失。
 
 ## Turn 驱动器
 
-`session.prompt` 保留客户端 RPC ID 作为队列输入 ID，追加 Web `turn/start` 和
-`user/message`，然后通过 `AgentRuntime` 启动 `RunningTurn`。运行事件按顺序投影为 `step/start`、
+`session.prompt` 保留客户端 RPC ID 作为队列输入 ID，先通过 `AgentRuntime::admit_turn` Flush
+Durable Inbox，再加入 Web Projection 并返回成功。正式 Agent 领取时通过
+`AgentEvent::TurnStarted.input_ids` 将预准入消息和对应 `RunningTurn` 绑定；Host 再追加 Web
+`turn/start` 和 `user/message`。运行事件按顺序投影为 `step/start`、
 `assistant/chunk`、`tool/call`、`tool/result`、`assistant/message`、`step/end` 和
 `turn/end`。
 
-同一时间只能有一个 Driver 拥有一个 Session。额外 Prompt 进入 FIFO 队列。Steering
-交给活跃 `RunningTurn`；取消只停止当前 Turn，不删除排队输入。当前所有权只在进程内成立；
-在声明崩溃恢复能力前，必须升级为持久 Lease/Inbox。
+同一时间只能有一个 Driver 拥有一个 Session。额外 Prompt 进入由 Durable Inbox 派生的 FIFO
+Projection。Steering 交给活跃 `RunningTurn`；取消只停止当前 Turn，不删除排队输入。File Lease
+提供单机跨进程所有权；远程多主机仍需要 Fencing Epoch。
 
-每个 Step 当前通过默认 `IdentityContextPolicy` 完整重放 `session.messages`，并固定注入完整
-14 工具。Host 没有读取目标模型 Context Window、预留输出或在 Provider I/O 前计量请求。
-正式 Driver 必须改成：Preset/System 组装 → Capability Tool Projection → Context Surface →
-Token Guard → Prepared Call，并把实际输入版本写入 Request Header。
+每个 Step 当前通过默认 `IdentityContextPolicy` 完整重放 `session.messages`。Host 已按平台能力
+投影工具，并从选中 Registry Route 读取真实 Context Window、输出预留和安全余量，在 Provider
+I/O 前执行 Token Guard。完整自动 Context Compaction、Provider-aware 精确 Tokenizer 和按模型
+Capability 进一步裁剪仍未实现。
 
 ## 审批与事件流
 
@@ -115,7 +141,8 @@ Session 事件、队列/投影变化和审批流量走 Mux；Host 生命周期�
 - `workspace-write`：原生 Sandbox 限制到 Workspace，写入、终端和其他有副作用工具逐次审批。
 - `danger-full-access`（UI 显示为 **Full access**）：Web 客户端在切换前显示一次风险确认；确认后
   当前 Session 使用无权限沙箱 Platform，并把工具审批策略设为 `never`，不再重复逐工具弹窗。
-  它不是一种 Sandbox Mode；`sandbox/mode` 明确记录 `enabled=false, mode=disabled`。命令仍由
+  Rust Platform 内部仍把它建模为绕过限制层的 Access Mode，而不是伪装成受限 Sandbox；但为与
+  冻结 Web/Session 协议一致，`sandbox/mode` 的线值记录为 `danger-full-access`。命令仍由
   `ProcessRuntime` 托管，以便取消、超时和 Process Group 清理；它不承诺受限沙箱才有的硬后代
   containment。
 
@@ -123,21 +150,33 @@ Session 事件、队列/投影变化和审批流量走 Mux；Host 生命周期�
 `commands/execute` 动态端点完成，并顺序记录 `command/run`、`permission/preset`、
 `sandbox/mode`、`approval/policy`、`command/done`。运行中的 Session 禁止切换，避免一个 Turn
 混用两种权限。Settings 的 `permission.defaultPreset` 只决定之后创建的新 Session，同样由 Web
-Full access 风险确认保护。
+Full access 风险确认保护。Durable Runtime 在 RPC 返回前 CAS Append 并 Flush 这些事件；Host
+重启折叠最后一个 `permission/preset`，不会退回默认值。
+
+Idle Plan Mode 也走同一命令审计面：`/plan` 进入、`/plan off` 退出，成功时按
+`command/run → plan/mode → command/done` Flush，Session Projection 返回
+`plan={active,pending:false}`，重启折叠最后一条 `plan/mode`。重复选择相同状态是幂等成功，不能
+制造重复 `plan/mode`。当前运行中 Pending Pre-step、附带 Message/Image 的 Plan Steering、
+Plan Prompt Section 与 `exit_plan_mode` 工具尚未实现；这些输入必须明确失败，禁止静默丢弃。
+
+`session.rename` 与 `agentPreset.select` 也进入同一 Per-session Admission Fence：前者追加
+`session/title`，后者追加 `agent-preset/selected`。只有 Flush 成功才更新 Host 投影并返回；运行中
+允许 Rename，但禁止切换 Agent Preset。
 
 Host 在 Turn 启动时把权限快照放入 `AgentTurnRequest`；`NativeToolFactory` 按
 `(canonical workspace, permission preset)` 缓存 Platform。Full access 下，Shell/Terminal
 绕过 Seatbelt/Bubblewrap，结构化 Read/Write/Edit 以 `/` 为能力根，但相对路径仍从 Session
 Workspace 解析。
 
-在 Durable Workspace Store 完成前，Host 启动时必须把配置的 canonical cwd 注册为
-`workspace-default`。这样重启后 `workspace.list` 不会返回空数组，Web Composer 仍可直接创建
-Session；额外工作区和 Session 当前仍属于内存态。
+在 Durable Workspace Store 完成前，Host 启动时先注册配置的 canonical cwd 为
+`workspace-default`，再把 Session Header 中的其他 cwd 确定性映射成 recovered Workspace。
+这样重启后 `workspace.list`、`session.list` 和 `session.history` 都能恢复；Workspace 的用户标题、
+排序和归档仍没有独立持久真源。
 
 进程级验收测试必须启动真实 `xharness-host` 二进制、连接 HTTP 与 Host WebSocket、杀死进程并
-在原地址重新启动。第二个进程的 `workspace.list` 必须立即包含 canonical
-`workspace-default`，新的 WebSocket 必须可以完成握手；测试禁止只调用 `BasicHost::new()` 来
-假装覆盖部署重启。
+在原地址重新启动。第二个进程的 `workspace.list` 必须立即包含 canonical `workspace-default`，
+`session.list/history` 必须包含预置 JSONL Session 和 Assistant Message，新的 WebSocket 必须完成
+握手；测试禁止只调用 `BasicHost::new()` 来假装覆盖部署重启。
 
 浏览器发布门禁位于 `tests/web-e2e`。它必须使用真实 Chromium、真实 Host 和已组装 Web dist：
 取消 Full access 风险对话框不得改变权限；确认框未勾选时启用按钮必须禁用；确认后当前 Session
@@ -150,7 +189,7 @@ Session；额外工作区和 Session 当前仍属于内存态。
 `xharness-host-app::NativeToolFactory` 为每个 canonical Workspace 与 Permission Preset 组合缓存一个
 `NativePlatform`，并共享按
 Owner 隔离的 Terminal 和 Web runtime。每个 Session 通过
-`CodingToolBundle::core_specs()` 得到稳定的 14 工具：
+`CodingToolBundle::specs()` 得到稳定的 14 工具，Readiness 投影后注册为正式 `ToolExecutor`：
 
 ```text
 bash read write edit glob grep
@@ -175,19 +214,25 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 
 ## 当前限制
 
-- 进程退出后会丢失 Host 状态、Credential Override、Attachment、Settings、Preset、
-  Goal、Queue 和 Pending Approval。
-- 持久 `xharness-session`/JSONL 尚未成为 Host 状态源，因此不能承诺重启续跑或跨进程
-  Lease。
+- 进程退出后会丢失 Workspace 用户标题/排序/归档、Credential Override、Attachment、Settings 和
+  用户自定义 Preset 文档。Pending Approval 已能恢复；可从 Session Log 推导的 Workspace/Session/History/
+  Queue、选中 Preset、Title、Permission 和 Goal 会在
+  启动时恢复并重新附着 Driver，但 Web Projection 本身仍是进程内缓存。
+- 持久 `xharness-session`/JSONL 已是模型历史和 Pending Input 真源，File Lease 已用于 Agent；
+  审批恢复与八点硬崩溃矩阵已完成，但其他 Mutation RPC 仍缺少通用持久 Receipt，因此不能对外
+  承诺整个 Web API 的 Exactly-once 语义。
 - Subagent 方法目前只有血缘和继续对话，没有自主 Spawn。
 - Attachment 是有界 metadata/data-URL 桥，不是计划中的内容寻址多模态 Blob Store。
 - 事件广播有界，但 lag 后没有 replay cursor。
 - 尚无 Host 认证、Origin Policy、健康/就绪检查和远程暴露控制；二进制默认必须只监听
   loopback。
 - Credential 更新只是进程内配置，不能重建已经运行中的 Provider。
-- Agent Preset 尚未成为真实 System Prompt；缺少 Prompt Version 与请求体级验证。
-- 没有整体 Token Budget/Compaction；完整文件结果可能在下一 Step 触发 Context 400。
-- 除 Full access 会关闭逐工具审批外，固定 14 工具投影仍不会随 Sandbox/Search 能力变化。
+- 最小 Prompt 和 Hard Token Guard 已真实注入；完整 Section Registry 与用户 Preset 持久化尚未完成。
+- Plan Mode 目前只完成 Idle 状态持久化；完整 Pre-step Steering、Prompt Section 和退出工具待补。
+- 没有自动 Compaction；完整文件结果可能在下一 Step 被本地 Hard Guard 拒绝，但不会再发送已知
+  超窗请求触发 Provider Context 400。
+- Full access 会关闭逐工具审批；正式 Host 已按 Sandbox/Search/Terminal Readiness 动态裁剪
+  模型工具，但 Web UI 尚未显示同一能力报告。
 
 ## 验收标准
 

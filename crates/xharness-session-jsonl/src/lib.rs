@@ -117,6 +117,23 @@ impl JsonlSessionStore {
 
 #[async_trait]
 impl Store for JsonlSessionStore {
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        let root = Arc::clone(&self.root);
+        let mut session_ids = run_blocking(move || discover_session_ids(root.as_path())).await?;
+        session_ids.sort();
+
+        let mut headers = Vec::with_capacity(session_ids.len());
+        for session_id in session_ids {
+            let session = self.load(&session_id).await?.ok_or_else(|| {
+                backend_message(format!(
+                    "session {session_id:?} disappeared during startup enumeration"
+                ))
+            })?;
+            headers.push(session.header().clone());
+        }
+        Ok(headers)
+    }
+
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
         let session_id = header.id.clone();
         let (path, guard) = self.locked_path(&session_id).await?;
@@ -262,6 +279,35 @@ impl Store for JsonlSessionStore {
             .await?
             .map(|session| session.inspect()))
     }
+}
+
+fn discover_session_ids(root: &Path) -> Result<Vec<String>, StoreError> {
+    let mut session_ids = Vec::new();
+    let entries = fs::read_dir(root)
+        .map_err(|error| backend_error("enumerate session directory", root, error))?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| backend_error("read session directory entry", root, error))?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                backend_message(format!(
+                    "session directory contains a non-UTF-8 JSONL filename: {}",
+                    path.display()
+                ))
+            })?;
+        let session_id = file_name
+            .strip_suffix(FILE_SUFFIX)
+            .expect("the JSONL extension was checked");
+        validate_session_id(session_id)?;
+        session_ids.push(session_id.to_owned());
+    }
+    Ok(session_ids)
 }
 
 async fn run_blocking<T, F>(operation: F) -> Result<T, StoreError>
