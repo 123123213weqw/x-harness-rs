@@ -371,7 +371,7 @@ async fn collect(mut run: LoopRun) -> (Vec<LoopEvent>, LoopResult) {
 
 #[tokio::test]
 async fn streaming_events_reach_consumers_before_chunk_journal_io_and_persist_as_one_batch() {
-    const DELTAS: usize = 512;
+    const DELTAS: usize = 32;
     let mut script = (0..DELTAS)
         .map(|_| Ok(ProviderEvent::TextDelta("x".to_owned())))
         .collect::<Vec<_>>();
@@ -428,6 +428,44 @@ async fn streaming_events_reach_consumers_before_chunk_journal_io_and_persist_as
         .rposition(|event| matches!(event.data(), SessionEventData::AssistantChunk { .. }))
         .unwrap();
     assert!(final_chunk_position < assistant_position);
+}
+
+#[tokio::test]
+async fn long_streams_checkpoint_in_bounded_batches_instead_of_per_delta() {
+    const DELTAS: usize = 130;
+    let mut script = (0..DELTAS)
+        .map(|_| Ok(ProviderEvent::TextDelta("x".to_owned())))
+        .collect::<Vec<_>>();
+    script.push(Ok(completed()));
+    let provider = Arc::new(ScriptProvider::new([script]));
+    let journal = Arc::new(BlockingChunkJournal::default());
+    journal.release_chunk_append.notify_one();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("bounded batches")]);
+    request.session_id = Some("bounded-stream-journal".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.config.event_buffer = DELTAS + 32;
+
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event.kind, LoopEventKind::TextDelta(_)))
+            .count(),
+        DELTAS
+    );
+
+    let chunk_counts = journal
+        .chunk_batches()
+        .iter()
+        .map(|batch| {
+            batch
+                .iter()
+                .filter(|event| matches!(event.data(), SessionEventData::AssistantChunk { .. }))
+                .count()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(chunk_counts, [64, 64, 4]);
 }
 
 #[tokio::test]
