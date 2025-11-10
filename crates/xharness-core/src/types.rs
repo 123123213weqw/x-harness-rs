@@ -296,6 +296,15 @@ pub enum LoopControlError {
 pub enum LoopEventKind {
     TextDelta(String),
     ReasoningDelta(String),
+    /// One provider tool-call fragment. Exposing the fragment lets durable
+    /// hosts publish every assistant stream record immediately while the
+    /// append-only session log is written in batches.
+    ToolCallDelta {
+        index: usize,
+        id: String,
+        name: String,
+        arguments_delta: String,
+    },
     ToolStarted(ToolCall),
     ToolCompleted {
         call: ToolCall,

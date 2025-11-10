@@ -930,8 +930,8 @@ mod tests {
         ProviderRequest, ProviderStream,
     };
     use xharness_session::{
-        ApprovalOutcome, EventData, LlmFailure, LlmRetryMode, MemorySessionStore, Message,
-        RequestHeader, Revision, Session, SessionEvent, SessionHeader, Store, ToolCall,
+        ApprovalOutcome, AssistantChunk, EventData, LlmFailure, LlmRetryMode, MemorySessionStore,
+        Message, RequestHeader, Revision, Session, SessionEvent, SessionHeader, Store, ToolCall,
         ToolOutcome, ToolResultData, TurnEndReason,
     };
     use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, ToolSpec};
@@ -946,6 +946,45 @@ mod tests {
         calls: AtomicUsize,
         release: Arc<Notify>,
         answers: Mutex<VecDeque<String>>,
+    }
+
+    struct LiveDeltaProvider {
+        delta_announced: Arc<Notify>,
+        finish_release: Arc<Notify>,
+    }
+
+    #[async_trait]
+    impl ModelProvider for LiveDeltaProvider {
+        fn provider_name(&self) -> &str {
+            "test"
+        }
+
+        fn model_name(&self) -> Option<&str> {
+            Some("test-model")
+        }
+
+        async fn stream(
+            &self,
+            _request: ProviderRequest,
+            _cancellation: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            let delta_announced = Arc::clone(&self.delta_announced);
+            let finish_release = Arc::clone(&self.finish_release);
+            Ok(Box::pin(
+                stream::once(async move {
+                    delta_announced.notify_one();
+                    Ok(ProviderEvent::TextDelta("live before flush".to_owned()))
+                })
+                .chain(stream::once(async move {
+                    finish_release.notified().await;
+                    Ok(ProviderEvent::Completed {
+                        finish_reason: Some(FinishReason::Stop),
+                        usage: None,
+                        provider_items: Vec::new(),
+                    })
+                })),
+            ))
+        }
     }
 
     #[async_trait]
@@ -2578,5 +2617,106 @@ mod tests {
             user["event"]["data"]["source"]["clientTimeZone"],
             "Asia/Shanghai"
         );
+    }
+
+    #[tokio::test]
+    async fn authoritative_stream_is_published_before_its_durable_batch_closes() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let delta_announced = Arc::new(Notify::new());
+        let finish_release = Arc::new(Notify::new());
+        let provider: Arc<dyn ModelProvider> = Arc::new(LiveDeltaProvider {
+            delta_announced: Arc::clone(&delta_announced),
+            finish_release: Arc::clone(&finish_release),
+        });
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let host = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        let mut mux = host.mux_events();
+        let created = host
+            .call(
+                RpcId::new("live-stream-create"),
+                RpcMethod::SessionCreate,
+                json!({"sessionId": "live-stream-session", "cwd": cwd}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(created, RpcResult::Success { .. }));
+        let admitted = host
+            .call(
+                RpcId::new("live-stream-prompt"),
+                RpcMethod::SessionPrompt,
+                json!({
+                    "sessionId": "live-stream-session",
+                    "mode": "queue",
+                    "content": [{"type": "text", "text": "stream now"}],
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(admitted, RpcResult::Success { .. }));
+
+        tokio::time::timeout(Duration::from_secs(2), delta_announced.notified())
+            .await
+            .expect("provider produced its first delta");
+        let live = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let frame = mux.next().await.expect("mux remained open");
+                if frame.payload["type"] == "session/event"
+                    && frame.payload["sessionId"] == "live-stream-session"
+                    && frame.payload["event"]["type"] == "assistant/chunk"
+                    && frame.payload["event"]["data"]["chunk"]["type"] == "text-delta"
+                {
+                    break frame.payload;
+                }
+            }
+        })
+        .await
+        .expect("live delta was held behind the durable completion batch");
+        assert_eq!(live["event"]["data"]["chunk"]["text"], "live before flush");
+        let live_seq = live["event"]["seq"].as_u64().unwrap();
+        let before_finish = store.load("live-stream-session").await.unwrap().unwrap();
+        assert!(before_finish
+            .events()
+            .iter()
+            .all(|event| !matches!(event.data(), EventData::AssistantChunk { .. })));
+
+        finish_release.notify_one();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let session = store.load("live-stream-session").await.unwrap().unwrap();
+                if session
+                    .events()
+                    .iter()
+                    .any(|event| matches!(event.data(), EventData::TurnEnd { .. }))
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("durable turn completed");
+        let durable = store.load("live-stream-session").await.unwrap().unwrap();
+        let durable_seq = durable
+            .events()
+            .iter()
+            .find_map(|event| match event.data() {
+                EventData::AssistantChunk {
+                    chunk: AssistantChunk::TextDelta(text),
+                    ..
+                } if text == "live before flush" => Some(event.seq),
+                _ => None,
+            })
+            .expect("durable delta exists after the semantic boundary");
+        assert_eq!(live_seq, durable_seq);
     }
 }

@@ -22,6 +22,10 @@ use xharness_session::{
     PendingToolApproval, RequestHeader, Revision, SessionEvent, SessionHeader,
     Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
 };
+
+/// Bound both crash-loss and memory growth without returning to one JSONL
+/// read/validate/append cycle per provider fragment.
+const STREAM_JOURNAL_BATCH_EVENTS: usize = 64;
 use xharness_tools::{
     ApprovalDecision as RuntimeApprovalDecision, ApprovalProvider as RuntimeApprovalProvider,
     ApprovalRequest as RuntimeApprovalRequest, MiddlewareError as RuntimeMiddlewareError,
@@ -326,6 +330,7 @@ impl LoopEngine {
             turn: 0,
             step_open: false,
             turn_open: false,
+            pending_stream_events: Vec::new(),
         });
         let runner = Runner {
             run_id: run_id.clone(),
@@ -430,6 +435,13 @@ struct JournalState {
     turn: u32,
     step_open: bool,
     turn_open: bool,
+    /// Model stream deltas are intentionally buffered until the next semantic
+    /// journal boundary. Persisting one JSONL CAS batch per provider chunk
+    /// backpressures the provider stream and makes UI throughput depend on
+    /// session-log size. The completed assistant message, step end, retry, or
+    /// turn finalizer drains this buffer atomically before advancing the
+    /// durable lifecycle.
+    pending_stream_events: Vec<SessionEvent>,
 }
 
 impl Runner {
@@ -938,9 +950,20 @@ impl Runner {
 
     async fn journal_append_events(
         &mut self,
-        events: Vec<SessionEvent>,
+        mut events: Vec<SessionEvent>,
         flush: bool,
     ) -> Result<(), RunFailure> {
+        let pending_stream_events = self
+            .journal
+            .as_ref()
+            .map_or_else(Vec::new, |journal| journal.pending_stream_events.clone());
+        if !pending_stream_events.is_empty() {
+            let mut combined =
+                Vec::with_capacity(pending_stream_events.len().saturating_add(events.len()));
+            combined.extend(pending_stream_events.iter().cloned());
+            combined.append(&mut events);
+            events = combined;
+        }
         if events.is_empty() {
             return Ok(());
         }
@@ -1029,6 +1052,9 @@ impl Runner {
             journal.next_seq = receipt
                 .last_seq
                 .map_or(journal.next_seq, |sequence| sequence.saturating_add(1));
+            if !pending_stream_events.is_empty() {
+                journal.pending_stream_events.clear();
+            }
         }
         Ok(())
     }
@@ -1112,17 +1138,19 @@ impl Runner {
     }
 
     async fn journal_chunk(&mut self, chunk: AssistantChunk) -> Result<(), RunFailure> {
-        let Some(journal) = self.journal.as_ref() else {
+        let Some(journal) = self.journal.as_mut() else {
             return Ok(());
         };
         let turn = journal.turn;
         let step = u32::try_from(self.step)
             .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
-        self.journal_append(
-            vec![SessionEventData::AssistantChunk { turn, step, chunk }],
-            false,
-        )
-        .await
+        journal
+            .pending_stream_events
+            .push(SessionEventData::AssistantChunk { turn, step, chunk }.into());
+        if journal.pending_stream_events.len() >= STREAM_JOURNAL_BATCH_EVENTS {
+            self.journal_append_events(Vec::new(), false).await?;
+        }
+        Ok(())
     }
 
     async fn journal_assistant_message(
@@ -1795,6 +1823,13 @@ impl Runner {
                     }))) => {
                         round.saw_delta = true;
                         self.journal_chunk(AssistantChunk::ToolCallDelta {
+                            index,
+                            id: id.clone(),
+                            name: name.clone(),
+                            arguments_delta: arguments_delta.clone(),
+                        })
+                        .await?;
+                        self.emit(LoopEventKind::ToolCallDelta {
                             index,
                             id: id.clone(),
                             name: name.clone(),

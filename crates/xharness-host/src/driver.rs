@@ -638,14 +638,30 @@ impl BasicHost {
             .await
             .map_err(agent_runtime_error)?;
         let mut current_step = None;
+        // Durable stream chunks are deliberately appended in batches. Keep a
+        // virtual authoritative cursor so the browser sees each fragment at
+        // provider cadence; the later durable replay carries the same seq and
+        // is therefore discarded by the client's normal seq de-duplicator.
+        let mut authoritative_live_next_seq = None;
 
         loop {
             tokio::select! {
                 event = run.next_event() => match event {
                     Some(event) => {
                         if authoritative {
-                            self.sync_authoritative_session(session_id).await?;
-                            self.project_authoritative_control_event(session_id, event).await?;
+                            if !self
+                                .project_authoritative_stream_event(
+                                    session_id,
+                                    turn,
+                                    &mut authoritative_live_next_seq,
+                                    &event,
+                                )
+                                .await?
+                            {
+                                self.sync_authoritative_session(session_id).await?;
+                                authoritative_live_next_seq = None;
+                                self.project_authoritative_control_event(session_id, event).await?;
+                            }
                         } else {
                             self.project_loop_event(session_id, turn, &mut current_step, event)
                                 .await?;
@@ -761,6 +777,77 @@ impl BasicHost {
         )
         .await?;
         Ok(())
+    }
+
+    /// Publish the one-to-one streaming subset of Loop events before its
+    /// batched session append finishes. The first fragment synchronizes the
+    /// already-durable turn/step/request preamble and reserves the next
+    /// contiguous session sequence. Text, reasoning, and tool-call fragments
+    /// are exactly the AssistantChunk records produced by the Core, so later
+    /// authoritative replay uses identical sequence coordinates.
+    async fn project_authoritative_stream_event(
+        &self,
+        session_id: &str,
+        turn: u32,
+        next_seq: &mut Option<u64>,
+        event: &LoopEvent,
+    ) -> Result<bool, RpcError> {
+        let chunk = match &event.kind {
+            LoopEventKind::TextDelta(text) => {
+                json!({"type": "text-delta", "index": 0, "text": text})
+            }
+            LoopEventKind::ReasoningDelta(text) => {
+                json!({"type": "reasoning-delta", "index": 0, "text": text})
+            }
+            LoopEventKind::ToolCallDelta {
+                index,
+                id,
+                name,
+                arguments_delta,
+            } => json!({
+                "type": "tool-call-delta",
+                "index": index,
+                "id": id,
+                "name": name,
+                "argumentsDelta": arguments_delta,
+            }),
+            _ => return Ok(false),
+        };
+
+        if next_seq.is_none() {
+            if !self.sync_authoritative_session(session_id).await? {
+                return Err(RpcError::internal(
+                    "authoritative runtime did not expose its session while streaming",
+                ));
+            }
+            let state = self.state.read().await;
+            let session = state.sessions.get(session_id).ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::SessionNotFound,
+                    format!("session {session_id:?} was not found"),
+                    json!({"sessionId": session_id}),
+                )
+            })?;
+            *next_seq = Some(session.next_event_seq());
+        }
+
+        let seq = next_seq.expect("live authoritative sequence initialized above");
+        *next_seq = Some(
+            seq.checked_add(1)
+                .ok_or_else(|| RpcError::internal("authoritative live event sequence overflow"))?,
+        );
+        let step = u32::try_from(event.step).unwrap_or(u32::MAX);
+        self.push_mux(json!({
+            "type": "session/event",
+            "sessionId": session_id,
+            "event": {
+                "type": "assistant/chunk",
+                "seq": seq,
+                "time": now_ms(),
+                "data": {"turn": turn, "step": step, "chunk": chunk},
+            },
+        }));
+        Ok(true)
     }
 
     async fn project_authoritative_control_event(
@@ -909,6 +996,30 @@ impl BasicHost {
                         "turn": turn,
                         "step": step,
                         "chunk": {"type": "reasoning-delta", "index": 0, "text": text},
+                    }),
+                    None,
+                )
+                .await?;
+            }
+            LoopEventKind::ToolCallDelta {
+                index,
+                id,
+                name,
+                arguments_delta,
+            } => {
+                self.append_session_event(
+                    session_id,
+                    "assistant/chunk",
+                    json!({
+                        "turn": turn,
+                        "step": step,
+                        "chunk": {
+                            "type": "tool-call-delta",
+                            "index": index,
+                            "id": id,
+                            "name": name,
+                            "argumentsDelta": arguments_delta,
+                        },
                     }),
                     None,
                 )
