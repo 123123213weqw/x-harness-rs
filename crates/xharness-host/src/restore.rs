@@ -973,8 +973,11 @@ mod tests {
             Ok(Box::pin(
                 stream::once(async move {
                     delta_announced.notify_one();
-                    Ok(ProviderEvent::TextDelta("live before flush".to_owned()))
+                    Ok(ProviderEvent::TextDelta("live-0".to_owned()))
                 })
+                .chain(stream::iter((1..64).map(|index| {
+                    Ok(ProviderEvent::TextDelta(format!("live-{index}")))
+                })))
                 .chain(stream::once(async move {
                     finish_release.notified().await;
                     Ok(ProviderEvent::Completed {
@@ -2620,7 +2623,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authoritative_stream_is_published_before_its_durable_batch_closes() {
+    async fn authoritative_stream_checkpoint_is_published_before_model_completion() {
         let cwd = std::env::temp_dir();
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         let delta_announced = Arc::new(Notify::new());
@@ -2681,13 +2684,21 @@ mod tests {
         })
         .await
         .expect("live delta was held behind the durable completion batch");
-        assert_eq!(live["event"]["data"]["chunk"]["text"], "live before flush");
+        assert_eq!(live["event"]["data"]["chunk"]["text"], "live-0");
         let live_seq = live["event"]["seq"].as_u64().unwrap();
         let before_finish = store.load("live-stream-session").await.unwrap().unwrap();
+        assert_eq!(
+            before_finish
+                .events()
+                .iter()
+                .filter(|event| matches!(event.data(), EventData::AssistantChunk { .. }))
+                .count(),
+            64
+        );
         assert!(before_finish
             .events()
             .iter()
-            .all(|event| !matches!(event.data(), EventData::AssistantChunk { .. })));
+            .all(|event| !matches!(event.data(), EventData::AssistantMessage { .. })));
 
         finish_release.notify_one();
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -2713,7 +2724,7 @@ mod tests {
                 EventData::AssistantChunk {
                     chunk: AssistantChunk::TextDelta(text),
                     ..
-                } if text == "live before flush" => Some(event.seq),
+                } if text == "live-0" => Some(event.seq),
                 _ => None,
             })
             .expect("durable delta exists after the semantic boundary");

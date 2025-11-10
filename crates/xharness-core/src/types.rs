@@ -305,6 +305,10 @@ pub enum LoopEventKind {
         name: String,
         arguments_delta: String,
     },
+    /// A bounded assistant stream batch is now visible in the authoritative
+    /// Session store. Durable hosts use this signal to refresh the Web event
+    /// cursor without reloading the complete log for every fragment.
+    StreamCheckpoint,
     ToolStarted(ToolCall),
     ToolCompleted {
         call: ToolCall,

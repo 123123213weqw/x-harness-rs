@@ -6,7 +6,7 @@ use std::{
         Arc, Mutex,
     },
     task::{Context, Poll},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
@@ -26,6 +26,7 @@ use xharness_session::{
 /// Bound both crash-loss and memory growth without returning to one JSONL
 /// read/validate/append cycle per provider fragment.
 const STREAM_JOURNAL_BATCH_EVENTS: usize = 64;
+const STREAM_JOURNAL_BATCH_INTERVAL: Duration = Duration::from_millis(250);
 use xharness_tools::{
     ApprovalDecision as RuntimeApprovalDecision, ApprovalProvider as RuntimeApprovalProvider,
     ApprovalRequest as RuntimeApprovalRequest, MiddlewareError as RuntimeMiddlewareError,
@@ -331,6 +332,7 @@ impl LoopEngine {
             step_open: false,
             turn_open: false,
             pending_stream_events: Vec::new(),
+            stream_batch_started_at: None,
         });
         let runner = Runner {
             run_id: run_id.clone(),
@@ -435,13 +437,12 @@ struct JournalState {
     turn: u32,
     step_open: bool,
     turn_open: bool,
-    /// Model stream deltas are intentionally buffered until the next semantic
-    /// journal boundary. Persisting one JSONL CAS batch per provider chunk
-    /// backpressures the provider stream and makes UI throughput depend on
-    /// session-log size. The completed assistant message, step end, retry, or
-    /// turn finalizer drains this buffer atomically before advancing the
-    /// durable lifecycle.
+    /// Model stream deltas are written at bounded checkpoints rather than one
+    /// JSONL CAS per provider chunk. The completed assistant message, step
+    /// end, retry, or turn finalizer drains any remainder atomically before
+    /// advancing the durable lifecycle.
     pending_stream_events: Vec<SessionEvent>,
+    stream_batch_started_at: Option<Instant>,
 }
 
 impl Runner {
@@ -1054,6 +1055,7 @@ impl Runner {
                 .map_or(journal.next_seq, |sequence| sequence.saturating_add(1));
             if !pending_stream_events.is_empty() {
                 journal.pending_stream_events.clear();
+                journal.stream_batch_started_at = None;
             }
         }
         Ok(())
@@ -1137,20 +1139,27 @@ impl Runner {
             .await
     }
 
-    async fn journal_chunk(&mut self, chunk: AssistantChunk) -> Result<(), RunFailure> {
+    async fn journal_chunk(&mut self, chunk: AssistantChunk) -> Result<bool, RunFailure> {
         let Some(journal) = self.journal.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
         let turn = journal.turn;
         let step = u32::try_from(self.step)
             .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        if journal.pending_stream_events.is_empty() {
+            journal.stream_batch_started_at = Some(Instant::now());
+        }
         journal
             .pending_stream_events
             .push(SessionEventData::AssistantChunk { turn, step, chunk }.into());
-        if journal.pending_stream_events.len() >= STREAM_JOURNAL_BATCH_EVENTS {
+        let should_checkpoint = journal.pending_stream_events.len() >= STREAM_JOURNAL_BATCH_EVENTS
+            || journal
+                .stream_batch_started_at
+                .is_some_and(|started| started.elapsed() >= STREAM_JOURNAL_BATCH_INTERVAL);
+        if should_checkpoint {
             self.journal_append_events(Vec::new(), false).await?;
         }
-        Ok(())
+        Ok(should_checkpoint)
     }
 
     async fn journal_assistant_message(
@@ -1804,16 +1813,24 @@ impl Runner {
                     ModelInput::Provider(Some(Ok(ProviderEvent::TextDelta(delta)))) => {
                         round.saw_delta = true;
                         round.text.push_str(&delta);
-                        self.journal_chunk(AssistantChunk::TextDelta(delta.clone()))
+                        let checkpoint = self
+                            .journal_chunk(AssistantChunk::TextDelta(delta.clone()))
                             .await?;
                         self.emit(LoopEventKind::TextDelta(delta)).await?;
+                        if checkpoint {
+                            self.emit(LoopEventKind::StreamCheckpoint).await?;
+                        }
                     }
                     ModelInput::Provider(Some(Ok(ProviderEvent::ReasoningDelta(delta)))) => {
                         round.saw_delta = true;
                         round.reasoning.push_str(&delta);
-                        self.journal_chunk(AssistantChunk::ReasoningDelta(delta.clone()))
+                        let checkpoint = self
+                            .journal_chunk(AssistantChunk::ReasoningDelta(delta.clone()))
                             .await?;
                         self.emit(LoopEventKind::ReasoningDelta(delta)).await?;
+                        if checkpoint {
+                            self.emit(LoopEventKind::StreamCheckpoint).await?;
+                        }
                     }
                     ModelInput::Provider(Some(Ok(ProviderEvent::ToolCallDelta {
                         index,
@@ -1822,13 +1839,14 @@ impl Runner {
                         arguments_delta,
                     }))) => {
                         round.saw_delta = true;
-                        self.journal_chunk(AssistantChunk::ToolCallDelta {
-                            index,
-                            id: id.clone(),
-                            name: name.clone(),
-                            arguments_delta: arguments_delta.clone(),
-                        })
-                        .await?;
+                        let checkpoint = self
+                            .journal_chunk(AssistantChunk::ToolCallDelta {
+                                index,
+                                id: id.clone(),
+                                name: name.clone(),
+                                arguments_delta: arguments_delta.clone(),
+                            })
+                            .await?;
                         self.emit(LoopEventKind::ToolCallDelta {
                             index,
                             id: id.clone(),
@@ -1836,6 +1854,9 @@ impl Runner {
                             arguments_delta: arguments_delta.clone(),
                         })
                         .await?;
+                        if checkpoint {
+                            self.emit(LoopEventKind::StreamCheckpoint).await?;
+                        }
                         let call = round
                             .calls_by_index
                             .entry(index)
@@ -1874,7 +1895,7 @@ impl Runner {
                                     "could not serialize token usage: {error}"
                                 ))
                             })?;
-                            self.journal_chunk(AssistantChunk::Usage(value)).await?;
+                            let _ = self.journal_chunk(AssistantChunk::Usage(value)).await?;
                         }
                         if let Some(reason) = finish_reason.as_ref() {
                             let reason = match serde_json::to_value(reason).map_err(|error| {
@@ -1885,7 +1906,8 @@ impl Runner {
                                 Value::String(reason) => reason,
                                 reason => reason.to_string(),
                             };
-                            self.journal_chunk(AssistantChunk::Finish { reason })
+                            let _ = self
+                                .journal_chunk(AssistantChunk::Finish { reason })
                                 .await?;
                         }
                         round.finish_reason = finish_reason;
