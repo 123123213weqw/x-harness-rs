@@ -303,6 +303,12 @@ Commit、Issue、PR 应引用这些 ID。
 - [ ] `P1-03` **Token Meter 与 Context Policy。** Provider-aware Token Estimate、最大输入
   Guard、确定性 Tool Output Reduce、Surface Replace，以及不修改原 Event Log 的可选 Summary。
   `P0-11/P0-12` 先封死超窗，本项补 Provider-aware 精确计量、摘要和长期压缩策略。
+  **已完成 Compact 抽象切片：** 新增 `xharness-compaction`；默认参数对齐上游
+  `threshold=0.8 / retain=0.16 / maxTokens=8192 / retries=1 / overflowRetries=1`；实现精确
+  Model Route 覆盖、Pressure/Overflow/Manual 规划、Tool Call/Result 安全切点、Unicode Tool
+  Result Pruner、Checkpoint Frame 与 `CompactionSummarizer` Trait。**剩余：** Session
+  `compaction/*` + Surface Replace 事务、Provider typed overflow、摘要结果重新计量、Core/Host
+  自动触发和手动 `/compact`、Web 投影及崩溃恢复。
 
 - [ ] `P1-04` **动态 Tool Projection。** 每个 Profile/Step 只发送相关工具，同时保持 Schema
   稳定。与始终发送 14 工具比较 Token/Cache 消耗和工具选择质量。
