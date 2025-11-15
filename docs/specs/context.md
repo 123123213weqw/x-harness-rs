@@ -1,7 +1,8 @@
 # 上下文预算与压缩规范
 
 **所属层：** `xharness-context`、`xharness-token`、`xharness-prompt`
-**状态：** Surface 抽象和请求前硬预算已实现；分页、裁剪、精确 Tokenizer 与压缩仍待实现。
+**状态：** Surface 抽象和请求前硬预算已实现；Compact 纯规划见
+[`compaction.md`](compaction.md)，生产 Session Replace 接线、精确 Tokenizer 仍待实现。
 
 ## 已落地的抽象边界
 
@@ -102,6 +103,8 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 ## 当前实现差距
 
 - Host 仍安装 `IdentityContextPolicy`，原样返回全部消息；超限时会拒绝，但不会自动腾出空间。
+- `xharness-compaction` 已按 0.8 阈值、0.16 尾部、8,192 摘要上限实现纯配置和安全范围规划，
+  但尚未接入 Session Replace 事务，因此不能把“规划完成”误报成“生产自动压缩已启用”。
 - 当前正式 Host 安装保守 Byte Meter；Provider-aware 精确 Tokenizer 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。
 - `read` 已分页；其他工具结果仍缺统一 Spill/Reduce。
