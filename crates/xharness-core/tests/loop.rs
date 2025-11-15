@@ -138,6 +138,46 @@ struct FixedTokenMeter {
     total: u64,
 }
 
+#[derive(Clone)]
+struct ExactCountingProvider {
+    inner: ScriptProvider,
+    input_tokens: u64,
+    count_attempts: Arc<AtomicUsize>,
+}
+
+impl ExactCountingProvider {
+    fn new(input_tokens: u64, scripts: impl IntoIterator<Item = Script>) -> Self {
+        Self {
+            inner: ScriptProvider::new(scripts),
+            input_tokens,
+            count_attempts: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+}
+
+#[async_trait]
+impl ModelProvider for ExactCountingProvider {
+    async fn count_input_tokens(
+        &self,
+        _request: &ProviderRequest,
+        _cancellation: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        self.count_attempts.fetch_add(1, Ordering::SeqCst);
+        Ok(Some(ProviderInputTokenCount::exact_request(
+            "test-provider/input-tokens/v1",
+            self.input_tokens,
+        )))
+    }
+
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.inner.stream(request, cancellation).await
+    }
+}
+
 impl TokenMeter for FixedTokenMeter {
     fn id(&self) -> &str {
         "test-fixed/v1"
@@ -1164,6 +1204,49 @@ async fn hard_token_budget_rejects_64196_before_a_53248_provider_attempt() {
     let error = result.error.unwrap();
     assert!(error.contains("64196"), "{error}");
     assert!(error.contains("context=53248"), "{error}");
+}
+
+#[tokio::test]
+async fn provider_exact_count_prevents_conservative_byte_false_positive() {
+    let provider = Arc::new(ExactCountingProvider::new(70_857, [vec![Ok(completed())]]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let guard = TokenGuard::new(
+        Arc::new(FixedTokenMeter { total: 253_908 }),
+        TokenBudget {
+            context_window_tokens: 262_144,
+            reserved_output_tokens: 8_192,
+            safety_margin_tokens: 2_048,
+        },
+    )
+    .unwrap();
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("continue")]);
+    request.session_id = Some("exact-provider-count".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(guard);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(provider.inner.attempts(), 1);
+    assert_eq!(provider.count_attempts.load(Ordering::SeqCst), 1);
+
+    let session = journal.load("exact-provider-count").await.unwrap().unwrap();
+    let header = session
+        .events()
+        .iter()
+        .find_map(|event| match event.data() {
+            SessionEventData::RequestHeader { header } => Some(header),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        header.options["tokenBudget"]["meter"],
+        "test-provider/input-tokens/v1"
+    );
+    assert_eq!(header.options["tokenBudget"]["accuracy"], "exact_request");
+    assert_eq!(
+        header.options["tokenBudget"]["estimate"]["totalInputTokens"],
+        70_857
+    );
 }
 
 #[tokio::test]
