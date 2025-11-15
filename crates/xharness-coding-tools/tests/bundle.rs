@@ -1,4 +1,11 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -12,10 +19,15 @@ use xharness_web::WebRuntime;
 
 struct TempWorkspace(PathBuf);
 
+static NEXT_WORKSPACE_ID: AtomicU64 = AtomicU64::new(0);
+
 impl TempWorkspace {
     fn new() -> Self {
-        let path =
-            std::env::temp_dir().join(format!("xharness-coding-tools-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "xharness-coding-tools-{}-{}",
+            std::process::id(),
+            NEXT_WORKSPACE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         Self(fs::canonicalize(path).unwrap())
@@ -147,4 +159,39 @@ async fn fourteen_tools_register_and_basic_file_shell_flow_runs() {
         .await;
     assert!(bash.is_ok(), "{bash:?}");
     assert!(bash.output.unwrap().content.contains("shell-ok"));
+}
+
+#[tokio::test]
+async fn bash_propagates_pipeline_failures_and_allows_explicit_recovery() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+
+    let failed = executor
+        .execute(ToolRequest::new(
+            "bash",
+            r#"{"command":"(echo 'fatal: push failed' >&2; false) 2>&1 | tail -n 4"}"#,
+        ))
+        .await;
+    assert!(
+        failed.is_ok(),
+        "the bash handler itself should settle: {failed:?}"
+    );
+    let failed: Value = serde_json::from_str(&failed.output.unwrap().content).unwrap();
+    assert_eq!(failed["success"], false);
+    assert_eq!(failed["exit_code"], 1);
+    assert_eq!(failed["stdout"], "fatal: push failed\n");
+
+    let recovered = executor
+        .execute(ToolRequest::new(
+            "bash",
+            r#"{"command":"false | true || true"}"#,
+        ))
+        .await;
+    assert!(
+        recovered.is_ok(),
+        "the bash handler itself should settle: {recovered:?}"
+    );
+    let recovered: Value = serde_json::from_str(&recovered.output.unwrap().content).unwrap();
+    assert_eq!(recovered["success"], true);
+    assert_eq!(recovered["exit_code"], 0);
 }
