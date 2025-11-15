@@ -155,6 +155,34 @@ fn assembled_system_prompt_is_encoded_first_in_both_wire_protocols() {
 }
 
 #[test]
+fn token_count_body_reuses_the_wire_encoder_without_output_controls() {
+    let request = ProviderRequest {
+        messages: vec![
+            AgentMessage::system("policy"),
+            AgentMessage::user("inspect"),
+        ],
+        tools: vec![ToolDefinition {
+            name: "read".to_owned(),
+            description: "read a file".to_owned(),
+            parameters: json!({"type":"object"}),
+        }],
+        step: 1,
+        max_output_tokens: Some(4_096),
+    };
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let generation = build_openai_request(protocol, "model", &request);
+        let count = build_openai_token_count_request(protocol, "model", &request);
+        assert_eq!(count["model"], "model");
+        assert_eq!(count["tools"], generation["tools"]);
+        assert!(count.get("stream").is_none());
+        assert!(count.get("stream_options").is_none());
+        assert!(count.get("max_tokens").is_none());
+        assert!(count.get("max_output_tokens").is_none());
+        assert!(count.get("store").is_none());
+    }
+}
+
+#[test]
 fn responses_request_replays_opaque_items_and_normalizes_lifecycle() {
     let mut assistant = AgentMessage::assistant("ignored because opaque item exists");
     assistant.provider_items.push(json!({
@@ -340,6 +368,87 @@ async fn native_http_provider_streams_both_protocols() {
 }
 
 #[tokio::test]
+async fn provider_uses_protocol_native_input_token_count_endpoints() {
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let (base_url, server) = spawn_count_server(protocol, 70_857).await;
+        let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+            protocol,
+            base_url,
+            "secret",
+            "test-model",
+        ))
+        .unwrap();
+        let request = ProviderRequest {
+            messages: vec![AgentMessage::system("policy"), AgentMessage::user("hello")],
+            tools: vec![ToolDefinition {
+                name: "read".to_owned(),
+                description: "read".to_owned(),
+                parameters: json!({"type":"object"}),
+            }],
+            step: 1,
+            max_output_tokens: Some(8_192),
+        };
+        let count = provider
+            .count_input_tokens(&request, CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(count.input_tokens, 70_857);
+        assert_eq!(
+            count.accuracy,
+            xharness_core::TokenCountAccuracy::ExactRequest
+        );
+        match protocol {
+            OpenAiProtocol::ChatCompletions => {
+                assert_eq!(count.counter, "openai-compatible/chat-input-tokens/v1")
+            }
+            OpenAiProtocol::Responses => {
+                assert_eq!(count.counter, "openai/responses-input-tokens/v1")
+            }
+        }
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn unsupported_token_count_endpoint_is_cached_as_a_capability_miss() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let _ = read_http_request(&mut socket).await;
+        socket
+            .write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+            .await
+            .unwrap();
+    });
+    let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+        OpenAiProtocol::ChatCompletions,
+        format!("http://{address}/v1"),
+        "secret",
+        "test-model",
+    ))
+    .unwrap();
+    let request = ProviderRequest {
+        messages: vec![AgentMessage::user("hello")],
+        tools: Vec::new(),
+        step: 1,
+        max_output_tokens: None,
+    };
+    assert!(provider
+        .count_input_tokens(&request, CancellationToken::new())
+        .await
+        .unwrap()
+        .is_none());
+    server.await.unwrap();
+    assert!(provider
+        .count_input_tokens(&request, CancellationToken::new())
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
 async fn provider_bounds_http_error_bodies() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -442,4 +551,76 @@ async fn spawn_server(protocol: OpenAiProtocol) -> (String, tokio::task::JoinHan
         socket.write_all(response.as_bytes()).await.unwrap();
     });
     (format!("http://{address}/v1"), task)
+}
+
+async fn spawn_count_server(
+    protocol: OpenAiProtocol,
+    input_tokens: u64,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut socket).await;
+        let split = request
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap();
+        let head = String::from_utf8_lossy(&request[..split]);
+        match protocol {
+            OpenAiProtocol::ChatCompletions => {
+                assert!(head.starts_with("POST /v1/chat/completions/input_tokens"))
+            }
+            OpenAiProtocol::Responses => {
+                assert!(head.starts_with("POST /v1/responses/input_tokens"))
+            }
+        }
+        let body: serde_json::Value = serde_json::from_slice(&request[split + 4..]).unwrap();
+        assert_eq!(body["model"], "test-model");
+        assert!(body.get("stream").is_none());
+        assert!(body.get("max_tokens").is_none());
+        assert!(body.get("max_output_tokens").is_none());
+        assert!(body["tools"].is_array());
+        let response_body = json!({
+            "object": "response.input_tokens",
+            "input_tokens": input_tokens,
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body,
+        );
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+    (format!("http://{address}/v1"), task)
+}
+
+async fn read_http_request(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
+    let mut request = Vec::new();
+    let mut buffer = [0u8; 4096];
+    loop {
+        let count = socket.read(&mut buffer).await.unwrap();
+        if count == 0 {
+            break;
+        }
+        request.extend_from_slice(&buffer[..count]);
+        let Some(split) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let head = String::from_utf8_lossy(&request[..split]);
+        let content_length = head
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or(0);
+        if request.len() >= split + 4 + content_length {
+            break;
+        }
+    }
+    request
 }
