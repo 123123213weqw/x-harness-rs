@@ -32,6 +32,41 @@ pub struct TokenBreakdown {
     pub total_input_tokens: u64,
 }
 
+/// Confidence of the token count used for one admission decision.
+///
+/// Exact request counts are produced by an endpoint that accepts the same
+/// structured request as generation and therefore includes chat templates,
+/// tool schemas and protocol framing. Exact tokenizer counts operate on a
+/// provider-rendered prompt. Estimated counts are local fallbacks only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenCountAccuracy {
+    ExactRequest,
+    ExactTokenizer,
+    Calibrated,
+    #[default]
+    Estimated,
+}
+
+/// Provider-supplied input count for the complete prepared request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInputTokenCount {
+    pub counter: String,
+    pub input_tokens: u64,
+    pub accuracy: TokenCountAccuracy,
+}
+
+impl ProviderInputTokenCount {
+    pub fn exact_request(counter: impl Into<String>, input_tokens: u64) -> Self {
+        Self {
+            counter: counter.into(),
+            input_tokens,
+            accuracy: TokenCountAccuracy::ExactRequest,
+        }
+    }
+}
+
 impl TokenBreakdown {
     fn recompute_total(&mut self) {
         self.total_input_tokens = self
@@ -148,6 +183,8 @@ impl TokenBudget {
 #[serde(rename_all = "camelCase")]
 pub struct TokenBudgetReport {
     pub meter: String,
+    #[serde(default)]
+    pub accuracy: TokenCountAccuracy,
     pub context_window_tokens: u64,
     pub reserved_output_tokens: u64,
     pub safety_margin_tokens: u64,
@@ -208,6 +245,41 @@ impl TokenGuard {
         }
         Ok(TokenBudgetReport {
             meter: self.meter.id().to_owned(),
+            accuracy: TokenCountAccuracy::Estimated,
+            context_window_tokens: self.budget.context_window_tokens,
+            reserved_output_tokens: self.budget.reserved_output_tokens,
+            safety_margin_tokens: self.budget.safety_margin_tokens,
+            available_input_tokens,
+            estimate,
+        })
+    }
+
+    /// Enforce the same hard budget using a count supplied by the selected
+    /// provider. The total is exact even though a provider count endpoint does
+    /// not expose the system/message/tool bucket breakdown; it is placed in
+    /// `message_tokens` so the disjoint-total invariant remains true.
+    pub fn check_provider_count(
+        &self,
+        count: &ProviderInputTokenCount,
+    ) -> Result<TokenBudgetReport, TokenBudgetError> {
+        let estimate = TokenBreakdown {
+            message_tokens: count.input_tokens,
+            total_input_tokens: count.input_tokens,
+            ..TokenBreakdown::default()
+        };
+        let available_input_tokens = self.budget.available_input_tokens();
+        if count.input_tokens > available_input_tokens {
+            return Err(TokenBudgetError::Exceeded {
+                estimated_input_tokens: count.input_tokens,
+                available_input_tokens,
+                context_window_tokens: self.budget.context_window_tokens,
+                reserved_output_tokens: self.budget.reserved_output_tokens,
+                safety_margin_tokens: self.budget.safety_margin_tokens,
+            });
+        }
+        Ok(TokenBudgetReport {
+            meter: count.counter.clone(),
+            accuracy: count.accuracy,
             context_window_tokens: self.budget.context_window_tokens,
             reserved_output_tokens: self.budget.reserved_output_tokens,
             safety_margin_tokens: self.budget.safety_margin_tokens,
@@ -284,5 +356,29 @@ mod tests {
         })
         .unwrap_err();
         assert!(matches!(error, TokenBudgetError::Invalid(_)));
+    }
+
+    #[test]
+    fn provider_exact_count_overrides_the_local_estimator() {
+        let guard = TokenGuard::new(
+            Arc::new(ConservativeByteMeter),
+            TokenBudget {
+                context_window_tokens: 262_144,
+                reserved_output_tokens: 8_192,
+                safety_margin_tokens: 2_048,
+            },
+        )
+        .unwrap();
+        let report = guard
+            .check_provider_count(&ProviderInputTokenCount::exact_request(
+                "openai/chat-input-tokens/v1",
+                70_857,
+            ))
+            .unwrap();
+        assert_eq!(report.meter, "openai/chat-input-tokens/v1");
+        assert_eq!(report.accuracy, TokenCountAccuracy::ExactRequest);
+        assert_eq!(report.estimate.message_tokens, 70_857);
+        assert_eq!(report.estimate.total_input_tokens, 70_857);
+        assert_eq!(report.available_input_tokens, 251_904);
     }
 }
