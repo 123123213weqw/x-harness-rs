@@ -8,6 +8,7 @@ use xharness_agent::FileLeaseManager;
 use xharness_api::ApiBackend;
 use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::IdentityContextPolicy;
+use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode};
 use xharness_host::{BasicHost, DurableLoopAgentRuntime, HostConfig};
 use xharness_host_app::NativeToolFactory;
 use xharness_provider_openai::OpenAiProtocol;
@@ -19,6 +20,40 @@ use xharness_web::WebRuntime;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse()?;
+    let (debug, trace) =
+        DebugRecorder::open(DebugTraceConfig::new(args.debug_trace, &args.debug_dir)).await?;
+    if let Some(trace) = trace {
+        eprintln!("xharness full debug trace: {}", trace.directory.display());
+    }
+    let result = run(args, debug.clone()).await;
+    let outcome = match &result {
+        Ok(()) => serde_json::json!({"outcome": "success"}),
+        Err(error) => serde_json::json!({"outcome": "failed", "error": error.to_string()}),
+    };
+    debug
+        .record(DebugEvent::new("host", "exit", outcome))
+        .await?;
+    debug.flush().await?;
+    result
+}
+
+async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error::Error>> {
+    debug
+        .record(DebugEvent::new(
+            "host",
+            "start",
+            serde_json::json!({
+                "bind": args.bind.to_string(),
+                "workspace": args.workspace.to_string_lossy(),
+                "stateDir": args.state_dir.to_string_lossy(),
+                "provider": &args.provider,
+                "model": &args.model,
+                "baseUrl": diagnostic_base_url(&args.base_url),
+                "protocol": format!("{:?}", args.protocol),
+                "providersFile": args.providers_file.as_ref().map(|path| path.to_string_lossy()),
+            }),
+        ))
+        .await?;
     let workspace = std::fs::canonicalize(&args.workspace)?;
     let deployment = match &args.providers_file {
         Some(path) => ModelDeployment::from_file(path)?,
@@ -56,6 +91,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
     let host = BasicHost::with_agent_runtime_and_control_store(config, runtime, control_store);
     let restore = host.restore_from_store(store).await?;
+    debug
+        .record(DebugEvent::new(
+            "host",
+            "restore",
+            serde_json::json!({
+                "restoredSessions": restore.restored_sessions,
+                "resumedPendingTurns": restore.resumed_pending_turns,
+                "issues": restore.issues.iter().map(|issue| serde_json::json!({
+                    "sessionId": &issue.session_id,
+                    "message": &issue.message,
+                })).collect::<Vec<_>>(),
+            }),
+        ))
+        .await?;
     eprintln!(
         "xharness restored {} sessions and resumed {} pending turns ({} issues)",
         restore.restored_sessions,
@@ -71,10 +120,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend: Arc<dyn ApiBackend> = host;
     let router = web_router(backend, args.static_dir);
     let listener = TcpListener::bind(args.bind).await?;
-    eprintln!(
-        "xharness host listening on http://{}",
-        listener.local_addr()?
-    );
+    let local_addr = listener.local_addr()?;
+    debug
+        .record(DebugEvent::new(
+            "host",
+            "listening",
+            serde_json::json!({"address": local_addr.to_string()}),
+        ))
+        .await?;
+    debug.flush().await?;
+    eprintln!("xharness host listening on http://{}", local_addr);
     serve(listener, router, async {
         let _ = tokio::signal::ctrl_c().await;
     })
@@ -96,6 +151,8 @@ struct Args {
     max_output_tokens: u64,
     token_safety_margin: u64,
     providers_file: Option<PathBuf>,
+    debug_trace: DebugTraceMode,
+    debug_dir: PathBuf,
 }
 
 impl Args {
@@ -119,6 +176,10 @@ impl Args {
         let mut max_output_tokens = env_u64("XHARNESS_MAX_OUTPUT_TOKENS", 4_096)?;
         let mut token_safety_margin = env_u64("XHARNESS_TOKEN_SAFETY_MARGIN", 1_024)?;
         let mut providers_file = env::var_os("XHARNESS_PROVIDERS_FILE").map(PathBuf::from);
+        let mut debug_trace = env_value("XHARNESS_DEBUG_TRACE", "off")
+            .parse::<DebugTraceMode>()
+            .map_err(|error| error.to_string())?;
+        let mut debug_dir = env::var_os("XHARNESS_DEBUG_DIR").map(PathBuf::from);
 
         let mut arguments = env::args().skip(1);
         while let Some(argument) = arguments.next() {
@@ -149,9 +210,16 @@ impl Args {
                     token_safety_margin = parse_u64("--token-safety-margin", &value)?
                 }
                 "--providers-file" => providers_file = Some(PathBuf::from(value)),
+                "--debug-trace" => {
+                    debug_trace = value
+                        .parse::<DebugTraceMode>()
+                        .map_err(|error| error.to_string())?
+                }
+                "--debug-dir" => debug_dir = Some(PathBuf::from(value)),
                 _ => return Err(format!("unknown argument {argument:?}")),
             }
         }
+        let debug_dir = debug_dir.unwrap_or_else(|| state_dir.join("debug"));
         Ok(Self {
             bind,
             workspace,
@@ -166,6 +234,8 @@ impl Args {
             max_output_tokens,
             token_safety_margin,
             providers_file,
+            debug_trace,
+            debug_dir,
         })
     }
 }
@@ -211,6 +281,28 @@ fn parse_protocol(value: &str) -> Result<OpenAiProtocol, String> {
     config::parse_protocol(value)
 }
 
+fn diagnostic_base_url(value: &str) -> String {
+    let end = value.find(['?', '#']).unwrap_or(value.len());
+    let without_query = &value[..end];
+    let Some(scheme_end) = without_query.find("://") else {
+        return without_query.to_owned();
+    };
+    let authority_start = scheme_end + 3;
+    let authority_end = without_query[authority_start..]
+        .find('/')
+        .map(|offset| authority_start + offset)
+        .unwrap_or(without_query.len());
+    let authority = &without_query[authority_start..authority_end];
+    let Some(at) = authority.rfind('@') else {
+        return without_query.to_owned();
+    };
+    format!(
+        "{}[REDACTED]@{}",
+        &without_query[..authority_start],
+        &without_query[authority_start + at + 1..]
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +316,18 @@ mod tests {
         assert_eq!(
             parse_protocol("responses").unwrap(),
             OpenAiProtocol::Responses
+        );
+    }
+
+    #[test]
+    fn debug_base_url_drops_query_fragment_and_userinfo() {
+        assert_eq!(
+            diagnostic_base_url("https://user:pass@example.test/v1?token=no#fragment"),
+            "https://[REDACTED]@example.test/v1"
+        );
+        assert_eq!(
+            diagnostic_base_url("http://127.0.0.1:8000/v1"),
+            "http://127.0.0.1:8000/v1"
         );
     }
 }
