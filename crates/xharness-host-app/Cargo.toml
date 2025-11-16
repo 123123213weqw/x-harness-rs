@@ -19,6 +19,7 @@ xharness-api = { path = "../xharness-api" }
 xharness-coding-tools = { path = "../xharness-coding-tools" }
 xharness-core = { path = "../xharness-core" }
 xharness-control = { path = "../xharness-control" }
+xharness-debug = { path = "../xharness-debug" }
 xharness-host = { path = "../xharness-host" }
 xharness-agent = { path = "../xharness-agent" }
 xharness-platform = { path = "../xharness-platform" }

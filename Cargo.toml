@@ -6,6 +6,7 @@ members = [
     "crates/xharness-context",
     "crates/xharness-control",
     "crates/xharness-core",
+    "crates/xharness-debug",
     "crates/xharness-fs",
     "crates/xharness-host",
     "crates/xharness-host-app",
@@ -42,7 +43,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10.9"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-tungstenite = "0.29"
 tokio-util = "0.7"
