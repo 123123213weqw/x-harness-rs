@@ -28,17 +28,23 @@ use xharness_api::{
     RpcMethod, RpcReceipt, RpcResult, ServerRequest, ServerResponse, HOST_EVENTS_PATH,
     MUX_EVENTS_PATH, RESPOND_PATH, SESSION_EXPORT_PATH,
 };
+use xharness_debug::{DebugEvent, DebugRecorder};
 
 pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 160 * 1024 * 1024;
 
 #[derive(Clone)]
 struct ServerState {
     backend: Arc<dyn ApiBackend>,
+    debug: DebugRecorder,
 }
 
 /// Build the complete `/api` transport surface without static-file fallback.
 pub fn api_router(backend: Arc<dyn ApiBackend>) -> Router {
-    let state = ServerState { backend };
+    api_router_with_debug(backend, DebugRecorder::disabled())
+}
+
+pub fn api_router_with_debug(backend: Arc<dyn ApiBackend>, debug: DebugRecorder) -> Router {
+    let state = ServerState { backend, debug };
     Router::new()
         .route(RESPOND_PATH, post(respond))
         .route(MUX_EVENTS_PATH, get(mux_events))
@@ -64,6 +70,14 @@ async fn session_export(
     method: Method,
     Query(query): Query<SessionExportQuery>,
 ) -> Response {
+    state
+        .debug
+        .record_lossy(DebugEvent::new(
+            "server",
+            "session_export.request",
+            json!({"method": method.as_str(), "sessionId": &query.session_id}),
+        ))
+        .await;
     if query.session_id.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -79,6 +93,20 @@ async fn session_export(
         .await
     {
         Ok(export) => {
+            state
+                .debug
+                .record_lossy(DebugEvent::new(
+                    "server",
+                    "session_export.response",
+                    json!({
+                        "sessionId": &query.session_id,
+                        "filename": &export.filename,
+                        "contentType": &export.content_type,
+                        "bytes": export.bytes.len(),
+                        "content": String::from_utf8_lossy(&export.bytes),
+                    }),
+                ))
+                .await;
             let mut response = if method == Method::HEAD {
                 ().into_response()
             } else {
@@ -103,16 +131,42 @@ async fn session_export(
             response
         }
         Err(error) if error.code == xharness_api::RpcErrorCode::SessionNotFound => {
+            state
+                .debug
+                .record_lossy(DebugEvent::new(
+                    "server",
+                    "session_export.error",
+                    json!({"sessionId": &query.session_id, "error": &error}),
+                ))
+                .await;
             (StatusCode::NOT_FOUND, error.message).into_response()
         }
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.message).into_response(),
+        Err(error) => {
+            state
+                .debug
+                .record_lossy(DebugEvent::new(
+                    "server",
+                    "session_export.error",
+                    json!({"sessionId": &query.session_id, "error": &error}),
+                ))
+                .await;
+            (StatusCode::INTERNAL_SERVER_ERROR, error.message).into_response()
+        }
     }
 }
 
 /// Add an optional SPA fallback. Unknown paths first try the dist directory,
 /// then return its `index.html` so client-side routes remain reloadable.
 pub fn web_router(backend: Arc<dyn ApiBackend>, static_dir: Option<PathBuf>) -> Router {
-    let router = api_router(backend);
+    web_router_with_debug(backend, static_dir, DebugRecorder::disabled())
+}
+
+pub fn web_router_with_debug(
+    backend: Arc<dyn ApiBackend>,
+    static_dir: Option<PathBuf>,
+    debug: DebugRecorder,
+) -> Router {
+    let router = api_router_with_debug(backend, debug);
     match static_dir {
         Some(root) => {
             let index = root.join("index.html");
@@ -156,7 +210,27 @@ async fn unary_endpoint(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    state
+        .debug
+        .record_lossy(DebugEvent::new(
+            "server",
+            "rpc.request",
+            json!({
+                "method": &path_method,
+                "bytes": body.len(),
+                "body": String::from_utf8_lossy(&body),
+            }),
+        ))
+        .await;
     if !is_json(&headers) {
+        state
+            .debug
+            .record_lossy(DebugEvent::new(
+                "server",
+                "rpc.rejected",
+                json!({"method": &path_method, "reason": "unsupported_media_type"}),
+            ))
+            .await;
         return (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "content type must be application/json",
@@ -165,12 +239,24 @@ async fn unary_endpoint(
     }
     let value: Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
-        Err(_) => return (StatusCode::BAD_REQUEST, "body is not JSON").into_response(),
+        Err(error) => {
+            state.debug.record_lossy(DebugEvent::new(
+                "server",
+                "rpc.rejected",
+                json!({"method": &path_method, "reason": "invalid_json", "error": error.to_string()}),
+            )).await;
+            return (StatusCode::BAD_REQUEST, "body is not JSON").into_response();
+        }
     };
     let request: ClientRequest = match serde_json::from_value(value.clone()) {
         Ok(request) => request,
         Err(error) => {
             let rpc_id = salvage_rpc_id(&value);
+            state.debug.record_lossy(DebugEvent::new(
+                "server",
+                "rpc.rejected",
+                json!({"method": &path_method, "rpcId": &rpc_id, "reason": "invalid_envelope", "error": error.to_string()}),
+            )).await;
             return Json(ServerResponse::new(
                 rpc_id,
                 RpcResult::failure(RpcError::bad_request(
@@ -182,6 +268,11 @@ async fn unary_endpoint(
         }
     };
     if request.method != path_method {
+        state.debug.record_lossy(DebugEvent::new(
+            "server",
+            "rpc.rejected",
+            json!({"method": &path_method, "rpcId": &request.rpc_id, "reason": "path_method_mismatch", "envelopeMethod": &request.method}),
+        )).await;
         return Json(ServerResponse::new(
             request.rpc_id,
             RpcResult::failure(RpcError::bad_request(
@@ -198,29 +289,59 @@ async fn unary_endpoint(
     let cancellation = CancellationToken::new();
     let _cancel_on_drop = CancelOnDrop(cancellation.clone());
     let rpc_id = request.rpc_id;
-    let result = match RpcMethod::from_str(&path_method) {
-        Ok(method) => {
-            state
-                .backend
-                .call(rpc_id.clone(), method, request.payload, cancellation)
-                .await
-        }
-        Err(_) => {
-            let Some(result) = state
-                .backend
-                .call_dynamic(rpc_id.clone(), &path_method, request.payload, cancellation)
-                .await
-            else {
-                return (StatusCode::NOT_FOUND, "not found").into_response();
-            };
-            result
-        }
-    };
+    let result =
+        match RpcMethod::from_str(&path_method) {
+            Ok(method) => {
+                state
+                    .backend
+                    .call(rpc_id.clone(), method, request.payload, cancellation)
+                    .await
+            }
+            Err(_) => {
+                let Some(result) = state
+                    .backend
+                    .call_dynamic(rpc_id.clone(), &path_method, request.payload, cancellation)
+                    .await
+                else {
+                    state.debug.record_lossy(DebugEvent::new(
+                    "server",
+                    "rpc.rejected",
+                    json!({"method": &path_method, "rpcId": &rpc_id, "reason": "not_found"}),
+                )).await;
+                    return (StatusCode::NOT_FOUND, "not found").into_response();
+                };
+                result
+            }
+        };
+    state
+        .debug
+        .record_lossy(DebugEvent::new(
+            "server",
+            "rpc.response",
+            json!({"method": &path_method, "rpcId": &rpc_id, "result": &result}),
+        ))
+        .await;
     Json(ServerResponse::new(rpc_id, result)).into_response()
 }
 
 async fn respond(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+    state
+        .debug
+        .record_lossy(DebugEvent::new(
+            "server",
+            "respond.request",
+            json!({"bytes": body.len(), "body": String::from_utf8_lossy(&body)}),
+        ))
+        .await;
     if !is_json(&headers) {
+        state
+            .debug
+            .record_lossy(DebugEvent::new(
+                "server",
+                "respond.rejected",
+                json!({"reason": "unsupported_media_type"}),
+            ))
+            .await;
         return (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "content type must be application/json",
@@ -229,40 +350,88 @@ async fn respond(State(state): State<ServerState>, headers: HeaderMap, body: Byt
     }
     let value: Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
-        Err(_) => return (StatusCode::BAD_REQUEST, "body is not JSON").into_response(),
+        Err(error) => {
+            state
+                .debug
+                .record_lossy(DebugEvent::new(
+                    "server",
+                    "respond.rejected",
+                    json!({"reason": "invalid_json", "error": error.to_string()}),
+                ))
+                .await;
+            return (StatusCode::BAD_REQUEST, "body is not JSON").into_response();
+        }
     };
     let response: ClientResponse = match serde_json::from_value(value) {
         Ok(response) => response,
         Err(_) => {
+            state
+                .debug
+                .record_lossy(DebugEvent::new(
+                    "server",
+                    "respond.rejected",
+                    json!({"reason": "invalid_envelope"}),
+                ))
+                .await;
             return Json(RpcReceipt::Rejected {
                 reason: ReceiptRejection::BadResponse,
             })
             .into_response();
         }
     };
-    Json(state.backend.respond(response).await).into_response()
+    let receipt = state.backend.respond(response).await;
+    state
+        .debug
+        .record_lossy(DebugEvent::new(
+            "server",
+            "respond.response",
+            json!({"receipt": &receipt}),
+        ))
+        .await;
+    Json(receipt).into_response()
 }
 
 async fn mux_events(
     State(state): State<ServerState>,
     upgrade: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    upgrade.on_upgrade(move |socket| pump_downlink(socket, state.backend.mux_events()))
+    upgrade.on_upgrade(move |socket| {
+        pump_downlink(socket, state.backend.mux_events(), state.debug, "mux")
+    })
 }
 
 async fn host_events(
     State(state): State<ServerState>,
     upgrade: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    upgrade.on_upgrade(move |socket| pump_downlink(socket, state.backend.host_events()))
+    upgrade.on_upgrade(move |socket| {
+        pump_downlink(socket, state.backend.host_events(), state.debug, "host")
+    })
 }
 
-async fn pump_downlink(socket: WebSocket, mut events: EventStream) {
+async fn pump_downlink(
+    socket: WebSocket,
+    mut events: EventStream,
+    debug: DebugRecorder,
+    channel: &'static str,
+) {
+    debug
+        .record_lossy(DebugEvent::new(
+            "server",
+            "websocket.opened",
+            json!({"channel": channel}),
+        ))
+        .await;
     let (mut sender, mut receiver) = socket.split();
     loop {
         tokio::select! {
             frame = events.next() => match frame {
                 Some(frame) => {
+                    debug.record_lossy(DebugEvent::new(
+                        "server",
+                        "websocket.frame",
+                        json!({"channel": channel, "frame": &frame}),
+                    )).await;
                     let Ok(text) = serde_json::to_string(&frame) else { break };
                     if sender.send(Message::Text(text.into())).await.is_err() { break; }
                 }
@@ -285,6 +454,13 @@ async fn pump_downlink(socket: WebSocket, mut events: EventStream) {
             }
         }
     }
+    debug
+        .record_lossy(DebugEvent::new(
+            "server",
+            "websocket.closed",
+            json!({"channel": channel}),
+        ))
+        .await;
 }
 
 fn is_json(headers: &HeaderMap) -> bool {

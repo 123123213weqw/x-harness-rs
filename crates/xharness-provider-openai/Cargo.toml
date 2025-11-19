@@ -18,5 +18,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 xharness-core = { path = "../xharness-core" }
 
+xharness-debug = { path = "../xharness-debug" }
+
 [dev-dependencies]
 tokio.workspace = true

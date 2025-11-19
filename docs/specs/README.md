@@ -35,7 +35,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-coding-tools` | [标准 14 工具包](coding-tools.md) | 已实现并通过真实 Loop 测试 |
 | `xharness-context` | [上下文预算](context.md) | Surface 抽象已实现；生产 Host 当前仍为 Identity Policy |
 | `xharness-compaction` | [上下文压缩](compaction.md) | 配置、压力规划、Tool Pair 安全范围、裁剪与摘要接口已实现；Session 事务待接线 |
-| `xharness-debug` | [Full Debug Trace](debug-trace.md) | Noop/JSONL/Blob/脱敏抽象和 Host 生命周期已实现；跨层全量埋点待接线 |
+| `xharness-debug` | [Full Debug Trace](debug-trace.md) | Host/Core/Provider/Tool/Process/Terminal/Sandbox/Web/Server 全链路 Debug Trace 已接线 |
 | `xharness-token` | [上下文预算与压缩](context.md) | TokenMeter、保守后备与请求前 Hard Guard 已实现 |
 | `xharness-prompt` | [Prompt 组装与注入](prompt.md) | v1 最小确定性注入已实现；完整 Registry 计划中 |
 | Linux Packaging | [`.deb` 安装与沙箱自配置](linux-deb.md) | Helper/打包已实现；真实 4080 安装待管理员授权 |
