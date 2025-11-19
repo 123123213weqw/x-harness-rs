@@ -33,12 +33,14 @@ use nix::{
     sys::signal::{killpg, Signal},
     unistd::Pid,
 };
+use serde_json::{json, Value};
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
     process::{Child, Command},
     sync::{oneshot, watch},
     time,
 };
+use xharness_debug::{DebugEvent, DebugRecorder};
 
 pub const DEFAULT_CAPTURE_LIMIT: usize = 256 * 1024;
 pub const DEFAULT_TERMINATION_GRACE: Duration = Duration::from_secs(2);
@@ -58,6 +60,8 @@ pub struct SpawnSpec {
     pub termination_grace: Duration,
     pub stdout_limit: usize,
     pub stderr_limit: usize,
+    /// Diagnostic-only parent identity, normally the Tool execution id.
+    pub debug_parent: Option<String>,
 }
 
 impl SpawnSpec {
@@ -71,6 +75,7 @@ impl SpawnSpec {
             termination_grace: DEFAULT_TERMINATION_GRACE,
             stdout_limit: DEFAULT_CAPTURE_LIMIT,
             stderr_limit: DEFAULT_CAPTURE_LIMIT,
+            debug_parent: None,
         }
     }
 
@@ -106,6 +111,11 @@ impl SpawnSpec {
     pub fn output_limits(mut self, stdout_limit: usize, stderr_limit: usize) -> Self {
         self.stdout_limit = stdout_limit;
         self.stderr_limit = stderr_limit;
+        self
+    }
+
+    pub fn debug_parent(mut self, parent: impl Into<String>) -> Self {
+        self.debug_parent = Some(parent.into());
         self
     }
 
@@ -199,12 +209,18 @@ pub enum ProcessError {
 }
 
 /// Stateless Unix process launcher.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ProcessRuntime;
+#[derive(Clone, Debug, Default)]
+pub struct ProcessRuntime {
+    debug: DebugRecorder,
+}
 
 impl ProcessRuntime {
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_debug(debug: DebugRecorder) -> Self {
+        Self { debug }
     }
 
     /// Spawn an executable directly, creating a new session/process group.
@@ -214,6 +230,7 @@ impl ProcessRuntime {
         }
         let runtime =
             tokio::runtime::Handle::try_current().map_err(|_| ProcessError::NoTokioRuntime)?;
+        let diagnostic_spec = spawn_spec_payload(&spec);
 
         let mut command = Command::new(&spec.program);
         command
@@ -246,9 +263,23 @@ impl ProcessRuntime {
         }
 
         let program = spec.program.to_string_lossy().into_owned();
-        let mut child = command
-            .spawn()
-            .map_err(|source| ProcessError::Spawn { program, source })?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(source) => {
+                let debug = self.debug.clone();
+                let error = source.to_string();
+                runtime.spawn(async move {
+                    debug
+                        .record_lossy(DebugEvent::new(
+                            "process",
+                            "spawn.failed",
+                            json!({"spec": diagnostic_spec, "error": error}),
+                        ))
+                        .await;
+                });
+                return Err(ProcessError::Spawn { program, source });
+            }
+        };
         let pid = match child.id() {
             Some(pid) => pid,
             None => {
@@ -274,9 +305,20 @@ impl ProcessRuntime {
             .expect("stderr is available because it was configured as piped");
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let (result_tx, result_rx) = oneshot::channel();
+        let debug = self.debug.clone();
         runtime.spawn(async move {
-            let result =
-                supervise(child, process_group, pid, stdout, stderr, spec, cancel_rx).await;
+            let result = supervise(
+                child,
+                process_group,
+                pid,
+                stdout,
+                stderr,
+                spec,
+                cancel_rx,
+                debug,
+                diagnostic_spec,
+            )
+            .await;
             let _ = result_tx.send(result);
         });
 
@@ -366,9 +408,30 @@ async fn supervise(
     stderr: tokio::process::ChildStderr,
     spec: SpawnSpec,
     mut cancel_rx: watch::Receiver<bool>,
+    debug: DebugRecorder,
+    diagnostic_spec: Value,
 ) -> Result<ProcessOutput, ProcessError> {
-    let stdout_task = tokio::spawn(capture(stdout, spec.stdout_limit));
-    let stderr_task = tokio::spawn(capture(stderr, spec.stderr_limit));
+    debug
+        .record_lossy(DebugEvent::new(
+            "process",
+            "started",
+            json!({"pid": pid, "spec": diagnostic_spec}),
+        ))
+        .await;
+    let stdout_task = tokio::spawn(capture(
+        stdout,
+        spec.stdout_limit,
+        debug.clone(),
+        pid,
+        "stdout",
+    ));
+    let stderr_task = tokio::spawn(capture(
+        stderr,
+        spec.stderr_limit,
+        debug.clone(),
+        pid,
+        "stderr",
+    ));
     let timeout_duration = spec.timeout;
     let termination_grace = spec.termination_grace;
     let timeout = async move {
@@ -406,13 +469,21 @@ async fn supervise(
     let (stdout_result, stderr_result) = tokio::join!(stdout_task, stderr_task);
     let stdout = capture_result("stdout", stdout_result)?;
     let stderr = capture_result("stderr", stderr_result)?;
-    Ok(ProcessOutput {
+    let output = ProcessOutput {
         pid,
         status: status.into(),
         termination,
         stdout,
         stderr,
-    })
+    };
+    debug
+        .record_lossy(DebugEvent::new(
+            "process",
+            "completed",
+            process_output_payload(&output),
+        ))
+        .await;
+    Ok(output)
 }
 
 async fn cancellation_requested(receiver: &mut watch::Receiver<bool>) {
@@ -466,7 +537,13 @@ fn signal_group(process_group: Pid, signal: Signal) -> Result<(), ProcessError> 
     }
 }
 
-async fn capture<R>(mut reader: R, limit: usize) -> io::Result<CapturedOutput>
+async fn capture<R>(
+    mut reader: R,
+    limit: usize,
+    debug: DebugRecorder,
+    pid: u32,
+    stream: &'static str,
+) -> io::Result<CapturedOutput>
 where
     R: AsyncRead + Unpin,
 {
@@ -478,6 +555,18 @@ where
         if count == 0 {
             break;
         }
+        debug
+            .record_lossy(DebugEvent::new(
+                "process",
+                "output.chunk",
+                json!({
+                    "pid": pid,
+                    "stream": stream,
+                    "bytes": count,
+                    "content": String::from_utf8_lossy(&buffer[..count]),
+                }),
+            ))
+            .await;
         bytes_read = bytes_read.saturating_add(count as u64);
         let remaining = limit.saturating_sub(kept.len());
         kept.extend_from_slice(&buffer[..count.min(remaining)]);
@@ -489,6 +578,53 @@ where
         text,
         truncated: capped || incomplete_scalar,
         bytes_read,
+    })
+}
+
+fn spawn_spec_payload(spec: &SpawnSpec) -> Value {
+    let env = spec
+        .env
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                Value::String(value.to_string_lossy().into_owned()),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    json!({
+        "program": spec.program.to_string_lossy(),
+        "args": spec.args.iter().map(|arg| arg.to_string_lossy()).collect::<Vec<_>>(),
+        "cwd": spec.cwd.to_string_lossy(),
+        "env": env,
+        "timeoutMs": spec.timeout.map(|duration| duration.as_millis()),
+        "terminationGraceMs": spec.termination_grace.as_millis(),
+        "stdoutLimit": spec.stdout_limit,
+        "stderrLimit": spec.stderr_limit,
+        "parent": &spec.debug_parent,
+    })
+}
+
+fn process_output_payload(output: &ProcessOutput) -> Value {
+    json!({
+        "pid": output.pid,
+        "termination": format!("{:?}", output.termination),
+        "status": {
+            "success": output.status.success,
+            "code": output.status.code,
+            "signal": output.status.signal,
+            "coreDumped": output.status.core_dumped,
+        },
+        "stdout": {
+            "text": &output.stdout.text,
+            "truncated": output.stdout.truncated,
+            "bytesRead": output.stdout.bytes_read,
+        },
+        "stderr": {
+            "text": &output.stderr.text,
+            "truncated": output.stderr.truncated,
+            "bytesRead": output.stderr.bytes_read,
+        },
     })
 }
 

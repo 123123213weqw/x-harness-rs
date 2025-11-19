@@ -117,6 +117,7 @@ impl CodingToolBundle {
                     let cwd = resolve_cwd(&platform, optional_string(&context, "cwd"))?;
                     let timeout = command_timeout(optional_u64(&context, "timeout_ms"))?;
                     let spec = SpawnSpec::new("/bin/bash", cwd)
+                        .debug_parent(context.execution_id.as_str())
                         .args([
                             "--noprofile",
                             "--norc",
@@ -370,6 +371,7 @@ impl CodingToolBundle {
                         args.push(OsString::from(path));
                     }
                     let spec = SpawnSpec::new("rg", platform.workspace_root())
+                        .debug_parent(context.execution_id.as_str())
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
@@ -418,6 +420,7 @@ impl CodingToolBundle {
                         optional_string(&context, "path").unwrap_or("."),
                     ));
                     let spec = SpawnSpec::new("rg", platform.workspace_root())
+                        .debug_parent(context.execution_id.as_str())
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
@@ -457,6 +460,7 @@ impl CodingToolBundle {
                     let name = required_string(&context, "name")?;
                     let cwd = resolve_cwd(&platform, optional_string(&context, "cwd"))?;
                     let process = SpawnSpec::new("/bin/bash", cwd)
+                        .debug_parent(context.execution_id.as_str())
                         .args(["--noprofile", "--norc", "-i"])
                         .envs(managed_environment());
                     let process = platform

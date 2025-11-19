@@ -27,12 +27,14 @@ use nix::{
     unistd::{dup, setsid, tcgetpgrp, Pid},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     process::{Child, Command},
     sync::Mutex,
     time,
 };
+use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
 use xharness_process::SpawnSpec;
 
 const DEFAULT_MAX_SESSIONS_PER_OWNER: usize = 16;
@@ -159,6 +161,7 @@ pub enum TerminalError {
 pub struct TerminalRegistry {
     config: TerminalConfig,
     sessions: Arc<Mutex<SessionMap>>,
+    debug: DebugRecorder,
 }
 
 impl TerminalRegistry {
@@ -167,7 +170,13 @@ impl TerminalRegistry {
         Ok(Self {
             config,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            debug: DebugRecorder::disabled(),
         })
+    }
+
+    pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
+        self.debug = debug;
+        self
     }
 
     pub fn with_defaults() -> Self {
@@ -175,6 +184,17 @@ impl TerminalRegistry {
     }
 
     pub async fn open(&self, spec: TerminalOpenSpec) -> Result<TerminalDescriptor, TerminalError> {
+        self.trace(
+            &spec.owner,
+            "open.request",
+            json!({
+                "name": &spec.name,
+                "program": spec.process.program.to_string_lossy(),
+                "args": spec.process.args.iter().map(|arg| arg.to_string_lossy()).collect::<Vec<_>>(),
+                "cwd": spec.process.cwd.to_string_lossy(),
+            }),
+        )
+        .await;
         validate_owner(&spec.owner)?;
         validate_name(&spec.name)?;
         if spec.process.program.is_empty() {
@@ -195,13 +215,21 @@ impl TerminalRegistry {
             return Err(TerminalError::SessionLimit);
         }
 
-        let session = Arc::new(spawn_session(spec, &self.config)?);
+        let session = Arc::new(spawn_session(spec, &self.config, self.debug.clone())?);
         let descriptor = session.descriptor().await?;
+        self.trace(&key.0, "open.completed", json!({"terminal": &descriptor}))
+            .await;
         sessions.insert(key, session);
         Ok(descriptor)
     }
 
     pub async fn send(&self, owner: &str, name: &str, input: &[u8]) -> Result<u64, TerminalError> {
+        self.trace(
+            owner,
+            "send.request",
+            json!({"name": name, "bytes": input.len(), "content": String::from_utf8_lossy(input)}),
+        )
+        .await;
         let session = self.session(owner, name).await?;
         session.refresh_status().await?;
         if !session.state.lock().await.running {
@@ -219,6 +247,12 @@ impl TerminalRegistry {
             .await
             .map_err(|source| terminal_io("flush PTY input", source))?;
         let cursor = session.state.lock().await.total_bytes;
+        self.trace(
+            owner,
+            "send.completed",
+            json!({"name": name, "cursor": cursor}),
+        )
+        .await;
         Ok(cursor)
     }
 
@@ -242,7 +276,7 @@ impl TerminalRegistry {
         let effective = requested.max(state.base_offset);
         let skip = usize::try_from(effective - state.base_offset).unwrap_or(usize::MAX);
         let content: Vec<u8> = state.buffer.iter().skip(skip).copied().collect();
-        Ok(TerminalRead {
+        let result = TerminalRead {
             id: session.id.clone(),
             name: session.name.clone(),
             content: String::from_utf8_lossy(&content).into_owned(),
@@ -251,7 +285,10 @@ impl TerminalRegistry {
             running: state.running,
             exit_code: state.exit_code,
             exit_signal: state.exit_signal,
-        })
+        };
+        self.trace(owner, "read.completed", json!({"read": &result}))
+            .await;
+        Ok(result)
     }
 
     pub async fn signal(
@@ -261,7 +298,14 @@ impl TerminalRegistry {
         signal: TerminalSignal,
     ) -> Result<(), TerminalError> {
         let session = self.session(owner, name).await?;
-        session.signal(signal)
+        let result = session.signal(signal);
+        self.trace(
+            owner,
+            "signal",
+            json!({"name": name, "signal": signal, "ok": result.is_ok()}),
+        )
+        .await;
+        result
     }
 
     pub async fn close(&self, owner: &str, name: &str) -> Result<TerminalRead, TerminalError> {
@@ -292,7 +336,14 @@ impl TerminalRegistry {
         }
         drop(child);
         session.refresh_status().await?;
-        self.read_detached(&session, None).await
+        let result = self.read_detached(&session, None).await;
+        self.trace(
+            owner,
+            "close.completed",
+            json!({"name": name, "result": result.as_ref().ok(), "error": result.as_ref().err().map(ToString::to_string)}),
+        )
+        .await;
+        result
     }
 
     pub async fn list(&self, owner: &str) -> Result<Vec<TerminalDescriptor>, TerminalError> {
@@ -311,6 +362,8 @@ impl TerminalRegistry {
             descriptors.push(session.descriptor().await?);
         }
         descriptors.sort_by(|left, right| left.name.cmp(&right.name));
+        self.trace(owner, "list.completed", json!({"terminals": &descriptors}))
+            .await;
         Ok(descriptors)
     }
 
@@ -350,6 +403,15 @@ impl TerminalRegistry {
             exit_code: state.exit_code,
             exit_signal: state.exit_signal,
         })
+    }
+
+    async fn trace(&self, owner: &str, event: &str, payload: serde_json::Value) {
+        self.debug
+            .record_lossy(
+                DebugEvent::new("terminal", event, payload)
+                    .with_scope(DebugScope::default().with_session(owner.to_owned())),
+            )
+            .await;
     }
 }
 
@@ -467,6 +529,7 @@ impl Scrollback {
 fn spawn_session(
     spec: TerminalOpenSpec,
     config: &TerminalConfig,
+    debug: DebugRecorder,
 ) -> Result<TerminalSession, TerminalError> {
     let pty = openpty(None, None)
         .map_err(|error| terminal_io("allocate PTY", io::Error::from_raw_os_error(error as i32)))?;
@@ -529,6 +592,13 @@ fn spawn_session(
         config.scrollback_bytes,
         config.scrollback_lines,
     )));
+    let id = format!(
+        "pty-{:016x}",
+        NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
+    );
+    let trace_id = id.clone();
+    let trace_name = spec.name.clone();
+    let trace_owner = spec.owner.clone();
     let reader_state = Arc::clone(&state);
     tokio::spawn(async move {
         let mut reader = tokio::fs::File::from_std(File::from(reader_fd));
@@ -536,17 +606,31 @@ fn spawn_session(
         loop {
             match reader.read(&mut buffer).await {
                 Ok(0) => break,
-                Ok(count) => reader_state.lock().await.push(&buffer[..count]),
+                Ok(count) => {
+                    debug
+                        .record_lossy(
+                            DebugEvent::new(
+                                "terminal",
+                                "output.chunk",
+                                json!({
+                                    "terminalId": &trace_id,
+                                    "name": &trace_name,
+                                    "bytes": count,
+                                    "content": String::from_utf8_lossy(&buffer[..count]),
+                                }),
+                            )
+                            .with_scope(DebugScope::default().with_session(trace_owner.clone())),
+                        )
+                        .await;
+                    reader_state.lock().await.push(&buffer[..count]);
+                }
                 Err(_) => break,
             }
         }
     });
 
     Ok(TerminalSession {
-        id: format!(
-            "pty-{:016x}",
-            NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
-        ),
+        id,
         name: spec.name,
         pid,
         control_fd: Arc::new(pty.master),
