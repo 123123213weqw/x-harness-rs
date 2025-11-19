@@ -12,7 +12,7 @@ use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode
 use xharness_host::{BasicHost, DurableLoopAgentRuntime, HostConfig};
 use xharness_host_app::NativeToolFactory;
 use xharness_provider_openai::OpenAiProtocol;
-use xharness_server::{serve, web_router};
+use xharness_server::{serve, web_router_with_debug};
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
 use xharness_web::WebRuntime;
@@ -56,39 +56,46 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         .await?;
     let workspace = std::fs::canonicalize(&args.workspace)?;
     let deployment = match &args.providers_file {
-        Some(path) => ModelDeployment::from_file(path)?,
-        None => ModelDeployment::single(SingleModelDeployment {
-            provider: args.provider.clone(),
-            model: args.model.clone(),
-            base_url: args.base_url.clone(),
-            api_key: args.api_key.clone(),
-            protocol: args.protocol,
-            context_window_tokens: args.context_window_tokens,
-            max_output_tokens: args.max_output_tokens,
-            token_safety_margin: args.token_safety_margin,
-        })?,
+        Some(path) => ModelDeployment::from_file_with_debug(path, debug.clone())?,
+        None => ModelDeployment::single_with_debug(
+            SingleModelDeployment {
+                provider: args.provider.clone(),
+                model: args.model.clone(),
+                base_url: args.base_url.clone(),
+                api_key: args.api_key.clone(),
+                protocol: args.protocol,
+                context_window_tokens: args.context_window_tokens,
+                max_output_tokens: args.max_output_tokens,
+                token_safety_margin: args.token_safety_margin,
+            },
+            debug.clone(),
+        )?,
     };
     let mut config = HostConfig::new(&workspace);
     config.provider_id = deployment.default_route.provider.clone();
     config.provider_display_name = deployment.default_provider_display_name.clone();
     config.model_id = deployment.default_route.model.clone();
     config.token_guard = deployment.default_token_guard.clone();
-    let tools = NativeToolFactory::new(WebRuntime::default());
+    let web = WebRuntime::default().with_debug(debug.clone());
+    let tools = NativeToolFactory::new_with_debug(web, debug.clone());
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
     let control_dir = args.state_dir.join("control");
     let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?);
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
-    let runtime = Arc::new(DurableLoopAgentRuntime::from_registry(
-        deployment.default_route,
-        deployment.registry,
-        tools,
-        Arc::new(IdentityContextPolicy),
-        Arc::clone(&store),
-        leases,
-        config.event_capacity,
-    )?);
+    let runtime = Arc::new(
+        DurableLoopAgentRuntime::from_registry(
+            deployment.default_route,
+            deployment.registry,
+            tools,
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            leases,
+            config.event_capacity,
+        )?
+        .with_debug(debug.clone()),
+    );
     let host = BasicHost::with_agent_runtime_and_control_store(config, runtime, control_store);
     let restore = host.restore_from_store(store).await?;
     debug
@@ -118,7 +125,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         );
     }
     let backend: Arc<dyn ApiBackend> = host;
-    let router = web_router(backend, args.static_dir);
+    let router = web_router_with_debug(backend, args.static_dir, debug.clone());
     let listener = TcpListener::bind(args.bind).await?;
     let local_addr = listener.local_addr()?;
     debug

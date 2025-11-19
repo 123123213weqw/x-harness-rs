@@ -17,6 +17,7 @@ use xharness_core::{
     AgentMessage, ContextPolicy, InjectionMode, LoopCommand, LoopControlError, LoopEngine,
     LoopEvent, LoopRequest, LoopResult, LoopRun, LoopStatus, ModelProvider, Role,
 };
+use xharness_debug::DebugRecorder;
 use xharness_prompt::PromptAssembly;
 use xharness_session::{Session, SessionEvent, SessionHeader, Store, StoreError};
 use xharness_token::TokenGuard;
@@ -414,6 +415,7 @@ pub struct LoopAgentRuntime {
     tool_factory: Arc<dyn SessionToolFactory>,
     context_policy: Arc<dyn ContextPolicy>,
     token_guard: Option<TokenGuard>,
+    debug: DebugRecorder,
 }
 
 impl LoopAgentRuntime {
@@ -431,7 +433,13 @@ impl LoopAgentRuntime {
             tool_factory,
             context_policy,
             token_guard: None,
+            debug: DebugRecorder::disabled(),
         }
+    }
+
+    pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
+        self.debug = debug;
+        self
     }
 
     pub fn with_token_guard(mut self, token_guard: Option<TokenGuard>) -> Self {
@@ -481,6 +489,7 @@ impl AgentRuntime for LoopAgentRuntime {
             .await
             .map_err(|message| AgentRuntimeError::Preparation { message })?;
         let mut loop_request = LoopRequest::new(provider, request.messages);
+        loop_request.debug = self.debug.clone();
         loop_request.session_id = Some(request.session_id);
         loop_request.prompt = request.prompt;
         loop_request.tool_executor = Some(tool_executor);
@@ -503,6 +512,7 @@ struct DurableTurnFactory {
     tool_factory: Arc<dyn SessionToolFactory>,
     context_policy: Arc<dyn ContextPolicy>,
     sessions: Arc<RwLock<HashMap<String, DurableSessionConfig>>>,
+    debug: Arc<StdRwLock<DebugRecorder>>,
 }
 
 #[async_trait]
@@ -530,6 +540,11 @@ impl TurnRequestFactory for DurableTurnFactory {
             .executor(agent_id, &config.cwd, config.permission)
             .await?;
         let mut request = LoopRequest::new(provider, input);
+        request.debug = self
+            .debug
+            .read()
+            .expect("debug recorder lock poisoned")
+            .clone();
         request.prompt = config.prompt;
         request.tool_executor = Some(tool_executor);
         request.context_policy = Arc::clone(&self.context_policy);
@@ -553,6 +568,7 @@ pub struct DurableLoopAgentRuntime {
     supervisor: AgentSupervisor,
     prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
     next_control_id: Arc<AtomicU64>,
+    debug: Arc<StdRwLock<DebugRecorder>>,
 }
 
 struct PreparedDurableTurn {
@@ -617,11 +633,13 @@ impl DurableLoopAgentRuntime {
         }
         let sessions = Arc::new(RwLock::new(HashMap::new()));
         let models = Arc::new(StdRwLock::new(models));
+        let debug = Arc::new(StdRwLock::new(DebugRecorder::disabled()));
         let factory = Arc::new(DurableTurnFactory {
             models: Arc::clone(&models),
             tool_factory,
             context_policy,
             sessions: Arc::clone(&sessions),
+            debug: Arc::clone(&debug),
         });
         let registry = Arc::new(AgentRegistry::new(Arc::clone(&store), leases));
         Ok(Self {
@@ -632,7 +650,13 @@ impl DurableLoopAgentRuntime {
             supervisor: AgentSupervisor::new(registry, factory, event_capacity),
             prepared: Mutex::new(HashMap::new()),
             next_control_id: Arc::new(AtomicU64::new(1)),
+            debug,
         })
+    }
+
+    pub fn with_debug(self, debug: DebugRecorder) -> Self {
+        *self.debug.write().expect("debug recorder lock poisoned") = debug;
+        self
     }
 
     pub fn with_token_guard(self, token_guard: Option<TokenGuard>) -> Self {

@@ -6,6 +6,7 @@ use tokio::{
     net::TcpListener,
 };
 use tokio_util::sync::CancellationToken;
+use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_web::{SearchProvider, SearchResult, WebConfig, WebError, WebRuntime};
 
 struct FakeSearch;
@@ -72,11 +73,13 @@ async fn fetch_follows_same_origin_and_extracts_bounded_markdown() {
         }
     });
 
+    let sink = Arc::new(MemoryDebugSink::default());
     let runtime = WebRuntime::new(WebConfig {
         allow_private_networks: true,
         ..WebConfig::default()
     })
-    .unwrap();
+    .unwrap()
+    .with_debug(DebugRecorder::new(sink.clone()));
     let result = runtime
         .fetch(
             &format!("http://{address}/redirect"),
@@ -89,4 +92,13 @@ async fn fetch_follows_same_origin_and_extracts_bounded_markdown() {
     assert!(result.content.contains("Hello"));
     assert!(result.content.contains("world"));
     server.await.unwrap();
+    let events = sink.events().await;
+    for expected in [
+        "fetch.request",
+        "fetch.redirect",
+        "fetch.chunk",
+        "fetch.completed",
+    ] {
+        assert!(events.iter().any(|event| event.event == expected));
+    }
 }

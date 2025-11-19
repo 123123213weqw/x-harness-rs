@@ -12,6 +12,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_process::{ProcessRuntime, SpawnSpec};
 use xharness_sandbox::{
     BwrapProbe, BwrapSandbox, NetworkAccess, SandboxError, SandboxMode, SandboxPolicy,
@@ -375,4 +376,30 @@ async fn real_bwrap_pid_namespace_cleans_up_setsid_escape_when_available() {
         !marker.exists(),
         "setsid descendant survived the sandbox root and wrote its marker"
     );
+}
+
+#[tokio::test]
+async fn full_debug_records_probe_policy_and_wrapped_argv() {
+    let tree = TestTree::new("debug");
+    let workspace = tree.directory("workspace");
+    let probe = FakeProbe::available("/fake/bwrap");
+    let sink = Arc::new(MemoryDebugSink::default());
+    let sandbox = sandbox_with_probe(
+        SandboxPolicy::new(&workspace, SandboxMode::WorkspaceWrite),
+        &probe,
+    )
+    .with_debug(DebugRecorder::new(sink.clone()));
+    let wrapped = sandbox
+        .prepare(SpawnSpec::new("/bin/true", &workspace).debug_parent("tool-9"))
+        .await
+        .unwrap();
+    assert_eq!(wrapped.program, OsStr::new("/fake/bwrap"));
+    let events = sink.events().await;
+    assert!(events.iter().any(|event| event.event == "probe.completed"));
+    assert!(events.iter().any(|event| {
+        event.event == "prepare.request" && event.payload["spec"]["parent"] == "tool-9"
+    }));
+    assert!(events.iter().any(|event| {
+        event.event == "prepare.completed" && event.payload["spec"]["program"] == "/fake/bwrap"
+    }));
 }
