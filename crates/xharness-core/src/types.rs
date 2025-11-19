@@ -105,6 +105,9 @@ pub struct ProviderRequest {
     /// Provider-neutral generation ceiling. Adapters map this to their native
     /// `max_tokens`/`max_output_tokens` request field.
     pub max_output_tokens: Option<u64>,
+    /// Correlation metadata for provider-layer full debug traces. It never
+    /// affects the provider wire request.
+    pub debug_scope: xharness_debug::DebugScope,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -491,6 +494,9 @@ impl LoopConfig {
 
 pub struct LoopRequest {
     pub provider: Arc<dyn ModelProvider>,
+    /// Optional full-fidelity diagnostic recorder shared by every layer of
+    /// this run. Disabled by default and never changes loop semantics.
+    pub debug: xharness_debug::DebugRecorder,
     pub messages: Vec<AgentMessage>,
     /// Deterministic model-facing System Prompt. It is reassembled for each
     /// turn and never becomes transcript history.
@@ -522,6 +528,7 @@ impl LoopRequest {
     pub fn new(provider: Arc<dyn ModelProvider>, messages: Vec<AgentMessage>) -> Self {
         Self {
             provider,
+            debug: xharness_debug::DebugRecorder::disabled(),
             messages,
             prompt: None,
             token_guard: None,

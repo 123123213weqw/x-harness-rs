@@ -8,7 +8,9 @@ use std::{
 };
 
 use async_trait::async_trait;
+use serde_json::{json, Value};
 use tokio::sync::OnceCell;
+use xharness_debug::{DebugEvent, DebugRecorder};
 use xharness_process::SpawnSpec;
 #[cfg(target_os = "linux")]
 use xharness_process::{ProcessRuntime, TerminationReason};
@@ -72,6 +74,7 @@ pub struct BwrapSandbox {
     bwrap_program: OsString,
     probe_backend: Arc<dyn BwrapProbe>,
     probe_cache: Arc<OnceCell<ProbeState>>,
+    debug: DebugRecorder,
 }
 
 impl BwrapSandbox {
@@ -81,7 +84,13 @@ impl BwrapSandbox {
             bwrap_program: OsString::from("bwrap"),
             probe_backend: Arc::new(ProcessBwrapProbe::default()),
             probe_cache: Arc::new(OnceCell::new()),
+            debug: DebugRecorder::disabled(),
         }
+    }
+
+    pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
+        self.debug = debug;
+        self
     }
 
     /// Override the executable request. A relative bare name is resolved
@@ -116,19 +125,61 @@ impl BwrapSandbox {
                 }
             })
             .await;
-        match state {
+        let result = match state {
             ProbeState::Available(path) => Ok(path.clone()),
             ProbeState::Unavailable(reason) => Err(SandboxError::Unavailable {
                 reason: reason.clone(),
             }),
-        }
+        };
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "sandbox",
+                "probe.completed",
+                json!({
+                    "backend": "bubblewrap",
+                    "available": result.is_ok(),
+                    "path": result.as_ref().ok().map(|path| path.to_string_lossy()),
+                    "error": result.as_ref().err().map(ToString::to_string),
+                }),
+            ))
+            .await;
+        result
     }
 
     /// Convert one direct-exec spec into a direct `bwrap` invocation. The
     /// Restricted modes never return the original spec when Bubblewrap is
     /// unavailable. Full access is deliberately not a sandbox mode and must
     /// bypass this adapter in the platform layer.
-    pub async fn prepare(&self, mut spec: SpawnSpec) -> Result<SpawnSpec, SandboxError> {
+    pub async fn prepare(&self, spec: SpawnSpec) -> Result<SpawnSpec, SandboxError> {
+        let request = spawn_spec_payload(&spec);
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "sandbox",
+                "prepare.request",
+                json!({
+                    "backend": "bubblewrap",
+                    "mode": format!("{:?}", self.policy.mode()),
+                    "network": format!("{:?}", self.policy.network()),
+                    "spec": request,
+                }),
+            ))
+            .await;
+        let result = self.prepare_inner(spec).await;
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "sandbox",
+                "prepare.completed",
+                json!({
+                    "backend": "bubblewrap",
+                    "spec": result.as_ref().ok().map(spawn_spec_payload),
+                    "error": result.as_ref().err().map(ToString::to_string),
+                }),
+            ))
+            .await;
+        result
+    }
+
+    async fn prepare_inner(&self, mut spec: SpawnSpec) -> Result<SpawnSpec, SandboxError> {
         if spec.program.is_empty() {
             return Err(SandboxError::EmptyProgram);
         }
@@ -167,6 +218,16 @@ impl BwrapSandbox {
         spec.cwd = paths.cwd;
         Ok(spec)
     }
+}
+
+pub(crate) fn spawn_spec_payload(spec: &SpawnSpec) -> Value {
+    json!({
+        "program": spec.program.to_string_lossy(),
+        "args": spec.args.iter().map(|arg| arg.to_string_lossy()).collect::<Vec<_>>(),
+        "cwd": spec.cwd.to_string_lossy(),
+        "timeoutMs": spec.timeout.map(|duration| duration.as_millis()),
+        "parent": &spec.debug_parent,
+    })
 }
 
 impl fmt::Debug for BwrapSandbox {

@@ -9,6 +9,7 @@ use xharness_core::{
     AgentMessage, FinishReason, ModelProvider, ProviderEvent, ProviderRequest, ToolCall,
     ToolDefinition,
 };
+use xharness_debug::{DebugRecorder, DebugScope, MemoryDebugSink};
 use xharness_provider_openai::*;
 
 #[test]
@@ -48,6 +49,7 @@ fn chat_request_and_stream_are_normalized() {
         }],
         step: 1,
         max_output_tokens: None,
+        debug_scope: Default::default(),
     };
     let body = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
     assert_eq!(body["tools"][0]["function"]["name"], "echo");
@@ -112,6 +114,7 @@ fn protocol_replay_uses_provider_call_id_not_internal_execution_id() {
         tools: Vec::new(),
         step: 2,
         max_output_tokens: None,
+        debug_scope: Default::default(),
     };
 
     let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
@@ -137,6 +140,7 @@ fn assembled_system_prompt_is_encoded_first_in_both_wire_protocols() {
         tools: Vec::new(),
         step: 1,
         max_output_tokens: Some(4_096),
+        debug_scope: Default::default(),
     };
     let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
     assert_eq!(chat["messages"][0]["role"], "system");
@@ -168,6 +172,7 @@ fn token_count_body_reuses_the_wire_encoder_without_output_controls() {
         }],
         step: 1,
         max_output_tokens: Some(4_096),
+        debug_scope: Default::default(),
     };
     for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
         let generation = build_openai_request(protocol, "model", &request);
@@ -195,6 +200,7 @@ fn responses_request_replays_opaque_items_and_normalizes_lifecycle() {
         tools: Vec::new(),
         step: 2,
         max_output_tokens: None,
+        debug_scope: Default::default(),
     };
     let body = build_openai_request(OpenAiProtocol::Responses, "model", &request);
     assert_eq!(body["store"], false);
@@ -335,18 +341,23 @@ fn responses_incomplete_max_output_tokens_is_a_typed_terminal_event() {
 async fn native_http_provider_streams_both_protocols() {
     for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
         let (base_url, server) = spawn_server(protocol).await;
+        let sink = std::sync::Arc::new(MemoryDebugSink::default());
         let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
             protocol,
             base_url,
             "secret",
             "test-model",
         ))
-        .unwrap();
+        .unwrap()
+        .with_debug(DebugRecorder::new(sink.clone()));
         let request = ProviderRequest {
             messages: vec![AgentMessage::user("hello")],
             tools: Vec::new(),
             step: 1,
             max_output_tokens: None,
+            debug_scope: DebugScope::default()
+                .with_session("provider-session")
+                .with_run("provider-run"),
         };
         let mut stream = provider
             .stream(request, CancellationToken::new())
@@ -364,6 +375,14 @@ async fn native_http_provider_streams_both_protocols() {
             Some(ProviderEvent::Completed { .. })
         ));
         server.await.unwrap();
+        let trace = sink.events().await;
+        for expected in ["request", "response_status", "sse.chunk", "stream.event"] {
+            assert!(trace.iter().any(|event| event.event == expected));
+        }
+        assert!(trace.iter().all(|event| {
+            event.scope.session_id.as_deref() == Some("provider-session")
+                && event.scope.run_id.as_deref() == Some("provider-run")
+        }));
     }
 }
 
@@ -387,6 +406,7 @@ async fn provider_uses_protocol_native_input_token_count_endpoints() {
             }],
             step: 1,
             max_output_tokens: Some(8_192),
+            debug_scope: Default::default(),
         };
         let count = provider
             .count_input_tokens(&request, CancellationToken::new())
@@ -434,6 +454,7 @@ async fn unsupported_token_count_endpoint_is_cached_as_a_capability_miss() {
         tools: Vec::new(),
         step: 1,
         max_output_tokens: None,
+        debug_scope: Default::default(),
     };
     assert!(provider
         .count_input_tokens(&request, CancellationToken::new())
@@ -485,6 +506,7 @@ async fn provider_bounds_http_error_bodies() {
         tools: Vec::new(),
         step: 1,
         max_output_tokens: None,
+        debug_scope: Default::default(),
     };
     let error = match provider.stream(request, CancellationToken::new()).await {
         Ok(_) => panic!("HTTP error unexpectedly produced a stream"),

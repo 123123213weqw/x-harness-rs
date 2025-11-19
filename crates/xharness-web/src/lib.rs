@@ -15,7 +15,9 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::{header, Client, Url};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokio_util::sync::CancellationToken;
+use xharness_debug::{DebugEvent, DebugRecorder};
 
 const DEFAULT_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_MAX_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
@@ -136,6 +138,7 @@ pub struct WebRuntime {
     client: Client,
     config: WebConfig,
     search: Option<Arc<dyn SearchProvider>>,
+    debug: DebugRecorder,
 }
 
 impl WebRuntime {
@@ -150,7 +153,13 @@ impl WebRuntime {
             client,
             config,
             search: None,
+            debug: DebugRecorder::disabled(),
         })
+    }
+
+    pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
+        self.debug = debug;
+        self
     }
 
     pub fn with_search_provider(mut self, provider: Arc<dyn SearchProvider>) -> Self {
@@ -163,6 +172,33 @@ impl WebRuntime {
     }
 
     pub async fn search(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        cancellation: &CancellationToken,
+    ) -> Result<SearchResponse, WebError> {
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "web",
+                "search.request",
+                json!({"query": query, "limit": limit}),
+            ))
+            .await;
+        let result = self.search_inner(query, limit, cancellation).await;
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "web",
+                "search.completed",
+                json!({
+                    "response": result.as_ref().ok(),
+                    "error": result.as_ref().err().map(ToString::to_string),
+                }),
+            ))
+            .await;
+        result
+    }
+
+    async fn search_inner(
         &self,
         query: &str,
         limit: Option<usize>,
@@ -182,6 +218,32 @@ impl WebRuntime {
     }
 
     pub async fn fetch(
+        &self,
+        raw_url: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<FetchResponse, WebError> {
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "web",
+                "fetch.request",
+                json!({"url": raw_url}),
+            ))
+            .await;
+        let result = self.fetch_inner(raw_url, cancellation).await;
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "web",
+                "fetch.completed",
+                json!({
+                    "response": result.as_ref().ok(),
+                    "error": result.as_ref().err().map(ToString::to_string),
+                }),
+            ))
+            .await;
+        result
+    }
+
+    async fn fetch_inner(
         &self,
         raw_url: &str,
         cancellation: &CancellationToken,
@@ -220,6 +282,13 @@ impl WebRuntime {
                         to: next.to_string(),
                     });
                 }
+                self.debug
+                    .record_lossy(DebugEvent::new(
+                        "web",
+                        "fetch.redirect",
+                        json!({"from": current.to_string(), "to": next.to_string()}),
+                    ))
+                    .await;
                 current = next;
                 continue;
             }
@@ -257,6 +326,17 @@ impl WebRuntime {
                 chunk = stream.next() => chunk,
             } {
                 let chunk = chunk?;
+                self.debug
+                    .record_lossy(DebugEvent::new(
+                        "web",
+                        "fetch.chunk",
+                        json!({
+                            "url": current.to_string(),
+                            "bytes": chunk.len(),
+                            "content": String::from_utf8_lossy(&chunk),
+                        }),
+                    ))
+                    .await;
                 bytes_read = bytes_read.saturating_add(chunk.len() as u64);
                 if bytes.len().saturating_add(chunk.len()) > self.config.max_response_bytes {
                     return Err(WebError::ResponseTooLarge {

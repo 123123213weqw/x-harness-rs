@@ -1,8 +1,13 @@
 use std::{ffi::OsString, fs, path::PathBuf};
 
+use serde_json::json;
+use xharness_debug::{DebugEvent, DebugRecorder};
 use xharness_process::SpawnSpec;
 
-use crate::{sandbox::ValidatedPaths, NetworkAccess, SandboxError, SandboxMode, SandboxPolicy};
+use crate::{
+    sandbox::{spawn_spec_payload, ValidatedPaths},
+    NetworkAccess, SandboxError, SandboxMode, SandboxPolicy,
+};
 
 const DEFAULT_SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 
@@ -16,6 +21,7 @@ const DEFAULT_SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 pub struct SeatbeltSandbox {
     policy: SandboxPolicy,
     sandbox_exec: PathBuf,
+    debug: DebugRecorder,
 }
 
 impl SeatbeltSandbox {
@@ -23,7 +29,13 @@ impl SeatbeltSandbox {
         Self {
             policy,
             sandbox_exec: PathBuf::from(DEFAULT_SANDBOX_EXEC),
+            debug: DebugRecorder::disabled(),
         }
+    }
+
+    pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
+        self.debug = debug;
+        self
     }
 
     /// Override the profile runner, primarily for deterministic integration
@@ -37,7 +49,35 @@ impl SeatbeltSandbox {
         &self.policy
     }
 
-    pub async fn prepare(&self, mut spec: SpawnSpec) -> Result<SpawnSpec, SandboxError> {
+    pub async fn prepare(&self, spec: SpawnSpec) -> Result<SpawnSpec, SandboxError> {
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "sandbox",
+                "prepare.request",
+                json!({
+                    "backend": "seatbelt",
+                    "mode": format!("{:?}", self.policy.mode()),
+                    "network": format!("{:?}", self.policy.network()),
+                    "spec": spawn_spec_payload(&spec),
+                }),
+            ))
+            .await;
+        let result = self.prepare_inner(spec).await;
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "sandbox",
+                "prepare.completed",
+                json!({
+                    "backend": "seatbelt",
+                    "spec": result.as_ref().ok().map(spawn_spec_payload),
+                    "error": result.as_ref().err().map(ToString::to_string),
+                }),
+            ))
+            .await;
+        result
+    }
+
+    async fn prepare_inner(&self, mut spec: SpawnSpec) -> Result<SpawnSpec, SandboxError> {
         if spec.program.is_empty() {
             return Err(SandboxError::EmptyProgram);
         }

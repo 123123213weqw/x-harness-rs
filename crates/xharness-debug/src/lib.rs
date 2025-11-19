@@ -12,7 +12,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex as StdMutex,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 use tokio::{
     fs::{self, File, OpenOptions},
     io::{AsyncWriteExt, BufWriter},
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, Mutex},
 };
 
 pub const DEBUG_TRACE_FORMAT: &str = "xharness-debug-trace";
@@ -344,21 +344,55 @@ impl DebugSink for NoopDebugSink {
     }
 }
 
+/// Deterministic in-memory sink for embedders and cross-layer tests.
+#[derive(Debug, Default)]
+pub struct MemoryDebugSink {
+    events: Mutex<Vec<DebugEvent>>,
+}
+
+impl MemoryDebugSink {
+    pub async fn events(&self) -> Vec<DebugEvent> {
+        self.events.lock().await.clone()
+    }
+}
+
+#[async_trait]
+impl DebugSink for MemoryDebugSink {
+    fn enabled(&self) -> bool {
+        true
+    }
+
+    async fn record(&self, event: DebugEvent) -> Result<(), DebugError> {
+        event.validate()?;
+        self.events.lock().await.push(event);
+        Ok(())
+    }
+
+    async fn flush(&self) -> Result<(), DebugError> {
+        Ok(())
+    }
+}
+
 /// Cloneable dependency injected into Host/Core/Provider/Tool layers.
 #[derive(Clone)]
 pub struct DebugRecorder {
     sink: Arc<dyn DebugSink>,
+    deferred_error: Arc<StdMutex<Option<DebugError>>>,
 }
 
 impl DebugRecorder {
     pub fn disabled() -> Self {
         Self {
             sink: Arc::new(NoopDebugSink),
+            deferred_error: Arc::new(StdMutex::new(None)),
         }
     }
 
     pub fn new(sink: Arc<dyn DebugSink>) -> Self {
-        Self { sink }
+        Self {
+            sink,
+            deferred_error: Arc::new(StdMutex::new(None)),
+        }
     }
 
     pub async fn open(
@@ -387,8 +421,35 @@ impl DebugRecorder {
         self.sink.record(event).await
     }
 
+    /// Record a diagnostic event without allowing trace I/O to change the
+    /// product operation being observed. Runtime layers use this at execution
+    /// boundaries: full tracing is best-effort, while the Host still performs
+    /// an explicit [`Self::flush`] at shutdown to surface writer failures.
+    pub async fn record_lossy(&self, event: DebugEvent) {
+        if self.enabled() {
+            if let Err(error) = self.sink.record(event).await {
+                let mut deferred = self
+                    .deferred_error
+                    .lock()
+                    .expect("debug deferred error mutex poisoned");
+                if deferred.is_none() {
+                    *deferred = Some(error);
+                }
+            }
+        }
+    }
+
     pub async fn flush(&self) -> Result<(), DebugError> {
-        self.sink.flush().await
+        self.sink.flush().await?;
+        if let Some(error) = self
+            .deferred_error
+            .lock()
+            .expect("debug deferred error mutex poisoned")
+            .clone()
+        {
+            return Err(error);
+        }
+        Ok(())
     }
 }
 
@@ -531,6 +592,11 @@ impl WriterState {
         let mut line = serde_json::to_vec(&record)?;
         line.push(b'\n');
         self.writer.write_all(&line).await?;
+        // Full debug mode favors crash usefulness over throughput. Make every
+        // acknowledged event visible to another process and resilient to a
+        // Host SIGKILL; explicit flush still adds the sync_data durability
+        // boundary without fsyncing every token.
+        self.writer.flush().await?;
         self.next_seq = self.next_seq.saturating_add(1);
         Ok(())
     }

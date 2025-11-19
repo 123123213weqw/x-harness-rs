@@ -12,9 +12,10 @@ use std::{
 
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::{Mutex, OwnedMutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tokio_util::sync::CancellationToken;
+use xharness_debug::{DebugEvent, DebugRecorder};
 
 use crate::{
     validate_arguments, ApprovalDecision, ApprovalProvider, ApprovalRequest, AroundMiddleware,
@@ -158,6 +159,7 @@ pub struct ToolExecutor {
     approval: Option<Arc<dyn ApprovalProvider>>,
     approval_timeout: Duration,
     concurrency: ConcurrencyGate,
+    debug: DebugRecorder,
 }
 
 impl ToolExecutor {
@@ -176,7 +178,13 @@ impl ToolExecutor {
             approval: None,
             approval_timeout: Self::DEFAULT_APPROVAL_TIMEOUT,
             concurrency: ConcurrencyGate::default(),
+            debug: DebugRecorder::disabled(),
         }
+    }
+
+    pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
+        self.debug = debug;
+        self
     }
 
     pub fn with_pre(mut self, middleware: Vec<Arc<dyn PreMiddleware>>) -> Self {
@@ -243,6 +251,16 @@ impl ToolExecutor {
         let started_at_ms = unix_timestamp_ms();
         let started = Instant::now();
         let name = request.name.clone();
+        self.trace(
+            "execute.request",
+            json!({
+                "executionId": execution_id.as_str(),
+                "tool": &name,
+                "argumentsJson": &request.arguments_json,
+                "requiresApproval": request.requires_approval,
+            }),
+        )
+        .await;
 
         let Some(spec) = self.registry.get(&request.name).await else {
             return self
@@ -299,6 +317,17 @@ impl ToolExecutor {
             arguments_json: Arc::from(request.arguments_json),
             cancellation: run_cancellation.clone(),
         };
+        self.trace(
+            "arguments.validated",
+            json!({
+                "executionId": execution_id.as_str(),
+                "tool": &name,
+                "arguments": context.arguments.as_ref(),
+                "concurrency": format!("{:?}", spec.concurrency),
+                "timeoutMs": duration_ms(spec.timeout),
+            }),
+        )
+        .await;
 
         let mut attempted_handler = false;
         let mut outcome = if request.cancellation.is_cancelled() {
@@ -347,7 +376,12 @@ impl ToolExecutor {
     }
 
     async fn run_pre(&self, context: &ToolExecutionContext) -> Option<ToolFailure> {
-        for middleware in self.pre.iter() {
+        for (index, middleware) in self.pre.iter().enumerate() {
+            self.trace(
+                "pipeline.pre.start",
+                json!({"executionId": context.execution_id.as_str(), "index": index}),
+            )
+            .await;
             let result = AssertUnwindSafe(middleware.pre(context))
                 .catch_unwind()
                 .await;
@@ -363,6 +397,11 @@ impl ToolExecutor {
                     ));
                 }
             }
+            self.trace(
+                "pipeline.pre.completed",
+                json!({"executionId": context.execution_id.as_str(), "index": index}),
+            )
+            .await;
         }
         None
     }
@@ -394,6 +433,14 @@ impl ToolExecutor {
                 )),
             });
         }
+        self.trace(
+            "pipeline.guards.completed",
+            json!({
+                "executionId": context.execution_id.as_str(),
+                "verdict": format!("{:?}", verdict),
+            }),
+        )
+        .await;
         verdict
     }
 
@@ -413,6 +460,16 @@ impl ToolExecutor {
             context: context.clone(),
             reasons,
         };
+        self.trace(
+            "approval.requested",
+            json!({
+                "executionId": context.execution_id.as_str(),
+                "tool": &context.definition.name,
+                "reasons": &request.reasons,
+                "timeoutMs": duration_ms(self.approval_timeout),
+            }),
+        )
+        .await;
         let future = AssertUnwindSafe(provider.request_approval(request)).catch_unwind();
         let timed = tokio::time::timeout(self.approval_timeout, future);
         let response = tokio::select! {
@@ -424,7 +481,7 @@ impl ToolExecutor {
             }
             response = timed => response,
         };
-        match response {
+        let result = match response {
             Err(_) => Err(ToolFailure::new(
                 ToolFailureKind::ApprovalUnavailable,
                 format!(
@@ -448,7 +505,17 @@ impl ToolExecutor {
                     panic_message(panic)
                 ),
             )),
-        }
+        };
+        self.trace(
+            "approval.completed",
+            json!({
+                "executionId": context.execution_id.as_str(),
+                "outcome": result.as_ref().map(|_| "approved").unwrap_or("rejected"),
+                "error": result.as_ref().err().map(|failure| &failure.message),
+            }),
+        )
+        .await;
+        result
     }
 
     async fn run_handler(
@@ -471,6 +538,14 @@ impl ToolExecutor {
             Ok(permit) => permit,
             Err(failure) => return ToolOutcome::failure(failure),
         };
+        self.trace(
+            "handler.started",
+            json!({
+                "executionId": context.execution_id.as_str(),
+                "tool": &context.definition.name,
+            }),
+        )
+        .await;
         if request_cancellation.is_cancelled() {
             context.cancellation.cancel();
             return ToolOutcome::failure(ToolFailure::new(
@@ -552,6 +627,16 @@ impl ToolExecutor {
                 Ok(Ok(output)) => ToolOutcome::success(output),
             }
         };
+        self.trace(
+            "handler.completed",
+            json!({
+                "executionId": context.execution_id.as_str(),
+                "ok": outcome.failure.is_none(),
+                "failure": &outcome.failure,
+                "output": &outcome.output,
+            }),
+        )
+        .await;
         drop(permit);
         outcome
     }
@@ -649,7 +734,15 @@ impl ToolExecutor {
                     .push(format!("observer panicked: {}", panic_message(panic))),
             }
         }
+        self.trace("execute.completed", json!({"result": &result}))
+            .await;
         result
+    }
+
+    async fn trace(&self, event: &str, payload: Value) {
+        self.debug
+            .record_lossy(DebugEvent::new("tools", event, payload))
+            .await;
     }
 }
 
