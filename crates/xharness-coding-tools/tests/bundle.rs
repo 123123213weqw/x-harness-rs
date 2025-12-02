@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+use std::time::{Duration, Instant};
 use std::{
     fs,
     path::PathBuf,
@@ -5,7 +7,6 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -14,9 +15,10 @@ use xharness_coding_tools::{CodingToolBundle, STANDARD_TOOL_COUNT};
 use xharness_platform::{NativePlatform, PlatformConfig};
 use xharness_terminal::TerminalRegistry;
 use xharness_tools::{
-    ApprovalDecision, ApprovalProvider, ApprovalRequest, MiddlewareError, ToolBatchRequest,
-    ToolExecutor, ToolFailureKind, ToolRequest,
+    ApprovalDecision, ApprovalProvider, ApprovalRequest, MiddlewareError, ToolExecutor, ToolRequest,
 };
+#[cfg(target_os = "linux")]
+use xharness_tools::{ToolBatchRequest, ToolFailureKind};
 use xharness_web::WebRuntime;
 
 struct TempWorkspace(PathBuf);
