@@ -47,6 +47,8 @@ Readiness、Search Provider 和现存 Terminal 投影稳定子集。最小 Codin
 Process Tool 只提供受管环境（PATH、Locale、Terminal/Pager 控制），不继承环境凭据。
 Relative Cwd 固定在 Workspace；Absolute Cwd 仍需通过 Platform Sandbox Policy。
 `glob`/`grep` 直接调用 `rg`，不经过 Shell 解释。
+macOS Release 把 ARM64 `rg` 与 Host 同目录打包，受管 PATH 将 Host 目录置于首位；因此
+LaunchAgent 的最小环境不要求用户自行安装 ripgrep。Linux `.deb` 则通过包依赖提供 `rg`。
 
 ## 工具选择语义
 

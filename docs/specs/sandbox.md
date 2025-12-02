@@ -1,7 +1,7 @@
 # 原生沙箱规范
 
 **Crate：** `xharness-sandbox`
-**状态：** Linux Bubblewrap 已实现并真实运行；macOS Seatbelt 已实现并交叉检查。
+**状态：** Linux Bubblewrap 已实现并真实运行；macOS Seatbelt 已在 Apple Silicon 原生 CI 运行。
 
 ## Policy
 
@@ -38,12 +38,13 @@ Canonicalize 并正确 Escape。
 
 ## 当前限制
 
-- Seatbelt 是 macOS 兼容 Backend，仍需在受支持 macOS 版本做原生运行测试。
+- Seatbelt 已在 GitHub `macos-15` ARM64 Runner 通过原生集成测试；正式发行仍需签名、公证和安装
+  后回归。
 - 尚无 Windows AppContainer/Job-object Backend。
 - 尚无 Per-call User Namespace 调优、Seccomp Profile、Resource Quota 或 Linux
   Landlock Fallback。
-- Host 尚未在模型调用前把已缓存的 Probe 失败转成动态 Tool Availability；目前错误会在每个
-  Process Tool 调用时重复出现。
+- Host 已在模型调用前把缓存的 Probe 结果转成动态 Tool Availability；同一报告尚未完整接入 Web
+  Workspace Readiness UI。
 - Full access 位于 Platform 权限层，本 Crate 只实现受限模式。
 
 ## 验收标准

@@ -10,6 +10,7 @@ use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_prompt::{PromptAssembler, PromptAssembly, PromptSection};
 use xharness_session::SessionMutationReceipt;
 
+use crate::metrics::MetricsProjectionState;
 use crate::HostConfig;
 
 /// Product-level permission bundle advertised to the Web client and captured
@@ -264,6 +265,11 @@ pub struct SessionRecord {
     pub(crate) event_base_seq: u64,
     #[serde(skip)]
     pub(crate) event_cache_bytes: usize,
+    /// Rebuildable whole-log Token/Timing projection. The append-only Session
+    /// remains authoritative; this cache only serves Web summaries and live
+    /// projection frames.
+    #[serde(skip)]
+    pub(crate) metrics: MetricsProjectionState,
     pub messages: Vec<AgentMessage>,
     #[serde(skip)]
     pub(crate) queue: VecDeque<QueuedPrompt>,
@@ -369,6 +375,8 @@ impl SessionRecord {
                 .as_ref()
                 .map_or(Value::Null, GoalState::projection),
         );
+        values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
+        values.insert("sessionStats".to_owned(), self.metrics.session_stats());
         Value::Object(values)
     }
 

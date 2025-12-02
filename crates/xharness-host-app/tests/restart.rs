@@ -42,6 +42,21 @@ impl HostProcess {
         let _ = self.0.start_kill();
         let _ = time::timeout(Duration::from_secs(5), self.0.wait()).await;
     }
+
+    #[cfg(unix)]
+    async fn terminate(mut self) -> std::process::ExitStatus {
+        let pid = self.0.id().expect("host still has a process id");
+        let signal = Command::new("/bin/kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .await
+            .expect("SIGTERM command runs");
+        assert!(signal.success(), "SIGTERM command failed: {signal}");
+        time::timeout(Duration::from_secs(15), self.0.wait())
+            .await
+            .expect("host shutdown is bounded")
+            .expect("host wait succeeds")
+    }
 }
 
 impl Drop for HostProcess {
@@ -136,6 +151,23 @@ async fn wait_for_workspace(client: &Client, address: SocketAddr, expected: &Pat
     }
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn sigterm_quiesces_the_runtime_and_bounds_open_websocket_shutdown() {
+    let workspace = TempWorkspace::new();
+    let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));
+    let client = Client::new();
+    let host = spawn_host(address, &workspace.0);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    let (socket, _) = connect_async(format!("ws://{address}/api/events.host"))
+        .await
+        .expect("host websocket connects");
+
+    let status = host.terminate().await;
+    assert!(status.success(), "host reported cleanup failure: {status}");
+    drop(socket);
+}
+
 #[tokio::test]
 async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
     let workspace = TempWorkspace::new();
@@ -153,6 +185,7 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
                 EventData::TurnStart { turn: 1 }.into(),
                 EventData::UserMessage {
                     message: Message::user("survive restart").with_id("persisted-prompt"),
+                    surface_replace: None,
                 }
                 .into(),
                 EventData::StepStart { turn: 1, step: 1 }.into(),

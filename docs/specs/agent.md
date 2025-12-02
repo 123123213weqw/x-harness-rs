@@ -1,9 +1,10 @@
 # 长生命周期 Agent 规范
 
 **Crate：** `xharness-agent`
-**状态：** Durable Inbox、原子 Claim、AgentSupervisor、多 Turn Driver、运行时 Steering、进程内
-Registry、macOS/Linux 文件 Lease、生命周期状态机、Host 启动枚举、Pending Turn 重挂接与
-Pending Approval 交互恢复已实现；Web Projection 的持久游标查询仍在迁移。
+**状态：** 长生命周期 Agent 主链路已实现：Durable Inbox、原子 Claim、AgentSupervisor、多 Turn
+Driver、运行时 Steering、进程内 Registry、macOS/Linux 文件 Lease、生命周期状态机、Host 启动
+枚举、Pending Turn 重挂接与 Pending Approval 交互恢复均已进入正式 Host。WebSocket 跨连接游标
+和非 Prompt Mutation Receipt 属于 Web/控制面后续工作，不再阻塞本规范的完成状态。
 **语义参考：** DeepSeek Harness `packages/core/agent`、`packages/core/agent-loop`、
 `packages/session/session-checkpoint-policy`。
 
@@ -127,6 +128,17 @@ User Source 投影为 `steering`、其他 Source 投影为不可见的 `context`
 `session/queue` 快照；Mux 重连对非空 Inbox 重发 Baseline，客户端不靠局部 Insert/Discard 推断。
 Host Driver FIFO 只关联 Prepared RunningTurn，不能参与 Web Queue 判定。
 
+## 结构化 Shutdown
+
+`AgentSupervisor::shutdown(grace)` 先原子关闭新 Activation Admission，再同时向所有 Worker
+广播 Shutdown Token。正在运行的 Worker 必须向 `LoopRun` 发送 Cancel，持续 Drain 事件并
+等待唯一 `LoopResult`，发布 `TurnFinished` 后才标记停止。Supervisor 对所有 Worker
+共用一个 Deadline，不得为每个 Worker 重新起算一份 Grace。
+
+每个 Worker Task 都有 Stopped Watch 和 Abort Handle。超过 Deadline 才允许 Abort，并必须在
+`AgentShutdownReport` 中计入 `forced_cleanup`；Task Drop Guard 无论正常返回还是 Abort
+都会闭合 Stopped Watch。关闭后再 Activate 必须返回 Unavailable。
+
 Edit/Remove 在修改 Driver Attachment 前先调用 Durable Inbox Replace/Remove；如果输入已经被领取，
 返回 `queue-item-not-found`，禁止只修改 UI 造成真源分叉。Edit 只接受 Text Block，并同时替换 Durable
 Message 和结构化 Source Metadata。当前 queued-to-steer 仍经过删除后再发送到活动控制面，不承诺跨
@@ -145,12 +157,16 @@ Message 和结构化 Source Metadata。当前 queued-to-steer 仍经过删除后
 - Pause 仍是当前 `LoopRun` 的瞬态控制状态；Approval 已能在审批边界恢复，Event Subscription
   仍需 WebSocket 级持久 Cursor。
 - 没有远程 Fencing Epoch、Scheduler、Subagent 或 Workflow。
+- 强制 Abort 会被显式报告，不是可安全重放的普通 Cancelled；受限 Process 的硬回收
+  由平台 Sandbox/PID Namespace 保证，`FullAccess` 仍不承诺回收主动逃离 Process Group
+  的孤儿。
 
 ## 验收标准
 
 测试必须覆盖 Inbox Replay、跨列表重复 ID、Replace/Remove/Clear、领取顺序、Claim 与 Turn 同一
 Revision、过期 Claim CAS 失败、Registry 身份复用、文件 Lease 互斥与释放、多 Turn FIFO、Idle
-Inject、Active Steer、恢复去重和重启继续 Turn 编号。
+Inject、Active Steer、恢复去重和重启继续 Turn 编号。另必须验证活动 Provider Stream
+在 `shutdown()` 返回前已 Drop、Turn 已持久闭合为 Cancelled、关闭后新 Admission 被拒绝。
 Host 替换阶段还必须硬杀进程并覆盖：Enqueue 后未领取、Request 前、Tool Call Flush 后、Tool
 Result Flush 后和 Turn End 后五个故障点，证明输入不丢且工具副作用不重复。
 

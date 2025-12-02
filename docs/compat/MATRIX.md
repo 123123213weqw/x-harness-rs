@@ -157,8 +157,8 @@
 
 ## Session Event
 
-`xharness-compaction` 已有事件无关的配置与纯规划器；下列 `compaction/*` 仍标记为 `planned`，
-因为 Rust Session 尚未持久化 Start/Summary/Replace/End 事务，不能用算法存在代替线协议兼容。
+Rust Session 已持久化 Compact Start/Summary/Checkpoint Replace/End，并由正式 Host 自动触发与
+投影到 Web；Prune 事件词汇已冻结，但生产 Tool Result Replacement 尚未接线，所以仍是 partial。
 
 | 上游事件 | Rust 强类型事件 | 等级 |
 | --- | --- | --- |
@@ -171,10 +171,10 @@
 | `assistant/message` | 是 | `partial` |
 | `command/done` | 是 | `partial` |
 | `command/run` | 是 | `partial` |
-| `compaction/end` | 否 | `planned` |
-| `compaction/prune` | 否 | `planned` |
-| `compaction/start` | 否 | `planned` |
-| `compaction/summary` | 否 | `planned` |
+| `compaction/end` | 是 | `partial` |
+| `compaction/prune` | 是 | `partial` |
+| `compaction/start` | 是 | `partial` |
+| `compaction/summary` | 是 | `partial` |
 | `feedback/record` | 否 | `planned` |
 | `goal/change` | 是 | `partial` |
 | `hook/invoked` | 否 | `planned` |

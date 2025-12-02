@@ -225,6 +225,21 @@ impl ProviderError {
             http_status: Some(status),
         }
     }
+
+    /// Provider-neutral classification for request-admission failures caused
+    /// by a full context window. Adapters can retain their native error text;
+    /// Core only invokes overflow recovery before any model delta was emitted.
+    pub fn is_context_overflow(&self) -> bool {
+        if self.http_status != Some(400) {
+            return false;
+        }
+        let message = self.message.to_ascii_lowercase();
+        message.contains("exceed_context_size")
+            || message.contains("context_length_exceeded")
+            || message.contains("maximum context length")
+            || message.contains("exceeds the available context size")
+            || (message.contains("context window") && message.contains("exceed"))
+    }
 }
 
 #[async_trait]
@@ -504,6 +519,9 @@ pub struct LoopRequest {
     /// Hard admission guard evaluated after context projection and before any
     /// provider I/O. Production hosts should always configure one.
     pub token_guard: Option<xharness_token::TokenGuard>,
+    /// Durable automatic context compaction. It is disabled for embedders by
+    /// default and requires both a hard token guard and append-only journal.
+    pub compaction: Option<xharness_compaction::CompactionConfig>,
     /// Formal policy-aware tool runtime. New hosts should set this instead of
     /// populating the legacy `tools` compatibility registrations.
     pub tool_executor: Option<xharness_tools::ToolExecutor>,
@@ -532,6 +550,7 @@ impl LoopRequest {
             messages,
             prompt: None,
             token_guard: None,
+            compaction: None,
             tool_executor: None,
             tools: Vec::new(),
             session_id: None,
@@ -561,6 +580,21 @@ impl LoopRequest {
             return Err(LoopValidationError::new(
                 "journal_prelude requires journal_store",
             ));
+        }
+        if let Some(compaction) = &self.compaction {
+            compaction
+                .validate()
+                .map_err(|error| LoopValidationError::new(error.to_string()))?;
+            if self.token_guard.is_none() {
+                return Err(LoopValidationError::new(
+                    "compaction requires a token_guard with model context capacity",
+                ));
+            }
+            if self.journal_store.is_none() {
+                return Err(LoopValidationError::new(
+                    "compaction requires an append-only journal_store",
+                ));
+            }
         }
         if self.tool_executor.is_some() && !self.tools.is_empty() {
             return Err(LoopValidationError::new(

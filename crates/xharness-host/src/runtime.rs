@@ -4,15 +4,17 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, RwLock as StdRwLock,
     },
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use futures::StreamExt;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use xharness_agent::{
-    AgentCommandError, AgentEvent, AgentRegistry, AgentSupervisor, DurableAgentHandle,
-    InboxMessage, LeaseManager, RegistryError, TurnRequestFactory,
+    AgentCommandError, AgentEvent, AgentRegistry, AgentShutdownReport, AgentSupervisor,
+    DurableAgentHandle, InboxMessage, LeaseManager, RegistryError, TurnRequestFactory,
 };
+use xharness_compaction::CompactionConfig;
 use xharness_core::{
     AgentMessage, ContextPolicy, InjectionMode, LoopCommand, LoopControlError, LoopEngine,
     LoopEvent, LoopRequest, LoopResult, LoopRun, LoopStatus, ModelProvider, Role,
@@ -400,6 +402,13 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Stop admitting work and wait for every runtime-owned Agent/Loop to
+    /// quiesce. Stateless/ephemeral adapters have no shared supervisor and
+    /// therefore return an empty graceful report.
+    async fn shutdown(&self, _grace: Duration) -> AgentShutdownReport {
+        AgentShutdownReport::default()
+    }
+
     async fn start_turn(
         &self,
         request: AgentTurnRequest,
@@ -511,6 +520,7 @@ struct DurableTurnFactory {
     models: Arc<StdRwLock<ModelRegistry>>,
     tool_factory: Arc<dyn SessionToolFactory>,
     context_policy: Arc<dyn ContextPolicy>,
+    compaction: Arc<StdRwLock<Option<CompactionConfig>>>,
     sessions: Arc<RwLock<HashMap<String, DurableSessionConfig>>>,
     debug: Arc<StdRwLock<DebugRecorder>>,
 }
@@ -549,6 +559,11 @@ impl TurnRequestFactory for DurableTurnFactory {
         request.tool_executor = Some(tool_executor);
         request.context_policy = Arc::clone(&self.context_policy);
         request.token_guard = token_guard;
+        request.compaction = self
+            .compaction
+            .read()
+            .expect("compaction config lock poisoned")
+            .clone();
         Ok(request)
     }
 }
@@ -566,9 +581,11 @@ pub struct DurableLoopAgentRuntime {
     store: Arc<dyn Store>,
     sessions: Arc<RwLock<HashMap<String, DurableSessionConfig>>>,
     supervisor: AgentSupervisor,
+    tool_factory: Arc<dyn SessionToolFactory>,
     prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
     next_control_id: Arc<AtomicU64>,
     debug: Arc<StdRwLock<DebugRecorder>>,
+    compaction: Arc<StdRwLock<Option<CompactionConfig>>>,
 }
 
 struct PreparedDurableTurn {
@@ -634,10 +651,12 @@ impl DurableLoopAgentRuntime {
         let sessions = Arc::new(RwLock::new(HashMap::new()));
         let models = Arc::new(StdRwLock::new(models));
         let debug = Arc::new(StdRwLock::new(DebugRecorder::disabled()));
+        let compaction = Arc::new(StdRwLock::new(None));
         let factory = Arc::new(DurableTurnFactory {
             models: Arc::clone(&models),
-            tool_factory,
+            tool_factory: Arc::clone(&tool_factory),
             context_policy,
+            compaction: Arc::clone(&compaction),
             sessions: Arc::clone(&sessions),
             debug: Arc::clone(&debug),
         });
@@ -648,9 +667,11 @@ impl DurableLoopAgentRuntime {
             store,
             sessions,
             supervisor: AgentSupervisor::new(registry, factory, event_capacity),
+            tool_factory,
             prepared: Mutex::new(HashMap::new()),
             next_control_id: Arc::new(AtomicU64::new(1)),
             debug,
+            compaction,
         })
     }
 
@@ -667,10 +688,25 @@ impl DurableLoopAgentRuntime {
         self
     }
 
+    /// Enable or disable durable context compaction for all subsequently
+    /// built turns. Existing active turns retain the config they started with.
+    pub fn with_compaction(self, compaction: Option<CompactionConfig>) -> Self {
+        *self
+            .compaction
+            .write()
+            .expect("compaction config lock poisoned") = compaction;
+        self
+    }
+
     fn validate_turn_input(
         &self,
         request: &AgentTurnRequest,
     ) -> Result<(AgentMessage, String), AgentRuntimeError> {
+        if self.supervisor.is_closed() {
+            return Err(AgentRuntimeError::Preparation {
+                message: "agent runtime is shutting down".to_owned(),
+            });
+        }
         if !self.can_route(&request.route) {
             return Err(AgentRuntimeError::ModelUnavailable {
                 provider: request.route.provider.clone(),
@@ -1061,6 +1097,20 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             None => self.prepare_turn(request).await?,
         };
         Ok(self.running_from_prepared(prepared))
+    }
+
+    async fn shutdown(&self, grace: Duration) -> AgentShutdownReport {
+        let deadline = tokio::time::Instant::now() + grace;
+        let mut report = self.supervisor.shutdown(grace).await;
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(remaining, self.tool_factory.shutdown()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => report.cleanup_errors.push(error),
+            Err(_) => report
+                .cleanup_errors
+                .push("tool factory cleanup exceeded the runtime shutdown grace".to_owned()),
+        }
+        report
     }
 }
 
@@ -1564,7 +1614,7 @@ mod tests {
             if session.events().iter().any(|event| {
                 matches!(
                     event.data(),
-                    xharness_session::EventData::UserMessage { message }
+                    xharness_session::EventData::UserMessage { message, .. }
                         if message.id.as_deref() == Some("prompt-first")
                 )
             }) {
@@ -1581,7 +1631,7 @@ mod tests {
             .iter()
             .any(|event| matches!(
                 event.data(),
-                xharness_session::EventData::UserMessage { message }
+                xharness_session::EventData::UserMessage { message, .. }
                     if message.id.as_deref() == Some("prompt-first")
             )));
         runtime.admit_turn(queued).await.unwrap();
