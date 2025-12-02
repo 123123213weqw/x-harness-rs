@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
+use xharness_compaction::CompactionConfig;
 use xharness_core::*;
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_prompt::{PromptAssembler, PromptSection};
@@ -26,8 +27,9 @@ use xharness_session::{
 };
 use xharness_tools::{
     ToolConcurrency as RuntimeToolConcurrency, ToolDefinition as RuntimeToolDefinition,
-    ToolExecutor as RuntimeToolExecutor, ToolOutput as RuntimeToolOutput,
-    ToolRegistry as RuntimeToolRegistry, ToolSpec as RuntimeToolSpec,
+    ToolExecutor as RuntimeToolExecutor, ToolHandlerError as RuntimeToolHandlerError,
+    ToolOutput as RuntimeToolOutput, ToolRegistry as RuntimeToolRegistry,
+    ToolSpec as RuntimeToolSpec,
 };
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
@@ -167,6 +169,60 @@ impl ModelProvider for ExactCountingProvider {
         Ok(Some(ProviderInputTokenCount::exact_request(
             "test-provider/input-tokens/v1",
             self.input_tokens,
+        )))
+    }
+
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.inner.stream(request, cancellation).await
+    }
+}
+
+#[derive(Clone)]
+struct SequencedCountingProvider {
+    inner: ScriptProvider,
+    counts: Arc<Mutex<VecDeque<u64>>>,
+}
+
+impl SequencedCountingProvider {
+    fn new(
+        counts: impl IntoIterator<Item = u64>,
+        scripts: impl IntoIterator<Item = Script>,
+    ) -> Self {
+        Self {
+            inner: ScriptProvider::new(scripts),
+            counts: Arc::new(Mutex::new(counts.into_iter().collect())),
+        }
+    }
+}
+
+#[async_trait]
+impl ModelProvider for SequencedCountingProvider {
+    fn provider_name(&self) -> &str {
+        "test-provider"
+    }
+
+    fn model_name(&self) -> Option<&str> {
+        Some("test-model")
+    }
+
+    async fn count_input_tokens(
+        &self,
+        _request: &ProviderRequest,
+        _cancellation: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        let count = self
+            .counts
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("fake token-count script exhausted");
+        Ok(Some(ProviderInputTokenCount::exact_request(
+            "test-provider/input-tokens/v1",
+            count,
         )))
     }
 
@@ -408,6 +464,43 @@ async fn collect(mut run: LoopRun) -> (Vec<LoopEvent>, LoopResult) {
     }
     let result = run.result().await;
     (events, result)
+}
+
+async fn seed_long_compaction_history(store: &EventMemorySessionStore, session_id: &str) {
+    store.create(SessionHeader::new(session_id)).await.unwrap();
+    store
+        .append(
+            session_id,
+            Revision::ZERO,
+            vec![
+                SessionEventData::TurnStart { turn: 1 }.into(),
+                SessionEventData::UserMessage {
+                    message: AgentMessage::user(format!("OLD-CONTEXT:{}", "x".repeat(6_000))),
+                    surface_replace: None,
+                }
+                .into(),
+                SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                SessionEventData::RequestHeader {
+                    header: xharness_session::RequestHeader::new("test-provider", "test-model"),
+                }
+                .into(),
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: AgentMessage::assistant("old answer"),
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::StepEnd { turn: 1, step: 1 }.into(),
+                SessionEventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Completed,
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -1251,6 +1344,184 @@ async fn provider_exact_count_prevents_conservative_byte_false_positive() {
 }
 
 #[tokio::test]
+async fn pressure_compaction_is_durable_then_recounted_before_the_main_request() {
+    let provider = Arc::new(SequencedCountingProvider::new(
+        [900, 300],
+        [
+            vec![
+                Ok(ProviderEvent::TextDelta(
+                    "## Current Work\n- continue from the checkpoint".to_owned(),
+                )),
+                Ok(completed()),
+            ],
+            vec![
+                Ok(ProviderEvent::TextDelta("done".to_owned())),
+                Ok(completed()),
+            ],
+        ],
+    ));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "auto-compact").await;
+
+    let guard = TokenGuard::conservative(TokenBudget {
+        context_window_tokens: 1_000,
+        reserved_output_tokens: 40,
+        safety_margin_tokens: 10,
+    })
+    .unwrap();
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some("auto-compact".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(guard);
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.inner.attempts(), 2, "summary plus main request");
+    let requests = provider.inner.requests();
+    assert!(requests[0]
+        .messages
+        .iter()
+        .any(|message| message.content.contains("OLD-CONTEXT")));
+    assert!(requests[0]
+        .messages
+        .last()
+        .unwrap()
+        .content
+        .contains("compaction engine"));
+    assert!(requests[1]
+        .messages
+        .iter()
+        .all(|message| !message.content.contains("OLD-CONTEXT")));
+    assert!(requests[1]
+        .messages
+        .iter()
+        .any(|message| message.content.contains("<compacted-summary>")));
+
+    let session = journal.load("auto-compact").await.unwrap().unwrap();
+    assert!(session
+        .events()
+        .iter()
+        .any(|event| matches!(event.data(), SessionEventData::CompactionStart { .. })));
+    assert!(session
+        .events()
+        .iter()
+        .any(|event| matches!(event.data(), SessionEventData::CompactionSummary { .. })));
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CompactionEnd { error: None, .. }
+    )));
+    assert!(session
+        .derive_messages()
+        .iter()
+        .all(|message| !message.content.contains("OLD-CONTEXT")));
+}
+
+#[tokio::test]
+async fn hard_overflow_compacts_and_recounts_instead_of_failing_immediately() {
+    let provider = Arc::new(SequencedCountingProvider::new(
+        [980, 300],
+        [
+            vec![
+                Ok(ProviderEvent::TextDelta(
+                    "## Current Work\n- recovered from overflow".to_owned(),
+                )),
+                Ok(completed()),
+            ],
+            vec![
+                Ok(ProviderEvent::TextDelta("done".to_owned())),
+                Ok(completed()),
+            ],
+        ],
+    ));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "overflow-compact").await;
+    let guard = TokenGuard::conservative(TokenBudget {
+        context_window_tokens: 1_000,
+        reserved_output_tokens: 40,
+        safety_margin_tokens: 10,
+    })
+    .unwrap();
+    assert_eq!(guard.budget().available_input_tokens(), 950);
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some("overflow-compact".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(guard);
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.inner.attempts(), 2);
+    let session = journal.load("overflow-compact").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CompactionEnd { error: None, .. }
+    )));
+}
+
+#[tokio::test]
+async fn provider_typed_context_overflow_compacts_before_retrying_on_a_new_step() {
+    let provider = Arc::new(ScriptProvider::with_attempts([
+        Err(ProviderError::http(
+            400,
+            "request (1200 tokens) exceeds the available context size (1000 tokens)",
+        )),
+        Ok(vec![
+            Ok(ProviderEvent::TextDelta(
+                "## Current Work\n- provider overflow recovered".to_owned(),
+            )),
+            Ok(completed()),
+        ]),
+        Ok(vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ]),
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "provider-overflow").await;
+    let guard = TokenGuard::new(
+        Arc::new(FixedTokenMeter { total: 300 }),
+        TokenBudget {
+            context_window_tokens: 1_000,
+            reserved_output_tokens: 40,
+            safety_margin_tokens: 10,
+        },
+    )
+    .unwrap();
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some("provider-overflow".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(guard);
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.attempts(), 3, "overflow, summary, retried main");
+    let session = journal.load("provider-overflow").await.unwrap().unwrap();
+    let current_turn_steps = session
+        .events()
+        .iter()
+        .filter(|event| matches!(event.data(), SessionEventData::StepStart { turn: 2, .. }))
+        .count();
+    assert_eq!(current_turn_steps, 2);
+}
+
+#[tokio::test]
 async fn cancellation_stops_a_running_tool() {
     let provider = Arc::new(ScriptProvider::new([vec![
         Ok(tool_delta(0, "wait", "wait", "{}")),
@@ -1286,6 +1557,52 @@ async fn cancellation_stops_a_running_tool() {
     }
     assert_eq!(run.result().await.status, LoopStatus::Cancelled);
     assert_eq!(cleaned.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancellation_reports_failed_when_a_tool_cannot_quiesce() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(tool_delta(0, "stuck", "stuck", "{}")),
+        Ok(completed_for_calls()),
+    ]]));
+    let entered = Arc::new(Notify::new());
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(RuntimeToolSpec::new(
+            RuntimeToolDefinition::new("stuck", "stuck", json!({"type":"object"})),
+            {
+                let entered = Arc::clone(&entered);
+                move |_context| {
+                    let entered = Arc::clone(&entered);
+                    async move {
+                        entered.notify_one();
+                        std::future::pending::<Result<RuntimeToolOutput, RuntimeToolHandlerError>>()
+                            .await
+                    }
+                }
+            },
+        ))
+        .await
+        .unwrap();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::ToolStarted(_)) {
+            break;
+        }
+    }
+    entered.notified().await;
+    run.cancel();
+    tokio::time::advance(Duration::from_secs(7)).await;
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert!(result
+        .error
+        .as_deref()
+        .is_some_and(|error| error.contains("forced cleanup")));
 }
 
 #[tokio::test]
@@ -1802,6 +2119,7 @@ async fn restart_resumes_undecided_approval_without_replaying_or_unknowning_the_
                 SessionEventData::TurnStart { turn: 1 }.into(),
                 SessionEventData::UserMessage {
                     message: AgentMessage::user("run"),
+                    surface_replace: None,
                 }
                 .into(),
                 SessionEventData::StepStart { turn: 1, step: 1 }.into(),
@@ -2641,6 +2959,7 @@ async fn event_journal_recovers_incomplete_tool_as_outcome_unknown_without_repla
                 SessionEventData::TurnStart { turn: 1 }.into(),
                 SessionEventData::UserMessage {
                     message: AgentMessage::user("do it"),
+                    surface_replace: None,
                 }
                 .into(),
                 SessionEventData::StepStart { turn: 1, step: 1 }.into(),
@@ -2736,6 +3055,7 @@ async fn durable_crash_cut_matrix_closes_or_preserves_each_authoritative_boundar
             SessionEventData::TurnStart { turn: 1 }.into(),
             SessionEventData::UserMessage {
                 message: AgentMessage::user("durable original").with_id("original-input"),
+                surface_replace: None,
             }
             .into(),
         ];

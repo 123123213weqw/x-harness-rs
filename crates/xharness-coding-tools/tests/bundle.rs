@@ -5,6 +5,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -13,7 +14,8 @@ use xharness_coding_tools::{CodingToolBundle, STANDARD_TOOL_COUNT};
 use xharness_platform::{NativePlatform, PlatformConfig};
 use xharness_terminal::TerminalRegistry;
 use xharness_tools::{
-    ApprovalDecision, ApprovalProvider, ApprovalRequest, MiddlewareError, ToolExecutor, ToolRequest,
+    ApprovalDecision, ApprovalProvider, ApprovalRequest, MiddlewareError, ToolBatchRequest,
+    ToolExecutor, ToolFailureKind, ToolRequest,
 };
 use xharness_web::WebRuntime;
 
@@ -194,4 +196,55 @@ async fn bash_propagates_pipeline_failures_and_allows_explicit_recovery() {
     let recovered: Value = serde_json::from_str(&recovered.output.unwrap().content).unwrap();
     assert_eq!(recovered["success"], true);
     assert_eq!(recovered["exit_code"], 0);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn cancelled_bash_result_is_published_only_after_the_process_tree_is_dead() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+    let pid_file = workspace.0.join("cancelled-bash.pids");
+    let command = format!(
+        "trap '' TERM; /bin/sleep 30 & child=$!; printf '%s %s' \"$$\" \"$child\" > {}; wait \"$child\"",
+        pid_file.display()
+    );
+    let request = ToolRequest::new("bash", serde_json::json!({"command": command}).to_string())
+        .with_execution_id("cancelled-bash")
+        .unwrap();
+    let mut batch = executor
+        .start_batch(vec![ToolBatchRequest::new(0, request)], 1)
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let pids = loop {
+        if let Ok(contents) = fs::read_to_string(&pid_file) {
+            let pids = contents
+                .split_whitespace()
+                .map(str::parse::<u32>)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            if pids.len() == 2 {
+                break pids;
+            }
+        }
+        assert!(Instant::now() < deadline, "bash did not publish its pids");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert!(pids
+        .iter()
+        .all(|pid| std::path::Path::new(&format!("/proc/{pid}")).exists()));
+
+    batch.cancel();
+    while batch.next_event().await.is_some() {}
+    let results = batch.result().await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0].result.failure_kind(),
+        Some(ToolFailureKind::Cancelled)
+    );
+    assert!(
+        pids.iter()
+            .all(|pid| !std::path::Path::new(&format!("/proc/{pid}")).exists()),
+        "tool batch settled while a managed process was still alive: {pids:?}"
+    );
 }

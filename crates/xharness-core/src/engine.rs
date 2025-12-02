@@ -17,11 +17,15 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
+use xharness_compaction::{
+    frame_summary, BasicCompactionPlanner, CompactionDecision, CompactionPlan, CompactionRequest,
+    CompactionTrigger, ModelTarget, SurfaceNode, SurfaceNodeKind, DEFAULT_COMPACTION_INSTRUCTION,
+};
 use xharness_debug::{DebugEvent, DebugScope};
 use xharness_session::{
     ApprovalOutcome, AssistantChunk, EventData as SessionEventData, LlmFailure, LlmRetryMode,
-    PendingToolApproval, RequestHeader, Revision, SessionEvent, SessionHeader,
-    Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
+    PendingToolApproval, RequestHeader, Revision, SequenceRange, SessionEvent, SessionHeader,
+    Store as EventSessionStore, SurfaceReplace, ToolOutcome, ToolResultData, TurnEndReason,
 };
 
 /// Bound both crash-loss and memory growth without returning to one JSONL
@@ -33,15 +37,16 @@ use xharness_tools::{
     ApprovalRequest as RuntimeApprovalRequest, MiddlewareError as RuntimeMiddlewareError,
     ToolBatchEvent as RuntimeBatchEvent, ToolBatchRequest as RuntimeBatchRequest,
     ToolBatchRun as RuntimeBatchRun, ToolExecutionContext as RuntimeExecutionContext,
-    ToolLifecycle as RuntimeToolLifecycle, ToolRequest as RuntimeToolRequest,
+    ToolFailureKind as RuntimeToolFailureKind, ToolLifecycle as RuntimeToolLifecycle,
+    ToolRequest as RuntimeToolRequest,
 };
 
 use crate::{
     tool_result_for_model, AgentMessage, ContextRequest, ContextSurface, FinishReason,
     InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind, LoopRequest,
     LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role, SessionSnapshot,
-    StepUsage, TokenBudgetReport, TokenEstimateRequest, TokenUsage, ToolCall, ToolConcurrency,
-    ToolResult, ToolSpec,
+    StepUsage, TokenBudgetError, TokenBudgetReport, TokenEstimateRequest, TokenUsage, ToolCall,
+    ToolConcurrency, ToolResult, ToolSpec,
 };
 
 static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -55,7 +60,23 @@ enum StopReason {
 
 enum TokenBudgetCheck {
     Ready(Option<TokenBudgetReport>),
+    Exceeded {
+        current_input_tokens: u64,
+        context_window_tokens: u64,
+        error: String,
+    },
     Interrupted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompactionOutcome {
+    NotApplied,
+    Applied,
+}
+
+struct CompactionSummaryOutput {
+    text: String,
+    usage: Option<TokenUsage>,
 }
 
 pub struct LoopRun {
@@ -362,6 +383,7 @@ impl LoopEngine {
             startup_error,
             journal,
             recovered_tool_batch: None,
+            overflow_recoveries: 0,
         };
         let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
@@ -411,6 +433,43 @@ fn normalize_tool_call_ids(calls: &mut [ToolCall], run_id: &str, step: usize, na
     }
 }
 
+fn estimate_message_tokens(message: &AgentMessage) -> Result<u64, RunFailure> {
+    let bytes = serde_json::to_vec(message)
+        .map_err(|error| RunFailure::Failed(format!("could not price context message: {error}")))?
+        .len();
+    // Planner-local, conservative pricing only. Hard admission is still
+    // performed by the selected provider counter / TokenGuard after the
+    // replacement. Dividing UTF-8 bytes by three avoids underpricing CJK and
+    // JSON-heavy tool observations while staying provider-neutral.
+    Ok(u64::try_from(bytes.saturating_add(2) / 3)
+        .unwrap_or(u64::MAX)
+        .max(1))
+}
+
+fn surface_node(seq: u64, message: &AgentMessage) -> Result<SurfaceNode, RunFailure> {
+    let tokens = estimate_message_tokens(message)?;
+    if !message.tool_calls.is_empty() {
+        return Ok(SurfaceNode {
+            seq,
+            tokens,
+            kind: SurfaceNodeKind::AssistantToolCalls {
+                call_ids: message
+                    .tool_calls
+                    .iter()
+                    .map(|call| call.provider_id().to_owned())
+                    .collect(),
+            },
+        });
+    }
+    if message.role == Role::Tool {
+        let call_id = message.tool_call_id.clone().ok_or_else(|| {
+            RunFailure::Failed("tool surface message has no provider call id".to_owned())
+        })?;
+        return Ok(SurfaceNode::tool_result(seq, tokens, call_id));
+    }
+    Ok(SurfaceNode::plain(seq, tokens))
+}
+
 struct Runner {
     run_id: String,
     request: LoopRequest,
@@ -433,6 +492,7 @@ struct Runner {
     startup_error: Option<String>,
     journal: Option<JournalState>,
     recovered_tool_batch: Option<RecoveredToolBatch>,
+    overflow_recoveries: u32,
 }
 
 struct JournalState {
@@ -521,6 +581,17 @@ impl Runner {
                     .await;
                 (LoopStatus::Failed, Some(message), "failed")
             }
+            Err(RunFailure::ContextOverflow(message)) => {
+                let message = format!(
+                    "provider rejected the request for context overflow and recovery did not run: {message}"
+                );
+                let _ = self
+                    .emit(LoopEventKind::RunFailed {
+                        error: message.clone(),
+                    })
+                    .await;
+                (LoopStatus::Failed, Some(message), "failed")
+            }
         };
 
         if let Err(journal_error) = self.finalize_journal(status, error.as_deref()).await {
@@ -570,63 +641,129 @@ impl Runner {
             self.snapshot("recovered_tool_batch_saved", true).await?;
         }
 
-        while self.step < self.request.config.max_steps {
+        'steps: while self.step < self.request.config.max_steps {
             self.settle_control_at_boundary().await?;
             self.step += 1;
             self.journal_step_start().await?;
-            let tool_definitions = self.tool_definitions().await;
-            let context_tools = tool_definitions
-                .iter()
-                .map(serde_json::to_value)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| {
-                    RunFailure::Failed(format!("could not serialize tool schema: {error}"))
-                })?;
-            let context_request = ContextRequest::new(self.messages.clone())
-                .with_target(
-                    self.request.provider.provider_name(),
-                    self.request.provider.model_name(),
-                )
-                .with_step(self.step)
-                .with_tools(context_tools.clone());
-            let prepared = self
-                .request
-                .context_policy
-                .prepare(context_request)
-                .await
-                .map_err(|error| RunFailure::Failed(error.to_string()))?;
-            prepared
-                .validate()
-                .map_err(|error| RunFailure::Failed(error.to_string()))?;
-            self.validate_prompt_surface(&prepared)?;
-            self.debug(
-                "context.prepared",
-                json!({
-                    "surface": &prepared,
-                    "tools": &context_tools,
-                }),
-            )
-            .await;
-            let provider_request = ProviderRequest {
-                messages: prepared.messages.clone(),
-                tools: tool_definitions,
-                step: self.step,
-                max_output_tokens: self
+            let mut pressure_attempted = false;
+            let (provider_request, prepared, context_tools, token_budget) = loop {
+                let tool_definitions = self.tool_definitions().await;
+                let context_tools = tool_definitions
+                    .iter()
+                    .map(serde_json::to_value)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| {
+                        RunFailure::Failed(format!("could not serialize tool schema: {error}"))
+                    })?;
+                let context_request = ContextRequest::new(self.messages.clone())
+                    .with_target(
+                        self.request.provider.provider_name(),
+                        self.request.provider.model_name(),
+                    )
+                    .with_step(self.step)
+                    .with_tools(context_tools.clone());
+                let prepared = self
                     .request
-                    .token_guard
-                    .as_ref()
-                    .map(|guard| guard.budget().reserved_output_tokens),
-                debug_scope: self.debug_scope(),
-            };
-            let token_budget = match self
-                .check_token_budget(&provider_request, &prepared, &context_tools)
-                .await?
-            {
-                TokenBudgetCheck::Ready(report) => report,
-                TokenBudgetCheck::Interrupted => {
-                    self.journal_step_end().await?;
-                    self.settle_control_at_boundary().await?;
-                    continue;
+                    .context_policy
+                    .prepare(context_request)
+                    .await
+                    .map_err(|error| RunFailure::Failed(error.to_string()))?;
+                prepared
+                    .validate()
+                    .map_err(|error| RunFailure::Failed(error.to_string()))?;
+                self.validate_prompt_surface(&prepared)?;
+                self.debug(
+                    "context.prepared",
+                    json!({
+                        "surface": &prepared,
+                        "tools": &context_tools,
+                    }),
+                )
+                .await;
+                let provider_request = ProviderRequest {
+                    messages: prepared.messages.clone(),
+                    tools: tool_definitions.clone(),
+                    step: self.step,
+                    max_output_tokens: self
+                        .request
+                        .token_guard
+                        .as_ref()
+                        .map(|guard| guard.budget().reserved_output_tokens),
+                    debug_scope: self.debug_scope(),
+                };
+                match self
+                    .check_token_budget(&provider_request, &prepared, &context_tools)
+                    .await?
+                {
+                    TokenBudgetCheck::Ready(report) => {
+                        if !pressure_attempted {
+                            pressure_attempted = true;
+                            if let Some(report) = report.as_ref() {
+                                match self
+                                    .try_compact(
+                                        CompactionTrigger::Pressure,
+                                        report.estimate.total_input_tokens,
+                                        report.context_window_tokens,
+                                        &tool_definitions,
+                                        &context_tools,
+                                    )
+                                    .await
+                                {
+                                    Ok(CompactionOutcome::Applied) => continue,
+                                    Ok(CompactionOutcome::NotApplied) => {}
+                                    Err(error) => {
+                                        self.debug(
+                                            "compaction.pressure_failed",
+                                            json!({"error": error.to_string()}),
+                                        )
+                                        .await;
+                                    }
+                                }
+                            }
+                        }
+                        break (provider_request, prepared, context_tools, report);
+                    }
+                    TokenBudgetCheck::Exceeded {
+                        current_input_tokens,
+                        context_window_tokens,
+                        error,
+                    } => {
+                        let maximum = self
+                            .request
+                            .compaction
+                            .as_ref()
+                            .map(|config| config.max_overflow_retries.saturating_add(1))
+                            .unwrap_or(0);
+                        if self.overflow_recoveries < maximum {
+                            self.overflow_recoveries = self.overflow_recoveries.saturating_add(1);
+                            match self
+                                .try_compact(
+                                    CompactionTrigger::ContextOverflow,
+                                    current_input_tokens,
+                                    context_window_tokens,
+                                    &tool_definitions,
+                                    &context_tools,
+                                )
+                                .await
+                            {
+                                Ok(CompactionOutcome::Applied) => continue,
+                                Ok(CompactionOutcome::NotApplied) => {}
+                                Err(compaction_error) => {
+                                    return Err(RunFailure::Failed(format!(
+                                        "token budget rejected request: {error}; overflow compaction failed: {compaction_error}"
+                                    )));
+                                }
+                            }
+                        }
+                        return Err(RunFailure::Failed(format!(
+                            "token budget rejected request: {error}; no further safe compaction was available"
+                        )));
+                    }
+                    TokenBudgetCheck::Interrupted => {
+                        self.journal_step_end().await?;
+                        self.settle_control_at_boundary().await?;
+                        continue 'steps;
+                    }
                 }
             };
             self.debug(
@@ -645,7 +782,52 @@ impl Runner {
             self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
                 .await?;
 
-            let mut model = self.model_round(provider_request).await?;
+            let overflow_tool_definitions = provider_request.tools.clone();
+            let mut model = match self.model_round(provider_request).await {
+                Ok(model) => model,
+                Err(RunFailure::ContextOverflow(message)) => {
+                    let maximum = self
+                        .request
+                        .compaction
+                        .as_ref()
+                        .map(|config| config.max_overflow_retries.saturating_add(1))
+                        .unwrap_or(0);
+                    let context_window_tokens = self
+                        .request
+                        .token_guard
+                        .as_ref()
+                        .map(|guard| guard.budget().context_window_tokens)
+                        .unwrap_or_default();
+                    if self.overflow_recoveries >= maximum || context_window_tokens == 0 {
+                        return Err(RunFailure::ContextOverflow(message));
+                    }
+                    self.overflow_recoveries = self.overflow_recoveries.saturating_add(1);
+                    match self
+                        .try_compact(
+                            CompactionTrigger::ContextOverflow,
+                            context_window_tokens,
+                            context_window_tokens,
+                            &overflow_tool_definitions,
+                            &context_tools,
+                        )
+                        .await
+                    {
+                        Ok(CompactionOutcome::Applied) => {
+                            self.journal_step_end().await?;
+                            continue 'steps;
+                        }
+                        Ok(CompactionOutcome::NotApplied) => {
+                            return Err(RunFailure::ContextOverflow(message));
+                        }
+                        Err(error) => {
+                            return Err(RunFailure::Failed(format!(
+                                "provider context overflow: {message}; recovery failed: {error}"
+                            )));
+                        }
+                    }
+                }
+                Err(error) => return Err(error),
+            };
             // The durable session contract requires call ids to be globally
             // unique, while providers only guarantee identity within a single
             // response. Journal-backed runs therefore use harness execution
@@ -835,12 +1017,23 @@ impl Runner {
             }
         };
         if let Some(count) = provider_count {
-            return guard
-                .check_provider_count(&count)
-                .map(|report| TokenBudgetCheck::Ready(Some(report)))
-                .map_err(|error| {
-                    RunFailure::Failed(format!("token budget rejected request: {error}"))
-                });
+            return match guard.check_provider_count(&count) {
+                Ok(report) => Ok(TokenBudgetCheck::Ready(Some(report))),
+                Err(
+                    error @ TokenBudgetError::Exceeded {
+                        estimated_input_tokens,
+                        context_window_tokens,
+                        ..
+                    },
+                ) => Ok(TokenBudgetCheck::Exceeded {
+                    current_input_tokens: estimated_input_tokens,
+                    context_window_tokens,
+                    error: error.to_string(),
+                }),
+                Err(error) => Err(RunFailure::Failed(format!(
+                    "token budget rejected request: {error}"
+                ))),
+            };
         }
         let mut system_messages = Vec::new();
         let mut conversation_messages = Vec::new();
@@ -856,16 +1049,362 @@ impl Runner {
                 conversation_messages.push(encoded);
             }
         }
-        guard
-            .check(&TokenEstimateRequest {
-                provider: self.request.provider.provider_name().to_owned(),
-                model: self.request.provider.model_name().map(str::to_owned),
-                system_messages,
-                conversation_messages,
-                tools: tools.to_vec(),
+        match guard.check(&TokenEstimateRequest {
+            provider: self.request.provider.provider_name().to_owned(),
+            model: self.request.provider.model_name().map(str::to_owned),
+            system_messages,
+            conversation_messages,
+            tools: tools.to_vec(),
+        }) {
+            Ok(report) => Ok(TokenBudgetCheck::Ready(Some(report))),
+            Err(
+                error @ TokenBudgetError::Exceeded {
+                    estimated_input_tokens,
+                    context_window_tokens,
+                    ..
+                },
+            ) => Ok(TokenBudgetCheck::Exceeded {
+                current_input_tokens: estimated_input_tokens,
+                context_window_tokens,
+                error: error.to_string(),
+            }),
+            Err(error) => Err(RunFailure::Failed(format!(
+                "token budget rejected request: {error}"
+            ))),
+        }
+    }
+
+    async fn try_compact(
+        &mut self,
+        trigger: CompactionTrigger,
+        current_input_tokens: u64,
+        context_window_tokens: u64,
+        tool_definitions: &[crate::ToolDefinition],
+        context_tools: &[Value],
+    ) -> Result<CompactionOutcome, RunFailure> {
+        let Some(config) = self.request.compaction.clone() else {
+            return Ok(CompactionOutcome::NotApplied);
+        };
+        let Some(journal) = self.journal.as_ref() else {
+            return Err(RunFailure::Failed(
+                "compaction requires an append-only session journal".to_owned(),
+            ));
+        };
+        let store = Arc::clone(&journal.store);
+        let session_id = journal.session_id.clone();
+        let session = store
+            .load(&session_id)
+            .await
+            .map_err(|error| {
+                RunFailure::Failed(format!("compaction session load failed: {error}"))
+            })?
+            .ok_or_else(|| {
+                RunFailure::Failed("compaction session disappeared before planning".to_owned())
+            })?;
+        let surface = session.derive_surface_messages();
+        let nodes = surface
+            .iter()
+            .map(|node| surface_node(node.seq, &node.message))
+            .collect::<Result<Vec<_>, _>>()?;
+        let target = ModelTarget::new(
+            self.request.provider.provider_name(),
+            self.request.provider.model_name().unwrap_or("unknown"),
+        );
+        let planner = BasicCompactionPlanner::new(config)
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        let plan = match planner
+            .plan(&CompactionRequest {
+                trigger,
+                target,
+                context_window_tokens,
+                current_input_tokens,
+                surface_generation: session.revision().get(),
+                nodes,
             })
-            .map(|report| TokenBudgetCheck::Ready(Some(report)))
-            .map_err(|error| RunFailure::Failed(format!("token budget rejected request: {error}")))
+            .map_err(|error| RunFailure::Failed(error.to_string()))?
+        {
+            CompactionDecision::Planned { plan } => *plan,
+            CompactionDecision::Disabled
+            | CompactionDecision::NotNeeded { .. }
+            | CompactionDecision::NoBalancedRange { .. } => {
+                return Ok(CompactionOutcome::NotApplied)
+            }
+            _ => return Ok(CompactionOutcome::NotApplied),
+        };
+
+        let current_provider = self.request.provider.provider_name().to_owned();
+        let current_model = self
+            .request
+            .provider
+            .model_name()
+            .unwrap_or("unknown")
+            .to_owned();
+        let summary_target = plan
+            .spec
+            .summarization_target
+            .as_ref()
+            .unwrap_or(&plan.spec.target);
+        if summary_target.provider != current_provider || summary_target.model != current_model {
+            return Err(RunFailure::Failed(format!(
+                "compaction summary route {}/{} is not bound to the active provider {}/{}",
+                summary_target.provider, summary_target.model, current_provider, current_model
+            )));
+        }
+
+        let selected = surface
+            .get(plan.range.start_index..=plan.range.end_index)
+            .ok_or_else(|| {
+                RunFailure::Failed(
+                    "compaction surface changed before summary input was prepared".to_owned(),
+                )
+            })?
+            .iter()
+            .map(|node| node.message.clone())
+            .collect::<Vec<_>>();
+        let turn = self
+            .journal
+            .as_ref()
+            .map(|journal| journal.turn)
+            .ok_or_else(|| RunFailure::Failed("compaction lost journal state".to_owned()))?;
+        let compaction_id = format!(
+            "compact-{}-{}-{}-{}",
+            self.run_id,
+            turn,
+            self.step,
+            self.journal.as_ref().map_or(0, |journal| journal.next_seq)
+        );
+        self.journal_append(
+            vec![SessionEventData::CompactionStart {
+                compaction_id: compaction_id.clone(),
+                source_command_id: None,
+                turn: Some(turn),
+            }],
+            true,
+        )
+        .await?;
+        self.debug(
+            "compaction.start",
+            json!({
+                "compactionId": &compaction_id,
+                "trigger": trigger,
+                "range": &plan.range,
+                "currentInputTokens": current_input_tokens,
+            }),
+        )
+        .await;
+
+        let mut last_error = None;
+        let mut summary = None;
+        for attempt in 1..=plan.max_summary_attempts {
+            match self
+                .run_compaction_summary(&plan, &selected, tool_definitions)
+                .await
+            {
+                Ok(output) => {
+                    summary = Some(output);
+                    break;
+                }
+                Err(failure @ RunFailure::Stopped(_)) => {
+                    self.journal_append(
+                        vec![SessionEventData::CompactionEnd {
+                            compaction_id: compaction_id.clone(),
+                            source_command_id: None,
+                            turn: Some(turn),
+                            error: Some("compaction cancelled before replacement".to_owned()),
+                        }],
+                        true,
+                    )
+                    .await?;
+                    return Err(failure);
+                }
+                Err(error) => {
+                    last_error = Some(error.to_string());
+                    self.debug(
+                        "compaction.summary_retry",
+                        json!({
+                            "compactionId": &compaction_id,
+                            "attempt": attempt,
+                            "maxAttempts": plan.max_summary_attempts,
+                            "error": error.to_string(),
+                        }),
+                    )
+                    .await;
+                }
+            }
+        }
+        let Some(summary) = summary else {
+            let error = last_error.unwrap_or_else(|| "summary produced no result".to_owned());
+            self.journal_append(
+                vec![SessionEventData::CompactionEnd {
+                    compaction_id: compaction_id.clone(),
+                    source_command_id: None,
+                    turn: Some(turn),
+                    error: Some(error.clone()),
+                }],
+                true,
+            )
+            .await?;
+            return Err(RunFailure::Failed(error));
+        };
+        let checkpoint =
+            frame_summary(&summary.text).map_err(|error| RunFailure::Failed(error.to_string()))?;
+        let checkpoint_tokens = estimate_message_tokens(&AgentMessage::user(&checkpoint))?;
+        if checkpoint_tokens >= plan.range.shadowed_token_count {
+            let error = format!(
+                "compaction summary was not smaller than its source range: checkpoint={} source={}",
+                checkpoint_tokens, plan.range.shadowed_token_count
+            );
+            self.journal_append(
+                vec![SessionEventData::CompactionEnd {
+                    compaction_id: compaction_id.clone(),
+                    source_command_id: None,
+                    turn: Some(turn),
+                    error: Some(error.clone()),
+                }],
+                true,
+            )
+            .await?;
+            return Err(RunFailure::Failed(error));
+        }
+
+        let shadowed_range = SequenceRange {
+            start: plan.range.start_seq,
+            end: plan.range.end_seq,
+        };
+        let usage = summary
+            .usage
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| {
+                RunFailure::Failed(format!("could not serialize compaction usage: {error}"))
+            })?;
+        let checkpoint_message = AgentMessage::user(checkpoint)
+            .with_id(format!("compaction-checkpoint-{compaction_id}"));
+        self.journal_append(
+            vec![
+                SessionEventData::CompactionSummary {
+                    compaction_id: compaction_id.clone(),
+                    source_command_id: None,
+                    summary: summary.text,
+                    shadowed_range,
+                    shadowed_seqs: plan.range.shadowed_seqs.clone(),
+                    shadowed_token_count: plan.range.shadowed_token_count,
+                    provider: current_provider,
+                    model: current_model,
+                    max_tokens: Some(plan.spec.max_tokens),
+                    usage,
+                },
+                SessionEventData::UserMessage {
+                    message: checkpoint_message,
+                    surface_replace: Some(SurfaceReplace {
+                        compaction_id: compaction_id.clone(),
+                        shadowed_range,
+                        shadowed_seqs: plan.range.shadowed_seqs.clone(),
+                    }),
+                },
+                SessionEventData::CompactionEnd {
+                    compaction_id: compaction_id.clone(),
+                    source_command_id: None,
+                    turn: Some(turn),
+                    error: None,
+                },
+            ],
+            true,
+        )
+        .await?;
+        self.reload_journal_messages().await?;
+        self.debug(
+            "compaction.end",
+            json!({
+                "compactionId": &compaction_id,
+                "shadowedTokens": plan.range.shadowed_token_count,
+                "checkpointTokens": checkpoint_tokens,
+                "visibleMessages": self.messages.len(),
+                "toolsSha256": sha256_json(&context_tools)?,
+            }),
+        )
+        .await;
+        Ok(CompactionOutcome::Applied)
+    }
+
+    async fn run_compaction_summary(
+        &mut self,
+        plan: &CompactionPlan,
+        selected: &[AgentMessage],
+        tool_definitions: &[crate::ToolDefinition],
+    ) -> Result<CompactionSummaryOutput, RunFailure> {
+        self.ensure_running()?;
+        let mut messages = Vec::with_capacity(selected.len().saturating_add(2));
+        if let Some(system) = self
+            .messages
+            .iter()
+            .find(|message| message.role == Role::System)
+        {
+            messages.push(system.clone());
+        }
+        messages.extend_from_slice(selected);
+        messages.push(AgentMessage::user(DEFAULT_COMPACTION_INSTRUCTION));
+        let request = ProviderRequest {
+            messages,
+            tools: tool_definitions.to_vec(),
+            step: self.step,
+            max_output_tokens: Some(plan.spec.max_tokens),
+            debug_scope: self.debug_scope(),
+        };
+        let cancellation = self.cancellation.child_token();
+        let provider = Arc::clone(&self.request.provider);
+        let mut stream = tokio::select! {
+            _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
+            stream = provider.stream(request, cancellation.clone()) => {
+                stream.map_err(|error| RunFailure::Failed(error.message))?
+            }
+        };
+        let mut text = String::new();
+        let mut usage = None;
+        let mut completed = false;
+        while let Some(event) = tokio::select! {
+            _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
+            event = stream.next() => event,
+        } {
+            match event.map_err(|error| RunFailure::Failed(error.message))? {
+                ProviderEvent::TextDelta(delta) => text.push_str(&delta),
+                ProviderEvent::ReasoningDelta(_) => {}
+                ProviderEvent::ToolCallDelta { .. } => {
+                    cancellation.cancel();
+                    return Err(RunFailure::Failed(
+                        "compaction summary attempted to call a tool".to_owned(),
+                    ));
+                }
+                ProviderEvent::Completed {
+                    finish_reason,
+                    usage: reported_usage,
+                    ..
+                } => {
+                    let reason = finish_reason.unwrap_or(FinishReason::Stop);
+                    if reason != FinishReason::Stop {
+                        return Err(RunFailure::Failed(format!(
+                            "compaction summary was incomplete: {}",
+                            reason.description()
+                        )));
+                    }
+                    usage = reported_usage;
+                    completed = true;
+                    break;
+                }
+            }
+        }
+        if !completed {
+            return Err(RunFailure::Failed(
+                "compaction summary stream ended without completion".to_owned(),
+            ));
+        }
+        if text.trim().is_empty() {
+            return Err(RunFailure::Failed(
+                "compaction summary produced no text".to_owned(),
+            ));
+        }
+        Ok(CompactionSummaryOutput { text, usage })
     }
 
     async fn initialize_journal(&mut self) -> Result<(), RunFailure> {
@@ -969,7 +1508,8 @@ impl Runner {
             return Ok(());
         }
 
-        let mut recovery = session.outcome_unknown_recovery();
+        let mut recovery = session.interrupted_compaction_recovery();
+        recovery.extend(session.outcome_unknown_recovery());
         if let Some(turn) = open_turn {
             if let Some(step) = open_step {
                 recovery.push(SessionEventData::StepEnd { turn, step }.into());
@@ -1021,6 +1561,7 @@ impl Runner {
                 Role::User => events.push(
                     SessionEventData::UserMessage {
                         message: message.clone(),
+                        surface_replace: None,
                     }
                     .into(),
                 ),
@@ -1543,6 +2084,7 @@ impl Runner {
                 match message.role {
                     Role::User => events.push(SessionEventData::UserMessage {
                         message: message.clone(),
+                        surface_replace: None,
                     }),
                     Role::System => {}
                     Role::Assistant | Role::Tool => {
@@ -1885,6 +2427,9 @@ impl Runner {
             let mut stream = match stream {
                 Ok(stream) => stream,
                 Err(error) => {
+                    if error.is_context_overflow() && !round.saw_delta {
+                        return Err(RunFailure::ContextOverflow(error.message));
+                    }
                     if error.retryable && !round.saw_delta && attempt < max_attempts {
                         let retry_id = self.model_retry_id();
                         self.journal_model_retry_scheduled(
@@ -2063,6 +2608,9 @@ impl Runner {
                 return Ok(round);
             }
             let error = failure.expect("an incomplete provider attempt has an error");
+            if error.is_context_overflow() && !round.saw_delta {
+                return Err(RunFailure::ContextOverflow(error.message));
+            }
             if error.retryable && !round.saw_delta && attempt < max_attempts {
                 let retry_id = self.model_retry_id();
                 self.journal_model_retry_scheduled(
@@ -2323,7 +2871,17 @@ impl Runner {
         .await;
         journal?;
         match settled {
-            Ok(Ok(_)) => Ok(()),
+            Ok(Ok(results)) => {
+                if results.iter().any(|completed| {
+                    completed.result.failure_kind() == Some(RuntimeToolFailureKind::CleanupTimeout)
+                }) {
+                    return Err(RunFailure::Failed(
+                        "forced cleanup: one or more tool handlers did not quiesce within the cleanup grace"
+                            .to_owned(),
+                    ));
+                }
+                Ok(())
+            }
             Ok(Err(error)) => Err(RunFailure::Failed(format!(
                 "cancelled tool batch failed to settle: {error}"
             ))),
@@ -3177,6 +3735,8 @@ enum RunFailure {
     Stopped(StopReason),
     #[error("{0}")]
     Failed(String),
+    #[error("provider context overflow: {0}")]
+    ContextOverflow(String),
 }
 
 impl From<String> for RunFailure {

@@ -8,7 +8,8 @@ use xharness_session::{
     GoalSnapshotOperation, LlmFailure, LlmRetryMode, LoggedEvent, MemorySessionStore, Message,
     MessageRole, PolicySource, RequestHeader, Revision, Session, SessionError, SessionEvent,
     SessionHeader, SessionMutationReceipt, SessionSandboxMode, SessionTitleSource, Store,
-    StoreError, ToolCall, ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
+    StoreError, SurfaceReplace, ToolCall, ToolOutcome, ToolResultData, TurnEndReason,
+    OUTCOME_UNKNOWN_CONTENT,
 };
 
 fn header(id: &str) -> SessionHeader {
@@ -91,6 +92,105 @@ fn message_constructors_and_role_spellings_are_stable() {
     .unwrap();
     assert_eq!(legacy.provider_call_id, None);
     assert_eq!(legacy.provider_id(), "legacy-call");
+}
+
+#[test]
+fn compaction_transaction_replaces_surface_without_deleting_source_history() {
+    let mut session = Session::new(header("compact-session")).unwrap();
+    session
+        .append_batch(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::UserMessage {
+                    message: Message::user("very old context"),
+                    surface_replace: None,
+                }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::CompactionStart {
+                    compaction_id: "compact-1".to_owned(),
+                    source_command_id: None,
+                    turn: Some(1),
+                }),
+            ],
+        )
+        .unwrap();
+    let range = xharness_session::SequenceRange { start: 1, end: 1 };
+    session
+        .append_batch(
+            Revision(1),
+            vec![
+                event(EventData::CompactionSummary {
+                    compaction_id: "compact-1".to_owned(),
+                    source_command_id: None,
+                    summary: "## Current Work\n- continue".to_owned(),
+                    shadowed_range: range,
+                    shadowed_seqs: vec![1],
+                    shadowed_token_count: 100,
+                    provider: "openai".to_owned(),
+                    model: "test".to_owned(),
+                    max_tokens: Some(32),
+                    usage: Some(json!({"input_tokens": 10, "output_tokens": 4})),
+                }),
+                event(EventData::UserMessage {
+                    message: Message::user("checkpoint"),
+                    surface_replace: Some(SurfaceReplace {
+                        compaction_id: "compact-1".to_owned(),
+                        shadowed_range: range,
+                        shadowed_seqs: vec![1],
+                    }),
+                }),
+                event(EventData::CompactionEnd {
+                    compaction_id: "compact-1".to_owned(),
+                    source_command_id: None,
+                    turn: Some(1),
+                    error: None,
+                }),
+            ],
+        )
+        .unwrap();
+
+    assert_eq!(session.events().len(), 7, "source log stays append-only");
+    assert!(session.events().iter().any(|event| {
+        matches!(event.data(), EventData::UserMessage { message, surface_replace: None }
+            if message.content == "very old context")
+    }));
+    let surface = session.derive_surface_messages();
+    assert_eq!(surface.len(), 1);
+    assert_eq!(surface[0].seq, 5);
+    assert_eq!(surface[0].message.content, "checkpoint");
+    assert_eq!(session.derive_messages(), vec![Message::user("checkpoint")]);
+}
+
+#[test]
+fn interrupted_compaction_recovery_closes_without_mutating_surface() {
+    let mut session = Session::new(header("compact-recovery")).unwrap();
+    session
+        .append_batch(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::UserMessage {
+                    message: Message::user("keep me"),
+                    surface_replace: None,
+                }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::CompactionStart {
+                    compaction_id: "compact-crash".to_owned(),
+                    source_command_id: None,
+                    turn: Some(1),
+                }),
+            ],
+        )
+        .unwrap();
+    let recovery = session.interrupted_compaction_recovery();
+    assert_eq!(recovery.len(), 1);
+    session.append_batch(Revision(1), recovery).unwrap();
+    assert_eq!(session.derive_messages(), vec![Message::user("keep me")]);
+    assert!(matches!(
+        session.events().last().unwrap().data(),
+        EventData::CompactionEnd { error: Some(_), .. }
+    ));
 }
 
 #[test]
@@ -274,6 +374,7 @@ fn every_first_version_event_round_trips_through_serde() {
         event(EventData::StepStart { turn: 1, step: 1 }),
         event(EventData::UserMessage {
             message: Message::user("hello"),
+            surface_replace: None,
         }),
         event(EventData::AssistantChunk {
             turn: 1,
@@ -417,6 +518,7 @@ fn approval_audit_is_turn_enclosed_paired_and_call_correlated() {
                 event(EventData::TurnStart { turn: 1 }),
                 event(EventData::UserMessage {
                     message: Message::user("run"),
+                    surface_replace: None,
                 }),
                 event(EventData::StepStart { turn: 1, step: 1 }),
                 event(EventData::RequestHeader {
@@ -489,6 +591,7 @@ fn retry_audit_requires_request_route_and_ordered_started_pairs() {
                 event(EventData::TurnStart { turn: 1 }),
                 event(EventData::UserMessage {
                     message: Message::user("run"),
+                    surface_replace: None,
                 }),
                 event(EventData::StepStart { turn: 1, step: 1 }),
                 event(EventData::RequestHeader {
@@ -712,6 +815,7 @@ fn derive_messages_is_a_pure_surface_projection() {
                 event(EventData::TurnStart { turn: 1 }),
                 event(EventData::UserMessage {
                     message: Message::user("read README"),
+                    surface_replace: None,
                 }),
                 event(EventData::StepStart { turn: 1, step: 1 }),
                 event(EventData::RequestHeader {
@@ -759,6 +863,7 @@ fn message_roles_and_tool_pairing_are_validated_atomically() {
     let mut session = Session::new(header("s1")).unwrap();
     let invalid_role = event(EventData::UserMessage {
         message: Message::assistant("not a user"),
+        surface_replace: None,
     });
     assert!(matches!(
         session.append(Revision::ZERO, invalid_role),
@@ -996,6 +1101,7 @@ async fn memory_store_create_load_flush_and_inspect_are_detached() {
                 event(EventData::TurnStart { turn: 1 }),
                 event(EventData::UserMessage {
                     message: Message::user("hello"),
+                    surface_replace: None,
                 }),
             ],
         )
@@ -1048,6 +1154,7 @@ async fn memory_store_cas_allows_only_one_writer_for_a_revision() {
                         event(EventData::TurnStart { turn: 1 }),
                         event(EventData::UserMessage {
                             message: Message::user("first"),
+                            surface_replace: None,
                         }),
                     ],
                 )
@@ -1065,6 +1172,7 @@ async fn memory_store_cas_allows_only_one_writer_for_a_revision() {
                         event(EventData::TurnStart { turn: 1 }),
                         event(EventData::UserMessage {
                             message: Message::user("second"),
+                            surface_replace: None,
                         }),
                     ],
                 )
