@@ -8,6 +8,28 @@ use crate::{Message, ToolCall};
 /// Monotonic position in a session log.
 pub type Sequence = u64;
 
+/// Inclusive durable coordinates shadowed by one context-surface mutation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SequenceRange {
+    pub start: Sequence,
+    pub end: Sequence,
+}
+
+/// Model-surface replacement carried by the checkpoint `user/message`.
+///
+/// The immutable source events remain in the log. Projection removes the
+/// listed, currently-visible source nodes and inserts this user message at the
+/// first removed position. Keeping the operation beside the replacement makes
+/// a crash-safe replay independent of in-memory context-policy state.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurfaceReplace {
+    pub compaction_id: String,
+    pub shadowed_range: SequenceRange,
+    pub shadowed_seqs: Vec<Sequence>,
+}
+
 /// One of the two ordered durable input lists owned by a long-lived agent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -543,6 +565,72 @@ pub enum EventData {
         step: u32,
         retry: u32,
     },
+    /// Durable opening barrier for one automatic or manual compaction.
+    #[serde(rename = "compaction/start")]
+    CompactionStart {
+        #[serde(rename = "compactionId")]
+        compaction_id: String,
+        #[serde(
+            rename = "sourceCommandId",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        source_command_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn: Option<u32>,
+    },
+    /// Auditable summary and exact evidence for the range it replaces.
+    #[serde(rename = "compaction/summary")]
+    CompactionSummary {
+        #[serde(rename = "compactionId")]
+        compaction_id: String,
+        #[serde(
+            rename = "sourceCommandId",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        source_command_id: Option<String>,
+        summary: String,
+        #[serde(rename = "shadowedRange")]
+        shadowed_range: SequenceRange,
+        #[serde(rename = "shadowedSeqs")]
+        shadowed_seqs: Vec<Sequence>,
+        #[serde(rename = "shadowedTokenCount")]
+        shadowed_token_count: u64,
+        provider: String,
+        model: String,
+        #[serde(rename = "maxTokens", default, skip_serializing_if = "Option::is_none")]
+        max_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<Value>,
+    },
+    /// Closing marker. `error=None` commits the preceding summary + surface
+    /// replacement; an error closes a failed attempt without changing surface.
+    #[serde(rename = "compaction/end")]
+    CompactionEnd {
+        #[serde(rename = "compactionId")]
+        compaction_id: String,
+        #[serde(
+            rename = "sourceCommandId",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        source_command_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Deterministic model-free replacement of oversized tool observations.
+    #[serde(rename = "compaction/prune")]
+    CompactionPrune {
+        #[serde(rename = "shadowedRange")]
+        shadowed_range: SequenceRange,
+        #[serde(rename = "shadowedSeqs")]
+        shadowed_seqs: Vec<Sequence>,
+        #[serde(rename = "shadowedTokenCount")]
+        shadowed_token_count: u64,
+    },
     #[serde(rename = "turn/start")]
     TurnStart { turn: u32 },
     #[serde(rename = "turn/end")]
@@ -552,7 +640,15 @@ pub enum EventData {
     #[serde(rename = "step/end")]
     StepEnd { turn: u32, step: u32 },
     #[serde(rename = "user/message")]
-    UserMessage { message: Message },
+    UserMessage {
+        message: Message,
+        #[serde(
+            rename = "surfaceReplace",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        surface_replace: Option<SurfaceReplace>,
+    },
     #[serde(rename = "assistant/chunk")]
     AssistantChunk {
         turn: u32,

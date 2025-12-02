@@ -13,7 +13,7 @@ use std::{
     os::unix::process::ExitStatusExt,
     process::Stdio,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -149,6 +149,8 @@ pub enum TerminalError {
     CursorAhead { cursor: u64, current: u64 },
     #[error("terminal process program must not be empty")]
     EmptyProgram,
+    #[error("terminal registry is shutting down")]
+    RegistryClosed,
     #[error("terminal operation {operation} failed: {source}")]
     Io {
         operation: &'static str,
@@ -157,11 +159,25 @@ pub enum TerminalError {
     },
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TerminalShutdownReport {
+    pub sessions: usize,
+    pub closed: usize,
+    pub errors: Vec<String>,
+}
+
+impl TerminalShutdownReport {
+    pub const fn is_graceful(&self) -> bool {
+        self.errors.is_empty() && self.sessions == self.closed
+    }
+}
+
 #[derive(Clone)]
 pub struct TerminalRegistry {
     config: TerminalConfig,
     sessions: Arc<Mutex<SessionMap>>,
     debug: DebugRecorder,
+    closed: Arc<AtomicBool>,
 }
 
 impl TerminalRegistry {
@@ -171,6 +187,7 @@ impl TerminalRegistry {
             config,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             debug: DebugRecorder::disabled(),
+            closed: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -184,6 +201,9 @@ impl TerminalRegistry {
     }
 
     pub async fn open(&self, spec: TerminalOpenSpec) -> Result<TerminalDescriptor, TerminalError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(TerminalError::RegistryClosed);
+        }
         self.trace(
             &spec.owner,
             "open.request",
@@ -203,6 +223,9 @@ impl TerminalRegistry {
 
         let key = (spec.owner.clone(), spec.name.clone());
         let mut sessions = self.sessions.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(TerminalError::RegistryClosed);
+        }
         if sessions.contains_key(&key) {
             return Err(TerminalError::DuplicateName { name: spec.name });
         }
@@ -365,6 +388,31 @@ impl TerminalRegistry {
         self.trace(owner, "list.completed", json!({"terminals": &descriptors}))
             .await;
         Ok(descriptors)
+    }
+
+    /// Close every persistent PTY and prevent later admission. Each session
+    /// executes the same TERM -> grace -> KILL -> wait path as explicit close;
+    /// failures are accumulated instead of silently detached from Host exit.
+    pub async fn shutdown(&self) -> TerminalShutdownReport {
+        self.closed.store(true, Ordering::Release);
+        let keys = self
+            .sessions
+            .lock()
+            .await
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut report = TerminalShutdownReport {
+            sessions: keys.len(),
+            ..TerminalShutdownReport::default()
+        };
+        for (owner, name) in keys {
+            match self.close(&owner, &name).await {
+                Ok(_) => report.closed += 1,
+                Err(error) => report.errors.push(format!("{owner}/{name}: {error}")),
+            }
+        }
+        report
     }
 
     async fn session(

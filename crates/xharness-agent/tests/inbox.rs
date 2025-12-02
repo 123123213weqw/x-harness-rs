@@ -103,6 +103,7 @@ async fn claim_is_committed_atomically_with_its_turn() {
         .map(|message| {
             SessionEvent::new(EventData::UserMessage {
                 message: message.message.clone(),
+                surface_replace: None,
             })
         })
         .chain([SessionEvent::new(EventData::TurnEnd {
@@ -171,6 +172,7 @@ async fn recovery_reconciles_a_consumed_steer_left_pending_by_a_crash() {
                 EventData::TurnStart { turn: 1 }.into(),
                 EventData::UserMessage {
                     message: steering.message,
+                    surface_replace: None,
                 }
                 .into(),
                 EventData::TurnEnd {

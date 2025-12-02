@@ -1,4 +1,4 @@
-use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 mod config;
 
@@ -6,10 +6,11 @@ use config::{ModelDeployment, SingleModelDeployment};
 use tokio::net::TcpListener;
 use xharness_agent::FileLeaseManager;
 use xharness_api::ApiBackend;
+use xharness_compaction::CompactionConfig;
 use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::IdentityContextPolicy;
 use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode};
-use xharness_host::{BasicHost, DurableLoopAgentRuntime, HostConfig};
+use xharness_host::{AgentRuntime, BasicHost, DurableLoopAgentRuntime, HostConfig};
 use xharness_host_app::NativeToolFactory;
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_server::{serve, web_router_with_debug};
@@ -51,6 +52,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
                 "baseUrl": diagnostic_base_url(&args.base_url),
                 "protocol": format!("{:?}", args.protocol),
                 "providersFile": args.providers_file.as_ref().map(|path| path.to_string_lossy()),
+                "compaction": &args.compaction,
             }),
         ))
         .await?;
@@ -94,9 +96,11 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
             leases,
             config.event_capacity,
         )?
-        .with_debug(debug.clone()),
+        .with_debug(debug.clone())
+        .with_compaction(args.compaction.clone()),
     );
-    let host = BasicHost::with_agent_runtime_and_control_store(config, runtime, control_store);
+    let host_runtime: Arc<dyn AgentRuntime> = runtime.clone();
+    let host = BasicHost::with_agent_runtime_and_control_store(config, host_runtime, control_store);
     let restore = host.restore_from_store(store).await?;
     debug
         .record(DebugEvent::new(
@@ -137,11 +141,80 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         .await?;
     debug.flush().await?;
     eprintln!("xharness host listening on http://{}", local_addr);
-    serve(listener, router, async {
-        let _ = tokio::signal::ctrl_c().await;
-    })
-    .await?;
+    let (server_stop_tx, server_stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let mut server_task = tokio::spawn(serve(listener, router, async move {
+        let _ = server_stop_rx.await;
+    }));
+    let mut signal_error = None;
+    let early_server_result = tokio::select! {
+        result = &mut server_task => Some(result),
+        signal = shutdown_signal() => {
+            signal_error = signal.err();
+            None
+        }
+    };
+    // Resolve Axum's graceful-shutdown future first so its accept loop closes
+    // while the backend stops new Agent admission and joins active work.
+    let _ = server_stop_tx.send(());
+    let mut shutdown = runtime.shutdown(Duration::from_secs(10)).await;
+    // Upgraded WebSockets are not terminated by Hyper's graceful shutdown.
+    // After backend quiescence, bound transport drain and then abort only the
+    // carrier task; no Provider, Tool, Process or PTY remains owned by it.
+    let (server_result, transport_forced_close) = match early_server_result {
+        Some(result) => (Some(result), false),
+        None => match tokio::time::timeout(Duration::from_secs(1), &mut server_task).await {
+            Ok(result) => (Some(result), false),
+            Err(_) => {
+                server_task.abort();
+                let _ = server_task.await;
+                (None, true)
+            }
+        },
+    };
+    if let Some(error) = signal_error {
+        shutdown
+            .cleanup_errors
+            .push(format!("could not listen for shutdown signal: {error}"));
+    }
+    debug
+        .record(DebugEvent::new(
+            "host",
+            "shutdown.completed",
+            serde_json::json!({
+                "workers": shutdown.workers,
+                "graceful": shutdown.graceful,
+                "forcedCleanup": shutdown.forced_cleanup,
+                "cleanupErrors": &shutdown.cleanup_errors,
+                "transportForcedClose": transport_forced_close,
+            }),
+        ))
+        .await?;
+    debug.flush().await?;
+    if !shutdown.is_graceful() {
+        return Err(std::io::Error::other(format!(
+            "runtime shutdown was not graceful: {} forced worker(s), errors={:?}",
+            shutdown.forced_cleanup, shutdown.cleanup_errors
+        ))
+        .into());
+    }
+    if let Some(result) = server_result {
+        result.map_err(|error| std::io::Error::other(format!("server task failed: {error}")))??;
+    }
     Ok(())
+}
+
+#[cfg(unix)]
+async fn shutdown_signal() -> std::io::Result<()> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => result,
+        _ = terminate.recv() => Ok(()),
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() -> std::io::Result<()> {
+    tokio::signal::ctrl_c().await
 }
 
 struct Args {
@@ -158,6 +231,7 @@ struct Args {
     max_output_tokens: u64,
     token_safety_margin: u64,
     providers_file: Option<PathBuf>,
+    compaction: Option<CompactionConfig>,
     debug_trace: DebugTraceMode,
     debug_dir: PathBuf,
 }
@@ -183,6 +257,8 @@ impl Args {
         let mut max_output_tokens = env_u64("XHARNESS_MAX_OUTPUT_TOKENS", 4_096)?;
         let mut token_safety_margin = env_u64("XHARNESS_TOKEN_SAFETY_MARGIN", 1_024)?;
         let mut providers_file = env::var_os("XHARNESS_PROVIDERS_FILE").map(PathBuf::from);
+        let mut compaction =
+            parse_compaction_setting(env::var("XHARNESS_COMPACTION_CONFIG").ok().as_deref())?;
         let mut debug_trace = env_value("XHARNESS_DEBUG_TRACE", "off")
             .parse::<DebugTraceMode>()
             .map_err(|error| error.to_string())?;
@@ -217,6 +293,7 @@ impl Args {
                     token_safety_margin = parse_u64("--token-safety-margin", &value)?
                 }
                 "--providers-file" => providers_file = Some(PathBuf::from(value)),
+                "--compaction-config" => compaction = parse_compaction_setting(Some(&value))?,
                 "--debug-trace" => {
                     debug_trace = value
                         .parse::<DebugTraceMode>()
@@ -241,6 +318,7 @@ impl Args {
             max_output_tokens,
             token_safety_margin,
             providers_file,
+            compaction,
             debug_trace,
             debug_dir,
         })
@@ -286,6 +364,32 @@ fn parse_u64(name: &str, value: &str) -> Result<u64, String> {
 
 fn parse_protocol(value: &str) -> Result<OpenAiProtocol, String> {
     config::parse_protocol(value)
+}
+
+/// `default` preserves the production policy, `off` provides a true no-
+/// compaction ablation, and every other value is a JSON file containing the
+/// provider-neutral [`CompactionConfig`].
+fn parse_compaction_setting(value: Option<&str>) -> Result<Option<CompactionConfig>, String> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(Some(CompactionConfig::default()));
+    };
+    if value.eq_ignore_ascii_case("default") || value.eq_ignore_ascii_case("auto") {
+        return Ok(Some(CompactionConfig::default()));
+    }
+    if value.eq_ignore_ascii_case("off")
+        || value.eq_ignore_ascii_case("none")
+        || value.eq_ignore_ascii_case("disabled")
+    {
+        return Ok(None);
+    }
+    let bytes = std::fs::read(value)
+        .map_err(|error| format!("could not read compaction config {value:?}: {error}"))?;
+    let config = serde_json::from_slice::<CompactionConfig>(&bytes)
+        .map_err(|error| format!("invalid compaction config {value:?}: {error}"))?;
+    config
+        .validate()
+        .map_err(|error| format!("invalid compaction config {value:?}: {error}"))?;
+    Ok(Some(config))
 }
 
 fn diagnostic_base_url(value: &str) -> String {
@@ -336,5 +440,35 @@ mod tests {
             diagnostic_base_url("http://127.0.0.1:8000/v1"),
             "http://127.0.0.1:8000/v1"
         );
+    }
+
+    #[test]
+    fn compaction_ablation_accepts_off_default_and_a_valid_json_policy() {
+        assert!(parse_compaction_setting(Some("off")).unwrap().is_none());
+        assert_eq!(
+            parse_compaction_setting(None).unwrap(),
+            Some(CompactionConfig::default())
+        );
+
+        let path = std::env::temp_dir().join(format!(
+            "xharness-compaction-config-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let policy = CompactionConfig {
+            auto: false,
+            threshold_ratio: 0.7,
+            ..CompactionConfig::default()
+        };
+        std::fs::write(&path, serde_json::to_vec(&policy).unwrap()).unwrap();
+        let parsed = parse_compaction_setting(Some(path.to_string_lossy().as_ref()))
+            .unwrap()
+            .unwrap();
+        assert!(!parsed.auto);
+        assert_eq!(parsed.threshold_ratio, 0.7);
+        let _ = std::fs::remove_file(path);
     }
 }

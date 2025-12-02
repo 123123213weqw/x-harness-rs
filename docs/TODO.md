@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**基线日期：** 2026-08-22
+**状态日期：** 2026-08-25
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -10,6 +10,34 @@ Commit、Issue、PR 应引用这些 ID。
 
 当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
 `b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
+
+## 当前状态快照
+
+当前正式 `xharness-host-app` 已具备可日常使用的本地 Coding Agent 主链路：Web RPC、
+`DurableLoopAgentRuntime`、双层 Durable Inbox、JSONL Session、File Lease、Prompt/Token Guard、
+OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 14 个
+Coding Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
+
+以下能力已经完成主体，不应再描述成“尚未接入”：
+
+- 长生命周期 Agent 已接管正式 Host；输入先 Flush 再确认，Claim 与 `turn/start + user/message`
+  原子提交，Pending Turn/Approval 可以在重启后续跑。
+- 正式生产 Tool 路径已经由 `xharness-tools::ToolExecutor` 接管；Core 旧类型只剩 Embedder/Test
+  兼容删除工作。
+- Provider 原生输入 Token 计数端点已经接入；端点不支持时才回退到保守 Meter。
+- 自动 Context Compaction 已接入正式 Durable Host：80% Pressure、请求前 Hard Overflow 和
+  Provider 无 Delta 的 400 Context Overflow 都会进入有界压缩恢复；成功后重新构造并计量请求，
+  Session/Web 使用不删除原 Event Log 的 Surface Replace。
+- Platform/Search/Terminal Readiness 已裁剪每个模型 Step 的工具定义；尚缺 Web Readiness 投影。
+- 正式 Host 已实现结构化 Shutdown：关闭 Admission，Signal/Join Agent、Loop、Tool
+  和 Process，收尾持久 PTY；超时清理会显式报告 Forced Cleanup。
+- macOS ARM64 已在原生 GitHub Runner 运行 Workspace、FS、Process、PTY、Seatbelt 测试并生成
+  未签名构件；剩余是 Live Provider、签名、公证和安装验证。
+
+当前最短阻塞链调整为：**删除 Core 旧 Tool 兼容层 →
+Credential Reference/配置 → WebSocket Cursor Resume → macOS 签名/公证与发布验证**。生产 Tool
+Result Pruner、手动 `/compact` 和独立摘要 Purpose 路由作为 Context P1 后续并行推进；MCP、Skills、
+LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
 
 ## 已完成基础能力
 
@@ -93,7 +121,8 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `DONE-34` Idle Plan Mode 持久化基线：动态 Command 目录暴露 `/plan`，空参数进入、`off`
   退出；成功选择以 `command/run → plan/mode → command/done` Flush 并投影 `{active,pending}`，
   重启从最后事件恢复。运行中 Pending Pre-step、附带 Message/Image Steering 和 `exit_plan_mode`
-  仍归 `P0-14/P1-01`，当前 fail explicit 而非静默丢输入。48 个冻结事件覆盖 25 个。
+  仍归 `P0-14/P1-01`，当前 fail explicit 而非静默丢输入；加上 `DONE-57` 的四个 Compaction
+  事件后，48 个冻结事件当前强类型覆盖 29 个。
 - [x] `DONE-35` 真实最小 Coding System Prompt：新增 `xharness-prompt` 确定性有序组装器，
   将选中 Preset、权限、Workspace、Coding 工作流和 Plan Policy 组装为每轮第一个 System
   Message；Request Header 保存 Assembler/Assembly/Section/System Hash 与 Tool Definition Hash，
@@ -104,7 +133,8 @@ Commit、Issue、PR 应引用这些 ID。
   完成后、Provider I/O 前计量 System/消息/工具/协议开销并预留输出与安全余量，预算报告写入
   Request Header。Chat/Responses 分别下发 `max_tokens`/`max_output_tokens`；固定
   `64196 > 53248` 回归验证 Provider Attempt 为零。当前保守 UTF-8/JSON Byte Meter 保证宁可
-  过估，不把精确 Tokenizer 绑定到 llama.cpp；精确 Adapter 与自动压缩仍归 `P1-03`。
+  过估，不把精确 Tokenizer 绑定到 llama.cpp；自动 Pressure/Overflow 已在 `P1-03` 接线，精确
+  Adapter、手动 Compact 与生产 Pruner 仍归该项。
 - [x] `DONE-37` 模型 `read` 分页：默认页从 256 KiB/2,000 行降为 32 KiB/400 行，暴露
   `offset`、`start_line`、`limit`、`line_limit` 与 Opaque `next_cursor`。Cursor 固定原页限制并
   绑定完整文件 SHA-256，文件变化后继续读取 fail stale；底层仍完整计算 Version 并保持
@@ -183,17 +213,65 @@ Commit、Issue、PR 应引用这些 ID。
   测试发现并修复了 Core Bridge 串行等待单个审批导致第二个并行审批永远无法投影的问题；现在
   多个 Approval 先全部发布，再按 Execution ID 独立决议。取消会关闭所有已落账 Approval，并在
   返回 Run Result 前等待正式 Batch 收敛；等待 Lifecycle Ack 时取消也不会启动 Handler。
+- [x] `DONE-51` 多 Provider/Model Registry 基线：一个 Durable Runtime 可注册多条公共路由，
+  Web 暴露模型目录并在选择/启动前 fail closed；每条路由独立绑定 Adapter 与 Token Guard。
+- [x] `DONE-52` Provider 原生输入 Token 计数：Chat 使用 `/chat/completions/input_tokens`，
+  Responses 使用 `/responses/input_tokens`；按最终结构化请求计数，404/405/501 能力缺失会缓存并
+  回退保守 Meter，其他错误不静默降级。
+- [x] `DONE-53` Durable 流式检查点：Assistant Text/Reasoning/Tool-call Chunk 在 Session 中按
+  最多 64 个事件或 250ms 批量落账，Host 从权威序列刷新投影，在不逐 Token `fsync` 的前提下保持
+  Provider 流式节奏和崩溃可恢复性。
+- [x] `DONE-54` Bash Pipeline 失败传播：One-shot Bash 默认启用 `pipefail`，`git push ... |
+  tail` 等管线不再以最后一个过滤命令的零退出码掩盖前序失败，并有真实工具回归。
+- [x] `DONE-55` Provider-neutral Compaction 规划器：默认阈值/保留比例、Pressure/Overflow/Manual
+  规划、Tool Call/Result 安全切点、Unicode Tool Result Pruner、Checkpoint Frame 和 Summary Trait
+  已完成；生产自动接线由 `DONE-57` 关闭。
+- [x] `DONE-56` Full Debug Trace 全链路接线：默认 Noop 零 I/O；Full 模式以全局 Sequence、
+  Secret Redaction、有界 Blob 和显式 Flush 记录 Host/Core/Provider/Tool/Process/PTY/Sandbox/Web/
+  Server，跨层测试已覆盖同一 Scope 关联。
+- [x] `DONE-57` Durable 自动 Context Compaction：正式 Host 默认安装
+  `CompactionConfig::default()`；Core 在 80% Pressure、请求前 Hard Overflow 和 Provider 无 Delta 的
+  400 Context Overflow 三个入口执行有界恢复。Session 强类型记录 `compaction/start|summary|end|prune`
+  与 Checkpoint `surfaceReplace`，成功批次原子替换模型 Surface 而不删除源 Event；失败/中断写错误
+  End，重启闭合悬空 Start。每次成功 Replace 后重新组装、原生计数并走 Token Guard；Web 投影
+  `surfaceOp={op:replace,start,end}` 和 `sourceEventSeqs`。WZU_Server 全 Workspace Test、Check、
+  Clippy `-D warnings` 与 Fmt 均通过。
+- [x] `DONE-58` 结构化 Shutdown/Quiescence：正式 Tool Batch 取消会 Signal 并 Join，
+  不合作 Handler 返回 `CleanupTimeout` 并使 Loop 显式 Failed；Process Supervisor 在
+  Runtime Abort 时同步 KILL 受管 Group，输出 EOF 有界收敛。Agent Supervisor 关闭新
+  Admission，用共享 Deadline 收敛所有 Worker；Host 在 SIGINT/SIGTERM 后再关闭共享
+  PTY Registry 并 Flush Shutdown Trace。测试覆盖 Runtime Drop、逃逸 Session、不合作
+  Handler、活动 Provider Stream、Bash Leader/Descendant、多 PTY 和真实 Host SIGTERM。
+  WZU_Server 全 Workspace Test、Check、Clippy `-D warnings` 与 Fmt 均通过。
+- [x] `DONE-59` 可重复 Compact 消融基线：正式 Host 新增 `default/off/JSON` 策略选择，明确
+  `auto=false` 只关闭 Pressure、`off` 才是真正无压缩；标准库 Runner 通过正式 Web RPC 为四个
+  Variant 创建独立 Host/State/Session，落盘权威 History、Debug Trace、Usage、Compact 事件、
+  质量和退出状态。RTX 4080 上 Qwen3.8-27B 四组烟测均精确回忆 3/3 事实，Auto 两组各完成一次
+  Durable Replace，四个 Host 均正常退出；证据固化在
+  `docs/evidence/compaction-qwen-4080-20260825/`。正式性能结论仍需多任务、多 Seed、轮换顺序和
+  Variant 间 Provider Prefix Cache 冷启动。
+- [x] `DONE-60` macOS LaunchAgent 工具依赖闭环：受管 Tool PATH 不再照抄 launchd 的最小
+  `/usr/bin:/bin`，而是优先 Host 同目录并补齐用户/系统常见目录；ARM64 Artifact 同目录打包
+  `xharness-host + rg`。本机已用双 V100 Qwen3.8-27B 真实执行 `glob`，返回 24 个 Cargo Manifest、
+  `tool/result.ok=true` 并完成最终回答；当前 LaunchAgent 也已使用 bundled ARM64 ripgrep。
+- [x] `DONE-61` Web 模型性能确定性投影：Host 新增 Provider-neutral 的 Usage Mapper 与纯
+  `tokenUsage/sessionStats` 折叠器，统一把旧 snake_case 和新 camelCase Usage 输出为冻结的
+  Web camelCase 契约；Live、History、Restart 与 Ephemeral 路径共用同一算法。TTFT、Decode
+  Token/s、Token/Cache Accounting、LLM/Tool Duration 均从权威 Session Event 重建，同一步
+  Usage 采用后样本替换而不重复累计；缺失 Provider Usage 时不伪造吞吐。WZU_Server 全
+  Workspace Fmt、Check、Test 和 Clippy `-D warnings` 已通过；GitHub Linux 与原生 macOS
+  ARM64 CI 通过并生成 Release。新版本已部署到本机 3082，双 V100 27B 真实流与强制重启前后
+  Projection 等价验证均通过。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
 
 
-- [ ] `P0-02` **持久长生命周期 Agent 层。** 新增 `xharness-agent`：Agent、Turn、Step、
+- [x] `P0-02` **持久长生命周期 Agent 层。** 新增 `xharness-agent`：Agent、Turn、Step、
   Durable Inbox Message ID、Claim/Ack、Next-turn/Next-step 语义、Single-writer Session
   Lease 和重启续跑。
-  Host-facing `AgentRuntime -> RunningTurn` 替换边界已经完成，本项实现持久 Runtime 并替换
-  `LoopAgentRuntime`。
-  已完成：`agent/inbox/spliced` 事件、Next-turn/Next-step Replay、稳定 Message ID、原子 Claim
+  Host-facing `AgentRuntime -> RunningTurn` 替换边界以及正式 Host 的持久 Runtime 接管均已完成。
+  已实现：`agent/inbox/spliced` 事件、Next-turn/Next-step Replay、稳定 Message ID、原子 Claim
   Prelude、进程内 Registry、Memory/File Lease、AgentSupervisor、多 Turn Driver、Idle Inject、
   Active Turn 持久 Steering 和消费恢复去重。`xharness-host-app` 已默认组合
   `DurableLoopAgentRuntime + JSONL Store + File Lease`，连续 Turn 的模型历史来自持久日志；
@@ -204,14 +282,14 @@ Commit、Issue、PR 应引用这些 ID。
   尾部。Web Queue 已从完整 Durable Inbox 折叠两条列表并在重连发送 Baseline；Host 内存 FIFO
   只承担 Driver Attachment。Workspace 自定义元数据、排序、归档与 Settings 已进入独立 Host Control Log，相关
   9 个变更 RPC 使用通用 Exactly-once Receipt。Session Log 内的 Rename、Model Select、Preset
-  Select 和 6 个 Goal RPC 也已使用同 Revision 原子 Receipt。剩余：将同一 Receipt 框架扩展到
-  Session Create/Fork、Queue/Cancel/Attachment、Preset
-  Copy/Remove 等变更 RPC，并实现 Secret-free Credential Reference Store；
+  Select 和 6 个 Goal RPC 也已使用同 Revision 原子 Receipt。Session Create/Fork、Queue/Cancel/
+  Attachment、Preset Copy/Remove 等剩余通用 Receipt 归 `P2-01`；Secret-free Credential
+  Reference Store 归 `P0-09`，不再作为长生命周期 Agent 主链路的完成阻塞项。
   七点通用日志前缀和包含 Approval Asked 的八点真实子进程 SIGKILL/同目录重启矩阵均已完成。
   Approval Asked/Decided、Provider Retry/Started、Agent/Permission/Sandbox/Approval Policy 与
   Permission Command Receipt 已进入强类型 Session Log 和确定性 Web History；Pending Approval
-  已能在重启后按原 Approval/Execution ID 重新投影并继续回答。剩余完整 48 Event 词汇继续归本项
-  与 `P2-01`。
+  已能在重启后按原 Approval/Execution ID 重新投影并继续回答。剩余冻结 Event 词汇归 `P2-01`
+  的 Web 完整投影。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，
@@ -234,9 +312,13 @@ Commit、Issue、PR 应引用这些 ID。
   忽略事件的 Host 不会积累无界 Channel，也不会阻塞 `result()`。WebSocket 跨连接 Cursor
   继续由 `P2-02` 完成，不再由 Core 临时流承担。
 
-- [ ] `P0-06` **结构化 Shutdown 和 Quiescence。** 用 Scope 管理 Provider/Tool/Process
-  Task；Cancel 必须 Signal 并 Join。定义超过有界 Grace 后的 Forced-cleanup 终态。
-  **测试：** Runtime Shutdown、Handler Abort、Descendant、受限工具 Result 不能早于进程死亡。
+- [x] `P0-06` **结构化 Shutdown 和 Quiescence。** 正式生产路径已用明确所有权管理
+  Provider/Tool/Process/PTY Task；Cancel 必须 Signal 并 Join，超过 Grace 记为
+  `CleanupTimeout/ForcedCleanup`，不伪造普通 Cancelled。Agent/Host 关闭会阻止新 Admission，
+  共享一个 Deadline，并在所有持久 Terminal 收尾后才成功退出。旧
+  `LoopRequest.tools` 兼容 Scheduler 的完全删除仍归 `P0-03`，正式 Host 已不使用它。
+  `FullAccess` 不能硬回收主动 `setsid()` 逃离 Group 的孤儿；该安全保证仍属于
+  Linux PID Namespace/受限 Sandbox，保留 Pipe 的逃逸会被有界 Drain 检测为失败。
 
 - [ ] `P0-07` **macOS 原生运行验证。** 在真实 Apple Silicon Mac 上运行 FS Race、Seatbelt、
   PTY Lifecycle、Web TLS、Live Loop，并打包/签名 CLI。仅 Cross Compilation 不算完成。
@@ -268,7 +350,8 @@ Commit、Issue、PR 应引用这些 ID。
   Head/Relevant/Tail、元数据和引用。不得破坏 Observation CAS。
   已完成：模型 Schema 的 Byte/Line 起点、页大小/行数和版本绑定 Cursor；默认 32 KiB/400 行，
   Cursor 延续原限制且文件变化后拒绝拼接；单结果超限使用带 Hash/Byte 统计的确定性 Head/Tail
-  Envelope。剩余：原始大输出持久 Spill/Reference、Relevant 片段选择和历史 Surface Replace。
+  Envelope；通用 Durable Surface Replace 已由 `DONE-57` 完成。剩余：原始大输出持久
+  Spill/Reference、Relevant 片段选择，以及把生产 Tool Result Pruner 接入该 Replace 事务。
 
 - [ ] `P0-13` **Platform Readiness 与动态工具投影。** 模型请求侧已完成：Host 缓存
   Sandbox/Search/PTY Readiness，并在每个 Step 只发送实际可用工具；已确认失败的 Sandbox 不会
@@ -306,9 +389,15 @@ Commit、Issue、PR 应引用这些 ID。
   **已完成 Compact 抽象切片：** 新增 `xharness-compaction`；默认参数对齐上游
   `threshold=0.8 / retain=0.16 / maxTokens=8192 / retries=1 / overflowRetries=1`；实现精确
   Model Route 覆盖、Pressure/Overflow/Manual 规划、Tool Call/Result 安全切点、Unicode Tool
-  Result Pruner、Checkpoint Frame 与 `CompactionSummarizer` Trait。**剩余：** Session
-  `compaction/*` + Surface Replace 事务、Provider typed overflow、摘要结果重新计量、Core/Host
-  自动触发和手动 `/compact`、Web 投影及崩溃恢复。
+  Result Pruner、Checkpoint Frame 与 `CompactionSummarizer` Trait。Chat/Responses 的 Provider
+  原生完整请求 Token 计数也已接入，不支持时回退保守 Meter。
+  **已完成生产接线：** Session 强类型 `compaction/start|summary|end|prune`、Checkpoint
+  `surfaceReplace`、当前 Surface 投影、Start/成功批次/End/Flush 事务、未闭合 Start 恢复、摘要
+  变小校验、完成后重新计量、请求前 Pressure/Hard Overflow、Provider 400 Context Overflow
+  恢复、正式 Durable Host 默认启用、Web `surfaceOp={op:replace,start,end}` 投影及回归测试。
+  **剩余：** 手动 `/compact`、Purpose 路由到独立摘要模型、生产 Tool Result Pruner Replace、
+  Provider 结构化错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点矩阵和按模型本地精确
+  Tokenizer。
 
 - [ ] `P1-04` **动态 Tool Projection。** 每个 Profile/Step 只发送相关工具，同时保持 Schema
   稳定。与始终发送 14 工具比较 Token/Cache 消耗和工具选择质量。
@@ -333,7 +422,8 @@ Commit、Issue、PR 应引用这些 ID。
   更好的正文提取、Cache，以及作为独立高信任 Capability 的可选登录态 Browser。
 
 - [ ] `P1-11` **Session Branch 与 Projection。** 从 Revision Fork、不可变 Ancestry、命名
-  Branch、Inspect/Query API、Compaction Surface Event、确定性 Transcript Export/Import。
+  Branch、Inspect/Query API 和确定性 Transcript Export/Import。Compaction Surface Event 与
+  Web Replace 投影已经由 `DONE-57` 完成，不再属于本项缺口。
 
 - [ ] `P1-12` **资源 Policy。** CPU/Memory/File/Process/Output Quota、Per-tool Policy、
   条件允许时接 Linux cgroup v2，并让 Quota Failure 可观测。
@@ -351,7 +441,10 @@ Commit、Issue、PR 应引用这些 ID。
 
 - [ ] `P2-03` **Web UI 完整投影。** 继续把 DeepSeek Harness UI 作为 Client Projection：
   Session、流式 Reasoning/Text、Tool Card、Approval、Terminal、File、Web Source、Usage、
-  Recovery State。
+  Recovery State。模型性能字段按 [`specs/metrics-projection.md`](specs/metrics-projection.md)
+  已完成 M1–M3：单次 Usage camelCase、`tokenUsage` 与 `sessionStats` 的 Live、History、
+  Session List 和 Restart 等价投影均由 `DONE-61` 关闭，现有前端可以恢复 TTFT、Token/s、
+  Token 总量和 Cache Hit。此项继续跟踪非模型指标的 Terminal/File/Web Source 等完整投影。
 
 - [ ] `P2-04` **Host 认证与授权。** 默认仅本地；远程使用 Bearer/Session Auth、Workspace/
   Owner 隔离、CSRF/Origin Policy、Audit Log 和显式 Network Exposure。
@@ -363,7 +456,9 @@ Commit、Issue、PR 应引用这些 ID。
   `0700/0600` 权限；Host App 已支持 `XHARNESS_DEBUG_TRACE=full`、`XHARNESS_DEBUG_DIR` 及
   Start/Restore/Listening/Exit；同一 Recorder 已贯通 Core Context/Loop、OpenAI Wire/SSE、Tool Pipeline、
   Process 原始输出、PTY、Sandbox、Web Search/Fetch 和 Server RPC/WebSocket，并补跨层测试。
-  **剩余：** Trace Rotation/Retention、TTFT/TPOT 聚合、Diagnostic Bundle 和 OpenTelemetry Adapter。
+  `DONE-61` 已完成 Web 兼容 `tokenUsage/sessionStats` 确定性聚合。**剩余：** Trace
+  Rotation/Retention、TPOT、Diagnostic Bundle 和 OpenTelemetry Adapter。Provider 专有 Timing
+  只进入诊断命名空间，不覆盖统一事件时间口径。
 
 - [ ] `P2-06` **Settings 与 Profile。** Versioned YAML/TOML Profile、有序 Patch Layer、
   Validation/Dump、Migration，以及 Model/Tool/Policy Preset。

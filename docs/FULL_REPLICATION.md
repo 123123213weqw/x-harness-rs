@@ -1,6 +1,7 @@
 # XHarness 全面复刻主控计划
 
 **建立日期：** 2026-08-21  
+**状态更新：** 2026-08-25
 **冻结兼容基线：** `deepseek-harness@141eb6fef8`  
 **已发现上游远端 HEAD：** `b150a551b8d4`（尚未纳入兼容基线）  
 **执行原则：** 复刻可观察行为、协议和生命周期，不逐行翻译 TypeScript，也不复制 Cordis/HMR。
@@ -60,22 +61,26 @@ DeepSeek Web UI / CLI / ACP
 | 里程碑 | 目标 | 当前状态 | 阻塞后续 |
 | --- | --- | --- | --- |
 | `M00` | 冻结上游目录、RPC、事件、工具、Prompt、Settings 兼容基线 | 已完成 | 全部 |
-| `M01` | 持久 Agent 接管 Web Host，重启不丢输入、不重复副作用 | 进行中 | Web、Subagent |
-| `M02` | 统一 Tool Runtime、Execution ID 和结构化 Shutdown | 部分完成 | MCP、Jobs |
-| `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | 部分完成（最小 Prompt 与硬 Token Guard 已实现） | 长上下文、质量 |
-| `M04` | Linux/macOS 原生工具、Readiness 和动态工具投影 | 部分完成（模型请求侧已动态投影） | 日常使用 |
-| `M05` | Web 持久状态、游标续传、认证和完整 UI Projection | 部分完成 | 产品发布 |
+| `M01` | 持久 Agent 接管 Web Host，重启不丢输入、不重复副作用 | **主链路已完成**；非 Prompt Mutation Receipt 转入 M05 | Web、Subagent |
+| `M02` | 统一 Tool Runtime、Execution ID 和结构化 Shutdown | 生产路径已完成；只剩 Core 旧兼容 API 删除 | MCP、Jobs |
+| `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | Registry 基线、最小 Prompt、原生计数、Hard Guard 与自动 Pressure/Overflow 已完成；手动/Pruner/Purpose 路由待完成 | 长上下文、质量 |
+| `M04` | Linux/macOS 原生工具、Readiness 和动态工具投影 | 原生工具和模型侧投影已完成；Web Readiness/发布验证未完成 | 日常使用 |
+| `M05` | Web 持久状态、游标续传、认证和完整 UI Projection | 权威 History/Queue/部分 Receipt 已完成；Cursor/Auth/完整投影未完成 | 产品发布 |
 | `M06` | Git、MCP、Skills、LSP、本地代码索引 | 未开始 | 高级 Coding |
 | `M07` | 多模态、Blob、Session Branch/Import/Export | 未开始 | 多模态 Agent |
 | `M08` | Subagent、Workflow、Scheduler、Remote Execution | 未开始 | 团队 Agent |
-| `M09` | 安装包、签名、公证、观测、配额、Fuzz 和安全发布 | 部分完成 | 正式版 |
+| `M09` | 安装包、签名、公证、观测、配额、Fuzz 和安全发布 | Full Debug Trace 和 ARM64 CI 已完成；发行门禁未完成 | 正式版 |
 
-任何时刻只有一条阻塞链作为主要开发线：
+当前只保留一条面向本地单用户产品的主要阻塞链：
 
 ```text
-M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
-        → M04 平台工具 → M05 Web 产品 → M06/M07 → M08 → M09
+M02 删除 Core 旧 Tool 兼容 API → M05 Credential/Cursor
+    → M04/M09 安装发布 → M06/M07 生态 → M08 多 Agent
 ```
+
+M00 与 M01 已不再阻塞正式 Host 主链路；M02 的生产 Tool Runtime、身份与结构化终止
+已完成，当前只剩旧 Core 兼容 API 删除。MCP/Skills/LSP/Subagent 不阻塞单用户
+Coding Agent 日常使用。
 
 ## 五、当前执行批次
 
@@ -135,9 +140,13 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
   协议重放使用 Provider ID，Journal/Approval/Result 使用 Execution ID。
 - [x] `B-03` Approval、Journal、Middleware、Event、Result 全链使用同一 Durable Execution ID；
   Provider Call ID 只保留在线协议重放路径。Core 的重复调度/审批删除继续由 `B-01` 跟踪。
-- [ ] `B-04` Provider/Tool/Process 放入结构化 Task Scope。
-- [ ] `B-05` Cancel 先 Signal，再 Join/强制清理，最后发布终态。
-- [ ] `B-06` 逃逸后代、Runtime Drop、Handler Abort 和迟到副作用回归。
+- [x] `B-04` Provider/Tool/Process 放入结构化所有权链；Agent Supervisor 负责共享
+  Shutdown Deadline，正式 Tool Batch 和 Process Handle 负责内层 Join。
+- [x] `B-05` Cancel 先 Signal，再 Join/强制清理，最后发布终态；超时是
+  `CleanupTimeout/ForcedCleanup`，Host 不会将其报告为成功退出。
+- [x] `B-06` 逃逸后代、Runtime Drop、Handler Abort、Bash Result 与 Process Death 顺序、
+  活动 Provider Stream、持久 PTY 和真实 SIGTERM 回归。`FullAccess setsid()` 逃逸的硬回收
+  仍明确属于受限 Sandbox/PID Namespace，不虚假扩大 Process Group 能力边界。
 
 ### Batch C：Prompt、Context、Token、Provider
 
@@ -147,7 +156,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [ ] `C-03` 实现 Provider/Model/Purpose Registry 和能力发现。Provider/Model 多路由、公共
   Route 与上游模型名分离、每路由 Token Guard、JSON 配置和 Web 目录已实现；Purpose、
   Reasoning 原生控制与模型 Capability 发现仍待完成。
-- [x] `C-04` 实现 Tokenizer 抽象与安全估算后备。
+- [x] `C-04` 实现 Tokenizer 抽象与安全估算后备；Chat/Responses Provider 原生完整请求输入计数
+  已接入，404/405/501 时缓存 Capability Miss 并回退保守 Meter。
 - [x] `C-05` Provider I/O 前计量 System/消息/工具 Schema/协议模板/输出预留。
 - [x] `C-06` 固化 `64196 > 53248` 为 Provider Attempt=0 的回归。
 - [ ] `C-07` 分页 Read、Tool Result Spill 和 Head/Relevant/Tail Surface。分页 Read、版本绑定
@@ -198,7 +208,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [ ] `G-04` Remote Platform/Workspace Sync/Capability Attestation。
 - [ ] `G-05` Linux `.deb` 干净 VM 矩阵、AppArmor/bwrap 安装后探测。
 - [ ] `G-06` macOS 签名、公证、安装、Web TLS 和真实 Provider Loop。
-- [ ] `G-07` OpenTelemetry、TTFT/TPOT、Token/Cache/Tool 指标和配额。
+- [ ] `G-07` OpenTelemetry、TTFT/TPOT、Token/Cache/Tool 指标和配额。默认 Noop/显式 Full 的
+  Secret-safe Debug Trace 已贯通 Host/Core/Provider/Tool/Process/PTY/Sandbox/Web/Server；聚合指标、
+  Rotation/Retention、Diagnostic Bundle 和 OTel Adapter 尚未完成。
 - [ ] `G-08` Fuzz、Fault Injection、Benchmark、SBOM、License、签名构件。
 
 ## 六、上游同步规则
