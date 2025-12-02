@@ -29,6 +29,7 @@ use crate::{
     control::SessionMutationResponse,
     control::{settings_snapshot, workspace_snapshot},
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
+    metrics::MetricsProjectionState,
     restore::{project_session_event_range, project_session_history},
     runtime::{AgentRuntimeError, ModelRoute},
     state::{
@@ -703,6 +704,7 @@ impl BasicHost {
             events: Vec::new(),
             event_base_seq: 0,
             event_cache_bytes: 0,
+            metrics: MetricsProjectionState::default(),
             messages: Vec::new(),
             queue: Default::default(),
             projected_queue: Default::default(),
@@ -1073,6 +1075,11 @@ impl BasicHost {
         let child_event_bytes = child_events.iter().fold(0usize, |total, event| {
             total.saturating_add(serde_json::to_vec(event).map_or(0, |encoded| encoded.len()))
         });
+        let child_metrics = if durable_events.is_some() {
+            MetricsProjectionState::default()
+        } else {
+            MetricsProjectionState::rebuild(child_events.iter())
+        };
         let child = SessionRecord {
             session_id: child_id.clone(),
             created_at: now,
@@ -1091,6 +1098,7 @@ impl BasicHost {
             events: child_events,
             event_base_seq: 0,
             event_cache_bytes: child_event_bytes,
+            metrics: child_metrics,
             messages: child_messages,
             queue: Default::default(),
             projected_queue: Default::default(),

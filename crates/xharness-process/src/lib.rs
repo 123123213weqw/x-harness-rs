@@ -44,6 +44,7 @@ use xharness_debug::{DebugEvent, DebugRecorder};
 
 pub const DEFAULT_CAPTURE_LIMIT: usize = 256 * 1024;
 pub const DEFAULT_TERMINATION_GRACE: Duration = Duration::from_secs(2);
+pub const DEFAULT_CAPTURE_DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// One explicit process invocation.
 ///
@@ -58,6 +59,10 @@ pub struct SpawnSpec {
     pub env: BTreeMap<OsString, OsString>,
     pub timeout: Option<Duration>,
     pub termination_grace: Duration,
+    /// Maximum time to wait for stdout/stderr EOF after the root and managed
+    /// process group have stopped. Expiry is a cleanup failure rather than a
+    /// successful process result: an escaped descendant may still own a pipe.
+    pub capture_drain_grace: Duration,
     pub stdout_limit: usize,
     pub stderr_limit: usize,
     /// Diagnostic-only parent identity, normally the Tool execution id.
@@ -73,6 +78,7 @@ impl SpawnSpec {
             env: BTreeMap::new(),
             timeout: None,
             termination_grace: DEFAULT_TERMINATION_GRACE,
+            capture_drain_grace: DEFAULT_CAPTURE_DRAIN_GRACE,
             stdout_limit: DEFAULT_CAPTURE_LIMIT,
             stderr_limit: DEFAULT_CAPTURE_LIMIT,
             debug_parent: None,
@@ -105,6 +111,11 @@ impl SpawnSpec {
 
     pub fn termination_grace(mut self, grace: Duration) -> Self {
         self.termination_grace = grace;
+        self
+    }
+
+    pub fn capture_drain_grace(mut self, grace: Duration) -> Self {
+        self.capture_drain_grace = grace;
         self
     }
 
@@ -206,6 +217,39 @@ pub enum ProcessError {
         stream: &'static str,
         message: String,
     },
+    #[error(
+        "process output did not reach EOF within {grace_ms} ms after termination; an escaped descendant may still hold the pipes"
+    )]
+    CaptureDrainTimedOut { grace_ms: u128 },
+}
+
+/// Synchronous last-resort process-group cleanup. Tokio aborts spawned tasks
+/// when a Runtime is dropped; keeping this guard inside the supervisor makes
+/// that abort path kill the managed group instead of relying on async Drop.
+struct ProcessGroupGuard {
+    process_group: Pid,
+    armed: bool,
+}
+
+impl ProcessGroupGuard {
+    const fn new(process_group: Pid) -> Self {
+        Self {
+            process_group,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = killpg(self.process_group, Signal::SIGKILL);
+        }
+    }
 }
 
 /// Stateless Unix process launcher.
@@ -331,8 +375,8 @@ impl ProcessRuntime {
 }
 
 /// An owned running process. Dropping it requests cooperative cancellation;
-/// the detached supervisor remains alive until the whole process group is
-/// reaped or killed.
+/// the detached supervisor remains alive until the managed process group and
+/// bounded output drains settle or report an explicit cleanup failure.
 #[must_use = "dropping a process handle cancels the process; call wait() to collect its result"]
 pub struct ProcessHandle {
     pid: u32,
@@ -411,6 +455,7 @@ async fn supervise(
     debug: DebugRecorder,
     diagnostic_spec: Value,
 ) -> Result<ProcessOutput, ProcessError> {
+    let mut process_group_guard = ProcessGroupGuard::new(process_group);
     debug
         .record_lossy(DebugEvent::new(
             "process",
@@ -418,14 +463,14 @@ async fn supervise(
             json!({"pid": pid, "spec": diagnostic_spec}),
         ))
         .await;
-    let stdout_task = tokio::spawn(capture(
+    let mut stdout_task = tokio::spawn(capture(
         stdout,
         spec.stdout_limit,
         debug.clone(),
         pid,
         "stdout",
     ));
-    let stderr_task = tokio::spawn(capture(
+    let mut stderr_task = tokio::spawn(capture(
         stderr,
         spec.stderr_limit,
         debug.clone(),
@@ -434,6 +479,7 @@ async fn supervise(
     ));
     let timeout_duration = spec.timeout;
     let termination_grace = spec.termination_grace;
+    let capture_drain_grace = spec.capture_drain_grace;
     let timeout = async move {
         match timeout_duration {
             Some(duration) => time::sleep(duration).await,
@@ -466,9 +512,22 @@ async fn supervise(
         ),
     };
 
-    let (stdout_result, stderr_result) = tokio::join!(stdout_task, stderr_task);
+    let captures = async { tokio::join!(&mut stdout_task, &mut stderr_task) };
+    let (stdout_result, stderr_result) = match time::timeout(capture_drain_grace, captures).await {
+        Ok(results) => results,
+        Err(_) => {
+            stdout_task.abort();
+            stderr_task.abort();
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            return Err(ProcessError::CaptureDrainTimedOut {
+                grace_ms: capture_drain_grace.as_millis(),
+            });
+        }
+    };
     let stdout = capture_result("stdout", stdout_result)?;
     let stderr = capture_result("stderr", stderr_result)?;
+    process_group_guard.disarm();
     let output = ProcessOutput {
         pid,
         status: status.into(),
@@ -599,6 +658,7 @@ fn spawn_spec_payload(spec: &SpawnSpec) -> Value {
         "env": env,
         "timeoutMs": spec.timeout.map(|duration| duration.as_millis()),
         "terminationGraceMs": spec.termination_grace.as_millis(),
+        "captureDrainGraceMs": spec.capture_drain_grace.as_millis(),
         "stdoutLimit": spec.stdout_limit,
         "stderrLimit": spec.stderr_limit,
         "parent": &spec.debug_parent,

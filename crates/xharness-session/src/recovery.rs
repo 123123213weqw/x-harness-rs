@@ -2,6 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{EventData, LoggedEvent, Session, SessionEvent, ToolCall, ToolOutcome, ToolResultData};
 
+pub const COMPACTION_INTERRUPTED_ERROR: &str =
+    "compaction was interrupted before an authoritative replacement was committed";
+
 pub const OUTCOME_UNKNOWN_CONTENT: &str = "Tool outcome is unknown because the call was durably recorded but no authoritative result survived. Do not assume the operation did not run; verify external state before retrying non-idempotent work.";
 
 /// Description of a tool call lacking a durable result.
@@ -140,10 +143,48 @@ pub fn outcome_unknown_recovery(events: &[LoggedEvent]) -> Vec<SessionEvent> {
         .collect()
 }
 
+/// Close every started compaction that has no durable end marker. The normal
+/// coordinator appends summary + replacement + successful end atomically, so
+/// an unmatched start is always a failed, surface-neutral attempt.
+pub fn interrupted_compaction_recovery(events: &[LoggedEvent]) -> Vec<SessionEvent> {
+    let ended = events
+        .iter()
+        .filter_map(|event| match event.data() {
+            EventData::CompactionEnd { compaction_id, .. } => Some(compaction_id.as_str()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    events
+        .iter()
+        .filter_map(|event| match event.data() {
+            EventData::CompactionStart {
+                compaction_id,
+                source_command_id,
+                turn,
+            } if !ended.contains(compaction_id.as_str()) => Some(
+                EventData::CompactionEnd {
+                    compaction_id: compaction_id.clone(),
+                    source_command_id: source_command_id.clone(),
+                    turn: *turn,
+                    error: Some(COMPACTION_INTERRUPTED_ERROR.to_owned()),
+                }
+                .into(),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
 impl Session {
     /// Pure recovery candidates for the current immutable log snapshot.
     pub fn outcome_unknown_recovery(&self) -> Vec<SessionEvent> {
         outcome_unknown_recovery(self.events())
+    }
+
+    /// Close interrupted, surface-neutral compaction attempts before normal
+    /// turn/step lifecycle recovery proceeds.
+    pub fn interrupted_compaction_recovery(&self) -> Vec<SessionEvent> {
+        interrupted_compaction_recovery(self.events())
     }
 
     /// Undecided, tool-bound approvals that can be resumed interactively.

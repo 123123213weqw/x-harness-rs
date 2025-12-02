@@ -1,9 +1,11 @@
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
+    task::Poll,
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -11,8 +13,8 @@ use futures::stream;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_agent::{
-    AgentEvent, AgentRegistry, AgentSupervisor, DurableAgentHandle, InboxMessage,
-    MemoryLeaseManager, TurnRequestFactory,
+    AgentEvent, AgentRegistry, AgentShutdownOutcome, AgentSupervisor, DurableAgentHandle,
+    InboxMessage, MemoryLeaseManager, TurnRequestFactory,
 };
 use xharness_core::{
     AgentMessage, FinishReason, LoopRequest, ModelProvider, ProviderError, ProviderEvent,
@@ -41,6 +43,40 @@ impl ModelProvider for ScriptProvider {
 
 struct Factory {
     provider: Arc<dyn ModelProvider>,
+}
+
+struct StreamDropGuard(Arc<AtomicBool>);
+
+impl Drop for StreamDropGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+struct HangingProvider {
+    polled: Arc<tokio::sync::Notify>,
+    stream_dropped: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl ModelProvider for HangingProvider {
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+        _cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        let polled = Arc::clone(&self.polled);
+        let guard = StreamDropGuard(Arc::clone(&self.stream_dropped));
+        let mut first = true;
+        Ok(Box::pin(stream::poll_fn(move |_context| {
+            let _ = &guard;
+            if first {
+                first = false;
+                polled.notify_one();
+            }
+            Poll::Pending
+        })))
+    }
 }
 
 #[derive(Clone, Default)]
@@ -335,4 +371,52 @@ async fn supervisor_publishes_only_one_worker_per_agent() {
         .await
         .unwrap();
     assert!(first.is_same_worker(&second));
+    let report = supervisor.shutdown(Duration::from_secs(1)).await;
+    assert_eq!(report.workers, 1);
+    assert_eq!(report.graceful, 1);
+    assert_eq!(report.forced_cleanup, 0);
+    assert!(supervisor
+        .activate(SessionHeader::new("after-shutdown"))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn handle_shutdown_waits_until_the_active_provider_stream_is_dropped() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("shutdown-active"))
+        .await
+        .unwrap();
+    let polled = Arc::new(tokio::sync::Notify::new());
+    let stream_dropped = Arc::new(AtomicBool::new(false));
+    let provider: Arc<dyn ModelProvider> = Arc::new(HangingProvider {
+        polled: Arc::clone(&polled),
+        stream_dropped: Arc::clone(&stream_dropped),
+    });
+    let handle = DurableAgentHandle::start(activation, Arc::new(Factory { provider }), 64);
+    handle
+        .followup(InboxMessage::user("shutdown-prompt", "wait forever"))
+        .await
+        .unwrap();
+    polled.notified().await;
+
+    let outcome = handle.shutdown(Duration::from_secs(2)).await;
+    assert_eq!(outcome, AgentShutdownOutcome::Graceful);
+    assert!(stream_dropped.load(Ordering::Acquire));
+    assert!(store
+        .load("shutdown-active")
+        .await
+        .unwrap()
+        .unwrap()
+        .events()
+        .iter()
+        .any(|event| matches!(
+            event.data(),
+            xharness_session::EventData::TurnEnd {
+                reason: xharness_session::TurnEndReason::Cancelled,
+                ..
+            }
+        )));
 }

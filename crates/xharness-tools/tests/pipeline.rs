@@ -17,8 +17,8 @@ use xharness_tools::{
     ExecutorConfigError, FinalizeMiddleware, GuardDecision, MiddlewareError, MonotonicGuard,
     PostMiddleware, PreMiddleware, RegistryError, ToolBatchEvent, ToolBatchRequest,
     ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolExecutor, ToolFailureKind,
-    ToolLifecycle, ToolObserver, ToolOutcome, ToolOutput, ToolRegistry, ToolRequest, ToolResult,
-    ToolSpec,
+    ToolHandlerError, ToolLifecycle, ToolObserver, ToolOutcome, ToolOutput, ToolRegistry,
+    ToolRequest, ToolResult, ToolSpec,
 };
 
 fn definition(name: &str) -> ToolDefinition {
@@ -483,8 +483,8 @@ async fn timeout_and_handler_panic_are_materialized() {
     let registry = Arc::new(ToolRegistry::new());
     registry
         .register(
-            ToolSpec::new(definition("slow"), |_context| async move {
-                tokio::time::sleep(Duration::from_secs(60)).await;
+            ToolSpec::new(definition("slow"), |context| async move {
+                context.cancellation.cancelled().await;
                 Ok(ToolOutput::text("late"))
             })
             .with_timeout(Duration::from_millis(5)),
@@ -1040,6 +1040,49 @@ async fn batch_cancel_waits_for_each_cooperative_handler_to_quiesce() {
     assert!(results
         .iter()
         .all(|result| result.result.failure_kind() == Some(ToolFailureKind::Cancelled)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn uncooperative_handler_is_reported_as_cleanup_timeout() {
+    let entered = Arc::new(Notify::new());
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(ToolSpec::new(definition("uncooperative"), {
+            let entered = Arc::clone(&entered);
+            move |_context| {
+                let entered = Arc::clone(&entered);
+                async move {
+                    entered.notify_one();
+                    std::future::pending::<Result<ToolOutput, ToolHandlerError>>().await
+                }
+            }
+        }))
+        .await
+        .unwrap();
+    let executor = ToolExecutor::new(registry);
+    let mut batch = executor
+        .start_batch(
+            vec![ToolBatchRequest::new(
+                0,
+                ToolRequest::new("uncooperative", r#"{"value":"x"}"#)
+                    .with_execution_id("cleanup-timeout")
+                    .unwrap(),
+            )],
+            1,
+        )
+        .await
+        .unwrap();
+    entered.notified().await;
+    batch.cancel();
+    tokio::time::advance(Duration::from_secs(6)).await;
+    while batch.next_event().await.is_some() {}
+    let results = batch.result().await.unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0].result.failure_kind(),
+        Some(ToolFailureKind::CleanupTimeout)
+    );
 }
 
 #[tokio::test]
