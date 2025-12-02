@@ -2,8 +2,7 @@
 
 **涉及 Crate：** `xharness-core`、`xharness-provider-openai`、`xharness-session`、
 `xharness-host`  
-**状态：** M1–M3 已实现并通过全 Workspace 门禁；M4 的本机 Web + V100 27B
-真实端点验证进行中，M5 仍属于后续可观测性扩展。  
+**状态：** M1–M4 已实现并验证；M5 仍属于后续可观测性扩展。  
 **兼容目标：** DeepSeek Harness Web 当前使用的 `TokenUsage`、`tokenUsage` 和
 `sessionStats` 契约。
 
@@ -189,13 +188,21 @@ Message 的部分流不进入耗时聚合；`turn/end` 必须清理未完成的 
 3. 覆盖 Retry、Cancel、Failed、Limit Reached 和未完成 Tool Call。
 4. 验证前端显示平均 TTFT、Token/s、LLM/Tool Duration。
 
-### M4：真实端点与性能验证（P1）
+### M4：真实端点与性能验证（P1，已完成）
 
 1. 用本机 Web + V100 27B 真实流跑一轮纯文本和一轮工具调用。
 2. 对照 Session Event 手工复算 TTFT 与 Token/s，误差不得超过事件毫秒精度。
 3. 重启 Host、刷新页面、翻 History，数值必须保持一致。
 4. Provider 未报告 Cache 时验证指标为 0/隐藏；报告 Cached Tokens 的 Fixture 必须显示正确百分比。
 5. 测量万级 Event 的重建时间和每事件增量开销；如需要再增加版本化 Projection Checkpoint。
+
+2026-08-27 验证结果：本机 3082 Host 使用 GitHub 原生 Apple Silicon Runner 生成的 ARM64
+Release，在双 V100 的 Qwen3.8-27B 真实端点完成新 Session 纯文本流。结果为 TTFT 4481 ms、
+Decode 207 ms/36 Token（约 173.9 Token/s）、总 LLM 4688 ms，Usage 为 1572 Input/36 Output；
+单次 Usage 只含 camelCase。随后强制重启 LaunchAgent，重启前后 Projection JSON 字节级相等。
+既有真实工具 Session 从完整日志恢复为 9 Steps、121984 ms Tool、36989 Cache Read Token，证明
+工具耗时、Cache 与长历史重建路径同时生效。GitHub Linux/macOS ARM64 CI 和 WZU_Server 全
+Workspace Fmt、Check、Test、Clippy `-D warnings` 全部通过。
 
 ### M5：可观测性扩展（P2）
 

@@ -259,7 +259,9 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   Web camelCase 契约；Live、History、Restart 与 Ephemeral 路径共用同一算法。TTFT、Decode
   Token/s、Token/Cache Accounting、LLM/Tool Duration 均从权威 Session Event 重建，同一步
   Usage 采用后样本替换而不重复累计；缺失 Provider Usage 时不伪造吞吐。WZU_Server 全
-  Workspace Fmt、Check、Test 和 Clippy `-D warnings` 已通过。
+  Workspace Fmt、Check、Test 和 Clippy `-D warnings` 已通过；GitHub Linux 与原生 macOS
+  ARM64 CI 通过并生成 Release。新版本已部署到本机 3082，双 V100 27B 真实流与强制重启前后
+  Projection 等价验证均通过。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
