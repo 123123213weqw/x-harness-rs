@@ -359,10 +359,10 @@ impl SessionRecord {
             }),
         );
         if let Some(title) = &self.title {
-            values.insert(
-                "sessionTitle".to_owned(),
-                json!({"title": title, "source": {"kind": "user"}}),
-            );
+            // The Web runtime reads the frozen generic `title` projection and
+            // expects its value to be the display string itself. The durable
+            // `session/title` event retains source metadata separately.
+            values.insert("title".to_owned(), json!(title));
         }
         values.insert("permissions".to_owned(), self.permission_preset.select());
         values.insert(
