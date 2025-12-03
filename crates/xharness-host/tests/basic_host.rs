@@ -1127,6 +1127,17 @@ async fn every_upstream_rpc_has_baseline_behavior() {
         json!({"sessionId": session_id, "title": "  Rust session  "}),
     )
     .await;
+    let listed = fx.value(RpcMethod::SessionList, json!({})).await;
+    let renamed = listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["sessionId"] == session_id)
+        .expect("renamed session remains listed");
+    assert_eq!(renamed["projections"]["values"]["title"], "Rust session");
+    assert!(renamed["projections"]["values"]
+        .get("sessionTitle")
+        .is_none());
     fx.value(
         RpcMethod::SessionPrompt,
         json!({
