@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use xharness_agent::InboxProjection;
 use xharness_session::{
-    AssistantChunk, EventData, LoggedEvent, Message, MessageRole, Session, Store, StoreError,
-    ToolOutcome, TurnEndReason,
+    AssistantChunk, EventData, LoggedEvent, Message, MessageRole, RequestHeader, Session, Store,
+    StoreError, ToolOutcome, TurnEndReason,
 };
 
 use crate::{
@@ -541,13 +541,14 @@ pub(crate) fn project_session_event_tail(
 ) -> ProjectedEventTail {
     let end = session.events().len();
     let prompts = prompt_views(session);
+    let initial_request_header_seq = initial_request_header_seq(session);
     let max_events = max_events.max(1);
     let max_bytes = max_bytes.max(1);
     let mut reversed = Vec::new();
     let mut bytes = 0usize;
 
     for event in session.events().iter().rev().take(max_events) {
-        let projected = restored_web_event(event, route, &prompts);
+        let projected = restored_web_event(event, route, &prompts, initial_request_header_seq);
         let event_bytes = serde_json::to_vec(&projected)
             .map(|encoded| encoded.len())
             .unwrap_or(max_bytes.saturating_add(1));
@@ -607,10 +608,17 @@ fn project_session_event_range_with_prompts(
 ) -> Vec<Value> {
     let end = end.min(session.events().len());
     let start = start.min(end);
+    let initial_request_header_seq = initial_request_header_seq(session);
     session.events()[start..end]
         .iter()
-        .map(|event| restored_web_event(event, route, prompts))
+        .map(|event| restored_web_event(event, route, prompts, initial_request_header_seq))
         .collect()
+}
+
+fn initial_request_header_seq(session: &Session) -> Option<u64> {
+    session.events().iter().find_map(|event| {
+        matches!(event.data(), EventData::RequestHeader { .. }).then_some(event.seq)
+    })
 }
 
 fn prompt_views(session: &Session) -> BTreeMap<String, PromptView> {
@@ -637,11 +645,11 @@ fn restored_web_event(
     event: &LoggedEvent,
     route: &ModelRoute,
     prompts: &BTreeMap<String, PromptView>,
+    initial_request_header_seq: Option<u64>,
 ) -> Value {
     let (event_type, data, surface_op) = match event.data() {
         EventData::AgentPresetSelected { .. }
         | EventData::SessionModelSelected { .. }
-        | EventData::RequestHeader { .. }
         | EventData::ApprovalAsked { .. }
         | EventData::ApprovalDecided { .. }
         | EventData::PermissionPreset { .. }
@@ -658,6 +666,9 @@ fn restored_web_event(
         | EventData::CompactionSummary { .. }
         | EventData::CompactionEnd { .. }
         | EventData::CompactionPrune { .. } => tagged_event_data(event.data()),
+        EventData::RequestHeader { header } => {
+            web_request_header(header, initial_request_header_seq == Some(event.seq))
+        }
         EventData::AgentInboxSpliced {
             target,
             start,
@@ -825,6 +836,51 @@ fn tagged_event_data(event: &EventData) -> (String, Value, Option<Value>) {
     (event_type, data, None)
 }
 
+/// Project the durable provider-neutral request snapshot into the upstream Web
+/// request-header shape while retaining XHarness' exact message input and
+/// policy/budget audit fields as additive extensions. The ordinary Trajectory
+/// client consumes `config/system/tools`; the Context Inspector consumes
+/// `input/options`. Keeping both in one immutable event guarantees that the
+/// two views describe the same provider call.
+fn web_request_header(header: &RequestHeader, initial: bool) -> (String, Value, Option<Value>) {
+    let mut config = json!({
+        "provider": header.provider,
+        "model": header.model,
+    });
+    if let Some(reasoning_effort) = &header.reasoning_effort {
+        config
+            .as_object_mut()
+            .expect("request config is an object")
+            .insert(
+                "reasoningEffort".to_owned(),
+                Value::String(reasoning_effort.clone()),
+            );
+    }
+
+    let mut web_header = json!({
+        "config": config,
+        "tools": header.tools,
+        "input": header.input,
+        "options": header.options,
+        "xharnessVersion": 1,
+    });
+    if let Some(system) = &header.system {
+        web_header
+            .as_object_mut()
+            .expect("request header is an object")
+            .insert("system".to_owned(), Value::String(system.clone()));
+    }
+
+    (
+        "request/header".to_owned(),
+        json!({
+            "header": web_header,
+            "reason": if initial { "initial" } else { "change" },
+        }),
+        None,
+    )
+}
+
 fn web_turn(turn: u32) -> u32 {
     // Durable loop turns are one-based while the upstream Web surface starts
     // at zero. Keeping this conversion here makes replay and live continuation
@@ -835,6 +891,7 @@ fn web_turn(turn: u32) -> u32 {
 fn web_turn_end(reason: &TurnEndReason) -> Value {
     match reason {
         TurnEndReason::Completed => json!({"kind": "completed"}),
+        TurnEndReason::MaxTokens => json!({"kind": "max-tokens"}),
         TurnEndReason::Cancelled => json!({"kind": "cancelled"}),
         TurnEndReason::LimitReached => json!({"kind": "max-steps"}),
         TurnEndReason::Failed { error } => json!({
@@ -1511,6 +1568,13 @@ mod tests {
         store.create(header).await.unwrap();
         let mut request_header = RequestHeader::new("test", "test-model");
         request_header.reasoning_effort = Some("high".to_owned());
+        request_header.system = Some("system prompt".to_owned());
+        request_header.tools = vec![json!({"name": "read", "description": "Read a file"})];
+        request_header.input = vec![Message::user("hello")];
+        request_header.options.insert(
+            "tokenBudget".to_owned(),
+            json!({"contextWindowTokens": 53_248}),
+        );
         store
             .append(
                 "history-session",
@@ -1564,6 +1628,28 @@ mod tests {
         assert_eq!(session.events.len(), 7);
         assert_eq!(session.events[0]["type"], "turn/start");
         assert_eq!(session.events[0]["data"]["turn"], 0);
+        let projected_header = session
+            .events
+            .iter()
+            .find(|event| event["type"] == "request/header")
+            .expect("request/header is projected for the Web client");
+        assert_eq!(
+            projected_header["data"]["header"]["config"],
+            json!({
+                "provider": "test",
+                "model": "test-model",
+                "reasoningEffort": "high",
+            })
+        );
+        assert_eq!(projected_header["data"]["reason"], "initial");
+        assert_eq!(
+            projected_header["data"]["header"]["input"][0]["content"],
+            "hello"
+        );
+        assert_eq!(
+            projected_header["data"]["header"]["options"]["tokenBudget"]["contextWindowTokens"],
+            53_248
+        );
         assert!(
             session.summary().get("origin").is_none(),
             "ordinary restored sessions must remain compatible with the Web session.list origin enum"
@@ -3163,5 +3249,13 @@ mod tests {
             })
             .expect("durable delta exists after the semantic boundary");
         assert_eq!(live_seq, durable_seq);
+    }
+
+    #[test]
+    fn max_tokens_is_projected_as_the_upstream_first_class_turn_reason() {
+        assert_eq!(
+            web_turn_end(&TurnEndReason::MaxTokens),
+            json!({"kind": "max-tokens"})
+        );
     }
 }

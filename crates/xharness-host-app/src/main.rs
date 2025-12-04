@@ -68,6 +68,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
                 protocol: args.protocol,
                 context_window_tokens: args.context_window_tokens,
                 max_output_tokens: args.max_output_tokens,
+                minimum_output_tokens: args.minimum_output_tokens,
                 token_safety_margin: args.token_safety_margin,
             },
             debug.clone(),
@@ -229,6 +230,7 @@ struct Args {
     state_dir: PathBuf,
     context_window_tokens: Option<u64>,
     max_output_tokens: u64,
+    minimum_output_tokens: Option<u64>,
     token_safety_margin: u64,
     providers_file: Option<PathBuf>,
     compaction: Option<CompactionConfig>,
@@ -255,6 +257,7 @@ impl Args {
             .unwrap_or_else(default_state_dir);
         let mut context_window_tokens = optional_env_u64("XHARNESS_CONTEXT_WINDOW")?;
         let mut max_output_tokens = env_u64("XHARNESS_MAX_OUTPUT_TOKENS", 4_096)?;
+        let mut minimum_output_tokens = optional_env_u64("XHARNESS_MINIMUM_OUTPUT_TOKENS")?;
         let mut token_safety_margin = env_u64("XHARNESS_TOKEN_SAFETY_MARGIN", 1_024)?;
         let mut providers_file = env::var_os("XHARNESS_PROVIDERS_FILE").map(PathBuf::from);
         let mut compaction =
@@ -289,6 +292,9 @@ impl Args {
                 "--max-output-tokens" => {
                     max_output_tokens = parse_u64("--max-output-tokens", &value)?
                 }
+                "--minimum-output-tokens" => {
+                    minimum_output_tokens = Some(parse_u64("--minimum-output-tokens", &value)?)
+                }
                 "--token-safety-margin" => {
                     token_safety_margin = parse_u64("--token-safety-margin", &value)?
                 }
@@ -316,6 +322,7 @@ impl Args {
             state_dir,
             context_window_tokens,
             max_output_tokens,
+            minimum_output_tokens,
             token_safety_margin,
             providers_file,
             compaction,

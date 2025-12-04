@@ -688,8 +688,13 @@ fn spawn_session(
     })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 const fn tiocsctty_request() -> libc::c_ulong {
+    libc::TIOCSCTTY
+}
+
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+const fn tiocsctty_request() -> libc::c_int {
     libc::TIOCSCTTY
 }
 
