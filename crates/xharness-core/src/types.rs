@@ -323,6 +323,11 @@ pub enum LoopControlError {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LoopEventKind {
+    /// The run's initial input is now durable and visible through the
+    /// authoritative Session store. Hosts use this pre-provider boundary to
+    /// remove claimed input from their pending queue and publish the user
+    /// message without waiting for the model's first delta.
+    InputCommitted,
     TextDelta(String),
     ReasoningDelta(String),
     /// One provider tool-call fragment. Exposing the fragment lets durable
