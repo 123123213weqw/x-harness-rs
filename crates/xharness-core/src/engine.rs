@@ -629,8 +629,16 @@ impl Runner {
     }
 
     async fn run_inner(&mut self) -> Result<LoopStatus, RunFailure> {
+        let has_authoritative_input = self.journal.is_some();
         self.restore_messages().await?;
         self.snapshot("input_saved", true).await?;
+        // `restore_messages` atomically flushes the journal prelude (including
+        // durable-inbox claim deletions), turn/start and user/message. Publish
+        // an explicit boundary before any context preparation or provider I/O
+        // so authoritative hosts do not hold the user message until TTFT.
+        if has_authoritative_input {
+            self.emit(LoopEventKind::InputCommitted).await?;
+        }
 
         if let Some(recovery) = self.recovered_tool_batch.take() {
             self.tool_batch_complete = false;
