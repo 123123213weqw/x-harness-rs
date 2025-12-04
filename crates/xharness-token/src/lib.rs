@@ -133,7 +133,13 @@ fn encoded_len(value: &impl Serialize) -> Result<u64, TokenMeterError> {
 #[serde(rename_all = "camelCase")]
 pub struct TokenBudget {
     pub context_window_tokens: u64,
+    /// Preferred per-request generation ceiling. The guard selects this value
+    /// while enough context remains and shrinks it only when doing so avoids an
+    /// unnecessary compaction/rejection.
     pub reserved_output_tokens: u64,
+    /// Smallest generation region that may be admitted. Requests below this
+    /// reserve are rejected so the caller can compact before model I/O.
+    pub minimum_output_tokens: u64,
     pub safety_margin_tokens: u64,
 }
 
@@ -142,6 +148,7 @@ impl TokenBudget {
         Self {
             context_window_tokens,
             reserved_output_tokens,
+            minimum_output_tokens: reserved_output_tokens,
             safety_margin_tokens: 1_024,
         }
     }
@@ -157,13 +164,24 @@ impl TokenBudget {
                 "reserved_output_tokens must be greater than zero".to_owned(),
             ));
         }
+        if self.minimum_output_tokens == 0 {
+            return Err(TokenBudgetError::Invalid(
+                "minimum_output_tokens must be greater than zero".to_owned(),
+            ));
+        }
+        if self.minimum_output_tokens > self.reserved_output_tokens {
+            return Err(TokenBudgetError::Invalid(format!(
+                "minimum output reserve ({}) must not exceed target output ({})",
+                self.minimum_output_tokens, self.reserved_output_tokens
+            )));
+        }
         let reserved = self
-            .reserved_output_tokens
+            .minimum_output_tokens
             .saturating_add(self.safety_margin_tokens);
         if reserved >= self.context_window_tokens {
             return Err(TokenBudgetError::Invalid(format!(
                 "output reserve ({}) plus safety margin ({}) must be smaller than context window ({})",
-                self.reserved_output_tokens,
+                self.minimum_output_tokens,
                 self.safety_margin_tokens,
                 self.context_window_tokens
             )));
@@ -173,8 +191,19 @@ impl TokenBudget {
 
     pub fn available_input_tokens(&self) -> u64 {
         self.context_window_tokens
-            .saturating_sub(self.reserved_output_tokens)
+            .saturating_sub(self.minimum_output_tokens)
             .saturating_sub(self.safety_margin_tokens)
+    }
+
+    /// Resolve the largest safe output ceiling for one priced request. The
+    /// selected value never exceeds the configured target and never falls
+    /// below the minimum reserve accepted by admission.
+    pub fn resolve_output_tokens(&self, input_tokens: u64) -> u64 {
+        self.reserved_output_tokens.min(
+            self.context_window_tokens
+                .saturating_sub(input_tokens)
+                .saturating_sub(self.safety_margin_tokens),
+        )
     }
 }
 
@@ -187,6 +216,8 @@ pub struct TokenBudgetReport {
     pub accuracy: TokenCountAccuracy,
     pub context_window_tokens: u64,
     pub reserved_output_tokens: u64,
+    pub minimum_output_tokens: u64,
+    pub selected_output_tokens: u64,
     pub safety_margin_tokens: u64,
     pub available_input_tokens: u64,
     pub estimate: TokenBreakdown,
@@ -206,6 +237,7 @@ pub enum TokenBudgetError {
         available_input_tokens: u64,
         context_window_tokens: u64,
         reserved_output_tokens: u64,
+        minimum_output_tokens: u64,
         safety_margin_tokens: u64,
     },
 }
@@ -239,7 +271,8 @@ impl TokenGuard {
                 estimated_input_tokens: estimate.total_input_tokens,
                 available_input_tokens,
                 context_window_tokens: self.budget.context_window_tokens,
-                reserved_output_tokens: self.budget.reserved_output_tokens,
+                reserved_output_tokens: self.budget.minimum_output_tokens,
+                minimum_output_tokens: self.budget.minimum_output_tokens,
                 safety_margin_tokens: self.budget.safety_margin_tokens,
             });
         }
@@ -248,6 +281,10 @@ impl TokenGuard {
             accuracy: TokenCountAccuracy::Estimated,
             context_window_tokens: self.budget.context_window_tokens,
             reserved_output_tokens: self.budget.reserved_output_tokens,
+            minimum_output_tokens: self.budget.minimum_output_tokens,
+            selected_output_tokens: self
+                .budget
+                .resolve_output_tokens(estimate.total_input_tokens),
             safety_margin_tokens: self.budget.safety_margin_tokens,
             available_input_tokens,
             estimate,
@@ -273,7 +310,8 @@ impl TokenGuard {
                 estimated_input_tokens: count.input_tokens,
                 available_input_tokens,
                 context_window_tokens: self.budget.context_window_tokens,
-                reserved_output_tokens: self.budget.reserved_output_tokens,
+                reserved_output_tokens: self.budget.minimum_output_tokens,
+                minimum_output_tokens: self.budget.minimum_output_tokens,
                 safety_margin_tokens: self.budget.safety_margin_tokens,
             });
         }
@@ -282,6 +320,8 @@ impl TokenGuard {
             accuracy: count.accuracy,
             context_window_tokens: self.budget.context_window_tokens,
             reserved_output_tokens: self.budget.reserved_output_tokens,
+            minimum_output_tokens: self.budget.minimum_output_tokens,
+            selected_output_tokens: self.budget.resolve_output_tokens(count.input_tokens),
             safety_margin_tokens: self.budget.safety_margin_tokens,
             available_input_tokens,
             estimate,
@@ -335,6 +375,7 @@ mod tests {
         let guard = TokenGuard::conservative(TokenBudget {
             context_window_tokens: 256,
             reserved_output_tokens: 64,
+            minimum_output_tokens: 64,
             safety_margin_tokens: 32,
         })
         .unwrap();
@@ -352,6 +393,7 @@ mod tests {
         let error = TokenGuard::conservative(TokenBudget {
             context_window_tokens: 4_096,
             reserved_output_tokens: 4_096,
+            minimum_output_tokens: 4_096,
             safety_margin_tokens: 0,
         })
         .unwrap_err();
@@ -365,6 +407,7 @@ mod tests {
             TokenBudget {
                 context_window_tokens: 262_144,
                 reserved_output_tokens: 8_192,
+                minimum_output_tokens: 8_192,
                 safety_margin_tokens: 2_048,
             },
         )
@@ -380,5 +423,49 @@ mod tests {
         assert_eq!(report.estimate.message_tokens, 70_857);
         assert_eq!(report.estimate.total_input_tokens, 70_857);
         assert_eq!(report.available_input_tokens, 251_904);
+    }
+
+    #[test]
+    fn adaptive_output_uses_target_when_room_exists_and_shrinks_to_the_safe_remainder() {
+        let guard = TokenGuard::new(
+            Arc::new(ConservativeByteMeter),
+            TokenBudget {
+                context_window_tokens: 262_144,
+                reserved_output_tokens: 49_152,
+                minimum_output_tokens: 16_384,
+                safety_margin_tokens: 4_096,
+            },
+        )
+        .unwrap();
+
+        let roomy = guard
+            .check_provider_count(&ProviderInputTokenCount::exact_request("exact", 100_000))
+            .unwrap();
+        assert_eq!(roomy.selected_output_tokens, 49_152);
+        assert_eq!(roomy.available_input_tokens, 241_664);
+
+        let pressured = guard
+            .check_provider_count(&ProviderInputTokenCount::exact_request("exact", 220_000))
+            .unwrap();
+        assert_eq!(pressured.selected_output_tokens, 38_048);
+        assert!(pressured.selected_output_tokens >= pressured.minimum_output_tokens);
+    }
+
+    #[test]
+    fn adaptive_output_rejects_before_falling_below_the_minimum_reserve() {
+        let guard = TokenGuard::new(
+            Arc::new(ConservativeByteMeter),
+            TokenBudget {
+                context_window_tokens: 262_144,
+                reserved_output_tokens: 49_152,
+                minimum_output_tokens: 16_384,
+                safety_margin_tokens: 4_096,
+            },
+        )
+        .unwrap();
+        let error = guard
+            .check_provider_count(&ProviderInputTokenCount::exact_request("exact", 242_000))
+            .unwrap_err();
+        assert!(matches!(error, TokenBudgetError::Exceeded { .. }));
     }
 }

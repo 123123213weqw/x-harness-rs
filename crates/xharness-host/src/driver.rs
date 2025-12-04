@@ -778,6 +778,7 @@ impl BasicHost {
         }
         let reason = match result.status {
             LoopStatus::Completed => json!({"kind": "completed"}),
+            LoopStatus::MaxTokens => json!({"kind": "max-tokens"}),
             LoopStatus::Cancelled => json!({"kind": "cancelled"}),
             LoopStatus::LimitReached => json!({"kind": "max-steps"}),
             LoopStatus::Failed => json!({
@@ -1126,12 +1127,14 @@ impl BasicHost {
                 )));
             }
             LoopEventKind::InputCommitted
+            | LoopEventKind::OutputContinuationScheduled { .. }
             | LoopEventKind::MessageInjected { .. }
             | LoopEventKind::StreamCheckpoint
             | LoopEventKind::RunPaused
             | LoopEventKind::RunResumed
             | LoopEventKind::ModelInterrupted
             | LoopEventKind::RunCompleted { .. }
+            | LoopEventKind::RunMaxTokens { .. }
             | LoopEventKind::RunCancelled
             | LoopEventKind::LimitReached => {}
         }

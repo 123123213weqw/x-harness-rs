@@ -402,8 +402,9 @@ xharness-host --bind 127.0.0.1:3082
 ```
 
 配置中的公共 `provider/model` 是 Web 与 Session 使用的稳定路由；`upstream_model` 是具体
-OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立声明 Context Window、输出预留和
-安全余量。云端凭据只通过 `api_key_env` 引用环境变量，禁止写入配置文件。配置示例见
+OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立声明 Context Window、目标输出
+`max_output_tokens` 和安全余量；可选 `minimum_output_tokens` 启用动态输出预算，省略时保持旧版
+固定输出预留。云端凭据只通过 `api_key_env` 引用环境变量，禁止写入配置文件。配置示例见
 [`config/providers.example.json`](config/providers.example.json)，完整不变量见
 [LLM/Provider Registry 规范](docs/specs/model-registry.md)。旧的单接口参数保持兼容。
 
