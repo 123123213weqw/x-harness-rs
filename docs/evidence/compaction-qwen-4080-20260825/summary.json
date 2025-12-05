@@ -1,0 +1,338 @@
+[
+  {
+    "variant": "disabled",
+    "command": [
+      "/home/wzu/codex-build/x-harness-rs/target/release/xharness-host",
+      "--bind",
+      "127.0.0.1:50185",
+      "--workspace",
+      "/home/wzu/codex-run/xharness-compaction-ablation/workspaces/disabled",
+      "--state-dir",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/disabled/state",
+      "--provider",
+      "llama.cpp",
+      "--model",
+      "/home/wzu/wangyue/models/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q3_K_M.gguf",
+      "--base-url",
+      "http://127.0.0.1:19627/v1",
+      "--protocol",
+      "chat",
+      "--context-window",
+      "16384",
+      "--max-output-tokens",
+      "768",
+      "--token-safety-margin",
+      "256",
+      "--compaction-config",
+      "off",
+      "--debug-trace",
+      "full",
+      "--debug-dir",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/disabled/debug"
+    ],
+    "error": null,
+    "sessionId": "ablation-disabled",
+    "turnSeconds": [
+      2.8946062549948692,
+      3.76501139200991
+    ],
+    "turnReasons": [
+      {
+        "kind": "completed"
+      },
+      {
+        "kind": "completed"
+      }
+    ],
+    "answer": "HARBOR-7319 QUARTZ-2846 CEDAR-9052",
+    "factHits": {
+      "HARBOR-7319": true,
+      "QUARTZ-2846": true,
+      "CEDAR-9052": true
+    },
+    "quality": 1.0,
+    "compactionStarts": 0,
+    "compactionSummaries": 0,
+    "compactionEnds": 0,
+    "assistantUsage": [
+      {
+        "cache_read_tokens": 9881,
+        "cache_write_tokens": 0,
+        "input_tokens": 260,
+        "output_tokens": 133,
+        "reasoning_tokens": 0
+      },
+      {
+        "cache_read_tokens": 10274,
+        "cache_write_tokens": 0,
+        "input_tokens": 3460,
+        "output_tokens": 71,
+        "reasoning_tokens": 0
+      }
+    ],
+    "assistantUsageTotal": {
+      "cache_read_tokens": 20155,
+      "cache_write_tokens": 0,
+      "input_tokens": 3720,
+      "output_tokens": 204,
+      "reasoning_tokens": 0
+    },
+    "eventCount": 224,
+    "historyBytes": 287427,
+    "hostExit": 0,
+    "hostForcedKill": false,
+    "stateBytes": 286828
+  },
+  {
+    "variant": "overflow_only",
+    "command": [
+      "/home/wzu/codex-build/x-harness-rs/target/release/xharness-host",
+      "--bind",
+      "127.0.0.1:57165",
+      "--workspace",
+      "/home/wzu/codex-run/xharness-compaction-ablation/workspaces/overflow_only",
+      "--state-dir",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/overflow_only/state",
+      "--provider",
+      "llama.cpp",
+      "--model",
+      "/home/wzu/wangyue/models/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q3_K_M.gguf",
+      "--base-url",
+      "http://127.0.0.1:19627/v1",
+      "--protocol",
+      "chat",
+      "--context-window",
+      "16384",
+      "--max-output-tokens",
+      "768",
+      "--token-safety-margin",
+      "256",
+      "--compaction-config",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/overflow_only/compaction.json",
+      "--debug-trace",
+      "full",
+      "--debug-dir",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/overflow_only/debug"
+    ],
+    "error": null,
+    "sessionId": "ablation-overflow_only",
+    "turnSeconds": [
+      12.724225243960973,
+      5.106173092033714
+    ],
+    "turnReasons": [
+      {
+        "kind": "completed"
+      },
+      {
+        "kind": "completed"
+      }
+    ],
+    "answer": "HARBOR-7319 QUARTZ-2846 CEDAR-9052",
+    "factHits": {
+      "HARBOR-7319": true,
+      "QUARTZ-2846": true,
+      "CEDAR-9052": true
+    },
+    "quality": 1.0,
+    "compactionStarts": 0,
+    "compactionSummaries": 0,
+    "compactionEnds": 0,
+    "assistantUsage": [
+      {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 10142,
+        "output_tokens": 352,
+        "reasoning_tokens": 0
+      },
+      {
+        "cache_read_tokens": 10493,
+        "cache_write_tokens": 0,
+        "input_tokens": 3461,
+        "output_tokens": 157,
+        "reasoning_tokens": 0
+      }
+    ],
+    "assistantUsageTotal": {
+      "cache_read_tokens": 10493,
+      "cache_write_tokens": 0,
+      "input_tokens": 13603,
+      "output_tokens": 509,
+      "reasoning_tokens": 0
+    },
+    "eventCount": 529,
+    "historyBytes": 341107,
+    "hostExit": 0,
+    "hostForcedKill": false,
+    "stateBytes": 340744
+  },
+  {
+    "variant": "auto_default",
+    "command": [
+      "/home/wzu/codex-build/x-harness-rs/target/release/xharness-host",
+      "--bind",
+      "127.0.0.1:58023",
+      "--workspace",
+      "/home/wzu/codex-run/xharness-compaction-ablation/workspaces/auto_default",
+      "--state-dir",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/auto_default/state",
+      "--provider",
+      "llama.cpp",
+      "--model",
+      "/home/wzu/wangyue/models/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q3_K_M.gguf",
+      "--base-url",
+      "http://127.0.0.1:19627/v1",
+      "--protocol",
+      "chat",
+      "--context-window",
+      "16384",
+      "--max-output-tokens",
+      "768",
+      "--token-safety-margin",
+      "256",
+      "--compaction-config",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/auto_default/compaction.json",
+      "--debug-trace",
+      "full",
+      "--debug-dir",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/auto_default/debug"
+    ],
+    "error": null,
+    "sessionId": "ablation-auto_default",
+    "turnSeconds": [
+      9.605150547984522,
+      16.703964126994833
+    ],
+    "turnReasons": [
+      {
+        "kind": "completed"
+      },
+      {
+        "kind": "completed"
+      }
+    ],
+    "answer": "HARBOR-7319 QUARTZ-2846 CEDAR-9052",
+    "factHits": {
+      "HARBOR-7319": true,
+      "QUARTZ-2846": true,
+      "CEDAR-9052": true
+    },
+    "quality": 1.0,
+    "compactionStarts": 1,
+    "compactionSummaries": 1,
+    "compactionEnds": 1,
+    "assistantUsage": [
+      {
+        "cache_read_tokens": 9881,
+        "cache_write_tokens": 0,
+        "input_tokens": 260,
+        "output_tokens": 539,
+        "reasoning_tokens": 0
+      },
+      {
+        "cache_read_tokens": 1560,
+        "cache_write_tokens": 0,
+        "input_tokens": 3817,
+        "output_tokens": 84,
+        "reasoning_tokens": 0
+      }
+    ],
+    "assistantUsageTotal": {
+      "cache_read_tokens": 11441,
+      "cache_write_tokens": 0,
+      "input_tokens": 4077,
+      "output_tokens": 623,
+      "reasoning_tokens": 0
+    },
+    "eventCount": 647,
+    "historyBytes": 327864,
+    "hostExit": 0,
+    "hostForcedKill": false,
+    "stateBytes": 328028
+  },
+  {
+    "variant": "auto_aggressive",
+    "command": [
+      "/home/wzu/codex-build/x-harness-rs/target/release/xharness-host",
+      "--bind",
+      "127.0.0.1:48271",
+      "--workspace",
+      "/home/wzu/codex-run/xharness-compaction-ablation/workspaces/auto_aggressive",
+      "--state-dir",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/auto_aggressive/state",
+      "--provider",
+      "llama.cpp",
+      "--model",
+      "/home/wzu/wangyue/models/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q3_K_M.gguf",
+      "--base-url",
+      "http://127.0.0.1:19627/v1",
+      "--protocol",
+      "chat",
+      "--context-window",
+      "16384",
+      "--max-output-tokens",
+      "768",
+      "--token-safety-margin",
+      "256",
+      "--compaction-config",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/auto_aggressive/compaction.json",
+      "--debug-trace",
+      "full",
+      "--debug-dir",
+      "/home/wzu/codex-run/xharness-compaction-ablation/full-20260825-165510/auto_aggressive/debug"
+    ],
+    "error": null,
+    "sessionId": "ablation-auto_aggressive",
+    "turnSeconds": [
+      12.017627459019423,
+      23.353487298998516
+    ],
+    "turnReasons": [
+      {
+        "kind": "completed"
+      },
+      {
+        "kind": "completed"
+      }
+    ],
+    "answer": "HARBOR-7319 QUARTZ-2846 CEDAR-9052",
+    "factHits": {
+      "HARBOR-7319": true,
+      "QUARTZ-2846": true,
+      "CEDAR-9052": true
+    },
+    "quality": 1.0,
+    "compactionStarts": 1,
+    "compactionSummaries": 1,
+    "compactionEnds": 1,
+    "assistantUsage": [
+      {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 10142,
+        "output_tokens": 312,
+        "reasoning_tokens": 0
+      },
+      {
+        "cache_read_tokens": 1561,
+        "cache_write_tokens": 0,
+        "input_tokens": 3910,
+        "output_tokens": 360,
+        "reasoning_tokens": 0
+      }
+    ],
+    "assistantUsageTotal": {
+      "cache_read_tokens": 1561,
+      "cache_write_tokens": 0,
+      "input_tokens": 14052,
+      "output_tokens": 672,
+      "reasoning_tokens": 0
+    },
+    "eventCount": 696,
+    "historyBytes": 337346,
+    "hostExit": 0,
+    "hostForcedKill": false,
+    "stateBytes": 337193
+  }
+]

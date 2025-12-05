@@ -1107,7 +1107,7 @@ async fn token_usage_is_recorded_per_step_and_accumulated() {
 }
 
 #[tokio::test]
-async fn length_finish_is_partial_failure_not_completed() {
+async fn length_finish_is_a_first_class_partial_turn_not_a_failure() {
     let provider = Arc::new(ScriptProvider::new([vec![
         Ok(ProviderEvent::TextDelta("partial".to_owned())),
         Ok(completed_with(
@@ -1118,19 +1118,74 @@ async fn length_finish_is_partial_failure_not_completed() {
             },
         )),
     ]]));
-    let (events, result) =
-        collect(LoopEngine.start(LoopRequest::new(provider, vec![AgentMessage::user("run")])))
-            .await;
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.config.max_output_continuations = 0;
+    let (events, result) = collect(LoopEngine.start(request)).await;
 
-    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(result.status, LoopStatus::MaxTokens);
     assert_eq!(result.finish_reason, Some(FinishReason::Length));
     assert_eq!(result.final_text, "partial");
-    assert!(result.messages[1].interrupted);
+    assert!(!result.messages[1].interrupted);
     assert_eq!(result.usage.as_ref().unwrap().output_tokens, 7);
-    assert!(result.error.as_deref().unwrap().contains("token limit"));
+    assert!(result.error.is_none());
+    assert!(events
+        .iter()
+        .any(|event| matches!(event.kind, LoopEventKind::RunMaxTokens { .. })));
     assert!(!events
         .iter()
         .any(|event| matches!(event.kind, LoopEventKind::RunCompleted { .. })));
+}
+
+#[tokio::test]
+async fn length_finish_safely_continues_and_combines_visible_output() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(ProviderEvent::ReasoningDelta("long thought".to_owned())),
+            Ok(ProviderEvent::TextDelta("part one ".to_owned())),
+            Ok(completed_with(
+                FinishReason::Length,
+                TokenUsage {
+                    output_tokens: 7,
+                    reasoning_tokens: 11,
+                    ..TokenUsage::default()
+                },
+            )),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("part two".to_owned())),
+            Ok(completed_with(
+                FinishReason::Stop,
+                TokenUsage {
+                    output_tokens: 4,
+                    ..TokenUsage::default()
+                },
+            )),
+        ],
+    ]));
+    let (events, result) = collect(LoopEngine.start(LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user("run")],
+    )))
+    .await;
+
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text, "part one part two");
+    assert_eq!(result.messages.len(), 3);
+    assert!(result.error.is_none());
+    assert_eq!(result.usage.as_ref().unwrap().output_tokens, 11);
+    assert_eq!(result.usage.as_ref().unwrap().reasoning_tokens, 11);
+    assert!(events.iter().any(|event| matches!(
+        event.kind,
+        LoopEventKind::OutputContinuationScheduled { attempt: 1, .. }
+    )));
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2);
+    let recovery = requests[1].messages.last().unwrap();
+    assert_eq!(recovery.role, Role::User);
+    assert!(recovery.content.contains("Continue exactly"));
+    assert!(!result.messages.iter().any(|message| {
+        message.role == Role::User && message.content.contains("Continue exactly")
+    }));
 }
 
 #[test]
@@ -1284,6 +1339,7 @@ async fn hard_token_budget_rejects_64196_before_a_53248_provider_attempt() {
         TokenBudget {
             context_window_tokens: 53_248,
             reserved_output_tokens: 4_096,
+            minimum_output_tokens: 4_096,
             safety_margin_tokens: 1_024,
         },
     )
@@ -1309,6 +1365,7 @@ async fn provider_exact_count_prevents_conservative_byte_false_positive() {
         TokenBudget {
             context_window_tokens: 262_144,
             reserved_output_tokens: 8_192,
+            minimum_output_tokens: 8_192,
             safety_margin_tokens: 2_048,
         },
     )
@@ -1366,6 +1423,7 @@ async fn pressure_compaction_is_durable_then_recounted_before_the_main_request()
     let guard = TokenGuard::conservative(TokenBudget {
         context_window_tokens: 1_000,
         reserved_output_tokens: 40,
+        minimum_output_tokens: 40,
         safety_margin_tokens: 10,
     })
     .unwrap();
@@ -1444,6 +1502,7 @@ async fn hard_overflow_compacts_and_recounts_instead_of_failing_immediately() {
     let guard = TokenGuard::conservative(TokenBudget {
         context_window_tokens: 1_000,
         reserved_output_tokens: 40,
+        minimum_output_tokens: 40,
         safety_margin_tokens: 10,
     })
     .unwrap();
@@ -1494,6 +1553,7 @@ async fn provider_typed_context_overflow_compacts_before_retrying_on_a_new_step(
         TokenBudget {
             context_window_tokens: 1_000,
             reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
             safety_margin_tokens: 10,
         },
     )
@@ -2770,6 +2830,7 @@ async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_he
             TokenBudget {
                 context_window_tokens: 8_192,
                 reserved_output_tokens: 1_024,
+                minimum_output_tokens: 1_024,
                 safety_margin_tokens: 256,
             },
         )
