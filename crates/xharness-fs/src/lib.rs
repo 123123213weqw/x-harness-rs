@@ -28,8 +28,6 @@ use std::{
     },
 };
 
-#[cfg(target_os = "linux")]
-use nix::fcntl::{openat2, renameat2, OpenHow, RenameFlags, ResolveFlag};
 use nix::{
     errno::Errno,
     fcntl::{open, openat, OFlag},
@@ -39,6 +37,11 @@ use nix::{
 #[cfg(target_os = "macos")]
 use nix::{
     fcntl::{fcntl, FcntlArg},
+    libc,
+};
+#[cfg(target_os = "linux")]
+use nix::{
+    fcntl::{openat2, OpenHow, ResolveFlag},
     libc,
 };
 use sha2::{Digest, Sha256};
@@ -1354,26 +1357,45 @@ fn publish_temp(
     temp_name: &std::ffi::OsStr,
     mode: PublishMode,
 ) -> Result<(), FsError> {
+    use std::ffi::CString;
+
+    let old_name = CString::new(temp_name.as_bytes()).map_err(|_| FsError::InvalidPath {
+        display: target.display.clone(),
+        reason: "NUL byte in temporary name",
+    })?;
+    let new_name = CString::new(target.file_name.as_bytes()).map_err(|_| FsError::InvalidPath {
+        display: target.display.clone(),
+        reason: "NUL byte in target name",
+    })?;
     let flags = match mode {
-        PublishMode::Create => RenameFlags::RENAME_NOREPLACE,
-        PublishMode::Replace => RenameFlags::empty(),
+        PublishMode::Create => libc::RENAME_NOREPLACE,
+        PublishMode::Replace => 0,
     };
-    match renameat2(
-        target.parent_fd.as_ref(),
-        temp_name,
-        target.parent_fd.as_ref(),
-        target.file_name.as_os_str(),
-        flags,
-    ) {
-        Ok(()) => Ok(()),
-        Err(Errno::EEXIST) => Err(FsError::StaleObservation {
+    // nix deliberately exposes renameat2 only for glibc targets. Calling the
+    // Linux syscall directly preserves the same atomic semantics for both
+    // glibc and musl release builds.
+    // SAFETY: both names are live NUL-terminated strings and the directory
+    // descriptor remains owned by `target` for the duration of the syscall.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            target.parent_fd.as_raw_fd(),
+            old_name.as_ptr(),
+            target.parent_fd.as_raw_fd(),
+            new_name.as_ptr(),
+            flags,
+        )
+    };
+    if result == 0 {
+        return Ok(());
+    }
+    let source = io::Error::last_os_error();
+    if source.raw_os_error() == Some(libc::EEXIST) {
+        Err(FsError::StaleObservation {
             display: target.display.clone(),
-        }),
-        Err(error) => Err(io_error(
-            "publish atomic rename",
-            &target.path,
-            io::Error::from_raw_os_error(error as i32),
-        )),
+        })
+    } else {
+        Err(io_error("publish atomic rename", &target.path, source))
     }
 }
 

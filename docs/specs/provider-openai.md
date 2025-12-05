@@ -43,7 +43,8 @@ Chat 使用 Assistant `tool_calls` 和 `role=tool` 结果。Responses 使用 `st
 Provider Item。
 
 Prepared Call 的 Provider-neutral `max_output_tokens` 在 Chat Completions 映射为 `max_tokens`，
-在 Responses 映射为 `max_output_tokens`。该值来自已验证 Token Budget 的输出预留。
+在 Responses 映射为 `max_output_tokens`。该值是 Token Guard 在目标上限、最小输出保留、真实输入
+和安全余量之间计算出的 `selected_output_tokens`，不是永远固定的路由常量。
 
 ## 流归一化
 
