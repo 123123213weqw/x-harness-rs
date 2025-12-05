@@ -48,6 +48,7 @@ fn chat_request_and_stream_are_normalized() {
             parameters: json!({"type":"object"}),
         }],
         step: 1,
+        reasoning_effort: None,
         max_output_tokens: None,
         debug_scope: Default::default(),
     };
@@ -113,6 +114,7 @@ fn protocol_replay_uses_provider_call_id_not_internal_execution_id() {
         messages: vec![assistant, AgentMessage::tool("provider-call-1", "output")],
         tools: Vec::new(),
         step: 2,
+        reasoning_effort: None,
         max_output_tokens: None,
         debug_scope: Default::default(),
     };
@@ -139,6 +141,7 @@ fn assembled_system_prompt_is_encoded_first_in_both_wire_protocols() {
         ],
         tools: Vec::new(),
         step: 1,
+        reasoning_effort: None,
         max_output_tokens: Some(4_096),
         debug_scope: Default::default(),
     };
@@ -171,6 +174,7 @@ fn token_count_body_reuses_the_wire_encoder_without_output_controls() {
             parameters: json!({"type":"object"}),
         }],
         step: 1,
+        reasoning_effort: None,
         max_output_tokens: Some(4_096),
         debug_scope: Default::default(),
     };
@@ -199,6 +203,7 @@ fn responses_request_replays_opaque_items_and_normalizes_lifecycle() {
         messages: vec![assistant, AgentMessage::tool("call-1", "output")],
         tools: Vec::new(),
         step: 2,
+        reasoning_effort: None,
         max_output_tokens: None,
         debug_scope: Default::default(),
     };
@@ -354,6 +359,7 @@ async fn native_http_provider_streams_both_protocols() {
             messages: vec![AgentMessage::user("hello")],
             tools: Vec::new(),
             step: 1,
+            reasoning_effort: None,
             max_output_tokens: None,
             debug_scope: DebugScope::default()
                 .with_session("provider-session")
@@ -405,6 +411,7 @@ async fn provider_uses_protocol_native_input_token_count_endpoints() {
                 parameters: json!({"type":"object"}),
             }],
             step: 1,
+            reasoning_effort: None,
             max_output_tokens: Some(8_192),
             debug_scope: Default::default(),
         };
@@ -453,6 +460,7 @@ async fn unsupported_token_count_endpoint_is_cached_as_a_capability_miss() {
         messages: vec![AgentMessage::user("hello")],
         tools: Vec::new(),
         step: 1,
+        reasoning_effort: None,
         max_output_tokens: None,
         debug_scope: Default::default(),
     };
@@ -505,6 +513,7 @@ async fn provider_bounds_http_error_bodies() {
         messages: vec![AgentMessage::user("hello")],
         tools: Vec::new(),
         step: 1,
+        reasoning_effort: None,
         max_output_tokens: None,
         debug_scope: Default::default(),
     };
