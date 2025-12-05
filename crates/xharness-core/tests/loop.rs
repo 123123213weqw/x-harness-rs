@@ -550,9 +550,16 @@ async fn streaming_events_reach_consumers_before_chunk_journal_io_and_persist_as
             .iter()
             .filter(|event| matches!(event.data(), SessionEventData::AssistantChunk { .. }))
             .count(),
-        DELTAS + 2,
-        "text deltas, usage, and finish reason should share one append batch"
+        3,
+        "coalesced text, usage, and finish reason should share one append batch"
     );
+    assert!(matches!(
+        chunk_batches[0][0].data(),
+        SessionEventData::AssistantChunk {
+            chunk: AssistantChunk::TextDelta(text),
+            ..
+        } if text.len() == DELTAS
+    ));
     let assistant_position = chunk_batches[0]
         .iter()
         .position(|event| matches!(event.data(), SessionEventData::AssistantMessage { .. }))
@@ -599,7 +606,7 @@ async fn long_streams_checkpoint_in_bounded_batches_instead_of_per_delta() {
                 .count()
         })
         .collect::<Vec<_>>();
-    assert_eq!(chunk_counts, [64, 64, 4]);
+    assert_eq!(chunk_counts, [1, 1, 3]);
 }
 
 #[tokio::test]

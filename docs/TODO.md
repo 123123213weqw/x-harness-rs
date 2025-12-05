@@ -277,6 +277,16 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   `turn/end: max-tokens`，不再显示通用失败。V100 路由目标 49,152、最小保留 16,384、安全余量
   4,096；4080 路由目标 16,384、最小保留 8,192。WZU_Server 的 Token/Core/Session/Host/
   Host-app 定向测试全部通过。
+- [x] `DONE-64` 大 Session 流式热路径治理：Session 的不可变 Cut 使用 `Arc<Vec<Event>>`
+  共享已校验前缀，单写者 Append 通过 Copy-on-write 保持旧快照隔离；JSONL Store 在进程内保存
+  经文件身份、长度、纳秒时间戳和有界内容采样校验的写穿快照，Append/Flush 可移动热快照，避免
+  每个检查点重新解析或克隆整份日志；跨进程 Advisory Lock 与磁盘 Revision 仍是 CAS 真源。Core 在持久化前合并相邻
+  Text/Reasoning Delta，并以 64 个原始碎片、4 KiB 或 250 ms 任一阈值触发检查点。Web History
+  对已有完整 Assistant Message 的 Chunk 只保留最终消息，对尚未完成 Step 的同类 Chunk 合并为
+  最大 64 KiB 的投影块；连续尾缓存用隐藏占位保持 Sequence 不变。修复针对东京部署中单会话
+  11.94 MiB、44,881 Event（其中 44,557 Chunk）导致的反复全量回放和浏览器超大事件列表。
+  冷启动解析先校验每行 Batch Revision，再对汇总后的完整 Cut 只运行一次 Session 生命周期校验，
+  不再为每行重复校验此前全部前缀。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

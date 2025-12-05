@@ -103,6 +103,10 @@ Allowed-once 之后才能首次执行。已经 Decided Allowed 但 Result 缺失
 是由具体 Backend 定义的持久化屏障。`MemorySessionStore` 仅提供进程内测试/嵌入语义，
 不是持久存储。
 
+完整 `Session` Cut 的 Clone 使用不可变 Event 前缀结构共享，避免大日志每次加载都深拷贝；Append
+采用 Copy-on-write：若旧 Cut 仍被调用方持有，先分离后写，旧 Cut 绝不能观察到新事件。常规
+单写者热路径拥有唯一前缀时直接扩展，验证失败必须原地回滚，Revision 与 Event Log 均保持不变。
+
 ## 当前限制
 
 - Durable Inbox Event、Claim Batch、本机 Lease 和 Pending Approval 恢复已由 `xharness-agent`

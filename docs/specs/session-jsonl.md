@@ -27,10 +27,24 @@ Session ID 必须使用受限 ASCII 白名单并限制长度，禁止指向隐�
 或生命周期违规都必须 fail closed。合法但没有结尾换行的记录必须保留，并在 Append 前
 补上分隔。
 
+冷加载必须逐行检查 Batch Previous/New Revision 连续性并汇总原始 `LoggedEvent`，然后对完整 Cut
+只执行一次 Session Sequence/Revision/生命周期验证。禁止把每行重新作为 Session Append 回放，
+否则检查点数量增加时会形成平方级前缀重复扫描。
+
 ## I/O 模型
 
 阻塞文件操作必须放到 `spawn_blocking`。同一进程的不同 Store 实例共享 Path Lock；OS
 Lock 提供跨进程序列化。Backend 把存储错误映射成 `StoreError::Backend`，禁止泄露凭据。
+
+Store 可以为已完整校验的 Session 保存进程内写穿快照，但快照不能改变磁盘真源语义：
+
+- 每次读取、Append 和 Flush 仍先取得同一路径的进程锁与 OS Advisory Lock；
+- 命中条件同时包含 Device/Inode、文件长度、修改/状态变更纳秒时间戳，以及最多 12 KiB 的
+  头/中/尾内容采样；快速同长度改写也必须使快照失效；
+- Append/Flush 在持有路径锁时可以把快照所有权移出 Cache，避免克隆大 Session；操作完成后以
+  新文件指纹写回。失败时允许 Cache 变冷，但不得返回未经验证的数据；
+- 独立 Store 或其他进程提交后，旧快照必须在下次访问时失效。Advisory Lock 和磁盘 Revision
+  永远负责跨进程 CAS，Cache 不能充当 Fencing Token。
 
 ## 启动枚举
 
@@ -48,6 +62,8 @@ Lock 提供跨进程序列化。Backend 把存储错误映射成 `StoreError::Ba
 - 保证依赖本地文件系统正确支持 Advisory Lock 和 fsync；不承诺 NFS/Object Store 语义。
 - 尚无 Log Compaction、Encryption、Quota、GC 或索引查询。
 - 一个 Session 对应一个持续增长的文件。
+- 当前快照仍保存完整 Session；它消除了热路径的重复 JSON 解析，但不等于二级索引或 Log
+  Compaction。首次启动和外部修改后的第一次读取仍需完整校验。
 - 大 Tool Result 必须仍可作为原始审计事件持久化；模型上下文压缩属于独立 Surface/Spill
   策略，禁止通过原地改写 JSONL 伪装成压缩。
 
