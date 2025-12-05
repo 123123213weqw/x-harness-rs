@@ -32,8 +32,9 @@ use xharness_tools::{ToolExecutor, ToolRegistry};
 pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
 pub use runtime::{
     AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
-    DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelRegistry, ModelRegistryError,
-    ModelRoute, RegisteredModel, RunningTurn,
+    DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelReasoning,
+    ModelReasoningEffort, ModelRegistry, ModelRegistryError, ModelRoute, RegisteredModel,
+    RunningTurn,
 };
 pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, WorkspaceRecord};
 
@@ -46,6 +47,8 @@ pub struct HostConfig {
     pub provider_id: String,
     pub provider_display_name: String,
     pub model_id: String,
+    /// Default exact-model reasoning effort for newly created sessions.
+    pub reasoning_effort: Option<String>,
     /// Provider/model context admission configured by the product host.
     pub token_guard: Option<TokenGuard>,
     pub event_capacity: usize,
@@ -72,6 +75,7 @@ impl HostConfig {
             provider_id: "openai-compatible".to_owned(),
             provider_display_name: "OpenAI compatible".to_owned(),
             model_id: "unconfigured".to_owned(),
+            reasoning_effort: None,
             token_guard: None,
             event_capacity: 2_048,
             session_event_cache_capacity: 2_048,

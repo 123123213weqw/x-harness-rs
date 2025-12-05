@@ -884,7 +884,16 @@ impl BasicHost {
         let _session_guard = self.lock_admission(&session_id).await;
         let provider = nonempty(required_string(payload, "provider")?, "provider")?;
         let model = nonempty(required_string(payload, "model")?, "model")?;
-        let reasoning_effort = optional_string(payload, "reasoningEffort")?;
+        let reasoning_effort = match optional_string(payload, "reasoningEffort")? {
+            Some(effort) => Some(effort),
+            None => self
+                .agent_runtime
+                .model_catalog()
+                .into_iter()
+                .find(|entry| entry.provider == provider && entry.model == model)
+                .and_then(|entry| entry.reasoning)
+                .and_then(|reasoning| reasoning.default_effort),
+        };
         let selected = ModelSelection {
             provider,
             model,
@@ -2747,16 +2756,35 @@ impl BasicHost {
     fn model_groups(&self) -> Vec<Value> {
         let mut groups: Vec<(String, String, Vec<Value>)> = Vec::new();
         for model in self.agent_runtime.model_catalog() {
+            let mut model_value = json!({"id": model.model, "name": model.model_display_name});
+            if let Some(reasoning) = model.reasoning {
+                let efforts = reasoning
+                    .efforts
+                    .into_iter()
+                    .map(|effort| {
+                        let mut value = json!({"id": effort.id, "name": effort.name});
+                        if let Some(description) = effort.description {
+                            value["description"] = Value::String(description);
+                        }
+                        value
+                    })
+                    .collect::<Vec<_>>();
+                let mut value = json!({"efforts": efforts});
+                if let Some(default_effort) = reasoning.default_effort {
+                    value["defaultEffort"] = Value::String(default_effort);
+                }
+                model_value["reasoning"] = value;
+            }
             if let Some((_, _, models)) = groups
                 .iter_mut()
                 .find(|(provider, _, _)| provider == &model.provider)
             {
-                models.push(json!({"id": model.model, "name": model.model_display_name}));
+                models.push(model_value);
             } else {
                 groups.push((
                     model.provider,
                     model.provider_display_name,
-                    vec![json!({"id": model.model, "name": model.model_display_name})],
+                    vec![model_value],
                 ));
             }
         }

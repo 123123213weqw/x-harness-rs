@@ -36,7 +36,55 @@
           "context_window_tokens": 32768,
           "max_output_tokens": 4096,
           "minimum_output_tokens": 4096,
-          "token_safety_margin": 1024
+          "token_safety_margin": 1024,
+          "reasoning": {
+            "default_effort": "xhigh",
+            "efforts": [
+              {
+                "id": "off",
+                "name": "关闭",
+                "description": "关闭模型思考模板",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "enable_thinking": false
+                  }
+                }
+              },
+              {
+                "id": "low",
+                "name": "低",
+                "description": "速度优先",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "enable_thinking": true,
+                    "reasoning_effort": "low"
+                  }
+                }
+              },
+              {
+                "id": "medium",
+                "name": "中",
+                "description": "速度与推理平衡",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "enable_thinking": true,
+                    "reasoning_effort": "medium"
+                  }
+                }
+              },
+              {
+                "id": "xhigh",
+                "name": "极高",
+                "description": "复杂任务优先",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "enable_thinking": true,
+                    "reasoning_effort": "xhigh"
+                  }
+                }
+              }
+            ]
+          }
         }
       ]
     }

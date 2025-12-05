@@ -10,6 +10,7 @@ rsync -az --delete \
   --exclude='.git/' \
   --exclude='target/' \
   --exclude='node_modules/' \
+  --exclude='dist/' \
   --exclude='.env' \
   --exclude='.env.*' \
   --exclude='.DS_Store' \
