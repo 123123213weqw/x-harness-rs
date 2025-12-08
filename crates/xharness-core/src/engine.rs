@@ -359,6 +359,7 @@ impl LoopEngine {
             turn: 0,
             step_open: false,
             turn_open: false,
+            last_request_context: None,
             pending_stream_events: Vec::new(),
             pending_stream_fragments: 0,
             stream_batch_started_at: None,
@@ -525,6 +526,7 @@ struct JournalState {
     turn: u32,
     step_open: bool,
     turn_open: bool,
+    last_request_context: Option<LoggedRequestContext>,
     /// Model stream deltas are written at bounded checkpoints rather than one
     /// JSONL CAS per provider chunk. The completed assistant message, step
     /// end, retry, or turn finalizer drains any remainder atomically before
@@ -535,6 +537,13 @@ struct JournalState {
     /// provider emits many tiny tokens faster than the time threshold.
     pending_stream_fragments: usize,
     stream_batch_started_at: Option<Instant>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LoggedRequestContext {
+    provider: String,
+    model: String,
+    context_window: Option<u64>,
 }
 
 impl Runner {
@@ -1535,6 +1544,23 @@ impl Runner {
                 SessionEventData::TurnStart { turn } => Some(*turn),
                 _ => None,
             });
+        let last_request_context =
+            session
+                .events()
+                .iter()
+                .rev()
+                .find_map(|event| match event.data() {
+                    SessionEventData::RequestContext {
+                        provider,
+                        model,
+                        context_window,
+                    } => Some(LoggedRequestContext {
+                        provider: provider.clone(),
+                        model: model.clone(),
+                        context_window: *context_window,
+                    }),
+                    _ => None,
+                });
         let last_turn_closed = last_turn.is_none_or(|turn| {
             session.events().iter().rev().any(|event| {
                 matches!(event.data(), SessionEventData::TurnEnd { turn: closed, .. } if *closed == turn)
@@ -1605,6 +1631,7 @@ impl Runner {
                 journal.turn = turn;
                 journal.step_open = true;
                 journal.turn_open = true;
+                journal.last_request_context = last_request_context;
             }
             return Ok(());
         }
@@ -1642,6 +1669,9 @@ impl Runner {
                 .ok_or_else(|| {
                     RunFailure::Failed("session journal disappeared after recovery".to_owned())
                 })?;
+        }
+        if let Some(journal) = self.journal.as_mut() {
+            journal.last_request_context = last_request_context;
         }
 
         self.messages = self.prompt_prefixed(session.derive_messages());
@@ -1857,6 +1887,11 @@ impl Runner {
             .model_name()
             .unwrap_or("unknown")
             .to_owned();
+        let request_context = LoggedRequestContext {
+            provider: provider.clone(),
+            model: model.clone(),
+            context_window: token_budget.map(|report| report.context_window_tokens),
+        };
         let system = surface
             .messages
             .iter()
@@ -1900,8 +1935,25 @@ impl Runner {
                 "edits": surface.edits,
             }),
         );
-        self.journal_append(vec![SessionEventData::RequestHeader { header }], true)
-            .await
+        let context_changed = self
+            .journal
+            .as_ref()
+            .is_some_and(|journal| journal.last_request_context.as_ref() != Some(&request_context));
+        let mut events = vec![SessionEventData::RequestHeader { header }];
+        if context_changed {
+            events.push(SessionEventData::RequestContext {
+                provider: request_context.provider.clone(),
+                model: request_context.model.clone(),
+                context_window: request_context.context_window,
+            });
+        }
+        self.journal_append(events, true).await?;
+        if context_changed {
+            if let Some(journal) = self.journal.as_mut() {
+                journal.last_request_context = Some(request_context);
+            }
+        }
+        Ok(())
     }
 
     async fn journal_chunk(&mut self, chunk: AssistantChunk) -> Result<bool, RunFailure> {

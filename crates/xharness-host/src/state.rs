@@ -377,6 +377,10 @@ impl SessionRecord {
         );
         values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
         values.insert("sessionStats".to_owned(), self.metrics.session_stats());
+        values.insert(
+            "contextPressure".to_owned(),
+            self.metrics.context_pressure(),
+        );
         Value::Object(values)
     }
 
