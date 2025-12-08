@@ -296,6 +296,11 @@ fn every_first_version_event_round_trips_through_serde() {
         event(EventData::RequestHeader {
             header: RequestHeader::new("openai", "gpt-test"),
         }),
+        event(EventData::RequestContext {
+            provider: "openai".to_owned(),
+            model: "gpt-test".to_owned(),
+            context_window: Some(128_000),
+        }),
         event(EventData::ApprovalAsked {
             id: "approval-1".to_owned(),
             tool_name: "bash".to_owned(),

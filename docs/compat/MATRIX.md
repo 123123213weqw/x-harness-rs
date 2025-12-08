@@ -183,7 +183,7 @@ Rust Session 已持久化 Compact Start/Summary/Checkpoint Replace/End，并由�
 | `llm/retry-started` | 是 | `partial` |
 | `permission/preset` | 是 | `partial` |
 | `plan/mode` | 是 | `partial` |
-| `request/context` | 否 | `planned` |
+| `request/context` | 是 | `full` |
 | `request/header` | 是 | `partial` |
 | `sandbox/mode` | 是 | `partial` |
 | `schedule/change` | 否 | `planned` |
