@@ -299,6 +299,10 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   `request/context`；Host 新增可重建、可增量发布的 `contextPressure` Projection，并为旧
   `request/header.options.tokenBudget` 日志保留容量迁移。Context 工具栏移除重复 Token 文本，
   直接启用聊天输入框原生无文字圆环及其按需详情面板。
+- [x] `DONE-67` Harness 构造视图：Context 页的同权胶囊改为默认折叠的单行请求详情，
+  Tool Definitions 移出模型输入正文；新增第四个 `Harness` Tab，从选中 RequestHeader 快照
+  重建 Prompt Assembly、最终 System Prompt、可搜索 Tool Registry、Context Policy 和 Runtime
+  Route。浏览器已验证 13 个真实模型可见工具与 4 个 Prompt Section，无新增后端协议。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
