@@ -1,8 +1,8 @@
 # 上下文预算与压缩规范
 
 **所属层：** `xharness-context`、`xharness-token`、`xharness-prompt`
-**状态：** Surface 抽象、请求前硬预算、自动 Compact Session Replace 已实现；按模型本地精确
-Tokenizer、手动 Compact 与生产 Tool Result Pruner 仍待实现。详见
+**状态：** Surface 抽象、请求前硬预算、自动 Compact Session Replace 和生产请求侧 Tool Result
+Pruner 已实现；按模型本地精确 Tokenizer、手动 Compact 与持久 Spill/Replace 仍待实现。详见
 [`compaction.md`](compaction.md)。
 
 ## 已落地的抽象边界
@@ -13,7 +13,10 @@ Tokenizer、手动 Compact 与生产 Tool Result Pruner 仍待实现。详见
 - `ContextPolicy`：从不可变来源投影一次性的模型可见 Surface。
 - `ContextSurface`：模型可见消息、源消息数量、Policy 名称/版本和 Surface Edit。
 - `SurfaceEdit`：用半开源区间记录 Tool Result Prune、历史压缩或自定义替换。
-- `IdentityContextPolicy`：兼容策略，逐字完整重放。
+- `IdentityContextPolicy`：嵌入式兼容策略，逐字完整重放。
+- `ToolResultPruningContextPolicy`：正式 Host 策略；超过 8,192 字符的 Tool Message 在一次性
+  Surface 上转换成确定性的 `tool_result_pruned/v1` Head/Tail Envelope，并记录
+  `ToolResultPruned` Edit。原 Session 事件与 Provider Call ID 保持不变。
 
 Core 在任何 Provider I/O 前调用 Policy、验证 Surface 结构，并把 Policy、源/可见消息数量及
 Edit 写入 `request/header.options.context`。随后 `xharness-token::TokenGuard` 对冻结 Surface 和
@@ -85,8 +88,10 @@ selected_output_tokens = min(
 Session 当前保存模型可见版本，原始结果只存在于运行时 `ToolCompleted` 事件，进程重启后不能
 通过内容引用重新分页读取。因此“大结果先持久化”的完整不变量仍待内容寻址 Spill Store 落地。
 
-旧工具结果可以通过 Surface Replace 从后续请求中缩短，但审计、导出和崩溃恢复必须仍能看到
-原始事件。摘要失败时应回退到确定性截断，而不是继续发送超预算请求。
+旧工具结果现在会先经过请求侧 Tool Result Pruner，因此即使它属于当前最新工具批次、暂时不能
+进入历史 Compact 的安全范围，也不能单独撑爆下一次 Provider Request。该投影不修改日志；后续
+仍需通过持久 Surface Replace/Spill 把引用和摘要变成可审计事务。摘要失败时应回退到确定性截断，
+而不是继续发送超预算请求。
 
 ## 文件读取策略
 
@@ -117,10 +122,11 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 
 ## 当前实现差距
 
-- Host 的普通投影仍安装 `IdentityContextPolicy`；独立 Durable Compact Coordinator 已按 0.8
+- 正式 Host 已安装 `ToolResultPruningContextPolicy`；独立 Durable Compact Coordinator 按 0.8
   阈值、0.16 尾部、8,192 摘要上限自动改写当前 Session Surface，并在每次成功后重新计量。
 - `compaction/start|summary|end|prune`、Checkpoint Replace、Web 投影和未闭合 Start 恢复已
-  落地；手动 `/compact`、生产 Pruner Replace 与全 SIGKILL 切点矩阵尚未完成。
+  落地；请求侧 Pruner 已接入，手动 `/compact`、Pruner 的持久 Replace/Spill 与全 SIGKILL
+  切点矩阵尚未完成。
 - Provider 原生完整请求计数已接入；不支持计数端点的模型使用保守 Byte Meter。按模型注册本地
   Tokenizer 与统一 Capability Catalog 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。

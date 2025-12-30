@@ -91,6 +91,9 @@ async fn fetch_follows_same_origin_and_extracts_bounded_markdown() {
     assert!(result.final_url.ends_with("/page"));
     assert!(result.content.contains("Hello"));
     assert!(result.content.contains("world"));
+    assert_eq!(result.summary_strategy, "reader-extractive/v1");
+    assert_eq!(result.source_chars, result.extracted_chars);
+    assert!(!result.truncated);
     server.await.unwrap();
     let events = sink.events().await;
     for expected in [
@@ -101,4 +104,61 @@ async fn fetch_follows_same_origin_and_extracts_bounded_markdown() {
     ] {
         assert!(events.iter().any(|event| event.event == expected));
     }
+}
+
+#[tokio::test]
+async fn fetch_removes_script_noise_and_returns_a_focus_ranked_reader_summary() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let script_noise = format!("window.noise = '{}';", "x".repeat(40_000));
+    let generic = (0..30)
+        .map(|index| {
+            format!(
+                "<h2>Generic section {index}</h2><p>This is generic navigation and repeated page material number {index} with enough words to form a reader block.</p>"
+            )
+        })
+        .collect::<String>();
+    let body = format!(
+        "<html><head><script>{script_noise}</script><style>.noise{{color:red}}</style></head><body><h1>Competition index</h1>{generic}<h2>Target contests</h2><p>Focused evidence: Rust Challenge starts tomorrow and has a first prize.</p></body></html>"
+    );
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = vec![0u8; 2048];
+        let _ = stream.read(&mut request).await.unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    let runtime = WebRuntime::new(WebConfig {
+        max_text_chars: 600,
+        allow_private_networks: true,
+        ..WebConfig::default()
+    })
+    .unwrap();
+    let result = runtime
+        .fetch_with_focus(
+            &format!("http://{address}/page"),
+            Some("Rust Challenge first prize"),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    server.await.unwrap();
+
+    assert_eq!(result.summary_strategy, "reader-extractive/v1");
+    assert!(result.truncated);
+    assert!(result.extracted_chars <= 600);
+    assert!(result.source_chars > result.extracted_chars);
+    assert!(result.content.contains("Rust Challenge"));
+    assert!(result.content.contains("Reader summary"));
+    assert!(!result.content.contains("window.noise"));
+    assert!(!result.content.contains("color:red"));
+}
+
+#[test]
+fn default_model_facing_fetch_budget_is_small() {
+    assert_eq!(WebConfig::default().max_text_chars, 8_000);
 }
