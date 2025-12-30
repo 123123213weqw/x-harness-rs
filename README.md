@@ -150,8 +150,9 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - Policy 输入同时包含 Provider、Model、Step 与全部工具 Schema
 - Surface 替换记录源消息范围、替换数量、原因和 Policy 版本
 - Core 在 Provider I/O 前验证 Surface，并把审计元数据写入 Request Header
-- `IdentityContextPolicy` 仍负责无压缩时的逐字投影；正式 Durable Host 在 Token Guard 后接入
-  独立的持久 Compact Coordinator，不把压缩副作用藏进一次性 Policy
+- `IdentityContextPolicy` 只保留给嵌入式兼容；正式 Durable Host 使用
+  `ToolResultPruningContextPolicy` 在请求 Surface 上确定性缩短超过 8,192 字符的 Tool Message，
+  再由独立持久 Compact Coordinator 处理历史范围
 
 ### `xharness-token`
 
@@ -257,7 +258,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 真 PTY、owner/name 隔离、单调 cursor、按 bytes+lines 双重限制 scrollback
 - 信号发往终端 foreground process group，close 执行 TERM → grace → KILL
 - Registry Shutdown 会拒绝新 PTY，并一次收敛全部 Owner/Session 后返回清理报告
-- `web_fetch` 仅匿名 HTTP(S)、同源跳转、私网目标拒绝、响应和正文双重上限、HTML 转 Markdown
+- `web_fetch` 仅匿名 HTTP(S)、同源跳转、私网目标拒绝；HTML 先去除 Script/Style 等噪声，
+  再生成最多 8,000 字符的 `reader-extractive/v1` 摘要，并支持可选 `focus` 相关段落排名
 - `web_search` 必须显式注入 Provider；当前包含可选的 Exa 实现，不伪造“本地搜索”
 
 ### `xharness-tools`
