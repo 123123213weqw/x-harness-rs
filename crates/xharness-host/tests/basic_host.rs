@@ -619,6 +619,16 @@ async fn host_injects_the_configured_context_policy_into_each_turn() {
 async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_prompt() {
     let root = std::env::temp_dir().join(format!("xharness-host-prompt-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("AGENTS.md"),
+        concat!(
+            "# Repository instructions\n\nDo not promote this whole file.\n\n",
+            "<!-- XHARNESS:USER-MEMORY:BEGIN -->\n",
+            "## XHarness 持久目标\n\n- 发布到东京\n",
+            "<!-- XHARNESS:USER-MEMORY:END -->\n",
+        ),
+    )
+    .unwrap();
     let mut config = HostConfig::new(&root);
     config.provider_id = "capture".to_owned();
     config.model_id = "capture-model".to_owned();
@@ -679,6 +689,9 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     assert!(system.contains("continue only the needed page with next_cursor"));
     assert!(system.contains("Once the evidence is sufficient, answer directly."));
     assert!(system.contains("Plan mode is active."));
+    assert!(system.contains("User-approved persistent goals for this workspace:"));
+    assert!(system.contains("发布到东京"));
+    assert!(!system.contains("Do not promote this whole file."));
     assert_eq!(requests[0].messages[1].content, "show the exact prompt");
     drop(requests);
     let _ = std::fs::remove_dir_all(root);

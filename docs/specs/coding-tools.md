@@ -3,6 +3,10 @@
 **Crate：** `xharness-coding-tools`
 **状态：** 14 个工具已实现；生产 Host 已统一使用正式 Registry/Executor。
 
+持久用户交互 `ask_user_question` 是通过同一 Registry 注册的第 15 个模型可见工具，但由
+`xharness-interaction` 提供，不属于 Platform Coding Bundle；其契约见
+[用户提问与等待交互](user-questions.md)。
+
 ## 组合
 
 `CodingToolBundle` 绑定一个 `NativePlatform`、`TerminalRegistry`、`WebRuntime`、Session ID

@@ -1595,30 +1595,46 @@ impl Runner {
                 .collect::<Vec<_>>(),
             _ => Vec::new(),
         };
-        if !pending_approvals.is_empty() {
+        let recoverable_questions = match (open_turn, open_step) {
+            (Some(turn), Some(step)) => session
+                .recoverable_user_questions()
+                .into_iter()
+                .filter(|question| question.turn == turn && question.step == step)
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        if !pending_approvals.is_empty() || !recoverable_questions.is_empty() {
             if !self.request.messages.is_empty() || !self.request.journal_prelude.is_empty() {
                 return Err(RunFailure::Failed(
-                    "session has a pending tool approval; resume it before admitting new input"
+                    "session has a recoverable human interaction; resume it before admitting new input"
                         .to_owned(),
                 ));
             }
-            let turn = open_turn.expect("pending approval belongs to an open turn");
-            let step = open_step.expect("pending approval belongs to an open step");
+            let turn = open_turn.expect("human interaction belongs to an open turn");
+            let step = open_step.expect("human interaction belongs to an open step");
             let pending_by_call = pending_approvals
                 .into_iter()
                 .map(|approval| (approval.call_id.clone(), approval))
                 .collect::<HashMap<_, _>>();
+            let question_calls = recoverable_questions
+                .into_iter()
+                .map(|question| question.call.id)
+                .collect::<HashSet<_>>();
             let calls = xharness_session::incomplete_tool_calls(session.events())
                 .into_iter()
                 .filter(|pending| pending.turn == turn && pending.step == step)
                 .map(|pending| RecoveredToolCall {
                     approval: pending_by_call.get(&pending.call.id).cloned(),
+                    replay_safe: question_calls.contains(&pending.call.id),
                     call: pending.call,
                 })
                 .collect::<Vec<_>>();
-            if !calls.iter().any(|call| call.approval.is_some()) {
+            if !calls
+                .iter()
+                .any(|call| call.approval.is_some() || call.replay_safe)
+            {
                 return Err(RunFailure::Failed(
-                    "session approval recovery lost its referenced tool call".to_owned(),
+                    "session interaction recovery lost its referenced tool call".to_owned(),
                 ));
             }
             self.messages = self.prompt_prefixed(session.derive_messages());
@@ -1817,6 +1833,9 @@ impl Runner {
                                     | SessionEventData::GoalChange { .. }
                                     | SessionEventData::SessionMutationCommitted { .. }
                                     | SessionEventData::PlanMode { .. }
+                                    | SessionEventData::QuestionDraftUpdated { .. }
+                                    | SessionEventData::QuestionResolved { .. }
+                                    | SessionEventData::QuestionCancelled { .. }
                             )
                         })
                     {
@@ -3235,6 +3254,9 @@ impl Runner {
 
         for (order, recovered) in recovery.calls.into_iter().enumerate() {
             let Some(approval) = recovered.approval else {
+                if recovered.replay_safe {
+                    continue;
+                }
                 scheduled[order].started = true;
                 let result = ToolResult::failure(xharness_session::OUTCOME_UNKNOWN_CONTENT);
                 let execution = ToolExecution {
@@ -3338,6 +3360,9 @@ impl Runner {
             match recovered.approval {
                 Some(approval) => {
                     recovered_approvals.insert(recovered.call.id.clone(), approval.id);
+                    pending.push((order, recovered.call));
+                }
+                None if recovered.replay_safe => {
                     pending.push((order, recovered.call));
                 }
                 None => {
@@ -3746,6 +3771,7 @@ struct RecoveredToolBatch {
 struct RecoveredToolCall {
     call: ToolCall,
     approval: Option<PendingToolApproval>,
+    replay_safe: bool,
 }
 
 #[derive(Clone)]
