@@ -427,15 +427,18 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   远程打包和卸载已实现。剩余：在干净 Ubuntu 24.04 VM 完成 dpkg 矩阵，并在 WZU_4080 输入
   管理员授权真实安装后，重启 Host 验证 Coding Tool。
 
-- [ ] `P0-16` **持久 User Question 交互。** 已新增 `xharness-interaction`，冻结每次 1—3 个问题、
+- [x] `P0-16` **持久 User Question 交互。** 已新增 `xharness-interaction`，冻结每次 1—3 个问题、
   每题最多 3 个有限选项、可选自由文本、`context/agent_markdown` 目标、Submit/Continue、空或部分
   回答、Draft/Dismiss、Cancel 与幂等 Resolution；`ask_user_question` 复用现有 Tool Registry，使用
   `Exclusive + External Settlement + Standalone Batch`，不受普通 Tool Timeout 影响，混合副作用
   批次在执行前拒绝。规范和接口测试见
-  [`specs/user-questions.md`](specs/user-questions.md)。**剩余：** Session 强类型事件与 Flush、Pending
-  Recovery、Host `UserQuestionService`/RPC、复用现有 Web 组件、受管 AGENTS.md Memory Sink，以及
-  Requested/Resolved/Tool Result 全切点崩溃测试。未决问题禁止 Compact、已解决问答原子安全切点和
-  Agent Markdown Prompt Budget 明确留在本项后续，不在接口切片提前实现。
+  [`specs/user-questions.md`](specs/user-questions.md)。Session 强类型事件、Flush、Pending Recovery、
+  `DurableQuestionHub`、`/api/respond`、冻结 Web 组件协议、受管 AGENTS.md Memory Sink 与下一轮
+  Prompt 注入均已接通；Host Restart 会复用原 Interaction/Execution ID 恢复原 Turn。已覆盖有限
+  选择、自由输入、部分/空回答、取消、幂等、Registry、Web Frame、Session 投影、Host 恢复和
+  AGENTS.md 原子写测试。**后续但不阻塞本项：** 冻结上游 UI 没有跨刷新 Draft RPC；问题组的
+  Compact 原子安全切点、Agent Markdown 独立 Prompt Budget，以及 Requested/Resolved/Tool Result
+  每个 Flush 点的外部 SIGKILL 扩展矩阵归 `P1-03/E-08`。
 
 ## P1 — Coding 质量与上下文效率
 
@@ -463,7 +466,8 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   恢复、正式 Durable Host 默认启用、Web `surfaceOp={op:replace,start,end}` 投影及回归测试。
   **剩余：** 手动 `/compact`、Purpose 路由到独立摘要模型、把 `DONE-68` 的请求侧 Tool Result
   Pruner 接入持久 Replace、Provider 结构化错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点
-  矩阵和按模型本地精确 Tokenizer。
+  矩阵、按模型本地精确 Tokenizer，以及把已解决 Question/Answer/Tool Result 作为不可拆分单元选择
+  Compact 安全切点；未决 Question 始终留在当前开放 Step，不参与 Compact。
 
 - [ ] `P1-04` **动态 Tool Projection。** 每个 Profile/Step 只发送相关工具，同时保持 Schema
   稳定。与始终发送 14 工具比较 Token/Cache 消耗和工具选择质量。

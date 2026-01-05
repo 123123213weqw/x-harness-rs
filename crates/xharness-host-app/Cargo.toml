@@ -22,6 +22,7 @@ xharness-core = { path = "../xharness-core" }
 xharness-control = { path = "../xharness-control" }
 xharness-debug = { path = "../xharness-debug" }
 xharness-host = { path = "../xharness-host" }
+xharness-interaction = { path = "../xharness-interaction" }
 xharness-agent = { path = "../xharness-agent" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }

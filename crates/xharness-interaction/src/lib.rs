@@ -27,6 +27,10 @@ const MAX_LABEL_CHARS: usize = 80;
 const MAX_DESCRIPTION_CHARS: usize = 500;
 const MAX_CUSTOM_ANSWER_CHARS: usize = 8 * 1024;
 
+const fn default_allow_custom() -> bool {
+    true
+}
+
 /// Where an accepted answer remains visible after the current tool result.
 ///
 /// Both variants are returned to the current model step. `AgentMarkdown`
@@ -64,7 +68,7 @@ pub struct QuestionSpec {
     pub options: Vec<QuestionOption>,
     /// Allow free text either as an alternative to a finite choice or as an
     /// additional qualification of the selected choice.
-    #[serde(default)]
+    #[serde(default = "default_allow_custom")]
     pub allow_custom: bool,
     /// Short-lived answers stay in the current context. Durable goals can be
     /// routed to the Host-managed AGENTS.md memory sink.
@@ -113,6 +117,7 @@ impl AskUserQuestionRequest {
                 return Err(QuestionValidationError::NoAnswerMode(question.id.clone()));
             }
             let mut option_ids = BTreeMap::new();
+            let mut option_labels = BTreeMap::new();
             let mut recommended = 0usize;
             for (option_index, option) in question.options.iter().enumerate() {
                 validate_identifier(
@@ -126,6 +131,15 @@ impl AskUserQuestionRequest {
                     return Err(QuestionValidationError::DuplicateOptionId {
                         question_id: question.id.clone(),
                         option_id: option.id.clone(),
+                    });
+                }
+                if option_labels
+                    .insert(option.label.trim(), option_index)
+                    .is_some()
+                {
+                    return Err(QuestionValidationError::DuplicateOptionLabel {
+                        question_id: question.id.clone(),
+                        label: option.label.clone(),
                     });
                 }
                 validate_text(
@@ -263,6 +277,14 @@ enum InteractionTerminal {
     Cancelled(String),
 }
 
+/// Public, serialization-free view of an interaction's settlement state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QuestionTerminalState {
+    Pending,
+    Resolved(QuestionResolution),
+    Cancelled(String),
+}
+
 /// Pure state machine used by durable providers and UI tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestionInteraction {
@@ -292,6 +314,18 @@ impl QuestionInteraction {
             .iter()
             .filter_map(|question| self.draft.get(&question.id).cloned())
             .collect()
+    }
+
+    pub fn terminal_state(&self) -> QuestionTerminalState {
+        match &self.terminal {
+            None => QuestionTerminalState::Pending,
+            Some(InteractionTerminal::Resolved(resolution)) => {
+                QuestionTerminalState::Resolved(resolution.clone())
+            }
+            Some(InteractionTerminal::Cancelled(reason)) => {
+                QuestionTerminalState::Cancelled(reason.clone())
+            }
+        }
     }
 
     /// Merge a partial draft. Closing/minimizing the UI does not call another
@@ -399,6 +433,8 @@ pub enum QuestionValidationError {
         question_id: String,
         option_id: String,
     },
+    #[error("question {question_id:?} has duplicate option label {label:?}")]
+    DuplicateOptionLabel { question_id: String, label: String },
     #[error("question {0:?} needs finite options or allowCustom=true")]
     NoAnswerMode(String),
     #[error("question {0:?} has more than one recommended option")]
@@ -544,7 +580,11 @@ pub fn tool_definition() -> ToolDefinition {
                                     "additionalProperties": false
                                 }
                             },
-                            "allowCustom": {"type": "boolean"},
+                            "allowCustom": {
+                                "type": "boolean",
+                                "default": true,
+                                "description": "Whether the user may type their own answer; defaults to true."
+                            },
                             "destination": {
                                 "type": "string",
                                 "enum": ["context", "agent_markdown"]

@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 use serde_json::json;
+use xharness_interaction::{
+    AnswerDestination, AskUserQuestionRequest, QuestionAnswer, QuestionInvocation, QuestionOption,
+    QuestionSpec, QuestionTerminalState, ResolveAction, ASK_USER_QUESTION_TOOL,
+};
 use xharness_session::{
     derive_messages, incomplete_tool_calls, ApprovalOutcome, ApprovalPolicy, AssistantChunk,
     CommandResultKind, CommandSource, EventData, GoalChange, GoalChangeKind, GoalClearChange,
@@ -32,6 +36,34 @@ fn call(id: &str, index: usize) -> ToolCall {
         index,
         name: "read_file".to_owned(),
         arguments_json: r#"{"path":"README.md"}"#.to_owned(),
+    }
+}
+
+fn question_request() -> AskUserQuestionRequest {
+    AskUserQuestionRequest {
+        questions: vec![QuestionSpec {
+            id: "mode".to_owned(),
+            header: "模式".to_owned(),
+            question: "选择运行模式".to_owned(),
+            options: vec![QuestionOption {
+                id: "safe".to_owned(),
+                label: "安全模式".to_owned(),
+                description: None,
+                recommended: true,
+            }],
+            allow_custom: true,
+            destination: AnswerDestination::Context,
+        }],
+    }
+}
+
+fn question_call() -> ToolCall {
+    ToolCall {
+        id: "question-execution".to_owned(),
+        provider_call_id: Some("provider-question".to_owned()),
+        index: 0,
+        name: ASK_USER_QUESTION_TOOL.to_owned(),
+        arguments_json: serde_json::to_string(&question_request()).unwrap(),
     }
 }
 
@@ -280,6 +312,107 @@ fn restore_rejects_sequence_gaps_and_bad_revisions() {
         Session::restore(header("s1"), Revision(2), vec![skipped_revision]),
         Err(SessionError::LoggedRevisionMismatch { .. })
     ));
+}
+
+#[test]
+fn user_question_lifecycle_is_validated_projected_and_never_unknowned() {
+    let mut session = Session::new(header("question-lifecycle")).unwrap();
+    let call = question_call();
+    session
+        .append_batch(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::UserMessage {
+                    message: Message::user("需要选择"),
+                    surface_replace: None,
+                }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: {
+                        let mut assistant = Message::assistant("");
+                        assistant.tool_calls.push(call.clone());
+                        assistant
+                    },
+                    usage: None,
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call.clone(),
+                }),
+                event(EventData::QuestionRequested {
+                    invocation: QuestionInvocation::new(call.id.clone(), question_request()),
+                }),
+            ],
+        )
+        .unwrap();
+    assert_eq!(session.pending_user_questions().len(), 1);
+    assert_eq!(session.recoverable_user_questions().len(), 1);
+    assert!(session.outcome_unknown_recovery().is_empty());
+
+    let invalid_result = session.append(
+        session.revision(),
+        event(EventData::ToolResult {
+            turn: 1,
+            step: 1,
+            result: ToolResultData::success(&call.id, "too early"),
+        }),
+    );
+    assert!(matches!(
+        invalid_result,
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+
+    let mut interaction = xharness_interaction::QuestionInteraction::new(QuestionInvocation::new(
+        call.id.clone(),
+        question_request(),
+    ))
+    .unwrap();
+    let resolution = interaction
+        .resolve(
+            ResolveAction::Continue,
+            vec![QuestionAnswer {
+                question_id: "mode".to_owned(),
+                selected_option_id: Some("safe".to_owned()),
+                custom_text: None,
+            }],
+        )
+        .unwrap();
+    session
+        .append(
+            session.revision(),
+            event(EventData::QuestionResolved {
+                interaction_id: "question:question-execution".to_owned(),
+                resolution,
+            }),
+        )
+        .unwrap();
+    assert!(session.pending_user_questions().is_empty());
+    assert!(matches!(
+        session.recoverable_user_questions()[0].terminal,
+        QuestionTerminalState::Resolved(_)
+    ));
+    assert!(session.outcome_unknown_recovery().is_empty());
+
+    session
+        .append(
+            session.revision(),
+            event(EventData::ToolResult {
+                turn: 1,
+                step: 1,
+                result: ToolResultData {
+                    call_id: call.id,
+                    outcome: ToolOutcome::Success,
+                    content: "answered".to_owned(),
+                    metadata: None,
+                },
+            }),
+        )
+        .unwrap();
+    assert!(session.recoverable_user_questions().is_empty());
 }
 
 #[test]

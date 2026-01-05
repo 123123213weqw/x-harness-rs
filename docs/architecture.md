@@ -160,6 +160,10 @@ terminal_signal terminal_close terminal_list
 web_search web_fetch
 ```
 
+交互层另通过同一个正式 Tool Registry 注册第 15 个模型可见工具 `ask_user_question`。它使用
+`Exclusive + External Settlement + Standalone Batch`，由 Session/Host/Web 持久链路结算，不属于
+Platform Coding Bundle，也不会绕过统一 Schema、Guard、Lifecycle 和审计。
+
 “稳定名称”不表示每一轮都应该发送全部工具。Host 已按平台、Search Provider 与现存 Terminal
 状态裁剪模型可见子集；最终工具投影还要加入 Profile/当前 Step 规则并完整写入 Request Header。
 

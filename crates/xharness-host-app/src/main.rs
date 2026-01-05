@@ -10,8 +10,10 @@ use xharness_compaction::CompactionConfig;
 use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::ToolResultPruningContextPolicy;
 use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode};
-use xharness_host::{AgentRuntime, BasicHost, DurableLoopAgentRuntime, HostConfig};
-use xharness_host_app::NativeToolFactory;
+use xharness_host::{
+    AgentRuntime, BasicHost, DurableLoopAgentRuntime, DurableQuestionHub, HostConfig,
+};
+use xharness_host_app::{ManagedAgentMarkdownSink, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_server::{serve, web_router_with_debug};
 use xharness_session::Store;
@@ -80,12 +82,13 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     config.model_id = deployment.default_route.model.clone();
     config.reasoning_effort = deployment.default_route.reasoning_effort.clone();
     config.token_guard = deployment.default_token_guard.clone();
-    let web = WebRuntime::default().with_debug(debug.clone());
-    let tools = NativeToolFactory::new_with_debug(web, debug.clone());
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
     let control_dir = args.state_dir.join("control");
     let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?);
+    let questions = DurableQuestionHub::new(store.clone(), ManagedAgentMarkdownSink::new());
+    let web = WebRuntime::default().with_debug(debug.clone());
+    let tools = NativeToolFactory::new_with_questions(web, debug.clone(), Arc::clone(&questions));
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     let runtime = Arc::new(
@@ -102,7 +105,12 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         .with_compaction(args.compaction.clone()),
     );
     let host_runtime: Arc<dyn AgentRuntime> = runtime.clone();
-    let host = BasicHost::with_agent_runtime_and_control_store(config, host_runtime, control_store);
+    let host = BasicHost::with_agent_runtime_control_and_questions(
+        config,
+        host_runtime,
+        control_store,
+        questions,
+    );
     let restore = host.restore_from_store(store).await?;
     debug
         .record(DebugEvent::new(
@@ -111,6 +119,8 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
             serde_json::json!({
                 "restoredSessions": restore.restored_sessions,
                 "resumedPendingTurns": restore.resumed_pending_turns,
+                "resumedPendingApprovals": restore.resumed_pending_approvals,
+                "resumedUserQuestions": restore.resumed_user_questions,
                 "issues": restore.issues.iter().map(|issue| serde_json::json!({
                     "sessionId": &issue.session_id,
                     "message": &issue.message,
@@ -119,9 +129,11 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         ))
         .await?;
     eprintln!(
-        "xharness restored {} sessions and resumed {} pending turns ({} issues)",
+        "xharness restored {} sessions, resumed {} pending turns, {} approvals, and {} user questions ({} issues)",
         restore.restored_sessions,
         restore.resumed_pending_turns,
+        restore.resumed_pending_approvals,
+        restore.resumed_user_questions,
         restore.issues.len(),
     );
     for issue in &restore.issues {

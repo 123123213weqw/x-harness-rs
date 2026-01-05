@@ -4,7 +4,8 @@
 可测试的 Agent Loop；macOS 作为首要本地开发平台，Linux 作为服务器平台。
 
 当前开发版已完成可嵌入 Loop、OpenAI-compatible Provider、append-only Session、
-14 个原生 Coding 工具（按运行时能力动态投影），以及兼容 DeepSeek Harness Web 的第一版
+14 个原生 Coding 工具与 1 个持久用户交互工具（均按运行时能力动态投影），以及兼容
+DeepSeek Harness Web 的第一版
 Rust Host。目标不是
 把所有能力继续堆进一个 `while`，而是把模型、历史、工具策略、Web 投影和原生执行
 能力拆成 typed service。模型 Provider 只由共享核心调用，macOS/Linux 差异收敛在
@@ -54,7 +55,8 @@ FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产�
 该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
 Developer ID 签名、公证和本机安装验证。
 
-> **当前可用性提醒（2026-08-25）：** Web/持久 Agent/Loop/14 工具、版本化最小 Coding System
+> **当前可用性提醒（2026-09-01）：** Web/持久 Agent/Loop/14 个 Coding 工具与
+> `ask_user_question`、版本化最小 Coding System
 > Prompt、Provider 原生输入计数、请求前 Hard Token Guard 与自动 Compact 已经贯通。无压力时
 > Host 逐字重放当前 Surface；达到 80% 或发生 Hard/Provider Overflow 时，会持久摘要安全头部、
 > 重新计量后继续。每个 Step 也已按平台 Readiness 动态发送可用工具。Linux Bubblewrap Probe 失败时，
@@ -97,11 +99,12 @@ RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once �
 
 ### `xharness-host-app`
 
-- 组合 OpenAI-compatible Provider、HTTP/WS Server 和原生 14 工具
+- 组合 OpenAI-compatible Provider、HTTP/WS Server、原生 14 个 Coding 工具和持久
+  `ask_user_question`
 - `NativeToolFactory` 按 Workspace 缓存 Platform、按 Session 隔离 Terminal
 - SIGINT/SIGTERM 先关闭新 Admission，再收敛 Agent/Loop/Tool/Process 和全部持久 PTY；
   Forced Cleanup 导致非零退出
-- 当前每个模型 Step 按 Sandbox/Search/Terminal Readiness 投影 14 工具的可用子集；选中 Preset
+- 当前每个模型 Step 按 Sandbox/Search/Terminal Readiness 投影工具可用子集；选中 Preset
   已经通过 `xharness-prompt/v1`
   成为 Provider 请求中的第一个 System Message
 - 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
@@ -136,8 +139,9 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 支持 Submit、部分/空答案 Continue、可恢复 Draft、Dismiss 不结算以及幂等 Resolution 状态机
 - 复用正式 `ToolRegistry/ToolSpec`；交互工具使用 `Exclusive + External Settlement + Standalone
   Batch`，等待用户时不触发普通工具超时，混合副作用批次在启动前拒绝，但仍响应结构化 Cancel
-- 当前只完成公共接口与单元测试；Session Event、Host Service/RPC、AGENTS.md Memory Sink 和现有 Web
-  User Questions 组件接线仍在 `P0-16`
+- Session Event/Flush、Pending Recovery、`DurableQuestionHub`、`/api/respond`、冻结 Web User
+  Questions 组件协议和受管 AGENTS.md Memory Sink 已接通；Host 重启会复用原交互 ID 继续原 Turn
+- 折叠卡片会保留当前前端草稿；冻结 UI 尚无跨整页刷新 Draft RPC，Compact 原子切点继续在 TODO
 
 ### `xharness-core`
 

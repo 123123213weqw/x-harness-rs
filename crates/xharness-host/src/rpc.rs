@@ -144,10 +144,12 @@ impl ApiBackend for BasicHost {
 
     fn mux_events(&self) -> EventStream {
         let mut receiver = self.mux_tx.subscribe();
+        let mut question_receiver = self.questions.subscribe();
         let state = Arc::clone(&self.state);
         let next_id = Arc::clone(&self.next_id);
+        let questions = Arc::clone(&self.questions);
         Box::pin(async_stream::stream! {
-            let baseline = {
+            let mut baseline = {
             let state = state.read().await;
             let mut frames = Vec::new();
             for session in state.sessions.values() {
@@ -214,11 +216,16 @@ impl ApiBackend for BasicHost {
             }
             frames
             };
+            baseline.extend(questions.baseline().await);
             for frame in baseline {
                 yield frame;
             }
             loop {
-                match receiver.recv().await {
+                let received = tokio::select! {
+                    frame = receiver.recv() => frame,
+                    frame = question_receiver.recv() => frame,
+                };
+                match received {
                     Ok(frame) => yield frame,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                         yield ServerRequest::new(
@@ -2798,9 +2805,7 @@ impl BasicHost {
         let rpc_id = response.rpc_id.as_str().to_owned();
         let pending = self.state.read().await.pending.get(&rpc_id).cloned();
         let Some(pending) = pending else {
-            return RpcReceipt::Rejected {
-                reason: ReceiptRejection::NotPending,
-            };
+            return self.questions.respond(response).await;
         };
         match pending {
             PendingResponse::Approval {

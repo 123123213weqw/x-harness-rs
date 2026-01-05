@@ -630,6 +630,22 @@ impl HostState {
             PromptSection::content_addressed("workspace/context", workspace),
             PromptSection::new("coding/workflow", "2", workflow),
         ];
+        let agent_markdown = std::path::Path::new(&session.cwd).join("AGENTS.md");
+        if let Ok(bytes) = std::fs::read(&agent_markdown) {
+            // The managed sink is intentionally small. Refuse to pin an
+            // unexpectedly huge file into every model request even if the
+            // surrounding repository owns a large AGENTS.md.
+            if bytes.len() <= 256 * 1024 {
+                if let Ok(text) = String::from_utf8(bytes) {
+                    if let Some(memory) = crate::managed_agent_memory(&text) {
+                        sections.push(PromptSection::content_addressed(
+                            "workspace/agent-memory",
+                            format!("User-approved persistent goals for this workspace:\n{memory}"),
+                        ));
+                    }
+                }
+            }
+        }
         if session.plan_active {
             sections.push(PromptSection::new(
                 "plan/policy",

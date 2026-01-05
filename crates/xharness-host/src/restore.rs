@@ -43,6 +43,7 @@ pub struct HostRestoreReport {
     pub restored_sessions: usize,
     pub resumed_pending_turns: usize,
     pub resumed_pending_approvals: usize,
+    pub resumed_user_questions: usize,
     pub waiting_next_step_inputs: usize,
     pub issues: Vec<HostRestoreIssue>,
 }
@@ -131,6 +132,7 @@ impl BasicHost {
             let admissions = restored_admissions(&session);
             let projected_queue_len = queue.len();
             let pending_approval_count = session.pending_tool_approvals().len();
+            let recoverable_question_count = session.recoverable_user_questions().len();
             let metric_events =
                 project_session_event_range(&session, &route, 0, session.events().len());
             let metrics = MetricsProjectionState::rebuild(metric_events.iter());
@@ -205,7 +207,10 @@ impl BasicHost {
             }
             report.restored_sessions += 1;
             report.waiting_next_step_inputs += inbox.next_step().len();
-            if projected_queue_len > 0 || pending_approval_count > 0 {
+            if projected_queue_len > 0
+                || pending_approval_count > 0
+                || recoverable_question_count > 0
+            {
                 let prompt = self
                     .state
                     .read()
@@ -223,6 +228,7 @@ impl BasicHost {
                     prompt,
                     projected_queue_len,
                     pending_approval_count,
+                    recoverable_question_count,
                 ));
             }
         }
@@ -230,8 +236,16 @@ impl BasicHost {
         // The runtime subscribes and prepares every recovered input before it
         // wakes the durable Agent. Only after that succeeds do we publish the
         // Host-owned driver/control projection.
-        for (session_id, cwd, route, permission, prompt, projected_count, projected_approvals) in
-            resumable
+        for (
+            session_id,
+            cwd,
+            route,
+            permission,
+            prompt,
+            projected_count,
+            projected_approvals,
+            projected_questions,
+        ) in resumable
         {
             match self
                 .agent_runtime
@@ -263,6 +277,15 @@ impl BasicHost {
                         });
                         continue;
                     }
+                    if runtime_report.recovered_question_work_id.is_some() {
+                        report.resumed_user_questions += projected_questions;
+                    } else if projected_questions > 0 {
+                        report.issues.push(HostRestoreIssue {
+                            session_id: session_id.clone(),
+                            message: "runtime did not attach the durable user question".to_owned(),
+                        });
+                        continue;
+                    }
                     let (control_tx, control_rx) = mpsc::channel::<DriverCommand>(64);
                     {
                         let mut state = self.state.write().await;
@@ -274,7 +297,10 @@ impl BasicHost {
                         record.control = Some(control_tx);
                     }
                     let host = self.as_ref().clone();
-                    if let Some(work_id) = runtime_report.recovered_approval_work_id {
+                    if let Some(work_id) = runtime_report
+                        .recovered_approval_work_id
+                        .or(runtime_report.recovered_question_work_id)
+                    {
                         let recovered = self
                             .agent_runtime
                             .take_resumed_turn(&session_id, &work_id)
@@ -286,7 +312,7 @@ impl BasicHost {
                             .ok_or_else(|| HostRestoreError::InvalidInbox {
                                 session_id: session_id.clone(),
                                 message: format!(
-                                    "runtime lost recovered approval work {work_id:?}"
+                                    "runtime lost recovered interaction work {work_id:?}"
                                 ),
                             })?;
                         tokio::spawn(async move {
@@ -818,6 +844,18 @@ fn restored_web_event(
                 "hidden": true,
             });
         }
+        EventData::QuestionRequested { .. }
+        | EventData::QuestionDraftUpdated { .. }
+        | EventData::QuestionResolved { .. }
+        | EventData::QuestionCancelled { .. } => {
+            return json!({
+                "type": "xharness/internal",
+                "seq": event.seq,
+                "time": event.timestamp_ms,
+                "data": {"kind": "user-question-lifecycle"},
+                "hidden": true,
+            });
+        }
         EventData::TurnStart { turn } => (
             "turn/start".to_owned(),
             json!({
@@ -1160,10 +1198,14 @@ mod tests {
     use xharness_api::{
         ApiBackend, ClientResponse, ClientResponseKind, RpcId, RpcMethod, RpcResult,
     };
-    use xharness_control::{ControlRevision, ControlStore, JsonlControlStore};
+    use xharness_control::{ControlRevision, ControlStore, JsonlControlStore, MemoryControlStore};
     use xharness_core::{
         FinishReason, IdentityContextPolicy, ModelProvider, ProviderError, ProviderEvent,
         ProviderRequest, ProviderStream, TokenUsage,
+    };
+    use xharness_interaction::{
+        AnswerDestination, AskUserQuestionRequest, AskUserQuestionTool, QuestionInvocation,
+        QuestionOption, QuestionSpec, ASK_USER_QUESTION_TOOL,
     };
     use xharness_session::{
         ApprovalOutcome, AssistantChunk, EventData, LlmFailure, LlmRetryMode, MemorySessionStore,
@@ -1295,6 +1337,31 @@ mod tests {
 
     struct ApprovalRecoveryTools {
         executions: Arc<AtomicUsize>,
+    }
+
+    struct QuestionRecoveryTools {
+        hub: Arc<crate::DurableQuestionHub>,
+    }
+
+    #[async_trait]
+    impl SessionToolFactory for QuestionRecoveryTools {
+        async fn executor(
+            &self,
+            session_id: &str,
+            cwd: &str,
+            _permission: PermissionPreset,
+        ) -> Result<ToolExecutor, String> {
+            let registry = Arc::new(ToolRegistry::new());
+            AskUserQuestionTool::new(Arc::new(crate::DurableQuestionProvider::new(
+                Arc::clone(&self.hub),
+                session_id,
+                cwd,
+            )))
+            .register(&registry)
+            .await
+            .map_err(|error| error.to_string())?;
+            Ok(ToolExecutor::new(registry))
+        }
     }
 
     #[async_trait]
@@ -2305,6 +2372,169 @@ mod tests {
                 if result.call_id == "execution-restart"
                     && result.outcome == ToolOutcome::Success
         )));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn restore_reattaches_pending_question_and_reuses_the_web_composer_protocol() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut header = SessionHeader::new("question-restart");
+        header.cwd = Some(cwd.to_string_lossy().into_owned());
+        store.create(header).await.unwrap();
+        let request = AskUserQuestionRequest {
+            questions: vec![QuestionSpec {
+                id: "target".to_owned(),
+                header: "目标".to_owned(),
+                question: "部署到哪里？".to_owned(),
+                options: vec![QuestionOption {
+                    id: "tokyo".to_owned(),
+                    label: "东京 (Recommended)".to_owned(),
+                    description: Some("公开服务".to_owned()),
+                    recommended: true,
+                }],
+                allow_custom: true,
+                destination: AnswerDestination::Context,
+            }],
+        };
+        let call = ToolCall {
+            id: "question-execution-restart".to_owned(),
+            provider_call_id: Some("provider-question-restart".to_owned()),
+            index: 0,
+            name: ASK_USER_QUESTION_TOOL.to_owned(),
+            arguments_json: serde_json::to_string(&request).unwrap(),
+        };
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls.push(call.clone());
+        store
+            .append(
+                "question-restart",
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("ask me").with_id("original-question-prompt"),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::RequestHeader {
+                        header: RequestHeader::new("test", "test-model"),
+                    }
+                    .into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call: call.clone(),
+                    }
+                    .into(),
+                    EventData::QuestionRequested {
+                        invocation: QuestionInvocation::new(call.id.clone(), request),
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        store.flush("question-restart").await.unwrap();
+
+        let questions = crate::DurableQuestionHub::new(
+            Arc::clone(&store),
+            Arc::new(crate::NoopAgentMarkdownSink),
+        );
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider: Arc<dyn ModelProvider> = Arc::new(ApprovalRecoveryProvider {
+            requests: Arc::clone(&requests),
+        });
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider),
+            Arc::new(QuestionRecoveryTools {
+                hub: Arc::clone(&questions),
+            }),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let host = BasicHost::with_agent_runtime_control_and_questions(
+            config(&cwd),
+            runtime,
+            Arc::new(MemoryControlStore::default()),
+            questions,
+        );
+        let mut mux = host.mux_events();
+        let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
+        assert_eq!(report.resumed_user_questions, 1);
+        assert!(report.issues.is_empty());
+
+        let question = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let frame = mux.next().await.expect("mux remained open");
+                if frame.payload["type"] == "question/requested" {
+                    break frame;
+                }
+            }
+        })
+        .await
+        .expect("recovered question was not projected");
+        assert_eq!(
+            question.rpc_id.as_str(),
+            "question:question-execution-restart"
+        );
+        assert_eq!(question.payload["sessionId"], "question-restart");
+        assert_eq!(question.payload["questions"][0]["question"], "部署到哪里？");
+
+        let receipt = host
+            .respond(ClientResponse {
+                kind: ClientResponseKind::ClientResponse,
+                rpc_id: question.rpc_id,
+                result: RpcResult::success(json!({
+                    "sessionId": "question-restart",
+                    "answer": {"answers": [{
+                        "id": "target",
+                        "selected": ["东京 (Recommended)"],
+                    }]},
+                })),
+            })
+            .await;
+        assert_eq!(receipt, xharness_api::RpcReceipt::Accepted);
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let session = store.load("question-restart").await.unwrap().unwrap();
+                if session.events().iter().any(|event| {
+                    matches!(
+                        event.data(),
+                        EventData::TurnEnd {
+                            turn: 1,
+                            reason: TurnEndReason::Completed
+                        }
+                    )
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("recovered question turn did not finish");
+        let session = store.load("question-restart").await.unwrap().unwrap();
+        assert!(session.recoverable_user_questions().is_empty());
+        assert!(session.events().iter().any(|event| matches!(
+            event.data(),
+            EventData::ToolResult { result, .. }
+                if result.call_id == "question-execution-restart"
+                    && result.outcome == ToolOutcome::Success
+        )));
+        assert_eq!(requests.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
