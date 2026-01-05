@@ -22,6 +22,16 @@ Origin；跨 Origin Redirect 返回结构化拒绝。
 Private/Reserved Address。IPv4-mapped IPv6 必须应用 IPv4 Policy。只支持 Text/HTML；HTML
 转换成 Markdown，Script/Style 不作为活跃内容暴露。
 
+macOS 上 Clash/Surge 一类 TUN 的 Fake-IP DNS 会为公共域名返回 RFC 2544 的
+`198.18.0.0/15`。这不能简单加入公共地址白名单：Host 必须对**域名**使用加密公共 DNS 再验证
+真实 A/AAAA，随后通过 HTTP Client 的 Resolve Override 把连接固定到已验证地址，同时保留原始
+Host/TLS SNI。直接请求 `198.18.0.0/15` IP、公共 DNS 返回私网地址或验证失败仍必须拒绝。
+普通公共系统解析同样固定连接地址；每个 Redirect Hop 重新解析、校验和固定，避免 DNS Rebinding。
+
+`web_fetch` 是 Host 内的受控匿名网络能力，不经 `bash`/PTY 的进程沙箱，因此 Workspace-write
+与 Danger-full-access 下行为一致。权限预设只改变进程/文件能力，不能关闭 Fetch 的 SSRF 防线；
+Workspace-write 下 Bash 网络仍保持隔离。
+
 默认预算：30 秒、5 MiB Wire Bytes、**8,000 个模型可见字符**。Wire Content 超限直接拒绝；
 但 Wire 上限不能直接当成模型上下文预算。HTML 在 Markdown 转换前必须移除 Script、Style、
 NoScript、Template、SVG、Canvas 和 IFrame 等高噪声区域，再执行确定性的
@@ -40,7 +50,6 @@ Target、DNS、Redirect、Content Type、Size、Timeout、Provider、Transport �
 
 ## 当前限制
 
-- DNS 校验结果与实际连接地址尚未加密绑定；DNS Rebinding 加固列为 P0。
 - 当前是确定性抽取式 Reader Summary，不做生成式改写；复杂站点的主正文识别仍不是完整
   Article/Readability Engine。
 - 尚无带登录态 Browser、JavaScript 执行、Robots Policy、Download/Blob Store、Citation

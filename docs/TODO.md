@@ -41,7 +41,7 @@ Context 占用圆环、Harness 构造视图，以及 Web Fetch 大结果直接�
   未签名构件；剩余是 Live Provider、签名、公证和安装验证。
 
 当前最短阻塞链调整为：**大结果持久 Spill/Reference 与 Pruner Replace → 删除 Core 旧 Tool
-兼容层 → Credential Reference/配置 → 远程 Web Auth/DNS Rebinding → WebSocket Cursor Resume →
+兼容层 → Credential Reference/配置 → 远程 Web Auth → WebSocket Cursor Resume →
 macOS 签名/公证与发布验证**。手动 `/compact`、独立摘要 Purpose 路由和精确 Tokenizer 作为
 Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
 
@@ -317,6 +317,11 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   上形成 `tool_result_pruned/v1` Envelope，原始日志与 Tool Call ID 不变。该修复针对真实回归：
   Codeforces 抓取读取 261,147 Byte、写回 102,434 Byte，连续两次 Compact 后仍以
   `120811 > 118784` 被请求前 Token Guard 拒绝。
+- [x] `DONE-69` Web Fake-IP 与 macOS `/dev/null` 修复：公共域名被 Clash/Surge TUN 解析为
+  `198.18.0.0/15` 时，不再误报 Private Target；Host 引入加密公共 DNS 验证并把真实地址固定到
+  HTTP Client，直接 Reserved/Private IP 仍拒绝。`web_fetch` 明确独立于 Session 进程权限，
+  Workspace-write 下可用而 Bash 网络仍隔离。Seatbelt 仅额外允许精确的 `/dev/null` 字符设备
+  写入，修复 `command 2>/dev/null` 的假失败，不扩大 Workspace 外普通文件写权限。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -380,9 +385,9 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   ARM64 原生 CI、FS/Process/PTY/Seatbelt 测试和未签名 Host 构件已经完成；剩余 Web TLS、
   真实 Provider Live Loop、开发者签名、公证和本机安装/启动验证。
 
-- [ ] `P0-08` **Web DNS Rebinding 加固。** 每个连接绑定到已验证 Resolve Address，同时
-  保留 TLS Host/SNI；Redirect 重新应用 Policy。测试 Rebinding、IPv4-mapped IPv6 和
-  Reserved Range。
+- [x] `P0-08` **Web DNS Rebinding 加固。** 每个连接绑定到已验证 Resolve Address，同时
+  保留 TLS Host/SNI；Redirect 重新应用 Policy。已测试 Address Pin、IPv4-mapped IPv6、
+  Reserved Range，以及 Fake-IP 仅对域名进入加密公共 DNS 验证、IP Literal 始终拒绝的边界。
 
 - [ ] `P0-09` **配置与凭据边界。** 强类型配置文件、环境覆盖、Provider/Search Secret
   Reference、Redacted Debug、Event Log 禁止 Secret、文件权限校验。不做 Plugin/HMR Loader。
