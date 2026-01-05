@@ -21,7 +21,7 @@ use crate::{
     validate_arguments, ApprovalDecision, ApprovalProvider, ApprovalRequest, AroundMiddleware,
     AroundNext, ExecutionId, FinalizeMiddleware, GuardDecision, GuardVerdict, MonotonicGuard,
     PostMiddleware, PreMiddleware, ToolConcurrency, ToolExecutionContext, ToolHandlerError,
-    ToolLifecycle, ToolObserver, ToolOutcome, ToolOutput, ToolRegistry, ToolSpec,
+    ToolLifecycle, ToolObserver, ToolOutcome, ToolOutput, ToolRegistry, ToolSettlement, ToolSpec,
 };
 
 static NEXT_EXECUTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -328,7 +328,11 @@ impl ToolExecutor {
                 "tool": &name,
                 "arguments": context.arguments.as_ref(),
                 "concurrency": format!("{:?}", spec.concurrency),
-                "timeoutMs": duration_ms(spec.timeout),
+                "settlement": spec.settlement,
+                "timeoutMs": match spec.settlement {
+                    ToolSettlement::Bounded => Some(duration_ms(spec.timeout)),
+                    ToolSettlement::External => None,
+                },
             }),
         )
         .await;
@@ -600,7 +604,14 @@ impl ToolExecutor {
         let run_context = context.clone();
         let chain = AssertUnwindSafe(async move { next.run(run_context).await }).catch_unwind();
         tokio::pin!(chain);
-        let deadline = tokio::time::sleep(spec.timeout);
+        let settlement = spec.settlement;
+        let timeout = spec.timeout;
+        let deadline = async move {
+            match settlement {
+                ToolSettlement::Bounded => tokio::time::sleep(timeout).await,
+                ToolSettlement::External => std::future::pending::<()>().await,
+            }
+        };
         tokio::pin!(deadline);
         let outcome = tokio::select! {
             biased;
@@ -627,7 +638,7 @@ impl ToolExecutor {
                 match tokio::time::timeout(HANDLER_CLEANUP_GRACE, &mut chain).await {
                     Ok(_) => ToolOutcome::failure(ToolFailure::retryable(
                         ToolFailureKind::TimedOut,
-                        format!("tool execution exceeded {} ms", duration_ms(spec.timeout)),
+                        format!("tool execution exceeded {} ms", duration_ms(timeout)),
                     )),
                     Err(_) => ToolOutcome::failure(ToolFailure::new(
                         ToolFailureKind::CleanupTimeout,

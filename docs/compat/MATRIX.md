@@ -217,7 +217,7 @@ Rust Session 已持久化 Compact Start/Summary/Checkpoint Replace/End，并由�
 
 | 工具 | Rust 原生 Tool | 等级 |
 | --- | --- | --- |
-| `ask_user_question` | 否 | `planned` |
+| `ask_user_question` | 是 | `partial`（公共类型、状态机、Tool Registry；Host/Web 持久接线待完成） |
 | `bash` | 是 | `partial` |
 | `cordis_define` | 否 | `planned` |
 | `cordis_inspect_list` | 否 | `planned` |

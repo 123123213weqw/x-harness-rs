@@ -36,6 +36,7 @@ DeepSeek Web UI / future CLI
 - [冻结上游兼容矩阵](docs/compat/MATRIX.md)
 - [逐模块规范索引](docs/specs/README.md)
 - [上下文预算与压缩](docs/specs/context.md)
+- [用户提问与等待交互](docs/specs/user-questions.md)
 - [Prompt 组装与注入](docs/specs/prompt.md)
 - [运行、诊断与故障处理](docs/operations.md)
 - [Linux `.deb` 安装与沙箱自配置](docs/specs/linux-deb.md)
@@ -127,6 +128,16 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - Pending Approval 可用原 Approval/Execution ID 在重启后恢复，回答前不会执行 Tool
 - 当前剩余 Queue 原子 Move/Mutation Receipt、Credential Reference 与其他非 Prompt Receipt；
   部署级八点硬崩溃矩阵已完成
+
+### `xharness-interaction`
+
+- 冻结 `ask_user_question` 的 1—3 问题、每题最多 3 个选项和可选自由文本契约
+- 短期答案进入 Context，显式长期目标使用受管 `agent_markdown` 目标且不接受模型指定路径
+- 支持 Submit、部分/空答案 Continue、可恢复 Draft、Dismiss 不结算以及幂等 Resolution 状态机
+- 复用正式 `ToolRegistry/ToolSpec`；交互工具使用 `Exclusive + External Settlement + Standalone
+  Batch`，等待用户时不触发普通工具超时，混合副作用批次在启动前拒绝，但仍响应结构化 Cancel
+- 当前只完成公共接口与单元测试；Session Event、Host Service/RPC、AGENTS.md Memory Sink 和现有 Web
+  User Questions 组件接线仍在 `P0-16`
 
 ### `xharness-core`
 

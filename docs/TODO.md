@@ -427,6 +427,16 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   远程打包和卸载已实现。剩余：在干净 Ubuntu 24.04 VM 完成 dpkg 矩阵，并在 WZU_4080 输入
   管理员授权真实安装后，重启 Host 验证 Coding Tool。
 
+- [ ] `P0-16` **持久 User Question 交互。** 已新增 `xharness-interaction`，冻结每次 1—3 个问题、
+  每题最多 3 个有限选项、可选自由文本、`context/agent_markdown` 目标、Submit/Continue、空或部分
+  回答、Draft/Dismiss、Cancel 与幂等 Resolution；`ask_user_question` 复用现有 Tool Registry，使用
+  `Exclusive + External Settlement + Standalone Batch`，不受普通 Tool Timeout 影响，混合副作用
+  批次在执行前拒绝。规范和接口测试见
+  [`specs/user-questions.md`](specs/user-questions.md)。**剩余：** Session 强类型事件与 Flush、Pending
+  Recovery、Host `UserQuestionService`/RPC、复用现有 Web 组件、受管 AGENTS.md Memory Sink，以及
+  Requested/Resolved/Tool Result 全切点崩溃测试。未决问题禁止 Compact、已解决问答原子安全切点和
+  Agent Markdown Prompt Budget 明确留在本项后续，不在接口切片提前实现。
+
 ## P1 — Coding 质量与上下文效率
 
 - [ ] `P1-01` **Prompt Registry。** 有序 System Section、Workspace Context、Tool Guidance、
