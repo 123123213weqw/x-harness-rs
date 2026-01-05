@@ -1833,6 +1833,7 @@ impl Runner {
                                     | SessionEventData::GoalChange { .. }
                                     | SessionEventData::SessionMutationCommitted { .. }
                                     | SessionEventData::PlanMode { .. }
+                                    | SessionEventData::QuestionRequested { .. }
                                     | SessionEventData::QuestionDraftUpdated { .. }
                                     | SessionEventData::QuestionResolved { .. }
                                     | SessionEventData::QuestionCancelled { .. }
