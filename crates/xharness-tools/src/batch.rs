@@ -9,7 +9,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::{ToolConcurrency, ToolExecutor, ToolRequest, ToolResult};
+use crate::{ToolBatchPolicy, ToolConcurrency, ToolExecutor, ToolRequest, ToolResult};
 
 /// One model-ordered request in a tool batch.
 #[derive(Clone, Debug)]
@@ -43,6 +43,8 @@ pub enum ToolBatchError {
     ZeroConcurrency,
     #[error("tool batch contains duplicate order {0}")]
     DuplicateOrder(usize),
+    #[error("tool {tool:?} must be called alone, but the batch contains {batch_size} calls")]
+    StandaloneRequired { tool: String, batch_size: usize },
     #[error("tool batch supervisor stopped before publishing its result")]
     SupervisorStopped,
 }
@@ -95,6 +97,19 @@ impl ToolExecutor {
     ) -> Result<ToolBatchRun, ToolBatchError> {
         if max_concurrency == 0 {
             return Err(ToolBatchError::ZeroConcurrency);
+        }
+        if requests.len() > 1 {
+            for request in &requests {
+                let Some(spec) = self.registry().get(&request.request.name).await else {
+                    continue;
+                };
+                if spec.batch_policy == ToolBatchPolicy::Standalone {
+                    return Err(ToolBatchError::StandaloneRequired {
+                        tool: request.request.name.clone(),
+                        batch_size: requests.len(),
+                    });
+                }
+            }
         }
         let mut orders = HashSet::with_capacity(requests.len());
         for request in &requests {

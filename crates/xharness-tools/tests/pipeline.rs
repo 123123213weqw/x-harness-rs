@@ -15,7 +15,7 @@ use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_tools::{
     ApprovalDecision, ApprovalProvider, ApprovalRequest, AroundMiddleware, AroundNext,
     ExecutorConfigError, FinalizeMiddleware, GuardDecision, MiddlewareError, MonotonicGuard,
-    PostMiddleware, PreMiddleware, RegistryError, ToolBatchEvent, ToolBatchRequest,
+    PostMiddleware, PreMiddleware, RegistryError, ToolBatchError, ToolBatchEvent, ToolBatchRequest,
     ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolExecutor, ToolFailureKind,
     ToolHandlerError, ToolLifecycle, ToolObserver, ToolOutcome, ToolOutput, ToolRegistry,
     ToolRequest, ToolResult, ToolSpec,
@@ -516,6 +516,70 @@ async fn timeout_and_handler_panic_are_materialized() {
         .unwrap()
         .message
         .contains("handler exploded"));
+}
+
+#[tokio::test]
+async fn externally_settled_handlers_ignore_the_ordinary_deadline() {
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(
+            ToolSpec::new(definition("external_wait"), |_context| async move {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                Ok(ToolOutput::text("answered"))
+            })
+            .with_timeout(Duration::from_millis(1))
+            .with_external_settlement(),
+        )
+        .await
+        .unwrap();
+
+    let result = ToolExecutor::new(registry)
+        .execute(ToolRequest::new("external_wait", r#"{"value":"x"}"#))
+        .await;
+    assert!(result.is_ok());
+    assert_eq!(result.output.unwrap().content, "answered");
+}
+
+#[tokio::test]
+async fn standalone_tool_rejects_a_mixed_batch_before_any_handler_runs() {
+    let registry = Arc::new(ToolRegistry::new());
+    let calls = Arc::new(AtomicUsize::new(0));
+    for (name, standalone) in [("question", true), ("side_effect", false)] {
+        let calls = Arc::clone(&calls);
+        let mut spec = ToolSpec::new(definition(name), move |_context| {
+            let calls = Arc::clone(&calls);
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutput::text("ran"))
+            }
+        });
+        if standalone {
+            spec = spec.requiring_standalone_batch();
+        }
+        registry.register(spec).await.unwrap();
+    }
+    let executor = ToolExecutor::new(registry);
+    let error = match executor
+        .start_batch(
+            vec![
+                ToolBatchRequest::new(0, ToolRequest::new("side_effect", r#"{"value":"x"}"#)),
+                ToolBatchRequest::new(1, ToolRequest::new("question", r#"{"value":"x"}"#)),
+            ],
+            2,
+        )
+        .await
+    {
+        Ok(_) => panic!("mixed batch unexpectedly started"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        ToolBatchError::StandaloneRequired {
+            ref tool,
+            batch_size: 2
+        } if tool == "question"
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 type Trace = Arc<Mutex<Vec<&'static str>>>;
