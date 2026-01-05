@@ -275,6 +275,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - Registry Shutdown 会拒绝新 PTY，并一次收敛全部 Owner/Session 后返回清理报告
 - `web_fetch` 仅匿名 HTTP(S)、同源跳转、私网目标拒绝；HTML 先去除 Script/Style 等噪声，
   再生成最多 8,000 字符的 `reader-extractive/v1` 摘要，并支持可选 `focus` 相关段落排名
+- DNS 校验地址与实际连接固定；Clash/Surge 的 `198.18/15` Fake-IP 先经加密公共 DNS 验证，
+  不放宽直接私网/Reserved IP。Fetch 属于 Host 受控能力，在两种 Session 权限下行为一致
 - `web_search` 必须显式注入 Provider；当前包含可选的 Exa 实现，不伪造“本地搜索”
 
 ### `xharness-tools`
