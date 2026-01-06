@@ -1,7 +1,11 @@
 # 持久 PTY 规范
 
 **Crate：** `xharness-terminal`
-**状态：** 已在 Unix 实现；Linux 集成已测试。
+**状态：** 已在 Unix 实现；Linux 集成已测试；不再属于默认模型工具面。
+
+本 Crate 是底层可复用 PTY Runtime。旧 `terminal_open/send/read/signal/close/list` 六工具已经从
+`xharness-coding-tools` 和生产 Host 默认 Projection 移除。非交互长任务必须走 `bash` 的受管
+后台 Job；未来只有明确需要 TUI/REPL 的专用 Profile 才可以重新设计并选择性投影 PTY 工具。
 
 ## Session 身份与所有权
 
@@ -20,10 +24,9 @@ Byte Cursor 开始返回输出。`list` 只报告当前 Owner 的 Session。`clo
 同一 TERM→Grace→KILL→Wait 路径，并返回包含总数、已关闭数和错误的
 `TerminalShutdownReport`。Host 不得在 Registry 报告失败时静默退出。
 
-Coding Bundle 中的 `terminal_open` 必须先经过 `NativePlatform::prepare_spawn`。Restricted
-Sandbox Probe 不可用时禁止创建裸 PTY；Host 应从下一模型 Step 移除 `terminal_open`。只有
-存在历史 Session 时才投影对应的 read/send/signal/close，并按原权限边界收尾，禁止跨模式
-复用。
+任何未来 Tool Adapter 的 `open` 必须先经过 `NativePlatform::prepare_spawn`。Restricted
+Sandbox Probe 不可用时禁止创建裸 PTY；禁止为了绕过后台 Job 或 Sandbox 临时把旧工具塞回
+默认 Registry。
 
 ## Scrollback
 

@@ -4,7 +4,7 @@
 可测试的 Agent Loop；macOS 作为首要本地开发平台，Linux 作为服务器平台。
 
 当前开发版已完成可嵌入 Loop、OpenAI-compatible Provider、append-only Session、
-14 个原生 Coding 工具与 1 个持久用户交互工具（均按运行时能力动态投影），以及兼容
+11 个原生 Coding/Job/Web 工具与 1 个持久用户交互工具（均按运行时能力动态投影），以及兼容
 DeepSeek Harness Web 的第一版
 Rust Host。目标不是
 把所有能力继续堆进一个 `while`，而是把模型、历史、工具策略、Web 投影和原生执行
@@ -21,8 +21,8 @@ DeepSeek Web UI / future CLI
        Shared Loop Core
        |              |
  Model Provider   Tool Registry
-                      |
- Session/Event Log  xharness-platform
+                  /           \
+ Session/Event Log   Job Registry + xharness-platform
                           |
              +------------+------------+
              |                         |
@@ -55,13 +55,13 @@ FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产�
 该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
 Developer ID 签名、公证和本机安装验证。
 
-> **当前可用性提醒（2026-09-01）：** Web/持久 Agent/Loop/14 个 Coding 工具与
+> **当前可用性提醒（2026-09-01）：** Web/持久 Agent/Loop/11 个 Coding/Job/Web 工具与
 > `ask_user_question`、版本化最小 Coding System
 > Prompt、Provider 原生输入计数、请求前 Hard Token Guard 与自动 Compact 已经贯通。无压力时
 > Host 逐字重放当前 Surface；达到 80% 或发生 Hard/Provider Overflow 时，会持久摘要安全头部、
 > 重新计量后继续。每个 Step 也已按平台 Readiness 动态发送可用工具。Linux Bubblewrap Probe 失败时，
-> `bash/glob/grep/terminal_open` 会按设计 fail closed。SIGINT/SIGTERM 已走 Agent→Loop→
-> Tool→Process/PTY 的结构化收尾，不合作清理会显式报告 Forced Cleanup。详见
+> `bash/glob/grep` 会按设计 fail closed；三个 Job 控制工具仍可收敛历史任务。SIGINT/SIGTERM
+> 已走 Agent→Loop→Tool→Job/Process 的结构化收尾，不合作清理会显式报告 Forced Cleanup。详见
 > [运行诊断](docs/operations.md)。
 
 正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
@@ -99,12 +99,12 @@ RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once �
 
 ### `xharness-host-app`
 
-- 组合 OpenAI-compatible Provider、HTTP/WS Server、原生 14 个 Coding 工具和持久
+- 组合 OpenAI-compatible Provider、HTTP/WS Server、原生 11 个 Coding/Job/Web 工具和持久
   `ask_user_question`
-- `NativeToolFactory` 按 Workspace 缓存 Platform、按 Session 隔离 Terminal
-- SIGINT/SIGTERM 先关闭新 Admission，再收敛 Agent/Loop/Tool/Process 和全部持久 PTY；
+- `NativeToolFactory` 按 Workspace 缓存 Platform、共享 Job Registry 并按 Session Owner 隔离
+- SIGINT/SIGTERM 先关闭新 Admission，再收敛 Agent/Loop/Tool/Job/Process；
   Forced Cleanup 导致非零退出
-- 当前每个模型 Step 按 Sandbox/Search/Terminal Readiness 投影工具可用子集；选中 Preset
+- 当前每个模型 Step 按 Sandbox/Search Readiness 投影工具可用子集；选中 Preset
   已经通过 `xharness-prompt/v1`
   成为 Provider 请求中的第一个 System Message
 - 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
@@ -260,7 +260,7 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 ### `xharness-coding-tools`
 
 - 基础工具：`bash/read/write/edit/glob/grep`
-- 持久 PTY：`terminal_open/send/read/signal/close/list`
+- 后台任务：`bash(run_in_background=true)` + `job_output/job_list/job_kill`
 - Web：`web_search/web_fetch`
 - `CodingToolBundle::specs()` 经 Capability 投影后注册为 `ToolExecutor`，直接接入
   `LoopRequest.tool_executor`
@@ -268,9 +268,18 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - `read` 默认 32 KiB/400 行，支持 `offset`、`start_line`、`limit`、`line_limit` 和版本绑定
   `next_cursor`；大结果 Spill 仍属于上下文 P0 修复
 
+### `xharness-jobs`
+
+- 生产者无关的 Reserve/Commit 注册模式；副作用前先检查每 Owner 10 个活跃任务上限
+- `running/stopping/completed/killed/failed` First-wins，按 Owner 隔离可预测 Job ID
+- 每条流 256 KiB 未读 Tail、消费式输出、有限 Wait、幂等 Kill 和有界 Shutdown
+- Started/Stopping/Finished 广播 seam 已实现；自动唤醒 Idle Agent、持久 Spill 和崩溃后
+  Orphan Reconciliation 留在后续 TODO
+
 ### `xharness-terminal` / `xharness-web`
 
-- 真 PTY、owner/name 隔离、单调 cursor、按 bytes+lines 双重限制 scrollback
+- 真 PTY 底层 Crate 仍保留供专用 Profile 使用，但旧六工具不再进入默认模型 Schema
+- owner/name 隔离、单调 cursor、按 bytes+lines 双重限制 scrollback
 - 信号发往终端 foreground process group，close 执行 TERM → grace → KILL
 - Registry Shutdown 会拒绝新 PTY，并一次收敛全部 Owner/Session 后返回清理报告
 - `web_fetch` 仅匿名 HTTP(S)、同源跳转、私网目标拒绝；HTML 先去除 Script/Style 等噪声，
@@ -478,7 +487,7 @@ panic、重试边界、取消、步骤限制、UTF-8 截断、并发上限、key
 工具期间延迟 Steering、durable call-before-side-effect、outcome-unknown 恢复、JSONL
 CAS/损坏/断尾恢复、两个 OpenAI 协议的原生 HTTP 集成、真实 Host 进程重启、Full access
 Workspace 外读写/网络/进程清理、Runtime Drop、不合作 Handler、Bash Result 不早于
-Leader/Descendant 死亡、多 PTY Shutdown、真实 Host SIGTERM，以及真实 Chromium 的权限
+Leader/Descendant 死亡、Job 五态/输出/Shutdown、真实 Host SIGTERM，以及真实 Chromium 的权限
 确认和 retry #8 后完整基线恢复。
 Loop 运行事件使用按数量与 Byte 双预算的非阻塞 Journal，测试覆盖慢消费者 Lag、Resume Cursor、
 完全不消费和单个超大事件。
@@ -492,7 +501,7 @@ Loop 运行事件使用按数量与 Byte 双预算的非阻塞 Journal，测试�
 3. WebSocket 持久 Cursor Resume、完整 Mutation Receipt 和 Web Readiness 投影
 4. macOS Live Provider/安装验证、Developer ID 签名与公证
 5. 大工具结果持久 Spill/Pruner、手动 `/compact`、完整 Prompt Registry 和 Purpose Router
-6. Skills、MCP、LSP、附件与 Subagent/Workflow 调度
+6. Job 完成通知/Wake、Skills、MCP、LSP、附件与 Subagent/Workflow 调度
 
 完整任务、优先级和验收条件见 [`docs/TODO.md`](docs/TODO.md)；架构边界与
 不变量见 [`docs/architecture.md`](docs/architecture.md)。

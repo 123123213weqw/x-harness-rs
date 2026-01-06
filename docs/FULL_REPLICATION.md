@@ -1,9 +1,9 @@
 # XHarness 全面复刻主控计划
 
-**建立日期：** 2026-08-21  
+**建立日期：** 2026-08-21
 **状态更新：** 2026-08-25
-**冻结兼容基线：** `deepseek-harness@141eb6fef8`  
-**已发现上游远端 HEAD：** `b150a551b8d4`（尚未纳入兼容基线）  
+**冻结兼容基线：** `deepseek-harness@141eb6fef8`
+**已发现上游远端 HEAD：** `b150a551b8d4`（尚未纳入兼容基线）
 **执行原则：** 复刻可观察行为、协议和生命周期，不逐行翻译 TypeScript，也不复制 Cordis/HMR。
 
 本文是全面复刻工作的主控面板；稳定任务 ID、详细验收条件和完成状态继续维护在
@@ -134,7 +134,7 @@ Coding Agent 日常使用。
 
 - [ ] `B-01` Core 全面迁移到 `xharness-tools`，删除重复调度器。正式 Tool Batch Scheduler、
   Model-order Barrier、Per-batch Limit 和副作用前 Lifecycle Ack 已在 `xharness-tools` 完成；生产
-  Host、14 工具、Fresh/Recovery Batch、Core Command/Journal Bridge 已切换到正式 Executor。
+  Host、当前 11 工具、Fresh/Recovery Batch、Core Command/Journal Bridge 已切换到正式 Executor。
   剩余仅旧 Embedder/Test 迁移与 Core 兼容 Scheduler 类型/分支删除。
 - [x] `B-02` 内部 `execution_id` 与 `provider_call_id` 已分离并稳定持久化；两种 OpenAI
   协议重放使用 Provider ID，Journal/Approval/Result 使用 Execution ID。
@@ -164,15 +164,17 @@ Coding Agent 日常使用。
   Cursor 与单结果确定性 Head/Tail Envelope 已完成；Spill、Relevant 与历史 Surface Replace 待完成。
 - [ ] `C-08` Surface Replace/摘要不删除原 Event Log。
 
-### Batch D：平台与 14+ 工具
+### Batch D：平台与可扩展工具
 
-- [ ] `D-01` 启动时探测 Sandbox、PTY、Search、Browser、Git、LSP 能力。已完成 Sandbox、
-  Search 与现存 Terminal 的缓存 Readiness；Browser/Git/LSP 尚未接入。
+- [ ] `D-01` 启动时探测 Sandbox、Search、Browser、Git、LSP 能力。已完成 Sandbox 与 Search
+  缓存 Readiness；默认模型面已移除 PTY，Browser/Git/LSP 尚未接入。
 - [ ] `D-02` 不可用工具从模型请求和 Web 工具目录中同时移除。模型请求侧已完成；Web UI
   工具目录/Workspace Readiness 投影尚未接通。
 - [ ] `D-03` 扩展 FS：list/mkdir/move/copy/delete/patch/image/binary/paged-read。Paged Read 已完成。
-- [ ] `D-04` 后台 Job Registry、重启 Outcome、Spill 和 Process-tree 清理。
-- [ ] `D-05` Terminal Resize、OSC133、Foreground PGID、Settle Reason。
+- [ ] `D-04` 后台 Job Registry 第一阶段、Process-tree 清理已完成；剩余完成通知/Wake、重启
+  Outcome Unknown/Orphan Reconciliation 和 Spill。
+- [ ] `D-05` 专用 Terminal Profile 的 Resize、OSC133、Foreground PGID、Settle Reason；默认
+  模型面不再提供旧六工具。
 - [ ] `D-06` Web Search Provider、引用对象、正文提取、缓存和 SSRF/Rebinding。
 - [ ] `D-07` Linux/macOS 等价语义测试；不要求底层系统调用相同。
 

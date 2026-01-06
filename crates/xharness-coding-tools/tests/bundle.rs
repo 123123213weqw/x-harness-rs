@@ -12,8 +12,8 @@ use std::{
 use async_trait::async_trait;
 use serde_json::Value;
 use xharness_coding_tools::{CodingToolBundle, STANDARD_TOOL_COUNT};
+use xharness_jobs::JobRegistry;
 use xharness_platform::{NativePlatform, PlatformConfig};
-use xharness_terminal::TerminalRegistry;
 use xharness_tools::{
     ApprovalDecision, ApprovalProvider, ApprovalRequest, MiddlewareError, ToolExecutor, ToolRequest,
 };
@@ -61,7 +61,7 @@ async fn executor(workspace: &TempWorkspace) -> ToolExecutor {
         Arc::new(NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap());
     let bundle = CodingToolBundle::new(
         platform,
-        Arc::new(TerminalRegistry::default()),
+        Arc::new(JobRegistry::default()),
         Arc::new(WebRuntime::default()),
         "session",
         "owner",
@@ -82,13 +82,10 @@ async fn executor(workspace: &TempWorkspace) -> ToolExecutor {
             "edit",
             "glob",
             "grep",
+            "job_kill",
+            "job_list",
+            "job_output",
             "read",
-            "terminal_close",
-            "terminal_list",
-            "terminal_open",
-            "terminal_read",
-            "terminal_send",
-            "terminal_signal",
             "web_fetch",
             "web_search",
             "write",
@@ -98,7 +95,7 @@ async fn executor(workspace: &TempWorkspace) -> ToolExecutor {
 }
 
 #[tokio::test]
-async fn fourteen_tools_register_and_basic_file_shell_flow_runs() {
+async fn standard_tools_register_and_basic_file_shell_flow_runs() {
     let workspace = TempWorkspace::new();
     let executor = executor(&workspace).await;
 
@@ -198,6 +195,114 @@ async fn bash_propagates_pipeline_failures_and_allows_explicit_recovery() {
     let recovered: Value = serde_json::from_str(&recovered.output.unwrap().content).unwrap();
     assert_eq!(recovered["success"], true);
     assert_eq!(recovered["exit_code"], 0);
+}
+
+#[tokio::test]
+async fn background_bash_streams_to_job_output_and_preserves_nonzero_exit_status() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+
+    let started = executor
+        .execute(ToolRequest::new(
+            "bash",
+            r#"{"command":"printf first; sleep 0.05; printf last; printf warn >&2; exit 7","run_in_background":true}"#,
+        ))
+        .await;
+    assert!(started.is_ok(), "{started:?}");
+    let started: Value = serde_json::from_str(&started.output.unwrap().content).unwrap();
+    assert_eq!(started["kind"], "background");
+    let job_id = started["job_id"].as_str().unwrap();
+
+    let collected = executor
+        .execute(ToolRequest::new(
+            "job_output",
+            serde_json::json!({"job_id": job_id, "wait": true, "timeout_ms": 2_000}).to_string(),
+        ))
+        .await;
+    assert!(collected.is_ok(), "{collected:?}");
+    let collected: Value = serde_json::from_str(&collected.output.unwrap().content).unwrap();
+    assert_eq!(collected["stdout"], "firstlast");
+    assert_eq!(collected["stderr"], "warn");
+    assert_eq!(collected["snapshot"]["status"], "completed");
+    assert_eq!(collected["snapshot"]["detail"], "exit code: 7");
+    assert!(collected["snapshot"].get("owner").is_none());
+    assert!(collected["snapshot"].get("reported").is_none());
+    assert!(collected["snapshot"].get("output_limit_bytes").is_none());
+    assert!(collected["snapshot"].get("pid").is_none());
+
+    let consumed = executor
+        .execute(ToolRequest::new(
+            "job_output",
+            serde_json::json!({"job_id": job_id}).to_string(),
+        ))
+        .await;
+    assert!(consumed.is_ok(), "{consumed:?}");
+    let consumed: Value = serde_json::from_str(&consumed.output.unwrap().content).unwrap();
+    assert_eq!(consumed["stdout"], "");
+    assert_eq!(consumed["stderr"], "");
+
+    let listed = executor.execute(ToolRequest::new("job_list", "{}")).await;
+    assert!(listed.is_ok(), "{listed:?}");
+    let listed: Value = serde_json::from_str(&listed.output.unwrap().content).unwrap();
+    assert_eq!(listed["jobs"][0]["id"], job_id);
+}
+
+#[tokio::test]
+async fn background_bash_kill_settles_and_invalid_option_combinations_fail_before_spawn() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+
+    let invalid = executor
+        .execute(ToolRequest::new(
+            "bash",
+            r#"{"command":"sleep 30","run_in_background":true,"timeout_ms":100}"#,
+        ))
+        .await;
+    assert!(!invalid.is_ok());
+    let listed = executor.execute(ToolRequest::new("job_list", "{}")).await;
+    let listed: Value = serde_json::from_str(&listed.output.unwrap().content).unwrap();
+    assert_eq!(listed["jobs"].as_array().unwrap().len(), 0);
+
+    let started = executor
+        .execute(ToolRequest::new(
+            "bash",
+            r#"{"command":"trap '' TERM; sleep 30","run_in_background":true}"#,
+        ))
+        .await;
+    assert!(started.is_ok(), "{started:?}");
+    let started: Value = serde_json::from_str(&started.output.unwrap().content).unwrap();
+    let job_id = started["job_id"].as_str().unwrap();
+
+    let killed = executor
+        .execute(ToolRequest::new(
+            "job_kill",
+            serde_json::json!({"job_id": job_id, "reason": "test complete"}).to_string(),
+        ))
+        .await;
+    assert!(killed.is_ok(), "{killed:?}");
+    let killed: Value = serde_json::from_str(&killed.output.unwrap().content).unwrap();
+    assert_eq!(killed["result"], "requested");
+    assert_eq!(killed["job"]["status"], "stopping");
+
+    let final_read = executor
+        .execute(ToolRequest::new(
+            "job_output",
+            serde_json::json!({"job_id": job_id, "wait": true, "timeout_ms": 5_000}).to_string(),
+        ))
+        .await;
+    assert!(final_read.is_ok(), "{final_read:?}");
+    let final_read: Value = serde_json::from_str(&final_read.output.unwrap().content).unwrap();
+    assert_eq!(final_read["snapshot"]["status"], "killed");
+
+    let killed_again = executor
+        .execute(ToolRequest::new(
+            "job_kill",
+            serde_json::json!({"job_id": job_id}).to_string(),
+        ))
+        .await;
+    assert!(killed_again.is_ok(), "{killed_again:?}");
+    let killed_again: Value = serde_json::from_str(&killed_again.output.unwrap().content).unwrap();
+    assert_eq!(killed_again["result"], "already_finished");
 }
 
 #[cfg(target_os = "linux")]

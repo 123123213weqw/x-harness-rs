@@ -1,6 +1,6 @@
 # DeepSeek Harness 兼容矩阵
 
-**冻结上游：** `deepseek-harness@141eb6fef8`  
+**冻结上游：** `deepseek-harness@141eb6fef8`
 **生成方式：** `scripts/sync_upstream_catalog.py`，只读静态抽取。
 
 ## 汇总
@@ -258,12 +258,12 @@ Rust Session 已持久化 Compact Start/Summary/Checkpoint Replace/End，并由�
 | `team_task_get` | 否 | `planned` |
 | `team_task_list` | 否 | `planned` |
 | `team_task_update` | 否 | `planned` |
-| `terminal_close` | 是 | `partial` |
-| `terminal_list` | 是 | `partial` |
-| `terminal_open` | 是 | `partial` |
-| `terminal_read` | 是 | `partial` |
-| `terminal_send` | 是 | `partial` |
-| `terminal_signal` | 是 | `partial` |
+| `terminal_close` | 否 | `retired-default` |
+| `terminal_list` | 否 | `retired-default` |
+| `terminal_open` | 否 | `retired-default` |
+| `terminal_read` | 否 | `retired-default` |
+| `terminal_send` | 否 | `retired-default` |
+| `terminal_signal` | 否 | `retired-default` |
 | `todo_write` | 否 | `planned` |
 | `update_goal` | 否 | `planned` |
 | `wait_agent` | 否 | `planned` |

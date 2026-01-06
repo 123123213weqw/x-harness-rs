@@ -26,8 +26,9 @@ Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保�
 
 - 52 个上游兼容 RPC 有基础状态行为。
 - `session.prompt` 可驱动真实 Rust Loop。
-- Coding Bundle 注册 14 个稳定工具名，交互层另注册持久 `ask_user_question`；每个模型 Step 只注入
-  当前 Platform/Search/Terminal/Interaction Readiness 可用的子集。
+- Coding Bundle 注册 11 个稳定工具名，交互层另注册持久 `ask_user_question`；每个模型 Step 只注入
+  当前 Platform/Search/Interaction Readiness 可用的子集。后台任务统一走 Bash Job 三工具，默认
+  不再向模型暴露六个 `terminal_*`。
 - 用户问题在 `question/requested` Flush 后才投影到 Web；回答或取消先 Flush 再恢复原 Tool Call。
   Host 重启会以原 RPC/Execution ID 重新发布未决问题，等待期间不占用模型、Process 或 PTY。
 - Preset、权限、Workspace、Coding Workflow 和 Plan Policy 已通过 `xharness-prompt/v1` 真实注入
@@ -87,17 +88,16 @@ native sandbox is unavailable: minimal isolation probe failed:
 bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
 ```
 
-含义：宿主/容器策略阻止 Bubblewrap 创建所需 namespace 或配置 loopback。此时 `bash`、
-`glob`、`grep` 和新建进程的 `terminal_open` 会失败；可信 Rust 内执行的 `read/write/edit`
-不走同一路径，可能仍可用。`terminal_read/list/close` 只管理已有 Session，不应与“能否新建
-受限进程”混为一谈。这不是瞬态网络错误，重复调用通常没有意义。
+含义：宿主/容器策略阻止 Bubblewrap 创建所需 namespace 或配置 loopback。此时 `bash/glob/grep`
+会被移除；可信 Rust 内执行的 `read/write/edit` 不走同一路径，可能仍可用。三个 `job_*` 仍然
+保留，用于收集或终止 Probe 失败前已经启动的受管任务。这不是瞬态网络错误，重复调用通常没有意义。
 
 处理原则：
 
 - 保持受限模式 fail closed，不静默退回裸执行。
 - 优先部署兼容的 Bubblewrap 环境或实现/启用 Landlock 等后备 Backend。
-- Host 应把 Probe 结果投影为 Capability，并从下一 Step 移除 `bash/glob/grep/terminal_open`；
-  只有存在历史 Terminal 时才保留相应的 read/signal/close 管理工具。
+- Host 应把 Probe 结果投影为 Capability，并从下一 Step 移除 `bash/glob/grep`；Job 控制工具不依赖
+  新 Process Admission，必须保留到历史任务收敛。
 - 只有操作者明确选择 `Full access` 时才允许关闭权限沙箱，并明确记录
   `sandbox/mode={mode:"danger-full-access"}`；进程仍必须由 Process Runtime 托管。
 
