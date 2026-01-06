@@ -17,7 +17,8 @@ use nix::sys::signal::Signal;
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_process::{
-    is_secret_env_name, scrub_secret_env, ProcessRuntime, SpawnSpec, TerminationReason,
+    is_secret_env_name, scrub_secret_env, ProcessOutputCursor, ProcessRuntime, SpawnSpec,
+    TerminationReason,
 };
 
 static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
@@ -298,6 +299,54 @@ async fn capture_is_bounded_and_never_splits_valid_unicode() {
     assert_eq!(mixed.stdout.bytes_read, 3);
     assert_eq!(mixed.stdout.text, "\u{fffd}");
     assert!(mixed.stdout.truncated);
+}
+
+#[tokio::test]
+async fn live_output_observer_reads_incrementally_without_consuming_final_capture() {
+    let dir = TestDir::new();
+    let handle = ProcessRuntime::new()
+        .spawn(SpawnSpec::new("/bin/sh", dir.path()).args([
+            OsString::from("-c"),
+            OsString::from("printf first; sleep 0.05; printf second"),
+        ]))
+        .unwrap();
+    let mut observer = handle.output_observer();
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), observer.changed(0))
+            .await
+            .unwrap()
+    );
+    let first = observer.snapshot_since(ProcessOutputCursor::default());
+    assert!(first.stdout.text.starts_with("first"));
+
+    let output = handle.wait().await.unwrap();
+    let remainder = observer.snapshot_since(first.cursor);
+    assert_eq!(
+        format!("{}{}", first.stdout.text, remainder.stdout.text),
+        "firstsecond"
+    );
+    assert!(remainder.finished);
+    assert_eq!(output.stdout.text, "firstsecond");
+}
+
+#[tokio::test]
+async fn live_output_observer_reports_evicted_bytes_and_keeps_the_tail() {
+    let dir = TestDir::new();
+    let handle = ProcessRuntime::new()
+        .spawn(
+            SpawnSpec::new("/usr/bin/printf", dir.path())
+                .args([OsString::from("%s"), OsString::from("123456")])
+                .output_limits(4, 4),
+        )
+        .unwrap();
+    let observer = handle.output_observer();
+    let output = handle.wait().await.unwrap();
+    let live = observer.snapshot_since(ProcessOutputCursor::default());
+    assert_eq!(live.stdout.text, "3456");
+    assert!(live.stdout.truncated);
+    assert!(live.finished);
+    assert_eq!(output.stdout.text, "1234");
+    assert!(output.stdout.truncated);
 }
 
 #[test]

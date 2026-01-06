@@ -688,6 +688,8 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     assert!(system.contains("workspace-write isolation"));
     assert!(system.contains("continue only the needed page with next_cursor"));
     assert!(system.contains("Once the evidence is sufficient, answer directly."));
+    assert!(system.contains("bash with run_in_background=true"));
+    assert!(system.contains("Do not emulate managed jobs with shell &"));
     assert!(system.contains("Plan mode is active."));
     assert!(system.contains("User-approved persistent goals for this workspace:"));
     assert!(system.contains("发布到东京"));

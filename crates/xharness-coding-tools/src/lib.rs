@@ -1,4 +1,4 @@
-//! The standard fourteen-tool coding bundle.
+//! The standard coding, background-job and Web tool bundle.
 //!
 //! Tool names and schemas are stable host-facing contracts. Handlers consume
 //! the shared [`xharness_platform::NativePlatform`]; platform-specific system
@@ -13,31 +13,68 @@ use std::{
     time::Duration,
 };
 
+use serde::Serialize;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use xharness_fs::{ReadCursor, ReadLimits, ReadOutcome, ReadStart};
+use xharness_jobs::{
+    JobCancel, JobLease, JobOutcome, JobRegistry, JobSnapshot, JobStatus, KillResult,
+};
 use xharness_platform::NativePlatform;
-use xharness_process::{ProcessOutput, SpawnSpec};
-use xharness_terminal::{TerminalOpenSpec, TerminalRegistry, TerminalSignal};
+use xharness_process::{
+    ProcessHandle, ProcessOutput, ProcessOutputCursor, ProcessOutputObserver, SpawnSpec,
+    TerminationReason,
+};
 use xharness_tools::{
     RegistryError, ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolHandlerError,
     ToolOutput, ToolRegistry, ToolSpec,
 };
 use xharness_web::WebRuntime;
 
-pub const STANDARD_TOOL_COUNT: usize = 14;
+pub const STANDARD_TOOL_COUNT: usize = 11;
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(610);
+const DEFAULT_JOB_WAIT: Duration = Duration::from_secs(30);
+const MAX_JOB_WAIT: Duration = Duration::from_secs(600);
 const DEFAULT_READ_PAGE_BYTES: u64 = 32 * 1024;
 const MAX_READ_PAGE_BYTES: u64 = 64 * 1024;
 const DEFAULT_READ_PAGE_LINES: u64 = 400;
 const MAX_READ_PAGE_LINES: u64 = 1_000;
 
+/// Model-facing job state. Registry ownership, notification bookkeeping,
+/// retention limits and producer process ids stay inside the host.
+#[derive(Debug, Serialize)]
+struct PublicJobSnapshot {
+    id: String,
+    kind: String,
+    label: String,
+    status: JobStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+    started_at_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    finished_at_ms: Option<u64>,
+}
+
+impl From<JobSnapshot> for PublicJobSnapshot {
+    fn from(snapshot: JobSnapshot) -> Self {
+        Self {
+            id: snapshot.id.to_string(),
+            kind: snapshot.kind,
+            label: snapshot.label,
+            status: snapshot.status,
+            detail: snapshot.detail,
+            started_at_ms: snapshot.started_at_ms,
+            finished_at_ms: snapshot.finished_at_ms,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CodingToolBundle {
     platform: Arc<NativePlatform>,
-    terminal: Arc<TerminalRegistry>,
+    jobs: Arc<JobRegistry>,
     web: Arc<WebRuntime>,
     session_id: Arc<str>,
     owner_id: Arc<str>,
@@ -46,14 +83,14 @@ pub struct CodingToolBundle {
 impl CodingToolBundle {
     pub fn new(
         platform: Arc<NativePlatform>,
-        terminal: Arc<TerminalRegistry>,
+        jobs: Arc<JobRegistry>,
         web: Arc<WebRuntime>,
         session_id: impl Into<String>,
         owner_id: impl Into<String>,
     ) -> Self {
         Self {
             platform,
-            terminal,
+            jobs,
             web,
             session_id: Arc::from(session_id.into()),
             owner_id: Arc::from(owner_id.into()),
@@ -63,17 +100,14 @@ impl CodingToolBundle {
     pub fn specs(&self) -> Vec<ToolSpec> {
         vec![
             self.bash_spec(),
+            self.job_output_spec(),
+            self.job_list_spec(),
+            self.job_kill_spec(),
             self.read_spec(),
             self.write_spec(),
             self.edit_spec(),
             self.glob_spec(),
             self.grep_spec(),
-            self.terminal_open_spec(),
-            self.terminal_send_spec(),
-            self.terminal_read_spec(),
-            self.terminal_signal_spec(),
-            self.terminal_close_spec(),
-            self.terminal_list_spec(),
             self.web_search_spec(),
             self.web_fetch_spec(),
         ]
@@ -94,17 +128,23 @@ impl CodingToolBundle {
 
     fn bash_spec(&self) -> ToolSpec {
         let platform = Arc::clone(&self.platform);
+        let jobs = Arc::clone(&self.jobs);
+        let owner = Arc::clone(&self.owner_id);
         ToolSpec::new(
             definition(
                 "bash",
-                "Run one Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled; output is already bounded, so do not pipe side-effecting commands through head or tail only to limit display.",
+                "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work set run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Do not use shell &, nohup, disown, screen, tmux or a PTY to emulate managed background work. No shell state persists between calls.",
                 json!({
                     "type": "object",
                     "properties": {
                         "command": {"type": "string"},
                         "description": {"type": "string"},
                         "timeout_ms": {"type": "integer"},
-                        "cwd": {"type": "string"}
+                        "cwd": {"type": "string"},
+                        "run_in_background": {
+                            "type": "boolean",
+                            "description": "Run as a managed background job. Returns immediately and has no command timeout."
+                        }
                     },
                     "required": ["command"],
                     "additionalProperties": false
@@ -112,11 +152,18 @@ impl CodingToolBundle {
             ),
             move |context| {
                 let platform = Arc::clone(&platform);
+                let jobs = Arc::clone(&jobs);
+                let owner = Arc::clone(&owner);
                 async move {
                     let command = required_string(&context, "command")?;
                     let cwd = resolve_cwd(&platform, optional_string(&context, "cwd"))?;
-                    let timeout = command_timeout(optional_u64(&context, "timeout_ms"))?;
-                    let spec = SpawnSpec::new("/bin/bash", cwd)
+                    let background = optional_bool(&context, "run_in_background").unwrap_or(false);
+                    if background && context.arguments.get("timeout_ms").is_some() {
+                        return Err(ToolHandlerError::new(
+                            "timeout_ms cannot be combined with run_in_background=true; manage the job with job_output/job_kill",
+                        ));
+                    }
+                    let mut spec = SpawnSpec::new("/bin/bash", cwd)
                         .debug_parent(context.execution_id.as_str())
                         .args([
                             "--noprofile",
@@ -126,15 +173,172 @@ impl CodingToolBundle {
                             "-lc",
                             command.as_str(),
                         ])
-                        .timeout(timeout)
                         .envs(managed_environment());
+                    if !background {
+                        spec = spec.timeout(command_timeout(optional_u64(&context, "timeout_ms"))?);
+                    }
+                    if background {
+                        let reservation = jobs
+                            .reserve(owner.to_string(), "bash", command.clone(), None)
+                            .map_err(handler_error)?;
+                        let handle = platform.spawn(spec).await.map_err(handler_error)?;
+                        let pid = handle.pid();
+                        let cancellation = handle.cancellation();
+                        let observer = handle.output_observer();
+                        let cancel: JobCancel = Arc::new(move |_| {
+                            let _ = cancellation.cancel();
+                            Ok(())
+                        });
+                        let (job_id, lease) = match reservation.commit(Some(pid), cancel) {
+                            Ok(started) => started,
+                            Err(error) => {
+                                let _ = handle.cancel_and_wait().await;
+                                return Err(handler_error(error));
+                            }
+                        };
+                        tokio::spawn(run_background_process(handle, observer, lease));
+                        return Ok(json_output(json!({
+                            "kind": "background",
+                            "job_id": job_id,
+                            "status": "running",
+                            "pid": pid
+                        })));
+                    }
                     let output = run_process(platform, spec, &context.cancellation).await?;
-                    Ok(process_output(output))
+                    let mut value = process_output_value(output);
+                    value["kind"] = Value::String("foreground".to_owned());
+                    Ok(json_output(value))
                 }
             },
         )
         .with_timeout(TOOL_TIMEOUT)
         .requiring_approval(true)
+    }
+
+    fn job_output_spec(&self) -> ToolSpec {
+        let jobs = Arc::clone(&self.jobs);
+        let owner = Arc::clone(&self.owner_id);
+        ToolSpec::new(
+            definition(
+                "job_output",
+                "Consume output produced by one managed background job since the previous read and return its current status. Set wait=true only when blocked on this job; a wait timeout returns the still-running status and is not an error. Track every job id and collect relevant jobs before the final answer; do not busy-poll or duplicate their work.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "job_id": {"type": "string"},
+                        "wait": {"type": "boolean"},
+                        "timeout_ms": {
+                            "type": "integer",
+                            "description": "Positive wait bound; defaults to 30000 and is capped at 600000. Only used with wait=true."
+                        }
+                    },
+                    "required": ["job_id"],
+                    "additionalProperties": false
+                }),
+            ),
+            move |context| {
+                let jobs = Arc::clone(&jobs);
+                let owner = Arc::clone(&owner);
+                async move {
+                    let job_id = required_string(&context, "job_id")?;
+                    let wait = optional_bool(&context, "wait").unwrap_or(false);
+                    if !wait && context.arguments.get("timeout_ms").is_some() {
+                        return Err(ToolHandlerError::new(
+                            "timeout_ms is only valid when wait=true",
+                        ));
+                    }
+                    if wait {
+                        let timeout = job_wait(optional_u64(&context, "timeout_ms"))?;
+                        tokio::select! {
+                            result = jobs.wait(&owner, &job_id, timeout) => {
+                                result.map_err(handler_error)?;
+                            }
+                            _ = context.cancellation.cancelled() => {
+                                return Err(ToolHandlerError::new("job_output wait cancelled; the background job is still running"));
+                            }
+                        }
+                    }
+                    let read = jobs.read(&owner, &job_id).map_err(handler_error)?;
+                    Ok(json_output(json!({
+                        "stdout": read.stdout,
+                        "stderr": read.stderr,
+                        "stdout_truncated": read.stdout_truncated,
+                        "stderr_truncated": read.stderr_truncated,
+                        "snapshot": PublicJobSnapshot::from(read.snapshot),
+                    })))
+                }
+            },
+        )
+        .with_concurrency(ToolConcurrency::Keyed)
+        .with_resource_key_resolver(job_id_key)
+        .with_timeout(TOOL_TIMEOUT)
+    }
+
+    fn job_list_spec(&self) -> ToolSpec {
+        let jobs = Arc::clone(&self.jobs);
+        let owner = Arc::clone(&self.owner_id);
+        ToolSpec::new(
+            definition(
+                "job_list",
+                "List managed background jobs owned by this session, including running, stopping and retained terminal jobs. Other sessions are never exposed.",
+                empty_schema(),
+            ),
+            move |_context| {
+                let jobs = Arc::clone(&jobs);
+                let owner = Arc::clone(&owner);
+                async move {
+                    let result = jobs
+                        .list(&owner)
+                        .into_iter()
+                        .map(PublicJobSnapshot::from)
+                        .collect::<Vec<_>>();
+                    Ok(json_output(json!({"jobs": result})))
+                }
+            },
+        )
+        .with_concurrency(ToolConcurrency::Parallel)
+    }
+
+    fn job_kill_spec(&self) -> ToolSpec {
+        let jobs = Arc::clone(&self.jobs);
+        let owner = Arc::clone(&self.owner_id);
+        ToolSpec::new(
+            definition(
+                "job_kill",
+                "Request idempotent termination of one managed background job. Killing an already-finished job succeeds with already_finished. Use this instead of kill/pkill shell commands so lifecycle and cleanup remain observable.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "job_id": {"type": "string"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["job_id"],
+                    "additionalProperties": false
+                }),
+            ),
+            move |context| {
+                let jobs = Arc::clone(&jobs);
+                let owner = Arc::clone(&owner);
+                async move {
+                    let job_id = required_string(&context, "job_id")?;
+                    let result = jobs
+                        .kill(&owner, &job_id, optional_string(&context, "reason"))
+                        .map_err(handler_error)?;
+                    Ok(json_output(json!({
+                        "job_id": job_id,
+                        "result": match result {
+                            KillResult::Requested => "requested",
+                            KillResult::AlreadyFinished => "already_finished",
+                        },
+                        "job": PublicJobSnapshot::from(
+                            jobs.get(&owner, &job_id).map_err(handler_error)?
+                        )
+                    })))
+                }
+            },
+        )
+        .with_concurrency(ToolConcurrency::Keyed)
+        .with_resource_key_resolver(job_id_key)
     }
 
     fn read_spec(&self) -> ToolSpec {
@@ -434,242 +638,6 @@ impl CodingToolBundle {
         .with_timeout(Duration::from_secs(35))
     }
 
-    fn terminal_open_spec(&self) -> ToolSpec {
-        let platform = Arc::clone(&self.platform);
-        let terminal = Arc::clone(&self.terminal);
-        let owner = Arc::clone(&self.owner_id);
-        ToolSpec::new(
-            definition(
-                "terminal_open",
-                "Open a named persistent interactive Bash PTY.",
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "cwd": {"type": "string"}
-                    },
-                    "required": ["name"],
-                    "additionalProperties": false
-                }),
-            ),
-            move |context| {
-                let platform = Arc::clone(&platform);
-                let terminal = Arc::clone(&terminal);
-                let owner = Arc::clone(&owner);
-                async move {
-                    let name = required_string(&context, "name")?;
-                    let cwd = resolve_cwd(&platform, optional_string(&context, "cwd"))?;
-                    let process = SpawnSpec::new("/bin/bash", cwd)
-                        .debug_parent(context.execution_id.as_str())
-                        .args(["--noprofile", "--norc", "-i"])
-                        .envs(managed_environment());
-                    let process = platform
-                        .prepare_spawn(process)
-                        .await
-                        .map_err(handler_error)?;
-                    let result = terminal
-                        .open(TerminalOpenSpec {
-                            owner: owner.to_string(),
-                            name,
-                            process,
-                        })
-                        .await
-                        .map_err(handler_error)?;
-                    Ok(json_output(
-                        serde_json::to_value(result).map_err(handler_error)?,
-                    ))
-                }
-            },
-        )
-        .requiring_approval(true)
-    }
-
-    fn terminal_send_spec(&self) -> ToolSpec {
-        let terminal = Arc::clone(&self.terminal);
-        let owner = Arc::clone(&self.owner_id);
-        ToolSpec::new(
-            definition(
-                "terminal_send",
-                "Send text to a persistent terminal and return newly observed output.",
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "input": {"type": "string"},
-                        "append_newline": {"type": "boolean"},
-                        "settle_ms": {"type": "integer"}
-                    },
-                    "required": ["name", "input"],
-                    "additionalProperties": false
-                }),
-            ),
-            move |context| {
-                let terminal = Arc::clone(&terminal);
-                let owner = Arc::clone(&owner);
-                async move {
-                    let name = required_string(&context, "name")?;
-                    let before = terminal
-                        .read(&owner, &name, None)
-                        .await
-                        .map_err(handler_error)?
-                        .cursor;
-                    let mut input = required_string(&context, "input")?.into_bytes();
-                    if optional_bool(&context, "append_newline").unwrap_or(true) {
-                        input.push(b'\n');
-                    }
-                    terminal
-                        .send(&owner, &name, &input)
-                        .await
-                        .map_err(handler_error)?;
-                    let settle = optional_u64(&context, "settle_ms")
-                        .unwrap_or(100)
-                        .min(5_000);
-                    tokio::time::sleep(Duration::from_millis(settle)).await;
-                    let result = terminal
-                        .read(&owner, &name, Some(before))
-                        .await
-                        .map_err(handler_error)?;
-                    Ok(json_output(
-                        serde_json::to_value(result).map_err(handler_error)?,
-                    ))
-                }
-            },
-        )
-        .with_concurrency(ToolConcurrency::Keyed)
-        .with_resource_key_resolver(name_key)
-        .requiring_approval(true)
-    }
-
-    fn terminal_read_spec(&self) -> ToolSpec {
-        let terminal = Arc::clone(&self.terminal);
-        let owner = Arc::clone(&self.owner_id);
-        ToolSpec::new(
-            definition(
-                "terminal_read",
-                "Read terminal scrollback from an optional monotonic byte cursor.",
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "cursor": {"type": "integer"}
-                    },
-                    "required": ["name"],
-                    "additionalProperties": false
-                }),
-            ),
-            move |context| {
-                let terminal = Arc::clone(&terminal);
-                let owner = Arc::clone(&owner);
-                async move {
-                    let result = terminal
-                        .read(
-                            &owner,
-                            &required_string(&context, "name")?,
-                            optional_u64(&context, "cursor"),
-                        )
-                        .await
-                        .map_err(handler_error)?;
-                    Ok(json_output(
-                        serde_json::to_value(result).map_err(handler_error)?,
-                    ))
-                }
-            },
-        )
-        .with_concurrency(ToolConcurrency::Keyed)
-        .with_resource_key_resolver(name_key)
-    }
-
-    fn terminal_signal_spec(&self) -> ToolSpec {
-        let terminal = Arc::clone(&self.terminal);
-        let owner = Arc::clone(&self.owner_id);
-        ToolSpec::new(
-            definition(
-                "terminal_signal",
-                "Send an allowed signal to the terminal foreground process group.",
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "signal": {"type": "string", "enum": ["interrupt", "terminate", "kill", "suspend", "hangup"]}
-                    },
-                    "required": ["name", "signal"],
-                    "additionalProperties": false
-                }),
-            ),
-            move |context| {
-                let terminal = Arc::clone(&terminal);
-                let owner = Arc::clone(&owner);
-                async move {
-                    let name = required_string(&context, "name")?;
-                    let signal = match required_string(&context, "signal")?.as_str() {
-                        "interrupt" => TerminalSignal::Interrupt,
-                        "terminate" => TerminalSignal::Terminate,
-                        "kill" => TerminalSignal::Kill,
-                        "suspend" => TerminalSignal::Suspend,
-                        "hangup" => TerminalSignal::Hangup,
-                        _ => return Err(ToolHandlerError::new("unsupported terminal signal")),
-                    };
-                    terminal.signal(&owner, &name, signal).await.map_err(handler_error)?;
-                    Ok(json_output(json!({"name": name, "signal": signal})))
-                }
-            },
-        )
-        .with_concurrency(ToolConcurrency::Keyed)
-        .with_resource_key_resolver(name_key)
-        .requiring_approval(true)
-    }
-
-    fn terminal_close_spec(&self) -> ToolSpec {
-        let terminal = Arc::clone(&self.terminal);
-        let owner = Arc::clone(&self.owner_id);
-        ToolSpec::new(
-            definition(
-                "terminal_close",
-                "Terminate and remove a named persistent terminal.",
-                name_schema(),
-            ),
-            move |context| {
-                let terminal = Arc::clone(&terminal);
-                let owner = Arc::clone(&owner);
-                async move {
-                    let result = terminal
-                        .close(&owner, &required_string(&context, "name")?)
-                        .await
-                        .map_err(handler_error)?;
-                    Ok(json_output(
-                        serde_json::to_value(result).map_err(handler_error)?,
-                    ))
-                }
-            },
-        )
-        .with_concurrency(ToolConcurrency::Keyed)
-        .with_resource_key_resolver(name_key)
-        .requiring_approval(true)
-    }
-
-    fn terminal_list_spec(&self) -> ToolSpec {
-        let terminal = Arc::clone(&self.terminal);
-        let owner = Arc::clone(&self.owner_id);
-        ToolSpec::new(
-            definition(
-                "terminal_list",
-                "List persistent terminals owned by this agent.",
-                empty_schema(),
-            ),
-            move |_context| {
-                let terminal = Arc::clone(&terminal);
-                let owner = Arc::clone(&owner);
-                async move {
-                    let result = terminal.list(&owner).await.map_err(handler_error)?;
-                    Ok(json_output(
-                        serde_json::to_value(result).map_err(handler_error)?,
-                    ))
-                }
-            },
-        )
-        .with_concurrency(ToolConcurrency::Parallel)
-    }
-
     fn web_search_spec(&self) -> ToolSpec {
         let web = Arc::clone(&self.web);
         ToolSpec::new(
@@ -776,7 +744,11 @@ async fn run_process(
 }
 
 fn process_output(output: ProcessOutput) -> ToolOutput {
-    json_output(json!({
+    json_output(process_output_value(output))
+}
+
+fn process_output_value(output: ProcessOutput) -> Value {
+    json!({
         "pid": output.pid,
         "success": output.status.success,
         "exit_code": output.status.code,
@@ -788,7 +760,73 @@ fn process_output(output: ProcessOutput) -> ToolOutput {
         "stderr_truncated": output.stderr.truncated,
         "stdout_bytes": output.stdout.bytes_read,
         "stderr_bytes": output.stderr.bytes_read
-    }))
+    })
+}
+
+async fn run_background_process(
+    handle: ProcessHandle,
+    mut observer: ProcessOutputObserver,
+    lease: JobLease,
+) {
+    let mut cursor = ProcessOutputCursor::default();
+    let wait = handle.wait();
+    tokio::pin!(wait);
+    loop {
+        let snapshot = observer.snapshot_since(cursor);
+        publish_process_snapshot(&lease, &snapshot);
+        cursor = snapshot.cursor;
+        let revision = snapshot.revision;
+        tokio::select! {
+            result = &mut wait => {
+                let final_snapshot = observer.snapshot_since(cursor);
+                publish_process_snapshot(&lease, &final_snapshot);
+                let outcome = match result {
+                    Ok(output) => background_process_outcome(&output),
+                    Err(error) => JobOutcome::failed(format!("process infrastructure failed: {error}")),
+                };
+                lease.finish(outcome);
+                return;
+            }
+            changed = observer.changed(revision) => {
+                if !changed && snapshot.finished {
+                    // The result channel is published immediately after the
+                    // observer's terminal revision; yield to that branch.
+                    tokio::task::yield_now().await;
+                }
+            }
+        }
+    }
+}
+
+fn publish_process_snapshot(lease: &JobLease, snapshot: &xharness_process::ProcessOutputSnapshot) {
+    lease.publish_stdout(snapshot.stdout.text.as_bytes());
+    lease.publish_stderr(snapshot.stderr.text.as_bytes());
+    if snapshot.stdout.truncated {
+        lease.publish_stderr(
+            b"\n[some stdout was dropped from the bounded live window before collection]\n",
+        );
+    }
+    if snapshot.stderr.truncated {
+        lease.publish_stderr(
+            b"\n[some stderr was dropped from the bounded live window before collection]\n",
+        );
+    }
+}
+
+fn background_process_outcome(output: &ProcessOutput) -> JobOutcome {
+    let detail = if let Some(code) = output.status.code {
+        format!("exit code: {code}")
+    } else if let Some(signal) = output.status.signal {
+        format!("signal: {signal}")
+    } else {
+        "process exited without a portable status".to_owned()
+    };
+    match output.termination {
+        TerminationReason::Cancelled => JobOutcome::killed(detail),
+        TerminationReason::TimedOut => JobOutcome::failed(format!("timed out; {detail}")),
+        TerminationReason::Exited if output.status.signal.is_some() => JobOutcome::killed(detail),
+        TerminationReason::Exited => JobOutcome::completed(detail),
+    }
 }
 
 fn json_output(value: Value) -> ToolOutput {
@@ -876,6 +914,17 @@ fn command_timeout(value: Option<u64>) -> Result<Duration, ToolHandlerError> {
     Ok(duration)
 }
 
+fn job_wait(value: Option<u64>) -> Result<Duration, ToolHandlerError> {
+    let duration = value.map(Duration::from_millis).unwrap_or(DEFAULT_JOB_WAIT);
+    if duration.is_zero() || duration > MAX_JOB_WAIT {
+        return Err(ToolHandlerError::new(format!(
+            "job wait timeout_ms must be between 1 and {}",
+            MAX_JOB_WAIT.as_millis()
+        )));
+    }
+    Ok(duration)
+}
+
 fn required_string(context: &ToolExecutionContext, name: &str) -> Result<String, ToolHandlerError> {
     context
         .arguments
@@ -924,21 +973,12 @@ fn empty_schema() -> Value {
     json!({"type": "object", "properties": {}, "additionalProperties": false})
 }
 
-fn name_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {"name": {"type": "string"}},
-        "required": ["name"],
-        "additionalProperties": false
-    })
-}
-
 fn path_key(arguments: &Value) -> Option<String> {
     arguments.get("path")?.as_str().map(ToOwned::to_owned)
 }
 
-fn name_key(arguments: &Value) -> Option<String> {
-    arguments.get("name")?.as_str().map(ToOwned::to_owned)
+fn job_id_key(arguments: &Value) -> Option<String> {
+    arguments.get("job_id")?.as_str().map(ToOwned::to_owned)
 }
 
 #[cfg(test)]

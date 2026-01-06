@@ -68,7 +68,7 @@ Handler 清理完成后才能发布整个 Run 的终态。
 - Core 到正式 Runtime 的迁移桥已经传递 Durable Execution ID，但 Core 仍重复执行一层
   Scheduling/Approval/Timeout；删除重复管线后才能淘汰兼容 `xharness-core::ToolSpec`。
 - Result Spill-to-disk 和 Output Schema Enforcement 尚未实现。
-- Host 已按 Platform/Search/Terminal Readiness 生成 Definition Projection；Profile/Step 级策略
+- Host 已按 Platform/Search Readiness 生成 Definition Projection；Profile/Step 级策略
   与投影审计仍待完整实现。
 
 ## 验收标准

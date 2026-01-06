@@ -21,6 +21,7 @@ use std::{
     os::unix::process::ExitStatusExt,
     path::PathBuf,
     process::{ExitStatus, Stdio},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -188,6 +189,193 @@ pub struct ProcessOutput {
     pub stderr: CapturedOutput,
 }
 
+/// Absolute read positions for the two live process streams.
+///
+/// Cursors are intentionally independent from the final bounded capture. A
+/// caller can poll a long-running process without consuming another caller's
+/// view, while a higher-level Job registry may keep one model-facing cursor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProcessOutputCursor {
+    pub stdout: u64,
+    pub stderr: u64,
+}
+
+/// One non-consuming live-output delta.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveCapturedOutput {
+    pub text: String,
+    /// True when bytes before the requested cursor were evicted from the
+    /// bounded live window.
+    pub truncated: bool,
+    /// Cursor to use for the next read. An incomplete trailing UTF-8 scalar is
+    /// retained and is not included in this position until it is completed.
+    pub cursor: u64,
+    pub bytes_read: u64,
+}
+
+/// A coherent snapshot of both live streams.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessOutputSnapshot {
+    pub stdout: LiveCapturedOutput,
+    pub stderr: LiveCapturedOutput,
+    pub cursor: ProcessOutputCursor,
+    /// Monotonic change number used by [`ProcessOutputObserver::changed`].
+    pub revision: u64,
+    /// True after the process supervisor has published its final result or
+    /// terminal infrastructure error.
+    pub finished: bool,
+}
+
+#[derive(Debug)]
+struct LiveBuffer {
+    bytes: Vec<u8>,
+    start: u64,
+    end: u64,
+    limit: usize,
+}
+
+impl LiveBuffer {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(limit.min(8192)),
+            start: 0,
+            end: 0,
+            limit,
+        }
+    }
+
+    fn append(&mut self, chunk: &[u8]) {
+        self.end = self.end.saturating_add(chunk.len() as u64);
+        if self.limit == 0 {
+            self.bytes.clear();
+            self.start = self.end;
+            return;
+        }
+        self.bytes.extend_from_slice(chunk);
+        if self.bytes.len() > self.limit {
+            let overflow = self.bytes.len() - self.limit;
+            self.bytes.drain(..overflow);
+        }
+        self.start = self.end.saturating_sub(self.bytes.len() as u64);
+    }
+
+    fn read_from(&self, requested: u64) -> LiveCapturedOutput {
+        let truncated = requested < self.start;
+        let actual = requested.clamp(self.start, self.end);
+        let offset = usize::try_from(actual - self.start).unwrap_or(self.bytes.len());
+        let available = &self.bytes[offset.min(self.bytes.len())..];
+        let complete_len = incomplete_utf8_tail_start(available).unwrap_or(available.len());
+        let text = String::from_utf8_lossy(&available[..complete_len]).into_owned();
+        LiveCapturedOutput {
+            text,
+            truncated,
+            cursor: actual.saturating_add(complete_len as u64),
+            bytes_read: self.end,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LiveOutputInner {
+    stdout: LiveBuffer,
+    stderr: LiveBuffer,
+    revision: u64,
+    finished: bool,
+}
+
+#[derive(Debug)]
+struct LiveOutputState {
+    inner: Mutex<LiveOutputInner>,
+    changed: watch::Sender<u64>,
+}
+
+impl LiveOutputState {
+    fn new(stdout_limit: usize, stderr_limit: usize) -> Arc<Self> {
+        let (changed, _) = watch::channel(0);
+        Arc::new(Self {
+            inner: Mutex::new(LiveOutputInner {
+                stdout: LiveBuffer::new(stdout_limit),
+                stderr: LiveBuffer::new(stderr_limit),
+                revision: 0,
+                finished: false,
+            }),
+            changed,
+        })
+    }
+
+    fn append(&self, stream: &'static str, chunk: &[u8]) {
+        let revision = {
+            let mut inner = self.inner.lock().expect("live output lock poisoned");
+            match stream {
+                "stdout" => inner.stdout.append(chunk),
+                "stderr" => inner.stderr.append(chunk),
+                _ => return,
+            }
+            inner.revision = inner.revision.saturating_add(1);
+            inner.revision
+        };
+        self.changed.send_replace(revision);
+    }
+
+    fn finish(&self) {
+        let revision = {
+            let mut inner = self.inner.lock().expect("live output lock poisoned");
+            if inner.finished {
+                return;
+            }
+            inner.finished = true;
+            inner.revision = inner.revision.saturating_add(1);
+            inner.revision
+        };
+        self.changed.send_replace(revision);
+    }
+}
+
+/// Cloneable non-consuming view of a running process' bounded output window.
+#[derive(Clone, Debug)]
+pub struct ProcessOutputObserver {
+    state: Arc<LiveOutputState>,
+    changed: watch::Receiver<u64>,
+}
+
+impl ProcessOutputObserver {
+    pub fn snapshot_since(&self, cursor: ProcessOutputCursor) -> ProcessOutputSnapshot {
+        let inner = self.state.inner.lock().expect("live output lock poisoned");
+        let stdout = inner.stdout.read_from(cursor.stdout);
+        let stderr = inner.stderr.read_from(cursor.stderr);
+        ProcessOutputSnapshot {
+            cursor: ProcessOutputCursor {
+                stdout: stdout.cursor,
+                stderr: stderr.cursor,
+            },
+            stdout,
+            stderr,
+            revision: inner.revision,
+            finished: inner.finished,
+        }
+    }
+
+    /// Wait until output/lifecycle revision exceeds `after_revision`.
+    /// Returns false only when the observer is already terminal and unchanged.
+    pub async fn changed(&mut self, after_revision: u64) -> bool {
+        loop {
+            let (revision, finished) = {
+                let inner = self.state.inner.lock().expect("live output lock poisoned");
+                (inner.revision, inner.finished)
+            };
+            if revision > after_revision {
+                return true;
+            }
+            if finished {
+                return false;
+            }
+            if self.changed.changed().await.is_err() {
+                return false;
+            }
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ProcessError {
     #[error("process program must not be empty")]
@@ -347,9 +535,11 @@ impl ProcessRuntime {
             .stderr
             .take()
             .expect("stderr is available because it was configured as piped");
+        let live_output = LiveOutputState::new(spec.stdout_limit, spec.stderr_limit);
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let (result_tx, result_rx) = oneshot::channel();
         let debug = self.debug.clone();
+        let supervisor_output = Arc::clone(&live_output);
         runtime.spawn(async move {
             let result = supervise(
                 child,
@@ -361,8 +551,10 @@ impl ProcessRuntime {
                 cancel_rx,
                 debug,
                 diagnostic_spec,
+                Arc::clone(&supervisor_output),
             )
             .await;
+            supervisor_output.finish();
             let _ = result_tx.send(result);
         });
 
@@ -370,6 +562,10 @@ impl ProcessRuntime {
             pid,
             cancel_tx,
             result_rx: Some(result_rx),
+            output: ProcessOutputObserver {
+                state: Arc::clone(&live_output),
+                changed: live_output.changed.subscribe(),
+            },
         })
     }
 }
@@ -382,6 +578,7 @@ pub struct ProcessHandle {
     pid: u32,
     cancel_tx: watch::Sender<bool>,
     result_rx: Option<oneshot::Receiver<Result<ProcessOutput, ProcessError>>>,
+    output: ProcessOutputObserver,
 }
 
 /// Cloneable cancellation capability separated from result ownership. This
@@ -413,6 +610,10 @@ impl ProcessHandle {
         ProcessCancellation {
             cancel_tx: self.cancel_tx.clone(),
         }
+    }
+
+    pub fn output_observer(&self) -> ProcessOutputObserver {
+        self.output.clone()
     }
 
     pub async fn cancel_and_wait(self) -> Result<ProcessOutput, ProcessError> {
@@ -454,6 +655,7 @@ async fn supervise(
     mut cancel_rx: watch::Receiver<bool>,
     debug: DebugRecorder,
     diagnostic_spec: Value,
+    live_output: Arc<LiveOutputState>,
 ) -> Result<ProcessOutput, ProcessError> {
     let mut process_group_guard = ProcessGroupGuard::new(process_group);
     debug
@@ -469,6 +671,7 @@ async fn supervise(
         debug.clone(),
         pid,
         "stdout",
+        Arc::clone(&live_output),
     ));
     let mut stderr_task = tokio::spawn(capture(
         stderr,
@@ -476,6 +679,7 @@ async fn supervise(
         debug.clone(),
         pid,
         "stderr",
+        live_output,
     ));
     let timeout_duration = spec.timeout;
     let termination_grace = spec.termination_grace;
@@ -602,6 +806,7 @@ async fn capture<R>(
     debug: DebugRecorder,
     pid: u32,
     stream: &'static str,
+    live_output: Arc<LiveOutputState>,
 ) -> io::Result<CapturedOutput>
 where
     R: AsyncRead + Unpin,
@@ -614,6 +819,7 @@ where
         if count == 0 {
             break;
         }
+        live_output.append(stream, &buffer[..count]);
         debug
             .record_lossy(DebugEvent::new(
                 "process",
