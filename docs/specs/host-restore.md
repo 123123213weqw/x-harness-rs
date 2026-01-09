@@ -97,8 +97,10 @@ Subscribed/Projection，并为非空 Inbox 发送完整 Queue Snapshot；空列�
   `danger-full-access + never`，Command Run/Done 顺序不变。
 - `session.rename` 和 `agentPreset.select` 在返回前 Flush，重启后保留 Title/Preset；显式用户标题
   使用空 `messageSeqs` 与 `source={kind:"user"}`，不进入模型消息。
-- `session.selectModel` 在返回前把 Route 与 Receipt 原子 Flush；重启后即使尚未产生新的
-  `request/header` 也恢复 Provider/Model/Reasoning Effort。上述 Session/Goal/Preset RPC 的相同 ID
+- `session.selectModel` 在返回前把 Route 与 Receipt 原子 Flush；恢复时最后一个显式
+  `session/model-selected` 优先于其后所有执行态 `request/header`，只有旧日志完全没有显式选择时
+  才回退最后一个 Request Header。这样即使 Provider 未在 Header 回写 Effort，刷新或重启仍恢复
+  Provider/Model/Reasoning Effort。上述 Session/Goal/Preset RPC 的相同 ID
   重试逐字返回原响应，不同 Payload 冲突且不追加第二个状态事件。
 - Goal Mutation 使用全快照或 Clear Tombstone；Host 重启恢复 Revision、Phase、Objective、Round
   Budget、时间和 History/Projection，不依赖旧进程的 `goals` Map。
