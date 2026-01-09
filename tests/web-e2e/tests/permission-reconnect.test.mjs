@@ -156,6 +156,7 @@ test('真实 Web 完成权限确认，并在第 8 次失败后恢复全部运行
     '--model', 'e2e-no-inference',
     '--base-url', 'http://127.0.0.1:1/v1',
     '--api-key', 'e2e-not-used',
+    '--context-window', '32768',
   ], { stdio: ['ignore', 'pipe', 'pipe'] })
   let stderr = ''
   child.stderr.setEncoding('utf8')
@@ -238,6 +239,11 @@ test('真实 Web 完成权限确认，并在第 8 次失败后恢复全部运行
   await enable.click()
   const fullAccess = page.getByRole('button', { name: 'Access mode, current: Full access' })
   await fullAccess.waitFor({ state: 'visible', timeout: 10_000 })
+
+  // A browser refresh must rebuild the picker from the durable permissions
+  // projection rather than falling back to the default preset.
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await fullAccess.waitFor({ state: 'visible', timeout: 30_000 })
 
   await poll(
     () => assert(successfulApiPaths.includes('/api/session.history')),
