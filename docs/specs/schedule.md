@@ -47,6 +47,11 @@ schedule_create
 Session；只要仍有活跃 Schedule，即使普通 Inbox 为空也会激活对应 Agent，重新折叠并挂钟。
 Schedule ID 在一个 Session 内单调分配且永不复用，避免删除、崩溃恢复和旧 UI 操作混淆。
 
+`schedule_create/delete` 会在 Tool Handler 内追加同一份 Session，因此活动 Loop 的 Journal 必须把
+`schedule/change` 当成允许的外部控制事件：遇到 CAS 冲突时加载并采用新 Revision，再继续落账
+`tool/result`。禁止把它判成未知写入并中断当前 Turn，否则短提醒会在下个 Turn 被误恢复成
+`outcome_unknown`。
+
 ## 到期与并发语义
 
 1. Timer 到点只尝试 `maintenance_followup`，不会抢占正在运行的用户 Turn。
