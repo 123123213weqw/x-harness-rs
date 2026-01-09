@@ -26,6 +26,7 @@ use xharness_host::{
 use xharness_interaction::{AskUserQuestionTool, QuestionInvocation, QuestionResolution};
 use xharness_jobs::JobRegistry;
 use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
+use xharness_schedule::ScheduleManager;
 use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
 use xharness_web::WebRuntime;
 
@@ -39,6 +40,7 @@ pub struct NativeToolFactory {
     platforms: RwLock<BTreeMap<(String, PermissionPreset), Arc<NativePlatform>>>,
     debug: DebugRecorder,
     questions: Option<Arc<DurableQuestionHub>>,
+    schedules: Option<Arc<ScheduleManager>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +61,7 @@ impl NativeToolFactory {
             platforms: RwLock::new(BTreeMap::new()),
             debug,
             questions: None,
+            schedules: None,
         })
     }
 
@@ -73,6 +76,23 @@ impl NativeToolFactory {
             platforms: RwLock::new(BTreeMap::new()),
             debug,
             questions: Some(questions),
+            schedules: None,
+        })
+    }
+
+    pub fn new_with_questions_and_schedules(
+        web: WebRuntime,
+        debug: DebugRecorder,
+        questions: Arc<DurableQuestionHub>,
+        schedules: Arc<ScheduleManager>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            jobs: Arc::new(JobRegistry::default()),
+            web: Arc::new(web),
+            platforms: RwLock::new(BTreeMap::new()),
+            debug,
+            questions: Some(questions),
+            schedules: Some(schedules),
         })
     }
 
@@ -142,6 +162,9 @@ impl SessionToolFactory for NativeToolFactory {
         )
         .specs();
         project_tools(&mut specs, &readiness);
+        if let Some(schedules) = &self.schedules {
+            specs.extend(schedules.specs(session_id));
+        }
         if permission == PermissionPreset::DangerFullAccess {
             for spec in &mut specs {
                 spec.requires_approval = false;
@@ -518,6 +541,43 @@ mod tests {
             spec.batch_policy,
             xharness_tools::ToolBatchPolicy::Standalone
         ));
+    }
+
+    #[tokio::test]
+    async fn production_factory_projects_the_three_schedule_tools() {
+        let workspace = TempWorkspace::new();
+        let store: Arc<dyn xharness_session::Store> =
+            Arc::new(xharness_session::MemorySessionStore::default());
+        store
+            .create(xharness_session::SessionHeader::new("schedules"))
+            .await
+            .unwrap();
+        let questions = DurableQuestionHub::new(Arc::clone(&store), Arc::new(NoopTestSink));
+        let schedules = ScheduleManager::new(store);
+        let factory = NativeToolFactory::new_with_questions_and_schedules(
+            WebRuntime::default(),
+            DebugRecorder::disabled(),
+            questions,
+            schedules,
+        );
+        let executor = factory
+            .executor(
+                "schedules",
+                &workspace.0.to_string_lossy(),
+                PermissionPreset::DangerFullAccess,
+            )
+            .await
+            .unwrap();
+        let names = executor
+            .registry()
+            .definitions()
+            .await
+            .into_iter()
+            .map(|definition| definition.name)
+            .collect::<std::collections::BTreeSet<_>>();
+        for name in ["schedule_create", "schedule_list", "schedule_delete"] {
+            assert!(names.contains(name), "missing {name}");
+        }
     }
 
     struct NoopTestSink;

@@ -27,6 +27,7 @@ xharness-jobs = { path = "../xharness-jobs" }
 xharness-agent = { path = "../xharness-agent" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }
+xharness-schedule = { path = "../xharness-schedule" }
 xharness-session = { path = "../xharness-session" }
 xharness-session-jsonl = { path = "../xharness-session-jsonl" }
 xharness-server = { path = "../xharness-server" }
