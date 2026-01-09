@@ -25,7 +25,7 @@ JavaScript 插件加载器不进入 Rust Runtime。
 ## 分层结构
 
 ```text
-DeepSeek Web UI / future CLI
+XHarness Web UI / future CLI
                |
       xharness-api + server
                |
