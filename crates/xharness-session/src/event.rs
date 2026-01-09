@@ -355,6 +355,54 @@ pub enum GoalChange {
     Clear(GoalClearChange),
 }
 
+/// Durable rule kind owned by the session-local Schedule projection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduleKind {
+    After,
+    At,
+    Every,
+}
+
+/// Canonical durable Schedule record. Fields that do not belong to the
+/// selected kind are absent rather than zero-valued.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ScheduleRecord {
+    pub id: String,
+    pub kind: ScheduleKind,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every_seconds: Option<u64>,
+    pub scheduled_at: String,
+}
+
+/// Version-one mutation stream used to reconstruct active schedules.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum ScheduleChange {
+    Create {
+        version: u8,
+        schedule: ScheduleRecord,
+    },
+    Delete {
+        version: u8,
+        id: String,
+    },
+    Dispatch {
+        version: u8,
+        id: String,
+        #[serde(
+            rename = "acceptedAt",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        accepted_at: Option<String>,
+    },
+}
+
 /// Provider-neutral failure retained by a durable model-retry audit record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -570,6 +618,13 @@ pub enum EventData {
     GoalChange {
         #[serde(flatten)]
         change: GoalChange,
+    },
+    /// Persistent schedule create/delete/dispatch fact. The active timer is a
+    /// disposable process-local projection of this stream.
+    #[serde(rename = "schedule/change")]
+    ScheduleChange {
+        #[serde(flatten)]
+        change: ScheduleChange,
     },
     /// Internal, log-only receipt paired atomically with a session-scoped
     /// state mutation. Web history exposes only a redacted hidden placeholder,

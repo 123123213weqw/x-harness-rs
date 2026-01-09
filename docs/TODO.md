@@ -334,6 +334,12 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Shutdown Cancel 异常/超时 Corner Case，并提供可选 DeepSeek PTY/nohup 行为测试。2026-09-01
   DeepSeek V4 Flash 实测正确选择 `bash(run_in_background=true) -> job_output(wait=true)`，未生成
   `nohup/&/PTY/screen/tmux`。
+- [x] `DONE-71` 持久 Schedule：复用正式 Tool Registry、Session Log 与 Durable Agent，新增
+  `schedule_create/list/delete` 和版本化 `schedule/change`；支持 `after`、显式 Offset/IANA 时区
+  `at`、最小 5 分钟固定相位 `every`、DST 校验、离线 latest-only catch-up、ID 永不复用和稳定
+  Delivery Message ID。Timer 是可丢弃投影，Host 重启会重挂或补发 overdue；到期只在 Idle 边界
+  以注入安全 reminder followup 唤醒 Agent，并沿普通 RunningTurn 实时投影到 Web。远程测试覆盖
+  规则校验、时区、调度、Busy/Idle、恢复和 Host 背景回合；模型行为验收保留为部署后测试。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

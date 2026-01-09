@@ -63,6 +63,8 @@ pub enum AgentCommandError {
     Closed,
     #[error("agent command is unavailable while no turn is running")]
     NoActiveTurn,
+    #[error("agent is busy with another activity")]
+    Busy,
     #[error("agent command failed: {0}")]
     Failed(String),
 }
@@ -122,6 +124,10 @@ enum DriverCommand {
     /// No synthetic user input or new turn is created.
     RecoverOpenTurn,
     Followup(InboxMessage),
+    /// Admit a maintenance-generated followup only at an idle actor boundary.
+    /// Unlike checking [`DurableAgentHandle::status`] before `followup`, this
+    /// cannot race a user turn between observation and durable insertion.
+    MaintenanceFollowup(InboxMessage),
     Steer(InboxMessage),
     Inject(InboxMessage),
     Control(LoopCommand),
@@ -246,6 +252,16 @@ impl DurableAgentHandle {
 
     pub async fn followup(&self, message: InboxMessage) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::Followup(message)).await
+    }
+
+    /// Append and wake one maintenance followup iff the actor is idle when it
+    /// handles this command. Callers may wait for [`Self::when_idle`] and retry
+    /// after [`AgentCommandError::Busy`].
+    pub async fn maintenance_followup(
+        &self,
+        message: InboxMessage,
+    ) -> Result<(), AgentCommandError> {
+        self.send(DriverCommand::MaintenanceFollowup(message)).await
     }
 
     /// Process work that was already durable before this worker was created.
@@ -682,6 +698,14 @@ impl DriverWorker {
                 }
                 result
             }
+            DriverCommand::MaintenanceFollowup(message) => {
+                let result = self.persist(InboxTarget::NextTurn, message).await;
+                if result.is_ok() {
+                    self.wake_requested = true;
+                    self.set_status(AgentStatus::Running);
+                }
+                result
+            }
             DriverCommand::Steer(message) => {
                 let result = self.persist(InboxTarget::NextStep, message).await;
                 if result.is_ok() {
@@ -712,6 +736,7 @@ impl DriverWorker {
                 }
                 result
             }
+            DriverCommand::MaintenanceFollowup(_) => Err(AgentCommandError::Busy),
             DriverCommand::Steer(message) => {
                 match self.persist(InboxTarget::NextStep, message.clone()).await {
                     Ok(()) => {

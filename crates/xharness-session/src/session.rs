@@ -520,6 +520,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut next_step_inbox = Vec::<InboxMessage>::new();
     let mut current_goal = None::<(crate::GoalSnapshot, u64, u64, u64)>;
     let mut seen_goal_ids = std::collections::HashSet::<String>::new();
+    let mut active_schedules = HashMap::<String, crate::ScheduleKind>::new();
+    let mut seen_schedule_ids = std::collections::HashSet::<String>::new();
     for (position, logged) in events.iter().enumerate() {
         let expected_seq = position as Sequence;
         if logged.seq != expected_seq {
@@ -1184,6 +1186,81 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ));
                     }
                     current_goal = None;
+                }
+            },
+            EventData::ScheduleChange { change } => match change {
+                crate::ScheduleChange::Create { version, schedule } => {
+                    let valid_shape = match schedule.kind {
+                        crate::ScheduleKind::After => {
+                            schedule.after_seconds.is_some_and(|seconds| seconds > 0)
+                                && schedule.every_seconds.is_none()
+                        }
+                        crate::ScheduleKind::At => {
+                            schedule.after_seconds.is_none() && schedule.every_seconds.is_none()
+                        }
+                        crate::ScheduleKind::Every => {
+                            schedule.after_seconds.is_none()
+                                && schedule.every_seconds.is_some_and(|seconds| seconds >= 300)
+                        }
+                    };
+                    if *version != 1
+                        || schedule.id.trim().is_empty()
+                        || schedule.id.trim() != schedule.id
+                        || schedule.prompt.trim().is_empty()
+                        || schedule.prompt.trim() != schedule.prompt
+                        || schedule.scheduled_at.trim().is_empty()
+                        || !valid_shape
+                        || !seen_schedule_ids.insert(schedule.id.clone())
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "schedule create has an invalid or reused record",
+                        ));
+                    }
+                    active_schedules.insert(schedule.id.clone(), schedule.kind);
+                }
+                crate::ScheduleChange::Delete { version, id } => {
+                    if *version != 1
+                        || id.trim().is_empty()
+                        || id.trim() != id
+                        || active_schedules.remove(id).is_none()
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "schedule delete must target one active id",
+                        ));
+                    }
+                }
+                crate::ScheduleChange::Dispatch {
+                    version,
+                    id,
+                    accepted_at,
+                } => {
+                    let Some(kind) = active_schedules.get(id).copied() else {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "schedule dispatch must target one active id",
+                        ));
+                    };
+                    let valid = *version == 1
+                        && id.trim() == id
+                        && match kind {
+                            crate::ScheduleKind::Every => accepted_at
+                                .as_ref()
+                                .is_some_and(|instant| !instant.trim().is_empty()),
+                            crate::ScheduleKind::After | crate::ScheduleKind::At => {
+                                accepted_at.is_none()
+                            }
+                        };
+                    if !valid {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "schedule dispatch does not match its active rule kind",
+                        ));
+                    }
+                    if kind != crate::ScheduleKind::Every {
+                        active_schedules.remove(id);
+                    }
                 }
             },
             EventData::SessionMutationCommitted { receipt } => {

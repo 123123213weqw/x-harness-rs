@@ -1,0 +1,24 @@
+[package]
+name = "xharness-schedule"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Durable session-local scheduling for XHarness"
+
+[dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+xharness-agent = { path = "../xharness-agent" }
+xharness-session = { path = "../xharness-session" }
+xharness-tools = { path = "../xharness-tools" }
+
+[dev-dependencies]
+async-trait.workspace = true
+futures.workspace = true
+xharness-core = { path = "../xharness-core" }
