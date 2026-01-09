@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**状态日期：** 2026-09-01
+**状态日期：** 2026-09-02
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -18,10 +18,10 @@ Commit、Issue、PR 应引用这些 ID。
 OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 11 个
 Coding/Job/Web Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
 
-当前共有 `DONE-01`—`DONE-70` 七十个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
+当前共有 `DONE-01`—`DONE-71` 七十一个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
 Web 对话重启恢复、模型性能指标投影、长思考输出预算、大 Session 热路径、逐模型推理强度、
 Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Context 的回归，以及后台 Job
-第一阶段。
+第一阶段和持久 Schedule。
 
 以下能力已经完成主体，不应再描述成“尚未接入”：
 
@@ -40,6 +40,8 @@ Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Co
   和 Process；超时清理会显式报告 Forced Cleanup。
 - macOS ARM64 已在原生 GitHub Runner 运行 Workspace、FS、Process、PTY、Seatbelt 测试并生成
   未签名构件；剩余是 Live Provider、签名、公证和安装验证。
+- 当前 XHarness Web 源插件、品牌覆盖、重建脚本和可直接部署的静态 Bundle 已与 Rust 后端收敛到
+  同一仓库的 `ui/`；Fresh Clone 不再依赖本机相邻的旧 `x-harness` 工作树才能启动网页。
 
 当前最短阻塞链调整为：**大结果持久 Spill/Reference 与 Pruner Replace → 删除 Core 旧 Tool
 兼容层 → Credential Reference/配置 → 远程 Web Auth → WebSocket Cursor Resume →
@@ -587,8 +589,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [ ] `P3-02` **Workflow Graph。** 强类型 Sequential/Parallel/Join/Condition Node、
   Checkpointed Execution、Idempotency Key、Replay Inspection 和 Manual Gate。
 
-- [ ] `P3-03` **Scheduler/Automation。** 持久 Timer、Wakeup、Recurring Job、Missed-run
-  Policy、Owner Permission 和可观测执行历史。
+- [x] `P3-03` **Scheduler/Automation。** 已由 `DONE-71` 完成 Session-owner 持久 Timer、
+  Idle-only Agent Wakeup、一次性与固定相位 Recurring Schedule、离线 latest-only Missed-run
+  Policy、`schedule/change` 可观测执行历史、重启恢复和 Web 实时投影。当前产品边界是进程常驻、
+  会话本地提醒；操作系统级 Wake、跨设备通知和独立 Cron Worker 属于后续产品扩展，不回退本项。
 
 - [ ] `P3-04` **远程执行。** 显式 Remote Platform Interface、Workspace Sync/内容寻址、
   Policy/Capability Attestation；受限远端不可意外回退为本地 Full Access。
