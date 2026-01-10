@@ -11,7 +11,8 @@ Web 客户端必须能够检查每个模型步骤真正收到的完整输入，�
 - Tool Call；
 - Tool Result；
 - Provider opaque items；
-- 压缩 checkpoint。
+- 压缩 checkpoint；
+- 请求侧 `tool_result_pruned` 与 `assistant_history_pruned` Surface Edit 及其移除字符数。
 
 该视图用于审计和调试，不参与 Loop 决策，也不得修改 Session Journal。
 
@@ -63,6 +64,10 @@ Provider 凭证禁止进入该事件。
 Web 端以事件序号关联压缩前最后一个 RequestHeader 和压缩后第一个
 RequestHeader。压缩前历史仍保留在 Journal 中；压缩后模型输入以新的
 RequestHeader.input 为准。
+
+普通请求侧历史投影不生成 Compaction Event；它通过同一个 RequestHeader 的
+`options.context.edits` 暴露。Context Inspector 必须把 `assistant_history_pruned` 解释为
+“只改变本次模型输入”，不得把已经落盘的源 Tool Call、Reasoning 或文件内容显示成被删除。
 
 ## 前端行为
 

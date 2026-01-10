@@ -18,10 +18,10 @@ Commit、Issue、PR 应引用这些 ID。
 OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 11 个
 Coding/Job/Web Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
 
-当前共有 `DONE-01`—`DONE-72` 七十二个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
+当前共有 `DONE-01`—`DONE-73` 七十三个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
 Web 对话重启恢复、模型性能指标投影、长思考输出预算、大 Session 热路径、逐模型推理强度、
 Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Context 的回归，以及后台 Job
-第一阶段、持久 Schedule 和会话权限/推理强度刷新保持。
+第一阶段、持久 Schedule、会话权限/推理强度刷新保持和历史 Assistant 请求侧投影。
 
 以下能力已经完成主体，不应再描述成“尚未接入”：
 
@@ -346,6 +346,16 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   旧日志不存在显式选择时才回退最后一个 `request/header`，避免 Provider 未回写 Effort 时把
   用户选择的推理强度恢复成模型默认值；真实 Web 权限回归新增浏览器 Reload，Composer 在 Turn
   运行期间禁用权限切换，避免 Host 拒绝策略热切换后 UI 暂时显示未落盘的 Full access。
+- [x] `DONE-73` 历史 Assistant 请求侧投影：正式 Context Policy 升级为
+  `context-history-pruning/v2`；只有匹配到后续 `ok=true` Tool Result 的大型 `write.content`、
+  `edit.old/new` 才替换成带字符数、UTF-8 Byte 数和 SHA-256 的
+  `tool_arguments_pruned/v1`，失败、未完成和坏 JSON 调用逐字保留。最新 User Turn reasoning 与
+  opaque Provider Item 保留，旧 Turn plaintext reasoning 从一次性 Surface 移除；Responses
+  `function_call` 与 provider-neutral Tool Call 同步投影，Call ID、Result 和源日志不变。
+  WZU_Server 32 Tool Call Release 消融把请求消息从 1,136,998 Byte 降至 42,150 Byte
+  （-96.29%），Policy CPU 从每次 0.159 ms 增至 3.639 ms；全 Workspace Test、Check、Clippy
+  `-D warnings` 通过。当前真实会话最后一次请求重放估算从 90,363 Byte 降至 35,699 Byte
+  （-60.49%）。真实 Provider TTFT/Prefill A/B 仍按 `REL-05` 单独验收，不能由 Payload 降幅替代。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -494,15 +504,23 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   变小校验、完成后重新计量、请求前 Pressure/Hard Overflow、Provider 400 Context Overflow
   恢复、正式 Durable Host 默认启用、Web `surfaceOp={op:replace,start,end}` 投影及回归测试。
   **剩余：** 手动 `/compact`、Purpose 路由到独立摘要模型、把 `DONE-68` 的请求侧 Tool Result
-  Pruner 接入持久 Replace、Provider 结构化错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点
-  矩阵、按模型本地精确 Tokenizer，以及把已解决 Question/Answer/Tool Result 作为不可拆分单元选择
-  Compact 安全切点；未决 Question 始终留在当前开放 Step，不参与 Compact。
+  Pruner 和请求侧 `tool_arguments_pruned/v1` 接入持久 Replace/内容引用缓存、Provider 结构化
+  错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点矩阵、按模型本地精确 Tokenizer，以及把
+  已解决 Question/Answer/Tool Result 作为不可拆分单元选择 Compact 安全切点；未决 Question
+  始终留在当前开放 Step，不参与 Compact。精确 Tokenizer 必须同时报告 Tool Schema、Assistant
+  Tool Arguments、Reasoning 与 Provider Opaque Items，不能只计 `message.content`。
 
 - [ ] `P1-04` **动态 Tool Projection。** 每个 Profile/Step 只发送相关工具，同时保持 Schema
-  稳定。与始终发送 11 工具比较 Token/Cache 消耗和工具选择质量。
+  稳定。默认 Coding Bundle 为 `read/grep/glob/write/edit/bash`；Interaction、Job、Schedule、Web
+  根据最新用户意图、活动 Job/Schedule 和前一步 Tool Result 确定性启用，并提供小型 Capability
+  Catalog/Enable 兜底，防止 Router 漏判后永久失去工具。与始终发送全部工具进行多 Seed A/B，
+  报告 Tool Schema Token、Cache、TTFT、错误工具选择率、完成率和额外 Enable Step。
 
-- [ ] `P1-05` **更完整的 Tool Description。** 增加何时用、何时不用、前置条件、输出语义、
-  `bash` 前台/Job 后台选择指导；使用固定工具选择数据集和 DeepSeek 的 PTY/nohup 提示做评估。
+- [ ] `P1-05` **更完整且不重复的 Tool Description。** Prompt Section 只保留跨工具路由原则，
+  单工具 Description 只保留输入、输出和关键限制；消除 Job/Schedule 规则在 System、`bash` 和
+  控制工具中的重复，修复 System 写 `web_search` 但正式模型面只有 `web_fetch` 的不一致。目标在
+  不降低选择质量的前提下把 Schema 序列化体积降低 30%—50%；继续使用固定工具选择数据集和
+  DeepSeek 的 PTY/nohup 提示做评估。
 
 - [ ] `P1-06` **扩展 FS Tool。** 增加目录创建/列表、安全 Delete/Move/Copy、Binary/Image
   Read、Unified Diff/Patch、按行读取和显式 Spill Reference；继续保持 Observation CAS 和审批。
@@ -611,7 +629,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [ ] `REL-04` 每个 Durability Barrier 和 Tool Side-effect Boundary 的 Fault Injection。
 - [ ] `REL-05` TTFT Overhead、Event Throughput、JSONL Growth、Tool Scheduling、Long Context、
   PTY Scrollback、Web Extraction Benchmark。Long Context 必须报告 System/Message/Tool/Template/
-  Output Reserve 分项，并包含多个并行大文件结果导致单 Step 暴涨的用例。
+  Output Reserve 分项，并包含多个并行大文件结果导致单 Step 暴涨的用例。Context P0 消融必须
+  至少覆盖 32 个成功 `write` Tool Call、失败/未完成调用不投影、Responses `function_call` 同步、
+  投影确定性、Call/Result 拓扑不变、请求 Byte/Token 降幅、Policy CPU 和真实 Provider TTFT/
+  Prefill；不能用仅减少 Payload 的结果宣称端到端一定更快。
 - [ ] `REL-06` Semver/API Audit：Non-exhaustive Extensible Type、Builder、Deprecation Window、
   Changelog、Reproducible Lockfile、SBOM、License、Signed Artifact。
 - [ ] `REL-07` Security Regression：Symlink Race、Sandbox Escape、Process Descendant、SSRF/
