@@ -614,6 +614,120 @@ async fn long_streams_checkpoint_in_bounded_batches_instead_of_per_delta() {
 }
 
 #[tokio::test]
+async fn tool_argument_fragments_keep_live_deltas_but_coalesce_durable_chunks() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "provider-call", "echo", "{")),
+            // Compatible providers either omit or repeat identity fields.
+            Ok(tool_delta(0, "", "", r#""value":"#)),
+            Ok(tool_delta(0, "provider-call", "echo", "7")),
+            Ok(tool_delta(0, "", "", "}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let tool = ToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
+        ToolResult::success("ok")
+    });
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("coalesced-tool-arguments".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tools.push(tool);
+
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event.kind, LoopEventKind::ToolCallDelta { .. }))
+            .count(),
+        4,
+        "direct embedders retain the provider's immediate progress events"
+    );
+
+    let session = journal
+        .load("coalesced-tool-arguments")
+        .await
+        .unwrap()
+        .unwrap();
+    let durable = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::AssistantChunk {
+                chunk:
+                    AssistantChunk::ToolCallDelta {
+                        index,
+                        id,
+                        name,
+                        arguments_delta,
+                    },
+                ..
+            } => Some((*index, id.as_str(), name.as_str(), arguments_delta.as_str())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(durable, [(0, "provider-call", "echo", r#"{"value":7}"#)]);
+    assert_eq!(
+        result.messages[1].tool_calls[0].arguments_json,
+        r#"{"value":7}"#
+    );
+}
+
+#[tokio::test]
+async fn conflicting_tool_stream_identity_fails_closed_into_separate_chunks() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "first-call", "echo", "{")),
+            Ok(tool_delta(0, "second-call", "echo", "}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("conflicting-tool-stream-identity".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tools.push(ToolSpec::new(
+        "echo",
+        "echo",
+        json!({"type":"object"}),
+        |_, _| async { ToolResult::success("ok") },
+    ));
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let session = journal
+        .load("conflicting-tool-stream-identity")
+        .await
+        .unwrap()
+        .unwrap();
+    let durable_ids = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::AssistantChunk {
+                chunk: AssistantChunk::ToolCallDelta { id, .. },
+                ..
+            } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(durable_ids, ["first-call", "second-call"]);
+    assert_eq!(
+        result.messages[1].tool_calls[0].provider_call_id.as_deref(),
+        Some("second-call")
+    );
+}
+
+#[tokio::test]
 async fn buffered_stream_chunks_are_closed_durably_when_the_provider_stream_fails() {
     let provider = Arc::new(ScriptProvider::new([vec![
         Ok(ProviderEvent::ReasoningDelta(
