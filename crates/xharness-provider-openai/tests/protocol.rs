@@ -6,8 +6,8 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
-    AgentMessage, FinishReason, ModelProvider, ProviderEvent, ProviderRequest, ToolCall,
-    ToolDefinition,
+    AgentMessage, ContextPolicy, ContextRequest, FinishReason, ModelProvider, ProviderEvent,
+    ProviderRequest, Role, ToolCall, ToolDefinition, ToolResultPruningContextPolicy,
 };
 use xharness_debug::{DebugRecorder, DebugScope, MemoryDebugSink};
 use xharness_provider_openai::*;
@@ -97,6 +97,94 @@ fn chat_request_and_stream_are_normalized() {
             && usage.reasoning_tokens == 2
     ));
     normalizer.finish().unwrap();
+}
+
+#[tokio::test]
+async fn projected_completed_writes_keep_chat_and_responses_call_topology() {
+    let arguments = json!({
+        "path": "artifact.txt",
+        "content": "x".repeat(8 * 1_024),
+    })
+    .to_string();
+    let call = ToolCall {
+        id: "execution-write".to_owned(),
+        provider_call_id: Some("provider-write".to_owned()),
+        index: 0,
+        name: "write".to_owned(),
+        arguments_json: arguments.clone(),
+    };
+    let source = vec![
+        AgentMessage::user("write it"),
+        AgentMessage {
+            role: Role::Assistant,
+            reasoning: "completed reasoning".to_owned(),
+            tool_calls: vec![call],
+            provider_items: vec![
+                json!({"type":"reasoning","id":"reasoning-1","summary":[]}),
+                json!({
+                    "type":"function_call",
+                    "call_id":"provider-write",
+                    "name":"write",
+                    "arguments":arguments,
+                }),
+            ],
+            ..AgentMessage::default()
+        },
+        AgentMessage::tool(
+            "provider-write",
+            json!({"ok":true,"content":"completed","error":"","truncated":false}).to_string(),
+        ),
+        AgentMessage::assistant("done"),
+        AgentMessage::user("continue"),
+    ];
+    let surface = ToolResultPruningContextPolicy::default()
+        .prepare(ContextRequest::new(source))
+        .await
+        .unwrap();
+    surface.validate().unwrap();
+
+    let request = ProviderRequest {
+        messages: surface.messages,
+        tools: Vec::new(),
+        step: 1,
+        reasoning_effort: None,
+        max_output_tokens: None,
+        debug_scope: Default::default(),
+    };
+    let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
+    let chat_call = &chat["messages"][1]["tool_calls"][0];
+    assert_eq!(chat_call["id"], "provider-write");
+    assert!(chat_call["function"]["arguments"]
+        .as_str()
+        .unwrap()
+        .contains("tool_arguments_pruned/v1"));
+    assert!(chat["messages"][1].get("reasoning_content").is_none());
+    assert_eq!(chat["messages"][2]["tool_call_id"], "provider-write");
+
+    let responses = build_openai_request(OpenAiProtocol::Responses, "model", &request);
+    let function_call = responses["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "function_call")
+        .unwrap();
+    assert_eq!(function_call["call_id"], "provider-write");
+    assert!(function_call["arguments"]
+        .as_str()
+        .unwrap()
+        .contains("tool_arguments_pruned/v1"));
+    let output = responses["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "function_call_output")
+        .unwrap();
+    assert_eq!(output["call_id"], "provider-write");
+    assert!(responses["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["type"] == "reasoning"));
 }
 
 #[test]
