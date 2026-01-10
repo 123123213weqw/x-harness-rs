@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-02",
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash",
+  "result": "passed",
+  "externalAcceptance": "passed",
+  "wallMs": 3717.63,
+  "toolArgumentStream": {
+    "liveDeltas": 110,
+    "durableChunks": 5,
+    "reductionRatio": 0.9545
+  },
+  "trace": {
+    "events": 750,
+    "bytes": 431482,
+    "layers": {
+      "core": 317,
+      "provider.openai": 399,
+      "tools": 28,
+      "sandbox": 3,
+      "process": 3
+    },
+    "rawSseChunks": 99,
+    "normalizedProviderEvents": 292,
+    "coreLoopEvents": 307
+  },
+  "usage": {
+    "uncachedInputTokens": 1143,
+    "cacheReadTokens": 7424,
+    "outputTokens": 385,
+    "reasoningTokens": 38,
+    "cacheReadRatio": 0.8666
+  },
+  "steps": [
+    {"step": 1, "ttftMs": 275.54, "wallMs": 714.90, "outputTokens": 80, "approxDecodeTokensPerSecond": 182.08, "streamEvents": 37, "sseChunks": 16},
+    {"step": 2, "ttftMs": 371.74, "wallMs": 1159.23, "outputTokens": 114, "approxDecodeTokensPerSecond": 144.76, "streamEvents": 96, "sseChunks": 33},
+    {"step": 3, "ttftMs": 391.17, "wallMs": 540.72, "outputTokens": 50, "approxDecodeTokensPerSecond": 334.34, "streamEvents": 18, "sseChunks": 7},
+    {"step": 4, "ttftMs": 352.45, "wallMs": 1137.10, "outputTokens": 141, "approxDecodeTokensPerSecond": 179.70, "streamEvents": 141, "sseChunks": 43}
+  ]
+}
