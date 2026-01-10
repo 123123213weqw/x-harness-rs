@@ -10,9 +10,9 @@ use xharness_session::SessionEvent;
 use crate::{
     metrics::web_token_usage_from_core,
     restore::{
-        project_session_event_range, project_session_event_tail, restored_agent_preset,
-        restored_goal, restored_permission, restored_plan_mode, restored_queue,
-        restored_session_mutation_receipts, restored_title,
+        project_session_event_range, project_session_event_tail, project_session_event_view,
+        project_web_event_view, restored_agent_preset, restored_goal, restored_permission,
+        restored_plan_mode, restored_queue, restored_session_mutation_receipts, restored_title,
     },
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute, RunningTurn},
     state::{now_ms, DriverCommand, PendingResponse, QueuePlacement, QueuedPrompt},
@@ -245,7 +245,17 @@ impl BasicHost {
                     .into_iter()
                     .map(|event| {
                         let updates = record.metrics.apply(&event);
-                        (event, updates)
+                        // Projection may fold or omit durable events (for
+                        // example completed Assistant chunks), so an output
+                        // offset is not a durable-journal index. Correlate by
+                        // the preserved monotonic sequence instead.
+                        let view = event
+                            .get("seq")
+                            .and_then(Value::as_u64)
+                            .and_then(|seq| usize::try_from(seq).ok())
+                            .and_then(|index| session.events().get(index))
+                            .and_then(|event| project_session_event_view(&session, event));
+                        (event, updates, view)
                     })
                     .collect::<Vec<_>>();
                 record.replace_authoritative_tail(
@@ -281,13 +291,20 @@ impl BasicHost {
             }
             (new_events, queue_changed)
         };
-        for (event, updates) in new_events {
+        for (event, updates, view) in new_events {
             let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
-            self.push_mux(json!({
+            let mut frame = json!({
                 "type": "session/event",
                 "sessionId": session_id,
                 "event": event,
-            }));
+            });
+            if let Some(view) = view {
+                frame
+                    .as_object_mut()
+                    .expect("session event frame is an object")
+                    .insert("view".to_owned(), view);
+            }
+            self.push_mux(frame);
             for update in updates {
                 self.push_mux(json!({
                     "type": "session/projection",
@@ -311,7 +328,7 @@ impl BasicHost {
         data: Value,
         surface_op: Option<&str>,
     ) -> Result<Value, RpcError> {
-        let (event, metric_updates) = {
+        let (event, metric_updates, view) = {
             let mut state = self.state.write().await;
             let session = state.sessions.get_mut(session_id).ok_or_else(|| {
                 rpc_error(
@@ -344,14 +361,22 @@ impl BasicHost {
                 .saturating_add(serde_json::to_vec(&event).map_or(0, |encoded| encoded.len()));
             session.events.push(event.clone());
             let metric_updates = session.metrics.apply(&event);
-            (event, metric_updates)
+            let view = project_web_event_view(&event, &session.events);
+            (event, metric_updates, view)
         };
         let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
-        self.push_mux(json!({
+        let mut frame = json!({
             "type": "session/event",
             "sessionId": session_id,
             "event": event,
-        }));
+        });
+        if let Some(view) = view {
+            frame
+                .as_object_mut()
+                .expect("session event frame is an object")
+                .insert("view".to_owned(), view);
+        }
+        self.push_mux(frame);
         for update in metric_updates {
             self.push_mux(json!({
                 "type": "session/projection",
