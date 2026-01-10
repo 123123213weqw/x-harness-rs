@@ -30,7 +30,10 @@ use crate::{
     control::{settings_snapshot, workspace_snapshot},
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
     metrics::MetricsProjectionState,
-    restore::{project_session_event_range, project_session_history},
+    restore::{
+        project_session_event_range, project_session_event_view, project_session_history,
+        project_web_event_view,
+    },
     runtime::{AgentRuntimeError, ModelRoute},
     state::{
         iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
@@ -805,7 +808,26 @@ impl BasicHost {
             let events = page
                 .events
                 .into_iter()
-                .map(|event| json!({"event": event}))
+                .map(|event| {
+                    let view = event
+                        .get("seq")
+                        .and_then(Value::as_u64)
+                        .and_then(|seq| {
+                            usize::try_from(seq)
+                                .ok()
+                                .and_then(|index| durable.events().get(index))
+                        })
+                        .and_then(|source| project_session_event_view(&durable, source))
+                        .or_else(|| project_web_event_view(&event, &[]));
+                    let mut envelope = json!({"event": event});
+                    if let Some(view) = view {
+                        envelope
+                            .as_object_mut()
+                            .expect("history event envelope is an object")
+                            .insert("view".to_owned(), view);
+                    }
+                    envelope
+                })
                 .collect::<Vec<_>>();
             let mut value = json!({"events": events, "hasMore": page.has_more});
             if before_seq.is_none() {
@@ -844,7 +866,16 @@ impl BasicHost {
         }
         let events = session.events[start..end]
             .iter()
-            .map(|event| json!({"event": event}))
+            .map(|event| {
+                let mut envelope = json!({"event": event});
+                if let Some(view) = project_web_event_view(event, &session.events) {
+                    envelope
+                        .as_object_mut()
+                        .expect("history event envelope is an object")
+                        .insert("view".to_owned(), view);
+                }
+                envelope
+            })
             .collect::<Vec<_>>();
         let mut value = json!({
             "events": events,

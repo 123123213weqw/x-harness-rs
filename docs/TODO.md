@@ -356,6 +356,11 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   （-96.29%），Policy CPU 从每次 0.159 ms 增至 3.639 ms；全 Workspace Test、Check、Clippy
   `-D warnings` 通过。当前真实会话最后一次请求重放估算从 90,363 Byte 降至 35,699 Byte
   （-60.49%）。真实 Provider TTFT/Prefill A/B 仍按 `REL-05` 单独验收，不能由 Payload 降幅替代。
+- [x] `DONE-74` Bash Tool View：Rust Host 对权威 Session、旧内存适配器、Live Mux、分页 History
+  和重启日志统一投影上游 `callView/resultView.card="terminal"`。Call 保留 command/cwd/description；
+  前台结果从结构化 Metadata 恢复 stdout/stderr/exitCode/signal，并明确标出截断。后台 Job、坏 JSON、
+  错误形状均 Fail-closed 回退通用卡片；旧日志可从 JSON Tool Result 恢复。WZU_Server 回归覆盖运行中、
+  完成、非零退出、截断、后台结果、坏参数、Legacy Live/History 等边界。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -583,11 +588,12 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   已完成 M1–M3：单次 Usage camelCase、`tokenUsage` 与 `sessionStats` 的 Live、History、
   Session List 和 Restart 等价投影均由 `DONE-61` 关闭，现有前端可以恢复 TTFT、Token/s、
   Token 总量和 Cache Hit。此项继续跟踪非模型指标的 Terminal/File/Web Source 等完整投影。
-  Rust Host 必须补齐上游 Tool View 契约：`bash` 的运行中 Call 投影
+  Rust Host 已补齐上游 Bash Tool View 契约：`bash` 的运行中 Call 投影
   `callView.card="terminal"`（command/cwd/description），完成结果投影
-  `resultView.card="terminal"`（stdout/stderr/exitCode/signal），让成功、运行中和失败 Bash 卡片都可
-  键盘访问并实时展开；当前仅返回通用 Text Tool Result，导致上游 `BashRow` 计算
-  `terminal=null/expandable=false`。`write/edit` 的大 Content 不逐字符渲染，但完成后必须提供
+  `resultView.card="terminal"`（stdout/stderr/exitCode/signal），成功、运行中、非零退出和截断结果均
+  可沿上游 Bash 卡片展开；Live/History/Legacy/重启兼容由 `DONE-74` 关闭。**剩余：** 运行期间
+  stdout 增量卡片、浏览器无鼠标键盘 E2E，以及 File/Web Source 等专用 View。`write/edit` 的大
+  Content 不逐字符渲染，但完成后必须提供
   Path/Diff/Hash 和按需 Raw Inspect，不能以 Coalescing 为由永久隐藏工具详情。测试覆盖 Live、
   History、重启恢复、运行中 stdout 追加、失败退出码、输出截断与无鼠标键盘展开。
 
@@ -663,3 +669,9 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Changelog、Reproducible Lockfile、SBOM、License、Signed Artifact。
 - [ ] `REL-07` Security Regression：Symlink Race、Sandbox Escape、Process Descendant、SSRF/
   Rebinding、Credential Leak、Approval Fail-open、Log Corruption、Cross-owner Access。
+- [ ] `REL-08` **DeepSeek Flash 真实 Coding 验收闭环。** 按
+  [`specs/live-deepseek-evaluation.md`](specs/live-deepseek-evaluation.md) 先过确定性/Debug/协议门禁，
+  再让 Flash 在隔离 Workspace 完成固定真实编程任务；Harness 独立验收构建、测试、Diff、任务约束、
+  Side Effect 和恢复语义，记录 TTFT、Decode、Cache、Tool 成功率、重试、Context/Compact、事件量、
+  JSONL 增长和端到端时间。每个失败必须进入可复现 Fixture/回归测试后再修复，禁止只改 Prompt 掩盖
+  Runtime Bug；连续三轮无回归且满足阈值后才提升默认版本。

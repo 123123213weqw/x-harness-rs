@@ -600,6 +600,155 @@ pub(crate) fn project_session_event_range(
     project_session_event_range_with_prompts(session, route, &prompts, start, end)
 }
 
+/// Derive the optional upstream Tool presentation owned by one durable event.
+///
+/// The browser deliberately keeps event facts and their presentation apart:
+/// the `session/event` envelope carries `event` plus an optional `view`.  A
+/// plain `tool/call` therefore remains valid, but specialized rows (notably
+/// Bash) cannot expand unless the Host supplies the matching card contract.
+/// Keeping this derivation beside the durable projector makes live delivery,
+/// paged history and restart replay use exactly the same data.
+pub(crate) fn project_session_event_view(session: &Session, event: &LoggedEvent) -> Option<Value> {
+    match event.data() {
+        EventData::ToolCall { call, .. } => terminal_call_view(&call.name, &call.arguments_json),
+        EventData::ToolResult { result, .. } => {
+            let is_bash = session.events().iter().rev().any(|candidate| {
+                candidate.seq < event.seq
+                    && matches!(
+                        candidate.data(),
+                        EventData::ToolCall { call, .. }
+                            if call.id == result.call_id && call.name == "bash"
+                    )
+            });
+            if !is_bash {
+                return None;
+            }
+            // Older journals may predate structured Tool metadata. Their
+            // model-facing result is still JSON, so retain restart
+            // compatibility without changing the durable schema.
+            let parsed = result
+                .metadata
+                .is_none()
+                .then(|| serde_json::from_str::<Value>(&result.content).ok())
+                .flatten();
+            let metadata = result.metadata.as_ref().or(parsed.as_ref())?;
+            terminal_result_view(metadata)
+        }
+        _ => None,
+    }
+}
+
+/// Recover the same optional presentation from an already projected Web
+/// event. This keeps the legacy in-memory adapter and bounded tail cache
+/// compatible with the authoritative durable path. It intentionally accepts
+/// only the distinctive Bash foreground-result shape, so arbitrary JSON tool
+/// output cannot accidentally become executable-looking terminal chrome.
+pub(crate) fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value> {
+    match event.get("type").and_then(Value::as_str)? {
+        "tool/call" => {
+            let data = event.get("data")?;
+            terminal_call_view(
+                data.get("name")?.as_str()?,
+                data.get("arguments")?.as_str()?,
+            )
+        }
+        "tool/result" => {
+            let call_id = event.pointer("/data/message/source/callId")?.as_str()?;
+            let seq = event.get("seq").and_then(Value::as_u64);
+            let is_bash = history.iter().rev().any(|candidate| {
+                candidate.get("type").and_then(Value::as_str) == Some("tool/call")
+                    && candidate.pointer("/data/callId").and_then(Value::as_str) == Some(call_id)
+                    && candidate.pointer("/data/name").and_then(Value::as_str) == Some("bash")
+                    && seq
+                        .is_none_or(|seq| candidate.get("seq").and_then(Value::as_u64) < Some(seq))
+            });
+            if !is_bash {
+                return None;
+            }
+            let result_text = event
+                .pointer("/data/message/content/0/content/0/text")?
+                .as_str()?;
+            let metadata = serde_json::from_str::<Value>(result_text).ok()?;
+            terminal_result_view(&metadata)
+        }
+        _ => None,
+    }
+}
+
+fn terminal_call_view(name: &str, arguments_json: &str) -> Option<Value> {
+    if name != "bash" {
+        return None;
+    }
+    let arguments = serde_json::from_str::<Value>(arguments_json).ok()?;
+    let arguments = arguments.as_object()?;
+    let command = arguments.get("command")?.as_str()?;
+    let mut view = serde_json::Map::from_iter([
+        ("card".to_owned(), json!("terminal")),
+        ("title".to_owned(), json!(command)),
+    ]);
+    if let Some(cwd) = arguments.get("cwd").and_then(Value::as_str) {
+        view.insert("cwd".to_owned(), json!(cwd));
+    }
+    if let Some(description) = arguments.get("description").and_then(Value::as_str) {
+        view.insert("description".to_owned(), json!(description));
+    }
+    Some(json!({"for": "call", "view": Value::Object(view)}))
+}
+
+fn terminal_result_view(metadata: &Value) -> Option<Value> {
+    let metadata = metadata.as_object()?;
+    if metadata.get("kind").and_then(Value::as_str) != Some("foreground") {
+        return None;
+    }
+    let stdout = metadata.get("stdout").and_then(Value::as_str)?;
+    let stderr = metadata
+        .get("stderr")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut output = String::with_capacity(stdout.len().saturating_add(stderr.len() + 1));
+    output.push_str(stdout);
+    if !stderr.is_empty() {
+        if !output.is_empty() && !output.ends_with('\n') {
+            output.push('\n');
+        }
+        output.push_str(stderr);
+    }
+    if metadata
+        .get("stdout_truncated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        append_terminal_notice(&mut output, "[stdout truncated]");
+    }
+    if metadata
+        .get("stderr_truncated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        append_terminal_notice(&mut output, "[stderr truncated]");
+    }
+
+    let mut view = serde_json::Map::from_iter([
+        ("card".to_owned(), json!("terminal")),
+        ("output".to_owned(), Value::String(output)),
+    ]);
+    if let Some(exit_code) = metadata.get("exit_code").and_then(Value::as_i64) {
+        view.insert("exitCode".to_owned(), json!(exit_code));
+    }
+    if let Some(signal) = metadata.get("signal").and_then(Value::as_i64) {
+        view.insert("signal".to_owned(), json!(signal));
+    }
+    Some(json!({"for": "result", "view": Value::Object(view)}))
+}
+
+fn append_terminal_notice(output: &mut String, notice: &str) {
+    if !output.is_empty() && !output.ends_with('\n') {
+        output.push('\n');
+    }
+    output.push_str(notice);
+    output.push('\n');
+}
+
 pub(crate) fn project_session_event_tail(
     session: &Session,
     route: &ModelRoute,
@@ -1473,6 +1622,68 @@ mod tests {
             }
             .into(),
         ]
+    }
+
+    fn closed_tool_session(
+        tool_name: &str,
+        arguments_json: String,
+        result: ToolResultData,
+    ) -> Session {
+        let mut session = Session::new(SessionHeader::new("tool-view-session")).unwrap();
+        let call = ToolCall {
+            id: result.call_id.clone(),
+            provider_call_id: Some(format!("provider-{}", result.call_id)),
+            index: 0,
+            name: tool_name.to_owned(),
+            arguments_json,
+        };
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls.push(call.clone());
+        session
+            .append_batch_at(
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("run the tool"),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::RequestHeader {
+                        header: RequestHeader::new("test", "test-model"),
+                    }
+                    .into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call,
+                    }
+                    .into(),
+                    EventData::ToolResult {
+                        turn: 1,
+                        step: 1,
+                        result,
+                    }
+                    .into(),
+                    EventData::StepEnd { turn: 1, step: 1 }.into(),
+                    EventData::TurnEnd {
+                        turn: 1,
+                        reason: TurnEndReason::Completed,
+                    }
+                    .into(),
+                ],
+                1,
+            )
+            .unwrap();
+        session
     }
 
     #[test]
@@ -3762,5 +3973,297 @@ mod tests {
             web_turn_end(&TurnEndReason::MaxTokens),
             json!({"kind": "max-tokens"})
         );
+    }
+
+    #[test]
+    fn bash_call_and_foreground_result_project_expandable_terminal_views() {
+        let session = closed_tool_session(
+            "bash",
+            json!({
+                "command": "printf ok",
+                "cwd": "subdir",
+                "description": "run the smoke test"
+            })
+            .to_string(),
+            ToolResultData {
+                call_id: "bash-1".to_owned(),
+                outcome: ToolOutcome::Success,
+                content: "model-facing result".to_owned(),
+                metadata: Some(json!({
+                    "kind": "foreground",
+                    "stdout": "out",
+                    "stderr": "err",
+                    "exit_code": 7,
+                    "signal": null,
+                    "stdout_truncated": true,
+                    "stderr_truncated": false
+                })),
+            },
+        );
+        let call = session
+            .events()
+            .iter()
+            .find(|event| matches!(event.data(), EventData::ToolCall { .. }))
+            .unwrap();
+        assert_eq!(
+            project_session_event_view(&session, call),
+            Some(json!({
+                "for": "call",
+                "view": {
+                    "card": "terminal",
+                    "title": "printf ok",
+                    "cwd": "subdir",
+                    "description": "run the smoke test"
+                }
+            }))
+        );
+
+        let result = session
+            .events()
+            .iter()
+            .find(|event| matches!(event.data(), EventData::ToolResult { .. }))
+            .unwrap();
+        assert_eq!(
+            project_session_event_view(&session, result),
+            Some(json!({
+                "for": "result",
+                "view": {
+                    "card": "terminal",
+                    "output": "out\nerr\n[stdout truncated]\n",
+                    "exitCode": 7
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn terminal_view_projection_is_fail_closed_for_non_foreground_or_bad_shapes() {
+        for (index, metadata) in [
+            json!({"kind": "background", "stdout": "not a terminal result"}),
+            json!({"kind": "foreground", "stdout": 42}),
+            json!({"stdout": "missing kind"}),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let session = closed_tool_session(
+                "bash",
+                r#"{"command":"true"}"#.to_owned(),
+                ToolResultData {
+                    call_id: format!("call-{index}"),
+                    outcome: ToolOutcome::Success,
+                    content: String::new(),
+                    metadata: Some(metadata),
+                },
+            );
+            let result = session
+                .events()
+                .iter()
+                .find(|event| matches!(event.data(), EventData::ToolResult { .. }))
+                .unwrap();
+            assert_eq!(project_session_event_view(&session, result), None);
+        }
+
+        let invalid_session = closed_tool_session(
+            "bash",
+            "{not-json".to_owned(),
+            ToolResultData {
+                call_id: "bad-bash".to_owned(),
+                outcome: ToolOutcome::Error,
+                content: "invalid arguments".to_owned(),
+                metadata: None,
+            },
+        );
+        let invalid_call = invalid_session
+            .events()
+            .iter()
+            .find(|event| matches!(event.data(), EventData::ToolCall { .. }))
+            .unwrap();
+        assert_eq!(
+            project_session_event_view(&invalid_session, invalid_call),
+            None
+        );
+
+        // A custom tool may deliberately return the same metadata shape as
+        // Bash. It must remain generic rather than acquiring terminal chrome.
+        let custom_session = closed_tool_session(
+            "custom",
+            "{}".to_owned(),
+            ToolResultData {
+                call_id: "custom-foreground".to_owned(),
+                outcome: ToolOutcome::Success,
+                content: "custom output".to_owned(),
+                metadata: Some(json!({
+                    "kind": "foreground",
+                    "stdout": "not bash",
+                    "stderr": "",
+                    "exit_code": 0
+                })),
+            },
+        );
+        let custom_result = custom_session
+            .events()
+            .iter()
+            .find(|event| matches!(event.data(), EventData::ToolResult { .. }))
+            .unwrap();
+        assert_eq!(
+            project_session_event_view(&custom_session, custom_result),
+            None
+        );
+    }
+
+    #[test]
+    fn terminal_result_view_restores_legacy_json_content_without_metadata() {
+        let session = closed_tool_session(
+            "bash",
+            r#"{"command":"printf legacy"}"#.to_owned(),
+            ToolResultData {
+                call_id: "legacy-bash".to_owned(),
+                outcome: ToolOutcome::Success,
+                content: json!({
+                    "kind": "foreground",
+                    "stdout": "legacy output\n",
+                    "stderr": "",
+                    "exit_code": 0,
+                    "signal": null
+                })
+                .to_string(),
+                metadata: None,
+            },
+        );
+        let result = session
+            .events()
+            .iter()
+            .find(|event| matches!(event.data(), EventData::ToolResult { .. }))
+            .unwrap();
+        assert_eq!(
+            project_session_event_view(&session, result),
+            Some(json!({
+                "for": "result",
+                "view": {
+                    "card": "terminal",
+                    "output": "legacy output\n",
+                    "exitCode": 0
+                }
+            }))
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_live_mux_and_history_both_carry_terminal_views() {
+        let cwd = std::env::temp_dir();
+        let host = BasicHost::without_provider(config(&cwd));
+        let created = host
+            .call(
+                RpcId::new("create-terminal-view-session"),
+                RpcMethod::SessionCreate,
+                json!({"cwd": cwd}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(created),
+        } = created
+        else {
+            panic!("session creation failed: {created:?}");
+        };
+        let session_id = created["sessionId"].as_str().unwrap().to_owned();
+        let mut mux = host.mux_events();
+
+        host.append_session_event(
+            &session_id,
+            "tool/call",
+            json!({
+                "turn": 0,
+                "step": 1,
+                "callId": "legacy-live-bash",
+                "name": "bash",
+                "arguments": r#"{"command":"printf live","description":"live projection"}"#,
+            }),
+            None,
+        )
+        .await
+        .unwrap();
+        let live_call = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let frame = mux.next().await.expect("mux remained open").payload;
+                if frame["type"] == "session/event"
+                    && frame["event"]["type"] == "tool/call"
+                    && frame["event"]["data"]["callId"] == "legacy-live-bash"
+                {
+                    break frame;
+                }
+            }
+        })
+        .await
+        .expect("live Bash call frame arrived");
+        assert_eq!(live_call["view"]["for"], "call");
+        assert_eq!(live_call["view"]["view"]["card"], "terminal");
+
+        let result_text = json!({
+            "kind": "foreground",
+            "stdout": "live output\n",
+            "stderr": "",
+            "exit_code": 0,
+            "signal": null
+        })
+        .to_string();
+        host.append_session_event(
+            &session_id,
+            "tool/result",
+            json!({
+                "turn": 0,
+                "step": 1,
+                "message": {
+                    "id": "legacy-live-result",
+                    "role": "user",
+                    "content": [{
+                        "type": "tool-result",
+                        "toolCallId": "legacy-live-bash",
+                        "content": [{"type": "text", "text": result_text}],
+                        "isError": false
+                    }],
+                    "source": {"kind": "tool", "callId": "legacy-live-bash"}
+                }
+            }),
+            Some("append"),
+        )
+        .await
+        .unwrap();
+        let live_result = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let frame = mux.next().await.expect("mux remained open").payload;
+                if frame["type"] == "session/event" && frame["event"]["type"] == "tool/result" {
+                    break frame;
+                }
+            }
+        })
+        .await
+        .expect("live Bash result frame arrived");
+        assert_eq!(live_result["view"]["for"], "result");
+        assert_eq!(live_result["view"]["view"]["output"], "live output\n");
+
+        let history = host
+            .call(
+                RpcId::new("terminal-view-history"),
+                RpcMethod::SessionHistory,
+                json!({"sessionId": session_id, "maxMessages": 50}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(history),
+        } = history
+        else {
+            panic!("history failed: {history:?}");
+        };
+        let items = history["events"].as_array().unwrap();
+        assert!(items.iter().any(|item| {
+            item["event"]["type"] == "tool/call" && item["view"]["view"]["card"] == "terminal"
+        }));
+        assert!(items.iter().any(|item| {
+            item["event"]["type"] == "tool/result"
+                && item["view"]["view"]["output"] == "live output\n"
+        }));
     }
 }
