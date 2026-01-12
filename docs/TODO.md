@@ -511,6 +511,9 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Token Guard/Compact 使用软窗口，选择超过部署硬上限会在 Event/Provider I/O 前失败。**剩余：**
   Registry 热刷新与 Last-known-good、运行中能力撤销的下一 Turn 对账、其他 Capability、Purpose、
   凭据服务和安全热重载。
+  Context 数据模型现已拆分模型 Ceiling、Provider、Deployment、Account 和 Fallback Evidence，
+  有效上限取约束交集；模型切换会重新物化目标模型上限，不继承前一模型窗口。仍需 Capability
+  Manager 在 Turn 边界完成热刷新、上限缩小时的持久自动调整和非阻塞 UI Notice。
 
 - [ ] `P1-03` **Token Meter 与 Context Policy。** Provider-aware Token Estimate、最大输入
   Guard、确定性 Tool Output Reduce、Surface Replace，以及不修改原 Event Log 的可选 Summary。

@@ -924,6 +924,16 @@ impl BasicHost {
         let _session_guard = self.lock_admission(&session_id).await;
         let provider = nonempty(required_string(payload, "provider")?, "provider")?;
         let model = nonempty(required_string(payload, "model")?, "model")?;
+        let current = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .model
+                .clone()
+        };
+        let same_route = current.provider == provider && current.model == model;
         let descriptor = self
             .agent_runtime
             .model_catalog()
@@ -935,15 +945,21 @@ impl BasicHost {
                 .and_then(|entry| entry.reasoning.as_ref())
                 .and_then(|reasoning| reasoning.default_effort.clone())
         });
-        let context_window_tokens = optional_u64(payload, "contextWindowTokens")?.or_else(|| {
-            descriptor
-                .as_ref()
-                .and_then(|entry| entry.context_window.max_context_tokens)
-        });
+        let context_window_tokens = optional_u64(payload, "contextWindowTokens")?
+            .or_else(|| {
+                same_route
+                    .then_some(current.context_window_tokens)
+                    .flatten()
+            })
+            .or_else(|| {
+                descriptor
+                    .as_ref()
+                    .and_then(|entry| entry.context_window.effective_hard_max())
+            });
         if let Some(selected_tokens) = context_window_tokens {
             let advertised = descriptor
                 .as_ref()
-                .and_then(|entry| entry.context_window.max_context_tokens);
+                .and_then(|entry| entry.context_window.effective_hard_max());
             if selected_tokens == 0 || advertised.is_none_or(|maximum| selected_tokens > maximum) {
                 return Err(rpc_error(
                     RpcErrorCode::ModelUnavailable,
@@ -2822,7 +2838,7 @@ impl BasicHost {
                     "name": model.model_display_name,
                     "provider": model.provider,
                 });
-                if let Some(maximum) = model.context_window.max_context_tokens {
+                if let Some(maximum) = model.context_window.effective_hard_max() {
                     value["contextWindow"] = json!(maximum);
                 }
                 value
@@ -2837,8 +2853,11 @@ impl BasicHost {
             let mut model_value = json!({"id": model.model, "name": model.model_display_name});
             model_value["contextWindowCapability"] =
                 serde_json::to_value(&model.context_window).unwrap_or(Value::Null);
-            if let Some(maximum) = model.context_window.max_context_tokens {
+            if let Some(maximum) = model.context_window.effective_hard_max() {
                 model_value["contextWindow"] = json!(maximum);
+                model_value["contextWindowSource"] =
+                    serde_json::to_value(model.context_window.effective_source())
+                        .unwrap_or(Value::Null);
             }
             if let Some(reasoning) = model.reasoning {
                 let efforts = reasoning

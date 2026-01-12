@@ -60,8 +60,10 @@ System Prompt、消息历史、工具定义、Provider 模板开销和本轮最�
 
 一次 Prepared Call 至少记录下列值：
 
-- `provider_max_context_tokens`：精确 Provider/Deployment 报告的硬上限；若端点没有能力接口，
-  只能使用带 `deployment_declared_fallback` 来源的显式兼容值，禁止按模型名猜测。
+- `model_ceiling/provider_limit/deployment_limit/account_limit`：互相独立且带来源、版本、观察时间与
+  有效期的上界证据；有效硬上限取可用运行约束的最小值，并与模型 Ceiling 相交。
+- 只有模型理论 Ceiling 不能证明当前端点可用；端点没有能力接口时，只能使用带
+  `deployment_declared_fallback` 来源的显式兼容值，禁止按模型名猜测。
 - `context_window_tokens`：当前 Session 在硬上限内选择的软窗口；省略时使用当前硬上限。它可调小，
   不能调大，且必须持久化并供 Token Guard、Compact 和恢复链路共同使用。
 - `reserved_output_tokens`：本轮首选/目标输出上限。
@@ -78,7 +80,7 @@ System Prompt、消息历史、工具定义、Provider 模板开销和本轮最�
 input_tokens + minimum_output_tokens + safety_margin_tokens
     <= context_window_tokens
 
-context_window_tokens <= provider_max_context_tokens
+context_window_tokens <= effective_hard_max(capability evidence)
 
 selected_output_tokens = min(
     reserved_output_tokens,

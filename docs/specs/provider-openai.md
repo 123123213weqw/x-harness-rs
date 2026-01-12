@@ -14,11 +14,15 @@
 Pending/Event 字节预算和错误 Body 预算。流预算为零的配置必须在网络 I/O 前失败。
 Debug 输出必须隐藏 API Key。
 
-Provider Config 可选配置一个结构化 Capability Probe（URL、Context Window JSON Pointer、TTL）。
-Adapter 读取精确部署当前报告的容量、ETag 与抓取时间并缓存；这个 Probe 只描述“去哪里读”，不在
-Core 中硬编码任何模型容量。若端点不提供能力，可配置显式 `context_window_fallback`；它必须以
-`deployment_declared_fallback` 来源返回，不能伪装成 Provider 报告。Adapter 禁止根据一次普通
-400 错误猜窗口后自动重发。
+Provider Config 可选配置一个结构化 Capability Probe（URL、部署 Context Window JSON Pointer、
+TTL），并可额外配置模型 Ceiling、Provider Limit、Account Limit 三个 JSON Pointer。Adapter
+从同一份带版本响应中读取各条独立 Evidence，按模型 Ceiling 与所有实际运行约束的交集计算有效
+硬上限；模型 Ceiling 单独存在时不能证明该 API 部署真的能接收这么长的请求。Probe 只描述
+“去哪里读”，不在 Core 中硬编码 DeepSeek 1M、llama.cpp `n_ctx` 等模型容量。
+
+Adapter 保存每条 Evidence 的来源、ETag、抓取时间和过期时间。若端点不提供能力，可配置显式
+`context_window_fallback`；它必须以 `deployment_declared_fallback` 来源返回，不能伪装成 Provider
+报告，且只在没有可用运行约束时生效。Adapter 禁止根据一次普通 400 错误猜窗口后自动重发。
 
 端点派生规则：
 
@@ -26,8 +30,9 @@ Core 中硬编码任何模型容量。若端点不提供能力，可配置显式
 - Responses：`<base>/responses`
 - Chat 输入计数：`<base>/chat/completions/input_tokens`
 - Responses 输入计数：`<base>/responses/input_tokens`
-- Capability：不假设 OpenAI 统一路径，由部署配置显式 URL 与 JSON Pointer；llama.cpp 可指向
-  `/props` 的 `/default_generation_settings/n_ctx`。
+- Capability：不假设 OpenAI 统一路径，由部署配置显式 URL 与 JSON Pointer；llama.cpp 可把必填
+  部署 Pointer 指向 `/props` 的 `/default_generation_settings/n_ctx`。若 Provider 的版本化能力
+  响应还公开模型、Provider 或账号约束，再配置对应可选 Pointer；未公开就保持未知，不猜测。
 
 输入计数请求从实际生成请求体派生，只移除流式和输出控制字段，确保 System、消息、Opaque Replay
 Item 与 Tool Schema 不会和正式请求漂移。404/405/501 表示端点不支持并缓存 Capability Miss；
@@ -90,5 +95,7 @@ Tool Result 从对应持久 Tool Call 恢复 Provider ID。旧日志没有该字
 完成、Incomplete/Length/Filter 原因、Usage 归一化、超大 SSE/错误 Body、请求 Body 和
 原生 HTTP Streaming。真实 Chat 集成必须在 OpenAI-compatible 端点完成两 Step 工具 Loop。
 上下文测试必须解析完整请求体，把 System、消息、工具和模板开销全部计量；服务端返回 Context
-400 时断言 Adapter 不自动重试。Capability Fixture 必须覆盖结构化 Probe、ETag/抓取时间、TTL
-缓存，以及显式 fallback 来源不会被标成 Provider Reported。
+400 时断言 Adapter 不自动重试。Capability Fixture 必须覆盖多条约束取交集、结构化 Probe、
+ETag/抓取时间、TTL 缓存、非法 Pointer fail-closed，以及显式 fallback 来源不会被标成 Provider
+Reported。模型切换测试必须验证：未显式选择软窗口时重新采用目标模型的有效硬上限，同模型只切换
+思考档位时保留当前软窗口，绝不能把上一模型的窗口继承给下一模型。
