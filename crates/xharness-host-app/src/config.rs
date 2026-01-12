@@ -1,6 +1,7 @@
 use std::{env, fs, path::Path, sync::Arc};
 
 use serde::Deserialize;
+use tokio_util::sync::CancellationToken;
 use xharness_core::ModelProvider;
 use xharness_debug::DebugRecorder;
 use xharness_host::{
@@ -8,7 +9,8 @@ use xharness_host::{
     RegisteredModel,
 };
 use xharness_provider_openai::{
-    OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig, OpenAiReasoningProfile,
+    OpenAiCapabilityProbe, OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig,
+    OpenAiReasoningProfile,
 };
 use xharness_token::{TokenBudget, TokenGuard};
 
@@ -35,7 +37,7 @@ pub(crate) struct SingleModelDeployment {
 }
 
 impl ModelDeployment {
-    pub(crate) fn single_with_debug(
+    pub(crate) async fn single_with_debug(
         config: SingleModelDeployment,
         debug: DebugRecorder,
     ) -> Result<Self, String> {
@@ -48,23 +50,28 @@ impl ModelDeployment {
                 default_token_guard: None,
             });
         }
+        let provider_config = OpenAiProviderConfig::new(
+            config.protocol,
+            config.base_url,
+            config.api_key,
+            &config.model,
+        )
+        .with_context_window_fallback(config.context_window_tokens);
+        let adapter = OpenAiProvider::new(provider_config)
+            .map_err(|error| error.to_string())?
+            .with_debug(debug);
+        let capabilities = adapter
+            .capabilities(CancellationToken::new())
+            .await
+            .map_err(|error| error.to_string())?;
         let token_guard = token_guard(
             &config.model,
-            config.context_window_tokens,
+            capabilities.context_window.max_context_tokens,
             config.max_output_tokens,
             config.minimum_output_tokens,
             config.token_safety_margin,
         )?;
-        let provider: Arc<dyn ModelProvider> = Arc::new(
-            OpenAiProvider::new(OpenAiProviderConfig::new(
-                config.protocol,
-                config.base_url,
-                config.api_key,
-                &config.model,
-            ))
-            .map_err(|error| error.to_string())?
-            .with_debug(debug),
-        );
+        let provider: Arc<dyn ModelProvider> = Arc::new(adapter);
         let mut registry = ModelRegistry::new();
         registry
             .register(
@@ -74,7 +81,8 @@ impl ModelDeployment {
                         &config.provider,
                         &config.model,
                         &config.model,
-                    ),
+                    )
+                    .with_context_window(capabilities.context_window),
                     provider,
                 )
                 .with_token_guard(token_guard.clone()),
@@ -88,7 +96,10 @@ impl ModelDeployment {
         })
     }
 
-    pub(crate) fn from_file_with_debug(path: &Path, debug: DebugRecorder) -> Result<Self, String> {
+    pub(crate) async fn from_file_with_debug(
+        path: &Path,
+        debug: DebugRecorder,
+    ) -> Result<Self, String> {
         let bytes = fs::read(path).map_err(|error| {
             format!("could not read provider config {}: {error}", path.display())
         })?;
@@ -98,7 +109,7 @@ impl ModelDeployment {
                 path.display()
             )
         })?;
-        config.build_with_debug(debug)
+        config.build_with_debug(debug).await
     }
 }
 
@@ -111,19 +122,22 @@ struct ProviderFile {
 
 impl ProviderFile {
     #[cfg(test)]
-    fn build(self) -> Result<ModelDeployment, String> {
-        self.build_with_debug(DebugRecorder::disabled())
+    async fn build(self) -> Result<ModelDeployment, String> {
+        self.build_with_debug(DebugRecorder::disabled()).await
     }
 
-    fn build_with_debug(self, debug: DebugRecorder) -> Result<ModelDeployment, String> {
+    async fn build_with_debug(self, debug: DebugRecorder) -> Result<ModelDeployment, String> {
         if self.providers.is_empty() {
             return Err("provider config must declare at least one provider".to_owned());
         }
         let mut default_route = ModelRoute::new(&self.default.provider, &self.default.model);
         default_route.reasoning_effort = self.default.reasoning_effort.clone();
+        default_route.context_window_tokens = self.default.context_window_tokens;
         let mut registry = ModelRegistry::new();
         for provider in self.providers {
-            provider.register_models(&mut registry, debug.clone())?;
+            provider
+                .register_models(&mut registry, debug.clone())
+                .await?;
         }
         let default_model = registry
             .models()
@@ -173,6 +187,8 @@ struct RouteConfig {
     model: String,
     #[serde(default)]
     reasoning_effort: Option<String>,
+    #[serde(default)]
+    context_window_tokens: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -192,7 +208,7 @@ struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    fn register_models(
+    async fn register_models(
         self,
         registry: &mut ModelRegistry,
         debug: DebugRecorder,
@@ -225,22 +241,26 @@ impl ProviderConfig {
                 id,
                 display_name,
                 upstream_model,
-                context_window_tokens,
+                fallback_context_window_tokens,
+                context_window_capability,
                 max_output_tokens,
                 minimum_output_tokens,
                 token_safety_margin,
                 reasoning,
             } = model;
             let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
-            let token_guard = token_guard(
-                &id,
-                Some(context_window_tokens),
-                max_output_tokens,
-                minimum_output_tokens,
-                token_safety_margin,
-            )?;
             let mut provider_config =
-                OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model);
+                OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model)
+                    .with_context_window_fallback(fallback_context_window_tokens);
+            if let Some(capability) = context_window_capability {
+                provider_config = provider_config.with_capability_probe(
+                    OpenAiCapabilityProbe::new(
+                        capability.url,
+                        capability.context_window_json_pointer,
+                    )
+                    .with_ttl(std::time::Duration::from_secs(capability.ttl_seconds)),
+                );
+            }
             if let Some(reasoning) = &reasoning {
                 let profile = OpenAiReasoningProfile::new(
                     reasoning.default_effort.clone(),
@@ -252,17 +272,33 @@ impl ProviderConfig {
                 .map_err(|error| error.to_string())?;
                 provider_config = provider_config.with_reasoning_profile(profile);
             }
-            let adapter: Arc<dyn ModelProvider> = Arc::new(
-                OpenAiProvider::new(provider_config)
-                    .map_err(|error| error.to_string())?
-                    .with_debug(debug.clone()),
-            );
+            let adapter = OpenAiProvider::new(provider_config)
+                .map_err(|error| error.to_string())?
+                .with_debug(debug.clone());
+            let capabilities = adapter
+                .capabilities(CancellationToken::new())
+                .await
+                .map_err(|error| {
+                    format!(
+                        "provider {:?} model {:?} capability discovery failed: {error}",
+                        self.id, id
+                    )
+                })?;
+            let token_guard = token_guard(
+                &id,
+                capabilities.context_window.max_context_tokens,
+                max_output_tokens,
+                minimum_output_tokens,
+                token_safety_margin,
+            )?;
+            let adapter: Arc<dyn ModelProvider> = Arc::new(adapter);
             let mut descriptor = ModelDescriptor::new(
                 &self.id,
                 &provider_display_name,
                 &id,
                 display_name.unwrap_or_else(|| id.clone()),
-            );
+            )
+            .with_context_window(capabilities.context_window);
             if let Some(reasoning) = reasoning {
                 let efforts = reasoning
                     .efforts
@@ -297,7 +333,12 @@ struct ModelConfig {
     display_name: Option<String>,
     #[serde(default)]
     upstream_model: Option<String>,
-    context_window_tokens: u64,
+    /// Compatibility alias for the former authoritative field. This is only
+    /// used when the Provider cannot advertise a live deployment limit.
+    #[serde(default, alias = "context_window_tokens")]
+    fallback_context_window_tokens: Option<u64>,
+    #[serde(default)]
+    context_window_capability: Option<ContextWindowCapabilityConfig>,
     #[serde(default = "default_max_output_tokens")]
     max_output_tokens: u64,
     /// Minimum output room admitted before compaction/rejection. Omission
@@ -308,6 +349,15 @@ struct ModelConfig {
     token_safety_margin: u64,
     #[serde(default)]
     reasoning: Option<ModelReasoningConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContextWindowCapabilityConfig {
+    url: String,
+    context_window_json_pointer: String,
+    #[serde(default = "default_capability_ttl_seconds")]
+    ttl_seconds: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -349,6 +399,10 @@ fn default_token_safety_margin() -> u64 {
     DEFAULT_TOKEN_SAFETY_MARGIN
 }
 
+fn default_capability_ttl_seconds() -> u64 {
+    300
+}
+
 pub(crate) fn parse_protocol(value: &str) -> Result<OpenAiProtocol, String> {
     match value {
         "chat" | "chat-completions" => Ok(OpenAiProtocol::ChatCompletions),
@@ -370,7 +424,7 @@ pub(crate) fn token_guard(
         return Ok(None);
     }
     let context_window_tokens = context_window_tokens.ok_or_else(|| {
-        "configured models require XHARNESS_CONTEXT_WINDOW or --context-window".to_owned()
+        "configured models require a Provider/deployment context capability or an explicitly labelled fallback_context_window_tokens value".to_owned()
     })?;
     TokenGuard::conservative(TokenBudget {
         context_window_tokens,
@@ -385,11 +439,12 @@ pub(crate) fn token_guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xharness_core::CapabilitySource;
 
     #[test]
-    fn configured_model_requires_an_explicit_context_window() {
+    fn configured_model_requires_a_reported_capability_or_labelled_fallback() {
         let error = token_guard("model", None, 4_096, None, 1_024).unwrap_err();
-        assert!(error.contains("XHARNESS_CONTEXT_WINDOW"));
+        assert!(error.contains("Provider/deployment context capability"));
     }
 
     #[test]
@@ -403,8 +458,8 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn provider_file_builds_two_routable_openai_compatible_endpoints() {
+    #[tokio::test]
+    async fn provider_file_builds_two_routable_openai_compatible_endpoints() {
         let config: ProviderFile = serde_json::from_str(
             r#"{
                 "default": {"provider": "gpu-4080", "model": "qwen"},
@@ -436,7 +491,7 @@ mod tests {
             }"#,
         )
         .unwrap();
-        let deployment = config.build().unwrap();
+        let deployment = config.build().await.unwrap();
         assert_eq!(
             deployment.default_route,
             ModelRoute::new("gpu-4080", "qwen")
@@ -451,10 +506,56 @@ mod tests {
         assert_eq!(guard.budget().reserved_output_tokens, 4_096);
         assert_eq!(guard.budget().minimum_output_tokens, 2_048);
         assert_eq!(deployment.registry.models().len(), 2);
+        assert!(deployment.registry.models().iter().all(|model| {
+            model.context_window.source == CapabilitySource::DeploymentDeclaredFallback
+        }));
     }
 
-    #[test]
-    fn provider_file_rejects_an_unregistered_default_route() {
+    #[tokio::test]
+    async fn provider_file_binds_a_smaller_default_session_budget_below_the_hard_maximum() {
+        let config: ProviderFile = serde_json::from_str(
+            r#"{
+                "default": {
+                    "provider": "gpu",
+                    "model": "qwen",
+                    "context_window_tokens": 24576
+                },
+                "providers": [{
+                    "id": "gpu",
+                    "base_url": "http://127.0.0.1:8000/v1",
+                    "models": [{
+                        "id": "qwen",
+                        "fallback_context_window_tokens": 53248
+                    }]
+                }]
+            }"#,
+        )
+        .unwrap();
+        let deployment = config.build().await.unwrap();
+        assert_eq!(deployment.default_route.context_window_tokens, Some(24_576));
+        assert_eq!(
+            deployment
+                .registry
+                .models()
+                .first()
+                .unwrap()
+                .context_window
+                .max_context_tokens,
+            Some(53_248)
+        );
+        assert_eq!(
+            deployment
+                .registry
+                .token_guard(&deployment.default_route)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            24_576
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_file_rejects_an_unregistered_default_route() {
         let config: ProviderFile = serde_json::from_str(
             r#"{
                 "default": {"provider": "missing", "model": "missing"},
@@ -466,12 +567,12 @@ mod tests {
             }"#,
         )
         .unwrap();
-        let error = config.build().err().unwrap();
+        let error = config.build().await.err().unwrap();
         assert!(error.contains("default model route missing/missing is not registered"));
     }
 
-    #[test]
-    fn provider_file_declares_exact_model_reasoning_and_materializes_its_default() {
+    #[tokio::test]
+    async fn provider_file_declares_exact_model_reasoning_and_materializes_its_default() {
         let config: ProviderFile = serde_json::from_str(
             r#"{
                 "default": {"provider": "gpu", "model": "qwen"},
@@ -504,7 +605,7 @@ mod tests {
             }"#,
         )
         .unwrap();
-        let deployment = config.build().unwrap();
+        let deployment = config.build().await.unwrap();
         assert_eq!(
             deployment.default_route.reasoning_effort.as_deref(),
             Some("high")
@@ -529,8 +630,8 @@ mod tests {
         assert!(!deployment.registry.can_route(&invalid));
     }
 
-    #[test]
-    fn provider_file_rejects_reasoning_patches_that_override_core_fields() {
+    #[tokio::test]
+    async fn provider_file_rejects_reasoning_patches_that_override_core_fields() {
         let config: ProviderFile = serde_json::from_str(
             r#"{
                 "default": {"provider": "gpu", "model": "qwen"},
@@ -552,7 +653,7 @@ mod tests {
             }"#,
         )
         .unwrap();
-        let error = config.build().err().unwrap();
+        let error = config.build().await.err().unwrap();
         assert!(error.contains("reserved field \"messages\""));
     }
 }

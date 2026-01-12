@@ -331,6 +331,18 @@ impl TokenGuard {
     pub fn budget(&self) -> &TokenBudget {
         &self.budget
     }
+
+    /// Bind the same meter and output policy to a smaller session-selected
+    /// context window. The provider/deployment maximum is validated by the
+    /// caller; this method only enforces the budget's internal safety rules.
+    pub fn with_context_window(
+        &self,
+        context_window_tokens: u64,
+    ) -> Result<Self, TokenBudgetError> {
+        let mut budget = self.budget.clone();
+        budget.context_window_tokens = context_window_tokens;
+        Self::new(Arc::clone(&self.meter), budget)
+    }
 }
 
 impl fmt::Debug for TokenGuard {
@@ -397,6 +409,27 @@ mod tests {
             safety_margin_tokens: 0,
         })
         .unwrap_err();
+        assert!(matches!(error, TokenBudgetError::Invalid(_)));
+    }
+
+    #[test]
+    fn session_context_window_reuses_the_meter_and_preserves_output_policy() {
+        let guard = TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 65_536,
+            reserved_output_tokens: 8_192,
+            minimum_output_tokens: 4_096,
+            safety_margin_tokens: 1_024,
+        })
+        .unwrap();
+
+        let selected = guard.with_context_window(32_768).unwrap();
+        assert_eq!(guard.budget().context_window_tokens, 65_536);
+        assert_eq!(selected.budget().context_window_tokens, 32_768);
+        assert_eq!(selected.budget().reserved_output_tokens, 8_192);
+        assert_eq!(selected.budget().minimum_output_tokens, 4_096);
+        assert_eq!(selected.budget().safety_margin_tokens, 1_024);
+
+        let error = guard.with_context_window(5_120).unwrap_err();
         assert!(matches!(error, TokenBudgetError::Invalid(_)));
     }
 

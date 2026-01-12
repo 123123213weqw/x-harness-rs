@@ -490,6 +490,12 @@ pub enum EventData {
             skip_serializing_if = "Option::is_none"
         )]
         reasoning_effort: Option<String>,
+        #[serde(
+            rename = "contextWindowTokens",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        context_window_tokens: Option<u64>,
     },
     /// A normalized splice over one durable pending-input list. Replaying all
     /// such events after the seed reconstructs the exact live inbox.

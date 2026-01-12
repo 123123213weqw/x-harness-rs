@@ -425,6 +425,7 @@ fn every_first_version_event_round_trips_through_serde() {
             provider: "openai".to_owned(),
             model: "gpt-test".to_owned(),
             reasoning_effort: Some("high".to_owned()),
+            context_window_tokens: Some(64_000),
         }),
         event(EventData::RequestHeader {
             header: RequestHeader::new("openai", "gpt-test"),

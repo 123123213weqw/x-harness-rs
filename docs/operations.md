@@ -13,7 +13,8 @@ Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保�
 ## 启动前检查
 
 1. 明确 Provider 协议：`chat` 或 `responses`，禁止自动回退。
-2. 明确模型真实上下文窗口。llama.cpp 的 `-c` 是服务端硬上限，不等于模型宣称的训练窗口。
+2. 配置结构化 Capability Probe，让 Host 从精确部署读取真实上下文硬上限。llama.cpp 的 `-c` 是
+   服务端硬上限，不等于模型宣称的训练窗口；没有能力端点时才使用明确标记的 fallback。
 3. 检查 Workspace、沙箱模式与网络能力。
 4. Linux 受限模式必须先运行 Bubblewrap 最小 Probe；失败即代表 Process 工具不可用。
 5. 确认 Web Host 仅绑定 loopback；远程认证和 Origin Policy 尚未完成。
@@ -39,7 +40,8 @@ Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保�
   Model/Preset 和 Goal Receipt 已持久化。Create/Fork、Queue/Cancel/Attachment 等其余变更 RPC
   尚未全部 Exactly-once。
 - 正式 Host 已安装请求前 Token Guard；优先使用 Provider 原生完整请求输入计数，不支持时回退
-  保守 Meter。配置模型时必须显式声明真实窗口。正式 Durable Host 默认启用 80% Pressure、请求
+  保守 Meter。硬窗口由 Provider/Deployment Capability 提供；Session 可在硬上限内选择更小窗口，
+  该值跨刷新和重启持久化。正式 Durable Host 默认启用 80% Pressure、请求
   前 Hard Overflow 和无 Delta Provider Overflow 的有界 Compact 恢复；若压缩未安装、失败或仍然
   超预算，请求会在本地失败且 Provider Generation Attempt 为零（原生 Token 计数请求不算生成）。
 - 一个 Host 可以从 `XHARNESS_PROVIDERS_FILE` 加载多个 OpenAI-compatible 路由。Web 只连接
@@ -61,8 +63,8 @@ XHARNESS_PROVIDERS_FILE=/absolute/path/providers.json \
 xharness-host --bind 127.0.0.1:3082
 ```
 
-启动检查必须分别请求每个 Base URL 的 `/models` 和一次最小生成；SSH Forward 存活不代表远端
-模型端口正在监听。配置修改目前需要重启 Host。历史 Session 若选择了已删除路由，仍可浏览，
+启动检查必须分别请求每个 Base URL 的 `/models`、配置的 Capability URL 和一次最小生成；SSH
+Forward 存活不代表远端模型端口正在监听。配置修改目前需要重启 Host。历史 Session 若选择了已删除路由，仍可浏览，
 但 Pending Turn 必须保持 `model-unavailable`，禁止悄悄切到默认 GPU。
 
 当前 WZU_Server 的系统 vLLM/PyTorch CUDA 13 wheel 不包含 V100 `sm_70` kernel，会在启动时返回

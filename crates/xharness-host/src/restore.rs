@@ -190,6 +190,7 @@ impl BasicHost {
                     provider: route.provider.clone(),
                     model: route.model.clone(),
                     reasoning_effort: route.reasoning_effort.clone(),
+                    context_window_tokens: route.context_window_tokens,
                 },
                 permission_preset: permission,
                 plan_active,
@@ -378,10 +379,12 @@ fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
                 provider,
                 model,
                 reasoning_effort,
+                context_window_tokens,
             } => Some(ModelRoute {
                 provider: provider.clone(),
                 model: model.clone(),
                 reasoning_effort: reasoning_effort.clone(),
+                context_window_tokens: *context_window_tokens,
             }),
             _ => None,
         })
@@ -398,6 +401,7 @@ fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
                 provider: header.provider.clone(),
                 model: header.model.clone(),
                 reasoning_effort: header.reasoning_effort.clone(),
+                context_window_tokens: None,
             }),
             _ => None,
         })
@@ -405,6 +409,10 @@ fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
             provider: config.provider_id.clone(),
             model: config.model_id.clone(),
             reasoning_effort: None,
+            context_window_tokens: config
+                .token_guard
+                .as_ref()
+                .map(|guard| guard.budget().context_window_tokens),
         })
 }
 
@@ -1693,6 +1701,7 @@ mod tests {
             provider: "test".to_owned(),
             model: "selected-model".to_owned(),
             reasoning_effort: Some("low".to_owned()),
+            context_window_tokens: Some(32_768),
         }
         .into()];
         // `closed_text_turn` appends a lifecycle-valid later request header
@@ -1705,6 +1714,7 @@ mod tests {
         assert_eq!(route.provider, "test");
         assert_eq!(route.model, "selected-model");
         assert_eq!(route.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(route.context_window_tokens, Some(32_768));
     }
 
     #[test]
@@ -2303,6 +2313,7 @@ mod tests {
             provider: "test".to_owned(),
             model: "test-model".to_owned(),
             reasoning_effort: None,
+            context_window_tokens: None,
         };
         let projected = project_session_event_range(&session, &route, 0, session.events().len());
         let controls = projected
@@ -2409,6 +2420,7 @@ mod tests {
             provider: "test".to_owned(),
             model: "test-model".to_owned(),
             reasoning_effort: None,
+            context_window_tokens: None,
         };
         let projected = project_session_event_range(&session, &route, 0, session.events().len());
         let replacement = projected
@@ -2473,6 +2485,7 @@ mod tests {
             provider: "test".to_owned(),
             model: "test-model".to_owned(),
             reasoning_effort: None,
+            context_window_tokens: None,
         };
         let projected = project_session_event_range(&session, &route, 0, session.events().len());
         assert_eq!(projected.len(), 2);

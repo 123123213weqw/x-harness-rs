@@ -61,21 +61,24 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         .await?;
     let workspace = std::fs::canonicalize(&args.workspace)?;
     let deployment = match &args.providers_file {
-        Some(path) => ModelDeployment::from_file_with_debug(path, debug.clone())?,
-        None => ModelDeployment::single_with_debug(
-            SingleModelDeployment {
-                provider: args.provider.clone(),
-                model: args.model.clone(),
-                base_url: args.base_url.clone(),
-                api_key: args.api_key.clone(),
-                protocol: args.protocol,
-                context_window_tokens: args.context_window_tokens,
-                max_output_tokens: args.max_output_tokens,
-                minimum_output_tokens: args.minimum_output_tokens,
-                token_safety_margin: args.token_safety_margin,
-            },
-            debug.clone(),
-        )?,
+        Some(path) => ModelDeployment::from_file_with_debug(path, debug.clone()).await?,
+        None => {
+            ModelDeployment::single_with_debug(
+                SingleModelDeployment {
+                    provider: args.provider.clone(),
+                    model: args.model.clone(),
+                    base_url: args.base_url.clone(),
+                    api_key: args.api_key.clone(),
+                    protocol: args.protocol,
+                    context_window_tokens: args.context_window_tokens,
+                    max_output_tokens: args.max_output_tokens,
+                    minimum_output_tokens: args.minimum_output_tokens,
+                    token_safety_margin: args.token_safety_margin,
+                },
+                debug.clone(),
+            )
+            .await?
+        }
     };
     let mut config = HostConfig::new(&workspace);
     config.provider_id = deployment.default_route.provider.clone();

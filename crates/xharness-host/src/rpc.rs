@@ -800,6 +800,7 @@ impl BasicHost {
                         provider: session.model.provider.clone(),
                         model: session.model.model.clone(),
                         reasoning_effort: session.model.reasoning_effort.clone(),
+                        context_window_tokens: session.model.context_window_tokens,
                     },
                     session.projection_values(),
                 )
@@ -904,6 +905,7 @@ impl BasicHost {
             provider: session.model.provider.clone(),
             model: session.model.model.clone(),
             reasoning_effort: session.model.reasoning_effort.clone(),
+            context_window_tokens: session.model.context_window_tokens,
         };
         Ok(json!({
             "current": session.model,
@@ -922,25 +924,57 @@ impl BasicHost {
         let _session_guard = self.lock_admission(&session_id).await;
         let provider = nonempty(required_string(payload, "provider")?, "provider")?;
         let model = nonempty(required_string(payload, "model")?, "model")?;
-        let reasoning_effort = match optional_string(payload, "reasoningEffort")? {
-            Some(effort) => Some(effort),
-            None => self
-                .agent_runtime
-                .model_catalog()
-                .into_iter()
-                .find(|entry| entry.provider == provider && entry.model == model)
-                .and_then(|entry| entry.reasoning)
-                .and_then(|reasoning| reasoning.default_effort),
-        };
+        let descriptor = self
+            .agent_runtime
+            .model_catalog()
+            .into_iter()
+            .find(|entry| entry.provider == provider && entry.model == model);
+        let reasoning_effort = optional_string(payload, "reasoningEffort")?.or_else(|| {
+            descriptor
+                .as_ref()
+                .and_then(|entry| entry.reasoning.as_ref())
+                .and_then(|reasoning| reasoning.default_effort.clone())
+        });
+        let context_window_tokens = optional_u64(payload, "contextWindowTokens")?.or_else(|| {
+            descriptor
+                .as_ref()
+                .and_then(|entry| entry.context_window.max_context_tokens)
+        });
+        if let Some(selected_tokens) = context_window_tokens {
+            let advertised = descriptor
+                .as_ref()
+                .and_then(|entry| entry.context_window.max_context_tokens);
+            if selected_tokens == 0 || advertised.is_none_or(|maximum| selected_tokens > maximum) {
+                return Err(rpc_error(
+                    RpcErrorCode::ModelUnavailable,
+                    match advertised {
+                        Some(maximum) => format!(
+                            "selected context window {selected_tokens} exceeds the Provider/deployment maximum {maximum} for {provider}/{model}"
+                        ),
+                        None => format!(
+                            "model route {provider}/{model} does not advertise a context-window capability"
+                        ),
+                    },
+                    json!({
+                        "provider": provider,
+                        "model": model,
+                        "requestedContextWindowTokens": selected_tokens,
+                        "maximumContextWindowTokens": advertised,
+                    }),
+                ));
+            }
+        }
         let selected = ModelSelection {
             provider,
             model,
             reasoning_effort,
+            context_window_tokens,
         };
         let route = ModelRoute {
             provider: selected.provider.clone(),
             model: selected.model.clone(),
             reasoning_effort: selected.reasoning_effort.clone(),
+            context_window_tokens: selected.context_window_tokens,
         };
         if !self.agent_runtime.can_route(&route) {
             return Err(rpc_error(
@@ -973,6 +1007,7 @@ impl BasicHost {
                     provider: selected.provider.clone(),
                     model: selected.model.clone(),
                     reasoning_effort: selected.reasoning_effort.clone(),
+                    context_window_tokens: selected.context_window_tokens,
                 }
                 .into()],
                 SessionMutationResponse::fixed(json!({"selected": selected})),
@@ -1064,6 +1099,7 @@ impl BasicHost {
             provider: model.provider.clone(),
             model: model.model.clone(),
             reasoning_effort: model.reasoning_effort.clone(),
+            context_window_tokens: model.context_window_tokens,
         };
         let durable_source = if self.agent_runtime.has_authoritative_sessions() {
             self.agent_runtime
@@ -2781,11 +2817,15 @@ impl BasicHost {
             .model_catalog()
             .into_iter()
             .map(|model| {
-                json!({
+                let mut value = json!({
                     "id": model.model,
                     "name": model.model_display_name,
                     "provider": model.provider,
-                })
+                });
+                if let Some(maximum) = model.context_window.max_context_tokens {
+                    value["contextWindow"] = json!(maximum);
+                }
+                value
             })
             .collect::<Vec<_>>();
         Ok(json!({"models": models}))
@@ -2795,6 +2835,11 @@ impl BasicHost {
         let mut groups: Vec<(String, String, Vec<Value>)> = Vec::new();
         for model in self.agent_runtime.model_catalog() {
             let mut model_value = json!({"id": model.model, "name": model.model_display_name});
+            model_value["contextWindowCapability"] =
+                serde_json::to_value(&model.context_window).unwrap_or(Value::Null);
+            if let Some(maximum) = model.context_window.max_context_tokens {
+                model_value["contextWindow"] = json!(maximum);
+            }
             if let Some(reasoning) = model.reasoning {
                 let efforts = reasoning
                     .efforts

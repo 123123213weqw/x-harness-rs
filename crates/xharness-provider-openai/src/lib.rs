@@ -9,7 +9,8 @@ pub use protocol::{
     CHAT_COMPLETIONS, RESPONSES,
 };
 pub use provider::{
-    OpenAiProvider, OpenAiProviderConfig, OpenAiReasoningProfile, DEFAULT_ERROR_BODY_LIMIT_BYTES,
+    OpenAiCapabilityProbe, OpenAiProvider, OpenAiProviderConfig, OpenAiReasoningProfile,
+    DEFAULT_CAPABILITY_TTL, DEFAULT_ERROR_BODY_LIMIT_BYTES,
 };
 pub use sse::{
     SseEvent, SseParser, DEFAULT_SSE_EVENT_LIMIT_BYTES, DEFAULT_SSE_PENDING_LIMIT_BYTES,
