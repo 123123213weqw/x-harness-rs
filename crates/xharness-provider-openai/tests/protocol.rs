@@ -6,8 +6,8 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
-    AgentMessage, ContextPolicy, ContextRequest, FinishReason, ModelProvider, ProviderEvent,
-    ProviderRequest, Role, ToolCall, ToolDefinition, ToolResultPruningContextPolicy,
+    AgentMessage, CapabilitySource, ContextPolicy, ContextRequest, FinishReason, ModelProvider,
+    ProviderEvent, ProviderRequest, Role, ToolCall, ToolDefinition, ToolResultPruningContextPolicy,
 };
 use xharness_debug::{DebugRecorder, DebugScope, MemoryDebugSink};
 use xharness_provider_openai::*;
@@ -563,6 +563,86 @@ async fn unsupported_token_count_endpoint_is_cached_as_a_capability_miss() {
         .await
         .unwrap()
         .is_none());
+}
+
+#[tokio::test]
+async fn provider_preserves_an_explicit_context_fallback_as_non_reported_metadata() {
+    let provider = OpenAiProvider::new(
+        OpenAiProviderConfig::new(
+            OpenAiProtocol::ChatCompletions,
+            "http://127.0.0.1:1/v1",
+            "secret",
+            "test-model",
+        )
+        .with_context_window_fallback(Some(53_248)),
+    )
+    .unwrap();
+
+    let capabilities = provider
+        .capabilities(CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(capabilities.context_window.max_context_tokens, Some(53_248));
+    assert_eq!(
+        capabilities.context_window.source,
+        CapabilitySource::DeploymentDeclaredFallback
+    );
+}
+
+#[tokio::test]
+async fn provider_discovers_and_caches_the_exact_deployment_context_window() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut socket).await;
+        assert!(String::from_utf8_lossy(&request).starts_with("GET /props"));
+        let body = json!({
+            "default_generation_settings": {"n_ctx": 131_072}
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\netag: deployment-r7\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+    let provider = OpenAiProvider::new(
+        OpenAiProviderConfig::new(
+            OpenAiProtocol::ChatCompletions,
+            format!("http://{address}/v1"),
+            "secret",
+            "test-model",
+        )
+        .with_context_window_fallback(Some(32_768))
+        .with_capability_probe(OpenAiCapabilityProbe::new(
+            format!("http://{address}/props"),
+            "/default_generation_settings/n_ctx",
+        )),
+    )
+    .unwrap();
+
+    let first = provider
+        .capabilities(CancellationToken::new())
+        .await
+        .unwrap();
+    let second = provider
+        .capabilities(CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(first, second);
+    assert_eq!(first.context_window.max_context_tokens, Some(131_072));
+    assert_eq!(
+        first.context_window.source,
+        CapabilitySource::DeploymentReported
+    );
+    assert_eq!(
+        first.context_window.revision.as_deref(),
+        Some("deployment-r7")
+    );
+    assert!(first.context_window.fetched_at_ms.is_some());
+    server.await.unwrap();
 }
 
 #[tokio::test]

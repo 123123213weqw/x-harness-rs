@@ -102,6 +102,8 @@ pub struct ModelSelection {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<u64>,
 }
 
 impl ModelSelection {
@@ -110,6 +112,10 @@ impl ModelSelection {
             provider: config.provider_id.clone(),
             model: config.model_id.clone(),
             reasoning_effort: config.reasoning_effort.clone(),
+            context_window_tokens: config
+                .token_guard
+                .as_ref()
+                .map(|guard| guard.budget().context_window_tokens),
         }
     }
 }

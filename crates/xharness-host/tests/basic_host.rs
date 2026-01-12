@@ -17,9 +17,9 @@ use xharness_api::{
     ApiBackend, ClientResponse, ClientResponseKind, RpcId, RpcMethod, RpcReceipt, RpcResult,
 };
 use xharness_core::{
-    ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface, FinishReason,
-    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Role,
-    SurfaceEdit, SurfaceEditKind, TokenUsage,
+    CapabilitySource, ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface,
+    ContextWindowCapability, FinishReason, ModelProvider, ProviderError, ProviderEvent,
+    ProviderRequest, ProviderStream, Role, SurfaceEdit, SurfaceEditKind, TokenUsage,
 };
 use xharness_host::{
     AgentRuntime, AgentRuntimeError, AgentTurnRequest, BasicHost, HostConfig, LoopAgentRuntime,
@@ -117,19 +117,28 @@ impl AgentRuntime for CatalogRuntime {
     }
 
     fn can_route(&self, route: &ModelRoute) -> bool {
-        match (route.provider.as_str(), route.model.as_str()) {
-            ("gpu-4080", "qwen-4080") => route.reasoning_effort.is_none(),
-            ("gpu-v100", "qwen-v100") => matches!(
-                route.reasoning_effort.as_deref(),
-                None | Some("high") | Some("max")
-            ),
-            _ => false,
-        }
+        let maximum = match (route.provider.as_str(), route.model.as_str()) {
+            ("gpu-4080", "qwen-4080") if route.reasoning_effort.is_none() => 131_072,
+            ("gpu-v100", "qwen-v100")
+                if matches!(
+                    route.reasoning_effort.as_deref(),
+                    None | Some("high") | Some("max")
+                ) =>
+            {
+                53_248
+            }
+            _ => 0,
+        };
+        maximum > 0
+            && route
+                .context_window_tokens
+                .is_none_or(|selected| selected > 0 && selected <= maximum)
     }
 
     fn model_catalog(&self) -> Vec<ModelDescriptor> {
         vec![
-            ModelDescriptor::new("gpu-4080", "RTX 4080", "qwen-4080", "Qwen · 4080"),
+            ModelDescriptor::new("gpu-4080", "RTX 4080", "qwen-4080", "Qwen · 4080")
+                .with_context_window(ContextWindowCapability::reported(131_072)),
             ModelDescriptor::new("gpu-v100", "V100 Server", "qwen-v100", "Qwen · V100")
                 .with_reasoning(
                     ModelReasoning::new(vec![
@@ -138,7 +147,8 @@ impl AgentRuntime for CatalogRuntime {
                         ModelReasoningEffort::new("max", "Max"),
                     ])
                     .with_default("high"),
-                ),
+                )
+                .with_context_window(ContextWindowCapability::reported(53_248)),
         ]
     }
 
@@ -789,6 +799,11 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
     };
     assert_eq!(models["groups"].as_array().unwrap().len(), 2);
     assert_eq!(models["groups"][1]["models"][0]["id"], "qwen-v100");
+    assert_eq!(models["groups"][1]["models"][0]["contextWindow"], 53_248);
+    assert_eq!(
+        models["groups"][1]["models"][0]["contextWindowCapability"]["source"],
+        serde_json::to_value(CapabilitySource::ProviderReported).unwrap()
+    );
     assert_eq!(
         models["groups"][1]["models"][0]["reasoning"]["defaultEffort"],
         "high"
@@ -829,6 +844,7 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         other => panic!("default model effort selection failed: {other:?}"),
     };
     assert_eq!(selected_default["selected"]["reasoningEffort"], "high");
+    assert_eq!(selected_default["selected"]["contextWindowTokens"], 53_248);
     let selected = host
         .call(
             RpcId::new("catalog-select-max"),
@@ -838,6 +854,7 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
                 "provider": "gpu-v100",
                 "model": "qwen-v100",
                 "reasoningEffort": "max",
+                "contextWindowTokens": 32768,
             }),
             CancellationToken::new(),
         )
@@ -858,6 +875,7 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
     assert_eq!(current["current"]["provider"], "gpu-v100");
     assert_eq!(current["current"]["model"], "qwen-v100");
     assert_eq!(current["current"]["reasoningEffort"], "max");
+    assert_eq!(current["current"]["contextWindowTokens"], 32_768);
     assert_eq!(current["routable"], true);
     let rejected = host
         .call(
@@ -874,6 +892,29 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         .await;
     assert!(matches!(
         rejected,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::ModelUnavailable,
+                ..
+            }
+        }
+    ));
+    let rejected_context = host
+        .call(
+            RpcId::new("catalog-select-oversized-context"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "gpu-v100",
+                "model": "qwen-v100",
+                "reasoningEffort": "max",
+                "contextWindowTokens": 53249,
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(
+        rejected_context,
         RpcResult::Failure {
             error: xharness_api::RpcError {
                 code: xharness_api::RpcErrorCode::ModelUnavailable,

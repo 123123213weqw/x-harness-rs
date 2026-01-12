@@ -60,7 +60,10 @@ System Prompt、消息历史、工具定义、Provider 模板开销和本轮最�
 
 一次 Prepared Call 至少记录下列值：
 
-- `context_window_tokens`：模型或部署显式声明的总窗口；未知时禁止假装无限。
+- `provider_max_context_tokens`：精确 Provider/Deployment 报告的硬上限；若端点没有能力接口，
+  只能使用带 `deployment_declared_fallback` 来源的显式兼容值，禁止按模型名猜测。
+- `context_window_tokens`：当前 Session 在硬上限内选择的软窗口；省略时使用当前硬上限。它可调小，
+  不能调大，且必须持久化并供 Token Guard、Compact 和恢复链路共同使用。
 - `reserved_output_tokens`：本轮首选/目标输出上限。
 - `minimum_output_tokens`：允许发请求的最小输出保留；低于该值必须先压缩或拒绝。
 - `selected_output_tokens`：结合本次真实输入后实际下发给 Provider 的动态上限。
@@ -74,6 +77,8 @@ System Prompt、消息历史、工具定义、Provider 模板开销和本轮最�
 ```text
 input_tokens + minimum_output_tokens + safety_margin_tokens
     <= context_window_tokens
+
+context_window_tokens <= provider_max_context_tokens
 
 selected_output_tokens = min(
     reserved_output_tokens,
