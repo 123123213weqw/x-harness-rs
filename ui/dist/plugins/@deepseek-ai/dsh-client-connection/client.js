@@ -5313,6 +5313,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			description: string().optional(),
 			reasoning: modelReasoningSchema.optional(),
 			contextWindow: number().int().positive().optional(),
+			contextWindowSource: string().min(1).optional(),
 			contextWindowCapability: unknown().optional()
 		});
 		/** One successfully loaded provider group. */

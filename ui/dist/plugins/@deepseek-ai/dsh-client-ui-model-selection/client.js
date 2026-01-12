@@ -317,6 +317,7 @@ window.__ModuleLoader__.load({
 			const reasoning = currentChoice?.model.reasoning;
 			const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort;
 			const contextMaximum = currentChoice?.model.contextWindow;
+			const contextSource = currentChoice?.model.contextWindowSource;
 			const effectiveContext = state.current?.contextWindowTokens ?? contextMaximum;
 			const [contextDraft, setContextDraft] = (0, react.useState)(0);
 			(0, react.useEffect)(() => {
@@ -663,7 +664,7 @@ window.__ModuleLoader__.load({
 							pane === "context" && contextMaximum !== void 0 && (0, react_jsx_runtime.jsxs)("div", {
 								className: ModelSelect_module_css_default.contextPanel,
 								children: [
-									(0, react_jsx_runtime.jsx)("div", { children: t("context.maximum", { value: formatContext(contextMaximum) }) }),
+									(0, react_jsx_runtime.jsx)("div", { children: t(contextSource === "deployment_declared_fallback" ? "context.maximumFallback" : "context.maximum", { value: formatContext(contextMaximum) }) }),
 									(0, react_jsx_runtime.jsx)("input", {
 										type: "range",
 										className: ModelSelect_module_css_default.contextRange,
@@ -720,7 +721,8 @@ window.__ModuleLoader__.load({
 			"menu.effort": "推理等级",
 			"menu.context": "上下文窗口",
 			"context.auto": "自动",
-			"context.maximum": "Provider 当前上限：{value}",
+			"context.maximum": "当前有效上限：{value}",
+			"context.maximumFallback": "当前有效上限（兼容配置）：{value}",
 			"context.apply": "应用",
 			"effort.providerDefault": "Default",
 			"status.loading": "正在刷新模型列表…",
@@ -744,7 +746,8 @@ window.__ModuleLoader__.load({
 			"menu.effort": "Effort",
 			"menu.context": "Context window",
 			"context.auto": "Auto",
-			"context.maximum": "Current Provider limit: {value}",
+			"context.maximum": "Current effective limit: {value}",
+			"context.maximumFallback": "Current effective limit (configured fallback): {value}",
 			"context.apply": "Apply",
 			"effort.providerDefault": "Default",
 			"status.loading": "Refreshing model list…",
