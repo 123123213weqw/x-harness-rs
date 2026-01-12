@@ -47,7 +47,8 @@ Provider 显式声明：
 
 推理强度不能由前端维护一套全局词表。每个模型可选声明 `reasoning`：
 
-- `efforts` 是按 Adapter 首选顺序排列的 `{id,name,description?,request_patch}`；
+- `efforts` 必须按推理成本从低到高排列，元素为 `{id,name,description?,request_patch}`；Host 使用
+  第一档作为 Compact 默认强度，不能按 `off/low/high` 等不透明 ID 猜测；
 - `default_effort` 可选，但存在时必须引用同一模型已声明的 ID；
 - Browser 只接收 `id/name/description/defaultEffort`，不得看到 `request_patch`；
 - `request_patch` 必须是 JSON Object，由 OpenAI-compatible Adapter 映射到该端点的原生字段；

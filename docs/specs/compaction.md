@@ -98,12 +98,14 @@ retainTokens    = floor(53248 × 0.16) = 8519
 `CompactionSummarizer` 是异步 Provider-neutral Trait。`SummaryRequest` 包含：
 
 - 已冻结的 `CompactionPlan`；
-- 原请求的 System、Tool Schema 和被选消息；
+- 原请求的 System 和被选消息；
 - 固定的 Compact Instruction。
 
-后端应当先逐字重放原 System/Tools/Messages，最后追加 Compact Instruction，以复用 Provider 的
-Prefix/KV Cache。返回值必须是完整、非空、纯文本输出；超出 `maxTokens`、图片输出、取消和流错误
-都必须失败，不能提交半截 Checkpoint。
+Compact 是封闭摘要操作，必须发送 `tools=[]`，避免重复注入 Tool Schema 或诱导模型调用工具。
+后端应当先逐字重放原 System/Messages，最后追加 Compact Instruction，以复用 Provider 的
+Prefix/KV Cache。摘要推理强度与主对话完全隔离：Host 按模型声明顺序选择最低支持档，无推理档位
+的模型不发送 override；禁止把主对话的 high/xhigh 复制到摘要请求。返回值必须是完整、非空、
+纯文本输出；超出 `maxTokens`、图片输出、取消和流错误都必须失败，不能提交半截 Checkpoint。
 
 落地的替换消息使用：
 
@@ -132,9 +134,10 @@ Checkpoint Preamble
 5. Web 投影公开全部 `compaction/*`，替换消息携带
    `surfaceOp={op:"replace",start,end}` 与 `sourceEventSeqs`。
 
-当前自动摘要复用活跃 Provider/Model，保留相同 System、工具 Schema、被选消息和末尾 Compact
-Instruction，以尽可能复用 Prefix/KV Cache。配置若指定了不同摘要路由而 Host 尚未注册 Purpose
-Router，会明确失败，不会偷偷使用另一个模型。
+当前自动摘要复用活跃 Provider/Model，保留相同 System、被选消息和末尾 Compact Instruction，
+但不携带工具，并通过 `LoopRequest.compaction_reasoning_effort` 使用该模型最低成本档位；主请求仍
+保持用户选择的独立 `reasoning_effort`。配置若指定了不同摘要路由而 Host 尚未注册 Purpose Router，
+会明确失败，不会偷偷使用另一个模型。
 
 ## 消融开关与 4080 Qwen 验证
 

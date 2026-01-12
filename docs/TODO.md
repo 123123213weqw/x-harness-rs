@@ -518,6 +518,8 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   `surfaceReplace`、当前 Surface 投影、Start/成功批次/End/Flush 事务、未闭合 Start 恢复、摘要
   变小校验、完成后重新计量、请求前 Pressure/Hard Overflow、Provider 400 Context Overflow
   恢复、正式 Durable Host 默认启用、Web `surfaceOp={op:replace,start,end}` 投影及回归测试。
+  Compact 已使用独立 `compaction_reasoning_effort`，由精确模型能力列表解析最低成本档，不继承
+  主对话 high/xhigh；摘要请求固定 `tools=[]`，并已回归覆盖思考档位与 Tool Schema 隔离。
   **剩余：** 手动 `/compact`、Purpose 路由到独立摘要模型、把 `DONE-68` 的请求侧 Tool Result
   Pruner 和请求侧 `tool_arguments_pruned/v1` 接入持久 Replace/内容引用缓存、Provider 结构化
   错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点矩阵、按模型本地精确 Tokenizer，以及把

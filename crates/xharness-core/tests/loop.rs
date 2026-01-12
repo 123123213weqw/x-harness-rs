@@ -1572,6 +1572,14 @@ async fn pressure_compaction_is_durable_then_recounted_before_the_main_request()
     request.session_id = Some("auto-compact".to_owned());
     request.journal_store = Some(journal.clone());
     request.token_guard = Some(guard);
+    request.reasoning_effort = Some("xhigh".to_owned());
+    request.compaction_reasoning_effort = Some("low".to_owned());
+    request.tools.push(ToolSpec::new(
+        "inspect",
+        "inspect the workspace",
+        json!({"type":"object"}),
+        |_, _| async { ToolResult::success("unused") },
+    ));
     request.compaction = Some(CompactionConfig {
         retain_ratio: None,
         retain_tokens: Some(10),
@@ -1583,6 +1591,13 @@ async fn pressure_compaction_is_durable_then_recounted_before_the_main_request()
     assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
     assert_eq!(provider.inner.attempts(), 2, "summary plus main request");
     let requests = provider.inner.requests();
+    assert_eq!(requests[0].reasoning_effort.as_deref(), Some("low"));
+    assert!(
+        requests[0].tools.is_empty(),
+        "compaction must not expose interactive tools"
+    );
+    assert_eq!(requests[1].reasoning_effort.as_deref(), Some("xhigh"));
+    assert_eq!(requests[1].tools.len(), 1);
     assert!(requests[0]
         .messages
         .iter()
