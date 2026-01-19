@@ -8,18 +8,30 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 #[cfg(windows)]
+mod acl;
+#[cfg(windows)]
 mod file;
 #[cfg(windows)]
 mod handle;
 #[cfg(windows)]
 mod job;
+#[cfg(windows)]
+mod restricted_process;
+#[cfg(windows)]
+mod token;
 
+#[cfg(windows)]
+pub use acl::{grant_write, revoke_write};
 #[cfg(windows)]
 pub use file::replace_file;
 #[cfg(windows)]
 pub use handle::OwnedWin32Handle;
 #[cfg(windows)]
 pub use job::{Job, JobAccounting};
+#[cfg(windows)]
+pub use restricted_process::RestrictedChild;
+#[cfg(windows)]
+pub use token::{RestrictedToken, Sid, TokenMode};
 
 /// One checked Win32 API failure.
 #[cfg(windows)]
@@ -35,6 +47,10 @@ impl Win32Error {
     pub(crate) fn last(api: &'static str) -> Self {
         // SAFETY: GetLastError has no preconditions and reads thread-local state.
         let code = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        Self { api, code }
+    }
+
+    pub(crate) const fn code(api: &'static str, code: u32) -> Self {
         Self { api, code }
     }
 }
