@@ -53,7 +53,7 @@ use std::{
 };
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 #[cfg(windows)]
-use xharness_win32::replace_file;
+use xharness_win32::{copy_dacl, replace_file};
 
 #[cfg(unix)]
 type DirectoryAnchor = OwnedFd;
@@ -1481,6 +1481,16 @@ fn atomic_publish(
         temp_name.clone(),
         temp_path.clone(),
     );
+    #[cfg(windows)]
+    if matches!(mode, PublishMode::Replace) {
+        copy_dacl(&target.path, &temp_path).map_err(|source| {
+            io_error(
+                "copy replacement DACL to atomic temp",
+                &temp_path,
+                io::Error::new(io::ErrorKind::Other, source),
+            )
+        })?;
+    }
     temp_file
         .write_all(content)
         .map_err(|source| io_error("write atomic temp", &temp_path, source))?;
