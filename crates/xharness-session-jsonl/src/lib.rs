@@ -308,8 +308,7 @@ impl Store for JsonlSessionStore {
                 .map_err(|error| backend_error("inspect session before append", &path, error))?
                 .len();
             if current_len != loaded.valid_len {
-                file.set_len(loaded.valid_len)
-                    .map_err(|error| backend_error("truncate torn session tail", &path, error))?;
+                truncate_torn_tail(&path, loaded.valid_len)?;
             }
             if loaded.needs_separator {
                 file.write_all(b"\n").map_err(|error| {
@@ -912,6 +911,21 @@ fn secure_open_options() -> OpenOptions {
     #[cfg(windows)]
     options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     options
+}
+
+fn truncate_torn_tail(path: &Path, valid_len: u64) -> Result<(), StoreError> {
+    // Windows append-only handles have FILE_APPEND_DATA but not the
+    // FILE_WRITE_DATA access required by SetEndOfFile. Keep the append handle
+    // open for append semantics and use a short-lived writable handle for
+    // crash-tail repair. The per-path and inter-process locks serialize all
+    // cooperating writers around both operations.
+    let file = secure_open_options()
+        .write(true)
+        .open(path)
+        .map_err(|error| backend_error("open session for tail repair", path, error))?;
+    ensure_regular_file(&file, path, "session log")?;
+    file.set_len(valid_len)
+        .map_err(|error| backend_error("truncate torn session tail", path, error))
 }
 
 fn ensure_regular_file(file: &File, path: &Path, label: &str) -> Result<(), StoreError> {
