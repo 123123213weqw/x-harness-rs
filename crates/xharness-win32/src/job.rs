@@ -3,12 +3,12 @@ use std::{ffi::c_void, mem, os::windows::io::RawHandle, ptr};
 use windows_sys::Win32::{
     Foundation::HANDLE,
     System::JobObjects::{
-        AssignProcessToJobObject, JobObjectBasicAccountingInformation,
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicAccountingInformation,
         JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
         TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     },
-    System::Threading::{CreateJobObjectW, OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE},
+    System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE},
 };
 
 use crate::{OwnedWin32Handle, Win32Error};

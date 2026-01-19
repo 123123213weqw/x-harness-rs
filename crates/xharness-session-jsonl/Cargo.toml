@@ -9,11 +9,13 @@ description = "Crash-tolerant JSONL persistence for XHarness sessions"
 [dependencies]
 async-trait.workspace = true
 fs2 = "0.4.3"
-libc = "0.2.180"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 xharness-session = { path = "../xharness-session" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.180"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
