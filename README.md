@@ -237,14 +237,14 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 
 ### `xharness-process`
 
-- Unix `program + argv` 直接执行，不进行隐式 shell 解析
+- 三平台 `program + argv` 直接执行，不进行隐式 shell 解析
 - 显式 cwd 与 `env_clear` 环境；提供 credential 变量清洗 helper
-- 每次调用建立独立 session/process group
-- timeout/cancel 执行 TERM → grace → KILL，并等待根进程退出
-- Supervisor 在 Runtime Abort 时同步 KILL 受管 Process Group；输出 EOF 只在有界 Grace 内等待
+- Unix 每次调用建立独立 session/process group；Windows 暂停创建、加入 kill-on-close Job 后恢复
+- timeout/cancel 收敛整个 Process Group/Job，并等待根进程与受管后代退出
+- Supervisor 在 Runtime Abort 时同步清理受管进程树；输出 EOF 只在有界 Grace 内等待
 - stdout/stderr 并行 drain，有界保留、总字节计数与 UTF-8 边界安全截断
 - 非零退出码是结构化正常结果，不会被误判为 runtime 异常
-- process group 只负责生命周期；真正的进程树硬隔离由下层原生沙箱提供
+- Unix process group 只负责生命周期；Windows Job 禁止创建时序逃逸，但不代替文件/网络沙箱
 
 ### `xharness-fs`
 
@@ -252,11 +252,11 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 读后才能覆盖；stale/blind write fail closed
 - 同目录临时文件、文件 `fsync`、原子发布和目录 `fsync`
 - Linux 使用 `openat2 + renameat2`；macOS 使用逐级 `openat(O_NOFOLLOW)`、
-  `F_GETPATH + renameatx_np`
+  `F_GETPATH + renameatx_np`；Windows 拒绝 reparse escape 并使用 `ReplaceFileW` 保留 DACL
 
 ### `xharness-sandbox` / `xharness-platform`
 
-- `NativeSandbox` 编译期选择：Linux Bubblewrap、macOS Seatbelt
+- `NativeSandbox` 编译期选择：Linux Bubblewrap、macOS Seatbelt、Windows ACL partial
 - Sandbox 仅含 `ReadOnly / WorkspaceWrite` 和独立网络能力；`DangerFullAccess` 是 Host/Platform
   权限预设，不伪装成沙箱模式
 - Restricted 模式后端不可用时 fail closed，不会静默裸跑

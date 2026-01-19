@@ -18,6 +18,8 @@ mod job;
 #[cfg(windows)]
 mod restricted_process;
 #[cfg(windows)]
+mod suspended;
+#[cfg(windows)]
 mod token;
 
 #[cfg(windows)]
@@ -30,6 +32,8 @@ pub use handle::OwnedWin32Handle;
 pub use job::{Job, JobAccounting};
 #[cfg(windows)]
 pub use restricted_process::RestrictedChild;
+#[cfg(windows)]
+pub use suspended::{resume_suspended_process, WINDOWS_CREATE_SUSPENDED};
 #[cfg(windows)]
 pub use token::{RestrictedToken, Sid, TokenMode};
 

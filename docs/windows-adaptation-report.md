@@ -14,7 +14,8 @@ OpenSSH，也可显式启动 Git for Windows 的 Bash，但模型面对的原生
 ## 与 DeepSeek Harness 参考实现的关系
 
 设计沿用 DeepSeek Harness 的 provider/consumer 分层：高层能力只消费平台接口，Win32
-实现位于底层 provider。进程树使用 kill-on-close Job Object；交互终端使用 ConPTY；
+实现位于底层 provider。进程以 suspended 状态创建、加入 kill-on-close Job Object 后才恢复，
+消除首条指令前派生后代的竞态；交互终端使用 ConPTY；
 原子文件替换使用 `ReplaceFileW`；受限写入使用 restricted token、capability SID 与
 NTFS DACL。与参考实现一样，ACL 沙箱明确报告 `partial`，不冒充 VM、AppContainer 或
 完整读取/网络隔离。
