@@ -18,5 +18,4 @@ xharness-debug = { path = "../xharness-debug" }
 nix = { version = "0.30.1", default-features = false, features = ["fs", "process", "signal", "term"] }
 
 [target.'cfg(windows)'.dependencies]
-portable-pty = "0.9"
 xharness-win32 = { path = "../xharness-win32" }

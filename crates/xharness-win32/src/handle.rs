@@ -19,6 +19,12 @@ impl OwnedWin32Handle {
     pub const fn as_raw(&self) -> HANDLE {
         self.0
     }
+
+    pub(crate) fn into_raw(self) -> HANDLE {
+        let raw = self.0;
+        std::mem::forget(self);
+        raw
+    }
 }
 
 // Windows kernel handles may be transferred and referenced across threads.
