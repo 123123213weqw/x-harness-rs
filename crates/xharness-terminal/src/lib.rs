@@ -562,10 +562,7 @@ impl TerminalSession {
                     143
                 })
                 .map_err(|source| {
-                    terminal_io(
-                        "terminate ConPTY process tree",
-                        io::Error::new(io::ErrorKind::Other, source),
-                    )
+                    terminal_io("terminate ConPTY process tree", io::Error::other(source))
                 }),
             TerminalSignal::Suspend => Err(terminal_io(
                 "suspend ConPTY process",
@@ -890,18 +887,14 @@ fn spawn_session(
             ),
         )
     })?;
-    let job = Job::new_kill_on_close().map_err(|source| {
-        terminal_io(
-            "create ConPTY process Job",
-            io::Error::new(io::ErrorKind::Other, source),
-        )
-    })?;
+    let job = Job::new_kill_on_close()
+        .map_err(|source| terminal_io("create ConPTY process Job", io::Error::other(source)))?;
     if let Err(source) = job.assign_process(raw_process) {
         let _ = child.kill();
         let _ = child.wait();
         return Err(terminal_io(
             "assign ConPTY child to Job",
-            io::Error::new(io::ErrorKind::Other, source),
+            io::Error::other(source),
         ));
     }
 
@@ -938,10 +931,7 @@ fn exit_signal(_status: &portable_pty::ExitStatus) -> Option<i32> {
 
 #[cfg(windows)]
 fn portable_terminal_io(operation: &'static str, source: impl std::fmt::Display) -> TerminalError {
-    terminal_io(
-        operation,
-        io::Error::new(io::ErrorKind::Other, source.to_string()),
-    )
+    terminal_io(operation, io::Error::other(source.to_string()))
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]

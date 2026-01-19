@@ -1487,7 +1487,7 @@ fn atomic_publish(
             io_error(
                 "copy replacement DACL to atomic temp",
                 &temp_path,
-                io::Error::new(io::ErrorKind::Other, source),
+                io::Error::other(source),
             )
         })?;
     }
