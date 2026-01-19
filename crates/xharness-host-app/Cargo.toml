@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Native Linux/macOS composition and Web executable for XHarness"
+description = "Native Linux, macOS and Windows composition and Web executable for XHarness"
 
 [[bin]]
 name = "xharness-host"
