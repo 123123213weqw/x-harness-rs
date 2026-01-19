@@ -22,8 +22,8 @@ use xharness_jobs::{
 };
 use xharness_platform::NativePlatform;
 use xharness_process::{
-    ProcessHandle, ProcessOutput, ProcessOutputCursor, ProcessOutputObserver, SpawnSpec,
-    TerminationReason,
+    scrub_secret_env, ProcessHandle, ProcessOutput, ProcessOutputCursor, ProcessOutputObserver,
+    SpawnSpec, TerminationReason,
 };
 use xharness_tools::{
     RegistryError, ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolHandlerError,
@@ -835,7 +835,17 @@ fn json_output(value: Value) -> ToolOutput {
 }
 
 fn managed_environment() -> BTreeMap<OsString, OsString> {
-    let mut environment = BTreeMap::new();
+    // Match the reference Harness environment boundary: preserve ordinary
+    // runtime/tool configuration, but never leak ambient credentials or
+    // Harness-private control values into model-launched processes.
+    let mut environment = std::env::vars_os().collect::<BTreeMap<_, _>>();
+    scrub_secret_env(&mut environment);
+    environment.retain(|name, _| {
+        !name
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("XHARNESS_")
+    });
     environment.insert(OsString::from("PATH"), managed_path());
     #[cfg(unix)]
     environment.insert(OsString::from("LANG"), OsString::from("C.UTF-8"));
@@ -1065,7 +1075,24 @@ fn job_id_key(arguments: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::managed_path;
+    use super::{managed_environment, managed_path};
+    use xharness_process::is_secret_env_name;
+
+    #[test]
+    fn managed_environment_preserves_runtime_state_without_credentials() {
+        let environment = managed_environment();
+        assert!(environment
+            .keys()
+            .all(|name| !is_secret_env_name(name.as_os_str())));
+        assert!(environment.keys().all(|name| !name
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("XHARNESS_")));
+        #[cfg(windows)]
+        assert!(environment
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("SystemRoot")));
+    }
 
     #[test]
     fn managed_path_keeps_system_and_package_search_locations() {
