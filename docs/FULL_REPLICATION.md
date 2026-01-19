@@ -18,7 +18,7 @@
 2. Rust 实现没有把 Provider、平台或 Web DTO 泄漏到错误层级。
 3. 单元、集成、协议或浏览器测试覆盖主要路径和至少一个失败路径。
 4. Rust 源码同步到 `WZU_Server`，远程通过整个 Workspace 的 Check、Test 和 Clippy。
-5. 平台相关功能还必须通过对应 Linux/macOS 原生验证。
+5. 平台相关功能还必须通过对应 Linux/macOS/Windows 原生验证。
 6. 更新本文件、`TODO.md`、对应 Crate Spec 和用户文档。
 7. 如果改变 Web 可观察行为，更新冻结协议 Fixture 和兼容矩阵。
 
@@ -64,7 +64,7 @@ XHarness Web UI / CLI / ACP
 | `M01` | 持久 Agent 接管 Web Host，重启不丢输入、不重复副作用 | **主链路已完成**；非 Prompt Mutation Receipt 转入 M05 | Web、Subagent |
 | `M02` | 统一 Tool Runtime、Execution ID 和结构化 Shutdown | 生产路径已完成；只剩 Core 旧兼容 API 删除 | MCP、Jobs |
 | `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | Registry 基线、最小 Prompt、原生计数、Hard Guard 与自动 Pressure/Overflow 已完成；手动/Pruner/Purpose 路由待完成 | 长上下文、质量 |
-| `M04` | Linux/macOS 原生工具、Readiness 和动态工具投影 | 原生工具和模型侧投影已完成；Web Readiness/发布验证未完成 | 日常使用 |
+| `M04` | Linux/macOS/Windows 原生工具、Readiness 和动态工具投影 | 三平台原生工具和模型侧投影已完成；Web Readiness 仍未完整投影 | 日常使用 |
 | `M05` | Web 持久状态、游标续传、认证和完整 UI Projection | 权威 History/Queue、版本化 XHarness UI Bundle/产品插件和部分 Receipt 已完成；Cursor/Auth/完整投影未完成 | 产品发布 |
 | `M06` | Git、MCP、Skills、LSP、本地代码索引 | 未开始 | 高级 Coding |
 | `M07` | 多模态、Blob、Session Branch/Import/Export | 未开始 | 多模态 Agent |
@@ -178,7 +178,8 @@ Coding Agent 日常使用。
 - [ ] `D-05` 专用 Terminal Profile 的 Resize、OSC133、Foreground PGID、Settle Reason；默认
   模型面不再提供旧六工具。
 - [ ] `D-06` Web Search Provider、引用对象、正文提取、缓存和 SSRF/Rebinding。
-- [ ] `D-07` Linux/macOS 等价语义测试；不要求底层系统调用相同。
+- [x] `D-07` Linux/macOS/Windows 等价语义测试；底层分别使用 Process Group、Job Object、
+  Bubblewrap/Seatbelt/ACL partial、PTY/ConPTY，不要求系统调用相同。
 
 ### Batch E：Web 产品闭环
 

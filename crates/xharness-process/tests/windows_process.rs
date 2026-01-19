@@ -95,7 +95,7 @@ async fn root_exit_kills_a_descendant_before_result_publication() {
     let pid_path = dir.path().join("child.pid");
     let escaped_path = pid_path.display().to_string().replace('\'', "''");
     let command = format!(
-        "$p=Start-Process pwsh.exe -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 30') -PassThru; [IO.File]::WriteAllText('{escaped_path}', [string]$p.Id)"
+        "$p=Start-Process pwsh.exe -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 30') -PassThru; [IO.File]::WriteAllText('{escaped_path}', [string]($p.Id))"
     );
     let output = ProcessRuntime::new()
         .spawn(pwsh(dir.path(), &command))

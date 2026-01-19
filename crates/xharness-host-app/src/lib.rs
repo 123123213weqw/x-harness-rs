@@ -2,7 +2,7 @@
 //! plane.
 //!
 //! This crate owns OS-facing tool construction. The Host library itself stays
-//! independent from Linux/macOS process, filesystem, sandbox, jobs and Web
+//! independent from Linux/macOS/Windows process, filesystem, sandbox, jobs and Web
 //! implementations.
 
 use std::{

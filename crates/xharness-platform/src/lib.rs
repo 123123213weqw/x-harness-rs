@@ -235,15 +235,16 @@ impl NativePlatform {
     }
 
     /// Canonical session workspace used as the default cwd even when the
-    /// structured filesystem is rooted at `/` for Full access.
+    /// structured filesystem uses the native volume root for Full access.
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
     }
 
     /// Resolve a model-supplied file path under the active permission mode.
     /// Workspace write keeps the hardened workspace-relative capability.
-    /// Full access roots that same race-safe implementation at `/`, while
-    /// preserving workspace-relative inputs for ordinary coding tasks.
+    /// Full access roots that same race-safe implementation at the native
+    /// filesystem root, while preserving workspace-relative inputs for
+    /// ordinary coding tasks.
     pub fn resolve_file(&self, input: impl AsRef<Path>) -> Result<FsTarget, FsError> {
         let input = input.as_ref();
         if self.access != PlatformAccess::FullAccess {

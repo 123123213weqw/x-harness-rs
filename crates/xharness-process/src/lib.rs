@@ -26,6 +26,8 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 #[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
 use std::sync::Arc as WindowsArc;
 
 #[cfg(target_os = "macos")]
@@ -47,7 +49,7 @@ use tokio::{
 };
 use xharness_debug::{DebugEvent, DebugRecorder};
 #[cfg(windows)]
-use xharness_win32::{Job, Win32Error};
+use xharness_win32::{resume_suspended_process, Job, Win32Error, WINDOWS_CREATE_SUSPENDED};
 
 pub const DEFAULT_CAPTURE_LIMIT: usize = 256 * 1024;
 pub const DEFAULT_TERMINATION_GRACE: Duration = Duration::from_secs(2);
@@ -510,6 +512,15 @@ impl ProcessRuntime {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
+        // Windows processes start suspended so Job assignment is complete
+        // before their first instruction. Without this ordering, a fast child
+        // can create descendants before the parent joins the Job and escape
+        // tree-wide cancellation.
+        #[cfg(windows)]
+        command
+            .as_std_mut()
+            .creation_flags(WINDOWS_CREATE_SUSPENDED);
+
         // SAFETY: the closure captures no state and performs exactly one
         // async-signal-safe syscall in the post-fork/pre-exec child. Linux
         // gets a fresh session as well as a process group. On macOS, keeping
@@ -567,6 +578,11 @@ impl ProcessRuntime {
         #[cfg(windows)]
         let process_tree = {
             if let Err(error) = pending_job.assign_pid(pid) {
+                let _ = child.start_kill();
+                return Err(ProcessError::Win32(error));
+            }
+            if let Err(error) = resume_suspended_process(pid) {
+                let _ = pending_job.terminate(1);
                 let _ = child.start_kill();
                 return Err(ProcessError::Win32(error));
             }
