@@ -439,6 +439,10 @@ cargo run -p xharness-host-app --bin xharness-host
 `session.prompt` 会返回 `model-unavailable`。远程部署前必须先补认证/Origin 策略；当前
 安全默认是仅监听 loopback。
 
+Windows 11 / Windows Server 2025 可以直接使用 PowerShell 7、ConPTY、Job Object 和
+restricted-token ACL 后端，不需要 WSL。DeepSeek 官方 API 的无明文凭据启动、
+SSH/Git Bash 调用和安全边界见 [Windows 原生支持](docs/windows.md)。
+
 同一个 Host 同时接入 4080、V100 或云端接口时，使用
 `XHARNESS_PROVIDERS_FILE` / `--providers-file` 加载多路由 JSON：
 
