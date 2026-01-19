@@ -65,41 +65,44 @@ mod windows_runner {
             return Err("temporary root must be outside the workspace".to_owned());
         }
 
-        let workspace_sid;
-        let temp_sid;
-        let private_temp;
-        let capabilities: Vec<&Sid>;
-        if args.mode == TokenMode::WorkspaceWrite {
-            workspace_sid = Some(
+        let workspace_sid = if args.mode == TokenMode::WorkspaceWrite {
+            Some(
                 Sid::from_string(OsStr::new(&workspace_write_sid(&workspace)))
                     .map_err(|error| error.to_string())?,
-            );
-            grant_write(&workspace, workspace_sid.as_ref().expect("workspace SID"))
-                .map_err(|error| error.to_string())?;
-            private_temp = Some(create_private_temp(&temp_root)?);
-            temp_sid = Some(
-                Sid::from_string(OsStr::new(&temp_write_sid(
-                    private_temp.as_ref().expect("private temp"),
-                )))
-                .map_err(|error| error.to_string())?,
-            );
-            if let Err(error) = grant_write(
-                private_temp.as_ref().expect("private temp"),
-                temp_sid.as_ref().expect("temp SID"),
-            ) {
-                let _ = fs::remove_dir_all(private_temp.as_ref().expect("private temp"));
+            )
+        } else {
+            None
+        };
+        if let Some(sid) = &workspace_sid {
+            grant_write(&workspace, sid).map_err(|error| error.to_string())?;
+        }
+
+        let private_temp = if args.mode == TokenMode::WorkspaceWrite {
+            Some(create_private_temp(&temp_root)?)
+        } else {
+            None
+        };
+        let temp_sid = if let Some(temp) = &private_temp {
+            match Sid::from_string(OsStr::new(&temp_write_sid(temp))) {
+                Ok(sid) => Some(sid),
+                Err(error) => {
+                    let _ = fs::remove_dir_all(temp);
+                    return Err(error.to_string());
+                }
+            }
+        } else {
+            None
+        };
+        if let (Some(temp), Some(sid)) = (&private_temp, &temp_sid) {
+            if let Err(error) = grant_write(temp, sid) {
+                let _ = fs::remove_dir_all(temp);
                 return Err(error.to_string());
             }
-            capabilities = vec![
-                workspace_sid.as_ref().expect("workspace SID"),
-                temp_sid.as_ref().expect("temp SID"),
-            ];
-        } else {
-            workspace_sid = None;
-            temp_sid = None;
-            private_temp = None;
-            capabilities = Vec::new();
         }
+        let capabilities = workspace_sid
+            .iter()
+            .chain(temp_sid.iter())
+            .collect::<Vec<_>>();
 
         let result = (|| {
             let token = RestrictedToken::new(args.mode, &capabilities)

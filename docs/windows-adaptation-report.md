@@ -30,8 +30,8 @@ NTFS DACL。与参考实现一样，ACL 沙箱明确报告 `partial`，不冒充
 
 | 指标 | 结果 |
 | --- | --- |
-| Rust 文件 | 104 |
-| 未修改 Rust 文件 | 73（70.2%） |
+| Rust 文件 | 105 |
+| 未修改 Rust 文件 | 72（68.6%） |
 | Workspace crates | 27 |
 | 整 crate 未修改 | 16（59.3%） |
 | 修改或新增的生产 crate | 11 |
@@ -41,7 +41,7 @@ NTFS DACL。与参考实现一样，ACL 沙箱明确报告 `partial`，不冒充
 `xharness-jobs`、`xharness-prompt`、`xharness-provider-openai`、`xharness-schedule`、
 `xharness-server`、`xharness-session`、`xharness-token`、`xharness-tools` 和 `xharness-web`。
 
-“70.2% 文件未修改”是可复现的保守指标，不等于按行数计算的业务逻辑复用率。实际高层
+“68.6% 文件未修改”是可复现的保守指标，不等于按行数计算的业务逻辑复用率。实际高层
 逻辑复用更高，因为 11 个受影响 crate 中的大部分修改也是 `cfg(unix/windows)` 的底层分支，
 而不是另写 Agent 或 Provider。
 
