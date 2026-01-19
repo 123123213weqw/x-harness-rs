@@ -75,10 +75,11 @@ async fn executor(workspace: &TempWorkspace) -> ToolExecutor {
         .into_iter()
         .map(|definition| definition.name)
         .collect();
+    let shell = if cfg!(windows) { "pwsh" } else { "bash" };
     assert_eq!(
         names,
         [
-            "bash",
+            shell,
             "edit",
             "glob",
             "grep",
@@ -155,13 +156,22 @@ async fn standard_tools_register_and_basic_file_shell_flow_runs() {
         "alpha BETA\n"
     );
 
-    let bash = executor
-        .execute(ToolRequest::new("bash", r#"{"command":"printf shell-ok"}"#))
+    let (shell, command) = if cfg!(windows) {
+        ("pwsh", "[Console]::Out.Write('shell-ok')")
+    } else {
+        ("bash", "printf shell-ok")
+    };
+    let shell = executor
+        .execute(ToolRequest::new(
+            shell,
+            serde_json::json!({"command": command}).to_string(),
+        ))
         .await;
-    assert!(bash.is_ok(), "{bash:?}");
-    assert!(bash.output.unwrap().content.contains("shell-ok"));
+    assert!(shell.is_ok(), "{shell:?}");
+    assert!(shell.output.unwrap().content.contains("shell-ok"));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn bash_propagates_pipeline_failures_and_allows_explicit_recovery() {
     let workspace = TempWorkspace::new();
@@ -197,6 +207,7 @@ async fn bash_propagates_pipeline_failures_and_allows_explicit_recovery() {
     assert_eq!(recovered["exit_code"], 0);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn background_bash_streams_to_job_output_and_preserves_nonzero_exit_status() {
     let workspace = TempWorkspace::new();
@@ -247,6 +258,7 @@ async fn background_bash_streams_to_job_output_and_preserves_nonzero_exit_status
     assert_eq!(listed["jobs"][0]["id"], job_id);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn background_bash_kill_settles_and_invalid_option_combinations_fail_before_spawn() {
     let workspace = TempWorkspace::new();

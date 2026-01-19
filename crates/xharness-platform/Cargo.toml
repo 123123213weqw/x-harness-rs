@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Compile-time native macOS/Linux platform composition for XHarness"
+description = "Compile-time native Windows/macOS/Linux platform composition for XHarness"
 
 [dependencies]
 thiserror.workspace = true

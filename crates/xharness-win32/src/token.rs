@@ -53,7 +53,7 @@ impl Drop for Sid {
     fn drop(&mut self) {
         // SAFETY: ConvertStringSidToSidW returns LocalAlloc storage.
         unsafe {
-            LocalFree(self.0 as isize);
+            LocalFree(self.0);
         }
     }
 }
@@ -263,7 +263,7 @@ fn grant_default_dacl(token: HANDLE, sid: PSID) -> Result<(), Win32Error> {
     };
     // SAFETY: SetEntriesInAclW allocated merged with LocalAlloc.
     unsafe {
-        LocalFree(merged as isize);
+        LocalFree(merged.cast());
     }
     if ok == 0 {
         return Err(Win32Error::last("SetTokenInformation(TokenDefaultDacl)"));
