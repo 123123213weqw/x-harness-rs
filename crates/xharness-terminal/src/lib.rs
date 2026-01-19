@@ -466,12 +466,20 @@ struct TerminalSession {
 
 impl TerminalSession {
     async fn refresh_status(&self) -> Result<(), TerminalError> {
+        #[cfg(unix)]
         let status = self
             .child
             .lock()
             .await
             .try_wait()
             .map_err(|source| terminal_io("inspect PTY child", source))?;
+        #[cfg(windows)]
+        let status = self
+            .child
+            .lock()
+            .await
+            .try_wait()
+            .map_err(|source| terminal_io("inspect ConPTY child", io::Error::other(source)))?;
         if let Some(status) = status {
             let mut state = self.state.lock().await;
             state.running = false;
