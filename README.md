@@ -8,7 +8,7 @@
 DeepSeek Harness Web 的第一版
 Rust Host。目标不是
 把所有能力继续堆进一个 `while`，而是把模型、历史、工具策略、Web 投影和原生执行
-能力拆成 typed service。模型 Provider 只由共享核心调用，macOS/Linux 差异收敛在
+能力拆成 typed service。模型 Provider 只由共享核心调用，macOS/Linux/Windows 差异收敛在
 最下层，并在编译期选择实现。
 
 ```text
@@ -24,10 +24,10 @@ XHarness Web UI / future CLI
                   /           \
  Session/Event Log   Job Registry + xharness-platform
                           |
-             +------------+------------+
-             |                         |
-       macOS Seatbelt             Linux Bubblewrap
-       openat/F_GETPATH        openat2/renameat2
+             +------------+------------+-----------------+
+             |                         |                 |
+       macOS Seatbelt             Linux Bubblewrap   Windows ACL/token
+       openat/F_GETPATH        openat2/renameat2      Job/ConPTY/ReplaceFileW
 ```
 
 ## 规范与路线图
@@ -42,6 +42,8 @@ XHarness Web UI / future CLI
 - [Prompt 组装与注入](docs/specs/prompt.md)
 - [运行、诊断与故障处理](docs/operations.md)
 - [Linux `.deb` 安装与沙箱自配置](docs/specs/linux-deb.md)
+- [Windows 原生运行与 DeepSeek 接入](docs/windows.md)
+- [Windows 适配与代码复用评估](docs/windows-adaptation-report.md)
 - [总 TODO 与交付优先级](docs/TODO.md)
 - [Web UI、插件与重建说明](ui/README.md)
 
