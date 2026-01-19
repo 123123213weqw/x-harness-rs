@@ -46,15 +46,15 @@ impl Drop for TestDir {
 fn pwsh(cwd: &Path, command: &str) -> SpawnSpec {
     let mut env = std::env::vars_os().collect::<BTreeMap<_, _>>();
     scrub_secret_env(&mut env);
-    SpawnSpec::new("pwsh.exe", cwd)
-        .args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            command,
-        ])
-        .envs(env)
+    let mut spec = SpawnSpec::new("pwsh.exe", cwd).args([
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        command,
+    ]);
+    spec.env = env;
+    spec
 }
 
 #[tokio::test]
