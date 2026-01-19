@@ -1,7 +1,6 @@
 #![cfg(windows)]
 
 use std::{
-    os::windows::io::AsRawHandle,
     process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
@@ -19,7 +18,7 @@ fn kill_on_close_job_accounts_for_and_terminates_a_process() {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn test child");
-    if let Err(error) = job.assign_process(child.as_raw_handle()) {
+    if let Err(error) = job.assign_pid(child.id()) {
         let _ = child.kill();
         panic!("assign child to Job Object: {error}");
     }

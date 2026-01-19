@@ -3,11 +3,12 @@ use std::{ffi::c_void, mem, os::windows::io::RawHandle, ptr};
 use windows_sys::Win32::{
     Foundation::HANDLE,
     System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicAccountingInformation,
+        AssignProcessToJobObject, JobObjectBasicAccountingInformation,
         JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
         TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     },
+    System::Threading::{CreateJobObjectW, OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE},
 };
 
 use crate::{OwnedWin32Handle, Win32Error};
@@ -65,6 +66,24 @@ impl Job {
         // SAFETY: the caller supplies a live process handle and both handles
         // remain valid for the duration of the call.
         let ok = unsafe { AssignProcessToJobObject(self.handle.as_raw(), process as HANDLE) };
+        if ok == 0 {
+            Err(Win32Error::last("AssignProcessToJobObject"))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Open a process by id with the least rights required for Job assignment
+    /// and assign it while the temporary process handle is owned safely.
+    pub fn assign_pid(&self, pid: u32) -> Result<(), Win32Error> {
+        // SAFETY: OpenProcess validates the pid; inheritance is disabled and
+        // only assignment/cleanup rights are requested.
+        let raw = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid) };
+        // SAFETY: OpenProcess transfers one owned handle on success.
+        let process = unsafe { OwnedWin32Handle::from_raw(raw) }
+            .ok_or_else(|| Win32Error::last("OpenProcess"))?;
+        // SAFETY: both owned handles remain valid for the complete call.
+        let ok = unsafe { AssignProcessToJobObject(self.handle.as_raw(), process.as_raw()) };
         if ok == 0 {
             Err(Win32Error::last("AssignProcessToJobObject"))
         } else {

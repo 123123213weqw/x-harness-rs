@@ -1,15 +1,14 @@
-//! Unix process runtime used by local XHarness tools.
+//! Native process runtime used by local XHarness tools.
 //!
 //! Commands are always spawned as an executable plus an argument vector;
 //! there is no implicit shell. Every child starts a dedicated process group
 //! (and, on Linux, a new session),
 //! receives an explicitly supplied working directory and environment, and has
-//! bounded stdout/stderr capture. Cancellation and timeouts signal the whole
-//! process group with `SIGTERM`, then `SIGKILL` after the configured grace.
-//! Process groups are deliberately only an execution-lifecycle primitive: a
-//! descendant can call `setsid(2)` and escape them. Hard containment belongs to
-//! the platform sandbox below the shared runtime (Seatbelt on macOS and
-//! Bubblewrap/Landlock/cgroups on Linux). Callers must await
+//! bounded stdout/stderr capture. Unix cancellation signals a dedicated process
+//! group; Windows assigns the tree to a kill-on-close Job Object. Process groups
+//! are deliberately only an execution-lifecycle primitive: a Unix descendant
+//! can call `setsid(2)` and escape them. Hard containment belongs to the platform
+//! sandbox below the shared runtime. Callers must await
 //! [`ProcessHandle::wait`] before shutting down Tokio so cancellation can reach
 //! quiescence and final output can be drained.
 
@@ -18,17 +17,22 @@ use std::{
     ffi::{OsStr, OsString},
     future::pending,
     io,
-    os::unix::process::ExitStatusExt,
     path::PathBuf,
     process::{ExitStatus, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+#[cfg(windows)]
+use std::sync::Arc as WindowsArc;
+
 #[cfg(target_os = "macos")]
 use nix::unistd::setpgid;
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 use nix::unistd::setsid;
+#[cfg(unix)]
 use nix::{
     errno::Errno,
     sys::signal::{killpg, Signal},
@@ -42,6 +46,8 @@ use tokio::{
     time,
 };
 use xharness_debug::{DebugEvent, DebugRecorder};
+#[cfg(windows)]
+use xharness_win32::{Job, Win32Error};
 
 pub const DEFAULT_CAPTURE_LIMIT: usize = 256 * 1024;
 pub const DEFAULT_TERMINATION_GRACE: Duration = Duration::from_secs(2);
@@ -160,10 +166,30 @@ impl From<ExitStatus> for ProcessStatus {
         Self {
             success: status.success(),
             code: status.code(),
-            signal: status.signal(),
-            core_dumped: status.core_dumped(),
+            signal: exit_signal(&status),
+            core_dumped: exit_core_dumped(&status),
         }
     }
+}
+
+#[cfg(unix)]
+fn exit_signal(status: &ExitStatus) -> Option<i32> {
+    status.signal()
+}
+
+#[cfg(windows)]
+fn exit_signal(_status: &ExitStatus) -> Option<i32> {
+    None
+}
+
+#[cfg(unix)]
+fn exit_core_dumped(status: &ExitStatus) -> bool {
+    status.core_dumped()
+}
+
+#[cfg(windows)]
+fn exit_core_dumped(_status: &ExitStatus) -> bool {
+    false
 }
 
 /// One bounded stream capture.
@@ -386,6 +412,9 @@ pub enum ProcessError {
     MissingPid,
     #[error("process pid {0} does not fit the Unix pid type")]
     PidOutOfRange(u32),
+    #[cfg(windows)]
+    #[error(transparent)]
+    Win32(#[from] Win32Error),
     #[error("failed to spawn {program:?}: {source}")]
     Spawn {
         program: String,
@@ -414,17 +443,14 @@ pub enum ProcessError {
 /// Synchronous last-resort process-group cleanup. Tokio aborts spawned tasks
 /// when a Runtime is dropped; keeping this guard inside the supervisor makes
 /// that abort path kill the managed group instead of relying on async Drop.
-struct ProcessGroupGuard {
-    process_group: Pid,
+struct ProcessTreeGuard {
+    tree: NativeProcessTree,
     armed: bool,
 }
 
-impl ProcessGroupGuard {
-    const fn new(process_group: Pid) -> Self {
-        Self {
-            process_group,
-            armed: true,
-        }
+impl ProcessTreeGuard {
+    fn new(tree: NativeProcessTree) -> Self {
+        Self { tree, armed: true }
     }
 
     fn disarm(&mut self) {
@@ -432,15 +458,21 @@ impl ProcessGroupGuard {
     }
 }
 
-impl Drop for ProcessGroupGuard {
+impl Drop for ProcessTreeGuard {
     fn drop(&mut self) {
         if self.armed {
-            let _ = killpg(self.process_group, Signal::SIGKILL);
+            let _ = hard_kill_tree(&self.tree);
         }
     }
 }
 
-/// Stateless Unix process launcher.
+#[cfg(unix)]
+type NativeProcessTree = Pid;
+
+#[cfg(windows)]
+type NativeProcessTree = WindowsArc<Job>;
+
+/// Stateless native process launcher.
 #[derive(Clone, Debug, Default)]
 pub struct ProcessRuntime {
     debug: DebugRecorder,
@@ -455,7 +487,7 @@ impl ProcessRuntime {
         Self { debug }
     }
 
-    /// Spawn an executable directly, creating a new session/process group.
+    /// Spawn an executable directly, creating a managed native process tree.
     pub fn spawn(&self, spec: SpawnSpec) -> Result<ProcessHandle, ProcessError> {
         if spec.program.is_empty() {
             return Err(ProcessError::EmptyProgram);
@@ -463,6 +495,9 @@ impl ProcessRuntime {
         let runtime =
             tokio::runtime::Handle::try_current().map_err(|_| ProcessError::NoTokioRuntime)?;
         let diagnostic_spec = spawn_spec_payload(&spec);
+
+        #[cfg(windows)]
+        let pending_job = WindowsArc::new(Job::new_kill_on_close()?);
 
         let mut command = Command::new(&spec.program);
         command
@@ -484,6 +519,7 @@ impl ProcessRuntime {
         // A dedicated process group still gives the lifecycle runtime the
         // required tree-wide TERM/KILL semantics; hard containment remains a
         // responsibility of the platform sandbox.
+        #[cfg(unix)]
         unsafe {
             command.pre_exec(|| {
                 #[cfg(target_os = "macos")]
@@ -519,12 +555,22 @@ impl ProcessRuntime {
                 return Err(ProcessError::MissingPid);
             }
         };
-        let process_group = match i32::try_from(pid) {
+
+        #[cfg(unix)]
+        let process_tree = match i32::try_from(pid) {
             Ok(pid) => Pid::from_raw(pid),
             Err(_) => {
                 let _ = child.start_kill();
                 return Err(ProcessError::PidOutOfRange(pid));
             }
+        };
+        #[cfg(windows)]
+        let process_tree = {
+            if let Err(error) = pending_job.assign_pid(pid) {
+                let _ = child.start_kill();
+                return Err(ProcessError::Win32(error));
+            }
+            pending_job
         };
 
         let stdout = child
@@ -543,7 +589,7 @@ impl ProcessRuntime {
         runtime.spawn(async move {
             let result = supervise(
                 child,
-                process_group,
+                process_tree,
                 pid,
                 stdout,
                 stderr,
@@ -647,7 +693,7 @@ enum StopTrigger {
 #[allow(clippy::too_many_arguments)]
 async fn supervise(
     mut child: Child,
-    process_group: Pid,
+    process_tree: NativeProcessTree,
     pid: u32,
     stdout: tokio::process::ChildStdout,
     stderr: tokio::process::ChildStderr,
@@ -657,7 +703,7 @@ async fn supervise(
     diagnostic_spec: Value,
     live_output: Arc<LiveOutputState>,
 ) -> Result<ProcessOutput, ProcessError> {
-    let mut process_group_guard = ProcessGroupGuard::new(process_group);
+    let mut process_tree_guard = ProcessTreeGuard::new(process_tree);
     debug
         .record_lossy(DebugEvent::new(
             "process",
@@ -703,15 +749,15 @@ async fn supervise(
             let status = status.map_err(|source| io_error("waiting for process", source))?;
             // A tool is a contained process tree. Do not leave descendants
             // alive after its root exits and holding capture pipes open.
-            signal_group(process_group, Signal::SIGKILL)?;
+            hard_kill_tree(&process_tree_guard.tree)?;
             (status, TerminationReason::Exited)
         }
         StopTrigger::Cancelled => (
-            terminate_group(&mut child, process_group, termination_grace).await?,
+            terminate_tree(&mut child, &process_tree_guard.tree, termination_grace).await?,
             TerminationReason::Cancelled,
         ),
         StopTrigger::TimedOut => (
-            terminate_group(&mut child, process_group, termination_grace).await?,
+            terminate_tree(&mut child, &process_tree_guard.tree, termination_grace).await?,
             TerminationReason::TimedOut,
         ),
     };
@@ -731,7 +777,7 @@ async fn supervise(
     };
     let stdout = capture_result("stdout", stdout_result)?;
     let stderr = capture_result("stderr", stderr_result)?;
-    process_group_guard.disarm();
+    process_tree_guard.disarm();
     let output = ProcessOutput {
         pid,
         status: status.into(),
@@ -761,7 +807,8 @@ async fn cancellation_requested(receiver: &mut watch::Receiver<bool>) {
     // Dropping every sender is also cancellation.
 }
 
-async fn terminate_group(
+#[cfg(unix)]
+async fn terminate_tree(
     child: &mut Child,
     process_group: Pid,
     grace: Duration,
@@ -790,6 +837,20 @@ async fn terminate_group(
     }
 }
 
+#[cfg(windows)]
+async fn terminate_tree(
+    child: &mut Child,
+    process_tree: &NativeProcessTree,
+    _grace: Duration,
+) -> Result<ExitStatus, ProcessError> {
+    process_tree.terminate(1)?;
+    child
+        .wait()
+        .await
+        .map_err(|source| io_error("waiting after TerminateJobObject", source))
+}
+
+#[cfg(unix)]
 fn signal_group(process_group: Pid, signal: Signal) -> Result<(), ProcessError> {
     match killpg(process_group, signal) {
         Ok(()) | Err(Errno::ESRCH) => Ok(()),
@@ -798,6 +859,16 @@ fn signal_group(process_group: Pid, signal: Signal) -> Result<(), ProcessError> 
             io::Error::from_raw_os_error(error as i32),
         )),
     }
+}
+
+#[cfg(unix)]
+fn hard_kill_tree(process_tree: &NativeProcessTree) -> Result<(), ProcessError> {
+    signal_group(*process_tree, Signal::SIGKILL)
+}
+
+#[cfg(windows)]
+fn hard_kill_tree(process_tree: &NativeProcessTree) -> Result<(), ProcessError> {
+    process_tree.terminate(1).map_err(ProcessError::from)
 }
 
 async fn capture<R>(
