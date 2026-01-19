@@ -843,23 +843,6 @@ fn spawn_session(
             reader_state.lock().await.push(&chunk);
         }
     });
-    std::thread::Builder::new()
-        .name(format!("xharness-{id}-reader"))
-        .spawn(move || {
-            let mut buffer = [0u8; 8192];
-            loop {
-                match reader.read(&mut buffer) {
-                    Ok(0) | Err(_) => break,
-                    Ok(count) => {
-                        if output_tx.blocking_send(buffer[..count].to_vec()).is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        })
-        .map_err(|source| terminal_io("spawn ConPTY output reader", source))?;
-
     let mut command = CommandBuilder::new(&spec.process.program);
     command.args(&spec.process.args);
     command.cwd(&spec.process.cwd);
@@ -897,6 +880,26 @@ fn spawn_session(
             io::Error::other(source),
         ));
     }
+    // On Windows an unattached ConPTY output pipe can report EOF before the
+    // slave has spawned its first process. Start the blocking reader only
+    // after process creation and Job assignment so it cannot retire before
+    // the initial prompt or command output arrives.
+    std::thread::Builder::new()
+        .name(format!("xharness-{id}-reader"))
+        .spawn(move || {
+            let mut buffer = [0u8; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => {
+                        if output_tx.blocking_send(buffer[..count].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+        .map_err(|source| terminal_io("spawn ConPTY output reader", source))?;
 
     Ok(TerminalSession {
         id,
