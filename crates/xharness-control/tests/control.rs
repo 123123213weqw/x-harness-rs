@@ -195,9 +195,20 @@ async fn jsonl_round_trip_torn_tail_and_cross_instance_cas() {
         .unwrap();
     assert_eq!(recovered.revision(), ControlRevision(1));
 
-    let secret = first
+    first
         .append(
             ControlRevision(1),
+            vec![ControlEvent::MutationCommitted {
+                receipt: receipt("rpc-after-torn", "workspace.rename", json!({})),
+            }],
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.load().await.unwrap().revision(), ControlRevision(2));
+
+    let secret = first
+        .append(
+            ControlRevision(2),
             vec![
                 ControlEvent::SettingsSet {
                     settings: SettingsSnapshot {
@@ -217,7 +228,7 @@ async fn jsonl_round_trip_torn_tail_and_cross_instance_cas() {
     assert!(matches!(secret, ControlError::InvalidLog { .. }));
     let raw = fs::read_to_string(path).unwrap();
     assert!(!raw.contains("must-not-persist"));
-    assert_eq!(first.load().await.unwrap().revision(), ControlRevision(1));
+    assert_eq!(first.load().await.unwrap().revision(), ControlRevision(2));
 }
 
 #[test]
