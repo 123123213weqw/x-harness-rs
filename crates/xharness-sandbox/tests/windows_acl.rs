@@ -49,16 +49,26 @@ fn pwsh_path() -> PathBuf {
 }
 
 fn powershell(cwd: &Path, script: &str, arguments: &[&Path]) -> SpawnSpec {
+    let argument_references = (0..arguments.len())
+        .map(|index| format!("$env:XHARNESS_TEST_ARGUMENT_{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let mut spec = SpawnSpec::new(pwsh_path(), cwd).args([
         OsString::from("-NoLogo"),
         OsString::from("-NoProfile"),
         OsString::from("-NonInteractive"),
         OsString::from("-Command"),
-        OsString::from(format!("$ErrorActionPreference='Stop'; {script}")),
+        OsString::from(format!(
+            "$ErrorActionPreference='Stop'; $testArgs=@({argument_references}); {script}"
+        )),
     ]);
-    spec.args
-        .extend(arguments.iter().map(|path| path.as_os_str().to_owned()));
     spec.env = std::env::vars_os().collect::<BTreeMap<_, _>>();
+    for (index, path) in arguments.iter().enumerate() {
+        spec.env.insert(
+            OsString::from(format!("XHARNESS_TEST_ARGUMENT_{index}")),
+            path.as_os_str().to_owned(),
+        );
+    }
     spec.timeout = Some(Duration::from_secs(20));
     spec
 }
@@ -89,7 +99,7 @@ async fn workspace_write_allows_workspace_and_private_temp_but_denies_outside() 
         SandboxMode::WorkspaceWrite,
         powershell(
             &workspace,
-            "Set-Content -LiteralPath $args[0] -Value 'inside'; $tempFile=Join-Path $env:TEMP 'private.txt'; Set-Content -LiteralPath $tempFile -Value 'temp'; Write-Output (Get-Content -LiteralPath $tempFile)",
+            "Set-Content -LiteralPath $testArgs[0] -Value 'inside'; $tempFile=Join-Path $env:TEMP 'private.txt'; Set-Content -LiteralPath $tempFile -Value 'temp'; Write-Output (Get-Content -LiteralPath $tempFile)",
             &[&inside_file],
         ),
     )
@@ -103,7 +113,7 @@ async fn workspace_write_allows_workspace_and_private_temp_but_denies_outside() 
         SandboxMode::WorkspaceWrite,
         powershell(
             &workspace,
-            "Set-Content -LiteralPath $args[0] -Value 'outside'",
+            "Set-Content -LiteralPath $testArgs[0] -Value 'outside'",
             &[&outside_file],
         ),
     )
@@ -124,7 +134,7 @@ async fn read_only_keeps_standing_workspace_grant_inert() {
         SandboxMode::WorkspaceWrite,
         powershell(
             &workspace,
-            "Set-Content -LiteralPath $args[0] -Value 'first'",
+            "Set-Content -LiteralPath $testArgs[0] -Value 'first'",
             &[&writable],
         ),
     )
@@ -136,7 +146,7 @@ async fn read_only_keeps_standing_workspace_grant_inert() {
         SandboxMode::ReadOnly,
         powershell(
             &workspace,
-            "Set-Content -LiteralPath $args[0] -Value 'denied'",
+            "Set-Content -LiteralPath $testArgs[0] -Value 'denied'",
             &[&denied],
         ),
     )
