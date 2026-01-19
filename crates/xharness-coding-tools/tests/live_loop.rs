@@ -17,6 +17,15 @@ use xharness_web::WebRuntime;
 
 struct LiveWorkspace(PathBuf);
 
+#[cfg(unix)]
+const NATIVE_SHELL_TOOL: &str = "bash";
+#[cfg(windows)]
+const NATIVE_SHELL_TOOL: &str = "pwsh";
+#[cfg(unix)]
+const PYTHON_PROGRAM: &str = "python3";
+#[cfg(windows)]
+const PYTHON_PROGRAM: &str = "python";
+
 impl LiveWorkspace {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
@@ -149,20 +158,24 @@ async fn live_deepseek_uses_managed_jobs_instead_of_pty_or_nohup() {
     ))
     .expect("create live DeepSeek provider");
 
+    let background_command = if cfg!(windows) {
+        "Start-Sleep -Seconds 1; Write-Output 'deepseek-job-ok'"
+    } else {
+        "sleep 1; printf 'deepseek-job-ok\\n'"
+    };
     let mut request = LoopRequest::new(
         Arc::new(provider),
         vec![
-            AgentMessage::system(concat!(
-                "For long-running non-interactive commands use bash with ",
-                "run_in_background=true, retain the returned job_id, and collect it with ",
-                "job_output. Never emulate a managed background job with &, nohup, disown, ",
-                "screen, tmux, or a PTY."
+            AgentMessage::system(format!(
+                "For long-running non-interactive commands use {NATIVE_SHELL_TOOL} with \
+                 run_in_background=true, retain the returned job_id, and collect it with \
+                 job_output. Never emulate a managed background job with shell detachment, \
+                 nohup, disown, screen, tmux, or a PTY."
             )),
-            AgentMessage::user(concat!(
-                "Run this as a managed background job and return only after collecting its ",
-                "successful output: `sleep 1; printf 'deepseek-job-ok\\n'`. A traditional ",
-                "operator might use nohup or a PTY, but you must choose the Harness-native ",
-                "method exposed by the tools."
+            AgentMessage::user(format!(
+                "Run this as a managed background job and return only after collecting its \
+                 successful output: `{background_command}`. You must choose the Harness-native \
+                 method exposed by the tools."
             )),
         ],
     );
@@ -191,14 +204,14 @@ async fn live_deepseek_uses_managed_jobs_instead_of_pty_or_nohup() {
     println!("deepseek background result={result:?}");
 
     assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
-    let bash = calls
+    let shell = calls
         .iter()
-        .find(|(name, _)| name == "bash")
-        .expect("DeepSeek did not call bash");
-    let bash_arguments: serde_json::Value =
-        serde_json::from_str(&bash.1).expect("DeepSeek emitted invalid bash arguments");
-    assert_eq!(bash_arguments["run_in_background"], true);
-    let command = bash_arguments["command"].as_str().unwrap_or_default();
+        .find(|(name, _)| name == NATIVE_SHELL_TOOL)
+        .expect("DeepSeek did not call the native shell tool");
+    let shell_arguments: serde_json::Value =
+        serde_json::from_str(&shell.1).expect("DeepSeek emitted invalid shell arguments");
+    assert_eq!(shell_arguments["run_in_background"], true);
+    let command = shell_arguments["command"].as_str().unwrap_or_default();
     for forbidden in ["nohup", "disown", "tmux", "screen", "pty"] {
         assert!(
             !command.to_ascii_lowercase().contains(forbidden),
@@ -284,11 +297,12 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
     .expect("create live DeepSeek provider")
     .with_debug(debug.clone());
 
-    let prompt = concat!(
-        "You are fixing a real isolated coding task. Inspect `math_utils.py` and ",
-        "`test_math_utils.py`, correct the implementation without changing the test file, ",
-        "then run `python3 test_math_utils.py` with the bash tool. Do not merely describe ",
-        "the patch. Finish only after the command succeeds and include `FIXED` in the final answer."
+    let prompt = format!(
+        "You are fixing a real isolated coding task. Inspect `math_utils.py` and \
+         `test_math_utils.py`, correct the implementation without changing the test file, \
+         then run `{PYTHON_PROGRAM} test_math_utils.py` with the {NATIVE_SHELL_TOOL} tool. \
+         Do not merely describe the patch. Finish only after the command succeeds and include \
+         `FIXED` in the final answer."
     );
     let mut request = LoopRequest::new(Arc::new(provider), vec![AgentMessage::user(prompt)]);
     request.debug = debug.clone();
@@ -331,7 +345,7 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
     assert!(result.final_text.contains("FIXED"));
     assert!(calls.iter().any(|name| name == "read"));
     assert!(calls.iter().any(|name| name == "edit" || name == "write"));
-    assert!(calls.iter().any(|name| name == "bash"));
+    assert!(calls.iter().any(|name| name == NATIVE_SHELL_TOOL));
     let durable = journal
         .load("deepseek-flash-coding-acceptance")
         .await
@@ -361,7 +375,7 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
         test_source,
         "the model changed the acceptance test"
     );
-    let external = Command::new("python3")
+    let external = Command::new(PYTHON_PROGRAM)
         .arg("test_math_utils.py")
         .current_dir(&workspace.0)
         .output()
