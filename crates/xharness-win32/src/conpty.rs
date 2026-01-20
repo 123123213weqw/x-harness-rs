@@ -9,7 +9,9 @@ use std::{
 };
 
 use windows_sys::Win32::{
-    Foundation::{ERROR_INVALID_PARAMETER, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+    Foundation::{
+        ERROR_INVALID_PARAMETER, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    },
     System::{
         Console::{ClosePseudoConsole, CreatePseudoConsole, COORD, HPCON},
         Pipes::CreatePipe,
@@ -18,7 +20,8 @@ use windows_sys::Win32::{
             InitializeProcThreadAttributeList, ResumeThread, TerminateProcess,
             UpdateProcThreadAttribute, WaitForSingleObject, CREATE_SUSPENDED,
             CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
-            PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTUPINFOEXW,
+            PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES,
+            STARTUPINFOEXW,
         },
     },
 };
@@ -118,6 +121,13 @@ pub fn spawn_conpty(
     let attributes = AttributeList::for_pseudo_console(pseudo_console.as_raw())?;
     let mut startup: STARTUPINFOEXW = unsafe { mem::zeroed() };
     startup.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
+    // A detached service or CI runner can itself have redirected standard
+    // handles. Marking all three invalid prevents the child from bypassing
+    // ConPTY and writing to those parent handles instead.
+    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startup.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+    startup.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+    startup.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
     startup.lpAttributeList = attributes.as_raw();
     let mut information: PROCESS_INFORMATION = unsafe { mem::zeroed() };
     let mut command_line = command_line(program, args);
