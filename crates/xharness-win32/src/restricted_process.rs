@@ -38,8 +38,7 @@ impl RestrictedChild {
         let stdout = std_handle(STD_OUTPUT_HANDLE, "GetStdHandle(stdout)")?;
         let stderr = std_handle(STD_ERROR_HANDLE, "GetStdHandle(stderr)")?;
         let handles = [stdin, stdout, stderr];
-        let mut enabled = 0usize;
-        for handle in handles {
+        for (enabled, handle) in handles.into_iter().enumerate() {
             // SAFETY: standard handle values were validated above.
             if unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) }
                 == 0
@@ -52,7 +51,6 @@ impl RestrictedChild {
                 }
                 return Err(Win32Error::last("SetHandleInformation(enable inherit)"));
             }
-            enabled += 1;
         }
 
         // SAFETY: zero is a valid initial value for these Win32 POD records.
