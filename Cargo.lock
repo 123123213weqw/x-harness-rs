@@ -2299,6 +2299,7 @@ dependencies = [
  "xharness-process",
  "xharness-provider-openai",
  "xharness-sandbox",
+ "xharness-session",
  "xharness-tools",
  "xharness-web",
 ]
@@ -2322,10 +2323,12 @@ dependencies = [
  "async-trait",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.20",
  "tokio",
  "xharness-compaction",
  "xharness-session",
+ "xharness-token",
 ]
 
 [[package]]
@@ -2385,6 +2388,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.20",
  "tokio",
+ "xharness-win32",
 ]
 
 [[package]]
@@ -2393,6 +2397,7 @@ version = "0.1.0"
 dependencies = [
  "async-stream",
  "async-trait",
+ "chrono",
  "futures",
  "serde",
  "serde_json",
@@ -2492,6 +2497,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "xharness-debug",
+ "xharness-win32",
 ]
 
 [[package]]
@@ -2527,10 +2533,12 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "serde_json",
+ "sha2",
  "thiserror 2.0.20",
  "tokio",
  "xharness-debug",
  "xharness-process",
+ "xharness-win32",
 ]
 
 [[package]]
@@ -2547,6 +2555,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "xharness-agent",
+ "xharness-core",
  "xharness-session",
  "xharness-tools",
 ]
@@ -2606,6 +2615,7 @@ dependencies = [
  "tokio",
  "xharness-debug",
  "xharness-process",
+ "xharness-win32",
 ]
 
 [[package]]
@@ -2646,6 +2656,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "xharness-debug",
+]
+
+[[package]]
+name = "xharness-win32"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.20",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

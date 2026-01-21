@@ -9,10 +9,16 @@ use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Read, Write},
-    os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt};
+#[cfg(windows)]
+use std::os::windows::fs::{FileExt, OpenOptionsExt};
+#[cfg(windows)]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -29,6 +35,8 @@ const BATCH_RECORD: &str = "batch";
 const FILE_SUFFIX: &str = ".jsonl";
 const MAX_SESSION_ID_BYTES: usize = 200;
 const FINGERPRINT_SAMPLE_BYTES: usize = 4 * 1_024;
+#[cfg(windows)]
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 
 type SessionLock = AsyncMutex<()>;
 type LockTable = StdMutex<HashMap<PathBuf, Weak<SessionLock>>>;
@@ -175,7 +183,11 @@ impl Store for JsonlSessionStore {
                 header: session.header().clone(),
             };
             let bytes = encode_line(&record, &path)?;
-            let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            let mut file = match secure_open_options()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
                 Ok(file) => file,
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => {
                     return Err(StoreError::AlreadyExists { session_id });
@@ -284,19 +296,19 @@ impl Store for JsonlSessionStore {
                 events: receipt.events.clone(),
             };
             let bytes = encode_line(&record, &path)?;
-            let mut file = OpenOptions::new()
+            let mut file = secure_open_options()
                 .read(true)
                 .append(true)
                 .open(&path)
                 .map_err(|error| backend_error("open session for append", &path, error))?;
+            ensure_regular_file(&file, &path, "session log")?;
 
             let current_len = file
                 .metadata()
                 .map_err(|error| backend_error("inspect session before append", &path, error))?
                 .len();
             if current_len != loaded.valid_len {
-                file.set_len(loaded.valid_len)
-                    .map_err(|error| backend_error("truncate torn session tail", &path, error))?;
+                truncate_torn_tail(&path, loaded.valid_len)?;
             }
             if loaded.needs_separator {
                 file.write_all(b"\n").map_err(|error| {
@@ -333,13 +345,14 @@ impl Store for JsonlSessionStore {
                     session_id: owned_id,
                 });
             };
-            let file = OpenOptions::new()
+            let file = secure_open_options()
                 .read(true)
                 .write(true)
                 .open(&path)
                 .map_err(|error| {
                     backend_error("open session for durability flush", &path, error)
                 })?;
+            ensure_regular_file(&file, &path, "session log")?;
             file.sync_all()
                 .map_err(|error| backend_error("sync session data", &path, error))?;
             sync_parent_directory(&path)?;
@@ -422,12 +435,10 @@ fn process_lock(path: &Path) -> Result<Arc<SessionLock>, StoreError> {
 /// silently move a held lock to a stale inode.
 fn acquire_file_lock(session_path: &Path) -> Result<File, StoreError> {
     let lock_path = session_path.with_extension("lock");
-    let file = OpenOptions::new()
+    let file = secure_open_options()
         .read(true)
         .write(true)
         .create(true)
-        .mode(0o600)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(&lock_path)
         .map_err(|error| backend_error("open session lock", &lock_path, error))?;
     let metadata = file
@@ -444,6 +455,7 @@ fn acquire_file_lock(session_path: &Path) -> Result<File, StoreError> {
     Ok(file)
 }
 
+#[cfg(unix)]
 fn sync_parent_directory(path: &Path) -> Result<(), StoreError> {
     let parent = path
         .parent()
@@ -451,6 +463,24 @@ fn sync_parent_directory(path: &Path) -> Result<(), StoreError> {
     File::open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| backend_error("sync session directory", parent, error))
+}
+
+#[cfg(windows)]
+fn sync_parent_directory(path: &Path) -> Result<(), StoreError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| backend_message(format!("session path {} has no parent", path.display())))?;
+    if fs::metadata(parent)
+        .map_err(|error| backend_error("inspect session directory", parent, error))?
+        .is_dir()
+    {
+        Ok(())
+    } else {
+        Err(backend_message(format!(
+            "session directory {} is not a directory",
+            parent.display()
+        )))
+    }
 }
 
 fn validate_session_id(session_id: &str) -> Result<(), StoreError> {
@@ -584,16 +614,51 @@ fn fingerprint_from_metadata(
     if !metadata.is_file() {
         return Err(corrupt(path, 1, "session path is not a regular file"));
     }
+    #[cfg(unix)]
+    let identity = (
+        metadata.dev(),
+        metadata.ino(),
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+        metadata.ctime(),
+        metadata.ctime_nsec(),
+    );
+    #[cfg(windows)]
+    let identity = {
+        let modified = system_time_parts(metadata.modified());
+        let created = system_time_parts(metadata.created());
+        (0, 0, modified.0, modified.1, created.0, created.1)
+    };
     Ok(FileFingerprint {
-        dev: metadata.dev(),
-        ino: metadata.ino(),
+        dev: identity.0,
+        ino: identity.1,
         len: metadata.len(),
-        modified_seconds: metadata.mtime(),
-        modified_nanoseconds: metadata.mtime_nsec(),
-        changed_seconds: metadata.ctime(),
-        changed_nanoseconds: metadata.ctime_nsec(),
+        modified_seconds: identity.2,
+        modified_nanoseconds: identity.3,
+        changed_seconds: identity.4,
+        changed_nanoseconds: identity.5,
         sample_hash: sample_file_hash(path, metadata.len())?,
     })
+}
+
+#[cfg(windows)]
+fn system_time_parts(value: std::io::Result<SystemTime>) -> (i64, i64) {
+    let Ok(value) = value else {
+        return (0, 0);
+    };
+    match value.duration_since(UNIX_EPOCH) {
+        Ok(duration) => (
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
+            i64::from(duration.subsec_nanos()),
+        ),
+        Err(error) => {
+            let duration = error.duration();
+            (
+                -i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
+                -i64::from(duration.subsec_nanos()),
+            )
+        }
+    }
 }
 
 /// Metadata catches normal cooperating appends in O(1). A small positional
@@ -601,11 +666,11 @@ fn fingerprint_from_metadata(
 /// timestamp granularity cannot distinguish two writes. Sampling remains
 /// bounded (at most 12 KiB) and therefore cannot regress into full-log replay.
 fn sample_file_hash(path: &Path, len: u64) -> Result<u64, StoreError> {
-    let file = OpenOptions::new()
+    let file = secure_open_options()
         .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(path)
         .map_err(|error| backend_error("open session fingerprint sample", path, error))?;
+    ensure_regular_file(&file, path, "session log")?;
     let sample_len = u64::try_from(FINGERPRINT_SAMPLE_BYTES).expect("sample size fits in u64");
     let offsets = [
         0,
@@ -619,8 +684,7 @@ fn sample_file_hash(path: &Path, len: u64) -> Result<u64, StoreError> {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x100_0000_01b3);
         }
-        let count = file
-            .read_at(&mut buffer, offset)
+        let count = read_file_at(&file, &mut buffer, offset)
             .map_err(|error| backend_error("read session fingerprint sample", path, error))?;
         for byte in &buffer[..count] {
             hash ^= u64::from(*byte);
@@ -645,17 +709,12 @@ fn load_file(path: &Path, session_id: &str) -> Result<Option<LoadedFile>, StoreE
         return Err(corrupt(path, 1, "session path is not a regular file"));
     }
 
-    let mut file = match File::open(path) {
+    let mut file = match secure_open_options().read(true).open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(backend_error("open session", path, error)),
     };
-    let metadata = file
-        .metadata()
-        .map_err(|error| backend_error("inspect session", path, error))?;
-    if !metadata.is_file() {
-        return Err(corrupt(path, 1, "opened session is not a regular file"));
-    }
+    ensure_regular_file(&file, path, "session log")?;
 
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
@@ -841,6 +900,55 @@ fn extend_batch_record(
 
 fn backend_error(action: &str, path: &Path, error: std::io::Error) -> StoreError {
     backend_message(format!("{action} {}: {error}", path.display()))
+}
+
+fn secure_open_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    #[cfg(unix)]
+    options
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    #[cfg(windows)]
+    options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    options
+}
+
+fn truncate_torn_tail(path: &Path, valid_len: u64) -> Result<(), StoreError> {
+    // Windows append-only handles have FILE_APPEND_DATA but not the
+    // FILE_WRITE_DATA access required by SetEndOfFile. Keep the append handle
+    // open for append semantics and use a short-lived writable handle for
+    // crash-tail repair. The per-path and inter-process locks serialize all
+    // cooperating writers around both operations.
+    let file = secure_open_options()
+        .write(true)
+        .open(path)
+        .map_err(|error| backend_error("open session for tail repair", path, error))?;
+    ensure_regular_file(&file, path, "session log")?;
+    file.set_len(valid_len)
+        .map_err(|error| backend_error("truncate torn session tail", path, error))
+}
+
+fn ensure_regular_file(file: &File, path: &Path, label: &str) -> Result<(), StoreError> {
+    let metadata = file
+        .metadata()
+        .map_err(|error| backend_error(&format!("inspect opened {label}"), path, error))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(backend_message(format!(
+            "{label} {} is not a regular file",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn read_file_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    file.read_at(buffer, offset)
+}
+
+#[cfg(windows)]
+fn read_file_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    file.seek_read(buffer, offset)
 }
 
 fn backend_message(message: impl Into<String>) -> StoreError {

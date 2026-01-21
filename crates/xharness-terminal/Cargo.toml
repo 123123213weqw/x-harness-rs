@@ -4,13 +4,18 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Owner-scoped persistent Unix PTY sessions for XHarness"
+description = "Owner-scoped persistent PTY and ConPTY sessions for XHarness"
 
 [dependencies]
-nix = { version = "0.30.1", default-features = false, features = ["fs", "process", "signal", "term"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "process"] }
 xharness-process = { path = "../xharness-process" }
 xharness-debug = { path = "../xharness-debug" }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30.1", default-features = false, features = ["fs", "process", "signal", "term"] }
+
+[target.'cfg(windows)'.dependencies]
+xharness-win32 = { path = "../xharness-win32" }

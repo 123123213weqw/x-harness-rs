@@ -730,6 +730,9 @@ fn fetch_client(
 ) -> Result<Client, WebError> {
     let host = url.host_str().ok_or(WebError::UnsupportedUrl)?;
     let mut builder = Client::builder()
+        // The resolved addresses are the SSRF boundary. An ambient forward
+        // proxy would resolve the hostname itself and bypass this pin.
+        .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(config.fetch_timeout)
         .user_agent("xharness-web/0.1");

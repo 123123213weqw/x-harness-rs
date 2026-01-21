@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Fail-closed native Linux and macOS sandbox preparation for XHarness"
+description = "Fail-closed native Linux, macOS and Windows sandbox preparation for XHarness"
 
 [dependencies]
 async-trait.workspace = true
@@ -14,6 +14,10 @@ tokio.workspace = true
 xharness-process = { path = "../xharness-process" }
 
 xharness-debug = { path = "../xharness-debug" }
+
+[target.'cfg(windows)'.dependencies]
+sha2.workspace = true
+xharness-win32 = { path = "../xharness-win32" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

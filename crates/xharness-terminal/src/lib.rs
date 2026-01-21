@@ -1,17 +1,12 @@
-//! Owner-scoped persistent PTY sessions for macOS and Linux.
+//! Owner-scoped persistent terminal sessions.
 //!
-//! Sessions use a real controlling terminal. Output is retained in a bounded
-//! byte/line scrollback with monotonic cursors; callers never infer process
-//! exit from a quiet period. Signals target the terminal's foreground process
-//! group when available.
+//! Unix sessions use a real controlling terminal and Windows sessions use the
+//! native ConPTY backend. Output is retained in a bounded byte/line scrollback
+//! with monotonic cursors; callers never infer process exit from a quiet period.
 
 use std::{
     collections::{HashMap, VecDeque},
-    fs::File,
     io,
-    os::fd::OwnedFd,
-    os::unix::process::ExitStatusExt,
-    process::Stdio,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
@@ -19,6 +14,16 @@ use std::{
     time::Duration,
 };
 
+#[cfg(windows)]
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::{
+    fs::File,
+    os::{fd::OwnedFd, unix::process::ExitStatusExt},
+    process::Stdio,
+};
+
+#[cfg(unix)]
 use nix::{
     errno::Errno,
     libc,
@@ -28,14 +33,16 @@ use nix::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+#[cfg(unix)]
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     process::{Child, Command},
-    sync::Mutex,
-    time,
 };
+use tokio::{sync::Mutex, time};
 use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
 use xharness_process::SpawnSpec;
+#[cfg(windows)]
+use xharness_win32::{spawn_conpty, ConPtyChild};
 
 const DEFAULT_MAX_SESSIONS_PER_OWNER: usize = 16;
 const DEFAULT_SCROLLBACK_BYTES: usize = 1024 * 1024;
@@ -97,6 +104,7 @@ pub enum TerminalSignal {
 }
 
 impl TerminalSignal {
+    #[cfg(unix)]
     const fn as_nix(self) -> Signal {
         match self {
             Self::Interrupt => Signal::SIGINT,
@@ -260,15 +268,7 @@ impl TerminalRegistry {
                 name: name.to_owned(),
             });
         }
-        let mut writer = session.writer.lock().await;
-        writer
-            .write_all(input)
-            .await
-            .map_err(|source| terminal_io("write PTY input", source))?;
-        writer
-            .flush()
-            .await
-            .map_err(|source| terminal_io("flush PTY input", source))?;
+        session.write_input(input).await?;
         let cursor = session.state.lock().await.total_bytes;
         self.trace(
             owner,
@@ -321,7 +321,7 @@ impl TerminalRegistry {
         signal: TerminalSignal,
     ) -> Result<(), TerminalError> {
         let session = self.session(owner, name).await?;
-        let result = session.signal(signal);
+        let result = session.signal(signal).await;
         self.trace(
             owner,
             "signal",
@@ -341,23 +341,7 @@ impl TerminalRegistry {
                 .ok_or_else(|| TerminalError::NotFound {
                     name: name.to_owned(),
                 })?;
-        let _ = session.signal(TerminalSignal::Terminate);
-        let mut child = session.child.lock().await;
-        if time::timeout(self.config.close_grace, child.wait())
-            .await
-            .is_err()
-        {
-            let _ = session.signal(TerminalSignal::Kill);
-            // The foreground command may have its own process group. Kill the
-            // session leader as a final fallback so `close` cannot wait forever
-            // after only terminating that foreground group.
-            let _ = child.start_kill();
-            child
-                .wait()
-                .await
-                .map_err(|source| terminal_io("wait after PTY kill", source))?;
-        }
-        drop(child);
+        session.close(self.config.close_grace).await?;
         session.refresh_status().await?;
         let result = self.read_detached(&session, None).await;
         self.trace(
@@ -467,25 +451,40 @@ struct TerminalSession {
     id: String,
     name: String,
     pid: u32,
+    #[cfg(unix)]
     control_fd: Arc<OwnedFd>,
+    #[cfg(unix)]
     writer: Mutex<tokio::fs::File>,
+    #[cfg(unix)]
     child: Mutex<Child>,
+    #[cfg(windows)]
+    writer: Mutex<Box<dyn Write + Send>>,
+    #[cfg(windows)]
+    child: Mutex<ConPtyChild>,
     state: Arc<Mutex<Scrollback>>,
 }
 
 impl TerminalSession {
     async fn refresh_status(&self) -> Result<(), TerminalError> {
+        #[cfg(unix)]
         let status = self
             .child
             .lock()
             .await
             .try_wait()
             .map_err(|source| terminal_io("inspect PTY child", source))?;
+        #[cfg(windows)]
+        let status = self
+            .child
+            .lock()
+            .await
+            .try_wait()
+            .map_err(|source| terminal_io("inspect ConPTY child", io::Error::other(source)))?;
         if let Some(status) = status {
             let mut state = self.state.lock().await;
             state.running = false;
-            state.exit_code = status.code();
-            state.exit_signal = status.signal();
+            state.exit_code = exit_code(&status);
+            state.exit_signal = exit_signal(&status);
         }
         Ok(())
     }
@@ -502,7 +501,32 @@ impl TerminalSession {
         })
     }
 
-    fn signal(&self, signal: TerminalSignal) -> Result<(), TerminalError> {
+    #[cfg(unix)]
+    async fn write_input(&self, input: &[u8]) -> Result<(), TerminalError> {
+        let mut writer = self.writer.lock().await;
+        writer
+            .write_all(input)
+            .await
+            .map_err(|source| terminal_io("write PTY input", source))?;
+        writer
+            .flush()
+            .await
+            .map_err(|source| terminal_io("flush PTY input", source))
+    }
+
+    #[cfg(windows)]
+    async fn write_input(&self, input: &[u8]) -> Result<(), TerminalError> {
+        let mut writer = self.writer.lock().await;
+        writer
+            .write_all(input)
+            .map_err(|source| terminal_io("write ConPTY input", source))?;
+        writer
+            .flush()
+            .map_err(|source| terminal_io("flush ConPTY input", source))
+    }
+
+    #[cfg(unix)]
+    async fn signal(&self, signal: TerminalSignal) -> Result<(), TerminalError> {
         let group = tcgetpgrp(self.control_fd.as_ref()).or_else(|error| {
             if error == Errno::ENOTTY {
                 i32::try_from(self.pid)
@@ -524,6 +548,85 @@ impl TerminalSession {
                 "signal PTY foreground process group",
                 io::Error::from_raw_os_error(error as i32),
             )),
+        }
+    }
+
+    #[cfg(windows)]
+    async fn signal(&self, signal: TerminalSignal) -> Result<(), TerminalError> {
+        match signal {
+            // ConPTY converts the terminal control character into the console
+            // control event understood by interactive PowerShell and console
+            // programs. It is preferable to force-killing the process tree.
+            TerminalSignal::Interrupt => self.write_input(&[0x03]).await,
+            TerminalSignal::Terminate | TerminalSignal::Kill | TerminalSignal::Hangup => self
+                .child
+                .lock()
+                .await
+                .terminate(if signal == TerminalSignal::Kill {
+                    137
+                } else {
+                    143
+                })
+                .map_err(|source| {
+                    terminal_io("terminate ConPTY process tree", io::Error::other(source))
+                }),
+            TerminalSignal::Suspend => Err(terminal_io(
+                "suspend ConPTY process",
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "Windows ConPTY does not support job-control suspension",
+                ),
+            )),
+        }
+    }
+
+    #[cfg(unix)]
+    async fn close(&self, grace: Duration) -> Result<(), TerminalError> {
+        let _ = self.signal(TerminalSignal::Terminate).await;
+        let mut child = self.child.lock().await;
+        if time::timeout(grace, child.wait()).await.is_err() {
+            let _ = self.signal(TerminalSignal::Kill).await;
+            // The foreground command may have its own process group. Kill the
+            // session leader as a final fallback so `close` cannot wait forever.
+            let _ = child.start_kill();
+            child
+                .wait()
+                .await
+                .map_err(|source| terminal_io("wait after PTY kill", source))?;
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    async fn close(&self, grace: Duration) -> Result<(), TerminalError> {
+        // Give an interactive shell a chance to handle Ctrl-C and unwind. If
+        // it remains alive, close the entire Job boundary deterministically.
+        let _ = self.signal(TerminalSignal::Interrupt).await;
+        let deadline = time::Instant::now() + grace;
+        loop {
+            self.refresh_status().await?;
+            if !self.state.lock().await.running {
+                return Ok(());
+            }
+            if time::Instant::now() >= deadline {
+                break;
+            }
+            time::sleep(Duration::from_millis(20)).await;
+        }
+        self.signal(TerminalSignal::Kill).await?;
+        let settle_deadline = time::Instant::now() + Duration::from_secs(2);
+        loop {
+            self.refresh_status().await?;
+            if !self.state.lock().await.running {
+                return Ok(());
+            }
+            if time::Instant::now() >= settle_deadline {
+                return Err(terminal_io(
+                    "wait after ConPTY kill",
+                    io::Error::new(io::ErrorKind::TimedOut, "ConPTY child did not settle"),
+                ));
+            }
+            time::sleep(Duration::from_millis(20)).await;
         }
     }
 }
@@ -574,6 +677,7 @@ impl Scrollback {
     }
 }
 
+#[cfg(unix)]
 fn spawn_session(
     spec: TerminalOpenSpec,
     config: &TerminalConfig,
@@ -686,6 +790,103 @@ fn spawn_session(
         child: Mutex::new(child),
         state,
     })
+}
+
+#[cfg(windows)]
+fn spawn_session(
+    spec: TerminalOpenSpec,
+    config: &TerminalConfig,
+    debug: DebugRecorder,
+) -> Result<TerminalSession, TerminalError> {
+    let conpty = spawn_conpty(
+        &spec.process.program,
+        &spec.process.args,
+        &spec.process.cwd,
+        &spec.process.env,
+        30,
+        120,
+    )
+    .map_err(|source| terminal_io("spawn native ConPTY child", io::Error::other(source)))?;
+    let pid = conpty.child.pid();
+    let mut reader = conpty.reader;
+    let state = Arc::new(Mutex::new(Scrollback::new(
+        config.scrollback_bytes,
+        config.scrollback_lines,
+    )));
+    let id = format!(
+        "conpty-{:016x}",
+        NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
+    );
+    let trace_id = id.clone();
+    let trace_name = spec.name.clone();
+    let trace_owner = spec.owner.clone();
+    let reader_state = Arc::clone(&state);
+    let (output_tx, mut output_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
+    tokio::spawn(async move {
+        while let Some(chunk) = output_rx.recv().await {
+            debug
+                .record_lossy(
+                    DebugEvent::new(
+                        "terminal",
+                        "output.chunk",
+                        json!({
+                            "terminalId": &trace_id,
+                            "name": &trace_name,
+                            "bytes": chunk.len(),
+                            "content": String::from_utf8_lossy(&chunk),
+                        }),
+                    )
+                    .with_scope(DebugScope::default().with_session(trace_owner.clone())),
+                )
+                .await;
+            reader_state.lock().await.push(&chunk);
+        }
+    });
+    std::thread::Builder::new()
+        .name(format!("xharness-{id}-reader"))
+        .spawn(move || {
+            let mut buffer = [0u8; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => {
+                        if output_tx.blocking_send(buffer[..count].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+        .map_err(|source| terminal_io("spawn ConPTY output reader", source))?;
+
+    Ok(TerminalSession {
+        id,
+        name: spec.name,
+        pid,
+        writer: Mutex::new(Box::new(conpty.writer)),
+        child: Mutex::new(conpty.child),
+        state,
+    })
+}
+
+#[cfg(unix)]
+fn exit_code(status: &std::process::ExitStatus) -> Option<i32> {
+    status.code()
+}
+
+#[cfg(windows)]
+fn exit_code(status: &u32) -> Option<i32> {
+    i32::try_from(*status).ok()
+}
+
+#[cfg(unix)]
+fn exit_signal(status: &std::process::ExitStatus) -> Option<i32> {
+    status.signal()
+}
+
+#[cfg(windows)]
+fn exit_signal(_status: &u32) -> Option<i32> {
+    None
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
