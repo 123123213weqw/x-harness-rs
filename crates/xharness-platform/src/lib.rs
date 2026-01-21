@@ -17,13 +17,14 @@ use xharness_fs::{FsError, FsService, FsTarget, ObservationStore};
 use xharness_process::{ProcessError, ProcessHandle, ProcessRuntime, SpawnSpec};
 use xharness_sandbox::{NativeSandbox, NetworkAccess, SandboxError, SandboxMode, SandboxPolicy};
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-compile_error!("xharness-platform currently supports only Linux and macOS");
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+compile_error!("xharness-platform currently supports only Linux, macOS and Windows");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlatformKind {
     MacOS,
     Linux,
+    Windows,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,6 +85,8 @@ impl PlatformKind {
     pub const CURRENT: Self = Self::Linux;
     #[cfg(target_os = "macos")]
     pub const CURRENT: Self = Self::MacOS;
+    #[cfg(windows)]
+    pub const CURRENT: Self = Self::Windows;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,6 +163,7 @@ pub enum PlatformError {
 #[derive(Clone)]
 pub struct NativePlatform {
     workspace_root: PathBuf,
+    filesystem_root: PathBuf,
     access: PlatformAccess,
     filesystem: FsService,
     process: ProcessRuntime,
@@ -196,11 +200,11 @@ impl NativePlatform {
                 source,
             })?;
         let filesystem_root = if config.access == PlatformAccess::FullAccess {
-            Path::new("/")
+            native_filesystem_root(&workspace_root)
         } else {
-            workspace_root.as_path()
+            workspace_root.clone()
         };
-        let filesystem = FsService::with_observations(filesystem_root, observations)?;
+        let filesystem = FsService::with_observations(&filesystem_root, observations)?;
         let sandbox = if let Some(mode) = config.access.sandbox_mode() {
             let mut policy = SandboxPolicy::new(&workspace_root, mode).with_network(config.network);
             for root in config.allowed_cwd_roots {
@@ -212,6 +216,7 @@ impl NativePlatform {
         };
         Ok(Self {
             workspace_root,
+            filesystem_root,
             access: config.access,
             filesystem,
             process: ProcessRuntime::with_debug(debug.clone()),
@@ -230,15 +235,16 @@ impl NativePlatform {
     }
 
     /// Canonical session workspace used as the default cwd even when the
-    /// structured filesystem is rooted at `/` for Full access.
+    /// structured filesystem uses the native volume root for Full access.
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
     }
 
     /// Resolve a model-supplied file path under the active permission mode.
     /// Workspace write keeps the hardened workspace-relative capability.
-    /// Full access roots that same race-safe implementation at `/`, while
-    /// preserving workspace-relative inputs for ordinary coding tasks.
+    /// Full access roots that same race-safe implementation at the native
+    /// filesystem root, while preserving workspace-relative inputs for
+    /// ordinary coding tasks.
     pub fn resolve_file(&self, input: impl AsRef<Path>) -> Result<FsTarget, FsError> {
         let input = input.as_ref();
         if self.access != PlatformAccess::FullAccess {
@@ -249,12 +255,12 @@ impl NativePlatform {
         } else {
             self.workspace_root.join(input)
         };
-        let relative = absolute
-            .strip_prefix("/")
-            .map_err(|_| FsError::InvalidPath {
+        let relative = strip_native_root(&absolute, &self.filesystem_root).ok_or_else(|| {
+            FsError::InvalidPath {
                 display: input.to_string_lossy().into_owned(),
-                reason: "full-access path is not rooted",
-            })?;
+                reason: "full-access path is outside the workspace volume",
+            }
+        })?;
         self.filesystem.resolve(relative)
     }
 
@@ -365,6 +371,33 @@ impl NativePlatform {
             .map_err(|error| error.to_string())
     }
 
+    #[cfg(windows)]
+    async fn probe_native_sandbox(&self) -> Result<(), String> {
+        let spec = SpawnSpec::new("cmd.exe", &self.workspace_root).args(["/D", "/C", "exit 0"]);
+        let prepared = self
+            .sandbox
+            .as_ref()
+            .expect("restricted platform has a sandbox")
+            .prepare(spec)
+            .await
+            .map_err(|error| error.to_string())?;
+        let output = self
+            .process
+            .spawn(prepared)
+            .map_err(|error| error.to_string())?
+            .wait()
+            .await
+            .map_err(|error| error.to_string())?;
+        if output.status.success {
+            Ok(())
+        } else {
+            Err(format!(
+                "Windows ACL sandbox probe failed: {}",
+                output.stderr.text.trim()
+            ))
+        }
+    }
+
     /// Apply the native sandbox without spawning. This keeps policy decisions
     /// inspectable and lets higher layers journal the final argv first.
     pub async fn prepare_spawn(&self, spec: SpawnSpec) -> Result<SpawnSpec, PlatformError> {
@@ -390,6 +423,52 @@ const fn native_sandbox_name() -> &'static str {
 #[cfg(target_os = "macos")]
 const fn native_sandbox_name() -> &'static str {
     "seatbelt"
+}
+
+#[cfg(windows)]
+const fn native_sandbox_name() -> &'static str {
+    "windows-acl-partial"
+}
+
+#[cfg(unix)]
+fn native_filesystem_root(_workspace: &Path) -> PathBuf {
+    PathBuf::from("/")
+}
+
+#[cfg(windows)]
+fn native_filesystem_root(workspace: &Path) -> PathBuf {
+    let mut root = PathBuf::new();
+    for component in workspace.components() {
+        root.push(component.as_os_str());
+        if matches!(component, std::path::Component::RootDir) {
+            break;
+        }
+    }
+    root
+}
+
+#[cfg(not(windows))]
+fn strip_native_root<'a>(path: &'a Path, root: &Path) -> Option<&'a Path> {
+    path.strip_prefix(root).ok()
+}
+
+#[cfg(windows)]
+fn strip_native_root(path: &Path, root: &Path) -> Option<PathBuf> {
+    let path_components = path.components().collect::<Vec<_>>();
+    let root_components = root.components().collect::<Vec<_>>();
+    if root_components.len() > path_components.len()
+        || !root_components
+            .iter()
+            .zip(&path_components)
+            .all(|(left, right)| {
+                left.as_os_str()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&right.as_os_str().to_string_lossy())
+            })
+    {
+        return None;
+    }
+    Some(path_components[root_components.len()..].iter().collect())
 }
 
 impl std::fmt::Debug for NativePlatform {

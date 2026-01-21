@@ -612,23 +612,23 @@ pub(crate) fn project_session_event_range(
 ///
 /// The browser deliberately keeps event facts and their presentation apart:
 /// the `session/event` envelope carries `event` plus an optional `view`.  A
-/// plain `tool/call` therefore remains valid, but specialized rows (notably
-/// Bash) cannot expand unless the Host supplies the matching card contract.
+/// plain `tool/call` therefore remains valid, but specialized shell rows
+/// cannot expand unless the Host supplies the matching card contract.
 /// Keeping this derivation beside the durable projector makes live delivery,
 /// paged history and restart replay use exactly the same data.
 pub(crate) fn project_session_event_view(session: &Session, event: &LoggedEvent) -> Option<Value> {
     match event.data() {
         EventData::ToolCall { call, .. } => terminal_call_view(&call.name, &call.arguments_json),
         EventData::ToolResult { result, .. } => {
-            let is_bash = session.events().iter().rev().any(|candidate| {
+            let is_shell = session.events().iter().rev().any(|candidate| {
                 candidate.seq < event.seq
                     && matches!(
                         candidate.data(),
                         EventData::ToolCall { call, .. }
-                            if call.id == result.call_id && call.name == "bash"
+                            if call.id == result.call_id && is_shell_tool(&call.name)
                     )
             });
-            if !is_bash {
+            if !is_shell {
                 return None;
             }
             // Older journals may predate structured Tool metadata. Their
@@ -649,7 +649,7 @@ pub(crate) fn project_session_event_view(session: &Session, event: &LoggedEvent)
 /// Recover the same optional presentation from an already projected Web
 /// event. This keeps the legacy in-memory adapter and bounded tail cache
 /// compatible with the authoritative durable path. It intentionally accepts
-/// only the distinctive Bash foreground-result shape, so arbitrary JSON tool
+/// only the distinctive native-shell foreground-result shape, so arbitrary JSON tool
 /// output cannot accidentally become executable-looking terminal chrome.
 pub(crate) fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value> {
     match event.get("type").and_then(Value::as_str)? {
@@ -663,14 +663,17 @@ pub(crate) fn project_web_event_view(event: &Value, history: &[Value]) -> Option
         "tool/result" => {
             let call_id = event.pointer("/data/message/source/callId")?.as_str()?;
             let seq = event.get("seq").and_then(Value::as_u64);
-            let is_bash = history.iter().rev().any(|candidate| {
+            let is_shell = history.iter().rev().any(|candidate| {
                 candidate.get("type").and_then(Value::as_str) == Some("tool/call")
                     && candidate.pointer("/data/callId").and_then(Value::as_str) == Some(call_id)
-                    && candidate.pointer("/data/name").and_then(Value::as_str) == Some("bash")
+                    && candidate
+                        .pointer("/data/name")
+                        .and_then(Value::as_str)
+                        .is_some_and(is_shell_tool)
                     && seq
                         .is_none_or(|seq| candidate.get("seq").and_then(Value::as_u64) < Some(seq))
             });
-            if !is_bash {
+            if !is_shell {
                 return None;
             }
             let result_text = event
@@ -684,7 +687,7 @@ pub(crate) fn project_web_event_view(event: &Value, history: &[Value]) -> Option
 }
 
 fn terminal_call_view(name: &str, arguments_json: &str) -> Option<Value> {
-    if name != "bash" {
+    if !is_shell_tool(name) {
         return None;
     }
     let arguments = serde_json::from_str::<Value>(arguments_json).ok()?;
@@ -701,6 +704,10 @@ fn terminal_call_view(name: &str, arguments_json: &str) -> Option<Value> {
         view.insert("description".to_owned(), json!(description));
     }
     Some(json!({"for": "call", "view": Value::Object(view)}))
+}
+
+fn is_shell_tool(name: &str) -> bool {
+    matches!(name, "bash" | "pwsh")
 }
 
 fn terminal_result_view(metadata: &Value) -> Option<Value> {
@@ -4050,6 +4057,51 @@ mod tests {
     }
 
     #[test]
+    fn pwsh_call_and_foreground_result_use_the_same_terminal_view_contract() {
+        let session = closed_tool_session(
+            "pwsh",
+            json!({"command": "Write-Output ok"}).to_string(),
+            ToolResultData {
+                call_id: "pwsh-1".to_owned(),
+                outcome: ToolOutcome::Success,
+                content: "model-facing result".to_owned(),
+                metadata: Some(json!({
+                    "kind": "foreground",
+                    "stdout": "ok\n",
+                    "stderr": "",
+                    "exit_code": 0,
+                    "signal": null
+                })),
+            },
+        );
+        let call = session
+            .events()
+            .iter()
+            .find(|event| matches!(event.data(), EventData::ToolCall { .. }))
+            .unwrap();
+        let result = session
+            .events()
+            .iter()
+            .find(|event| matches!(event.data(), EventData::ToolResult { .. }))
+            .unwrap();
+
+        assert_eq!(
+            project_session_event_view(&session, call),
+            Some(json!({
+                "for": "call",
+                "view": {"card": "terminal", "title": "Write-Output ok"}
+            }))
+        );
+        assert_eq!(
+            project_session_event_view(&session, result),
+            Some(json!({
+                "for": "result",
+                "view": {"card": "terminal", "output": "ok\n", "exitCode": 0}
+            }))
+        );
+    }
+
+    #[test]
     fn terminal_view_projection_is_fail_closed_for_non_foreground_or_bad_shapes() {
         for (index, metadata) in [
             json!({"kind": "background", "stdout": "not a terminal result"}),
@@ -4098,7 +4150,7 @@ mod tests {
         );
 
         // A custom tool may deliberately return the same metadata shape as
-        // Bash. It must remain generic rather than acquiring terminal chrome.
+        // A native shell. It must remain generic rather than acquiring terminal chrome.
         let custom_session = closed_tool_session(
             "custom",
             "{}".to_owned(),
