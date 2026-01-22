@@ -1,0 +1,30 @@
+[package]
+name = "xharness-desktop"
+version = "0.1.0"
+description = "XHarness Tauri desktop shell"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/123123213weqw/x-harness-rs"
+publish = false
+
+[lib]
+name = "xharness_desktop"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+getrandom = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-shell = "2.3.6"
+tauri-plugin-updater = "2.11.0"
+tokio = { version = "1", features = ["fs", "io-util", "net", "sync", "time"] }
+url = "2"
+
+# Keep the desktop shell outside the repository's main Rust workspace. The
+# Host remains a reusable server/CLI binary, while each platform CI build first
+# compiles it and stages it as this app's target-specific Tauri sidecar.
+[workspace]

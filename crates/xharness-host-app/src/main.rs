@@ -16,7 +16,7 @@ use xharness_host::{
 use xharness_host_app::{ManagedAgentMarkdownSink, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
-use xharness_server::{serve, web_router_with_debug};
+use xharness_server::{serve, web_router_with_debug_and_desktop_token};
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
 use xharness_web::WebRuntime;
@@ -56,6 +56,9 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
                 "protocol": format!("{:?}", args.protocol),
                 "providersFile": args.providers_file.as_ref().map(|path| path.to_string_lossy()),
                 "compaction": &args.compaction,
+                "desktopMode": args.desktop_token.is_some(),
+                "shutdownFile": args.shutdown_file.as_ref().map(|path| path.to_string_lossy()),
+                "readyFile": args.ready_file.as_ref().map(|path| path.to_string_lossy()),
             }),
         ))
         .await?;
@@ -154,9 +157,15 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         );
     }
     let backend: Arc<dyn ApiBackend> = host;
-    let router = web_router_with_debug(backend, args.static_dir, debug.clone());
+    let router = web_router_with_debug_and_desktop_token(
+        backend,
+        args.static_dir,
+        debug.clone(),
+        args.desktop_token.clone(),
+    );
     let listener = TcpListener::bind(args.bind).await?;
     let local_addr = listener.local_addr()?;
+    publish_ready_file(args.ready_file.as_deref(), local_addr).await?;
     debug
         .record(DebugEvent::new(
             "host",
@@ -173,7 +182,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let mut signal_error = None;
     let early_server_result = tokio::select! {
         result = &mut server_task => Some(result),
-        signal = shutdown_signal() => {
+        signal = shutdown_signal(args.shutdown_file.clone()) => {
             signal_error = signal.err();
             None
         }
@@ -225,11 +234,46 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     if let Some(result) = server_result {
         result.map_err(|error| std::io::Error::other(format!("server task failed: {error}")))??;
     }
+    remove_runtime_file(args.ready_file.as_deref()).await?;
     Ok(())
 }
 
+async fn publish_ready_file(
+    path: Option<&std::path::Path>,
+    address: SocketAddr,
+) -> std::io::Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    remove_runtime_file(Some(path)).await?;
+    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+    tokio::fs::write(&temporary, address.to_string()).await?;
+    tokio::fs::rename(&temporary, path).await
+}
+
+async fn remove_runtime_file(path: Option<&std::path::Path>) -> std::io::Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+async fn shutdown_signal(shutdown_file: Option<PathBuf>) -> std::io::Result<()> {
+    tokio::select! {
+        result = os_shutdown_signal() => result,
+        result = shutdown_file_signal(shutdown_file) => result,
+    }
+}
+
 #[cfg(unix)]
-async fn shutdown_signal() -> std::io::Result<()> {
+async fn os_shutdown_signal() -> std::io::Result<()> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     tokio::select! {
         result = tokio::signal::ctrl_c() => result,
@@ -238,8 +282,31 @@ async fn shutdown_signal() -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
-async fn shutdown_signal() -> std::io::Result<()> {
+async fn os_shutdown_signal() -> std::io::Result<()> {
     tokio::signal::ctrl_c().await
+}
+
+async fn shutdown_file_signal(shutdown_file: Option<PathBuf>) -> std::io::Result<()> {
+    let path = match shutdown_file {
+        Some(path) => path,
+        None => return std::future::pending::<std::io::Result<()>>().await,
+    };
+    // Remove a stale request before accepting work. The desktop shell creates
+    // a fresh random path per process, while this cleanup makes development
+    // restarts deterministic after an unclean exit.
+    match tokio::fs::remove_file(&path).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    loop {
+        match tokio::fs::metadata(&path).await {
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 struct Args {
@@ -260,6 +327,9 @@ struct Args {
     compaction: Option<CompactionConfig>,
     debug_trace: DebugTraceMode,
     debug_dir: PathBuf,
+    desktop_token: Option<String>,
+    shutdown_file: Option<PathBuf>,
+    ready_file: Option<PathBuf>,
 }
 
 impl Args {
@@ -290,6 +360,9 @@ impl Args {
             .parse::<DebugTraceMode>()
             .map_err(|error| error.to_string())?;
         let mut debug_dir = env::var_os("XHARNESS_DEBUG_DIR").map(PathBuf::from);
+        let mut desktop_token = env::var("XHARNESS_DESKTOP_TOKEN").ok();
+        let mut shutdown_file = env::var_os("XHARNESS_SHUTDOWN_FILE").map(PathBuf::from);
+        let mut ready_file = env::var_os("XHARNESS_READY_FILE").map(PathBuf::from);
 
         let mut arguments = env::args().skip(1);
         while let Some(argument) = arguments.next() {
@@ -330,10 +403,14 @@ impl Args {
                         .map_err(|error| error.to_string())?
                 }
                 "--debug-dir" => debug_dir = Some(PathBuf::from(value)),
+                "--desktop-token" => desktop_token = Some(value),
+                "--shutdown-file" => shutdown_file = Some(PathBuf::from(value)),
+                "--ready-file" => ready_file = Some(PathBuf::from(value)),
                 _ => return Err(format!("unknown argument {argument:?}")),
             }
         }
         let debug_dir = debug_dir.unwrap_or_else(|| state_dir.join("debug"));
+        validate_desktop_boundary(bind, desktop_token.as_deref())?;
         Ok(Self {
             bind,
             workspace,
@@ -352,8 +429,28 @@ impl Args {
             compaction,
             debug_trace,
             debug_dir,
+            desktop_token,
+            shutdown_file,
+            ready_file,
         })
     }
+}
+
+fn validate_desktop_boundary(bind: SocketAddr, token: Option<&str>) -> Result<(), String> {
+    let Some(token) = token else {
+        return Ok(());
+    };
+    if !bind.ip().is_loopback() {
+        return Err("desktop mode must bind to a loopback address".to_owned());
+    }
+    if token.len() < 32
+        || !token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~'))
+    {
+        return Err("desktop token must contain at least 32 URL-safe ASCII bytes".to_owned());
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -521,5 +618,20 @@ mod tests {
         assert!(!parsed.auto);
         assert_eq!(parsed.threshold_ratio, 0.7);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn desktop_mode_requires_a_strong_token_and_loopback_listener() {
+        assert!(validate_desktop_boundary(
+            "127.0.0.1:0".parse().unwrap(),
+            Some("0123456789abcdef0123456789abcdef")
+        )
+        .is_ok());
+        assert!(validate_desktop_boundary(
+            "0.0.0.0:3082".parse().unwrap(),
+            Some("0123456789abcdef0123456789abcdef")
+        )
+        .is_err());
+        assert!(validate_desktop_boundary("127.0.0.1:0".parse().unwrap(), Some("short")).is_err());
     }
 }
