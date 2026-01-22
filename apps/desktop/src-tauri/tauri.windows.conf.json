@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": [
+      "binaries/xharness-host",
+      "binaries/rg",
+      "binaries/xharness-windows-sandbox-runner"
+    ]
+  }
+}
