@@ -18,6 +18,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
@@ -93,11 +97,24 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build native host
         run: cargo build --locked --release -p xharness-host-app
+      - name: Check native Tauri desktop shell
+        run: |
+          command -v rg >/dev/null || brew install ripgrep
+          python3 scripts/stage-tauri-sidecar.py target/release/xharness-host aarch64-apple-darwin
+          python3 scripts/stage-tauri-sidecar.py "$(command -v rg)" aarch64-apple-darwin --name rg
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+          cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
       - name: Package native host
         run: |
           command -v rg >/dev/null || brew install ripgrep
@@ -115,3 +132,32 @@ jobs:
             dist/xharness-host-darwin-arm64.tar.gz
             dist/xharness-host-darwin-arm64.tar.gz.sha256
           if-no-files-found: error
+
+  desktop-linux:
+    name: Tauri Desktop / Linux x86_64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Stage debug Host sidecar
+        run: |
+          cargo build --locked -p xharness-host-app
+          TARGET="$(rustc -vV | sed -n 's/^host: //p')"
+          python3 scripts/stage-tauri-sidecar.py target/debug/xharness-host "$TARGET"
+          python3 scripts/stage-tauri-sidecar.py "$(command -v rg)" "$TARGET" --name rg
+      - run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+      - run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+      - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+      - run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: node scripts/test-desktop-updater.mjs

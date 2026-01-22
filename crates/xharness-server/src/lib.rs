@@ -10,10 +10,11 @@ use axum::{
     body::Bytes,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        DefaultBodyLimit, Path, Query, State,
+        DefaultBodyLimit, Path, Query, Request, State,
     },
-    http::{header, HeaderMap, Method, StatusCode},
-    response::{IntoResponse, Response},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -31,6 +32,7 @@ use xharness_api::{
 use xharness_debug::{DebugEvent, DebugRecorder};
 
 pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 160 * 1024 * 1024;
+const DESKTOP_COOKIE_NAME: &str = "xharness_desktop";
 
 #[derive(Clone)]
 struct ServerState {
@@ -166,7 +168,38 @@ pub fn web_router_with_debug(
     static_dir: Option<PathBuf>,
     debug: DebugRecorder,
 ) -> Router {
-    let router = api_router_with_debug(backend, debug);
+    web_router_with_debug_and_desktop_token(backend, static_dir, debug, None)
+}
+
+/// Build the Web product carrier and optionally protect every `/api` route
+/// with a per-launch desktop token.
+///
+/// The static shell and readiness endpoint intentionally remain public on the
+/// caller-owned listener. A Tauri desktop shell starts the Host on a random
+/// loopback port, opens the one-time bootstrap URL, and receives an HttpOnly,
+/// same-site cookie before the SPA loads. Browser/server deployments pass
+/// `None` and keep their existing authentication boundary (for example a
+/// reverse proxy in front of this router).
+pub fn web_router_with_debug_and_desktop_token(
+    backend: Arc<dyn ApiBackend>,
+    static_dir: Option<PathBuf>,
+    debug: DebugRecorder,
+    desktop_token: Option<String>,
+) -> Router {
+    let mut router = api_router_with_debug(backend, debug);
+    if let Some(token) = desktop_token {
+        let auth = DesktopAuth::new(token);
+        router = router
+            .route_layer(middleware::from_fn_with_state(
+                auth.clone(),
+                require_desktop_auth,
+            ))
+            .route(
+                "/desktop/bootstrap",
+                get(desktop_bootstrap).with_state(auth),
+            );
+    }
+    router = router.route("/health/ready", get(health_ready));
     match static_dir {
         Some(root) => {
             let index = root.join("index.html");
@@ -174,6 +207,100 @@ pub fn web_router_with_debug(
         }
         None => router,
     }
+}
+
+#[derive(Clone)]
+struct DesktopAuth {
+    token: Arc<str>,
+}
+
+impl DesktopAuth {
+    fn new(token: String) -> Self {
+        Self {
+            token: Arc::from(token),
+        }
+    }
+
+    fn accepts(&self, candidate: &str) -> bool {
+        // Keep comparison work independent of the first mismatching byte. The
+        // token is local-only, but avoiding an early-return comparison costs
+        // almost nothing and prevents this boundary from becoming weaker when
+        // desktop transports evolve.
+        if candidate.len() != self.token.len() {
+            return false;
+        }
+        candidate
+            .as_bytes()
+            .iter()
+            .zip(self.token.as_bytes())
+            .fold(0_u8, |difference, (left, right)| {
+                difference | (left ^ right)
+            })
+            == 0
+    }
+}
+
+#[derive(Deserialize)]
+struct DesktopBootstrapQuery {
+    token: String,
+}
+
+async fn desktop_bootstrap(
+    State(auth): State<DesktopAuth>,
+    Query(query): Query<DesktopBootstrapQuery>,
+) -> Response {
+    if !auth.accepts(&query.token) {
+        return (StatusCode::UNAUTHORIZED, "invalid desktop bootstrap token").into_response();
+    }
+    let cookie = format!(
+        "{DESKTOP_COOKIE_NAME}={}; HttpOnly; SameSite=Strict; Path=/",
+        query.token
+    );
+    let Ok(cookie) = HeaderValue::from_str(&cookie) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let mut response = Redirect::to("/").into_response();
+    response.headers_mut().insert(header::SET_COOKIE, cookie);
+    response
+}
+
+async fn require_desktop_auth(
+    State(auth): State<DesktopAuth>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let header_token = request
+        .headers()
+        .get("x-xharness-desktop-token")
+        .and_then(|value| value.to_str().ok());
+    let cookie_token = request
+        .headers()
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(desktop_cookie);
+    if header_token
+        .or(cookie_token)
+        .is_some_and(|candidate| auth.accepts(candidate))
+    {
+        next.run(request).await
+    } else {
+        (StatusCode::UNAUTHORIZED, "desktop authentication required").into_response()
+    }
+}
+
+fn desktop_cookie(cookies: &str) -> Option<&str> {
+    cookies.split(';').find_map(|cookie| {
+        let (name, value) = cookie.trim().split_once('=')?;
+        (name == DESKTOP_COOKIE_NAME).then_some(value)
+    })
+}
+
+async fn health_ready() -> Json<Value> {
+    Json(json!({
+        "ok": true,
+        "service": "xharness-host",
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
 }
 
 /// Serve a prebuilt Router on a caller-owned listener until shutdown resolves.
