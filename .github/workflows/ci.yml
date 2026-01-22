@@ -115,6 +115,28 @@ jobs:
           cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Build installable macOS application
+        uses: tauri-apps/tauri-action@v0.6.2
+        with:
+          projectPath: apps/desktop
+          args: >-
+            --target aarch64-apple-darwin
+            --bundles app
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Package macOS application
+        run: |
+          ditto -c -k --keepParent \
+            apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/XHarness.app \
+            dist/XHarness-macos-arm64.zip
+          shasum -a 256 dist/XHarness-macos-arm64.zip > dist/XHarness-macos-arm64.zip.sha256
+      - name: Upload macOS application
+        uses: actions/upload-artifact@v7
+        with:
+          name: XHarness-macos-arm64
+          path: |
+            dist/XHarness-macos-arm64.zip
+            dist/XHarness-macos-arm64.zip.sha256
+          if-no-files-found: error
       - name: Package native host
         run: |
           command -v rg >/dev/null || brew install ripgrep
