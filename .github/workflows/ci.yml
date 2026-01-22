@@ -39,6 +39,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
@@ -84,6 +88,46 @@ jobs:
           path: |
             dist/xharness-host-windows-x86_64.zip
             dist/xharness-host-windows-x86_64.zip.sha256
+          if-no-files-found: error
+      - name: Stage Windows Tauri sidecars
+        run: |
+          $target = 'x86_64-pc-windows-msvc'
+          python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe $target
+          python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
+          python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
+      - name: Check native Tauri desktop shell
+        run: |
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+          cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+          python scripts/test-windows-desktop-bundle.py
+          node scripts/test-desktop-updater.mjs
+      - name: Build installable Windows application
+        uses: tauri-apps/tauri-action@v0.6.2
+        with:
+          projectPath: apps/desktop
+          args: >-
+            --target x86_64-pc-windows-msvc
+            --bundles nsis
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Hash Windows installer
+        run: |
+          $bundle = 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'
+          $installers = @(Get-ChildItem -LiteralPath $bundle -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) {
+            throw "expected exactly one NSIS installer, found $($installers.Count)"
+          }
+          $installer = $installers[0]
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -Encoding ascii "$($installer.FullName).sha256"
+      - name: Upload Windows application
+        uses: actions/upload-artifact@v7
+        with:
+          name: XHarness-windows-x64
+          path: |
+            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sha256
           if-no-files-found: error
 
   rust-macos-arm64:
