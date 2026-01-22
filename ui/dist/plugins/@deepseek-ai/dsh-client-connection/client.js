@@ -5294,8 +5294,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		const modelSelectionSchema = object({
 			provider: string().min(1),
 			model: string().min(1),
-			reasoningEffort: string().min(1).optional(),
-			contextWindowTokens: number().int().positive().optional()
+			reasoningEffort: string().min(1).optional()
 		});
 		/** Exact-model reasoning metadata. */
 		const modelReasoningSchema = object({
@@ -5311,10 +5310,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			id: string().min(1),
 			name: string().min(1),
 			description: string().optional(),
-			reasoning: modelReasoningSchema.optional(),
-			contextWindow: number().int().positive().optional(),
-			contextWindowSource: string().min(1).optional(),
-			contextWindowCapability: unknown().optional()
+			reasoning: modelReasoningSchema.optional()
 		});
 		/** One successfully loaded provider group. */
 		const modelProviderGroupSchema = object({
@@ -5385,8 +5381,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			sessionId: sessionIdSchema,
 			provider: string().min(1),
 			model: string().min(1),
-			reasoningEffort: string().min(1).optional(),
-			contextWindowTokens: number().int().positive().optional()
+			reasoningEffort: string().min(1).optional()
 		});
 		/** session.selectModel response value. */
 		const sessionSelectModelValueSchema = object({ selected: modelSelectionSchema });
