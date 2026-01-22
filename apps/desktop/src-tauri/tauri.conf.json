@@ -25,6 +25,11 @@
       "capabilities": ["desktop-main"]
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": ""
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
