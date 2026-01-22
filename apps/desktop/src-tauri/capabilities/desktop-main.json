@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-main",
+  "description": "Minimal desktop bridge for the bundled XHarness loopback UI",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  },
+  "platforms": ["linux", "macOS"],
+  "permissions": ["core:default"]
+}

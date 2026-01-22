@@ -6,3 +6,9 @@ target/
 # Local Rust/package outputs. The deployable browser bundle under `ui/dist/`
 # is intentionally versioned so a fresh clone can start the Web product.
 /dist/
+
+# Tauri downloads/stages target-specific sidecars for packaging. Only the
+# empty directory marker is versioned; release binaries come from CI builds.
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/binaries/xharness-host-*
+apps/desktop/src-tauri/binaries/rg-*
