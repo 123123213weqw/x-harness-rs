@@ -383,7 +383,13 @@ fn valid_env_name(name: &str) -> bool {
 
 fn provider_secret_candidates(app_config: &Path, name: &str) -> Vec<PathBuf> {
     let normalized = name.to_ascii_lowercase();
+    #[cfg(target_os = "macos")]
     let mut paths = vec![
+        app_config.join("secrets").join(name),
+        app_config.join("secrets").join(&normalized),
+    ];
+    #[cfg(not(target_os = "macos"))]
+    let paths = vec![
         app_config.join("secrets").join(name),
         app_config.join("secrets").join(&normalized),
     ];
