@@ -56,3 +56,9 @@ Windows ACL 后端与 DeepSeek Harness 参考设计一样显式报告 `partial`�
 GitHub Actions 的 `Rust / Windows x86_64` job 在 `windows-2025` 上执行全工作区
 format/check/test/clippy，然后生成 `xharness-host-windows-x86_64.zip`。产物包含 Host、
 ACL runner、ripgrep、Web UI、DeepSeek 配置与 PowerShell 7 启动脚本。
+
+同一个 job 还会构建 Tauri v2 Windows x64 客户端及 NSIS 安装器。桌面包复用同一个 Host，
+并将 `xharness-host.exe`、固定版本 `rg.exe` 和 `xharness-windows-sandbox-runner.exe` 作为目标架构
+Sidecar 一起打包。Pull Request 产物带 SHA-256；`desktop-v*` Tag Release 使用 Tauri Updater
+私钥签署更新元数据。Updater 签名用于防篡改，不等同于 Authenticode 品牌签名；未配置代码签名
+证书的安装器可能显示 SmartScreen 警告。Windows 桌面版与便携 Host 一样要求 PowerShell 7。
