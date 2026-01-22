@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**状态日期：** 2026-09-02
+**状态日期：** 2026-09-04
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -18,10 +18,11 @@ Commit、Issue、PR 应引用这些 ID。
 OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 11 个
 Coding/Job/Web Tool、Linux/macOS/Windows 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
 
-当前共有 `DONE-01`—`DONE-73` 七十三个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
+当前共有 `DONE-01`—`DONE-76` 七十六个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
 Web 对话重启恢复、模型性能指标投影、长思考输出预算、大 Session 热路径、逐模型推理强度、
 Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Context 的回归，以及后台 Job
-第一阶段、持久 Schedule、会话权限/推理强度刷新保持和历史 Assistant 请求侧投影。
+第一阶段、持久 Schedule、会话权限/推理强度刷新保持、历史 Assistant 请求侧投影与 Tauri
+桌面 Sidecar/签名更新基线。
 
 以下能力已经完成主体，不应再描述成“尚未接入”：
 
@@ -371,6 +372,15 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   终端使用 ConPTY，模型命令使用 PowerShell 7 并可显式调用 OpenSSH/Git Bash。Windows Server
   2025 CI 执行全 workspace format/check/test/clippy、release 打包；DeepSeek V4 长任务验收保持
   手动 secret workflow，未实际运行前不得声称在线通过。
+- [x] `DONE-77` Tauri 桌面壳与一键更新基线：`apps/desktop` 使用 Tauri v2 打包同一个
+  `xharness-host` Sidecar 与版本化 Web UI；Host 自己绑定 `127.0.0.1:0` 并以原子 Ready File
+  回传地址，避免端口预占 TOCTOU。每次启动用独立 256-bit Token 交换 HttpOnly/SameSite Cookie，
+  `/api` 无凭据 401；浏览器部署保持原边界。关窗/更新通过 Shutdown File 复用 Agent→Loop→Tool→
+  Job/Process 结构化收尾，15 秒后才强停。独立产品脚本提供自动检查、用户点击下载/安装、进度与
+  重试，不进入上游 Client Module 图。签名 Updater、Sidecar Staging、macOS ARM64/Linux x64
+  Release Workflow、图标、中文规范和缓存 CI 已接入。WZU_Server 通过 Desktop Test/Clippy、Host
+  Token/Ready/Shutdown 真实进程验收；正式 Developer ID 公证、Linux 安装回归和 Release Secret
+  配置仍是发布门禁，不冒充已完成的签名发布。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -585,6 +595,11 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 
 - [ ] `P1-12` **资源 Policy。** CPU/Memory/File/Process/Output Quota、Per-tool Policy、
   条件允许时接 Linux cgroup v2，并让 Quota Failure 可观测。
+
+- [ ] `P1-13` **Windows 原生执行层。** `xharness-platform/process/fs/sandbox` 增加 Windows
+  实现：PowerShell 7 默认 Shell、CreateProcess/Job Object 后代清理、Reparse Point 安全文件访问、
+  ACL/受限 Token 或 AppContainer 策略、路径/编码/信号语义与原生 CI。完成前 Tauri Release 禁止
+  发布 Windows 空壳；完成后再把 Windows x64/arm64、代码签名和升级回滚加入桌面矩阵。
 
 ## P2 — Host、API 与 UI
 
