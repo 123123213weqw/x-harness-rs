@@ -35,7 +35,7 @@
   -> 接收强类型 completion + usage
   -> 原子追加 assistant message
        | 无 call + Stop             -> Completed
-       | 有 call + ToolCalls/legacy -> 审批 + 工具批次
+       | 有 call + ToolCalls        -> xharness-tools 审批 + 工具批次
        | Length + 有续写预算         -> 丢弃残缺 Call，保存输出，下一 Step 续写
        | Length + 无续写预算         -> MaxTokens
        | finish 组合非法            -> Failed
@@ -140,8 +140,8 @@ Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只�
 - 事件已使用按数量和序列化 Byte 双预算的非阻塞 Ring Journal；WebSocket 跨连接 Cursor 尚未完成。
 - `LoopRun` 表示一次 Run，不是带持久 Inbox 的长生命周期 Agent。
 - Provider 自有 replay 状态当前仍以 JSON Value 暴露。
-- 旧 `LoopRequest.tools` 兼容 Scheduler 仍待 `P0-03` 删除；正式 Host 和 11 个原生工具
-  已统一走具备有界 Signal/Join 的 `xharness-tools::ToolExecutor`。
+- Core 只接受 `xharness-tools::ToolExecutor`；定义投影、Schema、审批、并发调度、超时、取消和恢复
+  统一走具备有界 Signal/Join 的同一条 Runtime 路径。
 
 完整目标契约见[上下文预算与压缩规范](context.md)。Hard Guard、自动 Summary Surface Replace
 和重计量已封住已知超窗发送路径；手动 Compact、生产 Pruner/Spill 与逐模型精确 Tokenizer 仍是

@@ -10,7 +10,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -47,7 +47,7 @@ use crate::{
     InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind, LoopRequest,
     LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role, SessionSnapshot,
     StepUsage, TokenBudgetError, TokenBudgetReport, TokenEstimateRequest, TokenUsage, ToolCall,
-    ToolConcurrency, ToolResult, ToolSpec,
+    ToolResult,
 };
 
 static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -2891,45 +2891,24 @@ impl Runner {
     }
 
     async fn tool_definitions(&self) -> Vec<crate::ToolDefinition> {
-        match &self.request.tool_executor {
-            Some(executor) => executor
-                .registry()
-                .definitions()
-                .await
-                .into_iter()
-                .map(|definition| crate::ToolDefinition {
-                    name: definition.name,
-                    description: definition.description,
-                    parameters: definition.parameters,
-                })
-                .collect(),
-            None => self
-                .request
-                .tools
-                .iter()
-                .map(|tool| tool.definition.clone())
-                .collect(),
-        }
+        let Some(executor) = &self.request.tool_executor else {
+            return Vec::new();
+        };
+        executor
+            .registry()
+            .definitions()
+            .await
+            .into_iter()
+            .map(|definition| crate::ToolDefinition {
+                name: definition.name,
+                description: definition.description,
+                parameters: definition.parameters,
+            })
+            .collect()
     }
 
     async fn execute_tool_batch(&mut self, calls: Vec<ToolCall>) -> Result<(), RunFailure> {
-        if self.request.tool_executor.is_some() {
-            return self.execute_runtime_tool_batch(calls).await;
-        }
-        let mut scheduled = calls
-            .into_iter()
-            .enumerate()
-            .map(|(order, call)| ScheduledTool::new(order, call, &self.request.tools))
-            .collect::<Vec<_>>();
-        let mut completed = std::iter::repeat_with(|| None)
-            .take(scheduled.len())
-            .collect::<Vec<Option<ToolExecution>>>();
-        let completed_count = self
-            .resolve_tool_approvals(&mut scheduled, &mut completed)
-            .await?;
-        self.run_tool_scheduler(&mut scheduled, &mut completed, completed_count)
-            .await?;
-        self.finalize_tool_batch(completed).await
+        self.execute_runtime_tool_batch(calls).await
     }
 
     async fn execute_runtime_tool_batch(&mut self, calls: Vec<ToolCall>) -> Result<(), RunFailure> {
@@ -2951,11 +2930,9 @@ impl Runner {
         calls: Vec<(usize, ToolCall)>,
         recovered_approvals: &HashMap<String, String>,
     ) -> Result<Vec<ToolExecution>, RunFailure> {
-        let executor = self
-            .request
-            .tool_executor
-            .clone()
-            .expect("runtime path requires a configured tool executor");
+        let executor = self.request.tool_executor.clone().unwrap_or_else(|| {
+            xharness_tools::ToolExecutor::new(Arc::new(xharness_tools::ToolRegistry::new()))
+        });
         let (signal_tx, mut signal_rx) = mpsc::unbounded_channel();
         let bridge = Arc::new(CoreToolRuntimeBridge { signal_tx });
         let executor = executor
@@ -3270,118 +3247,7 @@ impl Runner {
     }
 
     async fn resume_tool_batch(&mut self, recovery: RecoveredToolBatch) -> Result<(), RunFailure> {
-        if self.request.tool_executor.is_some() {
-            return self.resume_runtime_tool_batch(recovery).await;
-        }
-        let mut scheduled = recovery
-            .calls
-            .iter()
-            .enumerate()
-            .map(|(order, recovered)| {
-                ScheduledTool::new(order, recovered.call.clone(), &self.request.tools)
-            })
-            .collect::<Vec<_>>();
-        let mut completed = std::iter::repeat_with(|| None)
-            .take(scheduled.len())
-            .collect::<Vec<Option<ToolExecution>>>();
-        let mut completed_count = 0usize;
-        let mut pending_approval_ids = recovery
-            .calls
-            .iter()
-            .filter_map(|call| call.approval.as_ref().map(|approval| approval.id.clone()))
-            .collect::<Vec<_>>();
-
-        for (order, recovered) in recovery.calls.into_iter().enumerate() {
-            let Some(approval) = recovered.approval else {
-                if recovered.replay_safe {
-                    continue;
-                }
-                scheduled[order].started = true;
-                let result = ToolResult::failure(xharness_session::OUTCOME_UNKNOWN_CONTENT);
-                let execution = ToolExecution {
-                    order,
-                    call: recovered.call,
-                    outcome: ToolOutcome::OutcomeUnknown,
-                    result,
-                    model_text: xharness_session::OUTCOME_UNKNOWN_CONTENT.to_owned(),
-                };
-                self.emit(LoopEventKind::ToolCompleted {
-                    call: execution.call.clone(),
-                    result: execution.result.clone(),
-                })
-                .await?;
-                completed[order] = Some(execution);
-                completed_count += 1;
-                continue;
-            };
-
-            self.emit(LoopEventKind::ToolApprovalRequested {
-                approval_id: approval.id.clone(),
-                call: recovered.call.clone(),
-            })
-            .await?;
-            let decision = match self.wait_for_approval(&recovered.call.id).await {
-                Ok(decision) => decision,
-                Err(failure) => {
-                    self.journal_cancel_pending_approvals(&mut pending_approval_ids)
-                        .await?;
-                    return Err(failure);
-                }
-            };
-            match decision {
-                ApprovalDecision::Approved => {
-                    self.journal_approval_decided(&approval.id, ApprovalOutcome::AllowedOnce)
-                        .await?;
-                    pending_approval_ids.retain(|pending| pending != &approval.id);
-                    self.emit(LoopEventKind::ToolApprovalResolved {
-                        approval_id: approval.id,
-                        call: recovered.call,
-                        approved: true,
-                        reason: None,
-                    })
-                    .await?;
-                }
-                ApprovalDecision::Rejected(reason) => {
-                    let reason = if reason.trim().is_empty() {
-                        "rejected by host".to_owned()
-                    } else {
-                        reason
-                    };
-                    self.journal_approval_decided(&approval.id, ApprovalOutcome::Rejected)
-                        .await?;
-                    pending_approval_ids.retain(|pending| pending != &approval.id);
-                    self.emit(LoopEventKind::ToolApprovalResolved {
-                        approval_id: approval.id,
-                        call: recovered.call.clone(),
-                        approved: false,
-                        reason: Some(reason.clone()),
-                    })
-                    .await?;
-                    scheduled[order].started = true;
-                    let result = ToolResult::failure(format!("tool rejected: {reason}"));
-                    let (model_text, _) =
-                        tool_result_for_model(&result, self.request.config.tool_result_limit_bytes);
-                    let execution = ToolExecution {
-                        order,
-                        call: recovered.call,
-                        outcome: ToolOutcome::Error,
-                        result,
-                        model_text,
-                    };
-                    self.emit(LoopEventKind::ToolCompleted {
-                        call: execution.call.clone(),
-                        result: execution.result.clone(),
-                    })
-                    .await?;
-                    completed[order] = Some(execution);
-                    completed_count += 1;
-                }
-            }
-        }
-
-        self.run_tool_scheduler(&mut scheduled, &mut completed, completed_count)
-            .await?;
-        self.finalize_tool_batch(completed).await
+        self.resume_runtime_tool_batch(recovery).await
     }
 
     async fn resume_runtime_tool_batch(
@@ -3435,93 +3301,6 @@ impl Runner {
         self.finalize_tool_batch(completed).await
     }
 
-    async fn run_tool_scheduler(
-        &mut self,
-        scheduled: &mut [ScheduledTool],
-        completed: &mut [Option<ToolExecution>],
-        mut completed_count: usize,
-    ) -> Result<(), RunFailure> {
-        let mut active: FuturesUnordered<ToolFuture> = FuturesUnordered::new();
-        let mut active_modes = HashMap::<usize, (ToolConcurrency, String)>::new();
-
-        while completed_count < scheduled.len() {
-            self.drain_commands(false).await?;
-            if self.paused && active.is_empty() {
-                self.wait_while_paused(false).await?;
-                continue;
-            }
-
-            if !self.paused {
-                let mut launched_any = true;
-                while launched_any && active.len() < self.request.config.max_tool_concurrency {
-                    launched_any = false;
-                    let barrier = scheduled
-                        .iter()
-                        .position(|item| !item.started && item.mode == ToolConcurrency::Exclusive)
-                        .unwrap_or(scheduled.len());
-
-                    for item in scheduled.iter_mut().take(barrier) {
-                        if active.len() >= self.request.config.max_tool_concurrency {
-                            break;
-                        }
-                        if item.started || !can_launch(item, active_modes.values()) {
-                            continue;
-                        }
-                        self.launch_tool(item, &mut active, &mut active_modes)
-                            .await?;
-                        launched_any = true;
-                    }
-
-                    if !launched_any && barrier < scheduled.len() && active.is_empty() {
-                        self.launch_tool(&mut scheduled[barrier], &mut active, &mut active_modes)
-                            .await?;
-                        launched_any = true;
-                    }
-                }
-            }
-
-            if active.is_empty() {
-                return Err(RunFailure::Failed("tool scheduler deadlock".to_owned()));
-            }
-            enum ToolInput {
-                Command(Option<CommandEnvelope>),
-                Completed(ToolExecution),
-            }
-            let input = tokio::select! {
-                biased;
-                _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
-                command = self.command_rx.recv(), if self.command_open => {
-                    ToolInput::Command(command)
-                }
-                execution = active.next() => {
-                    ToolInput::Completed(execution.expect("active tool set is non-empty"))
-                },
-            };
-            let execution = match input {
-                ToolInput::Command(Some(envelope)) => {
-                    self.handle_envelope(envelope, false).await?;
-                    continue;
-                }
-                ToolInput::Command(None) => {
-                    self.command_open = false;
-                    continue;
-                }
-                ToolInput::Completed(execution) => execution,
-            };
-            active_modes.remove(&execution.order);
-            completed_count += 1;
-            self.emit(LoopEventKind::ToolCompleted {
-                call: execution.call.clone(),
-                result: execution.result.clone(),
-            })
-            .await?;
-            let order = execution.order;
-            completed[order] = Some(execution);
-        }
-
-        Ok(())
-    }
-
     async fn finalize_tool_batch(
         &mut self,
         completed: Vec<Option<ToolExecution>>,
@@ -3534,167 +3313,6 @@ impl Runner {
                 execution.model_text,
             ));
         }
-        Ok(())
-    }
-
-    async fn resolve_tool_approvals(
-        &mut self,
-        scheduled: &mut [ScheduledTool],
-        completed: &mut [Option<ToolExecution>],
-    ) -> Result<usize, RunFailure> {
-        let approval_requests = scheduled
-            .iter()
-            .filter(|item| item.requires_approval())
-            .map(|item| (item.order, self.approval_id(item.order), item.call.clone()))
-            .collect::<Vec<_>>();
-        let mut pending_approval_ids = Vec::<String>::new();
-        for (_, approval_id, call) in &approval_requests {
-            self.journal_approval_asked(approval_id, call).await?;
-            pending_approval_ids.push(approval_id.clone());
-            if let Err(failure) = self
-                .emit(LoopEventKind::ToolApprovalRequested {
-                    approval_id: approval_id.clone(),
-                    call: call.clone(),
-                })
-                .await
-            {
-                self.journal_cancel_pending_approvals(&mut pending_approval_ids)
-                    .await?;
-                return Err(failure);
-            }
-        }
-
-        let mut rejected_count = 0;
-        for item in scheduled.iter_mut().filter(|item| item.requires_approval()) {
-            let approval_id = approval_requests
-                .iter()
-                .find_map(|(order, approval_id, _)| {
-                    (*order == item.order).then_some(approval_id.clone())
-                })
-                .expect("every approval-required tool received an approval identity");
-            let decision = match self.wait_for_approval(&item.call.id).await {
-                Ok(decision) => decision,
-                Err(failure) => {
-                    self.journal_cancel_pending_approvals(&mut pending_approval_ids)
-                        .await?;
-                    return Err(failure);
-                }
-            };
-            match decision {
-                ApprovalDecision::Approved => {
-                    self.journal_approval_decided(&approval_id, ApprovalOutcome::AllowedOnce)
-                        .await?;
-                    pending_approval_ids.retain(|pending| pending != &approval_id);
-                    if let Err(failure) = self
-                        .emit(LoopEventKind::ToolApprovalResolved {
-                            approval_id,
-                            call: item.call.clone(),
-                            approved: true,
-                            reason: None,
-                        })
-                        .await
-                    {
-                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
-                            .await?;
-                        return Err(failure);
-                    }
-                }
-                ApprovalDecision::Rejected(reason) => {
-                    let reason = if reason.trim().is_empty() {
-                        "rejected by host".to_owned()
-                    } else {
-                        reason
-                    };
-                    self.journal_approval_decided(&approval_id, ApprovalOutcome::Rejected)
-                        .await?;
-                    pending_approval_ids.retain(|pending| pending != &approval_id);
-                    if let Err(failure) = self
-                        .emit(LoopEventKind::ToolApprovalResolved {
-                            approval_id,
-                            call: item.call.clone(),
-                            approved: false,
-                            reason: Some(reason.clone()),
-                        })
-                        .await
-                    {
-                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
-                            .await?;
-                        return Err(failure);
-                    }
-                    item.started = true;
-                    let result = ToolResult::failure(format!("tool rejected: {reason}"));
-                    let (model_text, _) =
-                        tool_result_for_model(&result, self.request.config.tool_result_limit_bytes);
-                    let execution = ToolExecution {
-                        order: item.order,
-                        call: item.call.clone(),
-                        outcome: ToolOutcome::Error,
-                        result,
-                        model_text,
-                    };
-                    if let Err(failure) = self
-                        .emit(LoopEventKind::ToolCompleted {
-                            call: execution.call.clone(),
-                            result: execution.result.clone(),
-                        })
-                        .await
-                    {
-                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
-                            .await?;
-                        return Err(failure);
-                    }
-                    let order = execution.order;
-                    completed[order] = Some(execution);
-                    rejected_count += 1;
-                }
-            }
-        }
-        Ok(rejected_count)
-    }
-
-    async fn wait_for_approval(&mut self, call_id: &str) -> Result<ApprovalDecision, RunFailure> {
-        loop {
-            self.drain_commands(false).await?;
-            if self.paused {
-                self.wait_while_paused(false).await?;
-                continue;
-            }
-            if let Some(decision) = self.approval_decisions.remove(call_id) {
-                return Ok(decision);
-            }
-            if !self.command_open {
-                self.cancellation.cancel();
-                return Err(RunFailure::Stopped(StopReason::ConsumerStopped));
-            }
-            let envelope = tokio::select! {
-                _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
-                command = self.command_rx.recv() => command,
-            };
-            match envelope {
-                Some(envelope) => {
-                    self.handle_envelope(envelope, false).await?;
-                }
-                None => self.command_open = false,
-            }
-        }
-    }
-
-    async fn launch_tool(
-        &mut self,
-        scheduled: &mut ScheduledTool,
-        active: &mut FuturesUnordered<ToolFuture>,
-        active_modes: &mut HashMap<usize, (ToolConcurrency, String)>,
-    ) -> Result<(), RunFailure> {
-        scheduled.started = true;
-        active_modes.insert(scheduled.order, (scheduled.mode, scheduled.key.clone()));
-        self.emit(LoopEventKind::ToolStarted(scheduled.call.clone()))
-            .await?;
-        let item = scheduled.clone();
-        let cancellation = self.cancellation.child_token();
-        let result_limit = self.request.config.tool_result_limit_bytes;
-        active.push(Box::pin(async move {
-            execute_tool(item, result_limit, cancellation).await
-        }));
         Ok(())
     }
 }
@@ -3813,80 +3431,6 @@ struct RecoveredToolCall {
     replay_safe: bool,
 }
 
-#[derive(Clone)]
-struct ScheduledTool {
-    order: usize,
-    call: ToolCall,
-    spec: Option<ToolSpec>,
-    parsed_arguments: Option<Value>,
-    argument_error: Option<String>,
-    mode: ToolConcurrency,
-    key: String,
-    started: bool,
-}
-
-impl ScheduledTool {
-    fn new(order: usize, call: ToolCall, tools: &[ToolSpec]) -> Self {
-        let spec = tools
-            .iter()
-            .find(|tool| tool.definition.name == call.name)
-            .cloned();
-        let (parsed_arguments, argument_error) =
-            match serde_json::from_str::<Value>(&call.arguments_json) {
-                Ok(value) if value.is_object() => (Some(value), None),
-                Ok(_) => (
-                    None,
-                    Some("tool arguments must be a valid JSON object".to_owned()),
-                ),
-                Err(_) => (
-                    None,
-                    Some("tool arguments must be a valid JSON object".to_owned()),
-                ),
-            };
-        let mut mode = spec
-            .as_ref()
-            .map(|tool| tool.concurrency)
-            .unwrap_or(ToolConcurrency::Parallel);
-        let key = if mode == ToolConcurrency::Keyed {
-            let resolved = spec
-                .as_ref()
-                .and_then(|tool| tool.resource_key_resolver.as_ref())
-                .and_then(|resolver| {
-                    parsed_arguments.as_ref().and_then(|arguments| {
-                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            resolver(arguments)
-                        }))
-                        .ok()
-                        .flatten()
-                    })
-                })
-                .unwrap_or_default();
-            if resolved.is_empty() {
-                mode = ToolConcurrency::Exclusive;
-            }
-            resolved
-        } else {
-            String::new()
-        };
-        Self {
-            order,
-            call,
-            spec,
-            parsed_arguments,
-            argument_error,
-            mode,
-            key,
-            started: false,
-        }
-    }
-
-    fn requires_approval(&self) -> bool {
-        self.spec
-            .as_ref()
-            .is_some_and(|spec| spec.requires_approval)
-    }
-}
-
 fn assistant_chunk_bytes(chunk: &AssistantChunk) -> usize {
     match chunk {
         AssistantChunk::TextDelta(value)
@@ -3915,100 +3459,6 @@ struct ToolExecution {
     outcome: ToolOutcome,
     result: ToolResult,
     model_text: String,
-}
-
-type ToolFuture = Pin<Box<dyn futures::Future<Output = ToolExecution> + Send + 'static>>;
-
-fn can_launch<'a>(
-    item: &ScheduledTool,
-    active: impl Iterator<Item = &'a (ToolConcurrency, String)>,
-) -> bool {
-    let active = active.collect::<Vec<_>>();
-    if active
-        .iter()
-        .any(|(mode, _)| *mode == ToolConcurrency::Exclusive)
-    {
-        return false;
-    }
-    match item.mode {
-        ToolConcurrency::Exclusive => active.is_empty(),
-        ToolConcurrency::Keyed => !active
-            .iter()
-            .any(|(mode, key)| *mode == ToolConcurrency::Keyed && *key == item.key),
-        ToolConcurrency::Parallel => true,
-    }
-}
-
-async fn execute_tool(
-    item: ScheduledTool,
-    result_limit: usize,
-    cancellation: CancellationToken,
-) -> ToolExecution {
-    let result = if cancellation.is_cancelled() {
-        ToolResult::failure("tool call cancelled")
-    } else if item.spec.is_none() {
-        ToolResult::failure(format!("unknown tool: {}", item.call.name))
-    } else if let Some(error) = item.argument_error.clone() {
-        ToolResult::failure(error)
-    } else {
-        let spec = item.spec.as_ref().expect("tool existence checked above");
-        let arguments = item
-            .parsed_arguments
-            .clone()
-            .expect("arguments validity checked above");
-        let handler = spec.handler.clone();
-        let handler_token = cancellation.child_token();
-        let handler_cancellation = handler_token.clone();
-        let future = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            handler(crate::ToolInvocation {
-                execution_id: item.call.id.clone(),
-                provider_call_id: item.call.provider_call_id.clone(),
-                arguments,
-                cancellation: handler_token,
-            })
-        }));
-        match future {
-            Err(_) => ToolResult::failure("tool handler panicked"),
-            Ok(future) => {
-                let caught = std::panic::AssertUnwindSafe(future).catch_unwind();
-                tokio::pin!(caught);
-                let deadline = tokio::time::sleep(spec.timeout);
-                tokio::pin!(deadline);
-                tokio::select! {
-                    biased;
-                    _ = cancellation.cancelled() => {
-                        handler_cancellation.cancel();
-                        let _ = tokio::time::timeout(TOOL_CLEANUP_GRACE, &mut caught).await;
-                        ToolResult::failure("tool call cancelled")
-                    },
-                    _ = &mut deadline => {
-                        handler_cancellation.cancel();
-                        let _ = tokio::time::timeout(TOOL_CLEANUP_GRACE, &mut caught).await;
-                        ToolResult::failure(format!(
-                            "tool timed out after {} ms",
-                            spec.timeout.as_millis()
-                        ))
-                    },
-                    outcome = &mut caught => match outcome {
-                        Err(_) => ToolResult::failure("tool handler panicked"),
-                        Ok(result) => result,
-                    }
-                }
-            }
-        }
-    };
-    let (model_text, _) = tool_result_for_model(&result, result_limit);
-    ToolExecution {
-        order: item.order,
-        call: item.call,
-        outcome: if result.ok {
-            ToolOutcome::Success
-        } else {
-            ToolOutcome::Error
-        },
-        result,
-        model_text,
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

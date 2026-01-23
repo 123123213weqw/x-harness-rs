@@ -1,7 +1,7 @@
-use std::{collections::HashSet, fmt, pin::Pin, sync::Arc, time::Duration};
+use std::{pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
-use futures::{future::BoxFuture, Stream};
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -51,50 +51,6 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: Value,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ToolConcurrency {
-    #[default]
-    Parallel,
-    Keyed,
-    Exclusive,
-}
-
-#[derive(Clone, Debug)]
-pub struct ToolInvocation {
-    /// Durable Harness identity shared by Journal, Approval and Tool pipeline.
-    pub execution_id: String,
-    /// Provider-native identity retained only for wire replay correlation.
-    pub provider_call_id: Option<String>,
-    pub arguments: Value,
-    pub cancellation: CancellationToken,
-}
-
-pub type ToolHandler =
-    Arc<dyn Fn(ToolInvocation) -> BoxFuture<'static, ToolResult> + Send + Sync + 'static>;
-pub type ResourceKeyResolver = Arc<dyn Fn(&Value) -> Option<String> + Send + Sync + 'static>;
-
-#[derive(Clone)]
-pub struct ToolSpec {
-    pub definition: ToolDefinition,
-    pub handler: ToolHandler,
-    pub timeout: Duration,
-    pub concurrency: ToolConcurrency,
-    pub resource_key_resolver: Option<ResourceKeyResolver>,
-    pub requires_approval: bool,
-}
-
-impl fmt::Debug for ToolSpec {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ToolSpec")
-            .field("definition", &self.definition)
-            .field("timeout", &self.timeout)
-            .field("concurrency", &self.concurrency)
-            .field("requires_approval", &self.requires_approval)
-            .finish_non_exhaustive()
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -745,12 +701,9 @@ pub struct LoopRequest {
     /// Durable automatic context compaction. It is disabled for embedders by
     /// default and requires both a hard token guard and append-only journal.
     pub compaction: Option<xharness_compaction::CompactionConfig>,
-    /// Formal policy-aware tool runtime. New hosts should set this instead of
-    /// populating the legacy `tools` compatibility registrations.
+    /// Formal policy-aware tool runtime. This is the sole tool registration,
+    /// approval and scheduling path used by Core.
     pub tool_executor: Option<xharness_tools::ToolExecutor>,
-    /// Temporary compatibility registrations. Removed after every embedder
-    /// has migrated to `tool_executor`.
-    pub tools: Vec<ToolSpec>,
     pub session_id: Option<String>,
     pub session_store: Arc<dyn crate::SessionStore>,
     /// Append-only source-of-truth store. When set, it replaces snapshot
@@ -777,7 +730,6 @@ impl LoopRequest {
             token_guard: None,
             compaction: None,
             tool_executor: None,
-            tools: Vec::new(),
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
             journal_store: None,
@@ -819,40 +771,6 @@ impl LoopRequest {
                 return Err(LoopValidationError::new(
                     "compaction requires an append-only journal_store",
                 ));
-            }
-        }
-        if self.tool_executor.is_some() && !self.tools.is_empty() {
-            return Err(LoopValidationError::new(
-                "tool_executor and legacy tools cannot be configured together",
-            ));
-        }
-        let mut names = HashSet::with_capacity(self.tools.len());
-        for (index, tool) in self.tools.iter().enumerate() {
-            let name = tool.definition.name.as_str();
-            if name.trim().is_empty() {
-                return Err(LoopValidationError::new(format!(
-                    "tool at index {index} has an empty name"
-                )));
-            }
-            if !names.insert(name) {
-                return Err(LoopValidationError::new(format!(
-                    "duplicate tool name: {name}"
-                )));
-            }
-            if tool.timeout.is_zero() {
-                return Err(LoopValidationError::new(format!(
-                    "tool {name} timeout must be greater than zero"
-                )));
-            }
-            if !tool.definition.parameters.is_object() {
-                return Err(LoopValidationError::new(format!(
-                    "tool {name} parameters schema must be a JSON object"
-                )));
-            }
-            if tool.concurrency == ToolConcurrency::Keyed && tool.resource_key_resolver.is_none() {
-                return Err(LoopValidationError::new(format!(
-                    "keyed tool {name} requires a resource key resolver"
-                )));
             }
         }
         Ok(())
