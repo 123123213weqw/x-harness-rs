@@ -136,8 +136,8 @@ Generation Ceiling。三者共同产生可审计的 Prepared Call。
   -> around -> handler -> post -> finalize -> observer
 ```
 
-即使安全调用并发完成，持久 Tool Result 和模型重放仍保持原调用顺序。旧的
-`xharness-core::ToolSpec` 只是兼容适配器，策略禁止在工具内部复制一份。
+即使安全调用并发完成，持久 Tool Result 和模型重放仍保持原调用顺序。Core 只持有
+`xharness-tools::ToolExecutor`，不再维护兼容 ToolSpec 或重复调度规则。
 
 ### 原生执行层
 
