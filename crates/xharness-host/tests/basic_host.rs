@@ -1434,11 +1434,15 @@ async fn every_upstream_rpc_has_baseline_behavior() {
     .await;
 
     let described_settings = fx.value(RpcMethod::SettingsDescribe, json!({})).await;
-    assert!(described_settings["namespaces"]
-        .as_array()
-        .unwrap()
+    let settings_namespaces = described_settings["namespaces"].as_array().unwrap();
+    let onboarding_namespace = settings_namespaces
         .iter()
-        .any(|namespace| namespace["ns"] == "ui-onboarding"));
+        .find(|namespace| namespace["ns"] == "ui-onboarding")
+        .expect("settings describe includes the upstream onboarding namespace");
+    assert_eq!(onboarding_namespace["applies"], "live");
+    assert!(settings_namespaces
+        .iter()
+        .all(|namespace| { matches!(namespace["applies"].as_str(), Some("live" | "restart")) }));
     let onboarding = fx
         .value(
             RpcMethod::SettingsMutate,
