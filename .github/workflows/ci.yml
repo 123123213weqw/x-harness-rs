@@ -167,6 +167,10 @@ jobs:
             --target aarch64-apple-darwin
             --bundles app
             --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Verify packaged icon, UI and version
+        run: |
+          node scripts/test-desktop-updater.mjs
+          python3 scripts/test-desktop-assets.py --app apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/XHarness.app
       - name: Package macOS application
         run: |
           ditto -c -k --keepParent \
@@ -227,3 +231,4 @@ jobs:
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: node scripts/test-desktop-updater.mjs
+      - run: python3 scripts/test-desktop-assets.py

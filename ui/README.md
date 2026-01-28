@@ -18,7 +18,7 @@ clone does not need the historical sibling `x-harness` checkout.
 - `brand/`: the original xLang brand reference supplied for this project.
 - `overrides/`: source-level branding replacements used when rebuilding from
   the upstream UI.
-- `desktop/updater.js`: Tauri-only one-click updater bridge. It is injected
+- `desktop/updater.js`: Tauri-only updater bridge with separate download and confirmed restart/install. It is injected
   directly into product HTML and intentionally does not join the upstream
   client-module graph.
 

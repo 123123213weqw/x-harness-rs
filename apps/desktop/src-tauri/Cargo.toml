@@ -1,6 +1,6 @@
 [package]
 name = "xharness-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "XHarness Tauri desktop shell"
 edition = "2021"
 license = "Apache-2.0"
