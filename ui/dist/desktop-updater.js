@@ -79,7 +79,8 @@
   const host = document.createElement('div')
   host.id = 'xharness-desktop-updater'
   host.hidden = true
-  host.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2147483000'
+  // Keep the sidebar's bottom Settings button accessible in both rail and expanded layouts.
+  host.style.cssText = 'position:fixed;left:11px;bottom:64px;z-index:2147483000'
   const root = host.attachShadow({ mode: 'open' })
   root.innerHTML = `
     <style>
