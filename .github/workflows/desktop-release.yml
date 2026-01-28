@@ -6,9 +6,27 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
+  verify:
+    name: Release verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/test-desktop-updater.mjs
+      - run: python3 scripts/test-desktop-assets.py
+      - name: Require successful CI for the exact release commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          success=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=100" --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "master" and .conclusion == "success")] | length')
+          test "$success" -gt 0 || { echo 'Run CI on master successfully before creating a desktop version tag.'; exit 1; }
   publish:
+    needs: verify
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -143,3 +161,6 @@ jobs:
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           args: --target ${{ matrix.target }}
+      - name: Verify released macOS bundle assets
+        if: matrix.platform == 'macos-15'
+        run: python3 scripts/test-desktop-assets.py --app apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/XHarness.app
