@@ -148,3 +148,21 @@ Windows x64 CI 发布骨架。Windows 包同时包含原生 Host、固定版本 
 不会把只能打开 WebView 的空壳当作 Coding Agent。正式对外发布仍以平台签名安装测试和 Release
 Secret 配置完成为门禁；Windows ARM64 与 Authenticode 品牌签名仍是后续项。Updater 签名能验证
 更新完整性，但没有 Authenticode 证书的安装器仍可能触发 SmartScreen 信誉警告。
+
+## 7. macOS 手动升级演练通道
+
+`Desktop Update Rehearsal` 是仅手动触发、仅 master 的 macOS ARM64 演练 Workflow。
+与正式 `desktop-v*` 发布门禁隔离，不绕过正式 Apple Developer ID/公证要求。
+
+- 输入基础版本/目标版本（如 0.1.1 → 0.1.2），同一提交在原生 GitHub Runner 构建两套包。
+- 两套包都内置相同的测试公钥，以及目标测试 Release 的固定 HTTPS manifest URL。
+- 使用独立 `XHARNESS_TEST_UPDATER_PRIVATE_KEY`、`XHARNESS_TEST_UPDATER_PASSWORD`、
+  `XHARNESS_TEST_UPDATER_PUBKEY` Secrets；不与生产签名密钥混用。
+- macOS 应用使用 ad-hoc 代码签名，更新 tar.gz 仍执行 Tauri Updater 签名校验。
+  这不是公证版本，不保证其他用户首次下载后能免确认启动。
+- CI 必须检查包内品牌/版本、codesign、独立 Ed25519/Minisign payload + trusted-comment
+  签名，然后发布 `desktop-test-v<目标版本>` Pre-release；`latest=false`，不污染稳定通道。
+- 已发布测试版本不可覆盖；测试时先安装基础包，再由用户点击发现/下载/确认重启。
+  没有编译进公钥/更新源的旧开发包不能只靠发布一个 JSON 就自动启用更新。
+- 本演练是固定目标版本的通道，未来升级到新测试版本需要显式配置新通道；不能冒充可滚动
+  跟踪所有未来测试版的生产自动更新。正式版本仍使用正式 latest 地址。

@@ -1,0 +1,144 @@
+name: Desktop Update Rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: 已安装基础版本（重新构建并内置测试更新源）
+        required: true
+        default: "0.1.1"
+      update_version:
+        description: 用户手动升级的目标版本
+        required: true
+        default: "0.1.2"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-update-rehearsal
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    if: github.ref == 'refs/heads/master'
+    name: Signed macOS update rehearsal
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      BASE_VERSION: ${{ inputs.base_version }}
+      UPDATE_VERSION: ${{ inputs.update_version }}
+      XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_TEST_UPDATER_PUBKEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate version pair and immutable test channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          versions = [os.environ[name] for name in ("BASE_VERSION", "UPDATE_VERSION")]
+          for value in versions:
+              assert re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", value)
+          assert tuple(map(int,versions[1].split("."))) > tuple(map(int,versions[0].split(".")))
+          assert os.environ["XHARNESS_UPDATER_PUBKEY"].strip(), "missing test updater public key"
+          tag = "desktop-test-v" + versions[1]
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("TEST_TAG=" + tag + "\n")
+              f.write("XHARNESS_UPDATER_ENDPOINT=https://github.com/" + os.environ["GITHUB_REPOSITORY"] + "/releases/download/" + tag + "/latest.json\n")
+          PY
+          existing=$(gh release view "desktop-test-v$UPDATE_VERSION" --json isDraft --jq '.isDraft' 2>/dev/null || true)
+          test "$existing" != "false" || { echo 'Refusing to overwrite a published test version; choose a new version.'; exit 1; }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Regression tests and native Host
+        run: |
+          node scripts/test-desktop-updater.mjs
+          node scripts/test-updater-signature.mjs
+          cargo test --locked --workspace --all-targets
+          cargo build --locked --release -p xharness-host-app
+          command -v rg >/dev/null || brew install ripgrep
+          python3 scripts/stage-tauri-sidecar.py target/release/xharness-host aarch64-apple-darwin
+          python3 scripts/stage-tauri-sidecar.py "$(command -v rg)" aarch64-apple-darwin --name rg
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Build both applications with updater signatures
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_TEST_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_TEST_UPDATER_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: "-"
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          mkdir -p dist/desktop-update-test
+          printf '%s' "$XHARNESS_UPDATER_PUBKEY" > dist/desktop-update-test/updater-test.pub
+          for version in "$BASE_VERSION" "$UPDATE_VERSION"; do
+            python3 scripts/prepare-desktop-test-version.py "$version"
+            (
+              cd apps/desktop
+              npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target aarch64-apple-darwin --bundles app
+            )
+            bundle=apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos
+            codesign --verify --deep --strict "$bundle/XHarness.app"
+            python3 scripts/test-desktop-assets.py --app "$bundle/XHarness.app"
+            node scripts/verify-updater-package.mjs "$bundle/XHarness.app.tar.gz" "$bundle/XHarness.app.tar.gz.sig" dist/desktop-update-test/updater-test.pub
+            cp "$bundle/XHarness.app.tar.gz" "dist/desktop-update-test/XHarness_${version}_aarch64.app.tar.gz"
+            cp "$bundle/XHarness.app.tar.gz.sig" "dist/desktop-update-test/XHarness_${version}_aarch64.app.tar.gz.sig"
+            ditto -c -k --keepParent "$bundle/XHarness.app" "dist/desktop-update-test/XHarness_${version}_aarch64.zip"
+          done
+      - name: Create and validate update manifest
+        run: |
+          python3 - <<'PY'
+          import datetime,hashlib,json,os
+          from pathlib import Path
+          root = Path("dist/desktop-update-test")
+          version = os.environ["UPDATE_VERSION"]
+          archive = "XHarness_" + version + "_aarch64.app.tar.gz"
+          manifest = {
+              "version": version,
+              "notes": "XHarness 桌面更新演练：验证下载、签名、确认重启与会话保留。仅 macOS Apple Silicon 测试包，使用 ad-hoc 签名，未完成 Apple 公证。请先保存工作，点击重启更新会停止当前 Agent 和后台 Job。",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {"darwin-aarch64": {
+                  "signature": (root/(archive+".sig")).read_text().strip(),
+                  "url": "https://github.com/" + os.environ["GITHUB_REPOSITORY"] + "/releases/download/" + os.environ["TEST_TAG"] + "/" + archive,
+              }},
+          }
+          (root/"latest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+"\n")
+          files = sorted(p for p in root.iterdir() if p.is_file())
+          (root/"SHA256SUMS").write_text("".join(hashlib.sha256(p.read_bytes()).hexdigest()+"  "+p.name+"\n" for p in files))
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: XHarness-macos-update-test
+          path: dist/desktop-update-test/
+          if-no-files-found: error
+      - name: Publish isolated prerelease (never latest stable)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > "$RUNNER_TEMP/update-notes.md" <<EOF_NOTES
+          ## XHarness 桌面手动更新演练
+          - 基础版本：$BASE_VERSION（包含测试更新源和测试公钥）
+          - 目标版本：$UPDATE_VERSION
+          - 仅 macOS Apple Silicon；ad-hoc 临时代码签名，未完成 Apple 公证。
+          - 更新包有独立 Updater 签名，客户端仍强制验证签名，不降低校验要求。
+          - 点击左下角蓝色下载图标 → 下载更新 → 重启更新；安装前需要确认停止任务。
+          - 对话、Provider 配置、工作区仍在 Application Support，不在安装包内。
+          - 本 Release 是测试通道，不改变正式版 latest 更新源。
+          - 构建提交：$GITHUB_SHA
+          EOF_NOTES
+          if ! gh release view "$TEST_TAG" >/dev/null 2>&1; then
+            gh release create "$TEST_TAG" --target "$GITHUB_SHA" --draft --prerelease --latest=false --title "XHarness $UPDATE_VERSION · macOS 更新测试" --notes-file "$RUNNER_TEMP/update-notes.md"
+          fi
+          test "$(gh release view "$TEST_TAG" --json isDraft --jq '.isDraft')" = true
+          gh release upload "$TEST_TAG" dist/desktop-update-test/* --clobber
+          gh release edit "$TEST_TAG" --draft=false --prerelease --latest=false --notes-file "$RUNNER_TEMP/update-notes.md"
