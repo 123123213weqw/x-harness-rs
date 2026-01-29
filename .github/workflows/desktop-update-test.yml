@@ -67,6 +67,7 @@ jobs:
         run: |
           node scripts/test-desktop-updater.mjs
           node scripts/test-updater-signature.mjs
+          python3 scripts/test-desktop-release.py
           cargo test --locked --workspace --all-targets
           cargo build --locked --release -p xharness-host-app
           command -v rg >/dev/null || brew install ripgrep

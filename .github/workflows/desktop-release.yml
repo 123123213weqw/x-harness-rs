@@ -19,6 +19,7 @@ jobs:
           node-version: '22'
       - run: node scripts/test-desktop-updater.mjs
       - run: python3 scripts/test-desktop-assets.py
+      - run: python3 scripts/test-desktop-release.py
       - name: Require successful CI for the exact release commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -137,6 +138,21 @@ jobs:
           python scripts/stage-tauri-sidecar.py '${{ matrix.host_binary }}' $target
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
           python scripts/stage-tauri-sidecar.py "target/$target/release/xharness-windows-sandbox-runner.exe" $target --name xharness-windows-sandbox-runner
+      - name: Project updater public key into bundler config
+        env:
+          XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_UPDATER_PUBKEY }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path("apps/desktop/src-tauri/tauri.conf.json")
+          config = json.loads(path.read_text())
+          public_key = os.environ["XHARNESS_UPDATER_PUBKEY"].strip()
+          assert public_key, "missing updater public key"
+          config["plugins"]["updater"]["pubkey"] = public_key
+          path.write_text(json.dumps(config, indent=2) + "\n")
+          PY
       - name: Build, sign and publish desktop bundle
         uses: tauri-apps/tauri-action@v0.6.2
         env:
