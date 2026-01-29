@@ -505,6 +505,9 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 
 ### 桌面发布后续验收（DONE-78 后续，不冒充完成）
 
+- macOS 手动演练基础设施已添加：独立测试签名、双版本 CI、固定目标 Pre-release，
+  不代替下列正式签名/公证和跨平台升级验收。用户手动安装的结果需另行确认。
+
 - [ ] 配置 Updater 签名密钥/公钥、Apple Developer ID 和公证 Secrets，发布第一个正式 Release。
 - [ ] 用两个正式签名版本完成真实 macOS/Windows/Linux 升级，覆盖网络中断、签名错误、
   安装失败、运行任务时确认停止、对话与配置保留；当前单元/控制器测试不等同此验收。
