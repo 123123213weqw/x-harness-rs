@@ -104,8 +104,8 @@ Tauri WebView
   与源码哈希、版本号、更新脚本以及 Host/rg，防止“源码已改、安装包仍旧”的问题。
 - 只更新源码/重启 Host 不会替换 `/Applications/XHarness.app`。必须从 CI 获取完整新应用包；
   不直接覆盖已签名应用内部图标，否则会破坏原包签名。对话与配置继续位于 Application Support。
-- 2026-09-05 检查：仓库尚无 Release，Actions Secrets 列表为空。在线签名升级仍被签名配置与
-  首次正式安装/升级验收阻塞；不能把开发包测试通过当作用户已能下载正式更新。
+- 2026-09-05：已配置独立的演练 Updater Secrets；正式 Developer ID/公证与生产更新签名
+  配置仍未完成。演练 Pre-release 不等于正式签名版本，不替代用户手动升级验收。
 
 CI Secret：
 
@@ -166,3 +166,33 @@ Secret 配置完成为门禁；Windows ARM64 与 Authenticode 品牌签名仍是
   没有编译进公钥/更新源的旧开发包不能只靠发布一个 JSON 就自动启用更新。
 - 本演练是固定目标版本的通道，未来升级到新测试版本需要显式配置新通道；不能冒充可滚动
   跟踪所有未来测试版的生产自动更新。正式版本仍使用正式 latest 地址。
+
+### 7.1 原生桥接与发布回归（2026-09-05）
+
+- 真实 macOS 基础包验收发现：只有 `core:default` 时，Loopback UI 调用应用命令会得到
+  `Command desktop_status not allowed by ACL`。普通浏览器 Mock 不能覆盖此边界。
+- `build.rs` 使用 `AppManifest::commands` 生成五个 Desktop 命令权限；`desktop-main`
+  为主窗口的 Loopback URL 显式授予这五项权限，不授予任意 Shell 或文件系统插件权限。
+- 初始化失败不得静默移除更新入口：保留可展开的错误提示、禁用安装操作，不打断对话。
+  JS 回归覆盖 ACL 失败以及 Manifest/Capability 的五项命令配对。
+- 编译期 Rust 环境变量与 Tauri Bundler JSON 必须使用同一公钥；否则应用能读到公钥，
+  Bundler 仍会因空 `plugins.updater.pubkey` 拒绝签名。CI 测试同时检查三处版本和公钥投影。
+- 如果 GitHub `GITHUB_TOKEN` 创建 Release/Tag 返回 403，不能放弃校验或冒充发布成功。
+  维护者可先创建指向已审核构建提交的测试 Tag，再重跑发布；或验签后发布同批 CI 产物。
+  上传必须保持 Draft，全部产物与清单齐备后才公开；已公开版本不得覆盖。
+
+### 7.2 本机验收记录
+
+- 构建提交：`a6b5d011d73a3efbe97512cbfebd694907a961bc`；CI Run
+  [33945463459](https://github.com/123123213weqw/x-harness-rs/actions/runs/33945463459)
+  的回归、双版本打包/验签、产物上传和 Pre-release 发布全部成功。
+- [desktop-test-v0.1.2](https://github.com/123123213weqw/x-harness-rs/releases/tag/desktop-test-v0.1.2)
+  已公开，仅 macOS ARM64 测试通道，不是稳定版。
+- 本机 `/Applications/XHarness.app` 已替换为带测试更新源、公钥和显式 IPC 权限的 **0.1.1**。
+  使用 CI 原始 tar.gz；本机再次用保管的公钥验签，并验证 codesign、版本、图标和更新脚本。
+- 重启前记录的 25 个 Session/Workspace/Provider 文件的原有内容前缀全部保留。
+  浏览器 3082 独立服务未重启。
+- 真实原生窗口已显示「发现 XHarness 0.1.2」和「下载更新」，不是浏览器 Mock。
+  首次清单请求出现网络失败，手动重试成功；没有绕过 TLS 或签名验证。
+- **用户尚待验收：** 点击下载、确认停止任务、安装重启后版本变为 0.1.2，以及升级后继续会话。
+  准备基础包与发现更新通过，不等于整个用户手动升级流程已经通过。
