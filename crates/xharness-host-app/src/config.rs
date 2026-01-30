@@ -37,6 +37,40 @@ pub struct SingleModelDeployment {
 }
 
 impl ModelDeployment {
+    /// Read deployment defaults without requiring credentials or contacting the
+    /// endpoint. Editable state and native credentials are restored afterwards.
+    pub fn bootstrap_from_file(path: &Path) -> Result<Self, String> {
+        let bytes = fs::read(path).map_err(|_| "Cannot read provider configuration".to_owned())?;
+        let file: ProviderFile = serde_json::from_slice(&bytes)
+            .map_err(|_| "Invalid provider configuration".to_owned())?;
+        let provider = file
+            .providers
+            .iter()
+            .find(|p| p.id == file.default.provider)
+            .ok_or_else(|| "Default provider is not configured".to_owned())?;
+        let model = provider
+            .models
+            .iter()
+            .find(|m| m.id == file.default.model)
+            .ok_or_else(|| "Default model is not configured".to_owned())?;
+        let mut default_route = ModelRoute::new(&file.default.provider, &file.default.model);
+        default_route.reasoning_effort = file.default.reasoning_effort.or_else(|| {
+            model
+                .reasoning
+                .as_ref()
+                .and_then(|r| r.default_effort.clone())
+        });
+        default_route.context_window_tokens = file.default.context_window_tokens;
+        Ok(Self {
+            default_route,
+            default_provider_display_name: provider
+                .display_name
+                .clone()
+                .unwrap_or_else(|| provider.id.clone()),
+            registry: ModelRegistry::new(),
+            default_token_guard: None,
+        })
+    }
     pub async fn single_with_debug(
         config: SingleModelDeployment,
         debug: DebugRecorder,
@@ -359,7 +393,7 @@ pub(crate) async fn registry_from_settings(
         };
         let models = profile.models.iter().map(|m| serde_json::json!({
             "id":m.id,"display_name":m.name,"upstream_model":m.upstream_model,
-            "fallback_context_window_tokens":m.context_window.or(profile.default_context_window),
+            "fallback_context_window_tokens":m.context_window.or(profile.default_context_window).or(Some(32_768)),
             "max_output_tokens":m.max_tokens.or(profile.max_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
             "minimum_output_tokens":m.minimum_output_tokens,
             "token_safety_margin":m.token_safety_margin.unwrap_or(DEFAULT_TOKEN_SAFETY_MARGIN),
@@ -388,9 +422,23 @@ pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
         .ok_or_else(|| "Missing providers array".to_owned())?;
     let mut profiles = serde_json::Map::new();
     for p in providers {
+        if p.get("kind")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| kind != "openai-compatible")
+        {
+            return Err(
+                "Only OpenAI-compatible provider configurations can be imported".to_owned(),
+            );
+        }
+        if let Some(protocol) = p.get("protocol").and_then(serde_json::Value::as_str) {
+            parse_protocol(protocol)?;
+        }
         let id = p["id"]
             .as_str()
             .ok_or_else(|| "Missing provider ID".to_owned())?;
+        if profiles.contains_key(id) {
+            return Err("Duplicate provider ID in imported configuration".to_owned());
+        }
         let models = p["models"].as_array().ok_or_else(|| "Missing models array".to_owned())?.iter().map(|m| serde_json::json!({
             "id":m["id"],"name":m["display_name"],"upstreamModel":m["upstream_model"],
             "contextWindow":m.get("fallback_context_window_tokens").or_else(||m.get("context_window_tokens")),
