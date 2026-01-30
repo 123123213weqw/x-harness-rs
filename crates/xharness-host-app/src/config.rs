@@ -1,4 +1,4 @@
-use std::{env, fs, path::Path, sync::Arc};
+use std::{collections::BTreeMap, env, fs, path::Path, sync::Arc};
 
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
@@ -17,27 +17,27 @@ use xharness_token::{TokenBudget, TokenGuard};
 const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 4_096;
 const DEFAULT_TOKEN_SAFETY_MARGIN: u64 = 1_024;
 
-pub(crate) struct ModelDeployment {
-    pub(crate) default_route: ModelRoute,
-    pub(crate) default_provider_display_name: String,
-    pub(crate) registry: ModelRegistry,
-    pub(crate) default_token_guard: Option<TokenGuard>,
+pub struct ModelDeployment {
+    pub default_route: ModelRoute,
+    pub default_provider_display_name: String,
+    pub registry: ModelRegistry,
+    pub default_token_guard: Option<TokenGuard>,
 }
 
-pub(crate) struct SingleModelDeployment {
-    pub(crate) provider: String,
-    pub(crate) model: String,
-    pub(crate) base_url: String,
-    pub(crate) api_key: String,
-    pub(crate) protocol: OpenAiProtocol,
-    pub(crate) context_window_tokens: Option<u64>,
-    pub(crate) max_output_tokens: u64,
-    pub(crate) minimum_output_tokens: Option<u64>,
-    pub(crate) token_safety_margin: u64,
+pub struct SingleModelDeployment {
+    pub provider: String,
+    pub model: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub protocol: OpenAiProtocol,
+    pub context_window_tokens: Option<u64>,
+    pub max_output_tokens: u64,
+    pub minimum_output_tokens: Option<u64>,
+    pub token_safety_margin: u64,
 }
 
 impl ModelDeployment {
-    pub(crate) async fn single_with_debug(
+    pub async fn single_with_debug(
         config: SingleModelDeployment,
         debug: DebugRecorder,
     ) -> Result<Self, String> {
@@ -96,10 +96,7 @@ impl ModelDeployment {
         })
     }
 
-    pub(crate) async fn from_file_with_debug(
-        path: &Path,
-        debug: DebugRecorder,
-    ) -> Result<Self, String> {
+    pub async fn from_file_with_debug(path: &Path, debug: DebugRecorder) -> Result<Self, String> {
         let bytes = fs::read(path).map_err(|error| {
             format!("could not read provider config {}: {error}", path.display())
         })?;
@@ -225,9 +222,8 @@ impl ProviderConfig {
                 self.id
             ));
         }
-        let protocol = parse_protocol(&self.protocol)?;
-        let api_key = match self.api_key_env {
-            Some(reference) => env::var(&reference).map_err(|_| {
+        let api_key = match &self.api_key_env {
+            Some(reference) => env::var(reference).map_err(|_| {
                 format!(
                     "provider {:?} requires missing or non-Unicode environment variable {reference:?}",
                     self.id
@@ -235,6 +231,17 @@ impl ProviderConfig {
             })?,
             None => String::new(),
         };
+        self.register_models_with_key(registry, debug, api_key)
+            .await
+    }
+
+    async fn register_models_with_key(
+        self,
+        registry: &mut ModelRegistry,
+        debug: DebugRecorder,
+        api_key: String,
+    ) -> Result<(), String> {
+        let protocol = parse_protocol(&self.protocol)?;
         let provider_display_name = self.display_name.unwrap_or_else(|| self.id.clone());
         for model in self.models {
             let ModelConfig {
@@ -333,6 +340,75 @@ impl ProviderConfig {
     }
 }
 
+/// Reuse native adapter construction for editable profiles. Missing credentials
+/// leave a configured provider inactive so the subsequent credentials.set can
+/// activate it; no placeholder model is advertised as usable.
+pub(crate) async fn registry_from_settings(
+    document: &xharness_host::ModelSettingsDocument,
+    keys: &BTreeMap<String, Option<String>>,
+    debug: DebugRecorder,
+) -> Result<ModelRegistry, String> {
+    let mut registry = ModelRegistry::new();
+    for (id, profile) in &document.providers {
+        let key = match &profile.api_key_env {
+            Some(reference) => match keys.get(reference).and_then(|v| v.clone()) {
+                Some(key) => key,
+                None => continue,
+            },
+            None => String::new(),
+        };
+        let models = profile.models.iter().map(|m| serde_json::json!({
+            "id":m.id,"display_name":m.name,"upstream_model":m.upstream_model,
+            "fallback_context_window_tokens":m.context_window.or(profile.default_context_window),
+            "max_output_tokens":m.max_tokens.or(profile.max_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
+            "minimum_output_tokens":m.minimum_output_tokens,
+            "token_safety_margin":m.token_safety_margin.unwrap_or(DEFAULT_TOKEN_SAFETY_MARGIN),
+            "reasoning":m.reasoning,"context_window_capability":m.context_window_capability
+        })).collect::<Vec<_>>();
+        let provider: ProviderConfig = serde_json::from_value(serde_json::json!({
+            "id":id,"display_name":profile.display_name,"base_url":profile.base_url,
+            "protocol":if profile.api == "openai-responses" {"responses"} else {"chat"},
+            "models":models
+        }))
+        .map_err(|_| "Invalid native model metadata".to_owned())?;
+        provider.register_models_with_key(&mut registry, debug.clone(), key).await
+            .map_err(|_| format!("Provider {id} configuration could not be activated; check model metadata and token limits"))?;
+    }
+    Ok(registry)
+}
+
+/// Project a providers.json file into the UI contract without rewriting it or
+/// exposing any credential value. The original file remains the base layer.
+pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
+    let bytes = fs::read(path).map_err(|_| "Cannot read provider configuration".to_owned())?;
+    let file: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|_| "Invalid provider configuration JSON".to_owned())?;
+    let providers = file["providers"]
+        .as_array()
+        .ok_or_else(|| "Missing providers array".to_owned())?;
+    let mut profiles = serde_json::Map::new();
+    for p in providers {
+        let id = p["id"]
+            .as_str()
+            .ok_or_else(|| "Missing provider ID".to_owned())?;
+        let models = p["models"].as_array().ok_or_else(|| "Missing models array".to_owned())?.iter().map(|m| serde_json::json!({
+            "id":m["id"],"name":m["display_name"],"upstreamModel":m["upstream_model"],
+            "contextWindow":m.get("fallback_context_window_tokens").or_else(||m.get("context_window_tokens")),
+            "maxTokens":m["max_output_tokens"],"minimumOutputTokens":m["minimum_output_tokens"],
+            "tokenSafetyMargin":m["token_safety_margin"],"reasoning":m["reasoning"],"contextWindowCapability":m["context_window_capability"]
+        })).collect::<Vec<_>>();
+        profiles.insert(
+            id.to_owned(),
+            serde_json::json!({"displayName":p["display_name"],"baseURL":p["base_url"],
+            "api":if p["protocol"] == "responses" {"openai-responses"} else {"openai-completions"},
+            "apiKeyEnv":p["api_key_env"],"models":models}),
+        );
+    }
+    let section = serde_json::json!({"providers":profiles});
+    let parsed = xharness_host::parse_model_settings(&section)?;
+    serde_json::to_value(parsed).map_err(|_| "Invalid imported configuration".to_owned())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ModelConfig {
@@ -422,7 +498,7 @@ fn default_capability_ttl_seconds() -> u64 {
     300
 }
 
-pub(crate) fn parse_protocol(value: &str) -> Result<OpenAiProtocol, String> {
+pub fn parse_protocol(value: &str) -> Result<OpenAiProtocol, String> {
     match value {
         "chat" | "chat-completions" => Ok(OpenAiProtocol::ChatCompletions),
         "responses" => Ok(OpenAiProtocol::Responses),
@@ -432,7 +508,7 @@ pub(crate) fn parse_protocol(value: &str) -> Result<OpenAiProtocol, String> {
     }
 }
 
-pub(crate) fn token_guard(
+pub fn token_guard(
     model: &str,
     context_window_tokens: Option<u64>,
     max_output_tokens: u64,

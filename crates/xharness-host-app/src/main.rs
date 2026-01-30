@@ -1,8 +1,5 @@
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
-mod config;
-
-use config::{ModelDeployment, SingleModelDeployment};
 use tokio::net::TcpListener;
 use xharness_agent::FileLeaseManager;
 use xharness_api::ApiBackend;
@@ -13,6 +10,8 @@ use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode
 use xharness_host::{
     AgentRuntime, BasicHost, DurableLoopAgentRuntime, DurableQuestionHub, HostConfig,
 };
+use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
+use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
 use xharness_host_app::{ManagedAgentMarkdownSink, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
@@ -125,7 +124,33 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         control_store,
         questions,
     );
+    let model_settings_base = match &args.providers_file {
+        Some(path) => config::settings_from_file(path)?,
+        None if args.model != "unconfigured" => serde_json::json!({"providers":{
+            args.provider.clone(): {
+                "displayName":args.provider,"baseURL":args.base_url,
+                "api":if matches!(args.protocol, OpenAiProtocol::Responses) {"openai-responses"} else {"openai-completions"},
+                "apiKeyEnv":if args.api_key.is_empty() {None} else {Some("XHARNESS_BOOTSTRAP_API_KEY")},
+                "models":[{"id":args.model,"contextWindow":args.context_window_tokens,
+                    "maxTokens":args.max_output_tokens,"minimumOutputTokens":args.minimum_output_tokens,
+                    "tokenSafetyMargin":args.token_safety_margin}]
+            }
+        }}),
+        None => serde_json::json!({"providers":{}}),
+    };
+    let credentials = Arc::new(NativeCredentialStore::new(&args.state_dir)?);
+    let model_settings = NativeModelSettings::new(runtime.clone(), credentials, debug.clone())
+        .with_process_key(
+            "XHARNESS_BOOTSTRAP_API_KEY".to_owned(),
+            args.api_key.clone(),
+        );
+    host.install_model_settings(Arc::new(model_settings), model_settings_base)
+        .await?;
     let restore = host.restore_from_store(store).await?;
+    if let Err(error) = host.refresh_model_settings().await {
+        runtime.replace_model_registry(xharness_host::ModelRegistry::new());
+        eprintln!("Model settings require attention: {error}");
+    }
     debug
         .record(DebugEvent::new(
             "host",
