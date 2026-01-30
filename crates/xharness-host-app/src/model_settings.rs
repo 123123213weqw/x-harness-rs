@@ -130,15 +130,22 @@ impl NativeModelSettings {
     }
 }
 
-#[async_trait]
-impl ModelSettingsBackend for NativeModelSettings {
-    async fn prepare(&self, section: &Value) -> Result<ModelRegistry, String> {
+impl NativeModelSettings {
+    async fn prepare_with_key(
+        &self,
+        section: &Value,
+        replacement: Option<(&str, Option<&str>)>,
+    ) -> Result<ModelRegistry, String> {
         let doc = parse_model_settings(section)?;
         let mut keys = BTreeMap::new();
         for profile in doc.providers.values() {
             if let Some(reference) = &profile.api_key_env {
                 if !keys.contains_key(reference) {
-                    keys.insert(reference.clone(), self.key(reference).await?);
+                    let key = match replacement.filter(|(name, _)| *name == reference) {
+                        Some((_, value)) => value.map(str::to_owned),
+                        None => self.key(reference).await?,
+                    };
+                    keys.insert(reference.clone(), key);
                 }
             }
         }
@@ -152,6 +159,13 @@ impl ModelSettingsBackend for NativeModelSettings {
                 .to_owned()
         })?
     }
+}
+
+#[async_trait]
+impl ModelSettingsBackend for NativeModelSettings {
+    async fn prepare(&self, section: &Value) -> Result<ModelRegistry, String> {
+        self.prepare_with_key(section, None).await
+    }
     fn activate(&self, registry: ModelRegistry) {
         self.runtime.replace_model_registry(registry);
     }
@@ -164,20 +178,37 @@ impl ModelSettingsBackend for NativeModelSettings {
             None => Ok(json!({"configured":false,"writable":true})),
         }
     }
-    async fn set_credential(&self, reference: &str, value: &str) -> Result<(), String> {
+    async fn set_credential(
+        &self,
+        reference: &str,
+        value: &str,
+        section: &Value,
+    ) -> Result<ModelRegistry, String> {
         if self.environment_key(reference).is_some() {
             return Err("An environment/process credential overrides this reference; change it outside the app".to_owned());
         }
         if value.trim() != value || value.len() > 4096 || value.chars().any(char::is_control) {
             return Err("API key contains whitespace/control characters or is too long".to_owned());
         }
-        self.credentials.set(reference, value).await
+        let registry = self
+            .prepare_with_key(section, Some((reference, Some(value))))
+            .await?;
+        self.credentials.set(reference, value).await?;
+        Ok(registry)
     }
-    async fn unset_credential(&self, reference: &str) -> Result<(), String> {
+    async fn unset_credential(
+        &self,
+        reference: &str,
+        section: &Value,
+    ) -> Result<ModelRegistry, String> {
         if self.environment_key(reference).is_some() {
             return Err("An environment/process credential is read-only".to_owned());
         }
-        self.credentials.delete(reference).await
+        let registry = self
+            .prepare_with_key(section, Some((reference, None)))
+            .await?;
+        self.credentials.delete(reference).await?;
+        Ok(registry)
     }
     async fn discover(&self, section: &Value, request: &Value) -> Result<Value, String> {
         let doc = parse_model_settings(section)?;
