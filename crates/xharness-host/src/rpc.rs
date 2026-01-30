@@ -726,7 +726,7 @@ impl BasicHost {
             cwd: cwd.clone(),
             agent_preset: effective_preset.clone(),
             title: None,
-            model: initial_model,
+            model: initial_model.clone(),
             permission_preset,
             plan_active: false,
             goal: None,
@@ -763,6 +763,17 @@ impl BasicHost {
             })
             .collect::<Vec<SessionEvent>>();
         initial_events.extend(permission_events(permission_preset));
+        if self.model_settings.get().is_some() {
+            initial_events.push(
+                SessionEventData::SessionModelSelected {
+                    provider: initial_model.provider,
+                    model: initial_model.model,
+                    reasoning_effort: initial_model.reasoning_effort,
+                    context_window_tokens: initial_model.context_window_tokens,
+                }
+                .into(),
+            );
+        }
         if let Err(error) = self
             .commit_session_events(&session_id, initial_events)
             .await
