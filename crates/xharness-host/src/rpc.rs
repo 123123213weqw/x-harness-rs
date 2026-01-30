@@ -696,6 +696,25 @@ impl BasicHost {
             .and_then(Value::as_str)
             .and_then(crate::PermissionPreset::parse)
             .unwrap_or_default();
+        let mut initial_model = ModelSelection::from_config(&self.config);
+        if self.model_settings.get().is_some()
+            && !self.agent_runtime.can_route(&ModelRoute::new(
+                &initial_model.provider,
+                &initial_model.model,
+            ))
+        {
+            if let Some(model) = self.agent_runtime.model_catalog().first() {
+                initial_model = ModelSelection {
+                    provider: model.provider.clone(),
+                    model: model.model.clone(),
+                    reasoning_effort: model
+                        .reasoning
+                        .as_ref()
+                        .and_then(|r| r.default_effort.clone()),
+                    context_window_tokens: model.context_window.effective_hard_max(),
+                };
+            }
+        }
         let record = SessionRecord {
             session_id: session_id.clone(),
             created_at: now,
@@ -707,7 +726,7 @@ impl BasicHost {
             cwd: cwd.clone(),
             agent_preset: effective_preset.clone(),
             title: None,
-            model: ModelSelection::from_config(&self.config),
+            model: initial_model,
             permission_preset,
             plan_active: false,
             goal: None,
