@@ -280,3 +280,52 @@ async fn invalid_settings_do_not_commit_or_erase_existing_profiles() {
     assert_eq!(ns["revision"], 1);
     assert!(!desc.to_string().contains("do-not-persist"));
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_credential_store_survives_recreation_without_plaintext_files() {
+    use xharness_host_app::model_settings::NativeCredentialStore;
+    let dir = TempDir::new();
+    let first = NativeCredentialStore::new(&dir.0).unwrap();
+    first
+        .set("XHARNESS_TEST_PERSISTENCE", "test-only-native-key")
+        .await
+        .unwrap();
+    let second = NativeCredentialStore::new(&dir.0).unwrap();
+    let read = second.get("XHARNESS_TEST_PERSISTENCE").await;
+    second.delete("XHARNESS_TEST_PERSISTENCE").await.unwrap();
+    assert_eq!(read.unwrap().as_deref(), Some("test-only-native-key"));
+    assert_eq!(second.get("XHARNESS_TEST_PERSISTENCE").await.unwrap(), None);
+    assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 0);
+}
+
+struct UnavailableCredentials;
+#[async_trait]
+impl CredentialStore for UnavailableCredentials {
+    async fn get(&self, _: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+    async fn set(&self, _: &str, _: &str) -> Result<(), String> {
+        Err("test credential store unavailable".to_owned())
+    }
+    async fn delete(&self, _: &str) -> Result<(), String> {
+        Err("test credential store unavailable".to_owned())
+    }
+}
+
+#[tokio::test]
+async fn credential_storage_failure_does_not_activate_unsaved_key() {
+    let dir = TempDir::new();
+    let (host, runtime) = fixture(&dir, Arc::new(UnavailableCredentials)).await;
+    add(&host, profile("http://127.0.0.1:12345/v1")).await;
+    let result = host
+        .call(
+            RpcId::new("failed-key-write"),
+            RpcMethod::CredentialsSet,
+            json!({"ref":"XHARNESS_SETTINGS_TEST_KEY","value":"unsaved-test-key"}),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(result, RpcResult::Failure { .. }));
+    assert!(!runtime.has_available_route());
+}
