@@ -2631,9 +2631,9 @@ impl BasicHost {
         merge_object(&mut namespace.user, &Value::Object(patch));
         merge_object(&mut namespace.value, &namespace.user);
         namespace.revision = namespace.revision.saturating_add(1);
+        drop(state);
         let model_change = self.prepare_model_change(&namespace).await?;
         let view = namespace.view();
-        drop(state);
         let view = self
             .commit_control_mutation(
                 &rpc_id,
@@ -2686,9 +2686,9 @@ impl BasicHost {
             merge_object(&mut namespace.value, &namespace.user);
         }
         namespace.revision = namespace.revision.saturating_add(1);
+        drop(state);
         let model_change = self.prepare_model_change(&namespace).await?;
         let view = namespace.view();
-        drop(state);
         let view = self
             .commit_control_mutation(
                 &rpc_id,
@@ -2770,9 +2770,9 @@ impl BasicHost {
             merge_object(&mut namespace.value, &namespace.user);
         }
         namespace.revision = namespace.revision.saturating_add(1);
+        drop(state);
         let model_change = self.prepare_model_change(&namespace).await?;
         let view = namespace.view();
-        drop(state);
         let view = self
             .commit_control_mutation(
                 &rpc_id,
