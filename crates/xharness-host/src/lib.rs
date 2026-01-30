@@ -7,6 +7,7 @@
 mod control;
 mod driver;
 mod metrics;
+mod model_settings;
 mod questions;
 mod restore;
 mod rpc;
@@ -30,6 +31,10 @@ use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider};
 use xharness_token::TokenGuard;
 use xharness_tools::{ToolExecutor, ToolRegistry};
 
+pub use model_settings::{
+    model_settings_schema, parse_model_settings, valid_credential_reference, ConfiguredModel,
+    ModelSettingsBackend, ModelSettingsDocument, ProviderProfile, MODEL_SETTINGS_NAMESPACE,
+};
 pub use questions::{
     managed_agent_memory, update_agent_markdown, AgentMarkdownSink, DurableQuestionHub,
     DurableQuestionProvider, NoopAgentMarkdownSink, QuestionHubError, AGENT_MEMORY_BEGIN,
@@ -139,6 +144,7 @@ pub struct BasicHost {
     pub(crate) mux_tx: broadcast::Sender<ServerRequest>,
     pub(crate) host_tx: broadcast::Sender<ServerRequest>,
     pub(crate) questions: Arc<DurableQuestionHub>,
+    pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     admission_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
     background_listener_started: Arc<AtomicBool>,
     next_id: Arc<AtomicU64>,
@@ -229,6 +235,7 @@ impl BasicHost {
             mux_tx,
             host_tx,
             questions,
+            model_settings: Arc::new(std::sync::OnceLock::new()),
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             background_listener_started: Arc::new(AtomicBool::new(false)),
             next_id: Arc::new(AtomicU64::new(1)),
