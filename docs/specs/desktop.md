@@ -31,8 +31,9 @@ Tauri WebView
    - Provider Config：`app_config_dir/providers.json`（可用
      `XHARNESS_PROVIDERS_FILE` 覆盖）；
    - Runtime：`app_cache_dir/runtime`。
-4. Provider Secret 仍只通过 Host 已有的环境变量引用，不得进入 Tauri 配置、安装包、
-   更新清单或前端 Storage。
+4. Provider Secret 由共享 Host 的系统凭据存储或只读环境变量引用解析，不得进入 Tauri
+   配置、安装包、更新清单、控制日志或前端 Storage。模型配置通过同一组 Host RPC
+   持久化并立即应用；桌面壳不实现另一套设置后端。详见 [模型设置](model-settings.md)。
 
 ## 3. Loopback 认证
 
