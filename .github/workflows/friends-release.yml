@@ -1,0 +1,136 @@
+name: Friends Windows Release
+
+on:
+  push:
+    tags: ['friends-v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: friends-windows-release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    if: vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate immutable release and select bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/test-friends-release.py
+          if ($LASTEXITCODE) { throw 'Channel tests failed' }
+          python scripts/friends-release.py plan $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE) { throw 'Release preflight failed' }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Full native regression suite
+        run: |
+          cargo fmt --check --all
+          if ($LASTEXITCODE) { throw 'Formatting failed' }
+          cargo test --locked --workspace --all-targets
+          if ($LASTEXITCODE) { throw 'Host tests failed' }
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          if ($LASTEXITCODE) { throw 'Host clippy failed' }
+          node scripts/test-desktop-updater.mjs
+          if ($LASTEXITCODE) { throw 'Updater UI tests failed' }
+          node scripts/test-updater-signature.mjs
+          if ($LASTEXITCODE) { throw 'Signature negative tests failed' }
+          python scripts/test-desktop-release.py
+          if ($LASTEXITCODE) { throw 'Release projection tests failed' }
+      - name: Build and stage native sidecars
+        run: |
+          cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
+          if ($LASTEXITCODE) { throw 'Host build failed' }
+          $archive = Join-Path $env:RUNNER_TEMP 'ripgrep-15.2.0.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'ripgrep-15.2.0'
+          Invoke-WebRequest 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5') { throw 'ripgrep hash mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Host stage failed' }
+          python scripts/stage-tauri-sidecar.py "$extract/ripgrep-15.2.0-x86_64-pc-windows-msvc/rg.exe" x86_64-pc-windows-msvc --name rg
+          if ($LASTEXITCODE) { throw 'rg stage failed' }
+          python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
+          if ($LASTEXITCODE) { throw 'ACL runner stage failed' }
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          if ($LASTEXITCODE) { throw 'Desktop tests failed' }
+          cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+          if ($LASTEXITCODE) { throw 'Desktop clippy failed' }
+          python scripts/test-windows-desktop-bundle.py
+          if ($LASTEXITCODE) { throw 'Windows bundle tests failed' }
+      - name: Build and verify signed installers
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
+          XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY -or -not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -or -not $env:XHARNESS_UPDATER_PUBKEY) { throw 'Missing dedicated friends signing configuration' }
+          $output = 'dist/friends-windows'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          $env:XHARNESS_UPDATER_PUBKEY | Set-Content "$output/updater.pub" -Encoding utf8
+          foreach ($version in $env:BUILD_VERSIONS.Split(',')) {
+            python scripts/prepare-desktop-test-version.py $version
+            if ($LASTEXITCODE) { throw 'Version/key projection failed' }
+            Push-Location apps/desktop
+            try {
+              npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target x86_64-pc-windows-msvc --bundles nsis
+              if ($LASTEXITCODE) { throw 'Signed desktop build failed' }
+            } finally { Pop-Location }
+            $installer = "apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/XHarness_${version}_x64-setup.exe"
+            node scripts/verify-updater-package.mjs $installer "$installer.sig" "$output/updater.pub"
+            if ($LASTEXITCODE) { throw 'Independent installer verification failed' }
+            Copy-Item -LiteralPath $installer,"$installer.sig" -Destination $output
+          }
+          python scripts/friends-release.py manifest $env:GITHUB_REF_NAME $output
+          if ($LASTEXITCODE) { throw 'Manifest generation failed' }
+          @"
+          # XHarness Windows 同学分发版 $env:RELEASE_VERSION
+          下载当前版本的 x64-setup.exe 安装。以后左下角发现更新后，点击下载，再确认重启安装。
+          首次发布额外提供低一版基础安装包，只用于验收真实升级流程。
+          包含免费更新验签；没有 Windows 商业发布者证书，首次安装可能显示安全提示，请核对本仓库来源与 SHA256SUMS，不要关闭系统防护。
+          私钥和模型 API 密钥不会随软件分发。模型凭据需使用应用支持的配置方式自行提供。
+          会话和凭据继续保存在当前用户的 XHarness 数据目录。
+          构建提交：$env:GITHUB_SHA
+          更新通道：$env:XHARNESS_UPDATER_ENDPOINT
+          "@ | Set-Content "$output/README.md" -Encoding utf8
+          # Recompute hashes after adding the public instructions.
+          python scripts/friends-release.py manifest $env:GITHUB_REF_NAME $output
+          if ($LASTEXITCODE) { throw 'Final manifest generation failed' }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: XHarness-friends-windows
+          path: dist/friends-windows/
+          if-no-files-found: error
+      - name: Publish complete immutable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/friends-release.py plan $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE) { throw 'Publish preflight failed' }
+          gh release create $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --verify-tag --draft --title "XHarness $env:RELEASE_VERSION · Windows 同学版" --notes-file dist/friends-windows/README.md
+          if ($LASTEXITCODE) { throw 'Draft release creation failed' }
+          $assets = @(Get-ChildItem dist/friends-windows -File | ForEach-Object FullName)
+          gh release upload $env:GITHUB_REF_NAME @assets --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE) { throw 'Asset upload failed; draft remains unpublished' }
+          gh release edit $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($LASTEXITCODE) { throw 'Release publication failed' }
