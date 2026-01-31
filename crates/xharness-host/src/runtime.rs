@@ -891,6 +891,12 @@ impl DurableLoopAgentRuntime {
         self
     }
 
+    /// Future turns use the new immutable provider instances. Active turns
+    /// already own their provider Arc and are never cancelled by configuration.
+    pub fn replace_model_registry(&self, registry: ModelRegistry) {
+        *self.models.write().expect("model registry lock poisoned") = registry;
+    }
+
     pub fn with_token_guard(self, token_guard: Option<TokenGuard>) -> Self {
         self.models
             .write()

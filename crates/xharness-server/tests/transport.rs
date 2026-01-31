@@ -197,11 +197,7 @@ async fn full_debug_records_rpc_request_and_response_envelopes() {
     assert_eq!(response.status(), StatusCode::OK);
     let events = sink.events().await;
     assert!(events.iter().any(|event| {
-        event.event == "rpc.request"
-            && event.payload["body"]
-                .as_str()
-                .unwrap()
-                .contains("debug-rpc")
+        event.event == "rpc.request" && event.payload["body"]["rpcId"] == "debug-rpc"
     }));
     assert!(events
         .iter()
