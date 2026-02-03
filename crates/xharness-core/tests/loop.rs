@@ -2517,6 +2517,187 @@ async fn restart_resumes_undecided_approval_without_replaying_or_unknowning_the_
 }
 
 #[tokio::test]
+async fn malformed_question_retries_and_closed_legacy_turn_recovers() {
+    struct AnsweringUser {
+        store: Arc<EventMemorySessionStore>,
+        calls: AtomicUsize,
+    }
+    #[async_trait]
+    impl xharness_interaction::UserQuestionProvider for AnsweringUser {
+        async fn ask(
+            &self,
+            invocation: QuestionInvocation,
+            _cancellation: CancellationToken,
+        ) -> Result<
+            xharness_interaction::QuestionResolution,
+            xharness_interaction::QuestionProviderError,
+        > {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut interaction = QuestionInteraction::new(invocation.clone()).unwrap();
+            let resolution = interaction
+                .resolve(
+                    ResolveAction::Submit,
+                    vec![QuestionAnswer {
+                        question_id: "scope".to_owned(),
+                        selected_option_id: Some("review".to_owned()),
+                        custom_text: None,
+                    }],
+                )
+                .unwrap();
+            let session = self
+                .store
+                .load("invalid-question-retry")
+                .await
+                .unwrap()
+                .unwrap();
+            self.store
+                .append(
+                    &session.header().id,
+                    session.revision(),
+                    vec![
+                        SessionEventData::QuestionRequested {
+                            invocation: invocation.clone(),
+                        }
+                        .into(),
+                        SessionEventData::QuestionResolved {
+                            interaction_id: invocation.interaction_id,
+                            resolution: resolution.clone(),
+                        }
+                        .into(),
+                    ],
+                )
+                .await
+                .unwrap();
+            self.store.flush(&session.header().id).await.unwrap();
+            Ok(resolution)
+        }
+    }
+    for legacy in [false, true] {
+        let invalid = json!({"questions":[{"id":"scope","header":"Scope","question":"Review?","options":[{"label":"Review"}]}]}).to_string();
+        let valid = json!({"questions":[{"id":"scope","header":"Scope","question":"Review?","options":[{"id":"review","label":"Review"}]}]}).to_string();
+        let store = Arc::new(EventMemorySessionStore::default());
+        if legacy {
+            store
+                .create(SessionHeader::new("invalid-question-retry"))
+                .await
+                .unwrap();
+            let call = ToolCall {
+                id: "legacy-question".to_owned(),
+                provider_call_id: None,
+                index: 0,
+                name: ASK_USER_QUESTION_TOOL.to_owned(),
+                arguments_json: invalid.clone(),
+            };
+            let mut assistant = AgentMessage::assistant("");
+            assistant.tool_calls.push(call.clone());
+            store
+                .append(
+                    "invalid-question-retry",
+                    Revision::ZERO,
+                    vec![
+                        SessionEventData::TurnStart { turn: 1 }.into(),
+                        SessionEventData::UserMessage {
+                            message: AgentMessage::user("review"),
+                            surface_replace: None,
+                        }
+                        .into(),
+                        SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                        SessionEventData::AssistantMessage {
+                            turn: 1,
+                            step: 1,
+                            message: assistant,
+                            usage: None,
+                        }
+                        .into(),
+                        SessionEventData::ToolCall {
+                            turn: 1,
+                            step: 1,
+                            call,
+                        }
+                        .into(),
+                        SessionEventData::StepEnd { turn: 1, step: 1 }.into(),
+                        SessionEventData::TurnEnd {
+                            turn: 1,
+                            reason: TurnEndReason::Failed {
+                                error: "legacy question journal failure".to_owned(),
+                            },
+                        }
+                        .into(),
+                    ],
+                )
+                .await
+                .unwrap();
+            store.flush("invalid-question-retry").await.unwrap();
+        }
+        let user = Arc::new(AnsweringUser {
+            store: store.clone(),
+            calls: AtomicUsize::new(0),
+        });
+        let registry = Arc::new(RuntimeToolRegistry::new());
+        xharness_interaction::AskUserQuestionTool::new(user.clone())
+            .register(&registry)
+            .await
+            .unwrap();
+        let mut scripts = Vec::new();
+        if !legacy {
+            scripts.push(vec![
+                Ok(tool_delta(0, "bad", ASK_USER_QUESTION_TOOL, &invalid)),
+                Ok(completed_for_calls()),
+            ]);
+        }
+        scripts.push(vec![
+            Ok(tool_delta(0, "corrected", ASK_USER_QUESTION_TOOL, &valid)),
+            Ok(completed_for_calls()),
+        ]);
+        scripts.push(vec![
+            Ok(ProviderEvent::TextDelta("answered safely".to_owned())),
+            Ok(completed()),
+        ]);
+        let provider = Arc::new(ScriptProvider::new(scripts));
+        let mut request = LoopRequest::new(provider, vec![AgentMessage::user("continue")]);
+        request.session_id = Some("invalid-question-retry".to_owned());
+        request.journal_store = Some(store.clone());
+        request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(
+            result.status,
+            LoopStatus::Completed,
+            "legacy={legacy}: {:?}",
+            result.error
+        );
+        assert_eq!(result.final_text, "answered safely");
+        assert_eq!(
+            user.calls.load(Ordering::SeqCst),
+            1,
+            "invalid arguments must never ask the user"
+        );
+        let session = store.load("invalid-question-retry").await.unwrap().unwrap();
+        let results = session
+            .events()
+            .iter()
+            .filter_map(|e| match e.data() {
+                SessionEventData::ToolResult { result, .. } => Some(result),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].outcome, ToolOutcome::Error);
+        assert!(results[0].content.contains("id"));
+        assert_eq!(results[1].outcome, ToolOutcome::Success);
+        assert!(session.outcome_unknown_recovery().is_empty());
+        assert!(session.recoverable_user_questions().is_empty());
+        assert_eq!(
+            session
+                .events()
+                .iter()
+                .filter(|e| matches!(e.data(), SessionEventData::QuestionRequested { .. }))
+                .count(),
+            1
+        );
+    }
+}
+
+#[tokio::test]
 async fn restart_replays_only_the_durable_user_question_call_and_keeps_its_identity() {
     let journal = Arc::new(EventMemorySessionStore::default());
     journal
