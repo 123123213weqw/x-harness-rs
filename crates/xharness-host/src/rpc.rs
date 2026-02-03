@@ -619,7 +619,15 @@ impl BasicHost {
         Ok(json!({"items": matches, "hasMore": has_more}))
     }
 
-    async fn session_create(&self, payload: &Value) -> Result<Value, RpcError> {
+    pub(crate) async fn session_create(&self, payload: &Value) -> Result<Value, RpcError> {
+        self.session_create_with_visibility(payload, true).await
+    }
+
+    pub(crate) async fn session_create_with_visibility(
+        &self,
+        payload: &Value,
+        announce: bool,
+    ) -> Result<Value, RpcError> {
         let object = require_object(payload)?;
         if object.contains_key("workspaceId") && object.contains_key("cwd") {
             return Err(bad_request(
@@ -716,6 +724,8 @@ impl BasicHost {
             }
         }
         let record = SessionRecord {
+            dispatch_paused: false,
+            delegated: false,
             session_id: session_id.clone(),
             created_at: now,
             updated_at: now,
@@ -787,13 +797,15 @@ impl BasicHost {
             }
             return Err(error);
         }
-        self.push_host(json!({
-            "type": "host/session-added",
-            "sessionId": session_id,
-            "blank": true,
-            "cwd": cwd,
-            "agentPreset": effective_preset,
-        }));
+        if announce {
+            self.push_host(json!({
+                "type": "host/session-added",
+                "sessionId": session_id,
+                "blank": true,
+                "cwd": cwd,
+                "agentPreset": effective_preset,
+            }));
+        }
         if let Some(workspace) = workspace_changed {
             self.push_host(json!({"type": "host/workspace-changed", "workspace": workspace}));
         }
@@ -1206,6 +1218,8 @@ impl BasicHost {
             MetricsProjectionState::rebuild(child_events.iter())
         };
         let child = SessionRecord {
+            dispatch_paused: false,
+            delegated: false,
             session_id: child_id.clone(),
             created_at: now,
             updated_at: now,
@@ -1313,7 +1327,7 @@ impl BasicHost {
         Ok(json!({"accepted": true}))
     }
 
-    async fn is_duplicate_admission(
+    pub(crate) async fn is_duplicate_admission(
         &self,
         session_id: &str,
         rpc_id: &str,
@@ -1569,8 +1583,15 @@ impl BasicHost {
         Ok(json!({"accepted": true}))
     }
 
-    async fn send_control(&self, session_id: &str, command: LoopCommand) -> Result<(), RpcError> {
+    pub(crate) async fn send_control(
+        &self,
+        session_id: &str,
+        command: LoopCommand,
+    ) -> Result<(), RpcError> {
         let cancel_is_idempotent = matches!(&command, LoopCommand::Cancel);
+        if cancel_is_idempotent {
+            self.set_dispatch_paused(session_id, true).await?;
+        }
         let control = self
             .state
             .read()
@@ -3284,7 +3305,7 @@ fn plan_command_input(line: &str) -> Option<&str> {
     }
 }
 
-fn permission_events(preset: crate::PermissionPreset) -> Vec<SessionEvent> {
+pub(crate) fn permission_events(preset: crate::PermissionPreset) -> Vec<SessionEvent> {
     vec![
         SessionEventData::PermissionPreset {
             preset: preset.as_str().to_owned(),

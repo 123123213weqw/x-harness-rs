@@ -16,3 +16,6 @@ pub use inbox::*;
 pub use lease::*;
 pub use lifecycle::*;
 pub use xharness_session::{InboxMessage, InboxTarget};
+
+mod delegation;
+pub use delegation::{AgentOperation, DelegationRuntime};

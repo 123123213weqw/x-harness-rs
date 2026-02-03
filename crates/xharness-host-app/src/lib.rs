@@ -41,6 +41,7 @@ pub struct NativeToolFactory {
     debug: DebugRecorder,
     questions: Option<Arc<DurableQuestionHub>>,
     schedules: Option<Arc<ScheduleManager>>,
+    agent_host: std::sync::OnceLock<std::sync::Weak<xharness_host::BasicHost>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +63,7 @@ impl NativeToolFactory {
             debug,
             questions: None,
             schedules: None,
+            agent_host: std::sync::OnceLock::new(),
         })
     }
 
@@ -77,6 +79,7 @@ impl NativeToolFactory {
             debug,
             questions: Some(questions),
             schedules: None,
+            agent_host: std::sync::OnceLock::new(),
         })
     }
 
@@ -93,7 +96,14 @@ impl NativeToolFactory {
             debug,
             questions: Some(questions),
             schedules: Some(schedules),
+            agent_host: std::sync::OnceLock::new(),
         })
+    }
+
+    pub fn bind_agent_host(&self, host: &Arc<xharness_host::BasicHost>) -> Result<(), String> {
+        self.agent_host
+            .set(Arc::downgrade(host))
+            .map_err(|_| "agent host already bound".into())
     }
 
     async fn platform(
@@ -162,6 +172,9 @@ impl SessionToolFactory for NativeToolFactory {
         )
         .specs();
         project_tools(&mut specs, &readiness);
+        if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+            specs.push(xharness_host::AgentTool::for_host(&host, session_id));
+        }
         if let Some(schedules) = &self.schedules {
             specs.extend(schedules.specs(session_id));
         }

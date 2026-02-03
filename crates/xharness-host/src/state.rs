@@ -244,6 +244,10 @@ pub(crate) struct DriverCommand {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionRecord {
+    #[serde(skip)]
+    pub(crate) dispatch_paused: bool,
+    #[serde(skip)]
+    pub(crate) delegated: bool,
     pub session_id: String,
     pub created_at: u64,
     pub updated_at: u64,
