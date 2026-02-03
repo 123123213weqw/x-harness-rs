@@ -315,6 +315,137 @@ fn restore_rejects_sequence_gaps_and_bad_revisions() {
 }
 
 #[test]
+fn question_pre_request_failures_and_legacy_recovery_are_safe() {
+    for invalid in [false, true] {
+        for closed in [false, true] {
+            let mut session = Session::new(header("question-preflight")).unwrap();
+            let mut call = question_call();
+            if invalid {
+                let mut args = serde_json::to_value(question_request()).unwrap();
+                args["questions"][0]["options"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("id");
+                call.arguments_json = args.to_string();
+            }
+            let mut assistant = Message::assistant("");
+            assistant.tool_calls.push(call.clone());
+            session
+                .append_batch(
+                    Revision::ZERO,
+                    vec![
+                        event(EventData::TurnStart { turn: 1 }),
+                        event(EventData::StepStart { turn: 1, step: 1 }),
+                        event(EventData::AssistantMessage {
+                            turn: 1,
+                            step: 1,
+                            message: assistant,
+                            usage: None,
+                        }),
+                        event(EventData::ToolCall {
+                            turn: 1,
+                            step: 1,
+                            call: call.clone(),
+                        }),
+                    ],
+                )
+                .unwrap();
+            if closed {
+                session
+                    .append_batch(
+                        session.revision(),
+                        vec![
+                            event(EventData::StepEnd { turn: 1, step: 1 }),
+                            event(EventData::TurnEnd {
+                                turn: 1,
+                                reason: TurnEndReason::Failed {
+                                    error: "legacy journal append failure".to_owned(),
+                                },
+                            }),
+                        ],
+                    )
+                    .unwrap();
+            }
+            // No request means there can never be a successful user answer.
+            assert!(session
+                .append(
+                    session.revision(),
+                    event(EventData::ToolResult {
+                        turn: 1,
+                        step: 1,
+                        result: ToolResultData::success(&call.id, "invented answer"),
+                    })
+                )
+                .is_err());
+            if !closed {
+                // Valid arguments can still fail before the provider persists a request.
+                let mut preflight = session.clone();
+                preflight
+                    .append(
+                        preflight.revision(),
+                        event(EventData::ToolResult {
+                            turn: 1,
+                            step: 1,
+                            result: ToolResultData {
+                                call_id: call.id.clone(),
+                                outcome: ToolOutcome::Error,
+                                content: "preflight failed".to_owned(),
+                                metadata: None,
+                            },
+                        }),
+                    )
+                    .unwrap();
+            } else if !invalid {
+                // An arbitrary late error must not pretend to know an uncertain outcome.
+                assert!(session
+                    .append(
+                        session.revision(),
+                        event(EventData::ToolResult {
+                            turn: 1,
+                            step: 1,
+                            result: ToolResultData {
+                                call_id: call.id.clone(),
+                                outcome: ToolOutcome::Error,
+                                content: "unproven".to_owned(),
+                                metadata: None,
+                            },
+                        })
+                    )
+                    .is_err());
+            }
+            let recovery = session.outcome_unknown_recovery();
+            assert_eq!(recovery.len(), 1);
+            session.append_batch(session.revision(), recovery).unwrap();
+            let EventData::ToolResult { result, .. } = session.events().last().unwrap().data()
+            else {
+                panic!("missing recovered result")
+            };
+            assert_eq!(
+                result.outcome,
+                if invalid {
+                    ToolOutcome::Error
+                } else {
+                    ToolOutcome::OutcomeUnknown
+                }
+            );
+            if invalid {
+                assert!(result.content.contains("id"));
+                let envelope: serde_json::Value = serde_json::from_str(&result.content).unwrap();
+                assert_eq!(envelope["ok"], false);
+            }
+            assert!(session.outcome_unknown_recovery().is_empty());
+            assert!(session.pending_user_questions().is_empty());
+            Session::restore(
+                header("question-preflight"),
+                session.revision(),
+                session.events().to_vec(),
+            )
+            .unwrap();
+        }
+    }
+}
+
+#[test]
 fn user_question_lifecycle_is_validated_projected_and_never_unknowned() {
     let mut session = Session::new(header("question-lifecycle")).unwrap();
     let call = question_call();
@@ -365,6 +496,27 @@ fn user_question_lifecycle_is_validated_projected_and_never_unknowned() {
         invalid_result,
         Err(SessionError::InvalidLifecycle { .. })
     ));
+
+    for outcome in [ToolOutcome::Error, ToolOutcome::OutcomeUnknown] {
+        assert!(
+            session
+                .append(
+                    session.revision(),
+                    event(EventData::ToolResult {
+                        turn: 1,
+                        step: 1,
+                        result: ToolResultData {
+                            call_id: call.id.clone(),
+                            outcome,
+                            content: "not settled".to_owned(),
+                            metadata: None,
+                        },
+                    })
+                )
+                .is_err(),
+            "pending questions must not be bypassed by an error"
+        );
+    }
 
     let mut interaction = xharness_interaction::QuestionInteraction::new(QuestionInvocation::new(
         call.id.clone(),
