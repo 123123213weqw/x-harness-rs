@@ -559,6 +559,25 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
 
         match logged.data() {
+            EventData::AgentDelegated {
+                parent_session_id,
+                invocation_id,
+                task,
+            } => {
+                if parent_session_id.trim().is_empty()
+                    || invocation_id.trim().is_empty()
+                    || task.trim().is_empty()
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "agent delegation identity/task must be non-empty",
+                    ));
+                }
+            }
+            EventData::AgentDelegationFailure { .. }
+            | EventData::AgentFailureDelivered { .. }
+            | EventData::AgentDispatchPaused { .. }
+            | EventData::AgentSettlementDelivered { .. } => {}
             EventData::AgentPresetSelected { agent_preset } => {
                 if agent_preset.trim().is_empty() {
                     return Err(lifecycle_error(

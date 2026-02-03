@@ -172,12 +172,14 @@ impl BasicHost {
             let plan_active = restored_plan_mode(&session);
             let goal = restored_goal(&session);
             let record = SessionRecord {
+                dispatch_paused: crate::delegation::restored_dispatch_paused(&session),
+                delegated: crate::delegation::restored_delegation(&session).is_some(),
                 session_id: session_id.clone(),
                 created_at: header.created_at_ms,
                 updated_at,
                 running: false,
                 blank,
-                parent_session_id: None,
+                parent_session_id: crate::delegation::restored_delegation(&session),
                 // `origin` is a frozen Web-wire discriminant. The upstream
                 // client accepts only `"subagent"`; ordinary sessions remain
                 // ordinary after a Host restart, so restoration must not leak
@@ -219,10 +221,11 @@ impl BasicHost {
             }
             report.restored_sessions += 1;
             report.waiting_next_step_inputs += inbox.next_step().len();
-            if projected_queue_len > 0
-                || pending_approval_count > 0
-                || recoverable_question_count > 0
-                || runtime_background_work
+            if !crate::delegation::restored_dispatch_paused(&session)
+                && (projected_queue_len > 0
+                    || pending_approval_count > 0
+                    || recoverable_question_count > 0
+                    || runtime_background_work)
             {
                 let prompt = self
                     .state
@@ -993,7 +996,12 @@ fn restored_web_event(
         });
     }
     let (event_type, data, surface_op) = match event.data() {
-        EventData::AgentPresetSelected { .. }
+        EventData::AgentDelegationFailure { .. }
+        | EventData::AgentFailureDelivered { .. }
+        | EventData::AgentDelegated { .. }
+        | EventData::AgentDispatchPaused { .. }
+        | EventData::AgentSettlementDelivered { .. }
+        | EventData::AgentPresetSelected { .. }
         | EventData::SessionModelSelected { .. }
         | EventData::ApprovalAsked { .. }
         | EventData::ApprovalDecided { .. }

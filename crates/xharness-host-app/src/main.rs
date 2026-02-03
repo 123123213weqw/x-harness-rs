@@ -107,7 +107,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         DurableLoopAgentRuntime::from_registry(
             deployment.default_route,
             deployment.registry,
-            tools,
+            tools.clone(),
             Arc::new(ToolResultPruningContextPolicy::default()),
             Arc::clone(&store),
             leases,
@@ -124,6 +124,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         control_store,
         questions,
     );
+    tools.bind_agent_host(&host)?;
     let model_settings_base = match &args.providers_file {
         Some(path) => config::settings_from_file(path)?,
         None if args.model != "unconfigured" => serde_json::json!({"providers":{
@@ -147,6 +148,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     host.install_model_settings(Arc::new(model_settings), model_settings_base)
         .await?;
     let restore = host.restore_from_store(store).await?;
+    host.start_delegation_listener();
     if let Err(error) = host.refresh_model_settings().await {
         runtime.replace_model_registry(xharness_host::ModelRegistry::new());
         eprintln!("Model settings require attention: {error}");

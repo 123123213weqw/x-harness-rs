@@ -183,6 +183,9 @@ impl BasicHost {
         if !self.agent_runtime.has_authoritative_sessions() {
             return Ok(false);
         }
+        // Serialize read -> projection -> publication, not just the final write.
+        // Otherwise an older concurrent read can arrive after a newer cursor.
+        let _projection_guard = self.lock_projection(session_id).await;
         let Some(session) = self
             .agent_runtime
             .authoritative_session(session_id)
@@ -435,6 +438,10 @@ impl BasicHost {
             fingerprint,
         } = admission;
         let session_id = session_id.as_str();
+        // Only an explicit user prompt resumes a stopped admission gate.
+        if source.get("kind").and_then(Value::as_str) == Some("user") {
+            self.set_dispatch_paused(session_id, false).await?;
+        }
         let mode = mode.as_str();
         let (steer_control, admission_request) = {
             let state = self.state.read().await;
@@ -598,7 +605,7 @@ impl BasicHost {
                     placement: QueuePlacement::Queued,
                 },
             );
-            if !session.running {
+            if !session.running && !session.dispatch_paused {
                 let (control_tx, control_rx) = mpsc::channel(64);
                 session.running = true;
                 session.control = Some(control_tx);
@@ -627,6 +634,25 @@ impl BasicHost {
         mut control_rx: mpsc::Receiver<DriverCommand>,
     ) {
         loop {
+            let paused = {
+                let state = self.state.read().await;
+                let Some(record) = state.sessions.get(&session_id) else {
+                    return;
+                };
+                record.dispatch_paused
+            };
+            if paused {
+                let mut state = self.state.write().await;
+                if let Some(record) = state.sessions.get_mut(&session_id) {
+                    record.running = false;
+                    record.control = None;
+                }
+                drop(state);
+                self.push_host(
+                    json!({"type":"host/session-status","sessionId":session_id,"running":false}),
+                );
+                return;
+            }
             let next = {
                 let mut state = self.state.write().await;
                 state
@@ -637,6 +663,9 @@ impl BasicHost {
             let Some(prompt) = next else {
                 let mut state = self.state.write().await;
                 if let Some(session) = state.sessions.get_mut(&session_id) {
+                    if !session.queue.is_empty() {
+                        continue;
+                    }
                     session.running = false;
                     session.control = None;
                 }
@@ -650,7 +679,14 @@ impl BasicHost {
                 return;
             };
             self.emit_queue(&session_id).await;
+            let work_id = prompt.id.clone();
             if let Err(error) = self.run_turn(&session_id, prompt, &mut control_rx).await {
+                if let Err(persist_error) = self
+                    .record_delegation_failure(&session_id, &work_id, &error.message)
+                    .await
+                {
+                    self.push_host(json!({"type":"host/agent-error","sessionId":session_id,"message":persist_error.message}));
+                }
                 self.push_host(json!({
                     "type": "host/agent-error",
                     "sessionId": session_id,
@@ -852,6 +888,14 @@ impl BasicHost {
 
         let result = run.result().await;
         if authoritative {
+            if result.status == LoopStatus::Failed {
+                self.record_delegation_failure(
+                    session_id,
+                    &prompt.id,
+                    result.error.as_deref().unwrap_or("child turn failed"),
+                )
+                .await?;
+            }
             self.sync_authoritative_session(session_id).await?;
             self.state
                 .write()
