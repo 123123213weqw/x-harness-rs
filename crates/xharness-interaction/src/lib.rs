@@ -83,6 +83,15 @@ pub struct AskUserQuestionRequest {
 }
 
 impl AskUserQuestionRequest {
+    /// Shared by live execution and journal recovery. Invalid arguments never
+    /// cross the durable human-interaction boundary.
+    pub fn parse(arguments_json: &str) -> Result<Self, String> {
+        let request: Self =
+            serde_json::from_str(arguments_json).map_err(|error| error.to_string())?;
+        request.validate().map_err(|error| error.to_string())?;
+        Ok(request)
+    }
+
     pub fn validate(&self) -> Result<(), QuestionValidationError> {
         if self.questions.is_empty() || self.questions.len() > MAX_QUESTIONS {
             return Err(QuestionValidationError::QuestionCount {
@@ -511,12 +520,8 @@ impl AskUserQuestionTool {
         ToolSpec::new(tool_definition(), move |context| {
             let provider = Arc::clone(&provider);
             async move {
-                let request: AskUserQuestionRequest =
-                    serde_json::from_value(context.arguments.as_ref().clone())
-                        .map_err(|error| ToolHandlerError::new(error.to_string()))?;
-                request
-                    .validate()
-                    .map_err(|error| ToolHandlerError::new(error.to_string()))?;
+                let request = AskUserQuestionRequest::parse(&context.arguments_json)
+                    .map_err(ToolHandlerError::new)?;
                 let invocation = QuestionInvocation::new(context.execution_id.as_str(), request);
                 let resolution = provider
                     .ask(invocation.clone(), context.cancellation.clone())
