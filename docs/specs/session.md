@@ -92,11 +92,22 @@ Request Header 必须记录本次实际使用的消息 Revision、压缩 Policy 
 `outcome_unknown` Tool Result，但禁止执行该 Call。非幂等操作再次尝试前，Host 应先
 检查外部状态。
 
-唯一例外是存在同 Call ID 的未决 `approval/asked`：Asked 已 Flush、Decided 缺失证明旧进程
+审批例外是存在同 Call ID 的未决 `approval/asked`：Asked 已 Flush、Decided 缺失证明旧进程
 尚未越过审批门，`pending_tool_approvals()` 将其投影为可交互恢复项，并从普通
 `outcome_unknown_recovery()` 中排除。恢复必须复用原 Approval/Execution/Provider Call ID；
 Allowed-once 之后才能首次执行。已经 Decided Allowed 但 Result 缺失时仍属于 Outcome Unknown，
 不得因为曾获批而重放副作用。
+
+`ask_user_question` 在 `question/requested` 之前可返回普通 Error（例如缺少选项 ID），
+不要求伪造提问记录；没有 Requested 时禁止 Success。已有 Requested 的 Call 必须先有
+Resolved/Cancelled，不能用 Error 或 Outcome Unknown 绕过未决问题。已有持久化问题但
+缺少 Tool Result 时，恢复复用该问题身份，不重新向用户创建问题。
+
+对于旧版本已关闭失败 Turn、却遗留无 Result 的提问 Call，恢复使用执行器共用的参数解析：
+只有无 Requested 且原参数明确无效时，才追加确定的 Error，允许该 Error 出现在原 Step
+关闭之后；不执行工具，也不合成用户答案。其它未请求问题的结果仍为 Outcome Unknown。
+重复恢复不得追加第二条 Result；日志和旧事件保持原样。升级恢复前备份状态目录，并关闭
+共享该目录的旧 Host：旧版本校验器不能读取新版本修复后的这类 Error 记录，回退需使用备份。
 
 ## Store Trait
 
