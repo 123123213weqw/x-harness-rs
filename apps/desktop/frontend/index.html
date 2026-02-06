@@ -37,9 +37,23 @@
       const message = document.querySelector('#message')
       const events = window.__TAURI__?.event
       if (events) {
-        events.listen('xharness-bootstrap', ({ payload }) => {
-          if (payload?.message) message.textContent = payload.message
-          if (payload?.phase === 'failed') main.classList.add('failed')
+        async function boot() {
+          await events.listen('xharness-bootstrap', ({ payload }) => {
+            if (payload?.message) message.textContent = payload.message
+            if (payload?.phase === 'failed') main.classList.add('failed')
+          })
+          // A state-lock rejection may finish before this page registers its
+          // listener. Read native state after subscribing so failure cannot leave
+          // a permanent loading spinner merely because an event was missed.
+          const status = await window.__TAURI__.core.invoke('desktop_status')
+          if (status?.startupError) {
+            message.textContent = status.startupError
+            main.classList.add('failed')
+          }
+        }
+        boot().catch(() => {
+          message.textContent = '无法读取桌面启动状态，请关闭此窗口后重试。'
+          main.classList.add('failed')
         })
       }
     </script>

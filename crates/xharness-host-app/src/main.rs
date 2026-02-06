@@ -23,6 +23,26 @@ use xharness_web::WebRuntime;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse()?;
+    if let Some(permit) = &args.desktop_start_file {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            match tokio::fs::read(permit).await {
+                Ok(bytes) if bytes == b"owned" => {
+                    tokio::fs::remove_file(permit).await?;
+                    break;
+                }
+                Ok(_) => return Err("invalid desktop startup permit".into()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err("desktop exited before establishing Host process ownership".into());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+    // Must precede even debug/config writes and all session restoration.
+    let _ownership = xharness_host_app::ownership::acquire(&args.state_dir).await?;
     let (debug, trace) =
         DebugRecorder::open(DebugTraceConfig::new(args.debug_trace, &args.debug_dir)).await?;
     if let Some(trace) = trace {
@@ -357,6 +377,7 @@ struct Args {
     desktop_token: Option<String>,
     shutdown_file: Option<PathBuf>,
     ready_file: Option<PathBuf>,
+    desktop_start_file: Option<PathBuf>,
 }
 
 impl Args {
@@ -390,6 +411,7 @@ impl Args {
         let mut desktop_token = env::var("XHARNESS_DESKTOP_TOKEN").ok();
         let mut shutdown_file = env::var_os("XHARNESS_SHUTDOWN_FILE").map(PathBuf::from);
         let mut ready_file = env::var_os("XHARNESS_READY_FILE").map(PathBuf::from);
+        let mut desktop_start_file = None;
 
         let mut arguments = env::args().skip(1);
         while let Some(argument) = arguments.next() {
@@ -433,6 +455,7 @@ impl Args {
                 "--desktop-token" => desktop_token = Some(value),
                 "--shutdown-file" => shutdown_file = Some(PathBuf::from(value)),
                 "--ready-file" => ready_file = Some(PathBuf::from(value)),
+                "--desktop-start-file" => desktop_start_file = Some(PathBuf::from(value)),
                 _ => return Err(format!("unknown argument {argument:?}")),
             }
         }
@@ -459,6 +482,7 @@ impl Args {
             desktop_token,
             shutdown_file,
             ready_file,
+            desktop_start_file,
         })
     }
 }

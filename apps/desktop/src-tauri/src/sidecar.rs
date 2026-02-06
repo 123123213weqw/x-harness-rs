@@ -26,10 +26,15 @@ const HOST_START_TIMEOUT: Duration = Duration::from_secs(30);
 const HOST_STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct DesktopState {
+    #[cfg(windows)]
+    host_job: xharness_win32::Job,
+    #[cfg(windows)]
+    start_file: PathBuf,
     pub(crate) child: Mutex<Option<CommandChild>>,
     pub(crate) running: AtomicBool,
     pub(crate) closing: AtomicBool,
     pub(crate) endpoint: Mutex<Option<String>>,
+    startup_error: Mutex<Option<String>>,
     pub(crate) shutdown_file: PathBuf,
     ready_file: PathBuf,
     token: String,
@@ -76,10 +81,15 @@ impl DesktopState {
             .transpose()?
             .unwrap_or_default();
         Ok(Self {
+            #[cfg(windows)]
+            host_job: xharness_win32::Job::new_kill_on_close()?,
+            #[cfg(windows)]
+            start_file: runtime_dir.join(format!("start-{runtime_id}.permit")),
             child: Mutex::new(None),
             running: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             endpoint: Mutex::new(None),
+            startup_error: Mutex::new(None),
             shutdown_file,
             ready_file,
             token,
@@ -102,6 +112,7 @@ pub struct DesktopStatus {
     host_running: bool,
     host_endpoint: Option<String>,
     updater_configured: bool,
+    startup_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -123,6 +134,11 @@ pub fn desktop_status(state: State<'_, DesktopState>) -> DesktopStatus {
             .expect("endpoint mutex poisoned")
             .clone(),
         updater_configured: crate::updater::configured(),
+        startup_error: state
+            .startup_error
+            .lock()
+            .expect("startup error mutex poisoned")
+            .clone(),
     }
 }
 
@@ -131,9 +147,22 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     if state.running.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
+    *state
+        .startup_error
+        .lock()
+        .expect("startup error mutex poisoned") = None;
     let result = start_claimed(app).await;
-    if result.is_err() {
-        force_stop(app);
+    if let Err(error) = &result {
+        state
+            .startup_error
+            .lock()
+            .expect("startup error mutex poisoned")
+            .get_or_insert_with(|| error.clone());
+        if state.child.lock().expect("child mutex poisoned").is_none() {
+            state.running.store(false, Ordering::SeqCst);
+        } else {
+            force_stop(app);
+        }
     }
     result
 }
@@ -157,6 +186,11 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     if let Some(providers_file) = &state.providers_file {
         args.extend(["--providers-file".to_owned(), path_text(providers_file)]);
     }
+    #[cfg(windows)]
+    args.extend([
+        "--desktop-start-file".to_owned(),
+        path_text(&state.start_file),
+    ]);
 
     let mut command = app
         .shell()
@@ -167,10 +201,24 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     for (name, value) in &state.provider_env {
         command = command.env(name, value);
     }
+    #[cfg(windows)]
+    {
+        // Host cannot restore work/spawn children until assigned to our Job.
+        match std::fs::remove_file(&state.start_file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("无法清理旧 Host 启动许可：{error}")),
+        }
+    }
     let command = command.current_dir(&state.workspace);
     let (mut events, child) = command
         .spawn()
         .map_err(|error| format!("无法启动 xharness-host：{error}"))?;
+    #[cfg(windows)]
+    if let Err(error) = state.host_job.assign_pid(child.pid()) {
+        let _ = child.kill();
+        return Err(format!("无法建立 Host 进程树退出保护：{error}"));
+    }
     *state.child.lock().expect("child mutex poisoned") = Some(child);
 
     let event_app = app.clone();
@@ -179,6 +227,17 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
             match event {
                 CommandEvent::Stderr(bytes) => {
                     let message = String::from_utf8_lossy(&bytes).trim().to_owned();
+                    // Surface only recognized ownership diagnostics on the
+                    // bootstrap screen, not arbitrary provider stderr/secrets.
+                    if message.contains("XHarness 数据目录已被占用")
+                        || message.contains("检测到旧版会话占用")
+                    {
+                        *event_app
+                            .state::<DesktopState>()
+                            .startup_error
+                            .lock()
+                            .expect("startup error mutex poisoned") = Some(message.clone());
+                    }
                     if !message.is_empty() {
                         let _ = event_app.emit(
                             "xharness-host",
@@ -200,9 +259,10 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
                 }
                 CommandEvent::Terminated(payload) => {
                     let state = event_app.state::<DesktopState>();
-                    state.running.store(false, Ordering::SeqCst);
                     *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
                     state.child.lock().expect("child mutex poisoned").take();
+                    // Publish stopped only after cleaning up this generation.
+                    state.running.store(false, Ordering::SeqCst);
                     let _ = event_app.emit(
                         "xharness-host",
                         HostEvent {
@@ -217,6 +277,10 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         }
     });
 
+    #[cfg(windows)]
+    tokio::fs::write(&state.start_file, b"owned")
+        .await
+        .map_err(|error| format!("无法释放 Host 启动门禁：{error}"))?;
     let endpoint = wait_until_ready(app, &state.ready_file).await?;
     *state.endpoint.lock().expect("endpoint mutex poisoned") = Some(endpoint.clone());
 
@@ -244,18 +308,31 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
 pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<DesktopState>();
     if !state.running.load(Ordering::SeqCst) {
+        #[cfg(windows)]
+        if state
+            .host_job
+            .accounting()
+            .map_err(|error| error.to_string())?
+            .active_processes
+            != 0
+        {
+            return Err("Host 子进程尚未全部退出，更新已暂停".to_owned());
+        }
         return Ok(());
     }
     tokio::fs::write(&state.shutdown_file, b"shutdown")
         .await
         .map_err(|error| format!("无法请求 Host 安全退出：{error}"))?;
-    let deadline = Instant::now() + HOST_STOP_TIMEOUT;
-    while state.running.load(Ordering::SeqCst) && Instant::now() < deadline {
-        time::sleep(Duration::from_millis(100)).await;
-    }
-    if state.running.load(Ordering::SeqCst) {
-        force_stop(app);
-        return Err("Host 未在 15 秒内安全退出，已强制终止".to_owned());
+    wait_for_stop(&state.running, HOST_STOP_TIMEOUT).await?;
+    #[cfg(windows)]
+    if state
+        .host_job
+        .accounting()
+        .map_err(|error| error.to_string())?
+        .active_processes
+        != 0
+    {
+        return Err("Host 子进程尚未全部退出，更新已暂停".to_owned());
     }
     let _ = tokio::fs::remove_file(&state.shutdown_file).await;
     let _ = tokio::fs::remove_file(&state.ready_file).await;
@@ -264,19 +341,37 @@ pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
 
 pub fn force_stop(app: &AppHandle) {
     let state = app.state::<DesktopState>();
-    state.running.store(false, Ordering::SeqCst);
-    *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
     let child = state.child.lock().expect("child mutex poisoned").take();
     if let Some(child) = child {
+        // kill is a request, not proof of exit. Only Terminated marks stopped.
         let _ = child.kill();
     }
+}
+
+async fn wait_for_stop(running: &AtomicBool, timeout: Duration) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    while running.load(Ordering::SeqCst) {
+        if Instant::now() >= deadline {
+            return Err("Host 尚未确认退出，更新不会强制中断任务或替换程序".to_owned());
+        }
+        time::sleep(Duration::from_millis(20)).await;
+    }
+    Ok(())
 }
 
 async fn wait_until_ready(app: &AppHandle, ready_file: &Path) -> Result<String, String> {
     let deadline = Instant::now() + HOST_START_TIMEOUT;
     loop {
         if !app.state::<DesktopState>().running.load(Ordering::SeqCst) {
-            return Err("XHarness Host 在 Readiness 之前退出，请检查桌面日志".to_owned());
+            return Err(app
+                .state::<DesktopState>()
+                .startup_error
+                .lock()
+                .expect("startup error mutex poisoned")
+                .clone()
+                .unwrap_or_else(|| {
+                    "XHarness Host 在 Readiness 之前退出，请检查桌面日志".to_owned()
+                }));
         }
         let address = match tokio::fs::read_to_string(ready_file).await {
             Ok(value) => valid_ready_address(&value),
@@ -417,6 +512,19 @@ fn read_nonempty_secret(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_timeout_does_not_pretend_process_exited() {
+        tauri::async_runtime::block_on(async {
+            let running = AtomicBool::new(true);
+            assert!(wait_for_stop(&running, Duration::from_millis(1))
+                .await
+                .is_err());
+            assert!(running.load(Ordering::SeqCst));
+            running.store(false, Ordering::SeqCst);
+            assert!(wait_for_stop(&running, Duration::ZERO).await.is_ok());
+        });
+    }
 
     #[test]
     fn launch_tokens_are_full_width_hex() {
