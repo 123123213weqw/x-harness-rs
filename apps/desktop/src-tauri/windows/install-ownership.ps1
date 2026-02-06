@@ -113,7 +113,15 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
         $oldVersion = [version](Get-Item -LiteralPath (Join-Path $verified 'xharness-desktop.exe')).VersionInfo.FileVersion
         $newVersion = [version](Get-Item -LiteralPath $target).VersionInfo.FileVersion
         if ($oldVersion -gt $newVersion) { continue }
-        foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe')) {
+        $retireNames = @('xharness-desktop.exe', 'xharness-host.exe')
+        $uninstaller = Join-Path $verified 'uninstall.exe'
+        if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+            Assert-XHarnessNoRedirect (Get-Item -LiteralPath $uninstaller)
+            # An old uninstaller shares the new install's registry identity.
+            # Leaving it active could unregister the retained installation.
+            $retireNames += 'uninstall.exe'
+        }
+        foreach ($name in $retireNames) {
             $binary = Join-Path $verified $name
             $backup = $binary + '.before-xharness-update'
             if (Test-Path -LiteralPath $backup) { throw "Refuse to overwrite recovery file: $backup" }
@@ -121,7 +129,7 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
         $moved = @()
         try {
             if (@(Get-XHarnessProcesses).Count) { throw 'XHarness restarted during migration' }
-            foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe')) {
+            foreach ($name in $retireNames) {
                 $binary = Join-Path $verified $name
                 Move-Item -LiteralPath $binary -Destination ($binary + '.before-xharness-update')
                 $moved += $binary
