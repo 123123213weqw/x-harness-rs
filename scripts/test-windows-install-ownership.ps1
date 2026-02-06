@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows') {
     throw 'Installation ownership acceptance requires a disposable GitHub-hosted Windows runner'
 }
+. "$PSScriptRoot/../apps/desktop/src-tauri/windows/install-ownership.ps1"
 $fixture = Join-Path $env:RUNNER_TEMP ('xharness-install-' + [guid]::NewGuid().ToString('N'))
 $canonical = Join-Path $fixture 'custom path 中文'
 $legacy = Join-Path ([Environment]::GetFolderPath('Desktop')) 'XHarness'
@@ -79,7 +80,7 @@ try {
     Wait-Until { -not (Get-Process -Id $hostPid -ErrorAction SilentlyContinue) } 'Host survived desktop crash'
 
     Install-TestCopy $true
-    Assert-That ($shell.CreateShortcut($legacyLink).TargetPath -ieq (Join-Path $canonical 'xharness-desktop.exe')) 'Old shortcut was not reconciled'
+    Assert-That ([XHarnessInstaller.Shortcuts]::Read($legacyLink).TargetPath -ieq (Join-Path $canonical 'xharness-desktop.exe')) 'Old shortcut was not reconciled'
     foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe')) {
         Assert-That (-not (Test-Path -LiteralPath (Join-Path $legacy $name))) 'Legacy executable remains launchable'
         Assert-That (Test-Path -LiteralPath (Join-Path $legacy ($name + '.before-xharness-update'))) 'Recovery binary missing'
