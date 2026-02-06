@@ -116,9 +116,21 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
             $backup = $binary + '.before-xharness-update'
             if (Test-Path -LiteralPath $backup) { throw "Refuse to overwrite recovery file: $backup" }
         }
-        foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe')) {
-            $binary = Join-Path $verified $name
-            Move-Item -LiteralPath $binary -Destination ($binary + '.before-xharness-update')
+        $moved = @()
+        try {
+            if (@(Get-XHarnessProcesses).Count) { throw 'XHarness restarted during migration' }
+            foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe')) {
+                $binary = Join-Path $verified $name
+                Move-Item -LiteralPath $binary -Destination ($binary + '.before-xharness-update')
+                $moved += $binary
+            }
+        } catch {
+            foreach ($binary in $moved) {
+                if (-not (Test-Path -LiteralPath $binary)) {
+                    Move-Item -LiteralPath ($binary + '.before-xharness-update') -Destination $binary
+                }
+            }
+            throw
         }
         $redirect = $shell.CreateShortcut((Join-Path $verified 'XHarness.lnk'))
         $redirect.TargetPath = $target
