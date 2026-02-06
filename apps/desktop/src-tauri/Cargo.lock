@@ -5361,6 +5361,15 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "url",
+ "xharness-win32",
+]
+
+[[package]]
+name = "xharness-win32"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.20",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
