@@ -21,12 +21,21 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/test-update-channel-bridge.mjs
+      - run: node scripts/test-migration-acceptance-guards.mjs
+      - run: node scripts/test-install-ownership-contract.mjs
+      - run: node scripts/test-desktop-bootstrap.mjs
       - run: node scripts/test-updater-signature.mjs
       - run: python -B scripts/test-friends-release.py
       - name: Real Tauri signer with disposable keys (no native compilation)
         if: matrix.os == 'windows-2025'
         shell: pwsh
         run: ./scripts/test-update-channel-signer.ps1
+      - name: Fast Windows Shell reconciliation regression (no Rust build)
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-install-ownership-fixture.ps1
+          if ($LASTEXITCODE) { throw 'Windows Shell reconciliation regression failed' }
 
   context-layout:
     name: Context and Harness layout / Chromium + WebKit
@@ -145,6 +154,7 @@ jobs:
           python scripts/test-windows-desktop-bundle.py
           node scripts/test-desktop-updater.mjs
       - name: Build installable Windows application
+        id: windows-bundle
         uses: tauri-apps/tauri-action@v0.6.2
         with:
           projectPath: apps/desktop
@@ -162,7 +172,22 @@ jobs:
           $installer = $installers[0]
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
           "$hash  $($installer.Name)" | Set-Content -Encoding ascii "$($installer.FullName).sha256"
+      - name: Native installation ownership and crash acceptance
+        run: |
+          $installer = Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe | Select-Object -First 1
+          ./scripts/test-install-ownership-logic.ps1 -DesktopBinary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe
+          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-install-ownership-logic.ps1 -DesktopBinary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe
+          if ($LASTEXITCODE) { throw 'Windows PowerShell 5.1 installer logic failed' }
+          ./scripts/test-windows-install-ownership.ps1 -Installer $installer.FullName
+      - name: Upload installation ownership evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installation-ownership-evidence
+          path: dist/install-ownership-evidence/
+          if-no-files-found: warn
       - name: Upload Windows application
+        if: always() && steps.windows-bundle.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: XHarness-windows-x64

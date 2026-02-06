@@ -14,7 +14,7 @@ pub trait AgentLease: Send + Sync + 'static {
 
 #[derive(Debug, thiserror::Error)]
 pub enum LeaseError {
-    #[error("agent {agent_id:?} already has a live owner")]
+    #[error("agent {agent_id:?} already has a live owner; close the other XHarness window/Host or wait for its task to finish, then retry (do not delete lock files)")]
     AlreadyOwned { agent_id: String },
     #[error("invalid agent id {agent_id:?}")]
     InvalidAgentId { agent_id: String },
@@ -72,7 +72,7 @@ impl LeaseManager for MemoryLeaseManager {
     }
 }
 
-/// Cross-process local-filesystem lease provider for macOS and Linux hosts.
+/// Cross-process local-filesystem lease provider for Windows, macOS and Linux.
 /// Advisory locks are automatically released when the owning process exits.
 #[derive(Clone, Debug)]
 pub struct FileLeaseManager {
@@ -135,7 +135,10 @@ impl LeaseManager for FileLeaseManager {
                     agent_id: owned_id,
                     file,
                 }) as Box<dyn AgentLease>),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(error)
+                    if error.raw_os_error() == fs2::lock_contended_error().raw_os_error()
+                        || error.kind() == std::io::ErrorKind::WouldBlock =>
+                {
                     Err(LeaseError::AlreadyOwned { agent_id: owned_id })
                 }
                 Err(error) => Err(LeaseError::Backend {
