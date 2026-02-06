@@ -272,6 +272,16 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
 pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<DesktopState>();
     if !state.running.load(Ordering::SeqCst) {
+        #[cfg(windows)]
+        if state
+            .host_job
+            .accounting()
+            .map_err(|error| error.to_string())?
+            .active_processes
+            != 0
+        {
+            return Err("Host 子进程尚未全部退出，更新已暂停".to_owned());
+        }
         return Ok(());
     }
     tokio::fs::write(&state.shutdown_file, b"shutdown")
