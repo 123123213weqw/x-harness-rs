@@ -93,6 +93,9 @@ try {
        legacyRetiredRecoverably = $true; retainedHash = $before } | ConvertTo-Json | Set-Content -LiteralPath $evidence
     Get-Content -LiteralPath $evidence
 } finally {
+    if (Test-Path -LiteralPath (Join-Path $env:TEMP 'XHarness-installation.log')) {
+        Get-Content -LiteralPath (Join-Path $env:TEMP 'XHarness-installation.log')
+    }
     # Exact PIDs owned by this disposable fixture; no image-name-wide termination.
     foreach ($id in $owned) {
         $process = Get-Process -Id $id -ErrorAction SilentlyContinue
