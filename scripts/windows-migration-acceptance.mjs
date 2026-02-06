@@ -35,7 +35,20 @@ if (process.argv[2] === 'download') {
   download(oldRepo, 'friends-v0.2.1', 'old', [base, base + '.sig'])
   verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
   if (!probeOnly) {
-  download(oldRepo, `friends-v${e.BRIDGE_VERSION}`, 'bridge', [bridge, bridge + '.sig', bridge + '.upstream.sig', 'latest.json', 'migration.json'])
+  // Draft releases require write-level access to read. Fetch the SAME immutable
+  // workflow artifact with actions:read instead of granting release write access.
+  assert.match(e.BRIDGE_RUN_ID, /^[1-9]\d+$/)
+  const bridgeRun = JSON.parse(execFileSync('gh', ['api', `repos/${oldRepo}/actions/runs/${e.BRIDGE_RUN_ID}`], { encoding: 'utf8' }))
+  assert.equal(bridgeRun.conclusion, 'success')
+  assert.equal(bridgeRun.path, '.github/workflows/update-channel-bridge.yml')
+  assert.equal(bridgeRun.head_branch, 'master')
+  assert.equal(bridgeRun.event, 'workflow_dispatch')
+  mkdirSync(join(root, 'bridge'))
+  execFileSync('gh', ['run', 'download', e.BRIDGE_RUN_ID, '--repo', oldRepo, '--name', 'Windows-channel-bridge', '--dir', join(root, 'bridge')], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const receipt = JSON.parse(read(join(root, 'bridge', 'migration.json')))
+  assert.equal(receipt.old, oldRepo); assert.equal(receipt.upstream, upstream)
+  assert.equal(receipt.bridge, e.BRIDGE_VERSION); assert.equal(receipt.target, e.UPSTREAM_VERSION)
+  assert.equal(receipt.bridgeSha256, hash(location('bridge', e.BRIDGE_VERSION)))
   download(upstream, `friends-v${e.UPSTREAM_VERSION}`, 'next', [next, next + '.sig', 'latest.json'])
   verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
   verifyPackage(readFileSync(location('bridge', e.BRIDGE_VERSION)), e.OLD_PUBLIC_KEY, read(location('bridge', e.BRIDGE_VERSION) + '.sig'))
