@@ -16,9 +16,6 @@ function Invoke-TestSigner([string[]] $SignerArgs) {
         throw "Synthetic signer $($SignerArgs[0]) failed: $safeError"
     }
 }
-# GitHub's pwsh wrapper propagates the last native exit code. The last verifier
-# intentionally rejects tampered bytes; reaching here means that rejection passed.
-exit 0
 function Assert-TestSignature([string] $Package, [string] $Signature, [string] $Key, [bool] $Valid) {
     $null = & node (Join-Path $PSScriptRoot 'verify-updater-package.mjs') $Package $Signature $Key 2>&1
     if (($LASTEXITCODE -eq 0) -ne $Valid) { throw 'Unexpected fixture signature verification result' }
@@ -60,3 +57,6 @@ try {
         }
     }
 }
+# GitHub's pwsh wrapper propagates the last native exit code. The last verifier
+# intentionally rejects tampered bytes; reaching here means that rejection passed.
+exit 0
