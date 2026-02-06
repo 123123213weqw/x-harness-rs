@@ -63,6 +63,71 @@ embedded URL/public key. A move to an independently keyed upstream channel needs
 an explicit migration/base installer. Do not silently redirect an old feed to
 packages those clients cannot verify.
 
+### Compatible bridge from an existing Windows channel
+
+`Windows Update Channel Bridge` adds an opt-in, draft-only migration workflow.
+It does not modify runtime authentication, signature verification, application
+identity, installation mode, or the user-data directory. It does not rebuild the
+bridge: the exact upstream installer bytes receive an additional old-key signature.
+
+Example trust path (reserve unused versions before starting):
+
+1. Old clients are `0.2.0` / `0.2.1`, trusting the old repository and key.
+2. Upstream's first `friends-v0.2.3` release supplies `0.2.2` bootstrap and
+   `0.2.3` target, both embedding upstream's rolling endpoint and independent key.
+3. In the OLD repository, prepare `friends-v0.2.2` from upstream's `0.2.2`
+   installer, verify its upstream signature, then sign identical bytes with the
+   OLD private key. Its manifest remains on the old feed and uses the old signature.
+4. After voluntary installation, the bridge trusts upstream. It can then discover
+   `0.2.3` and verify that second hop with the new key. Future releases are upstream-only.
+
+Prerequisites:
+
+- Upstream provisions its own `XHARNESS_FRIENDS_*` Secrets and exact repository
+  opt-in. The old private key NEVER leaves the old repository.
+- The old repository retains its existing Secrets and adds repository variables
+  `XHARNESS_BRIDGE_UPSTREAM_REPOSITORY` and `XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY`.
+  Pin the new PUBLIC key through the maintainer's trusted setup, not by blindly
+  accepting the public key bundled with an unverified download.
+- Land this workflow on the old repository's `master` through an ordinary reviewed
+  update; do not force-reset unrelated fork changes. Manually dispatch it there
+  with `bridge_version=0.2.2`, `upstream_version=0.2.3`. It does not run in PRs.
+- Upstream's public latest must already be that target release; it must contain
+  both immutable installers, their signatures, `updater.pub` and `latest.json`.
+  The selected bridge must exceed every published old-channel version. Existing
+  draft/release versions cannot be overwritten. If preparation fails, inspect
+  artifacts; if a draft exists, reserve fresh versions rather than clobber it.
+
+The helper verifies both upstream signatures, exact manifest version/URL, the
+separately pinned public key, then the additional old-key signature and identical
+bridge bytes. Only explicit public assets enter the draft. The migration receipt
+records both installer SHA256 values, source repository/tag and workflow commit.
+These checks prove the trust chain, NOT the installed application's configuration.
+
+**Native acceptance gate before publishing the old-channel draft:** use an isolated
+Windows user/VM, not a running production session. Install the real old base and
+seed non-secret model configuration, session and workspace fixtures. Verify both
+old supported versions can discover/download/verify the bridge. Confirm stopping
+the Host is still required; cancellation or corrupted downloads must not install.
+Install the bridge and inspect its runtime update source/key and version. Verify
+the fixture data and installation identity/path survive; then perform the second
+update from upstream and repeat these checks. Test normal restart, and confirm no
+second installation/data directory was created. Record screenshots/logs and the
+exact hashes in the draft review. An installer failure must not be described as an
+automatic rollback: retain a tested backup/recovery procedure for user state.
+
+Only after acceptance, a maintainer may publish the complete draft and mark it
+latest. The workflow deliberately does NOT do that. Keep the old release/manifest
+available indefinitely for late adopters; do not delete the fork or redirect its
+feed straight to a new-key package. Retire ordinary old-channel publishing so
+another `friends-v*` release cannot accidentally take its latest pointer.
+
+Upstream Windows and macOS channels must not compete for `releases/latest` with
+different keys or incomplete platform manifests. Existing isolated macOS test
+prereleases are not changed by this workflow. A future combined stable channel
+needs an aggregate manifest and coordinated platform publication, or separately
+scoped feeds. This migration must not silently replace an active macOS stable feed.
+
 Windows and macOS can share an aggregate manifest, but this workflow currently
 builds Windows only. Adding macOS, deciding platform signing/notarization, and
 coordinating all platform uploads before publication remain separate work.

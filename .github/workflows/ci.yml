@@ -9,6 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  update-channel-contract:
+    name: Update channel contract / ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/test-update-channel-bridge.mjs
+      - run: node scripts/test-updater-signature.mjs
+      - run: python -B scripts/test-friends-release.py
+
   context-layout:
     name: Context and Harness layout / Chromium + WebKit
     runs-on: ubuntu-latest
