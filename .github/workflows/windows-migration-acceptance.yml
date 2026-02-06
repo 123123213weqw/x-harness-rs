@@ -15,9 +15,13 @@ on:
         description: Only validate original installer startup while release builds run (NOT migration acceptance)
         type: boolean
         default: false
+      bridge_run_id:
+        description: Successful old-channel bridge workflow run containing the identical draft assets
+        default: '0'
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   acceptance:
@@ -39,6 +43,7 @@ jobs:
       UPSTREAM_PUBLIC_KEY: ${{ vars.XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY }}
       OLD_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
       PROBE_ONLY: ${{ inputs.probe_only }}
+      BRIDGE_RUN_ID: ${{ inputs.bridge_run_id }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
