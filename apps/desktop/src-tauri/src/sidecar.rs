@@ -34,6 +34,7 @@ pub struct DesktopState {
     pub(crate) running: AtomicBool,
     pub(crate) closing: AtomicBool,
     pub(crate) endpoint: Mutex<Option<String>>,
+    startup_error: Mutex<Option<String>>,
     pub(crate) shutdown_file: PathBuf,
     ready_file: PathBuf,
     token: String,
@@ -88,6 +89,7 @@ impl DesktopState {
             running: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             endpoint: Mutex::new(None),
+            startup_error: Mutex::new(None),
             shutdown_file,
             ready_file,
             token,
@@ -139,6 +141,10 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     if state.running.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
+    *state
+        .startup_error
+        .lock()
+        .expect("startup error mutex poisoned") = None;
     let result = start_claimed(app).await;
     if result.is_err() {
         if state.child.lock().expect("child mutex poisoned").is_none() {
@@ -206,6 +212,17 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
             match event {
                 CommandEvent::Stderr(bytes) => {
                     let message = String::from_utf8_lossy(&bytes).trim().to_owned();
+                    // Surface only recognized ownership diagnostics on the
+                    // bootstrap screen, not arbitrary provider stderr/secrets.
+                    if message.contains("XHarness 数据目录已被占用")
+                        || message.contains("检测到旧版会话占用")
+                    {
+                        *event_app
+                            .state::<DesktopState>()
+                            .startup_error
+                            .lock()
+                            .expect("startup error mutex poisoned") = Some(message.clone());
+                    }
                     if !message.is_empty() {
                         let _ = event_app.emit(
                             "xharness-host",
@@ -331,7 +348,15 @@ async fn wait_until_ready(app: &AppHandle, ready_file: &Path) -> Result<String, 
     let deadline = Instant::now() + HOST_START_TIMEOUT;
     loop {
         if !app.state::<DesktopState>().running.load(Ordering::SeqCst) {
-            return Err("XHarness Host 在 Readiness 之前退出，请检查桌面日志".to_owned());
+            return Err(app
+                .state::<DesktopState>()
+                .startup_error
+                .lock()
+                .expect("startup error mutex poisoned")
+                .clone()
+                .unwrap_or_else(|| {
+                    "XHarness Host 在 Readiness 之前退出，请检查桌面日志".to_owned()
+                }));
         }
         let address = match tokio::fs::read_to_string(ready_file).await {
             Ok(value) => valid_ready_address(&value),
