@@ -23,6 +23,8 @@ use xharness_web::WebRuntime;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse()?;
+    // Must precede even debug/config writes and all session restoration.
+    let _ownership = xharness_host_app::ownership::acquire(&args.state_dir).await?;
     let (debug, trace) =
         DebugRecorder::open(DebugTraceConfig::new(args.debug_trace, &args.debug_dir)).await?;
     if let Some(trace) = trace {
