@@ -120,7 +120,11 @@ async function run() {
         writeFileSync(join(evidence, 'last-page.json'), JSON.stringify({ url: page.url(), expectedVersion: version }))
         if (!page.url().startsWith('http://127.0.0.1:')) continue
         const status = await invoke(page, 'desktop_status')
-        if (status.version === version && status.hostRunning && status.updaterConfigured) return page
+        if (status.version === version && status.hostRunning && status.updaterConfigured) {
+          const notice = page.getByRole('button', { name: 'Continue', exact: true })
+          if (await notice.isVisible().catch(() => false)) await notice.click()
+          return page
+        }
       }
       return null
     }, `App ${version} with running Host`)
