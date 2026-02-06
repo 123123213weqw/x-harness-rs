@@ -50,7 +50,11 @@ if (process.argv[2] === 'download') {
   console.log('Downloaded and verified exact production packages; no private signing keys used.')
   } else console.log('Original installer verified for startup probe only; NOT migration acceptance.')
 } else if (process.argv[2] === 'run') {
-  await run()
+  await run().catch(error => {
+    writeFileSync(join(evidence, 'FAIL.json'), JSON.stringify({ message: error.message, stack: error.stack }, null, 2))
+    console.error(error.stack)
+    process.exitCode = 1
+  })
 } else throw new Error('Expected download or run')
 
 async function run() {
@@ -61,7 +65,7 @@ async function run() {
   mkdirSync(join(data, 'secrets'), { recursive: true })
   mkdirSync(join(data, 'workspace'), { recursive: true })
   const config = { default: { provider: 'fixture', model: 'fixture-model' }, providers: [{ id: 'fixture', display_name: 'Migration fixture', kind: 'openai-compatible',
-    base_url: 'http://127.0.0.1:9/v1', protocol: 'chat', api_key_env: 'MIGRATION_FIXTURE_KEY', models: [{ id: 'fixture-model', display_name: 'Migration fixture model', fallback_context_window_tokens: 32768, max_output_tokens: 1024 }] }] }
+    base_url: 'http://127.0.0.1:9/v1', protocol: 'chat', api_key_env: 'MIGRATION_FIXTURE_KEY', models: [{ id: 'fixture-model', display_name: 'Migration fixture model', fallback_context_window_tokens: 32768, max_output_tokens: 8192, minimum_output_tokens: 1024 }] }] }
   writeFileSync(join(data, 'providers.json'), JSON.stringify(config, null, 2))
   writeFileSync(join(data, 'secrets', 'migration_fixture_key'), 'not-a-real-model-credential')
   writeFileSync(join(data, 'workspace', '保留-fixture.txt'), 'Preserve workspace content across both updates.\n')
@@ -85,6 +89,8 @@ async function run() {
     createReadStream(file).pipe(res)
   })
   const proxy = httpServer((req, res) => { res.writeHead(403); res.end() })
+  const sockets = new Set()
+  proxy.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)) })
   proxy.on('connect', (req, socket, head) => {
     if (req.url !== 'github.com:443') { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return }
     socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
@@ -111,6 +117,7 @@ async function run() {
     return until(async () => {
       if (!connection?.isConnected()) connection = await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 4000 })
       for (const context of connection.contexts()) for (const page of context.pages()) {
+        writeFileSync(join(evidence, 'last-page.json'), JSON.stringify({ url: page.url(), expectedVersion: version }))
         if (!page.url().startsWith('http://127.0.0.1:')) continue
         const status = await invoke(page, 'desktop_status')
         if (status.version === version && status.hostRunning && status.updaterConfigured) return page
@@ -141,9 +148,18 @@ async function run() {
     console.log(`Installed ${version}: Host healthy, session/title/model/config/credential/workspace retained.`)
   }
   try {
+    console.log(`Installing original ${e.BASE_VERSION} into disposable runner.`)
     const installer = spawn(location('old', e.BASE_VERSION), ['/S', `/D=${installDir}`], { windowsHide: true, env: childEnv, stdio: 'ignore' })
-    const code = await new Promise((resolve, reject) => { installer.on('error', reject); installer.on('exit', resolve) })
+    const code = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        try { execFileSync('taskkill', ['/PID', String(installer.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* already stopped */ }
+        reject(new Error('Original NSIS installer exceeded 180 seconds'))
+      }, 180000)
+      installer.on('error', error => { clearTimeout(timer); reject(error) })
+      installer.on('exit', code => { clearTimeout(timer); resolve(code) })
+    })
     assert.equal(code, 0, 'Base NSIS install failed')
+    console.log('Original installer exited successfully; starting installed desktop.')
     const executable = join(installDir, 'xharness-desktop.exe')
     assert.ok(existsSync(executable))
     spawn(executable, [], { windowsHide: true, env: childEnv, stdio: 'ignore' }).on('error', error => console.error(error.message))
@@ -185,12 +201,21 @@ async function run() {
     assert.equal(checkpoints[1].journalSha256, checkpoints[2].journalSha256, 'Next version rewrote the fixture journal')
     writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: true, confirmedInstall: true, corruptPackageRejected: true, checkpoints }, null, 2))
   } finally {
+    if (connection?.isConnected()) {
+      for (const context of connection.contexts()) for (const page of context.pages()) {
+        try {
+          await page.screenshot({ path: join(evidence, 'last-window.png'), timeout: 3000 })
+          writeFileSync(join(evidence, 'last-window.txt'), (await page.locator('body').innerText({ timeout: 3000 })).slice(0, 8000))
+        } catch { /* window already closed */ }
+      }
+    }
     writeFileSync(join(evidence, 'requests.json'), JSON.stringify(requests, null, 2))
     // Only disposable CI runner processes; never used on a user's workstation.
     for (const name of ['xharness-desktop.exe', 'xharness-host.exe']) {
       try { execFileSync('taskkill', ['/IM', name, '/T', '/F'], { stdio: 'ignore' }) } catch { /* already stopped */ }
     }
-    try { await connection?.close() } catch { /* already closed by restart */ }
+    for (const socket of sockets) socket.destroy()
+    try { await Promise.race([connection?.close(), wait(3000)]) } catch { /* already closed by restart */ }
     proxy.closeAllConnections(); proxy.close(); tls.closeAllConnections(); tls.close()
   }
 }
