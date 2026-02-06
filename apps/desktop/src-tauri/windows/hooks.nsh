@@ -3,6 +3,7 @@
 !macro NSIS_HOOK_PREINSTALL
   InitPluginsDir
   File /oname=$PLUGINSDIR\install-ownership.ps1 "${XHARNESS_HOOK_DIR}\install-ownership.ps1"
+  File /oname=$PLUGINSDIR\install-shortcuts.cs "${XHARNESS_HOOK_DIR}\install-shortcuts.cs"
   ; Execute only the fixed code embedded in this installer. Paths travel as
   ; data, never interpolated PowerShell source. No execution-policy changes,
   ; downloaded scripts, profile loading or pwsh 7 dependency.
