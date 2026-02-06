@@ -1,0 +1,60 @@
+name: Windows Native Migration Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      bridge_version:
+        description: Old-channel draft bridge version
+        required: true
+        default: '0.2.2'
+      upstream_version:
+        description: Public upstream next version
+        required: true
+        default: '0.2.3'
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    if: vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        base: ['0.2.0', '0.2.1']
+    runs-on: windows-2025
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      BASE_VERSION: ${{ matrix.base }}
+      BRIDGE_VERSION: ${{ inputs.bridge_version }}
+      UPSTREAM_VERSION: ${{ inputs.upstream_version }}
+      UPSTREAM_REPOSITORY: ${{ vars.XHARNESS_BRIDGE_UPSTREAM_REPOSITORY }}
+      UPSTREAM_PUBLIC_KEY: ${{ vars.XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY }}
+      OLD_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated test dependencies (no production key, no Rust build)
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/migration-deps" --no-save --package-lock=false playwright@1.61.1
+          if ($LASTEXITCODE) { throw 'Playwright dependency installation failed' }
+          "MIGRATION_TEST_DEPS=$env:RUNNER_TEMP/migration-deps/node_modules/playwright/index.mjs" >> $env:GITHUB_ENV
+      - name: Download exact signed packages, including private bridge draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/windows-migration-acceptance.mjs download
+          if ($LASTEXITCODE) { throw 'Package download/verification failed' }
+      - name: Run real installed applications through both updates
+        run: ./scripts/windows-migration-acceptance.ps1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-native-migration-${{ matrix.base }}
+          path: dist/migration-acceptance/evidence/
+          if-no-files-found: warn

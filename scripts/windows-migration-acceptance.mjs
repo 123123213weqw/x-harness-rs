@@ -1,0 +1,188 @@
+// Production installers, real Tauri updater and synthetic user data. CI only.
+// A loopback HTTPS proxy supplies the draft old feed without changing live feeds.
+// Windows trusts its short-lived test certificate; installer signatures stay real.
+import assert from 'node:assert/strict'
+import { createHash, randomUUID } from 'node:crypto'
+import { execFileSync, spawn } from 'node:child_process'
+import { createServer as httpServer } from 'node:http'
+import { createServer as httpsServer } from 'node:https'
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { verifyPackage } from './verify-updater-package.mjs'
+
+assert.equal(process.env.GITHUB_ACTIONS, 'true', 'CI only')
+assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted', 'Disposable hosted runner only')
+assert.equal(process.platform, 'win32')
+const e = process.env, root = resolve('dist/migration-acceptance'), evidence = join(root, 'evidence')
+mkdirSync(evidence, { recursive: true })
+const oldRepo = e.GITHUB_REPOSITORY, upstream = e.UPSTREAM_REPOSITORY
+for (const repo of [oldRepo, upstream]) assert.match(repo, /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)
+for (const v of [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) assert.match(v, /^\d+\.\d+\.\d+$/)
+assert.ok(['0.2.0', '0.2.1'].includes(e.BASE_VERSION))
+const filename = v => `XHarness_${v}_x64-setup.exe`
+const location = (kind, v) => join(root, kind, filename(v))
+const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex')
+const read = path => readFileSync(path, 'utf8').trim()
+const manifest = kind => JSON.parse(read(join(root, kind, 'latest.json')))
+function download(repo, tag, kind, names) {
+  const dir = join(root, kind); mkdirSync(dir)
+  execFileSync('gh', ['release', 'download', tag, '--repo', repo, '--dir', dir, ...names.flatMap(n => ['--pattern', n])], { stdio: ['ignore', 'pipe', 'pipe'] })
+}
+if (process.argv[2] === 'download') {
+  const base = filename(e.BASE_VERSION), bridge = filename(e.BRIDGE_VERSION), next = filename(e.UPSTREAM_VERSION)
+  download(oldRepo, 'friends-v0.2.1', 'old', [base, base + '.sig'])
+  download(oldRepo, `friends-v${e.BRIDGE_VERSION}`, 'bridge', [bridge, bridge + '.sig', bridge + '.upstream.sig', 'latest.json', 'migration.json'])
+  download(upstream, `friends-v${e.UPSTREAM_VERSION}`, 'next', [next, next + '.sig', 'latest.json'])
+  verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
+  verifyPackage(readFileSync(location('bridge', e.BRIDGE_VERSION)), e.OLD_PUBLIC_KEY, read(location('bridge', e.BRIDGE_VERSION) + '.sig'))
+  verifyPackage(readFileSync(location('bridge', e.BRIDGE_VERSION)), e.UPSTREAM_PUBLIC_KEY, read(location('bridge', e.BRIDGE_VERSION) + '.upstream.sig'))
+  verifyPackage(readFileSync(location('next', e.UPSTREAM_VERSION)), e.UPSTREAM_PUBLIC_KEY, read(location('next', e.UPSTREAM_VERSION) + '.sig'))
+  assert.equal(manifest('bridge').version, e.BRIDGE_VERSION)
+  assert.equal(manifest('next').version, e.UPSTREAM_VERSION)
+  assert.equal(manifest('bridge').platforms['windows-x86_64'].signature, read(location('bridge', e.BRIDGE_VERSION) + '.sig'))
+  assert.equal(manifest('next').platforms['windows-x86_64'].signature, read(location('next', e.UPSTREAM_VERSION) + '.sig'))
+  writeFileSync(join(evidence, 'packages.json'), JSON.stringify({ base: e.BASE_VERSION, bridge: e.BRIDGE_VERSION, next: e.UPSTREAM_VERSION,
+    hashes: ['old', 'bridge', 'next'].map((kind, i) => ({ kind, sha256: hash(location(kind, [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION][i])) })) }, null, 2))
+  console.log('Downloaded and verified exact production packages; no private signing keys used.')
+} else if (process.argv[2] === 'run') {
+  await run()
+} else throw new Error('Expected download or run')
+
+async function run() {
+  const { chromium } = await import(pathToFileURL(e.MIGRATION_TEST_DEPS).href)
+  const data = join(e.APPDATA, 'com.xlang.xharness'), installDir = join(e.RUNNER_TEMP, 'XHarnessMigration')
+  assert.ok(!existsSync(data), 'Refuse to modify pre-existing application data')
+  assert.ok(!existsSync(installDir), 'Refuse pre-existing installation')
+  mkdirSync(join(data, 'secrets'), { recursive: true })
+  mkdirSync(join(data, 'workspace'), { recursive: true })
+  const config = { default: { provider: 'fixture', model: 'fixture-model' }, providers: [{ id: 'fixture', display_name: 'Migration fixture', kind: 'openai-compatible',
+    base_url: 'http://127.0.0.1:9/v1', protocol: 'chat', api_key_env: 'MIGRATION_FIXTURE_KEY', models: [{ id: 'fixture-model', display_name: 'Migration fixture model', fallback_context_window_tokens: 32768, max_output_tokens: 1024 }] }] }
+  writeFileSync(join(data, 'providers.json'), JSON.stringify(config, null, 2))
+  writeFileSync(join(data, 'secrets', 'migration_fixture_key'), 'not-a-real-model-credential')
+  writeFileSync(join(data, 'workspace', '保留-fixture.txt'), 'Preserve workspace content across both updates.\n')
+  const retained = ['providers.json', 'secrets/migration_fixture_key', 'workspace/保留-fixture.txt'].map(name => ({ name, sha256: hash(join(data, name)) }))
+  const requests = [], checkpoints = []
+  let rejectPackage = false
+  const mappings = new Map([
+    [`/${oldRepo}/releases/latest/download/latest.json`, join(root, 'bridge', 'latest.json')],
+    [`/${upstream}/releases/latest/download/latest.json`, join(root, 'next', 'latest.json')],
+    [new URL(manifest('bridge').platforms['windows-x86_64'].url).pathname, location('bridge', e.BRIDGE_VERSION)],
+    [new URL(manifest('next').platforms['windows-x86_64'].url).pathname, location('next', e.UPSTREAM_VERSION)],
+  ])
+  for (const kind of ['bridge', 'next']) assert.equal(new URL(manifest(kind).platforms['windows-x86_64'].url).hostname, 'github.com')
+  const tls = httpsServer({ pfx: readFileSync(e.MIGRATION_TEST_PFX), passphrase: 'disposable-ci-only' }, (req, res) => {
+    const pathname = new URL(req.url, 'https://github.com').pathname
+    requests.push({ pathname, time: new Date().toISOString() })
+    const file = mappings.get(pathname)
+    if (!file) { res.writeHead(404); res.end('not a migration fixture'); return }
+    if (rejectPackage && pathname.endsWith('.exe')) { res.writeHead(200, { 'Content-Length': 9 }); res.end('CORRUPTED'); return }
+    res.writeHead(200, { 'Content-Type': pathname.endsWith('.json') ? 'application/json' : 'application/octet-stream', 'Content-Length': statSync(file).size })
+    createReadStream(file).pipe(res)
+  })
+  const proxy = httpServer((req, res) => { res.writeHead(403); res.end() })
+  proxy.on('connect', (req, socket, head) => {
+    if (req.url !== 'github.com:443') { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return }
+    socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+    if (head.length) socket.unshift(head)
+    tls.emit('connection', socket)
+  })
+  await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve))
+  const proxyUrl = `http://127.0.0.1:${proxy.address().port}`
+  const childEnv = { ...e, HTTPS_PROXY: proxyUrl, HTTP_PROXY: proxyUrl, ALL_PROXY: proxyUrl, NO_PROXY: 'localhost,127.0.0.1',
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1' }
+  for (const name of Object.keys(childEnv)) if (/TOKEN|PASSWORD|PRIVATE_KEY|PUBLIC_KEY|DEEPSEEK|OPENAI|^XHARNESS_/i.test(name)) delete childEnv[name]
+  let connection
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+  async function until(fn, label, timeout = 90000) {
+    const start = Date.now(); let last
+    while (Date.now() - start < timeout) {
+      try { const result = await fn(); if (result) return result } catch (error) { last = error.message }
+      await wait(1000)
+    }
+    throw new Error(`${label} timed out: ${last ?? 'no result'}`)
+  }
+  const invoke = (page, command, args) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args })
+  async function attached(version) {
+    return until(async () => {
+      if (!connection?.isConnected()) connection = await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 4000 })
+      for (const context of connection.contexts()) for (const page of context.pages()) {
+        if (!page.url().startsWith('http://127.0.0.1:')) continue
+        const status = await invoke(page, 'desktop_status')
+        if (status.version === version && status.hostRunning && status.updaterConfigured) return page
+      }
+      return null
+    }, `App ${version} with running Host`)
+  }
+  async function rpc(page, method, payload) {
+    const result = await page.evaluate(async ({ method, payload, rpcId }) => {
+      const response = await fetch('/api/' + method, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'client-request', rpcId, method, payload }) })
+      if (!response.ok) throw new Error(`RPC HTTP ${response.status}`)
+      return response.json()
+    }, { method, payload, rpcId: randomUUID() })
+    assert.equal(result.result.ok, true, `RPC ${method} failed`)
+    return result.result.value
+  }
+  const sessionId = 'migration-retained-session'
+  async function checkpoint(page, version) {
+    for (const file of retained) assert.equal(hash(join(data, file.name)), file.sha256, `${version}: ${file.name} changed`)
+    assert.ok(JSON.stringify(await rpc(page, 'session.list', {})).includes(sessionId), `${version}: session lost`)
+    assert.ok(JSON.stringify(await rpc(page, 'session.list', {})).includes('迁移保留测试'), `${version}: session title lost`)
+    assert.ok(JSON.stringify(await rpc(page, 'session.models', { sessionId })).includes('fixture-model'), `${version}: model missing`)
+    const status = await invoke(page, 'desktop_status')
+    checkpoints.push({ version, status, retained, journalSha256: hash(join(data, 'state', 'sessions', sessionId + '.jsonl')) })
+    await page.screenshot({ path: join(evidence, `${version}.png`) })
+    writeFileSync(join(evidence, 'checkpoints.json'), JSON.stringify(checkpoints, null, 2))
+    console.log(`Installed ${version}: Host healthy, session/title/model/config/credential/workspace retained.`)
+  }
+  try {
+    const installer = spawn(location('old', e.BASE_VERSION), ['/S', `/D=${installDir}`], { windowsHide: true, env: childEnv, stdio: 'ignore' })
+    const code = await new Promise((resolve, reject) => { installer.on('error', reject); installer.on('exit', resolve) })
+    assert.equal(code, 0, 'Base NSIS install failed')
+    const executable = join(installDir, 'xharness-desktop.exe')
+    assert.ok(existsSync(executable))
+    spawn(executable, [], { windowsHide: true, env: childEnv, stdio: 'ignore' }).on('error', error => console.error(error.message))
+    let page = await attached(e.BASE_VERSION)
+    await rpc(page, 'session.create', { sessionId })
+    await rpc(page, 'session.rename', { sessionId, title: '迁移保留测试' })
+    await checkpoint(page, e.BASE_VERSION)
+    for (const version of [e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) {
+      const check = await until(async () => {
+        const state = await invoke(page, 'desktop_check_update')
+        if (state.phase === 'error') throw new Error(state.message)
+        return state.phase === 'available' && state.version === version ? state : null
+      }, `Discover ${version}`)
+      assert.equal(check.version, version)
+      if (version === e.BRIDGE_VERSION) {
+        rejectPackage = true
+        await invoke(page, 'desktop_download_update').catch(() => {})
+        assert.equal((await invoke(page, 'desktop_update_status')).phase, 'error', 'Corrupted package was accepted')
+        assert.equal((await invoke(page, 'desktop_status')).version, e.BASE_VERSION)
+        rejectPackage = false
+      }
+      const downloaded = await invoke(page, 'desktop_download_update')
+      assert.equal(downloaded.phase, 'downloaded')
+      const rejected = await invoke(page, 'desktop_install_update', { confirmStop: false }).then(() => false, () => true)
+      assert.ok(rejected, 'Install without confirmation must fail')
+      assert.ok((await invoke(page, 'desktop_status')).hostRunning, 'Unconfirmed install stopped Host')
+      // Actual native updater installs signed NSIS, stops Host, then restarts the app.
+      void invoke(page, 'desktop_install_update', { confirmStop: true }).catch(() => {})
+      page = await attached(version)
+      await checkpoint(page, version)
+    }
+    assert.ok(requests.some(r => r.pathname === `/${oldRepo}/releases/latest/download/latest.json`))
+    assert.ok(requests.some(r => r.pathname === `/${upstream}/releases/latest/download/latest.json`))
+    assert.equal(checkpoints[0].journalSha256, checkpoints[1].journalSha256, 'Bridge rewrote the fixture journal')
+    assert.equal(checkpoints[1].journalSha256, checkpoints[2].journalSha256, 'Next version rewrote the fixture journal')
+    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: true, confirmedInstall: true, corruptPackageRejected: true, checkpoints }, null, 2))
+  } finally {
+    writeFileSync(join(evidence, 'requests.json'), JSON.stringify(requests, null, 2))
+    // Only disposable CI runner processes; never used on a user's workstation.
+    for (const name of ['xharness-desktop.exe', 'xharness-host.exe']) {
+      try { execFileSync('taskkill', ['/IM', name, '/T', '/F'], { stdio: 'ignore' }) } catch { /* already stopped */ }
+    }
+    try { await connection?.close() } catch { /* already closed by restart */ }
+    proxy.closeAllConnections(); proxy.close(); tls.closeAllConnections(); tls.close()
+  }
+}
