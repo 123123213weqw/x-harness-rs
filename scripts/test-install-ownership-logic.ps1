@@ -45,6 +45,10 @@ Assert-That (Test-Path -LiteralPath (Join-Path $custom 'xharness-desktop.exe')) 
 Assert-That (Test-Path -LiteralPath (Join-Path $unknown 'xharness-desktop.exe')) 'Unknown directory was retired'
 Assert-That ([XHarnessInstaller.Shortcuts]::Read($records[0].Link).TargetPath -ieq (Join-Path $canonical 'xharness-desktop.exe')) 'Known shortcut not updated'
 Assert-That ($shell.CreateShortcut($records[1].Link).Arguments -eq '--custom-profile') 'Custom shortcut changed'
+[IO.File]::WriteAllText((Join-Path $fixture 'broken.lnk'), 'Not a shell link')
+$links = @(Get-XHarnessLinks -Roots @($fixture))
+Assert-That ($links.Count -gt 0) 'Known links were not inventoried'
+Assert-That (-not ($links | Where-Object { $_.Link -like '*broken.lnk' })) 'Corrupt unrelated shortcut was accepted'
 # A second migration against its old inventory must not destroy the backup.
 $backupHash = (Get-FileHash -LiteralPath (Join-Path $old 'xharness-desktop.exe.before-xharness-update')).Hash
 try { Invoke-XHarnessReconcile $canonical $inventory } catch { }

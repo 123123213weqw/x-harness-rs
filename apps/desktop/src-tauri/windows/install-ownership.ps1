@@ -50,11 +50,17 @@ function Get-XHarnessProcesses {
     }
 }
 
-function Get-XHarnessLinks {
-    $roots = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))
-    foreach ($root in $roots) {
+function Get-XHarnessLinks([string[]]$Roots) {
+    if (-not $Roots) { $Roots = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs')) }
+    foreach ($root in $Roots) {
+        if (-not $root) { continue }
         foreach ($file in @(Get-ChildItem -LiteralPath $root -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue)) {
-            $link = [XHarnessInstaller.Shortcuts]::Read($file.FullName)
+            try {
+                Assert-XHarnessNoRedirect $file
+                $parent = $file.Directory
+                while ($parent) { Assert-XHarnessNoRedirect $parent; $parent = $parent.Parent }
+                $link = [XHarnessInstaller.Shortcuts]::Read($file.FullName)
+            } catch { continue } # Unrelated/corrupt/redirected shortcuts are not ours to change.
             if ([IO.Path]::GetFileName($link.TargetPath) -ine 'xharness-desktop.exe') { continue }
             # A custom launch command is not ours to rewrite or retire.
             try { $directory = Get-XHarnessDirectory ([IO.Path]::GetDirectoryName($link.TargetPath)) }
