@@ -242,7 +242,8 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     });
 
     #[cfg(windows)]
-    tokio::fs::write(&state.start_file, b"owned").await
+    tokio::fs::write(&state.start_file, b"owned")
+        .await
         .map_err(|error| format!("无法释放 Host 启动门禁：{error}"))?;
     let endpoint = wait_until_ready(app, &state.ready_file).await?;
     *state.endpoint.lock().expect("endpoint mutex poisoned") = Some(endpoint.clone());
@@ -278,7 +279,13 @@ pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
         .map_err(|error| format!("无法请求 Host 安全退出：{error}"))?;
     wait_for_stop(&state.running, HOST_STOP_TIMEOUT).await?;
     #[cfg(windows)]
-    if state.host_job.accounting().map_err(|error| error.to_string())?.active_processes != 0 {
+    if state
+        .host_job
+        .accounting()
+        .map_err(|error| error.to_string())?
+        .active_processes
+        != 0
+    {
         return Err("Host 子进程尚未全部退出，更新已暂停".to_owned());
     }
     let _ = tokio::fs::remove_file(&state.shutdown_file).await;
