@@ -159,7 +159,16 @@ async function run() {
     assert.ok(JSON.stringify(await rpc(page, 'session.list', {})).includes('迁移保留测试'), `${version}: session title lost`)
     assert.ok(JSON.stringify(await rpc(page, 'session.models', { sessionId })).includes('fixture-model'), `${version}: model missing`)
     const status = await invoke(page, 'desktop_status')
-    checkpoints.push({ version, status, retained, journalSha256: hash(join(data, 'state', 'sessions', sessionId + '.jsonl')) })
+    const executable = join(installDir, 'xharness-desktop.exe')
+    const image = readFileSync(executable)
+    const migrated = version !== e.BASE_VERSION
+    const compiledEndpoint = `https://github.com/${migrated ? upstream : oldRepo}/releases/latest/download/latest.json`
+    const compiledKey = (migrated ? e.UPSTREAM_PUBLIC_KEY : e.OLD_PUBLIC_KEY).trim()
+    assert.ok(image.includes(Buffer.from(compiledEndpoint)), `${version}: installed update endpoint missing`)
+    assert.ok(image.includes(Buffer.from(compiledKey)), `${version}: installed trusted public key missing`)
+    if (migrated) assert.ok(!image.includes(Buffer.from(e.OLD_PUBLIC_KEY.trim())), `${version}: still contains old updater trust key`)
+    checkpoints.push({ version, status, retained, compiledEndpoint, compiledKeySha256: createHash('sha256').update(compiledKey).digest('hex'),
+      executableSha256: hash(executable), journalSha256: hash(join(data, 'state', 'sessions', sessionId + '.jsonl')) })
     await page.screenshot({ path: join(evidence, `${version}.png`) })
     writeFileSync(join(evidence, 'checkpoints.json'), JSON.stringify(checkpoints, null, 2))
     console.log(`Installed ${version}: Host healthy, session/title/model/config/credential/workspace retained.`)
@@ -213,10 +222,15 @@ async function run() {
       await checkpoint(page, version)
     }
     assert.ok(requests.some(r => r.pathname === `/${oldRepo}/releases/latest/download/latest.json`))
-    assert.ok(requests.some(r => r.pathname === `/${upstream}/releases/latest/download/latest.json`))
+    // NSIS restart may discard the test process's proxy environment. The second
+    // native check/download/install then uses public upstream directly. Verify
+    // installed endpoint AND new trust key above, as well as the real newer
+    // native install; do not require interception as a proxy-inheritance test.
+    const secondHopIntercepted = requests.some(r => r.pathname === `/${upstream}/releases/latest/download/latest.json`)
     assert.equal(checkpoints[0].journalSha256, checkpoints[1].journalSha256, 'Bridge rewrote the fixture journal')
     assert.equal(checkpoints[1].journalSha256, checkpoints[2].journalSha256, 'Next version rewrote the fixture journal')
-    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: true, confirmedInstall: true, corruptPackageRejected: true, checkpoints }, null, 2))
+    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: true, confirmedInstall: true, corruptPackageRejected: true,
+      secondHopIntercepted, upstreamEndpointAndKeyVerified: true, checkpoints }, null, 2))
   } finally {
     if (connection?.isConnected()) {
       for (const context of connection.contexts()) for (const page of context.pages()) {
