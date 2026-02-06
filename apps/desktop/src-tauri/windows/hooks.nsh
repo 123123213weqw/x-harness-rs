@@ -3,7 +3,12 @@
 !macro NSIS_HOOK_PREINSTALL
   InitPluginsDir
   File /oname=$PLUGINSDIR\install-ownership.ps1 "${XHARNESS_HOOK_DIR}\install-ownership.ps1"
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "$PLUGINSDIR\install-ownership.ps1" -Mode Preflight -InventoryPath "$PLUGINSDIR\xharness-install-inventory.json"'
+  ; Execute only the fixed code embedded in this installer. Paths travel as
+  ; data, never interpolated PowerShell source. No execution-policy changes,
+  ; downloaded scripts, profile loading or pwsh 7 dependency.
+  System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_SCRIPT", t "$PLUGINSDIR\install-ownership.ps1")'
+  System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_INVENTORY", t "$PLUGINSDIR\xharness-install-inventory.json")'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command ". ([scriptblock]::Create([IO.File]::ReadAllText($$env:XHARNESS_INSTALL_SCRIPT))); Invoke-XHarnessPreflight $$env:XHARNESS_INSTALL_INVENTORY"'
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -15,7 +20,8 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "$PLUGINSDIR\install-ownership.ps1" -Mode Reconcile -InstallDirectory "$INSTDIR" -InventoryPath "$PLUGINSDIR\xharness-install-inventory.json"'
+  System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_DIRECTORY", t "$INSTDIR")'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command ". ([scriptblock]::Create([IO.File]::ReadAllText($$env:XHARNESS_INSTALL_SCRIPT))); Invoke-XHarnessReconcile $$env:XHARNESS_INSTALL_DIRECTORY $$env:XHARNESS_INSTALL_INVENTORY"'
   Pop $0
   Pop $1
   ${If} $0 != 0
