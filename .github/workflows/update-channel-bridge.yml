@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       bridge_version:
-        description: Existing upstream bootstrap installer version to re-sign for old clients
+        description: Upstream installer to re-sign; use the target version for one-step migration
         required: true
       upstream_version:
-        description: Newer public upstream friends release containing both installers
+        description: Public upstream friends release; equal to bridge_version for direct latest
         required: true
 
 permissions:
