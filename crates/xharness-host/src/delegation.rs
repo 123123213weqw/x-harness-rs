@@ -306,6 +306,7 @@ impl BasicHost {
                 .get_mut(id)
                 .ok_or("child disappeared during creation")?;
             child.delegated = true;
+            child.origin = Some("subagent".into());
             child.parent_session_id = Some(caller.into());
             child.model = model;
             child.permission_preset = permission;
@@ -314,7 +315,7 @@ impl BasicHost {
             child.title = label.or_else(|| Some(bounded(&task, 80).into()));
             drop(state);
             self.push_host(
-                json!({"type":"host/session-added","sessionId":id,"parentSessionId":caller,"blank":true,"cwd":cwd,"agentPreset":preset}),
+                json!({"type":"host/session-added","sessionId":id,"parentSessionId":caller,"origin":"subagent","blank":true,"cwd":cwd,"agentPreset":preset}),
             );
         }
         self.deliver_agent_message(
@@ -664,6 +665,7 @@ mod tests {
         let host = setup(store, Arc::new(Probe::default())).await;
         parent(&host, "p").await;
         parent(&host, "other").await;
+        let mut announcements = host.host_tx.subscribe();
         let (a, b) = tokio::join!(
             host.execute_agent("p", "call", start("inspect files")),
             host.execute_agent("p", "call", start("inspect files"))
@@ -671,6 +673,25 @@ mod tests {
         let a = a.unwrap();
         assert_eq!(a, b.unwrap());
         let id = a["agent_id"].as_str().unwrap();
+        let mut announced_child = false;
+        while let Ok(frame) = announcements.try_recv() {
+            if frame.method == "host/session-added" && frame.payload["sessionId"] == id {
+                assert_eq!(frame.payload["origin"], "subagent");
+                assert_eq!(frame.payload["parentSessionId"], "p");
+                announced_child = true;
+            }
+        }
+        assert!(
+            announced_child,
+            "live session announcement must carry the child navigation identity"
+        );
+        {
+            let state = host.state.read().await;
+            let summary = state.sessions[id].summary();
+            assert_eq!(summary["origin"], "subagent");
+            assert_eq!(summary["parentSessionId"], "p");
+            assert!(state.sessions["p"].summary().get("origin").is_none());
+        }
         assert_eq!(
             host.state
                 .read()
@@ -750,6 +771,10 @@ mod tests {
         resumed.restore_from_store(store).await.unwrap();
         assert!(resumed.state.read().await.sessions["p"].dispatch_paused);
         for id in &children {
+            assert_eq!(
+                resumed.state.read().await.sessions[id].summary()["origin"],
+                "subagent"
+            );
             assert_eq!(
                 resumed.state.read().await.sessions[id]
                     .parent_session_id

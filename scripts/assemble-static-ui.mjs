@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { patchModelControls, patchModelConnection } from './patch-model-controls.mjs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -102,6 +103,8 @@ for (const entry of composed) {
   if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') {
     bytes = patchConversationClient(bytes)
   }
+  if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchModelConnection(bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
@@ -169,7 +172,7 @@ for (const entry of entries) {
   writeFileSync(target, plugin.bytes)
   const sourceMap = `${plugin.source}.map`
   try {
-    writeFileSync(`${target}.map`, portableBytes(readFileSync(sourceMap)))
+    if (!['@deepseek-ai/dsh-client-ui-model-selection', '@deepseek-ai/dsh-client-connection'].includes(entry.id)) writeFileSync(`${target}.map`, portableBytes(readFileSync(sourceMap)))
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }

@@ -5291,7 +5291,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			maxMessages: number().int().positive().optional()
 		});
 		/** Complete provider/model selection. */
+		// XHARNESS MODEL CAPABILITY WIRE
 		const modelSelectionSchema = object({
+            contextWindowTokens: number().int().positive().optional(),
 			provider: string().min(1),
 			model: string().min(1),
 			reasoningEffort: string().min(1).optional()
@@ -5307,6 +5309,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		});
 		/** One advisory model entry inside a provider group. */
 		const modelCatalogModelSchema = object({
+            contextWindow: number().int().positive().optional(),
+            contextWindowSource: string().optional(),
+            contextWindowCapability: unknown().optional(),
 			id: string().min(1),
 			name: string().min(1),
 			description: string().optional(),
@@ -10320,5 +10325,3 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		return module.exports;
 	}
 });
-
-//# sourceMappingURL=client.js.map
