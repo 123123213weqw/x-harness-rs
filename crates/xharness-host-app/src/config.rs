@@ -1,3 +1,5 @@
+mod reasoning_catalog;
+
 use std::{collections::BTreeMap, env, fs, path::Path, sync::Arc};
 
 use serde::Deserialize;
@@ -84,13 +86,18 @@ impl ModelDeployment {
                 default_token_guard: None,
             });
         }
-        let provider_config = OpenAiProviderConfig::new(
+        let reasoning =
+            reasoning_catalog::builtin(&config.base_url, &config.model, config.protocol);
+        let mut provider_config = OpenAiProviderConfig::new(
             config.protocol,
             config.base_url,
             config.api_key,
             &config.model,
         )
         .with_context_window_fallback(config.context_window_tokens);
+        if let Some(reasoning) = &reasoning {
+            provider_config = provider_config.with_reasoning_profile(reasoning.adapter_profile()?);
+        }
         let adapter = OpenAiProvider::new(provider_config)
             .map_err(|error| error.to_string())?
             .with_debug(debug);
@@ -106,20 +113,20 @@ impl ModelDeployment {
             config.token_safety_margin,
         )?;
         let provider: Arc<dyn ModelProvider> = Arc::new(adapter);
+        let mut descriptor = ModelDescriptor::new(
+            &config.provider,
+            &config.provider,
+            &config.model,
+            &config.model,
+        )
+        .with_context_window(capabilities.context_window);
+        if let Some(reasoning) = reasoning {
+            descriptor = descriptor.with_reasoning(reasoning.public());
+        }
         let mut registry = ModelRegistry::new();
         registry
             .register(
-                RegisteredModel::new(
-                    ModelDescriptor::new(
-                        &config.provider,
-                        &config.provider,
-                        &config.model,
-                        &config.model,
-                    )
-                    .with_context_window(capabilities.context_window),
-                    provider,
-                )
-                .with_token_guard(token_guard.clone()),
+                RegisteredModel::new(descriptor, provider).with_token_guard(token_guard.clone()),
             )
             .map_err(|error| error.to_string())?;
         Ok(Self {
@@ -290,6 +297,8 @@ impl ProviderConfig {
                 reasoning,
             } = model;
             let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
+            let reasoning = reasoning
+                .or_else(|| reasoning_catalog::builtin(&self.base_url, &upstream_model, protocol));
             let mut provider_config =
                 OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model)
                     .with_context_window_fallback(fallback_context_window_tokens);
@@ -311,15 +320,8 @@ impl ProviderConfig {
                 provider_config = provider_config.with_capability_probe(probe);
             }
             if let Some(reasoning) = &reasoning {
-                let profile = OpenAiReasoningProfile::new(
-                    reasoning.default_effort.clone(),
-                    reasoning
-                        .efforts
-                        .iter()
-                        .map(|effort| (effort.id.clone(), effort.request_patch.clone())),
-                )
-                .map_err(|error| error.to_string())?;
-                provider_config = provider_config.with_reasoning_profile(profile);
+                provider_config =
+                    provider_config.with_reasoning_profile(reasoning.adapter_profile()?);
             }
             let adapter = OpenAiProvider::new(provider_config)
                 .map_err(|error| error.to_string())?
@@ -349,22 +351,7 @@ impl ProviderConfig {
             )
             .with_context_window(capabilities.context_window);
             if let Some(reasoning) = reasoning {
-                let efforts = reasoning
-                    .efforts
-                    .into_iter()
-                    .map(|effort| {
-                        let mut public = ModelReasoningEffort::new(effort.id, effort.name);
-                        if let Some(description) = effort.description {
-                            public = public.with_description(description);
-                        }
-                        public
-                    })
-                    .collect();
-                let mut public = ModelReasoning::new(efforts);
-                if let Some(default) = reasoning.default_effort {
-                    public = public.with_default(default);
-                }
-                descriptor = descriptor.with_reasoning(public);
+                descriptor = descriptor.with_reasoning(reasoning.public());
             }
             registry
                 .register(RegisteredModel::new(descriptor, adapter).with_token_guard(token_guard))
@@ -509,6 +496,36 @@ struct ModelReasoningConfig {
     #[serde(default)]
     default_effort: Option<String>,
     efforts: Vec<ModelReasoningEffortConfig>,
+}
+
+impl ModelReasoningConfig {
+    fn adapter_profile(&self) -> Result<OpenAiReasoningProfile, String> {
+        OpenAiReasoningProfile::new(
+            self.default_effort.clone(),
+            self.efforts
+                .iter()
+                .map(|e| (e.id.clone(), e.request_patch.clone())),
+        )
+        .map_err(|error| error.to_string())
+    }
+    fn public(self) -> ModelReasoning {
+        let mut public = ModelReasoning::new(
+            self.efforts
+                .into_iter()
+                .map(|effort| {
+                    let mut value = ModelReasoningEffort::new(effort.id, effort.name);
+                    if let Some(description) = effort.description {
+                        value = value.with_description(description);
+                    }
+                    value
+                })
+                .collect(),
+        );
+        if let Some(default) = self.default_effort {
+            public = public.with_default(default);
+        }
+        public
+    }
 }
 
 #[derive(Debug, Deserialize)]
