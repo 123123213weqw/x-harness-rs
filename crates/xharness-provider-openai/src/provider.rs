@@ -765,7 +765,11 @@ impl ModelProvider for OpenAiProvider {
                                                     "stream.event",
                                                     provider_event_payload(&provider_event),
                                                 ).with_scope(debug_scope.clone())).await;
+                                                let terminal = matches!(provider_event, ProviderEvent::Completed { .. });
                                                 yield Ok(provider_event);
+                                                // The application terminal event owns completion;
+                                                // never turn a later transport close into another result.
+                                                if terminal { return; }
                                             }
                                         }
                                         Err(error) => {
@@ -822,7 +826,11 @@ impl ModelProvider for OpenAiProvider {
                                                     "stream.event",
                                                     provider_event_payload(&provider_event),
                                                 ).with_scope(debug_scope.clone())).await;
+                                                let terminal = matches!(provider_event, ProviderEvent::Completed { .. });
                                                 yield Ok(provider_event);
+                                                // The application terminal event owns completion;
+                                                // never turn a later transport close into another result.
+                                                if terminal { return; }
                                 }
                             }
                             Err(error) => {
