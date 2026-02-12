@@ -2200,6 +2200,7 @@ impl Runner {
         retry: usize,
         max_retries: usize,
         error: &ProviderError,
+        delay_ms: u64,
     ) -> Result<(), RunFailure> {
         let Some(journal) = self.journal.as_ref() else {
             return Ok(());
@@ -2213,13 +2214,13 @@ impl Runner {
             .map_err(|_| RunFailure::Failed("provider retry limit overflow".to_owned()))?;
         let provider = self.request.provider.provider_name().to_owned();
         let failure = LlmFailure {
-            message: error.message.clone(),
+            message: error.diagnostic_message(),
             code: error
                 .http_status
                 .map_or_else(|| "TRANSPORT".to_owned(), |status| format!("HTTP_{status}")),
             status: error.http_status,
-            provider_retry_after_ms: None,
-            request_id: None,
+            provider_retry_after_ms: error.retry_after_ms,
+            request_id: error.request_id.clone(),
         };
         self.journal_append(
             vec![SessionEventData::LlmRetry {
@@ -2231,7 +2232,7 @@ impl Runner {
                 policy_key: format!("xharness:normal:{max_retries}"),
                 retry,
                 max_retries: Some(max_retries),
-                delay_ms: 0,
+                delay_ms,
                 failure,
             }],
             true,
@@ -2638,9 +2639,74 @@ impl Runner {
         visible
     }
 
+    async fn wait_model_retry(
+        &mut self,
+        attempt: usize,
+        error: &ProviderError,
+        recovery_deadline: &mut Option<tokio::time::Instant>,
+    ) -> Result<bool, RunFailure> {
+        self.ensure_running()?;
+        let deadline = *recovery_deadline.get_or_insert_with(|| {
+            tokio::time::Instant::now()
+                + Duration::from_millis(self.request.config.provider_retry_budget_ms)
+        });
+        let digest = Sha256::digest(format!("{}:{}:{}", self.run_id, self.step, attempt));
+        let entropy = u64::from_le_bytes(digest[..8].try_into().expect("hash prefix"));
+        let delay_ms = retry_delay_ms(&self.request.config, attempt, error.retry_after_ms, entropy);
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if Duration::from_millis(delay_ms) >= remaining {
+            return Err(RunFailure::Failed(format!("provider recovery budget exhausted; required wait {delay_ms} ms exceeds remaining budget; {}", error.diagnostic_message())));
+        }
+        let retry_id = self.model_retry_id();
+        self.journal_model_retry_scheduled(
+            &retry_id,
+            attempt,
+            self.request.config.provider_retries,
+            error,
+            delay_ms,
+        )
+        .await?;
+        self.emit(LoopEventKind::ModelRetry {
+            retry_id: retry_id.clone(),
+            attempt,
+            max_retries: self.request.config.provider_retries,
+            error: error.diagnostic_message(),
+            delay_ms,
+        })
+        .await?;
+        let wake = tokio::time::Instant::now() + Duration::from_millis(delay_ms);
+        loop {
+            self.ensure_running()?;
+            if self.paused && self.wait_while_paused(true).await? {
+                return Ok(true);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(RunFailure::Failed(
+                    "provider recovery deadline exceeded while waiting".into(),
+                ));
+            }
+            tokio::select! {
+                _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
+                _ = tokio::time::sleep_until(wake) => break,
+                command = self.command_rx.recv(), if self.command_open => {
+                    match command {
+                        Some(envelope) => if self.handle_envelope(envelope, true).await? { return Ok(true); },
+                        None => self.command_open = false,
+                    }
+                }
+            }
+        }
+        self.ensure_running()?;
+        self.journal_model_retry_started(&retry_id, attempt).await?;
+        self.emit(LoopEventKind::ModelRetryStarted { retry_id, attempt })
+            .await?;
+        Ok(false)
+    }
+
     async fn model_round(&mut self, request: ProviderRequest) -> Result<ModelRound, RunFailure> {
         let max_attempts = self.request.config.provider_retries.saturating_add(1);
         let mut round = ModelRound::default();
+        let mut recovery_deadline = None;
 
         for attempt in 1..=max_attempts {
             self.ensure_running()?;
@@ -2655,6 +2721,10 @@ impl Runner {
                 }
                 let next = tokio::select! {
                     _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
+                    _ = recovery_timeout(recovery_deadline), if !round.saw_delta => {
+                        provider_cancellation.cancel();
+                        return Err(RunFailure::Failed("provider recovery deadline exceeded before model output".into()));
+                    },
                     command = self.command_rx.recv(), if self.command_open => {
                         ProviderStart::Command(command)
                     }
@@ -2690,25 +2760,18 @@ impl Runner {
                         return Err(RunFailure::ContextOverflow(error.message));
                     }
                     if error.retryable && !round.saw_delta && attempt < max_attempts {
-                        let retry_id = self.model_retry_id();
-                        self.journal_model_retry_scheduled(
-                            &retry_id,
-                            attempt,
-                            self.request.config.provider_retries,
-                            &error,
-                        )
-                        .await?;
-                        self.emit(LoopEventKind::ModelRetry {
-                            retry_id: retry_id.clone(),
-                            attempt,
-                            max_retries: self.request.config.provider_retries,
-                            error: error.message.clone(),
-                        })
-                        .await?;
-                        self.journal_model_retry_started(&retry_id, attempt).await?;
+                        provider_cancellation.cancel();
+                        if self
+                            .wait_model_retry(attempt, &error, &mut recovery_deadline)
+                            .await?
+                        {
+                            round.interrupted = true;
+                            self.emit(LoopEventKind::ModelInterrupted).await?;
+                            return Ok(round);
+                        }
                         continue;
                     }
-                    return Err(RunFailure::Failed(error.message));
+                    return Err(RunFailure::Failed(error.diagnostic_message()));
                 }
             };
 
@@ -2720,6 +2783,10 @@ impl Runner {
                 }
                 let next = tokio::select! {
                     _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
+                    _ = recovery_timeout(recovery_deadline), if !round.saw_delta => {
+                        provider_cancellation.cancel();
+                        return Err(RunFailure::Failed("provider recovery deadline exceeded before model output".into()));
+                    },
                     command = self.command_rx.recv(), if self.command_open => {
                         ModelInput::Command(command)
                     }
@@ -2864,6 +2931,7 @@ impl Runner {
                 }
             }
 
+            drop(stream); // Close the failed response before any backoff sleep.
             if round.completed {
                 round.calls = round.calls_by_index.values().cloned().collect();
                 return Ok(round);
@@ -2873,25 +2941,41 @@ impl Runner {
                 return Err(RunFailure::ContextOverflow(error.message));
             }
             if error.retryable && !round.saw_delta && attempt < max_attempts {
-                let retry_id = self.model_retry_id();
-                self.journal_model_retry_scheduled(
-                    &retry_id,
-                    attempt,
-                    self.request.config.provider_retries,
-                    &error,
-                )
-                .await?;
-                self.emit(LoopEventKind::ModelRetry {
-                    retry_id: retry_id.clone(),
-                    attempt,
-                    max_retries: self.request.config.provider_retries,
-                    error: error.message.clone(),
-                })
-                .await?;
-                self.journal_model_retry_started(&retry_id, attempt).await?;
+                provider_cancellation.cancel();
+                if self
+                    .wait_model_retry(attempt, &error, &mut recovery_deadline)
+                    .await?
+                {
+                    round.interrupted = true;
+                    self.emit(LoopEventKind::ModelInterrupted).await?;
+                    return Ok(round);
+                }
                 continue;
             }
-            return Err(RunFailure::Failed(error.message));
+            if round.saw_delta {
+                // Never execute or replay an unacknowledged fragmented tool call.
+                // Keep the original text/reasoning as explicitly interrupted history.
+                let partial = AgentMessage {
+                    id: None,
+                    role: Role::Assistant,
+                    content: round.text,
+                    reasoning: round.reasoning,
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
+                    provider_items: Vec::new(),
+                    interrupted: true,
+                };
+                if !partial.content.is_empty() || !partial.reasoning.is_empty() {
+                    self.journal_assistant_message(&partial, None).await?;
+                    self.final_text = partial.content.clone();
+                    self.messages.push(partial);
+                    self.snapshot("network_interrupted", true).await?;
+                }
+                return Err(RunFailure::Failed(format!(
+                    "{}\n本轮已中断；已有文本已保留，未完成的工具调用未执行。请发送新消息“继续”明确恢复；这是新的模型请求，可能额外计费，不是原连接的无损续传。", error.diagnostic_message()
+                )));
+            }
+            return Err(RunFailure::Failed(error.diagnostic_message()));
         }
         Err(RunFailure::Failed(
             "provider retry limit reached".to_owned(),
@@ -3482,5 +3566,61 @@ enum RunFailure {
 impl From<String> for RunFailure {
     fn from(value: String) -> Self {
         Self::Failed(value)
+    }
+}
+
+async fn recovery_timeout(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => futures::future::pending::<()>().await,
+    }
+}
+
+fn retry_delay_ms(
+    config: &crate::LoopConfig,
+    retry: usize,
+    retry_after: Option<u64>,
+    entropy: u64,
+) -> u64 {
+    let exponent = retry.saturating_sub(1).min(63) as u32;
+    let base = config
+        .provider_retry_base_delay_ms
+        .saturating_mul(1u64 << exponent)
+        .min(config.provider_retry_max_delay_ms);
+    let spread = base.saturating_mul(u64::from(config.provider_retry_jitter_percent)) / 100;
+    let jittered = base
+        .saturating_sub(spread)
+        .saturating_add(entropy % (spread.saturating_mul(2).saturating_add(1)))
+        .min(config.provider_retry_max_delay_ms);
+    // Retry-After is a minimum. Never cap it and retry earlier than instructed.
+    jittered.max(retry_after.unwrap_or(0))
+}
+
+#[cfg(test)]
+mod retry_policy_tests {
+    use super::*;
+    #[test]
+    fn exponential_delay_jitter_cap_and_server_minimum() {
+        let mut config = crate::LoopConfig {
+            provider_retry_jitter_percent: 0,
+            ..Default::default()
+        };
+        for (retry, expected) in [
+            (1, 500),
+            (2, 1000),
+            (3, 2000),
+            (20, 8000),
+            (usize::MAX, 8000),
+        ] {
+            assert_eq!(retry_delay_ms(&config, retry, None, 0), expected);
+        }
+        config.provider_retry_jitter_percent = 20;
+        let delays: std::collections::BTreeSet<_> = (0..1000)
+            .map(|seed| retry_delay_ms(&config, 1, None, seed))
+            .collect();
+        assert_eq!(delays.first(), Some(&400));
+        assert_eq!(delays.last(), Some(&600));
+        assert_eq!(retry_delay_ms(&config, 1, Some(30_000), 999), 30_000);
+        assert_eq!(retry_delay_ms(&config, 1, Some(u64::MAX), 999), u64::MAX);
     }
 }

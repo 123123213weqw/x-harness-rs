@@ -159,6 +159,22 @@ pub struct ProviderError {
     pub message: String,
     pub retryable: bool,
     pub http_status: Option<u16>,
+    pub retry_after_ms: Option<u64>,
+    pub request_id: Option<String>,
+    pub diagnostics: Option<Box<ProviderNetworkDiagnostics>>,
+}
+
+/// Content-free failure diagnostics retained even when full Debug Trace is off.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderNetworkDiagnostics {
+    pub route: String,
+    pub kind: String,
+    pub elapsed_ms: u64,
+    pub received_chunks: u64,
+    pub received_bytes: u64,
+    pub last_chunk_ago_ms: Option<u64>,
+    pub protocol_completed: bool,
 }
 
 impl ProviderError {
@@ -167,6 +183,9 @@ impl ProviderError {
             message: message.into(),
             retryable: false,
             http_status: None,
+            retry_after_ms: None,
+            request_id: None,
+            diagnostics: None,
         }
     }
 
@@ -175,6 +194,9 @@ impl ProviderError {
             message: message.into(),
             retryable: true,
             http_status: None,
+            retry_after_ms: None,
+            request_id: None,
+            diagnostics: None,
         }
     }
 
@@ -183,6 +205,23 @@ impl ProviderError {
             message: message.into(),
             retryable: status == 408 || status == 429 || status >= 500,
             http_status: Some(status),
+            retry_after_ms: None,
+            request_id: None,
+            diagnostics: None,
+        }
+    }
+
+    pub fn diagnostic_message(&self) -> String {
+        match &self.diagnostics {
+            Some(value) => format!(
+                "{}\nnetwork: {}",
+                self.message,
+                serde_json::json!({
+                    "transport": value,
+                    "requestId": self.request_id,
+                })
+            ),
+            None => self.message.clone(),
         }
     }
 
@@ -509,6 +548,11 @@ pub enum LoopEventKind {
         attempt: usize,
         max_retries: usize,
         error: String,
+        delay_ms: u64,
+    },
+    ModelRetryStarted {
+        retry_id: String,
+        attempt: usize,
     },
     /// The subscriber fell behind the bounded event journal. `resume_seq` is
     /// the first event sequence still available for deterministic replay.
@@ -591,6 +635,12 @@ pub struct LoopConfig {
     pub max_tool_concurrency: usize,
     pub tool_result_limit_bytes: usize,
     pub provider_retries: usize,
+    pub provider_retry_base_delay_ms: u64,
+    pub provider_retry_max_delay_ms: u64,
+    /// Recovery deadline starts at the first retryable failure and stops
+    /// applying once model output begins. Healthy generation is not capped.
+    pub provider_retry_budget_ms: u64,
+    pub provider_retry_jitter_percent: u8,
     /// Fresh model calls allowed after a provider reports an output-token
     /// ceiling. A value of zero exposes max-tokens immediately.
     pub max_output_continuations: usize,
@@ -627,6 +677,10 @@ impl Default for LoopConfig {
             max_tool_concurrency: 8,
             tool_result_limit_bytes: 256 * 1024,
             provider_retries: 2,
+            provider_retry_base_delay_ms: 500,
+            provider_retry_max_delay_ms: 8_000,
+            provider_retry_budget_ms: 60_000,
+            provider_retry_jitter_percent: 20,
             max_output_continuations: 2,
             max_turn_output_tokens: 131_072,
             event_buffer: 128,
@@ -638,6 +692,17 @@ impl Default for LoopConfig {
 
 impl LoopConfig {
     pub fn validate(&self) -> Result<(), LoopValidationError> {
+        if self.provider_retry_base_delay_ms == 0
+            || self.provider_retry_max_delay_ms < self.provider_retry_base_delay_ms
+            || self.provider_retry_budget_ms == 0
+            || self.provider_retry_budget_ms > 86_400_000
+            || self.provider_retry_max_delay_ms > 86_400_000
+            || self.provider_retry_jitter_percent > 100
+        {
+            return Err(LoopValidationError::new(
+                "invalid provider retry delay, deadline or jitter",
+            ));
+        }
         if self.max_steps == 0 {
             return Err(LoopValidationError::new(
                 "max_steps must be greater than zero",

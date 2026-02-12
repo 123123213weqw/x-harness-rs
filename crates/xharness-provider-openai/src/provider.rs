@@ -17,8 +17,8 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
     CapabilitySource, ContextLimitEvidence, ContextWindowCapability, ModelCapabilities,
-    ModelProvider, ProviderError, ProviderEvent, ProviderInputTokenCount, ProviderRequest,
-    ProviderStream,
+    ModelProvider, ProviderError, ProviderEvent, ProviderInputTokenCount,
+    ProviderNetworkDiagnostics, ProviderRequest, ProviderStream,
 };
 use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
 
@@ -672,6 +672,7 @@ impl ModelProvider for OpenAiProvider {
         request: ProviderRequest,
         cancellation: CancellationToken,
     ) -> Result<ProviderStream, ProviderError> {
+        let mut observation = NetworkObservation::new(&self.config.endpoint());
         let body = self.request_body(&request, false)?;
         self.trace(
             &request.debug_scope,
@@ -695,9 +696,22 @@ impl ModelProvider for OpenAiProvider {
             .json(&body);
         let response = self
             .send_request(request_builder, &cancellation, "OpenAI request")
-            .await?;
+            .await
+            .map_err(|error| observation.failure(error, "connect_or_headers"))?;
 
         let status = response.status();
+        let retry_after = response
+            .headers()
+            .get(header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| retry_after_ms(v, SystemTime::now()));
+        observation.request_id = response
+            .headers()
+            .get("x-request-id")
+            .or_else(|| response.headers().get("request-id"))
+            .and_then(|v| v.to_str().ok())
+            .filter(|v| v.len() <= 128 && v.bytes().all(|b| b.is_ascii_graphic()))
+            .map(str::to_owned);
         self.trace(
             &request.debug_scope,
             "response_status",
@@ -720,7 +734,9 @@ impl ModelProvider for OpenAiProvider {
             } else {
                 format!("OpenAI HTTP {code}: {body}")
             };
-            return Err(ProviderError::http(code, detail));
+            let mut error = observation.failure(ProviderError::http(code, detail), "http_status");
+            error.retry_after_ms = retry_after;
+            return Err(error);
         }
 
         let protocol = self.config.protocol;
@@ -742,6 +758,7 @@ impl ModelProvider for OpenAiProvider {
                 };
                 match next {
                     Some(Ok(chunk)) => {
+                        observation.chunk(chunk.len());
                         received_chunks = received_chunks.saturating_add(1);
                         received_bytes = received_bytes.saturating_add(
                             u64::try_from(chunk.len()).unwrap_or(u64::MAX),
@@ -773,14 +790,14 @@ impl ModelProvider for OpenAiProvider {
                                             }
                                         }
                                         Err(error) => {
-                                            yield Err(error);
+                                            yield Err(observation.failure(error, "protocol"));
                                             return;
                                         }
                                     }
                                 }
                             }
                             Err(error) => {
-                                yield Err(error);
+                                yield Err(observation.failure(error, "protocol"));
                                 return;
                             }
                         }
@@ -804,11 +821,11 @@ impl ModelProvider for OpenAiProvider {
                                 "sourceChain": source_chain,
                             }),
                         ).with_scope(debug_scope.clone())).await;
-                        yield Err(ProviderError::retryable(format!(
+                        yield Err(observation.failure(ProviderError::retryable(format!(
                             "OpenAI stream interrupted after {} ({kind}; received {received_chunks} chunks / {received_bytes} bytes): {}",
                             format_duration(elapsed),
                             reqwest_error_summary(&error),
-                        )));
+                        )), kind));
                         return;
                     }
                     None => break,
@@ -834,23 +851,87 @@ impl ModelProvider for OpenAiProvider {
                                 }
                             }
                             Err(error) => {
-                                yield Err(error);
+                                yield Err(observation.failure(error, "protocol"));
                                 return;
                             }
                         }
                     }
                 }
                 Err(error) => {
-                    yield Err(error);
+                    yield Err(observation.failure(error, "protocol"));
                     return;
                 }
             }
             if let Err(error) = normalizer.finish() {
-                yield Err(error);
+                yield Err(observation.failure(error, "protocol"));
             }
         };
         Ok(Box::pin(output))
     }
+}
+
+/// Only the origin is retained; URL credentials, path and query may contain secrets.
+struct NetworkObservation {
+    route: String,
+    started: Instant,
+    last_chunk: Option<Instant>,
+    chunks: u64,
+    bytes: u64,
+    request_id: Option<String>,
+}
+impl NetworkObservation {
+    fn new(endpoint: &str) -> Self {
+        let route = reqwest::Url::parse(endpoint)
+            .ok()
+            .map(|url| url.origin().ascii_serialization())
+            .unwrap_or_else(|| "unknown".into());
+        Self {
+            route,
+            started: Instant::now(),
+            last_chunk: None,
+            chunks: 0,
+            bytes: 0,
+            request_id: None,
+        }
+    }
+    fn chunk(&mut self, bytes: usize) {
+        self.last_chunk = Some(Instant::now());
+        self.chunks = self.chunks.saturating_add(1);
+        self.bytes = self.bytes.saturating_add(bytes as u64);
+    }
+    fn failure(&self, mut error: ProviderError, kind: &str) -> ProviderError {
+        error.request_id = self.request_id.clone();
+        error.diagnostics = Some(Box::new(ProviderNetworkDiagnostics {
+            route: self.route.clone(),
+            kind: kind.into(),
+            elapsed_ms: duration_ms(self.started.elapsed()),
+            received_chunks: self.chunks,
+            received_bytes: self.bytes,
+            last_chunk_ago_ms: self.last_chunk.map(|at| duration_ms(at.elapsed())),
+            protocol_completed: false,
+        }));
+        error
+    }
+}
+fn duration_ms(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+fn retry_after_ms(value: &str, now: SystemTime) -> Option<u64> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value.bytes().all(|b| b.is_ascii_digit()) {
+        return Some(
+            value
+                .parse::<u64>()
+                .unwrap_or(u64::MAX)
+                .saturating_mul(1000),
+        );
+    }
+    httpdate::parse_http_date(value)
+        .ok()
+        .map(|at| duration_ms(at.duration_since(now).unwrap_or_default()))
 }
 
 fn reqwest_error_kind(error: &reqwest::Error) -> &'static str {
@@ -1055,5 +1136,175 @@ mod tests {
             OpenAiReasoningProfile::new(None, [("bad".to_owned(), json!({"messages": []}))])
                 .unwrap_err();
         assert!(error.message.contains("reserved field \"messages\""));
+    }
+}
+
+#[cfg(test)]
+mod network_metadata_tests {
+    use super::*;
+    #[test]
+    fn retry_after_seconds_dates_and_invalid_values() {
+        let now = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        assert_eq!(retry_after_ms(" 12 ", now), Some(12_000));
+        assert_eq!(retry_after_ms("0", now), Some(0));
+        assert_eq!(
+            retry_after_ms("99999999999999999999999999999", now),
+            Some(u64::MAX)
+        );
+        assert_eq!(
+            retry_after_ms(&httpdate::fmt_http_date(now + Duration::from_secs(7)), now),
+            Some(7000)
+        );
+        assert_eq!(
+            retry_after_ms(&httpdate::fmt_http_date(now - Duration::from_secs(7)), now),
+            Some(0)
+        );
+        for invalid in ["", "-1", "1.5", "next week", "+3"] {
+            assert_eq!(retry_after_ms(invalid, now), None);
+        }
+    }
+    #[test]
+    fn lightweight_diagnostics_never_include_url_credentials_or_contents() {
+        let mut observation = NetworkObservation::new(
+            "https://user:password@example.com:8443/private/key?token=secret#fragment",
+        );
+        observation.chunk(123);
+        let error = observation.failure(ProviderError::retryable("interrupted"), "response_body");
+        let diagnostic = error.diagnostics.unwrap();
+        assert_eq!(diagnostic.route, "https://example.com:8443");
+        assert_eq!(diagnostic.received_chunks, 1);
+        assert_eq!(diagnostic.received_bytes, 123);
+        assert!(diagnostic.last_chunk_ago_ms.is_some());
+        assert!(!diagnostic.protocol_completed);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tls_disconnect_tests {
+    use super::*;
+    use std::{
+        io::{BufRead, BufReader},
+        path::PathBuf,
+        process::{Child, Command, Stdio},
+    };
+    use xharness_core::{AgentMessage, LoopEngine, LoopEventKind, LoopRequest, LoopStatus};
+    struct Fixture {
+        child: Child,
+        directory: PathBuf,
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            let _ = std::fs::remove_dir_all(&self.directory);
+        }
+    }
+    #[tokio::test]
+    async fn real_tls_close_without_notify_is_bounded_and_never_replays_partial_output() {
+        for mode in ["before", "partial", "completed"] {
+            let dir = std::env::temp_dir().join(format!(
+                "xharness-tls-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&dir).unwrap();
+            let cert = dir.join("cert.pem");
+            let key = dir.join("key.pem");
+            let generated = Command::new("openssl")
+                .args([
+                    "req",
+                    "-x509",
+                    "-newkey",
+                    "rsa:2048",
+                    "-nodes",
+                    "-days",
+                    "1",
+                    "-subj",
+                    "/CN=localhost",
+                    "-addext",
+                    "subjectAltName=IP:127.0.0.1",
+                    "-addext",
+                    "basicConstraints=critical,CA:FALSE",
+                    "-keyout",
+                ])
+                .arg(&key)
+                .arg("-out")
+                .arg(&cert)
+                .output()
+                .expect("TLS fixture requires openssl");
+            assert!(
+                generated.status.success(),
+                "{}",
+                String::from_utf8_lossy(&generated.stderr)
+            );
+            let child = Command::new("python3")
+                .arg("-c")
+                .arg(include_str!("../tests/fixtures/tls_disconnect.py"))
+                .arg(&cert)
+                .arg(&key)
+                .arg(mode)
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("TLS fixture requires python3");
+            let mut fixture = Fixture {
+                child,
+                directory: dir,
+            };
+            let mut line = String::new();
+            BufReader::new(fixture.child.stdout.take().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            let port: u16 = line.trim().parse().expect("fixture address");
+            let config = OpenAiProviderConfig::new(
+                OpenAiProtocol::ChatCompletions,
+                format!("https://127.0.0.1:{port}/v1"),
+                "fixture-only",
+                "fixture",
+            );
+            let mut provider = OpenAiProvider::new(config).unwrap();
+            // Trust this fixture's certificate only; production TLS verification is unchanged.
+            provider.client = Client::builder()
+                .no_proxy()
+                .add_root_certificate(
+                    reqwest::Certificate::from_pem(&std::fs::read(cert).unwrap()).unwrap(),
+                )
+                .connect_timeout(Duration::from_secs(2))
+                .read_timeout(Duration::from_secs(2))
+                .build()
+                .unwrap();
+            let mut request = LoopRequest::new(Arc::new(provider), vec![AgentMessage::user("go")]);
+            request.config.provider_retry_base_delay_ms = 10;
+            let mut run = LoopEngine.start(request);
+            let mut retries = 0;
+            let result = tokio::time::timeout(Duration::from_secs(8), async {
+                while let Some(event) = run.next().await {
+                    if matches!(event.kind, LoopEventKind::ModelRetry { .. }) {
+                        retries += 1;
+                    }
+                }
+                run.result().await
+            })
+            .await
+            .unwrap();
+            if mode == "partial" {
+                assert_eq!(result.status, LoopStatus::Failed);
+                assert_eq!(result.final_text, "partial");
+                assert_eq!(retries, 0);
+                assert!(result.error.unwrap().contains("close_notify"));
+            } else {
+                assert_eq!(
+                    result.status,
+                    LoopStatus::Completed,
+                    "{}: {:?}",
+                    mode,
+                    result.error
+                );
+                assert_eq!(result.final_text, "recovered");
+                assert_eq!(retries, usize::from(mode == "before"));
+            }
+        }
     }
 }
