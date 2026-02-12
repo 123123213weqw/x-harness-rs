@@ -110,3 +110,18 @@ Web 和 Tauri 共用 `ui/dist`，输入区只保留模型选择按钮。点击�
 - 桌面打包检查比对模型控件、连接协议、client-graph 和 index.html，防止 App 携带旧 UI。
 
 代码接入、浏览器回归通过不等于已经更新用户安装包；实际安装验收单独记录。
+
+## 2026-09-07：缺失思考档位的兼容恢复
+
+- 原因：旧版模型编辑器保存了 DeepSeek 的 ID/上下文，但未保存 `reasoning`；UI 按能力隐藏选项。
+- 在 `xharness-host-app` 的 Provider 配置组装层加入有界、可覆盖的官方能力目录；Core 和 UI 不判断厂商名称。
+- 优先级：显式模型 `reasoning` > 官方端点与精确上游模型匹配的内置目录 > 不声明思考能力。
+- 只识别 HTTPS `api.deepseek.com`（默认端口、根路径、`/v1` 或 `/beta`）和 Flash/Pro/Flash Vision 三个精确模型 ID。按 `upstreamModel` 识别别名，不把代理、自部署 Qwen 或未来型号当成官方 DeepSeek。
+- 缺字段/`null` 表示自动解析；自定义档位保留；无效显式配置仍报错，不能用默认值掩盖。
+- 旧配置无需破坏性重写：每次启动、恢复、模型设置变更时重建有效模型目录，同一份档位同时用于 UI 描述和实际 Provider 请求。用户选中的档位继续走原 Session 持久化；不迁移 API Key。
+- 官方当前档位为 `off / low / high / max`，默认 `high`；Chat 的 `off` 只发送 `thinking.type=disabled`，其他档位发送 `thinking.type=enabled` 与 `reasoning_effort`；Responses 对应 `reasoning.effort=none/low/high/max`。
+- Compact 仍独立选择最低档 `off`，不继承主对话的 `max`；没有改输出或上下文预算。
+- 此目录是文档支持的回退，不是伪装成 `/models` 自动返回的能力。未知端点不主动发推理探测请求。
+- 回归：精确端点、协议、别名、未知模型、自定义优先、坏配置、旧配置重复恢复、四档切换/持久化、切换未知模型清理旧档位；HTTP fixture 检查两协议的默认与四档共 10 个真实出站请求。
+
+依据：[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/) 与 [Chat API](https://api-docs.deepseek.com/api/create-chat-completion/)，核对日期 2026-09-07。
