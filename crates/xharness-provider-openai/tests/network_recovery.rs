@@ -25,6 +25,7 @@ use xharness_provider_openai::{OpenAiProtocol, OpenAiProvider, OpenAiProviderCon
 #[derive(Clone)]
 enum Reply {
     Status(u16),
+    RetryAfter(&'static str),
     Disconnect,
     Body { text: String, truncated: bool },
     Stall { headers: bool, prefix: String },
@@ -90,6 +91,7 @@ impl FaultServer {
                             count.fetch_add(1, Ordering::SeqCst);
                             let response = match &reply {
                                 Reply::Disconnect => return,
+                                Reply::RetryAfter(value) => format!("HTTP/1.1 429 Test\r\nRetry-After: {value}\r\nx-request-id: fixture-request\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"),
                                 Reply::Status(code) => format!("HTTP/1.1 {code} Test\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"),
                                 Reply::Body { text, truncated } => format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len() + if *truncated { 256 } else { 0 }),
                                 Reply::Stall { headers: true, prefix } => format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100000\r\nConnection: close\r\n\r\n{prefix}"),
@@ -156,6 +158,8 @@ async fn run(server: &FaultServer, retries: usize, idle: Duration) -> (Vec<LoopE
         vec![AgentMessage::user("fixture")],
     );
     request.config.provider_retries = retries;
+    request.config.provider_retry_base_delay_ms = 10;
+    request.config.provider_retry_max_delay_ms = 100;
     tokio::time::timeout(Duration::from_secs(8), async {
         let mut run = LoopEngine.start(request);
         let mut events = Vec::new();
@@ -373,4 +377,109 @@ async fn cancel_and_consumer_drop_close_stalled_connections_without_retries() {
         until(|| server.closed.load(Ordering::SeqCst) == 1).await;
         assert_eq!(server.count(), 1);
     }
+}
+
+#[tokio::test]
+async fn http_retry_after_and_request_id_reach_core_and_actual_wait() {
+    let server = FaultServer::start(vec![Reply::RetryAfter("1"), success()]).await;
+    let provider = server.provider(OpenAiProtocol::ChatCompletions, Duration::from_secs(2));
+    let error = match provider.stream(request(), CancellationToken::new()).await {
+        Err(error) => error,
+        Ok(_) => panic!("expected HTTP 429"),
+    };
+    assert_eq!(error.retry_after_ms, Some(1000));
+    assert_eq!(error.request_id.as_deref(), Some("fixture-request"));
+    assert_eq!(error.diagnostics.unwrap().kind, "http_status");
+    let server = FaultServer::start(vec![Reply::RetryAfter("1"), success()]).await;
+    let began = tokio::time::Instant::now();
+    let (events, result) = run(&server, 2, Duration::from_secs(2)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert!(began.elapsed() >= Duration::from_secs(1));
+    let scheduled = events
+        .iter()
+        .position(|e| matches!(e.kind, LoopEventKind::ModelRetry { delay_ms: 1000, .. }))
+        .unwrap();
+    let started = events
+        .iter()
+        .position(|e| matches!(e.kind, LoopEventKind::ModelRetryStarted { .. }))
+        .unwrap();
+    assert!(started > scheduled);
+}
+
+#[tokio::test]
+async fn recovery_deadline_bounds_stalled_retry_headers_and_body() {
+    for headers in [false, true] {
+        let server = FaultServer::start(vec![
+            Reply::Status(503),
+            Reply::Stall {
+                headers,
+                prefix: String::new(),
+            },
+        ])
+        .await;
+        let mut req = LoopRequest::new(
+            server.provider(OpenAiProtocol::ChatCompletions, Duration::from_secs(5)),
+            vec![AgentMessage::user("go")],
+        );
+        req.config.provider_retry_base_delay_ms = 10;
+        req.config.provider_retry_jitter_percent = 0;
+        req.config.provider_retry_budget_ms = 150;
+        let mut run = LoopEngine.start(req);
+        let result = tokio::time::timeout(Duration::from_secs(2), async {
+            while run.next().await.is_some() {}
+            run.result().await
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.status, LoopStatus::Failed);
+        assert!(result.error.unwrap().contains("recovery deadline"));
+        assert_eq!(server.count(), 2);
+        until(|| server.closed.load(Ordering::SeqCst) >= 1).await;
+    }
+}
+
+#[tokio::test]
+async fn partial_transport_failure_has_metadata_without_enabling_trace() {
+    let server = FaultServer::start(vec![Reply::Body {
+        text: text_delta(),
+        truncated: true,
+    }])
+    .await;
+    let (events, result) = run(&server, 2, Duration::from_secs(1)).await;
+    assert_eq!(retry_count(&events), 0);
+    assert_eq!(result.final_text, "partial");
+    let error = result.error.unwrap();
+    assert!(error.contains("receivedChunks") && error.contains("lastChunkAgoMs"));
+    assert!(error.contains("protocolCompleted\":false"));
+    assert!(!error.contains("fixture-only"));
+}
+
+#[tokio::test]
+async fn recovered_stream_is_not_cut_off_by_the_pre_output_recovery_deadline() {
+    let server = FaultServer::start(vec![
+        Reply::Status(503),
+        Reply::Stall {
+            headers: true,
+            prefix: text_delta(),
+        },
+    ])
+    .await;
+    let mut req = LoopRequest::new(
+        server.provider(OpenAiProtocol::ChatCompletions, Duration::from_millis(500)),
+        vec![AgentMessage::user("go")],
+    );
+    req.config.provider_retry_base_delay_ms = 10;
+    req.config.provider_retry_budget_ms = 200;
+    let mut run = LoopEngine.start(req);
+    let result = tokio::time::timeout(Duration::from_secs(3), async {
+        while run.next().await.is_some() {}
+        run.result().await
+    })
+    .await
+    .unwrap();
+    assert_eq!(result.final_text, "partial");
+    let error = result.error.unwrap();
+    assert!(error.contains("idle_timeout"));
+    assert!(!error.contains("recovery deadline"));
+    assert_eq!(server.count(), 2);
 }
