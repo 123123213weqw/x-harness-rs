@@ -22,7 +22,10 @@ const directLatest = e.DIRECT_LATEST === 'true'
 const sameChannel = oldRepo === upstream
 for (const repo of [oldRepo, upstream]) assert.match(repo, /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)
 for (const v of [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) assert.match(v, /^\d+\.\d+\.\d+$/)
-assert.ok((sameChannel ? ['0.2.2', '0.2.3'] : ['0.2.0', '0.2.1']).includes(e.BASE_VERSION))
+const baseTags = sameChannel
+  ? { '0.2.2': 'friends-v0.2.3', '0.2.3': 'friends-v0.2.3', '0.2.4': 'friends-v0.2.4' }
+  : { '0.2.0': 'friends-v0.2.1', '0.2.1': 'friends-v0.2.1' }
+assert.ok(Object.hasOwn(baseTags, e.BASE_VERSION), 'Unsupported installed base version')
 if (directLatest) assert.equal(e.BRIDGE_VERSION, e.UPSTREAM_VERSION)
 if (sameChannel) assert.ok(directLatest, 'Same-channel acceptance must use one hop')
 const filename = v => `XHarness_${v}_x64-setup.exe`
@@ -36,7 +39,7 @@ function download(repo, tag, kind, names) {
 }
 if (process.argv[2] === 'download') {
   const base = filename(e.BASE_VERSION), bridge = filename(e.BRIDGE_VERSION), next = filename(e.UPSTREAM_VERSION)
-  download(oldRepo, sameChannel ? 'friends-v0.2.3' : 'friends-v0.2.1', 'old', [base, base + '.sig'])
+  download(oldRepo, baseTags[e.BASE_VERSION], 'old', [base, base + '.sig'])
   verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
   if (!probeOnly) {
   if (sameChannel) {
