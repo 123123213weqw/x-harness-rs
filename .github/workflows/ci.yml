@@ -58,6 +58,8 @@ jobs:
         run: |
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-desktop-updater-layer.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-desktop-updater-layer.mjs
           UI_TEST_BROWSER=chromium node scripts/test-model-controls-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-model-controls-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-subagent-navigation.mjs
