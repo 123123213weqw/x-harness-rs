@@ -81,7 +81,8 @@
   host.id = 'xharness-desktop-updater'
   host.hidden = true
   // Keep the sidebar's bottom Settings button accessible in both rail and expanded layouts.
-  host.style.cssText = 'position:fixed;left:11px;bottom:64px;z-index:2147483000'
+  // Normal app chrome, not a top-level overlay: chat menus/settings must cover it.
+  host.style.cssText = 'position:fixed;left:11px;bottom:64px'
   const root = host.attachShadow({ mode: 'open' })
   root.innerHTML = `
     <style>
