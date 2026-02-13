@@ -230,3 +230,12 @@ Usage、工具 Schema 数量、各消息/工具结果字节数、Sandbox Probe �
 本机禁止编译 Rust。源码通过 `scripts/remote-rust-test.sh WZU_Server` 同步到远端，再执行
 Workspace `fmt/check/test/clippy`。GPU 相关真实模型测试优先使用对应服务器；任何诊断 Fixture
 都必须去除路径之外的敏感配置与凭据。
+
+## 自动会话标题
+
+新版正式 Host 在首个有效任务 Turn 结束后后台生成一次标题；已有用户标题不覆盖。
+旧的无标题/临时标题会在启动后补齐，使用该会话配置的模型，会产生少量额外 API 请求。
+临时失败不影响聊天，总尝试次数最多三次。详见 [自动标题规范](specs/auto-titles.md)。
+
+Web 和桌面复用同一后端功能，需要更新 Host/Sidecar，不是刷新旧应用即可生效。
+由于新增内部持久事件，升级前备份 Session 状态；降级旧二进制应配套恢复旧状态备份。
