@@ -3367,6 +3367,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures",
+ "httpdate",
  "reqwest",
  "serde",
  "serde_json",

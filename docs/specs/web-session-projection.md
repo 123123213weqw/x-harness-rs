@@ -56,13 +56,14 @@ Token、Cache、TTFT、Decode 吞吐和 LLM/Tool Duration 的完整日志投影�
   `approval/decided`。审批审计永不进入模型消息。
 - 当前 Host 的实时交互 Frame 仍使用 `approval/requested` / `approval/resolved`，但 History
   使用冻结上游的 `approval/asked` / `approval/decided`；两者由同一个 `approval_id` 关联。
-- 可重试 Provider 在第一次 Delta 之前失败时，先 Flush `llm/retry`，发出运行时通知，再 Flush
+- 可重试 Provider 在第一次 Delta 之前失败时，先 Flush `llm/retry`，发出运行时通知，等退避完成再 Flush
   `llm/retry-started`，之后才发起下一次 Provider I/O。Retry ID 在同一步的整个策略链中稳定，
   Retry Number 必须从 1 连续递增。
 - Session Validator 会检查审批成对关系、Tool Call 引用、Retry 路由与 Request Header 一致、
   Normal/Always Policy 字段、Retry ID 所有权以及 Started 一一对应。
-- 当前 Core 只生产 `normal + delayMs=0` 的网络重试；类型和投影已能表达 `always`，但带退避的
-  Provider Policy Registry 尚未实现。崩溃后存在 `approval/asked` 而没有 Decision 时，Host 会
+- Core 生产 `normal` 重试，`delayMs` 包含实际退避和 Retry-After，复用前端倒计时。
+  取消/Steering 不生成虚假的 retry-started；`always` 类型保留但默认不用。
+  崩溃后存在 `approval/asked` 而没有 Decision 时，Host 会
   在订阅恢复 Turn 后生成新的相关 Server RPC；History 仍保留同一 Asked，回答写入唯一 Decided，
   因而刷新或重启后可以继续点击且不会复制审计事件。
 
