@@ -1077,6 +1077,8 @@ impl BasicHost {
             .get_mut(&session_id)
             .ok_or_else(|| session_not_found(&session_id))?;
         session.model = selected;
+        drop(state);
+        self.queue_title(&session_id);
         Ok(response)
     }
 
