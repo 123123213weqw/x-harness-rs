@@ -641,6 +641,7 @@ impl BasicHost {
                 };
                 record.dispatch_paused
             };
+            self.queue_title(&session_id);
             if paused {
                 let mut state = self.state.write().await;
                 if let Some(record) = state.sessions.get_mut(&session_id) {
@@ -991,6 +992,7 @@ impl BasicHost {
         event: LoopEvent,
     ) -> Result<(), RpcError> {
         match event.kind {
+            LoopEventKind::InputCommitted => self.queue_title(session_id),
             LoopEventKind::ToolApprovalRequested { approval_id, call } => {
                 let rpc_id = RpcId::new(self.mint_id("approval"));
                 let control = self

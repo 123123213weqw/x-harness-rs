@@ -24,6 +24,8 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
   `sandbox/mode`、`approval/policy`；
 - 审批和命令审计：`approval/asked`、`approval/decided`、`command/run`、`command/done`；
 - Session 元数据：`session/title`（latest-wins、log-only，不进入模型历史）；
+- 自动标题内部进度：`xharness/title-generation`（v1，attempt 1–3，pending/retry/completed/exhausted），
+  不进入模型历史，Web 投影隐藏；产品规则和降级限制见 [自动标题规范](auto-titles.md)；
 - Host 内部控制事实：`session/model-selected`（latest-wins 模型路由）与
   `xharness/mutation-committed`（Exactly-once RPC Receipt）；两者不进入模型历史，也不计入冻结的
   上游 48 Event 覆盖数；
