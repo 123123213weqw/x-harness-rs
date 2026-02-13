@@ -6,7 +6,9 @@
 
 mod control;
 mod delegation;
+mod delegation_concurrency;
 pub use delegation::AgentTool;
+pub use delegation_concurrency::DelegationConcurrency;
 mod driver;
 mod metrics;
 mod model_settings;

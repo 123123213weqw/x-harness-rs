@@ -593,6 +593,7 @@ mod tests {
         active: Arc<AtomicUsize>,
         maximum: Arc<AtomicUsize>,
         calls: Arc<AtomicUsize>,
+        gate: Option<CancellationToken>,
     }
     struct Active(Arc<AtomicUsize>);
     impl Drop for Active {
@@ -614,9 +615,14 @@ mod tests {
             let current = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.maximum.fetch_max(current, Ordering::SeqCst);
             let active = Active(self.active.clone());
+            let gate = self.gate.clone();
             Ok(Box::pin(async_stream::stream! {
                 let _active = active;
-                tokio::time::sleep(Duration::from_millis(120)).await;
+                if let Some(gate) = gate {
+                    gate.cancelled().await;
+                } else {
+                    tokio::time::sleep(Duration::from_millis(120)).await;
+                }
                 yield Ok(ProviderEvent::TextDelta("checked; no edits".into()));
                 yield Ok(ProviderEvent::Completed { finish_reason:Some(FinishReason::Stop),usage:None,provider_items:vec![] });
             }))
@@ -640,6 +646,15 @@ mod tests {
     }
     async fn parent(host: &BasicHost, id: &str) {
         host.session_create(&json!({"sessionId":id})).await.unwrap();
+    }
+    async fn wait_for_calls(probe: &Probe, expected: usize) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while probe.calls.load(Ordering::SeqCst) < expected {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("expected model turns did not start");
     }
     fn start(task: &str) -> AgentOperation {
         AgentOperation::Start {
@@ -732,9 +747,13 @@ mod tests {
         host.agent_runtime.shutdown(Duration::from_secs(2)).await;
     }
     #[tokio::test]
-    async fn capacity_is_two_real_model_turns_and_results_deliver_once() {
+    async fn default_capacity_is_four_real_model_turns_and_results_deliver_once() {
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-        let probe = Arc::new(Probe::default());
+        let gate = CancellationToken::new();
+        let probe = Arc::new(Probe {
+            gate: Some(gate.clone()),
+            ..Probe::default()
+        });
         let host = setup(store.clone(), probe.clone()).await;
         parent(&host, "p").await;
         let mut children = vec![];
@@ -748,10 +767,13 @@ mod tests {
                     .to_owned(),
             );
         }
+        wait_for_calls(&probe, 4).await;
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 4);
+        gate.cancel();
         for id in &children {
             settled(&host, id).await;
         }
-        assert_eq!(probe.maximum.load(Ordering::SeqCst), 2);
+        assert_eq!(probe.maximum.load(Ordering::SeqCst), 4);
         assert_eq!(probe.calls.load(Ordering::SeqCst), 6);
         host.set_dispatch_paused("p", true).await.unwrap();
         for id in &children {
@@ -786,6 +808,116 @@ mod tests {
         assert_eq!(resumed.state.read().await.sessions["p"].queue.len(), 6);
         resumed.agent_runtime.shutdown(Duration::from_secs(2)).await;
     }
+    #[tokio::test]
+    async fn configured_capacity_is_shared_and_primary_turns_bypass_child_slots() {
+        for capacity in [
+            crate::DelegationConcurrency::Two,
+            crate::DelegationConcurrency::Four,
+            crate::DelegationConcurrency::Eight,
+        ] {
+            let count = capacity.limit();
+            let gate = CancellationToken::new();
+            let probe = Arc::new(Probe {
+                gate: Some(gate.clone()),
+                ..Probe::default()
+            });
+            let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+            let mut models = crate::ModelRegistry::new();
+            models
+                .register(crate::RegisteredModel::new(
+                    crate::ModelDescriptor::new("probe", "probe", "test", "test"),
+                    probe.clone(),
+                ))
+                .unwrap();
+            let runtime = DurableLoopAgentRuntime::from_registry_with_delegation_concurrency(
+                crate::ModelRoute::new("probe", "test"),
+                models,
+                Arc::new(NoTools),
+                Arc::new(IdentityContextPolicy),
+                store.clone(),
+                Arc::new(MemoryLeaseManager::default()),
+                2048,
+                capacity,
+            )
+            .unwrap();
+            let mut config = HostConfig::new(std::env::current_dir().unwrap());
+            config.provider_id = "probe".into();
+            config.model_id = "test".into();
+            let host = BasicHost::with_agent_runtime(config, Arc::new(runtime));
+            parent(&host, "p").await;
+            parent(&host, "other").await;
+            let mut ids = vec![];
+            for n in 0..count {
+                ids.push(
+                    host.execute_agent("p", &format!("start{n}"), start("work"))
+                        .await
+                        .unwrap()["agent_id"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                );
+            }
+            wait_for_calls(&probe, count).await;
+            let queued = host
+                .execute_agent("other", "extra", start("queued work"))
+                .await
+                .unwrap()["agent_id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            // A primary user turn can start even though all child permits are held.
+            host.enqueue_prompt(PromptAdmission {
+                rpc_id: RpcId::new("primary"),
+                session_id: "other".into(),
+                mode: "queue".into(),
+                text: "primary work".into(),
+                content: vec![json!({"type":"text","text":"primary work"})],
+                source: json!({"kind":"user"}),
+                fingerprint: None,
+            })
+            .await
+            .unwrap();
+            wait_for_calls(&probe, count + 1).await;
+            let queued_session = store.load(&queued).await.unwrap().unwrap();
+            assert!(!queued_session
+                .events()
+                .iter()
+                .any(|e| matches!(e.data(), EventData::TurnStart { .. })));
+            assert!(
+                xharness_agent::InboxProjection::from_session(&queued_session)
+                    .unwrap()
+                    .has_pending()
+            );
+            // Cancellation returns an actual child permit to the queued child.
+            host.execute_agent(
+                "p",
+                "stop",
+                AgentOperation::Stop {
+                    agent_id: ids[0].clone(),
+                },
+            )
+            .await
+            .unwrap();
+            wait_for_calls(&probe, count + 2).await;
+            gate.cancel();
+            ids.extend([queued, "other".into()]);
+            for id in &ids {
+                settled(&host, id).await;
+            }
+            assert_eq!(probe.maximum.load(Ordering::SeqCst), count + 1);
+            assert_eq!(probe.active.load(Ordering::SeqCst), 0);
+            let cancelled = store.load(&ids[0]).await.unwrap().unwrap();
+            assert!(cancelled.events().iter().any(|e| matches!(
+                e.data(),
+                EventData::TurnEnd {
+                    reason: xharness_session::TurnEndReason::Cancelled,
+                    ..
+                }
+            )));
+            host.agent_runtime.shutdown(Duration::from_secs(2)).await;
+        }
+    }
+
     #[tokio::test]
     async fn stop_parks_pending_work_until_explicit_user_prompt() {
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
@@ -884,11 +1016,15 @@ mod tests {
     #[tokio::test]
     async fn stop_while_waiting_for_capacity_never_claims_input_or_hangs() {
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-        let probe = Arc::new(Probe::default());
+        let gate = CancellationToken::new();
+        let probe = Arc::new(Probe {
+            gate: Some(gate.clone()),
+            ..Probe::default()
+        });
         let host = setup(store.clone(), probe.clone()).await;
         parent(&host, "p").await;
         let mut ids = vec![];
-        for n in 0..3 {
+        for n in 0..4 {
             ids.push(
                 host.execute_agent("p", &format!("start{n}"), start("work"))
                     .await
@@ -898,24 +1034,35 @@ mod tests {
                     .to_owned(),
             );
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        wait_for_calls(&probe, 4).await;
+        ids.push(
+            host.execute_agent("p", "fifth", start("queued work"))
+                .await
+                .unwrap()["agent_id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
         tokio::time::timeout(
             Duration::from_secs(2),
             host.execute_agent(
                 "p",
                 "stop",
                 AgentOperation::Stop {
-                    agent_id: ids[2].clone(),
+                    agent_id: ids[4].clone(),
                 },
             ),
         )
         .await
         .unwrap()
         .unwrap();
+        settled(&host, &ids[4]).await;
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 4);
+        gate.cancel();
         for id in &ids {
             settled(&host, id).await;
         }
-        let session = store.load(&ids[2]).await.unwrap().unwrap();
+        let session = store.load(&ids[4]).await.unwrap().unwrap();
         assert!(!session
             .events()
             .iter()
@@ -923,7 +1070,7 @@ mod tests {
         assert!(xharness_agent::InboxProjection::from_session(&session)
             .unwrap()
             .has_pending());
-        assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 4);
         host.agent_runtime.shutdown(Duration::from_secs(2)).await;
     }
 
