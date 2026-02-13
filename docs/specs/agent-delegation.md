@@ -46,12 +46,26 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 `start_turn` 明确唤醒。保留每条准入消息的事件订阅，避免 TTFT 前的队列投影回归。
 
 TurnRequestFactory 提供默认空的容量租约接口。DurableTurnFactory 对孩子申请共享
-Semaphore，默认至多 2 个真实子模型轮次；租约覆盖工具和模型执行直至本轮结束。
+Semaphore，默认至多 4 个真实子模型轮次；租约覆盖工具和模型执行直至本轮结束。
 等待容量时仍处理取消，不领取待执行消息；通过 Parked 事件结束宿主等待，不能挂死。
 
 全局至多接收 16 个 running/待运行子会话；每个父级目录至多 128 个孩子；
 目标 Inbox 至多 32 个待处理项。超限返回明确错误。首版这些是实现默认值，
-尚未提供 UI 可调配置。主 Agent 的模型请求不占子 Agent 的这两个名额。
+尚未提供 UI 可调配置。主 Agent 的模型请求不占子 Agent 的这四个名额。
+
+子轮次并发支持启动时选择 2 / 4 / 8（不是每个聊天各自的额度）：
+
+- 默认 4；设置环境变量 `XHARNESS_DELEGATION_CONCURRENCY=8` 可选择 8。
+- Host 参数 `--delegation-concurrency 2` 可选择 2，命令行优先于环境变量。
+- 其他值（包括 0、空字符串、负数）明确报错，不会启动后挂起队列或静默回退。
+- Web 和 Tauri sidecar 使用相同 Host 入口；桌面启动的进程需要继承该环境变量。
+- 仅下次启动生效，不提供运行中调整，也不修改正在进行的会话或持久化默认值。
+- 嵌入库使用 `DelegationConcurrency` 和
+  `DurableLoopAgentRuntime::from_registry_with_delegation_concurrency` 显式选择容量。
+  原有 `new` / `from_registry` 签名不变，默认使用 4；库内部不读取进程环境变量。
+
+模型工具 `agent.start` 不能自行修改并发、权限或队列上限。这里限制的是完整子轮次，
+不代表模型服务商请求配额或工具子进程数；真实服务商限流和重工具预算仍需分别考虑。
 
 ## 持久化与通知
 
@@ -91,7 +105,8 @@ Rust 编译、单测、Clippy 均在 WZU_Server 的 `~/codex-build/x-harness-rs/
 回归覆盖：
 - 单工具注册、严格参数、空白/Unicode/长度边界；
 - 重复 start/send、不同 payload 重用调用 ID、越权、递归深度；
-- 6 个子任务实际模型并发峰值为 2；
+- 6 个子任务默认实际模型并发峰值为 4；显式 2/4/8 共用相同调度路径；
+- 第 5 个排队任务取消不领取输入；不同父会话共享容量；主会话不占子任务名额；
 - 活跃/等待容量时取消；持久化 cancelled；不丢未领取消息；
 - 暂停父级收到通知不唤醒；重启恢复父子关系与待处理通知；
 - 取消前不创建孩子；准备失败的持久化通知和暂停兜底。
