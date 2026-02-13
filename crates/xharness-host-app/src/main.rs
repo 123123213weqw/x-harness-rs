@@ -8,7 +8,8 @@ use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::ToolResultPruningContextPolicy;
 use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode};
 use xharness_host::{
-    AgentRuntime, BasicHost, DurableLoopAgentRuntime, DurableQuestionHub, HostConfig,
+    AgentRuntime, BasicHost, DelegationConcurrency, DurableLoopAgentRuntime, DurableQuestionHub,
+    HostConfig,
 };
 use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
@@ -75,6 +76,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
                 "protocol": format!("{:?}", args.protocol),
                 "providersFile": args.providers_file.as_ref().map(|path| path.to_string_lossy()),
                 "compaction": &args.compaction,
+                "delegationConcurrency": args.delegation_concurrency.limit(),
                 "desktopMode": args.desktop_token.is_some(),
                 "shutdownFile": args.shutdown_file.as_ref().map(|path| path.to_string_lossy()),
                 "readyFile": args.ready_file.as_ref().map(|path| path.to_string_lossy()),
@@ -124,7 +126,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     let runtime = Arc::new(
-        DurableLoopAgentRuntime::from_registry(
+        DurableLoopAgentRuntime::from_registry_with_delegation_concurrency(
             deployment.default_route,
             deployment.registry,
             tools.clone(),
@@ -132,6 +134,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
             Arc::clone(&store),
             leases,
             config.event_capacity,
+            args.delegation_concurrency,
         )?
         .with_debug(debug.clone())
         .with_compaction(args.compaction.clone())
@@ -357,6 +360,7 @@ async fn shutdown_file_signal(shutdown_file: Option<PathBuf>) -> std::io::Result
 }
 
 struct Args {
+    delegation_concurrency: DelegationConcurrency,
     bind: SocketAddr,
     workspace: PathBuf,
     static_dir: Option<PathBuf>,
@@ -382,6 +386,16 @@ struct Args {
 
 impl Args {
     fn parse() -> Result<Self, String> {
+        Self::parse_with_delegation_setting(
+            env::args().skip(1),
+            env::var_os("XHARNESS_DELEGATION_CONCURRENCY"),
+        )
+    }
+
+    fn parse_with_delegation_setting(
+        mut arguments: impl Iterator<Item = String>,
+        mut delegation_setting: Option<std::ffi::OsString>,
+    ) -> Result<Self, String> {
         let mut bind = env_value("XHARNESS_BIND", "127.0.0.1:3080")
             .parse::<SocketAddr>()
             .map_err(|error| format!("invalid XHARNESS_BIND: {error}"))?;
@@ -413,12 +427,12 @@ impl Args {
         let mut ready_file = env::var_os("XHARNESS_READY_FILE").map(PathBuf::from);
         let mut desktop_start_file = None;
 
-        let mut arguments = env::args().skip(1);
         while let Some(argument) = arguments.next() {
             let value = arguments
                 .next()
                 .ok_or_else(|| format!("missing value for {argument}"))?;
             match argument.as_str() {
+                "--delegation-concurrency" => delegation_setting = Some(value.into()),
                 "--bind" => {
                     bind = value
                         .parse()
@@ -460,8 +474,20 @@ impl Args {
             }
         }
         let debug_dir = debug_dir.unwrap_or_else(|| state_dir.join("debug"));
+        // Validate after CLI overrides have been applied; never silently fall
+        // back to a default for a malformed setting (including non-Unicode).
+        let delegation_concurrency = delegation_setting
+            .map(|value| {
+                value
+                    .into_string()
+                    .map_err(|_| "delegation concurrency must be Unicode".to_owned())?
+                    .parse::<DelegationConcurrency>()
+            })
+            .transpose()?
+            .unwrap_or_default();
         validate_desktop_boundary(bind, desktop_token.as_deref())?;
         Ok(Self {
+            delegation_concurrency,
             bind,
             workspace,
             static_dir,
@@ -616,6 +642,39 @@ fn diagnostic_base_url(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delegation_startup_defaults_to_four_and_cli_overrides_environment() {
+        let parse = |cli: &[&str], setting: Option<&str>| {
+            Args::parse_with_delegation_setting(
+                cli.iter().map(|s| (*s).to_owned()),
+                setting.map(Into::into),
+            )
+            .map(|args| args.delegation_concurrency.limit())
+        };
+        assert_eq!(parse(&[], None).unwrap(), 4);
+        for value in ["2", "4", "8"] {
+            let expected = value.parse::<usize>().unwrap();
+            assert_eq!(parse(&[], Some(value)).unwrap(), expected);
+            assert_eq!(
+                parse(&["--delegation-concurrency", value], None).unwrap(),
+                expected
+            );
+        }
+        assert_eq!(
+            parse(&["--delegation-concurrency", "2"], Some("8")).unwrap(),
+            2
+        );
+        assert_eq!(
+            parse(&["--delegation-concurrency", "4"], Some("invalid")).unwrap(),
+            4
+        );
+        for value in ["", "0", "3", "16", "-1", "999999999999999999999999"] {
+            assert!(parse(&[], Some(value)).is_err());
+            assert!(parse(&["--delegation-concurrency", value], Some("4")).is_err());
+        }
+        assert!(parse(&["--delegation-concurrency"], None).is_err());
+    }
 
     #[test]
     fn protocol_parser_remains_cli_compatible() {
