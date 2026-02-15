@@ -295,6 +295,33 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         server.server_close.assert_called_once()
         self.assertTrue((root / 'FAIL.json').is_file())
         self.assertFalse((root / 'acceptance.json').exists())
+        self.assertEqual(m.read_json(root / 'evidence.json')['status'], 'diagnostic-only')
+
+    def test_failed_update_exports_hash_and_safe_lifecycle_not_tokens(self):
+        root = self.root()
+        m.create_data(root)
+        (root / 'installed.AppImage').write_bytes(b'candidate bytes')
+        trace = root / 'trace/candidate'
+        trace.mkdir()
+        records = [
+            {'layer': 'host', 'event': 'start', 'payload': {'stateDir': str(root / 'state'),
+                'readyFile': str(root / 'cache/ready-new.address'), 'workspace': str(root / 'workspace'),
+                'desktopMode': True, 'token': 'DO-NOT-EXPORT'}},
+            {'layer': 'host', 'event': 'restore', 'payload': {'restoredSessions': 1, 'issues': []}},
+            {'layer': 'provider', 'event': 'credential', 'payload': {'apiKey': 'DO-NOT-EXPORT'}},
+        ]
+        (trace / 'events.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in records))
+        result = m.update_diagnostics(root, None, {'platform': 'linux-x86_64-appimage'},
+                                      {'package_sha256': m.digest(root / 'installed.AppImage')})
+        self.assertFalse(result['nativeUpdateAccepted'])
+        self.assertEqual(result['status'], 'diagnostic-only')
+        self.assertTrue(result['exactCandidateInstalled'])
+        self.assertEqual(len(result['hostLifecycle'][0]['events']), 2)
+        self.assertNotIn('DO-NOT-EXPORT', json.dumps(result))
+        self.assertNotIn(str(root), json.dumps(result))
+        self.assertEqual(result['hostLifecycle'][0]['events'][1]['payload']['issueCount'], 0)
+        self.assertIsNone(result['healthyReady'])
+        self.assertIsNone(result['launcherExitCode'])
 
     def test_prepare_changes_only_disposable_source_and_needs_no_private_key(self):
         source = self.directory / 'original'
