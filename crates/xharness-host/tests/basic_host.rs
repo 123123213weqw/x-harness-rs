@@ -1743,6 +1743,19 @@ async fn directory_browser_lists_locations_without_adopting_the_virtual_root() {
     #[cfg(target_os = "macos")]
     assert_eq!(entries[1]["path"], "/Volumes");
 
+    // The overview sentinel is a string, not an excuse to coerce other types.
+    for payload in [json!({"path": null}), json!({"path": 0}), json!([])] {
+        assert!(matches!(
+            fx.call(RpcMethod::HostListDirectory, payload).await,
+            RpcResult::Failure {
+                error: xharness_api::RpcError {
+                    code: xharness_api::RpcErrorCode::BadRequest,
+                    ..
+                }
+            }
+        ));
+    }
+
     // Omitted path still returns home, not the virtual overview.
     let home = fx.value(RpcMethod::HostListDirectory, json!({})).await;
     assert_eq!(
