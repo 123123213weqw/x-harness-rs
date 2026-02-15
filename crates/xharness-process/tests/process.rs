@@ -227,6 +227,53 @@ fn dropping_tokio_runtime_kills_the_managed_process_group() {
     wait_until_dead_sync(child);
 }
 
+#[test]
+fn dropping_unpolled_supervisor_kills_and_reaps_the_managed_process_group() {
+    let dir = TestDir::new();
+    let child_pid_file = dir.path().join("unpolled-child.pid");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    // Entering supplies the process reactor, but never running this
+    // current-thread runtime means the supervisor is provably never polled.
+    // OS children can nevertheless execute and create descendants immediately.
+    let handle = {
+        let _entered = runtime.enter();
+        ProcessRuntime::new()
+            .spawn(SpawnSpec::new("/bin/sh", dir.path()).args([
+                OsString::from("-c"),
+                OsString::from(
+                    "trap '' TERM; /bin/sleep 30 & child=$!; printf '%s' \"$child\" > \"$1\"; wait \"$child\"",
+                ),
+                OsString::from("xharness-unpolled-runtime"),
+                child_pid_file.clone().into_os_string(),
+            ]))
+            .unwrap()
+    };
+    let leader = handle.pid();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let child = loop {
+        if let Ok(contents) = fs::read_to_string(&child_pid_file) {
+            if let Ok(child) = contents.trim().parse::<u32>() {
+                break child;
+            }
+        }
+        assert!(Instant::now() < deadline, "child pid file was not created");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(process_exists(leader));
+    assert!(process_exists(child));
+    assert_eq!(proc_group_and_session(child).0, leader);
+    drop(handle);
+    drop(runtime);
+
+    // Require ESRCH, not merely a zombie state, with the same existing bound.
+    // No new Tokio runtime may run here to reap an accidentally orphaned root.
+    wait_until_dead_sync(leader);
+    wait_until_dead_sync(child);
+}
+
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn escaped_session_holding_output_is_a_bounded_cleanup_failure() {
@@ -437,9 +484,28 @@ async fn wait_until_dead(pid: u32) {
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "pid {pid} is still alive"
+            "pid {pid} still exists: {}",
+            process_description(u32::try_from(pid.as_raw()).unwrap())
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+fn process_description(pid: u32) -> String {
+    #[cfg(target_os = "linux")]
+    {
+        fs::read_to_string(format!("/proc/{pid}/stat"))
+            .unwrap_or_else(|error| format!("cannot read process stat: {error}"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        match std::process::Command::new("/bin/ps")
+            .args(["-o", "pid=,ppid=,pgid=,stat=", "-p", &pid.to_string()])
+            .output()
+        {
+            Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+            Err(error) => format!("cannot read process state: {error}"),
+        }
     }
 }
 
@@ -451,7 +517,11 @@ fn process_exists(pid: u32) -> bool {
 fn wait_until_dead_sync(pid: u32) {
     let deadline = Instant::now() + Duration::from_secs(3);
     while process_exists(pid) {
-        assert!(Instant::now() < deadline, "pid {pid} is still alive");
+        assert!(
+            Instant::now() < deadline,
+            "pid {pid} still exists: {}",
+            process_description(pid)
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }

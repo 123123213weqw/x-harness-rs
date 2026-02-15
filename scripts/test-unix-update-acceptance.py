@@ -310,6 +310,15 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         self.assertEqual(m.read_json(root / 'build-env.json')['XHARNESS_UPDATER_PUBKEY'], pub.read_text())
         self.assertEqual(m.read_json(root / 'rehearsal.json')['target_version'], '0.2.6')
 
+    def test_macos_owns_group_without_cross_session_or_preexec_callback(self):
+        self.assertEqual(m.process_ownership('linux-x86_64-appimage'), {'start_new_session': True})
+        with patch.object(m.sys, 'version_info', (3, 12, 0)):
+            self.assertEqual(m.process_ownership('darwin-aarch64'), {'process_group': 0})
+            self.assertEqual(m.process_ownership('darwin-x86_64'), {'process_group': 0})
+        with patch.object(m.sys, 'version_info', (3, 9, 0)):
+            with self.assertRaisesRegex(ValueError, 'Python 3.11'):
+                m.process_ownership('darwin-aarch64')
+
     def test_timeout_terminates_owned_process_group(self):
         process = unittest.mock.Mock(pid=987654321)
         with patch.object(m.os, 'killpg') as killpg, patch.object(m.time, 'sleep'):

@@ -170,3 +170,13 @@ Tauri 更新包签名不等于 Apple 公证，也不等于 Windows Authenticode�
 验收控制工作流从可信 master 启动，再显式 checkout 候选构建 SHA；发布期间主干可继续
 前进，但构建、被测程序与验收源码绑定仍保持一致。旧版本固定测试地址不修改，首次
 安装新基础包的迁移流程见第 4 节。
+
+## 8. CI 首轮暴露的回归修复
+
+- Windows 默认代码页不是 UTF-8：发布脚本、GitHub JSON 子进程输出及源码测试明确使用
+  UTF-8，CI 也统一 PYTHONUTF8，避免中文说明导致发布测试在 Windows 上解码失败。
+- Tokio Runtime 在监督任务首次 poll 前销毁，不能依赖任务体内才构造的进程组 Guard。
+  Guard 在调度前同步创建并持有 Child；异常退出后用不依赖 Tokio 的 OS 收尸路径，避免
+  杀死根进程却仍留下 zombie。加入从不 poll 的确定性回归；原 3 秒/ESRCH 检查不放宽。
+- Unix 原生验收固定 Python 3.12；Mac 保持同一 session、使用独立 process group，Linux
+  使用独立 session。BASE 构建复用当前 Runner 的 Cargo target 缓存，正式候选字节不修改。
