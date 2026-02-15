@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        base: ['0.2.2', '0.2.3', '0.2.4']
+        base: ['0.2.2', '0.2.3', '0.2.4', '0.2.5']
     runs-on: windows-2025
     timeout-minutes: 25
     defaults:
