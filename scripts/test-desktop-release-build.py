@@ -243,6 +243,24 @@ class PublicPublication(unittest.TestCase):
             self.assertEqual(result['state'], 'published_and_verified')
             self.assertFalse(result['public']['authenticated'])
 
+    def test_post_publication_asset_or_metadata_drift_is_not_a_verified_release(self):
+        for field, value in [('tag_name', 'desktop-v0.9.0'), ('target_commitish', NEW_SHA), ('body', 'replaced'),
+                             ('asset.id', 999), ('asset.size', 12345), ('asset.digest', 'sha256:' + NEW_SHA)]:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                published = {**release(), 'draft': False}
+                if field.startswith('asset.'):
+                    published['assets'][0][field.split('.')[1]] = value
+                else:
+                    published[field] = value
+                with patch.object(build, 'run') as mutate, patch.object(build, 'api', return_value=published), \
+                        patch.object(build, 'verify_public_channel') as public, \
+                        self.assertRaisesRegex(ValueError, 'already published'):
+                    build.promote_draft(REPO, release(), root)
+                self.assertEqual(mutate.call_count, 1)
+                public.assert_not_called()
+                self.assertEqual(build.load(root / 'publication-result.json')['state'], 'published_but_unverified')
+
 
 class NativeCargoCache(unittest.TestCase):
     def test_prepare_exports_original_checkout_cache_without_touching_candidate(self):
