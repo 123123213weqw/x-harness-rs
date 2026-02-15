@@ -163,7 +163,12 @@ window.__ModuleLoader__.load({
           h('h2', null, t('title')),
           h('form', { className: 'xhdir-path', onSubmit: event => { event.preventDefault(); if (!locked && draft.trim()) void navigate(draft) } },
             h('input', { ref: pathInput, value: draft, 'aria-label': t('path'), disabled: locked || folder !== null,
-              placeholder: t('path'), onChange: event => setDraft(event.target.value), spellCheck: false }),
+              placeholder: t('path'), onChange: event => {
+                // A typed draft supersedes a pending scan even before Go.
+                invalidate()
+                setLoading(false)
+                setDraft(event.target.value)
+              }, spellCheck: false }),
             h(Button, { type: 'submit', variant: 'outline', disabled: locked || folder !== null || !draft.trim() }, t('go'))),
           h('nav', { className: 'xhdir-crumbs', 'aria-label': t('path') },
             h('button', { type: 'button', disabled: locked || folder !== null, onClick: () => { void navigate() } }, t('home')),
