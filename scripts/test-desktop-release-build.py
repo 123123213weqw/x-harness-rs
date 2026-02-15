@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""No-secret, no-network orchestration regression tests. Never compiles Rust."""
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('desktop_build', ROOT / 'scripts/desktop-release-build.py')
+build = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(build)
+SHA = 'a' * 40
+NEW_SHA = 'b' * 40
+REPO = 'owner/project'
+
+
+def successful(path='.github/workflows/desktop-release.yml', event='push'):
+    return {'id': 42, 'head_sha': SHA, 'path': path, 'head_repository': {'full_name': REPO},
+            'event': event, 'head_branch': 'desktop-v0.2.6' if event == 'push' else 'master',
+            'status': 'completed', 'conclusion': 'success', 'run_attempt': 2,
+            'run_started_at': '2026-09-08T01:00:00Z', 'updated_at': '2026-09-08T02:00:00Z'}
+
+
+def release():
+    return {'id': 12, 'tag_name': 'desktop-v0.2.6', 'target_commitish': SHA,
+            'name': 'XHarness', 'body': 'Reviewed', 'draft': True, 'prerelease': False,
+            'created_at': '2026-09-08', 'published_at': None,
+            'assets': [{'id': 4, 'name': 'latest.json', 'size': 10, 'state': 'uploaded',
+                        'digest': 'sha256:' + SHA, 'created_at': '2026-09-08', 'updated_at': '2026-09-08'}]}
+
+
+class SigningGate(unittest.TestCase):
+    def environment(self):
+        return dict(TAURI_SIGNING_PRIVATE_KEY='dummy-do-not-use', TAURI_SIGNING_PRIVATE_KEY_PASSWORD='dummy',
+                    XHARNESS_UPDATER_PUBKEY='dummy', APPLE_CERTIFICATE='dummy', APPLE_CERTIFICATE_PASSWORD='dummy',
+                    APPLE_SIGNING_IDENTITY='Developer ID Application: Example (ABCDEFGHIJ)',
+                    APPLE_TEAM_ID='ABCDEFGHIJ', APPLE_ID='dummy', APPLE_PASSWORD='dummy')
+
+    def test_real_apple_configuration_is_required(self):
+        env = self.environment()
+        build.signing_gate('darwin-aarch64', env)
+        for name in env:
+            broken = {**env, name: ''}
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                build.signing_gate('darwin-aarch64', broken)
+
+    def test_no_adhoc_or_development_downgrade(self):
+        for identity in ['-', 'Apple Development: Example', 'Developer ID Application', '']:
+            with self.subTest(identity=identity), self.assertRaises(ValueError):
+                build.signing_gate('darwin-x86_64', {**self.environment(), 'APPLE_SIGNING_IDENTITY': identity})
+        with self.assertRaises(ValueError):
+            build.signing_gate('darwin-aarch64', {**self.environment(), 'APPLE_TEAM_ID': 'wrong'})
+
+    def test_windows_and_linux_do_not_require_apple_credentials(self):
+        env = {k: v for k, v in self.environment().items() if not k.startswith('APPLE_')}
+        build.signing_gate('windows-x86_64', env)
+        build.signing_gate('linux-x86_64-appimage', env)
+
+
+class Provenance(unittest.TestCase):
+    def test_release_push_and_dispatch_supported(self):
+        for event in ['push', 'workflow_dispatch']:
+            build.check_run(successful(event=event), REPO, SHA, '.github/workflows/desktop-release.yml')
+
+    def test_forged_or_incomplete_build_provenance_rejected(self):
+        for field, value in [('head_sha', NEW_SHA), ('path', '.github/workflows/ci.yml'),
+                             ('status', 'in_progress'), ('conclusion', 'failure'), ('event', 'pull_request'),
+                             ('run_attempt', 0), ('head_repository', {'full_name': 'other/project'})]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                build.check_run({**successful(), field: value}, REPO, SHA, '.github/workflows/desktop-release.yml')
+
+    def test_native_workflow_controls_can_advance_but_not_leave_master(self):
+        path = build.ACCEPTANCE_WORKFLOWS['unix']
+        value = {**successful(path, 'workflow_dispatch'), 'head_sha': NEW_SHA}
+        build.check_run(value, REPO, None, path, event='workflow_dispatch')
+        for field, item in [('head_branch', 'feature'), ('event', 'pull_request'), ('path', 'arbitrary.yml')]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                build.check_run({**value, field: item}, REPO, None, path, event='workflow_dispatch')
+
+    def test_skipped_jobs_and_stale_attempts_do_not_count(self):
+        value = successful()
+        for conclusion in ['skipped', 'failure', 'cancelled', None]:
+            jobs = [{'jobs': [{'status': 'completed', 'conclusion': conclusion}]}]
+            with self.subTest(conclusion=conclusion), patch.object(build, 'api', return_value=value), \
+                    patch.object(build, 'run', return_value=json.dumps(jobs)), self.assertRaises(ValueError):
+                build.successful_run(REPO, '42', SHA, value['path'])
+        jobs = [{'jobs': [{'status': 'completed', 'conclusion': 'success'}]}]
+        with patch.object(build, 'api', return_value=value), patch.object(build, 'run', return_value=json.dumps(jobs)):
+            self.assertEqual(build.successful_run(REPO, '42', SHA, value['path'])['run_attempt'], 2)
+
+    def test_source_must_be_on_trusted_ancestor_chain(self):
+        with patch.object(build, 'api', return_value={'status': 'ahead'}):
+            build.ancestor(REPO, SHA, NEW_SHA)
+        for status in ['behind', 'diverged']:
+            with patch.object(build, 'api', return_value={'status': status}), self.assertRaises(ValueError):
+                build.ancestor(REPO, SHA, NEW_SHA)
+        with self.assertRaises(ValueError):
+            build.ancestor(REPO, '../master', NEW_SHA)
+
+    def test_artifacts_from_old_attempt_or_duplicate_name_are_rejected(self):
+        value = successful()
+        good = {'id': 99, 'name': 'desktop-candidate', 'expired': False,
+                'workflow_run': {'head_sha': SHA}, 'created_at': '2026-09-08T01:30:00Z'}
+        invalid = [[{**good, 'created_at': '2026-09-08T00:00:00Z'}], [good, good],
+                   [{**good, 'expired': True}], [{**good, 'workflow_run': {'head_sha': NEW_SHA}}], []]
+        for artifacts in invalid:
+            with self.subTest(artifacts=artifacts), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(build, 'run', return_value=json.dumps([{'artifacts': artifacts}])), self.assertRaises(ValueError):
+                build.download_artifact(REPO, value, 'desktop-candidate', Path(directory) / 'new')
+
+
+class DraftAndLive(unittest.TestCase):
+    def test_snapshot_binds_metadata_and_asset_identity(self):
+        original = build.snapshot(release())
+        for field, value in [('body', 'changed'), ('draft', False), ('target_commitish', NEW_SHA)]:
+            self.assertNotEqual(original, build.snapshot({**release(), field: value}))
+        for field, value in [('id', 5), ('size', 11), ('digest', 'sha256:changed'), ('updated_at', 'changed')]:
+            changed = release(); changed['assets'][0][field] = value
+            self.assertNotEqual(original, build.snapshot(changed))
+        changed = release(); changed['assets'].append(copy.deepcopy(changed['assets'][0]))
+        with self.assertRaises(ValueError): build.snapshot(changed)
+        changed = release(); changed['assets'][0]['state'] = 'new'
+        with self.assertRaises(ValueError): build.snapshot(changed)
+
+    def test_tag_is_peeled_and_rechecked_not_merely_present(self):
+        with patch.object(build, 'api', return_value={'object': {'type': 'commit', 'sha': SHA}}):
+            build.verify_tag(REPO, 'desktop-v0.2.6', SHA)
+        objects = [{'object': {'type': 'tag', 'sha': NEW_SHA}}, {'object': {'type': 'commit', 'sha': SHA}}]
+        with patch.object(build, 'api', side_effect=objects): build.verify_tag(REPO, 'desktop-v0.2.6', SHA)
+        for kind in ['tree', 'blob', 'commit']:
+            with patch.object(build, 'api', return_value={'object': {'type': kind, 'sha': NEW_SHA}}), self.assertRaises(ValueError):
+                build.verify_tag(REPO, 'desktop-v0.2.6', SHA)
+        with patch.object(build, 'api', return_value={'object': {'type': 'tag', 'sha': NEW_SHA}}), self.assertRaises(ValueError):
+            build.verify_tag(REPO, 'desktop-v0.2.6', SHA)
+
+    def test_live_assets_must_stay_in_immutable_repository_and_tag(self):
+        prefix = f'https://github.com/{REPO}/releases/download/friends-v0.2.5/'
+        manifest = {'platforms': {'windows-x86_64': {'url': prefix + 'XHarness_0.2.5_x64-setup.exe'}}}
+        names = build.live_names(manifest, REPO, 'friends-v0.2.5')
+        self.assertEqual(len(names), 4)
+        for url in ['http://github.com/' + REPO, prefix + '../escape', prefix + '%2e%2e%2fescape',
+                    prefix + 'file?token=private', prefix + 'file#fragment', prefix.replace('github.com', 'evil.invalid') + 'file',
+                    prefix.replace('friends-v0.2.5', 'friends-v0.2.4') + 'file']:
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                build.live_names({'platforms': {'windows-x86_64': {'url': url}}}, REPO, 'friends-v0.2.5')
+
+    def test_byte_drift_extra_files_and_symlinks_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            a, b = Path(temporary) / 'a', Path(temporary) / 'b'
+            a.mkdir(); b.mkdir()
+            (a / 'asset').write_bytes(b'good'); (b / 'asset').write_bytes(b'good')
+            build.compare_release_files(a, b)
+            (b / 'asset').write_bytes(b'bad!')
+            with self.assertRaises(ValueError): build.compare_release_files(a, b)
+            (b / 'asset').unlink(); (b / 'asset').symlink_to(a / 'asset')
+            with self.assertRaises(ValueError): build.compare_release_files(a, b)
+            (b / 'asset').unlink(); (b / 'extra').write_text('extra')
+            with self.assertRaises(ValueError): build.compare_release_files(a, b)
+
+
+class WorkflowGuard(unittest.TestCase):
+    def test_single_aggregate_writer_and_four_native_platforms(self):
+        text = (ROOT / '.github/workflows/desktop-release.yml').read_text()
+        self.assertEqual(text.count('contents: write'), 1)
+        self.assertIn('needs: [plan, build]', text)
+        self.assertNotIn('tauri-apps/tauri-action', text)
+        self.assertNotIn('--clobber', text)
+        for platform in build.PLATFORMS: self.assertIn('platform: ' + platform, text)
+        for runner in ['windows-2025', 'ubuntu-22.04', 'macos-15', 'macos-15-intel']: self.assertIn('runner: ' + runner, text)
+        self.assertIn('bundles: appimage', text)
+        self.assertNotIn('bundles: deb', text)
+        self.assertIn('XHARNESS_FRIENDS_PRIVATE_KEY', text)
+        self.assertIn('Fail early unless every formal platform', text)
+
+    def test_promotion_only_and_shared_serialization(self):
+        for name in ['desktop-release.yml', 'desktop-promote.yml', 'friends-release.yml']:
+            self.assertIn('group: desktop-stable-release', (ROOT / '.github/workflows' / name).read_text())
+        promote = (ROOT / '.github/workflows/desktop-promote.yml').read_text()
+        for guard in ['refs/heads/master', 'resolve-source', 'fetch-promotion', 'publish --workspace']:
+            self.assertIn(guard, promote)
+
+    def test_rehearsal_cannot_be_mistaken_for_formal_acceptance(self):
+        text = (ROOT / '.github/workflows/desktop-unix-update-acceptance.yml').read_text()
+        self.assertIn('workflow_call:', text)
+        self.assertIn('default: rehearsal', text)
+        self.assertIn("inputs.mode == 'candidate' && 'acceptance' || 'rehearsal'", text)
+        self.assertNotIn('contents: write', text)
+        self.assertNotIn('XHARNESS_FRIENDS_PRIVATE_KEY', text)
+        self.assertNotIn('APPLE_CERTIFICATE', text)
+        self.assertIn('--rehearsal', text)
+        for platform in ['linux-x86_64-appimage', 'darwin-aarch64', 'darwin-x86_64']:
+            self.assertIn(platform, text)
+
+    def test_exported_evidence_excludes_keys_source_and_home(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, output = Path(temporary) / 'root', Path(temporary) / 'output'
+            root.mkdir()
+            for name in ['acceptance.json', 'app.log', 'tls.key', 'ca.pem', 'disposable.key', 'providers.json']:
+                (root / name).write_text('{}')
+            build.export_native(type('Args', (), {'root': root, 'output': output})())
+            self.assertEqual({p.name for p in output.iterdir()}, {'acceptance.json', 'app.log'})
+
+
+if __name__ == '__main__':
+    unittest.main()

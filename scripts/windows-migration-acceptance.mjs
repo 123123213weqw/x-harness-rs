@@ -25,7 +25,20 @@ for (const v of [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) assert.m
 const baseTags = sameChannel
   ? { '0.2.2': 'friends-v0.2.3', '0.2.3': 'friends-v0.2.3', '0.2.4': 'friends-v0.2.4' }
   : { '0.2.0': 'friends-v0.2.1', '0.2.1': 'friends-v0.2.1' }
-assert.ok(Object.hasOwn(baseTags, e.BASE_VERSION), 'Unsupported installed base version')
+const unifiedAcceptance = e.UNIFIED_ACCEPTANCE === 'true'
+if (unifiedAcceptance) {
+  assert.equal(directLatest, true)
+  assert.equal(sameChannel, true)
+  const stage = JSON.parse(readFileSync(join(root, 'unified-stage.json'), 'utf8'))
+  assert.equal(stage.base_version, e.BASE_VERSION)
+  assert.equal(stage.base_tag, e.BASE_RELEASE_TAG)
+  assert.ok([`friends-v${e.BASE_VERSION}`, `desktop-v${e.BASE_VERSION}`].includes(stage.base_tag))
+  assert.equal(stage.plan.version, e.UPSTREAM_VERSION)
+  assert.equal(stage.plan.repository, upstream)
+  assert.equal(stage.plan.endpoint, `https://github.com/${upstream}/releases/latest/download/latest.json`)
+  assert.equal(createHash('sha256').update(readFileSync(join(root, 'next', 'latest.json'))).digest('hex'), stage.manifest_sha256)
+  assert.equal(createHash('sha256').update(readFileSync(join(root, 'next', `XHarness_${e.UPSTREAM_VERSION}_x64-setup.exe`))).digest('hex'), stage.package_sha256)
+} else assert.ok(Object.hasOwn(baseTags, e.BASE_VERSION), 'Unsupported installed base version')
 if (directLatest) assert.equal(e.BRIDGE_VERSION, e.UPSTREAM_VERSION)
 if (sameChannel) assert.ok(directLatest, 'Same-channel acceptance must use one hop')
 const filename = v => `XHarness_${v}_x64-setup.exe`
@@ -38,6 +51,7 @@ function download(repo, tag, kind, names) {
   execFileSync('gh', ['release', 'download', tag, '--repo', repo, '--dir', dir, ...names.flatMap(n => ['--pattern', n])], { stdio: ['ignore', 'pipe', 'pipe'] })
 }
 if (process.argv[2] === 'download') {
+  assert.equal(unifiedAcceptance, false, 'Unified candidates must use the validated stage wrapper')
   const base = filename(e.BASE_VERSION), bridge = filename(e.BRIDGE_VERSION), next = filename(e.UPSTREAM_VERSION)
   download(oldRepo, baseTags[e.BASE_VERSION], 'old', [base, base + '.sig'])
   verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
