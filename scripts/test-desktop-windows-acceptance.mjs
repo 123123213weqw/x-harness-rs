@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { requireHostedWindows, validateRun, installerLocation, acceptanceFromPass } from './desktop-windows-acceptance.mjs'
 
 const repo = '123123213weqw/x-harness-rs'
@@ -49,7 +50,7 @@ for (const forbidden of ['PRIVATE_KEY', 'contents: write', 'pull_request_target'
 assert.ok(workflow.includes('refs/heads/master'))
 assert.ok(workflow.includes('windows-migration-acceptance.ps1'))
 assert.ok(workflow.includes('desktop-acceptance-windows-x86_64'))
-const local = spawnSync(process.execPath, [new URL('./desktop-windows-acceptance.mjs', import.meta.url).pathname, 'stage'], {
+const local = spawnSync(process.execPath, [fileURLToPath(new URL('./desktop-windows-acceptance.mjs', import.meta.url)), 'stage'], {
   env: { ...process.env, GITHUB_ACTIONS: 'false' }, encoding: 'utf8',
 })
 assert.notEqual(local.status, 0)

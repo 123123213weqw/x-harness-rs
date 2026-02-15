@@ -370,13 +370,18 @@ def restored_candidate(root, ready):
 
 def generate_tls(root):
     # Private, one-day CA + leaf. Trust is inherited ONLY by our child process.
+    # Explicit SKI/AKI extensions are required by modern OpenSSL strict chain
+    # verification (Python 3.13+); never weaken TLS checks to accept the fixture.
     (root / 'ca.cnf').write_text('[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=ca\n'
         '[dn]\nCN=Unix acceptance ephemeral CA\n[ca]\nbasicConstraints=critical,CA:TRUE\n'
-        'keyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n')
+        'keyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n'
+        'authorityKeyIdentifier=keyid:always,issuer\n', encoding='utf-8')
     run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', root / 'tls.key',
          '-out', root / 'ca.pem', '-days', '1', '-config', root / 'ca.cnf'])
     (root / 'server.ext').write_text('subjectAltName=DNS:localhost,IP:127.0.0.1\n'
-        'basicConstraints=critical,CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n')
+        'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n'
+        'extendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always,issuer\n',
+        encoding='utf-8')
     run(['openssl', 'req', '-newkey', 'rsa:2048', '-nodes', '-keyout', root / 'server.key',
          '-out', root / 'server.csr', '-subj', '/CN=localhost'])
     run(['openssl', 'x509', '-req', '-in', root / 'server.csr', '-CA', root / 'ca.pem',
