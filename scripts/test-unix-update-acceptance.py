@@ -12,6 +12,7 @@ import os
 import pathlib
 import shutil
 import ssl
+import stat
 import subprocess
 import sys
 import tarfile
@@ -221,6 +222,22 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
         self.assertIsNone(m.restored_candidate(root, ready))
 
+    def test_ephemeral_chain_has_explicit_key_identifiers_for_strict_tls(self):
+        root = self.root()
+        m.generate_tls(root)
+        for name in ('ca.pem', 'server.pem'):
+            with self.subTest(certificate=name):
+                certificate = m.run(['openssl', 'x509', '-in', root / name, '-noout', '-text']).stdout
+                self.assertIn(b'X509v3 Subject Key Identifier', certificate)
+                self.assertIn(b'X509v3 Authority Key Identifier', certificate)
+        # Actual chain verification, not just a config-text assertion. The
+        # network test below additionally enables strict mode across Python
+        # versions, including releases where it is not enabled by default.
+        m.run(['openssl', 'verify', '-x509_strict', '-purpose', 'sslserver',
+               '-CAfile', root / 'ca.pem', root / 'server.pem'])
+        self.assertEqual(stat.S_IMODE((root / 'tls.key').stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE((root / 'server.key').stat().st_mode), 0o600)
+
     def test_tls_server_real_https_503_and_tampered_stream(self):
         root = self.root()
         m.generate_tls(root)
@@ -232,6 +249,9 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         server = m.fixture_server(root, asset, 'signature', config)
         url = 'https://localhost:' + str(server.server_port)
         context = ssl.create_default_context(cafile=str(root / 'ca.pem'))
+        context.verify_flags |= ssl.VERIFY_X509_STRICT
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context))
         try:
             with opener.open(url + '/latest.json', timeout=3) as response:
@@ -240,6 +260,7 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
             with self.assertRaises(urllib.error.HTTPError) as error:
                 opener.open(url + '/latest.json', timeout=3)
             self.assertEqual(error.exception.code, 503)
+            error.exception.close()
             (root / 'mode').write_text('tampered')
             with opener.open(url + '/candidate', timeout=3) as response:
                 data = response.read()
