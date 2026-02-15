@@ -1,0 +1,85 @@
+name: Desktop Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Desktop Release run containing the complete immutable draft
+        required: true
+        type: string
+      unix_acceptance_run_id:
+        description: Successful formal Desktop Unix Update Acceptance run (not a rehearsal)
+        required: true
+        type: string
+      windows_acceptance_run_id:
+        description: Successful Desktop Windows Update Acceptance run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+# Also used by Friends Windows Release and Desktop Release. Only this job may
+# promote the aggregate; no matrix job writes the rolling manifest.
+concurrency:
+  group: desktop-stable-release
+  cancel-in-progress: false
+
+env:
+  XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/master' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Resolve the candidate source from the trusted master control workflow
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: python3 -B scripts/desktop-release-build.py resolve-source --release-run-id "$RELEASE_RUN_ID"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.source.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fetch and authenticate exact successful build and all native acceptance attempts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          UNIX_ACCEPTANCE_RUN_ID: ${{ inputs.unix_acceptance_run_id }}
+          WINDOWS_ACCEPTANCE_RUN_ID: ${{ inputs.windows_acceptance_run_id }}
+        run: |
+          python3 -B scripts/desktop-release-build.py fetch-promotion \
+            --release-run-id "$RELEASE_RUN_ID" \
+            --unix-run-id "$UNIX_ACCEPTANCE_RUN_ID" \
+            --windows-run-id "$WINDOWS_ACCEPTANCE_RUN_ID" \
+            --output dist/desktop-promotion
+      - name: Freshly reverify CI, signatures, native receipts, unchanged draft and non-regressing live feed, then promote once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -B scripts/desktop-release-build.py publish --workspace dist/desktop-promotion
+      - name: Preserve public-material publication receipt (never delete or overwrite a failed published version)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-promotion-evidence
+          path: |
+            dist/desktop-promotion/promotion.json
+            dist/desktop-promotion/published.json
+            dist/desktop-promotion/provenance.json
+            dist/desktop-promotion/live-snapshot.json
+          if-no-files-found: warn
+          retention-days: 90
