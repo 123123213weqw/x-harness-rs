@@ -45,6 +45,32 @@ branding, injects the product plugins into the dependency-ordered client graph,
 and writes the result back to `ui/dist/`. Commit `ui/dist/client-graph.json`
 and the rebuilt assets with every source-level Web change.
 
+## Workspace directory browser (Web / Windows / macOS / Linux)
+
+`ui/plugins/@xlang/xharness-client-ui-directory/client.js` fills both existing
+workspace directory-flow slots. The sidebar Add workspace button and the
+new-conversation workspace picker can browse existing folders or create one
+child folder, then open it using the shared workspace service. Paths, including
+Windows drive letters/UNC paths, are resolved by the Rust Host, not joined in
+JavaScript. Browsing acts on the Host filesystem (not a remote browser's disk).
+
+The static assembler explicitly includes this plugin: the upstream Node host's
+dynamic auto-picker composition does not run in a static Rust deployment.
+To refresh only this capability without changing other upstream packages:
+
+```bash
+node scripts/sync-workspace-directory.mjs
+node scripts/test-workspace-directory.mjs
+# UI_TEST_DEPS contains Playwright; UI_TEST_BROWSER=chromium or webkit.
+node scripts/test-workspace-directory-browser.mjs
+```
+
+Commit source, shipped plugin, graph and HTML together. CI checks both slot
+owners in the shipped browser UI, plus the Windows NSIS/macOS app payloads.
+Opening an existing workspace reuses its registration; cancelling the browser
+does not create a workspace. A folder already explicitly created remains on
+disk if the user subsequently cancels opening it. No existing files are deleted.
+
 ## Context Inspector
 
 产品自有插件 `@xlang/xharness-client-ui-context` 在会话顶部注册第三个
