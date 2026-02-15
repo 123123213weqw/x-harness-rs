@@ -23,6 +23,10 @@ def verify(app=None):
     assert (desktop / 'icons/icon.ico').read_bytes()[:4] == b'\x00\x00\x01\x00'
     assert (desktop / 'icons/128x128.png').read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
     assert (ROOT / 'ui/desktop/updater.js').read_bytes() == (ROOT / 'ui/dist/desktop-updater.js').read_bytes(), 'stale updater in ui/dist'
+    directory_plugin = 'plugins/@xlang/xharness-client-ui-directory/client.js'
+    assert (ROOT / 'ui' / directory_plugin).read_bytes() == (ROOT / 'ui/dist' / directory_plugin).read_bytes(), 'stale directory flow in ui/dist'
+    graph = json.loads((ROOT / 'ui/dist/client-graph.json').read_text(encoding='utf-8'))
+    assert any(entry['id'] == '@xlang/xharness-client-ui-directory' for entry in graph['entries']), 'missing directory flow in boot graph'
     if app:
         app = Path(app)
         info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
@@ -35,9 +39,10 @@ def verify(app=None):
         assert (app / 'Contents/Resources/web/desktop-updater.js').read_bytes() == (ROOT / 'ui/desktop/updater.js').read_bytes(), 'packaged updater is stale'
         web = app / 'Contents/Resources/web'
         for relative in ['index.html', 'client-graph.json',
+                         directory_plugin,
                          'plugins/@deepseek-ai/dsh-client-connection/client.js',
                          'plugins/@deepseek-ai/dsh-client-ui-model-selection/client.js']:
-            assert digest(web / relative) == digest(ROOT / 'ui/dist' / relative), f'packaged model controls are stale: {relative}'
+            assert digest(web / relative) == digest(ROOT / 'ui/dist' / relative), f'packaged UI is stale: {relative}'
 
         for binary in ['xharness-desktop', 'xharness-host', 'rg']:
             assert (app / 'Contents/MacOS' / binary).is_file(), f'missing executable: {binary}'
