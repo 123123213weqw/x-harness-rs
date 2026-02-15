@@ -34,3 +34,12 @@ Create `scripts/test-workspace-directory-browser.mjs`, using the shipped plugin 
 ## Task 5: Upstream handoff
 
 Run existing UI regressions and new tests, review the complete diff, push atomic commits under `btlqql/workspace-directory-flow`, and submit an upstream PR. Await CI including three-platform Rust and desktop packaging. Report verified results and any remaining limitation; do not merge or install automatically.
+
+## Follow-up: disks and remembered locations
+
+The user approved making non-C drives discoverable without typing paths.
+
+1. Extend `host.listDirectory` without changing its wire shape: omitted path still means home; explicit empty path means a virtual location overview. Windows enumerates assigned drive letters through an audited `GetLogicalDrives` wrapper, without probing every drive or starting a shell. POSIX exposes `/` (and `/Volumes` on macOS). The overview cannot be created in or registered as a workspace.
+2. Add persistent-in-dialog location shortcuts and make the overview the first-use landing view. Reuse the shared picker in both entry points. Remember successful navigation in session storage, scoped to the current browser window and host origin, with an in-memory fallback if storage is blocked. An unavailable remembered path falls back to the overview; older hosts without overview support fall back to home. Explicitly entered paths still report their own errors.
+3. Test drive switching, overview safety, unavailable drives, stale memory, old-host fallback, storage errors, cancellation races and narrow layouts alongside the existing flow. Keep path construction in Rust, not the UI.
+4. Append atomic commits to upstream PR #36, run three-platform CI (the remote compiler is currently unreachable), and refresh only the isolated preview from the verified CI artifact. Preserve preview data and leave the installed App untouched.
