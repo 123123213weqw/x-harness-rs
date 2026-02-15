@@ -1542,6 +1542,170 @@ async fn every_upstream_rpc_has_baseline_behavior() {
         .all(|method| fx.invoked.contains(method)));
 }
 
+#[tokio::test]
+async fn directory_browser_creates_unicode_folder_and_reuses_workspace() {
+    let mut fx = Fixture::new();
+    let parent = fx.root.join("工作区 parent");
+    std::fs::create_dir(&parent).unwrap();
+    let created = fx
+        .value(
+            RpcMethod::HostCreateDirectory,
+            json!({"path": parent, "name": "新项目"}),
+        )
+        .await;
+    let path = created["path"].as_str().unwrap();
+    assert!(parent.join("新项目").is_dir());
+    assert_eq!(
+        std::fs::canonicalize(path).unwrap(),
+        std::fs::canonicalize(parent.join("新项目")).unwrap()
+    );
+    let listing = fx
+        .value(RpcMethod::HostListDirectory, json!({"path": parent}))
+        .await;
+    assert!(listing["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["name"] == "新项目"));
+    assert_eq!(
+        listing["crumbs"].as_array().unwrap().last().unwrap()["path"],
+        listing["path"]
+    );
+    let workspace = fx
+        .value(RpcMethod::WorkspaceCreate, json!({"path": path}))
+        .await;
+    let duplicate = fx
+        .value(RpcMethod::WorkspaceCreate, json!({"path": path}))
+        .await;
+    assert_eq!(
+        workspace["workspace"]["workspaceId"],
+        duplicate["workspace"]["workspaceId"]
+    );
+    assert_eq!(duplicate["created"], false);
+    let workspaces = fx.value(RpcMethod::WorkspaceList, json!({})).await;
+    assert!(workspaces
+        .to_string()
+        .contains(workspace["workspace"]["workspaceId"].as_str().unwrap()));
+    let duplicate_folder = fx
+        .call(
+            RpcMethod::HostCreateDirectory,
+            json!({"path": parent, "name": "新项目"}),
+        )
+        .await;
+    assert!(matches!(
+        duplicate_folder,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::DirectoryExists,
+                ..
+            }
+        }
+    ));
+    let missing = fx
+        .call(
+            RpcMethod::HostCreateDirectory,
+            json!({"path": parent.join("missing"), "name": "child"}),
+        )
+        .await;
+    assert!(matches!(
+        missing,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::DirectoryUnreadable,
+                ..
+            }
+        }
+    ));
+    assert!(
+        !parent.join("missing").exists(),
+        "mkdir must not recursively create missing parents"
+    );
+}
+
+#[tokio::test]
+async fn directory_browser_rejects_non_child_names_without_writes() {
+    let mut fx = Fixture::new();
+    let parent = fx.root.join("parent");
+    std::fs::create_dir(&parent).unwrap();
+    for name in [
+        "",
+        " ",
+        ".",
+        "..",
+        "../escape",
+        "a/b",
+        "a\\b",
+        "/absolute",
+        "bad\0name",
+    ] {
+        let result = fx
+            .call(
+                RpcMethod::HostCreateDirectory,
+                json!({"path": parent, "name": name}),
+            )
+            .await;
+        assert!(
+            matches!(result, RpcResult::Failure { .. }),
+            "accepted {name:?}"
+        );
+    }
+    #[cfg(windows)]
+    for name in [
+        "C:escape",
+        "C:",
+        "CON",
+        "con.txt",
+        "NUL",
+        "AUX",
+        "PRN",
+        "COM1",
+        "LPT9.log",
+        "COM¹",
+        "CONIN$",
+        "CONOUT$",
+        "trailing.",
+        "trailing ",
+        "a:b",
+        "bad?",
+        "bad*",
+        "bad\"",
+        "bad<",
+        "bad>",
+        "bad|",
+        "bad\nname",
+    ] {
+        let result = fx
+            .call(
+                RpcMethod::HostCreateDirectory,
+                json!({"path": parent, "name": name}),
+            )
+            .await;
+        assert!(
+            matches!(
+                result,
+                RpcResult::Failure {
+                    error: xharness_api::RpcError {
+                        code: xharness_api::RpcErrorCode::BadRequest,
+                        ..
+                    }
+                }
+            ),
+            "accepted Windows alias {name:?}: {result:?}"
+        );
+    }
+    assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 0);
+    #[cfg(unix)]
+    {
+        // Do not impose Windows-only restrictions on POSIX hosts.
+        fx.value(
+            RpcMethod::HostCreateDirectory,
+            json!({"path": parent, "name": "legal:posix"}),
+        )
+        .await;
+        assert!(parent.join("legal:posix").is_dir());
+    }
+}
+
 struct ToolProvider;
 
 #[async_trait]
