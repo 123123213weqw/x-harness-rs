@@ -1758,6 +1758,25 @@ impl BasicHost {
         require_object(payload)?;
         let requested = optional_string(payload, "path")?
             .unwrap_or_else(|| self.config.home.to_string_lossy().into_owned());
+        // Empty path is a virtual location overview, not the process cwd.
+        // Omitted path retains the existing home-directory wire contract.
+        if requested.is_empty() {
+            let roots = directory_roots().map_err(|message| {
+                rpc_error(
+                    RpcErrorCode::DirectoryUnreadable,
+                    message,
+                    json!({"path": ""}),
+                )
+            })?;
+            let entries = roots
+                .iter()
+                .map(|path| json!({"name": path, "path": path, "hidden": false}))
+                .collect::<Vec<_>>();
+            return Ok(json!({
+                "path": "", "home": self.config.home,
+                "crumbs": [], "entries": entries, "truncated": false,
+            }));
+        }
         let path = canonical_directory(&requested).map_err(|message| {
             rpc_error(
                 RpcErrorCode::DirectoryUnreadable,
@@ -3243,12 +3262,32 @@ fn credential_rejected(reference: &str) -> RpcError {
 }
 
 fn canonical_directory(path: &str) -> Result<String, String> {
+    if path.is_empty() {
+        return Err("select a filesystem directory, not the location overview".to_owned());
+    }
     let canonical = std::fs::canonicalize(path)
         .map_err(|error| format!("could not resolve directory {path:?}: {error}"))?;
     if !canonical.is_dir() {
         return Err(format!("path {path:?} is not a directory"));
     }
     Ok(canonical.to_string_lossy().into_owned())
+}
+
+fn directory_roots() -> Result<Vec<std::path::PathBuf>, String> {
+    #[cfg(windows)]
+    {
+        // Do not stat every drive: disconnected mapped drives and empty media
+        // should not delay the overview. Read errors belong to the chosen path.
+        xharness_win32::logical_drive_roots().map_err(|error| error.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(vec![
+            std::path::PathBuf::from("/"),
+            #[cfg(target_os = "macos")]
+            std::path::PathBuf::from("/Volumes"),
+        ])
+    }
 }
 
 fn valid_directory_name(name: &str) -> bool {
