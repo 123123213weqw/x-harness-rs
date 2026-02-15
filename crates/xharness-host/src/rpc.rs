@@ -1804,11 +1804,8 @@ impl BasicHost {
     async fn host_create_directory(&self, payload: &Value) -> Result<Value, RpcError> {
         let parent = required_string(payload, "path")?;
         let name = required_string(payload, "name")?;
-        if name.trim().is_empty()
-            || matches!(name.as_str(), "." | "..")
-            || name.contains(['/', '\\'])
-        {
-            return Err(bad_request("name must be one non-blank path segment"));
+        if !valid_directory_name(&name) {
+            return Err(bad_request("name must be one valid, non-blank folder name"));
         }
         let parent = canonical_directory(&parent).map_err(|message| {
             rpc_error(
@@ -3252,6 +3249,52 @@ fn canonical_directory(path: &str) -> Result<String, String> {
         return Err(format!("path {path:?} is not a directory"));
     }
     Ok(canonical.to_string_lossy().into_owned())
+}
+
+fn valid_directory_name(name: &str) -> bool {
+    // Path::join replaces the parent for absolute/prefixed paths on Windows.
+    // Validate a component, not just the absence of slash characters.
+    if name.trim().is_empty() || name.contains(['/', '\\', '\0']) {
+        return false;
+    }
+    let mut components = Path::new(name).components();
+    if !matches!(components.next(), Some(std::path::Component::Normal(_)))
+        || components.next().is_some()
+    {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        // Reject Win32 aliases even with a verbatim canonical parent path:
+        // folders must remain accessible to Explorer and ordinary tools.
+        if name.ends_with(['.', ' ']) || name.chars().any(|c| c < ' ' || "<>:\"|?*".contains(c)) {
+            return false;
+        }
+        let stem = name
+            .split('.')
+            .next()
+            .unwrap_or(name)
+            .trim_end()
+            .to_uppercase();
+        if matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) {
+            return false;
+        }
+        if let Some(suffix) = stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+        {
+            if matches!(
+                suffix,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            ) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn breadcrumb_entries(path: &Path) -> Vec<Value> {
