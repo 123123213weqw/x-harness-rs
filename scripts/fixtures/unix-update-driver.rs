@@ -62,6 +62,30 @@ pub fn tls_client(client: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     client.no_proxy().tls_certs_merge([certificate])
 }
 
+pub fn snapshot_before_install() {
+    // Injected immediately after the production Host shutdown barrier and
+    // before installation, so UI-created sessions cannot race this inventory.
+    // Snapshot synthetic journals only; never export the production token.
+    let snapshot = std::process::Command::new(std::env::var("XHARNESS_REHEARSAL_PYTHON").unwrap())
+        .args([
+            "-E",
+            "-c",
+            r#"import os,json,pathlib,base64,hashlib
+r=pathlib.Path(os.environ['XHARNESS_REHEARSAL_ROOT'])
+j=r/'state/sessions/unix-update-preserved-session.jsonl'
+files=sorted((r/'state/sessions').glob('*.jsonl'))
+assert j in files and all(p.is_file() and not p.is_symlink() for p in files)
+inventory={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+print(json.dumps({'installConfirmed':True,'hostStoppedBeforeSnapshot':True,'sessionInventory':inventory,
+'journalBase64':base64.b64encode(j.read_bytes()).decode(),
+'readyFiles':[str(p) for d in ['cache','home'] for p in (r/d).rglob('ready-*.address')]}))"#,
+        ])
+        .output()
+        .unwrap();
+    assert!(snapshot.status.success());
+    record(serde_json::from_slice(&snapshot.stdout).unwrap());
+}
+
 pub async fn run(app: AppHandle) {
     let result = tokio::spawn(exercise(app.clone())).await;
     if let Err(error) = result {
@@ -159,23 +183,6 @@ async fn exercise(app: AppHandle) {
     host_running(&app);
     record(json!({"unconfirmedInstallRejected":true}));
     phase(updater::desktop_update_status(app.state()), "downloaded");
-    // Snapshot only synthetic journal bytes and owned ready-file paths, never
-    // the production token. The untouched target uses its normal debug trace
-    // and ready files to prove restart + real session restoration externally.
-    let snapshot = std::process::Command::new(std::env::var("XHARNESS_REHEARSAL_PYTHON").unwrap())
-        .args([
-            "-E",
-            "-c",
-            r#"import os,json,pathlib,base64
-r=pathlib.Path(os.environ['XHARNESS_REHEARSAL_ROOT'])
-j=r/'state/sessions/unix-update-preserved-session.jsonl'
-print(json.dumps({'installConfirmed':True,'journalBase64':base64.b64encode(j.read_bytes()).decode(),
-'readyFiles':[str(p) for d in ['cache','home'] for p in (r/d).rglob('ready-*.address')]}))"#,
-        ])
-        .output()
-        .unwrap();
-    assert!(snapshot.status.success());
-    record(serde_json::from_slice(&snapshot.stdout).unwrap());
     updater::desktop_install_update(app.clone(), app.state(), true)
         .await
         .unwrap();

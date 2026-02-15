@@ -523,17 +523,71 @@ def native_run(args):
                '--manifest', args.candidate / 'release/latest.json', '--timeout', '600']
     if args.rehearsal:
         command += ['--rehearsal']
-    run(*command)
+    run_native_rounds(command, args.root)
+
+
+def clone_native_runtime(source, destination):
+    # Reuse compiled binaries, never an already-updated installation or session
+    # data. The scoped CA/port are compiled into BASE; each round has fresh HOME,
+    # state, workspace, native process group and installation directories.
+    destination.mkdir(mode=0o700, parents=False, exist_ok=False)
+    for name in ['ISOLATED_UNIX_UPDATE_ONLY', 'rehearsal.json', 'updater.pub', 'ca.pem', 'server.pem', 'server.key']:
+        path = source / name
+        require(path.is_file() and not path.is_symlink(), 'Unsafe or missing isolated runtime fixture')
+        shutil.copyfile(path, destination / name)
+        (destination / name).chmod(0o600)
+
+
+def run_native_rounds(command, root):
+    repetitions = root / 'repetitions'
+    repetitions.mkdir(mode=0o700, exist_ok=False)
+    completed = []
+    baseline = None
+    try:
+        for number in range(1, 4):
+            directory = root if number == 1 else repetitions / str(number)
+            if number != 1:
+                clone_native_runtime(root, directory)
+            current = list(command)
+            current[current.index('--root') + 1] = directory
+            run(*current)
+            receipt = load(directory / 'acceptance.json')
+            require(receipt.get('status') == 'passed', 'Native repetition did not pass')
+            binding = {name: receipt[name] for name in ['platform', 'version', 'sha', 'package_sha256', 'manifest_sha256', 'scope']}
+            require(baseline is None or baseline == binding, 'Native repetitions changed their candidate identity')
+            baseline = binding
+            completed.append({'round': number, 'directory': str(directory.relative_to(root)),
+                              'acceptance_sha256': digest(directory / 'acceptance.json')})
+    except Exception:
+        # A passing first round must not look like overall acceptance when a
+        # later native restart failed. CI failure is independently checked again
+        # by promotion's authenticated latest-attempt gate.
+        (root / 'acceptance.json').unlink(missing_ok=True)
+        write(root / 'repetition-summary.json', {'status': 'failed', 'required': 3, 'completed': completed})
+        raise
+    write(root / 'repetition-summary.json', {'status': 'passed', 'required': 3, 'completed': completed, 'candidate': baseline})
 
 
 def export_native(args):
     args.output.mkdir(parents=True, exist_ok=False)
     # Never upload source, TLS CA/private keys, disposable signer keys or HOME.
-    for name in ['acceptance.json', 'evidence.json', 'FAIL.json', 'app.log', 'events.jsonl', 'http-requests.jsonl',
-                 'codesign.log', 'gatekeeper.log', 'stapler.log']:
+    names = ['acceptance.json', 'evidence.json', 'FAIL.json', 'app.log', 'events.jsonl', 'http-requests.jsonl',
+             'repetition-summary.json',
+             'codesign.log', 'gatekeeper.log', 'stapler.log']
+    for name in names:
         source = args.root / name
         if source.is_file() and not source.is_symlink():
             shutil.copyfile(source, args.output / name)
+    for number in ('2', '3'):
+        directory = args.root / 'repetitions' / number
+        if not directory.is_dir() or directory.is_symlink():
+            continue
+        output = args.output / 'repetitions' / number
+        output.mkdir(parents=True)
+        for name in names:
+            source = directory / name
+            if source.is_file() and not source.is_symlink():
+                shutil.copyfile(source, output / name)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

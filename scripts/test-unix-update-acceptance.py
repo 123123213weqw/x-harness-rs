@@ -206,21 +206,86 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         with self.assertRaisesRegex(ValueError, 'outside loopback'):
             m.healthy_ready(root)
 
-    def test_replay_requires_new_host_same_state_and_successful_restore(self):
+    def stopped_session_snapshot(self, root):
+        # Execute the actual embedded snapshot subprocess, without Rust/native
+        # builds. Native CI separately proves the Host shutdown call boundary.
+        fixture = (HERE / 'fixtures/unix-update-driver.rs').read_text()
+        body = fixture.split('pub fn snapshot_before_install()', 1)[1].split('pub async fn run', 1)[0]
+        program = body.split('r#"', 1)[1].split('"#', 1)[0]
+        output = m.run([sys.executable, '-E', '-c', program],
+                       env={**os.environ, 'XHARNESS_REHEARSAL_ROOT': str(root)})
+        return json.loads(output.stdout)
+
+    def test_replay_requires_new_host_exact_inventory_and_successful_restore(self):
         root = self.root()
         m.create_data(root)
+        journals = root / 'state/sessions'
+        journals.mkdir()
+        (journals / (m.SESSION + '.jsonl')).write_text('synthetic known journal\n')
         trace = root / 'trace/new'
         trace.mkdir()
         events = trace / 'events.jsonl'
         ready = root / 'cache/new.address'
         start = {'layer': 'host', 'event': 'start', 'payload': {'readyFile': str(ready), 'stateDir': str(root / 'state')}}
         restore = {'layer': 'host', 'event': 'restore', 'payload': {'restoredSessions': 1, 'issues': []}}
+        before = self.stopped_session_snapshot(root)
         events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
-        self.assertEqual(m.restored_candidate(root, ready)['restoredSessions'], 1)
-        self.assertIsNone(m.restored_candidate(root, root / 'old.address'))
-        restore['payload']['issues'] = ['corrupt journal']
+        self.assertEqual(m.restored_candidate(root, ready, before)['restoredSessions'], 1)
+        self.assertIsNone(m.restored_candidate(root, root / 'old.address', before))
+        start['payload']['stateDir'] = str(root / 'wrong-state')
         events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
-        self.assertIsNone(m.restored_candidate(root, ready))
+        self.assertIsNone(m.restored_candidate(root, ready, before))
+        start['payload']['stateDir'] = str(root / 'state')
+
+        # CI reproduced an untouched UI-created second session. Require all
+        # journals, not count == 1 and not the too-permissive count >= 1.
+        (journals / 'ui-created-session.jsonl').write_text('synthetic UI journal\n')
+        before = self.stopped_session_snapshot(root)
+        restore['payload']['restoredSessions'] = 2
+        events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
+        replay = m.restored_candidate(root, ready, before)
+        self.assertEqual(replay['restoredSessions'], 2)
+        self.assertEqual(replay['knownSession'], m.SESSION)
+        self.assertEqual(replay['sessionInventory'], before['sessionInventory'])
+        for incorrect in (0, 1, 3, True, None):
+            restore['payload']['restoredSessions'] = incorrect
+            events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
+            self.assertIsNone(m.restored_candidate(root, ready, before))
+        restore['payload'].update(restoredSessions=2, issues=['corrupt journal'])
+        events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
+        self.assertIsNone(m.restored_candidate(root, ready, before))
+
+    def test_snapshot_inventory_rejects_lost_changed_or_unbound_known_session(self):
+        root = self.root()
+        m.create_data(root)
+        journals = root / 'state/sessions'
+        journals.mkdir()
+        known = journals / (m.SESSION + '.jsonl')
+        known.write_text('known bytes\n')
+        before = self.stopped_session_snapshot(root)
+        self.assertEqual(m.validated_snapshot_inventory(before), m.session_inventory(root))
+        invalid = dict(before, hostStoppedBeforeSnapshot=False)
+        with self.assertRaisesRegex(ValueError, 'shutdown barrier'):
+            m.validated_snapshot_inventory(invalid)
+        invalid = dict(before, sessionInventory={})
+        with self.assertRaisesRegex(ValueError, 'known session'):
+            m.validated_snapshot_inventory(invalid)
+        invalid = dict(before, journalBase64=base64.b64encode(b'other bytes').decode())
+        with self.assertRaisesRegex(ValueError, 'do not match'):
+            m.validated_snapshot_inventory(invalid)
+        for other in ('../escape.jsonl', 'directory/escape.jsonl', 'not-a-journal.txt'):
+            invalid = dict(before, sessionInventory={**before['sessionInventory'], other: 'a' * 64})
+            with self.assertRaisesRegex(ValueError, 'Invalid snapshot'):
+                m.validated_snapshot_inventory(invalid)
+        known.write_text('changed bytes\n')
+        with self.assertRaisesRegex(ValueError, 'inventory changed'):
+            m.restored_candidate(root, root / 'ready.address', before)
+        known.unlink()
+        with self.assertRaisesRegex(ValueError, 'inventory changed'):
+            m.restored_candidate(root, root / 'ready.address', before)
+        known.symlink_to(root / 'state/preserved.txt')
+        with self.assertRaisesRegex(ValueError, 'non-regular journal'):
+            m.session_inventory(root)
 
     def test_ephemeral_chain_has_explicit_key_identifiers_for_strict_tls(self):
         root = self.root()
@@ -323,6 +388,22 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         self.assertIsNone(result['healthyReady'])
         self.assertIsNone(result['launcherExitCode'])
 
+    def test_macos_failure_diagnostics_compare_installed_bundle_tree(self):
+        root = self.root()
+        m.create_data(root)
+        for directory in ('installed', 'expected-candidate'):
+            binary = root / directory / 'XHarness.app/Contents/MacOS/xharness-desktop'
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b'exact candidate')
+            binary.chmod(0o755)
+        result = m.update_diagnostics(root, None, {'platform': 'darwin-x86_64'}, {'package_sha256': 'a' * 64})
+        self.assertTrue(result['exactCandidateInstalled'])
+        self.assertEqual(result['installed_bundle_tree_sha256'], result['expected_bundle_tree_sha256'])
+        binary.write_bytes(b'modified')
+        result = m.update_diagnostics(root, None, {'platform': 'darwin-x86_64'}, {'package_sha256': 'a' * 64})
+        self.assertFalse(result['exactCandidateInstalled'])
+        self.assertNotIn(str(root), json.dumps(result))
+
     def test_prepare_changes_only_disposable_source_and_needs_no_private_key(self):
         source = self.directory / 'original'
         files = ['apps/desktop/src-tauri/src/lib.rs', 'apps/desktop/src-tauri/src/sidecar.rs',
@@ -352,7 +433,11 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         config = m.read_json(desktop / 'tauri.conf.json')
         self.assertFalse(config['bundle']['createUpdaterArtifacts'])
         self.assertEqual(config['version'], '0.0.901')
-        self.assertIn('configure_client(crate::rehearsal::tls_client)', (desktop / 'src/updater.rs').read_text())
+        updater = (desktop / 'src/updater.rs').read_text()
+        self.assertIn('configure_client(crate::rehearsal::tls_client)', updater)
+        self.assertEqual(updater.count('crate::rehearsal::snapshot_before_install();'), 1)
+        self.assertLess(updater.index('sidecar::graceful_stop(&app).await'), updater.index('crate::rehearsal::snapshot_before_install();'))
+        self.assertLess(updater.index('crate::rehearsal::snapshot_before_install();'), updater.index('update.install(bytes.as_slice())'))
         self.assertIn('tls_certs_merge', (desktop / 'src/rehearsal.rs').read_text())
         self.assertIn('ISOLATED_UNIX_UPDATE_ONLY', (desktop / 'src/rehearsal.rs').read_text())
         self.assertEqual(m.read_json(root / 'build-env.json')['XHARNESS_UPDATER_PUBKEY'], pub.read_text())

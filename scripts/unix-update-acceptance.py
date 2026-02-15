@@ -354,7 +354,32 @@ def healthy_ready(root, excluded=()):
     return None
 
 
-def restored_candidate(root, ready):
+def session_inventory(root):
+    directory = root / 'state/sessions'
+    require(directory.is_dir() and not directory.is_symlink(), 'Invalid session inventory directory')
+    result = {}
+    for path in sorted(directory.glob('*.jsonl')):
+        require(path.is_file() and not path.is_symlink(), 'Session inventory contains a non-regular journal')
+        result[path.name] = digest(path)
+    return result
+
+
+def validated_snapshot_inventory(before):
+    require(before.get('hostStoppedBeforeSnapshot') is True, 'Session snapshot preceded Host shutdown barrier')
+    inventory = before.get('sessionInventory')
+    require(isinstance(inventory, dict) and SESSION + '.jsonl' in inventory, 'Snapshot lacks known session journal')
+    require(all(isinstance(name, str) and pathlib.PurePath(name).name == name and name.endswith('.jsonl') and
+                isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value)
+                for name, value in inventory.items()), 'Invalid snapshot session inventory')
+    journal = base64.b64decode(before['journalBase64'], validate=True)
+    require(hashlib.sha256(journal).hexdigest() == inventory[SESSION + '.jsonl'],
+            'Known session bytes do not match snapshot inventory')
+    return inventory
+
+
+def restored_candidate(root, ready, before):
+    inventory = validated_snapshot_inventory(before)
+    require(session_inventory(root) == inventory, 'Session inventory changed across update')
     for trace in (root / 'trace').glob('*/events.jsonl'):
         events = json_lines(trace)
         starts = [event for event in events if event.get('layer') == 'host' and event.get('event') == 'start']
@@ -362,9 +387,14 @@ def restored_candidate(root, ready):
                    event['payload'].get('stateDir') == str(root / 'state') for event in starts):
             continue
         restores = [event['payload'] for event in events if event.get('layer') == 'host' and event.get('event') == 'restore']
-        if any(event.get('restoredSessions') == 1 and event.get('issues') == [] for event in restores):
+        # Host restore enumerates every persisted journal before readiness.
+        # An untouched UI may also create a default session in the BASE; bind
+        # the count to the stopped Host's exact inventory, never a fixed 1 or >=1.
+        if any(type(event.get('restoredSessions')) is int and event['restoredSessions'] == len(inventory) and
+               event.get('issues') == [] for event in restores):
             return {'trace': str(trace.relative_to(root)), 'sha256': digest(trace),
-                    'restoredSessions': 1, 'issues': []}
+                    'restoredSessions': len(inventory), 'issues': [],
+                    'sessionInventory': inventory, 'knownSession': SESSION}
     return None
 
 
@@ -391,6 +421,15 @@ def update_diagnostics(root, process, config, receipt):
     if installed.is_file():
         result['installed_package_sha256'] = digest(installed)
         result['exactCandidateInstalled'] = result['installed_package_sha256'] == receipt['package_sha256']
+    expected_apps = list((root / 'expected-candidate').glob('*.app'))
+    if len(expected_apps) == 1 and (root / 'installed' / expected_apps[0].name).is_dir():
+        result['expected_bundle_tree_sha256'] = tree_digest(expected_apps[0])
+        result['installed_bundle_tree_sha256'] = tree_digest(root / 'installed' / expected_apps[0].name)
+        result['exactCandidateInstalled'] = result['installed_bundle_tree_sha256'] == result['expected_bundle_tree_sha256']
+    try:
+        result['sessionInventory'] = session_inventory(root)
+    except ValueError:
+        result['sessionInventory'] = None
     for directory in ('cache', 'home'):
         for path in (root / directory).rglob('ready-*.address'):
             try:
@@ -550,7 +589,10 @@ def prepare(args):
     text = path.read_text()
     anchor = '        .timeout(Duration::from_secs(30));'
     require(text.count(anchor) == 1, 'Updater TLS injection anchor drifted')
-    path.write_text(text.replace(anchor, '        .configure_client(crate::rehearsal::tls_client)\n' + anchor, 1))
+    text = text.replace(anchor, '        .configure_client(crate::rehearsal::tls_client)\n' + anchor, 1)
+    anchor = '    if let Err(error) = update.install(bytes.as_slice()) {'
+    require(text.count(anchor) == 1, 'Updater post-shutdown snapshot injection anchor drifted')
+    path.write_text(text.replace(anchor, '    crate::rehearsal::snapshot_before_install();\n' + anchor, 1))
     path = desktop / 'Cargo.toml'
     text = path.read_text()
     require('[dependencies]\n' in text and '\nreqwest =' not in text, 'Disposable reqwest dependency anchor drifted')
@@ -691,7 +733,7 @@ def candidate_update(args):
                     before = confirmed[-1]
                     ready = healthy_ready(root, before['readyFiles'])
                     if ready and exact():
-                        replay = restored_candidate(root, ready[0])
+                        replay = restored_candidate(root, ready[0], before)
                         if replay:
                             break
                 code = process.poll()
@@ -703,6 +745,7 @@ def candidate_update(args):
         journal = root / 'state/sessions' / (SESSION + '.jsonl')
         require(journal.read_bytes() == base64.b64decode(before['journalBase64']), 'Session journal changed across update')
         require(all(digest(root / path) == value for path, value in retained.items()), 'User fixture changed across update')
+        require(session_inventory(root) == validated_snapshot_inventory(before), 'Session inventory changed after readiness')
         require(exact(), 'Installed artifact changed after readiness')
         required = ('checkFailureKeepsHost', 'concurrentCheckRejected', 'tamperedPackageRejected',
                     'unconfirmedInstallRejected', 'persistedSessionCreated', 'downloadBeforeCheckRejected',
