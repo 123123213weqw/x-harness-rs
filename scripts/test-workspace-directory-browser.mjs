@@ -164,6 +164,10 @@ try {
   for (const target of ['C:\\', '\\\\server\\share', '/tmp/projects']) { await go(target); await ready(); assert.equal(await path().inputValue(), target) }
   await path().fill('unsubmitted'); assert.equal(await open().isDisabled(), true)
   await page.evaluate(() => { blockRead = 'slow' }); await go('slow')
+  await path().fill('new draft'); await page.evaluate(() => pending.read())
+  assert.equal(await path().inputValue(), 'new draft', 'late scan must not overwrite a typed draft')
+  assert.equal(await open().isDisabled(), true)
+  await go('slow')
   await go('D:\\工作区'); await ready()
   await page.evaluate(() => pending.read()); assert.equal(await path().inputValue(), 'D:\\工作区')
   await go('slow'); await dialog().getByRole('button', { name: '取消', exact: true }).click()
