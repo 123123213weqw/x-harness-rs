@@ -284,7 +284,10 @@ class NativeRepetitions(unittest.TestCase):
                 if directory != root:
                     for name in ['state', 'home', 'source', 'installed.AppImage']:
                         self.assertFalse((directory / name).exists())
-                    self.assertEqual((directory / 'server.key').stat().st_mode & 0o777, 0o600)
+                    if os.name == 'posix':
+                        # Native Unix acceptance is OS-gated. Windows contract
+                        # runners cannot represent POSIX permission bits.
+                        self.assertEqual((directory / 'server.key').stat().st_mode & 0o777, 0o600)
                     self.assertEqual((directory / 'server.key').read_bytes(), (root / 'server.key').read_bytes())
                 self.assertEqual(args[args.index('--base') + 1], 'untouched-base')
                 build.write(directory / 'acceptance.json', self.receipt())
@@ -321,7 +324,7 @@ class NativeRepetitions(unittest.TestCase):
             for name in ['acceptance.json', 'evidence.json', 'server.key', 'ca.pem', 'rehearsal.json']:
                 (repeat / name).write_text('{}')
             build.export_native(type('Args', (), {'root': root, 'output': output})())
-            self.assertEqual({str(p.relative_to(output)) for p in output.rglob('*') if p.is_file()},
+            self.assertEqual({p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()},
                              {'repetitions/2/acceptance.json', 'repetitions/2/evidence.json'})
 
 
