@@ -28,11 +28,11 @@ class ReleaseProjection(unittest.TestCase):
 
     def test_bundler_receives_same_public_key_and_all_versions_change(self):
         module.prepare('0.1.2', 'test-public-key\n')
-        config = json.loads((self.desktop / 'tauri.conf.json').read_text())
+        config = json.loads((self.desktop / 'tauri.conf.json').read_text(encoding='utf-8'))
         self.assertEqual(config['plugins']['updater']['pubkey'], 'test-public-key')
         self.assertEqual(config['version'], '0.1.2')
-        self.assertIn('name = "xharness-desktop"\nversion = "0.1.2"', (self.desktop / 'Cargo.lock').read_text())
-        self.assertIn('version = "0.1.2"', (self.desktop / 'Cargo.toml').read_text())
+        self.assertIn('name = "xharness-desktop"\nversion = "0.1.2"', (self.desktop / 'Cargo.lock').read_text(encoding='utf-8'))
+        self.assertIn('version = "0.1.2"', (self.desktop / 'Cargo.toml').read_text(encoding='utf-8'))
 
     def test_empty_key_and_invalid_versions_are_rejected(self):
         with self.assertRaises(ValueError):
@@ -42,7 +42,7 @@ class ReleaseProjection(unittest.TestCase):
                 module.prepare(version, 'key')
 
     def test_formal_workflow_configures_key_before_packaging(self):
-        source = (ROOT / '.github/workflows/desktop-release.yml').read_text()
+        source = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
         self.assertLess(source.index('Project updater public key into bundler config'), source.index('Build and sign desktop bundle (artifacts only)'))
         self.assertIn('needs: [plan, build]', source)
         self.assertIn('Stage one complete draft, never latest', source)

@@ -11,6 +11,9 @@ permissions:
   contents: read
   actions: read
 
+env:
+  PYTHONUTF8: '1'
+
 jobs:
   acceptance:
     if: github.ref == 'refs/heads/master' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository

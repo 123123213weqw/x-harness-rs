@@ -20,6 +20,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  PYTHONUTF8: '1'
   XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
 
 jobs:

@@ -75,7 +75,7 @@ class ChannelTests(unittest.TestCase):
     def test_stable_publishers_share_the_channel_lock(self):
         for workflow in ['friends-release.yml', 'desktop-release.yml', 'desktop-promote.yml']:
             self.assertIn('group: desktop-stable-release',
-                          (ROOT / '.github/workflows' / workflow).read_text())
+                          (ROOT / '.github/workflows' / workflow).read_text(encoding='utf-8'))
 
     def test_reject_wrong_repository_versions_and_overwrites(self):
         with self.assertRaises(ValueError):
