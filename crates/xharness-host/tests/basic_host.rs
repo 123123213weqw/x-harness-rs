@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -253,15 +253,25 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "xharness-host-test-{}-{}",
-            std::process::id(),
+        Self::new_at(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+        )
+    }
+
+    fn new_at(timestamp: u128) -> Self {
+        // Wall-clock timestamps can repeat across parallel tests on Windows.
+        // Each fixture owns (and later removes) exactly one distinct directory.
+        static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "xharness-host-test-{}-{}-{}",
+            std::process::id(),
+            timestamp,
+            NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed),
         ));
-        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir(&root).unwrap();
         let mut config = HostConfig::new(&root);
         config.provider_id = "test".to_owned();
         config.provider_display_name = "Test Provider".to_owned();
@@ -313,6 +323,25 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn fixtures_with_the_same_clock_tick_do_not_share_or_remove_each_others_files() {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let first = Fixture::new_at(timestamp);
+    let retained = first.root.join("retained.txt");
+    std::fs::write(&retained, "owned by first fixture").unwrap();
+    let second = Fixture::new_at(timestamp);
+    assert_ne!(first.root, second.root);
+    assert!(!second.root.join("retained.txt").exists());
+    drop(second);
+    assert_eq!(
+        std::fs::read_to_string(retained).unwrap(),
+        "owned by first fixture"
+    );
 }
 
 #[tokio::test]
@@ -1540,6 +1569,243 @@ async fn every_upstream_rpc_has_baseline_behavior() {
     assert!(RpcMethod::ALL
         .iter()
         .all(|method| fx.invoked.contains(method)));
+}
+
+#[tokio::test]
+async fn directory_browser_creates_unicode_folder_and_reuses_workspace() {
+    let mut fx = Fixture::new();
+    let parent = fx.root.join("工作区 parent");
+    std::fs::create_dir(&parent).unwrap();
+    let created = fx
+        .value(
+            RpcMethod::HostCreateDirectory,
+            json!({"path": parent, "name": "新项目"}),
+        )
+        .await;
+    let path = created["path"].as_str().unwrap();
+    assert!(parent.join("新项目").is_dir());
+    assert_eq!(
+        std::fs::canonicalize(path).unwrap(),
+        std::fs::canonicalize(parent.join("新项目")).unwrap()
+    );
+    let listing = fx
+        .value(RpcMethod::HostListDirectory, json!({"path": parent}))
+        .await;
+    assert!(listing["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["name"] == "新项目"));
+    assert_eq!(
+        listing["crumbs"].as_array().unwrap().last().unwrap()["path"],
+        listing["path"]
+    );
+    for crumb in listing["crumbs"].as_array().unwrap() {
+        let path = PathBuf::from(crumb["path"].as_str().unwrap());
+        assert!(path.is_absolute(), "breadcrumb must be absolute: {path:?}");
+        assert!(
+            path.is_dir(),
+            "breadcrumb must be a navigable directory: {path:?}"
+        );
+    }
+    let workspace = fx
+        .value(RpcMethod::WorkspaceCreate, json!({"path": path}))
+        .await;
+    let duplicate = fx
+        .value(RpcMethod::WorkspaceCreate, json!({"path": path}))
+        .await;
+    assert_eq!(
+        workspace["workspace"]["workspaceId"],
+        duplicate["workspace"]["workspaceId"]
+    );
+    assert_eq!(duplicate["created"], false);
+    let workspaces = fx.value(RpcMethod::WorkspaceList, json!({})).await;
+    assert!(workspaces
+        .to_string()
+        .contains(workspace["workspace"]["workspaceId"].as_str().unwrap()));
+    let duplicate_folder = fx
+        .call(
+            RpcMethod::HostCreateDirectory,
+            json!({"path": parent, "name": "新项目"}),
+        )
+        .await;
+    assert!(matches!(
+        duplicate_folder,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::DirectoryExists,
+                ..
+            }
+        }
+    ));
+    let missing = fx
+        .call(
+            RpcMethod::HostCreateDirectory,
+            json!({"path": parent.join("missing"), "name": "child"}),
+        )
+        .await;
+    assert!(matches!(
+        missing,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::DirectoryUnreadable,
+                ..
+            }
+        }
+    ));
+    assert!(
+        !parent.join("missing").exists(),
+        "mkdir must not recursively create missing parents"
+    );
+}
+
+#[tokio::test]
+async fn directory_browser_rejects_non_child_names_without_writes() {
+    let mut fx = Fixture::new();
+    let parent = fx.root.join("parent");
+    std::fs::create_dir(&parent).unwrap();
+    for name in [
+        "",
+        " ",
+        ".",
+        "..",
+        "../escape",
+        "a/b",
+        "a\\b",
+        "/absolute",
+        "bad\0name",
+    ] {
+        let result = fx
+            .call(
+                RpcMethod::HostCreateDirectory,
+                json!({"path": parent, "name": name}),
+            )
+            .await;
+        assert!(
+            matches!(result, RpcResult::Failure { .. }),
+            "accepted {name:?}"
+        );
+    }
+    #[cfg(windows)]
+    for name in [
+        "C:escape",
+        "C:",
+        "CON",
+        "con.txt",
+        "NUL",
+        "AUX",
+        "PRN",
+        "COM1",
+        "LPT9.log",
+        "COM¹",
+        "CONIN$",
+        "CONOUT$",
+        "trailing.",
+        "trailing ",
+        "a:b",
+        "bad?",
+        "bad*",
+        "bad\"",
+        "bad<",
+        "bad>",
+        "bad|",
+        "bad\nname",
+    ] {
+        let result = fx
+            .call(
+                RpcMethod::HostCreateDirectory,
+                json!({"path": parent, "name": name}),
+            )
+            .await;
+        assert!(
+            matches!(
+                result,
+                RpcResult::Failure {
+                    error: xharness_api::RpcError {
+                        code: xharness_api::RpcErrorCode::BadRequest,
+                        ..
+                    }
+                }
+            ),
+            "accepted Windows alias {name:?}: {result:?}"
+        );
+    }
+    assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 0);
+    #[cfg(unix)]
+    {
+        // Do not impose Windows-only restrictions on POSIX hosts.
+        fx.value(
+            RpcMethod::HostCreateDirectory,
+            json!({"path": parent, "name": "legal:posix"}),
+        )
+        .await;
+        assert!(parent.join("legal:posix").is_dir());
+    }
+}
+
+#[tokio::test]
+async fn directory_browser_lists_locations_without_adopting_the_virtual_root() {
+    let mut fx = Fixture::new();
+    let overview = fx
+        .value(RpcMethod::HostListDirectory, json!({"path": ""}))
+        .await;
+    assert_eq!(overview["path"], "");
+    assert_eq!(overview["crumbs"], json!([]));
+    assert_eq!(overview["truncated"], false);
+    let entries = overview["entries"].as_array().unwrap();
+    assert!(!entries.is_empty());
+    for entry in entries {
+        assert!(PathBuf::from(entry["path"].as_str().unwrap()).is_absolute());
+        assert_eq!(entry["name"], entry["path"]);
+        assert_eq!(entry["hidden"], false);
+    }
+    #[cfg(windows)]
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| PathBuf::from(entry["path"].as_str().unwrap()))
+            .collect::<Vec<_>>(),
+        xharness_win32::logical_drive_roots().unwrap()
+    );
+    #[cfg(not(windows))]
+    assert_eq!(entries[0]["path"], "/");
+    #[cfg(target_os = "macos")]
+    assert_eq!(entries[1]["path"], "/Volumes");
+
+    // The overview sentinel is a string, not an excuse to coerce other types.
+    for payload in [json!({"path": null}), json!({"path": 0}), json!([])] {
+        assert!(matches!(
+            fx.call(RpcMethod::HostListDirectory, payload).await,
+            RpcResult::Failure {
+                error: xharness_api::RpcError {
+                    code: xharness_api::RpcErrorCode::BadRequest,
+                    ..
+                }
+            }
+        ));
+    }
+
+    // Omitted path still returns home, not the virtual overview.
+    let home = fx.value(RpcMethod::HostListDirectory, json!({})).await;
+    assert_eq!(
+        home["path"],
+        std::fs::canonicalize(overview["home"].as_str().unwrap())
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
+    );
+    for (method, payload) in [
+        (RpcMethod::WorkspaceCreate, json!({"path": ""})),
+        (
+            RpcMethod::HostCreateDirectory,
+            json!({"path": "", "name": "not-a-real-parent"}),
+        ),
+    ] {
+        assert!(matches!(
+            fx.call(method, payload).await,
+            RpcResult::Failure { .. }
+        ));
+    }
 }
 
 struct ToolProvider;
