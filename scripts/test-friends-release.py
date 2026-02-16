@@ -60,6 +60,23 @@ class ChannelTests(unittest.TestCase):
         prior = [{'tagName': 'friends-v0.2.1', 'isDraft': False}]
         self.assertEqual(plan(REPOSITORY, 'friends-v0.2.2', prior)['versions'], ['0.2.2'])
 
+    def test_unified_channel_cannot_be_replaced_by_windows_only(self):
+        for tag in ['friends-v0.2.7', 'friends-v9.0.1']:
+            with self.subTest(tag=tag), self.assertRaisesRegex(ValueError, 'Unified desktop channel'):
+                plan(REPOSITORY, tag, [{'tagName': 'desktop-v0.2.6', 'isDraft': False}])
+        # A blocked, unpublished desktop draft must not disable existing Windows
+        # servicing while Apple credentials are still being provisioned.
+        result = plan(REPOSITORY, 'friends-v0.2.7', [
+            {'tagName': 'friends-v0.2.5', 'isDraft': False},
+            {'tagName': 'desktop-v0.2.6', 'isDraft': True},
+        ])
+        self.assertEqual(result['versions'], ['0.2.7'])
+
+    def test_stable_publishers_share_the_channel_lock(self):
+        for workflow in ['friends-release.yml', 'desktop-release.yml', 'desktop-promote.yml']:
+            self.assertIn('group: desktop-stable-release',
+                          (ROOT / '.github/workflows' / workflow).read_text(encoding='utf-8'))
+
     def test_reject_wrong_repository_versions_and_overwrites(self):
         with self.assertRaises(ValueError):
             module.plan(REPOSITORY, 'friends-v0.2.1', [], configured_repository='yyqdbngt/x-harness-rs')
