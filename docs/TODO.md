@@ -796,10 +796,14 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   ad-hoc；公开更新源只在全部正式验收通过后改变。
 - [x] 新增原生 Unix 候选升级、Windows 当前稳定包单跳升级的验收脚本与来源绑定；
   文档明确临时基础包/真实候选包、Smoke/演练/正式发布的不同证据等级。
-- [ ] 此次改动的 GitHub 原生 CI 与隔离升级演练全部通过（通过后更新证据，不能预填）。
+- [x] 核心改动 GitHub CI [34171760874](https://github.com/123123213weqw/x-harness-rs/actions/runs/34171760874)
+  11/11 Job 成功；Linux AppImage、Mac ARM64、Mac Intel 各三轮真实升级，共 9/9。
+  已在真实 UI 自动产生两个会话时验证完整 Journal 库存与重启恢复，不再硬编码单会话数量。
+  详细证据见 [三平台更新回归验收](reports/unified-update-ci-2026-09-08.md)。
 - [ ] 配置 Apple 凭据并完成正式四目标候选包构建、真实候选升级验收及发布。
   用户已确认当前无 Apple 证书，保留门禁；本项是真实外部依赖，不用测试包顶替。
 - [ ] 旧 Mac 0.1.4 固定测试通道一次性基础包迁移与用户桌面点击验收。
 - [ ] Linux DEB/RPM 独立包类型更新、提权/取消/失败恢复；Linux ARM64、Windows ARM64。
-- 规范：[三平台稳定更新](specs/unified-desktop-updates.md)。Windows 0.2.5 现有通道继续保留；
+- 规范：[三平台稳定更新](specs/unified-desktop-updates.md)。现有 Windows 稳定通道继续保留
+  （验收结束时独立发布流水线已更新至 `friends-v0.2.6`）；
   本次开发不改用户的应用安装、对话和生产模型服务。
