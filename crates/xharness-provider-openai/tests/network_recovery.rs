@@ -483,3 +483,54 @@ async fn recovered_stream_is_not_cut_off_by_the_pre_output_recovery_deadline() {
     assert!(!error.contains("recovery deadline"));
     assert_eq!(server.count(), 2);
 }
+
+#[tokio::test]
+async fn real_http_retry_replays_identical_image_payload_not_attachment_placeholder() {
+    use xharness_attachments::{AttachmentStore, ContentBlock, MemoryAttachmentStore, Upload};
+    let server = FaultServer::start(vec![Reply::Disconnect, success()]).await;
+    let store = Arc::new(MemoryAttachmentStore::default());
+    let reference = store
+        .put(
+            "s",
+            Upload {
+                media_type: "image/png".into(),
+                data: include_bytes!("../../xharness-attachments/tests/fixtures/red-blue.png")
+                    .to_vec(),
+            },
+        )
+        .await
+        .unwrap();
+    let p = Arc::new(
+        OpenAiProvider::new(OpenAiProviderConfig::new(
+            OpenAiProtocol::ChatCompletions,
+            &server.url,
+            "",
+            "fixture",
+        ))
+        .unwrap()
+        .with_attachments(store),
+    );
+    let message = AgentMessage::user("").with_content_blocks(vec![
+        ContentBlock::Image {
+            attachment: reference,
+        },
+        ContentBlock::Text {
+            text: "colors?".into(),
+        },
+    ]);
+    let mut run = LoopEngine.start(LoopRequest::new(p, vec![message]));
+    let events = run.events();
+    while events.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    let captured = server.requests.lock().unwrap();
+    assert_eq!(captured.len(), 2);
+    assert_eq!(captured[0], captured[1]);
+    assert_eq!(
+        captured[0]["messages"][0]["content"][0]["type"],
+        "image_url"
+    );
+    assert!(captured[0]["messages"][0]["content"][0]["image_url"]["url"]
+        .as_str()
+        .unwrap()
+        .starts_with("data:image/png;base64,"));
+}

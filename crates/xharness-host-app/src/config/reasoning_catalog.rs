@@ -156,7 +156,7 @@ mod tests {
             for _ in 0..2 {
                 let doc = parse_model_settings(&value).unwrap();
                 let registry =
-                    registry_from_settings(&doc, &BTreeMap::new(), DebugRecorder::disabled())
+                    registry_from_settings(&doc, &BTreeMap::new(), DebugRecorder::disabled(), None)
                         .await
                         .unwrap();
                 let models = registry.models();
