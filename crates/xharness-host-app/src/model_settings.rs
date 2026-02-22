@@ -95,6 +95,7 @@ pub struct NativeModelSettings {
     /// Compatibility credentials explicitly passed to the process are not
     /// persisted; they remain read-only, just like environment overrides.
     process_keys: BTreeMap<String, String>,
+    attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
 }
 
 impl NativeModelSettings {
@@ -108,7 +109,15 @@ impl NativeModelSettings {
             credentials,
             debug,
             process_keys: BTreeMap::new(),
+            attachments: None,
         }
+    }
+    pub fn with_attachments(
+        mut self,
+        store: Arc<dyn xharness_attachments::AttachmentStore>,
+    ) -> Self {
+        self.attachments = Some(store);
+        self
     }
     pub fn with_process_key(mut self, reference: String, value: String) -> Self {
         if !value.is_empty() {
@@ -151,7 +160,12 @@ impl NativeModelSettings {
         }
         tokio::time::timeout(
             Duration::from_secs(20),
-            crate::config::registry_from_settings(&doc, &keys, self.debug.clone()),
+            crate::config::registry_from_settings(
+                &doc,
+                &keys,
+                self.debug.clone(),
+                self.attachments.clone(),
+            ),
         )
         .await
         .map_err(|_| {

@@ -77,6 +77,14 @@ impl ModelDeployment {
         config: SingleModelDeployment,
         debug: DebugRecorder,
     ) -> Result<Self, String> {
+        Self::single_with_attachments(config, debug, None).await
+    }
+
+    pub async fn single_with_attachments(
+        config: SingleModelDeployment,
+        debug: DebugRecorder,
+        attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
+    ) -> Result<Self, String> {
         let default_route = ModelRoute::new(&config.provider, &config.model);
         if config.model == "unconfigured" {
             return Ok(Self {
@@ -101,6 +109,10 @@ impl ModelDeployment {
         let adapter = OpenAiProvider::new(provider_config)
             .map_err(|error| error.to_string())?
             .with_debug(debug);
+        let adapter = match attachments {
+            Some(store) => adapter.with_attachments(store),
+            None => adapter,
+        };
         let capabilities = adapter
             .capabilities(CancellationToken::new())
             .await
@@ -272,7 +284,7 @@ impl ProviderConfig {
             })?,
             None => String::new(),
         };
-        self.register_models_with_key(registry, debug, api_key)
+        self.register_models_with_key(registry, debug, api_key, None)
             .await
     }
 
@@ -281,6 +293,7 @@ impl ProviderConfig {
         registry: &mut ModelRegistry,
         debug: DebugRecorder,
         api_key: String,
+        attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
     ) -> Result<(), String> {
         let protocol = parse_protocol(&self.protocol)?;
         let provider_display_name = self.display_name.unwrap_or_else(|| self.id.clone());
@@ -294,6 +307,7 @@ impl ProviderConfig {
                 max_output_tokens,
                 minimum_output_tokens,
                 token_safety_margin,
+                image_input,
                 reasoning,
             } = model;
             let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
@@ -325,7 +339,12 @@ impl ProviderConfig {
             }
             let adapter = OpenAiProvider::new(provider_config)
                 .map_err(|error| error.to_string())?
-                .with_debug(debug.clone());
+                .with_debug(debug.clone())
+                .with_image_support(image_input);
+            let adapter = match attachments.clone() {
+                Some(store) => adapter.with_attachments(store),
+                None => adapter,
+            };
             let capabilities = adapter
                 .capabilities(CancellationToken::new())
                 .await
@@ -368,6 +387,7 @@ pub(crate) async fn registry_from_settings(
     document: &xharness_host::ModelSettingsDocument,
     keys: &BTreeMap<String, Option<String>>,
     debug: DebugRecorder,
+    attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
 ) -> Result<ModelRegistry, String> {
     let mut registry = ModelRegistry::new();
     for (id, profile) in &document.providers {
@@ -384,7 +404,7 @@ pub(crate) async fn registry_from_settings(
             "max_output_tokens":m.max_tokens.or(profile.max_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
             "minimum_output_tokens":m.minimum_output_tokens,
             "token_safety_margin":m.token_safety_margin.unwrap_or(DEFAULT_TOKEN_SAFETY_MARGIN),
-            "reasoning":m.reasoning,"context_window_capability":m.context_window_capability
+            "reasoning":m.reasoning,"context_window_capability":m.context_window_capability,"image_input":m.image_input
         })).collect::<Vec<_>>();
         let provider: ProviderConfig = serde_json::from_value(serde_json::json!({
             "id":id,"display_name":profile.display_name,"base_url":profile.base_url,
@@ -392,7 +412,7 @@ pub(crate) async fn registry_from_settings(
             "models":models
         }))
         .map_err(|_| "Invalid native model metadata".to_owned())?;
-        provider.register_models_with_key(&mut registry, debug.clone(), key).await
+        provider.register_models_with_key(&mut registry, debug.clone(), key, attachments.clone()).await
             .map_err(|_| format!("Provider {id} configuration could not be activated; check model metadata and token limits"))?;
     }
     Ok(registry)
@@ -430,7 +450,7 @@ pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
             "id":m["id"],"name":m["display_name"],"upstreamModel":m["upstream_model"],
             "contextWindow":m.get("fallback_context_window_tokens").or_else(||m.get("context_window_tokens")),
             "maxTokens":m["max_output_tokens"],"minimumOutputTokens":m["minimum_output_tokens"],
-            "tokenSafetyMargin":m["token_safety_margin"],"reasoning":m["reasoning"],"contextWindowCapability":m["context_window_capability"]
+            "tokenSafetyMargin":m["token_safety_margin"],"reasoning":m["reasoning"],"contextWindowCapability":m["context_window_capability"],"imageInput":m["image_input"]
         })).collect::<Vec<_>>();
         profiles.insert(
             id.to_owned(),
@@ -468,6 +488,8 @@ struct ModelConfig {
     token_safety_margin: u64,
     #[serde(default)]
     reasoning: Option<ModelReasoningConfig>,
+    #[serde(default)]
+    image_input: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -69,6 +69,7 @@ pub struct HostConfig {
     pub token_guard: Option<TokenGuard>,
     /// Enabled by the native app composition; embeddings opt in explicitly.
     pub auto_titles: bool,
+    pub attachment_store: Arc<dyn xharness_attachments::AttachmentStore>,
     pub event_capacity: usize,
     /// Maximum number of projected Session events retained in Host memory for
     /// a durable session. Older history remains queryable from the append-only
@@ -102,6 +103,7 @@ impl HostConfig {
             reasoning_effort: None,
             token_guard: None,
             auto_titles: false,
+            attachment_store: Arc::new(xharness_attachments::MemoryAttachmentStore::default()),
             event_capacity: 2_048,
             session_event_cache_capacity: 2_048,
             session_event_cache_bytes: 16 * 1024 * 1024,

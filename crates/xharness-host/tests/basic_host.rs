@@ -1958,3 +1958,83 @@ async fn web_response_resumes_a_real_tool_approval() {
     .expect("approved tool was not executed");
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
+    use xharness_session::ContentBlock;
+    let mut fx = Fixture::new();
+    let mut config = HostConfig::new(&fx.root);
+    config.provider_id = "capture".into();
+    config.model_id = "capture-model".into();
+    let provider = Arc::new(CapturingProvider::default());
+    fx.host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+    let sid = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let bytes = include_bytes!("../../xharness-attachments/tests/fixtures/red-blue.png").to_vec();
+    // Reuse the storage encoding helper rather than add an independent base64 implementation.
+    let fake = xharness_attachments::ResolvedAttachment {
+        reference: xharness_session::AttachmentRef {
+            id: String::new(),
+            session_id: String::new(),
+            media_type: "image/png".into(),
+            width: 64,
+            height: 32,
+            bytes: bytes.len() as u64,
+        },
+        data: Arc::new(bytes),
+    };
+    let upload = fake.base64();
+    fx.value(RpcMethod::SessionPrompt,json!({"sessionId":sid,"mode":"queue","content":[{"type":"image","mediaType":"image/png","data":upload}]})).await;
+    fx.wait_for_assistant(&sid).await;
+    let id = {
+        let requests = provider.requests.lock().unwrap();
+        let message = requests[0]
+            .messages
+            .iter()
+            .find(|m| !m.content_blocks.is_empty())
+            .unwrap();
+        let ContentBlock::Image { attachment } = &message.content_blocks[0] else {
+            panic!("missing image")
+        };
+        assert_eq!((attachment.width, attachment.height), (64, 32));
+        assert!(message.content.is_empty());
+        attachment.id.clone()
+    };
+    let restored = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":sid,"attachmentId":id}),
+        )
+        .await;
+    assert_eq!(restored["data"], upload);
+    let fork = fx
+        .value(RpcMethod::SessionFork, json!({"sessionId":sid}))
+        .await;
+    let child = fork["sessionId"].as_str().unwrap();
+    let inherited = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":child,"attachmentId":id}),
+        )
+        .await;
+    assert_eq!(inherited["data"], upload);
+
+    let other = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(!fx
+        .call(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":other,"attachmentId":id})
+        )
+        .await
+        .is_ok());
+    assert!(!fx.call(RpcMethod::SessionPrompt,json!({"sessionId":sid,"mode":"queue","content":[{"type":"image","mediaType":"image/png","data":"broken"}]})).await.is_ok());
+}

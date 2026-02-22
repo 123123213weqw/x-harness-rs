@@ -576,3 +576,50 @@ async fn flush_syncs_and_returns_the_validated_revision() {
         }
     );
 }
+
+#[tokio::test]
+async fn image_references_survive_jsonl_restart_without_payload() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("image-session")).await.unwrap();
+    let message =
+        Message::user("").with_content_blocks(vec![xharness_session::ContentBlock::Image {
+            attachment: xharness_session::AttachmentRef {
+                id: "sha256-ref".into(),
+                session_id: "image-session".into(),
+                media_type: "image/png".into(),
+                bytes: 128,
+                width: 64,
+                height: 32,
+            },
+        }]);
+    store
+        .append(
+            "image-session",
+            Revision::ZERO,
+            vec![
+                turn_start(1),
+                EventData::UserMessage {
+                    message: message.clone(),
+                    surface_replace: None,
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    drop(store);
+    let reopened = JsonlSessionStore::new(dir.path()).unwrap();
+    assert_eq!(
+        reopened
+            .load("image-session")
+            .await
+            .unwrap()
+            .unwrap()
+            .derive_messages(),
+        vec![message]
+    );
+    let raw = fs::read_to_string(dir.session_file("image-session")).unwrap();
+    assert!(!raw.contains("base64"));
+    assert!(raw.contains("sha256-ref"));
+}
