@@ -201,3 +201,10 @@ Web UI 是 Session/Agent 状态的 Projection，不拥有模型历史。`xharnes
 
 先稳定事件、上下文和权限契约，再扩展 Web/Daemon/Subagent。否则每个客户端都会绑定临时内存
 模型，并把上下文超窗或权限失败变成无法恢复的 UI 行为。
+
+## 多模态输入
+
+`xharness-session::ContentBlock` 保存 Text/Image，Image 只持有 `AttachmentRef`。
+`xharness-attachments::AttachmentStore` 管理字节，Host 负责接收和会话访问；Provider 在发送前
+解析附件并编码各协议图片字段。Core 不接触 base64 或本机路径，Context 保留有序引用并纳入图片预算。
+详见 [多模态附件规范](specs/multimodal-attachments.md)。

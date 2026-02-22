@@ -450,7 +450,13 @@ fn estimate_message_tokens(message: &AgentMessage) -> Result<u64, RunFailure> {
     // JSON-heavy tool observations while staying provider-neutral.
     Ok(u64::try_from(bytes.saturating_add(2) / 3)
         .unwrap_or(u64::MAX)
-        .max(1))
+        .max(1)
+        .saturating_add(
+            xharness_token::image_estimate(&[
+                serde_json::to_value(message).map_err(|e| RunFailure::Failed(e.to_string()))?
+            ])
+            .map_err(|e| RunFailure::Failed(e.to_string()))?,
+        ))
 }
 
 fn continuation_instruction(had_tool_call_fragments: bool, visible_text_is_empty: bool) -> String {
@@ -901,6 +907,7 @@ impl Runner {
                 if !model.text.is_empty() || !model.reasoning.is_empty() {
                     self.final_text = model.text.clone();
                     self.messages.push(AgentMessage {
+                        content_blocks: Vec::new(),
                         id: None,
                         role: Role::Assistant,
                         content: model.text,
@@ -949,6 +956,7 @@ impl Runner {
                 None
             };
             let assistant = AgentMessage {
+                content_blocks: Vec::new(),
                 id: None,
                 role: Role::Assistant,
                 content: model.text.clone(),
@@ -2956,6 +2964,7 @@ impl Runner {
                 // Never execute or replay an unacknowledged fragmented tool call.
                 // Keep the original text/reasoning as explicitly interrupted history.
                 let partial = AgentMessage {
+                    content_blocks: Vec::new(),
                     id: None,
                     role: Role::Assistant,
                     content: round.text,

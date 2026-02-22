@@ -51,6 +51,24 @@ impl ToolCall {
     }
 }
 
+/// Durable identity and verified metadata. No local path, base64 or provider fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachmentRef {
+    pub id: String,
+    pub session_id: String,
+    pub media_type: String,
+    pub bytes: u64,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    Text { text: String },
+    Image { attachment: AttachmentRef },
+}
+
 /// Provider-neutral message used by [`crate::derive_messages`].
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Message {
@@ -61,6 +79,10 @@ pub struct Message {
     pub role: MessageRole,
     #[serde(default)]
     pub content: String,
+    /// Ordered multimodal content, authoritative when present. `content` remains
+    /// a text projection for legacy stores, UI and text-only policies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_blocks: Vec<ContentBlock>,
     #[serde(default)]
     pub reasoning: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -90,6 +112,19 @@ impl Message {
         }
     }
 
+    pub fn with_content_blocks(mut self, blocks: Vec<ContentBlock>) -> Self {
+        self.content = blocks
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                ContentBlock::Image { .. } => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        self.content_blocks = blocks;
+        self
+    }
+
     pub fn system(content: impl Into<String>) -> Self {
         Self::new(MessageRole::System, content)
     }
@@ -114,5 +149,30 @@ impl Message {
             tool_call_id: Some(call_id.into()),
             ..Self::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod multimodal_tests {
+    use super::*;
+    #[test]
+    fn legacy_string_and_new_reference_roundtrip_without_base64() {
+        let old: Message = serde_json::from_str(r#"{"role":"user","content":"hello"}"#).unwrap();
+        assert!(old.content_blocks.is_empty());
+        assert_eq!(old.content, "hello");
+        let r = AttachmentRef {
+            id: "a".repeat(64),
+            session_id: "s".into(),
+            media_type: "image/png".into(),
+            width: 64,
+            height: 32,
+            bytes: 123,
+        };
+        let image =
+            Message::user("").with_content_blocks(vec![ContentBlock::Image { attachment: r }]);
+        let json = serde_json::to_string(&image).unwrap();
+        assert_eq!(serde_json::from_str::<Message>(&json).unwrap(), image);
+        assert!(!json.contains("base64"));
+        assert!(image.content.is_empty());
     }
 }
