@@ -333,14 +333,31 @@ mod tests {
         }
     }
     fn temp() -> PathBuf {
+        // Wall-clock resolution is not a uniqueness guarantee on every OS.
+        // Parallel tests mutate/delete their directories, so collisions can
+        // make a valid attachment disappear during the deduplication test.
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         std::env::temp_dir().join(format!(
-            "xh-attachments-{}-{}",
+            "xh-attachments-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ))
+    }
+    #[test]
+    fn parallel_test_paths_are_unique() {
+        let threads: Vec<_> = (0..16)
+            .map(|_| std::thread::spawn(|| (0..256).map(|_| temp()).collect::<Vec<_>>()))
+            .collect();
+        let paths: Vec<_> = threads
+            .into_iter()
+            .flat_map(|t| t.join().unwrap())
+            .collect();
+        let unique: std::collections::HashSet<_> = paths.iter().collect();
+        assert_eq!(unique.len(), paths.len());
     }
     #[tokio::test]
     async fn durable_roundtrip_restart_scope_integrity_and_dedup() {
