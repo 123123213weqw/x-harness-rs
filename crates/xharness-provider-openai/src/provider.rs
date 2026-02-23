@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::{header, Client, Response};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
@@ -21,6 +22,7 @@ use xharness_core::{
     ProviderNetworkDiagnostics, ProviderRequest, ProviderStream,
 };
 use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
+use xharness_token::{Calibration, WireFeatures};
 
 use crate::{
     build_openai_request, build_openai_token_count_request, OpenAiProtocol, OpenAiStreamNormalizer,
@@ -300,6 +302,8 @@ pub struct OpenAiProvider {
     config: Arc<OpenAiProviderConfig>,
     client: Client,
     token_count_support: Arc<AtomicU8>,
+    calibration: Arc<std::sync::Mutex<Calibration>>,
+    counter_retry_at: Arc<std::sync::Mutex<Option<Instant>>>,
     capability_cache: Arc<Mutex<Option<CachedCapabilities>>>,
     debug: DebugRecorder,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
@@ -381,6 +385,8 @@ impl OpenAiProvider {
             config: Arc::new(config),
             client,
             token_count_support: Arc::new(AtomicU8::new(TOKEN_COUNT_UNKNOWN)),
+            calibration: Arc::new(std::sync::Mutex::new(Calibration::default())),
+            counter_retry_at: Arc::new(std::sync::Mutex::new(None)),
             capability_cache: Arc::new(Mutex::new(None)),
             debug: DebugRecorder::disabled(),
             attachments: None,
@@ -536,6 +542,34 @@ impl OpenAiProvider {
         })
     }
 
+    fn count_features(
+        &self,
+        request: &ProviderRequest,
+    ) -> Result<(String, String, WireFeatures), ProviderError> {
+        let body = self.request_body(request, false)?;
+        // Template controls and tool schema are part of the scope. Credentials
+        // are not persisted or included; a new provider instance starts cold.
+        let mut controls = body.clone();
+        for k in ["messages", "input", "max_tokens", "max_output_tokens"] {
+            controls.as_object_mut().unwrap().remove(k);
+        }
+        let scope=format!("{:x}",Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":"openai-wire/v2"})).unwrap()));
+        let request_id = format!("{:x}", Sha256::digest(serde_json::to_vec(&body).unwrap()));
+        let messages = request
+            .messages
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| ProviderError::new(e.to_string()))?;
+        let image_tokens = xharness_token::image_estimate(&messages)
+            .map_err(|e| ProviderError::new(e.to_string()))?;
+        Ok((
+            scope,
+            request_id,
+            WireFeatures::from_body(&body, image_tokens),
+        ))
+    }
+
     async fn multimodal_body(
         &self,
         request: &ProviderRequest,
@@ -640,6 +674,12 @@ impl OpenAiProvider {
 
 #[async_trait]
 impl ModelProvider for OpenAiProvider {
+    fn input_counter_failed(&self) {
+        if let Ok(mut at) = self.counter_retry_at.lock() {
+            *at = Some(Instant::now() + Duration::from_secs(60));
+        }
+    }
+
     fn provider_name(&self) -> &str {
         "openai-compatible"
     }
@@ -685,11 +725,24 @@ impl ModelProvider for OpenAiProvider {
         Ok(capabilities)
     }
 
+    fn estimate_input_tokens(&self, request: &ProviderRequest) -> Option<ProviderInputTokenCount> {
+        let (scope, _, features) = self.count_features(request).ok()?;
+        Some(self.calibration.lock().ok()?.estimate(&scope, &features))
+    }
+
     async fn count_input_tokens(
         &self,
         request: &ProviderRequest,
         cancellation: CancellationToken,
     ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        if self
+            .counter_retry_at
+            .lock()
+            .ok()
+            .is_some_and(|at| at.is_some_and(|t| t > Instant::now()))
+        {
+            return Ok(None);
+        }
         if self.token_count_support.load(Ordering::Acquire) == TOKEN_COUNT_UNSUPPORTED {
             return Ok(None);
         }
@@ -770,6 +823,8 @@ impl ModelProvider for OpenAiProvider {
         request: ProviderRequest,
         cancellation: CancellationToken,
     ) -> Result<ProviderStream, ProviderError> {
+        let count_features = self.count_features(&request)?;
+        let calibration = self.calibration.clone();
         let mut observation = NetworkObservation::new(&self.config.endpoint());
         let body = self.multimodal_body(&request, false, &cancellation).await?;
         self.trace(
@@ -833,6 +888,11 @@ impl ModelProvider for OpenAiProvider {
                 format!("OpenAI HTTP {code}: {body}")
             };
             let mut error = observation.failure(ProviderError::http(code, detail), "http_status");
+            if error.is_context_overflow() {
+                if let Ok(mut c) = calibration.lock() {
+                    *c = Calibration::default();
+                }
+            }
             error.retry_after_ms = retry_after;
             return Err(error);
         }
@@ -880,6 +940,10 @@ impl ModelProvider for OpenAiProvider {
                                                     "stream.event",
                                                     provider_event_payload(&provider_event),
                                                 ).with_scope(debug_scope.clone())).await;
+                                                if let ProviderEvent::Completed { usage: Some(usage), .. } = &provider_event {
+                                                    let actual=usage.input_tokens.saturating_add(usage.cache_read_tokens).saturating_add(usage.cache_write_tokens);
+                                                    if let Ok(mut c)=calibration.lock() {c.observe(&count_features.0,&count_features.1,count_features.2.clone(),actual);}
+                                                }
                                                 let terminal = matches!(provider_event, ProviderEvent::Completed { .. });
                                                 yield Ok(provider_event);
                                                 // The application terminal event owns completion;
@@ -941,6 +1005,10 @@ impl ModelProvider for OpenAiProvider {
                                                     "stream.event",
                                                     provider_event_payload(&provider_event),
                                                 ).with_scope(debug_scope.clone())).await;
+                                                if let ProviderEvent::Completed { usage: Some(usage), .. } = &provider_event {
+                                                    let actual=usage.input_tokens.saturating_add(usage.cache_read_tokens).saturating_add(usage.cache_write_tokens);
+                                                    if let Ok(mut c)=calibration.lock() {c.observe(&count_features.0,&count_features.1,count_features.2.clone(),actual);}
+                                                }
                                                 let terminal = matches!(provider_event, ProviderEvent::Completed { .. });
                                                 yield Ok(provider_event);
                                                 // The application terminal event owns completion;
@@ -1189,6 +1257,77 @@ mod tests {
             max_output_tokens: None,
             debug_scope: Default::default(),
         }
+    }
+
+    #[test]
+    fn calibration_scope_tracks_model_endpoint_tools_and_reasoning_not_output_limit() {
+        let profile = OpenAiReasoningProfile::new(
+            Some("off".into()),
+            [
+                ("off".into(), json!({"thinking":{"type":"disabled"}})),
+                ("high".into(), json!({"reasoning_effort":"high"})),
+            ],
+        )
+        .unwrap();
+        let config = OpenAiProviderConfig::new(
+            OpenAiProtocol::ChatCompletions,
+            "http://localhost:1234/v1",
+            "test",
+            "a",
+        )
+        .with_reasoning_profile(profile);
+        let p = OpenAiProvider::new(config.clone()).unwrap();
+        let mut r = request(None);
+        let base = p.count_features(&r).unwrap().0;
+        r.max_output_tokens = Some(4096);
+        assert_eq!(base, p.count_features(&r).unwrap().0);
+        r.reasoning_effort = Some("high".into());
+        assert_ne!(base, p.count_features(&r).unwrap().0);
+        r.reasoning_effort = None;
+        r.tools = vec![xharness_core::ToolDefinition {
+            name: "echo".into(),
+            description: "fixture".into(),
+            parameters: json!({"type":"object"}),
+        }];
+        assert_ne!(base, p.count_features(&r).unwrap().0);
+        let mut c = config.clone();
+        c.model = "b".into();
+        assert_ne!(
+            base,
+            OpenAiProvider::new(c)
+                .unwrap()
+                .count_features(&request(None))
+                .unwrap()
+                .0
+        );
+        let mut c = config;
+        c.base_url = "http://localhost:5678/v1".into();
+        assert_ne!(
+            base,
+            OpenAiProvider::new(c)
+                .unwrap()
+                .count_features(&request(None))
+                .unwrap()
+                .0
+        );
+    }
+
+    #[tokio::test]
+    async fn transient_counter_cooldown_skips_network_without_disabling_local_estimate() {
+        let p = OpenAiProvider::new(OpenAiProviderConfig::new(
+            OpenAiProtocol::Responses,
+            "http://127.0.0.1:1/v1",
+            "test",
+            "a",
+        ))
+        .unwrap();
+        p.input_counter_failed();
+        assert!(p
+            .count_input_tokens(&request(None), CancellationToken::new())
+            .await
+            .unwrap()
+            .is_none());
+        assert!(p.estimate_input_tokens(&request(None)).is_some());
     }
 
     #[test]

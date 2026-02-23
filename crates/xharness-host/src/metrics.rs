@@ -89,33 +89,51 @@ struct ContextPressureProjectionState {
     projected_tokens: Option<u64>,
     context_window: Option<u64>,
     request_context_seen: bool,
+    active: Option<(u32, u32)>,
+    awaiting_request: bool,
+    measurement: Value,
+    phase: String,
+    accuracy: String,
 }
-
 impl ContextPressureProjectionState {
     fn apply(&mut self, event: &Value) {
-        let Some(event_type) = event.get("type").and_then(Value::as_str) else {
-            return;
-        };
         let Some(data) = event.get("data") else {
             return;
         };
-        match event_type {
+        match event.get("type").and_then(Value::as_str).unwrap_or("") {
+            "step/start" => {
+                self.awaiting_request = false;
+                self.measurement = Value::Null;
+                self.accuracy.clear();
+                self.active = data["turn"]
+                    .as_u64()
+                    .zip(data["step"].as_u64())
+                    .map(|(t, s)| (t as u32, s as u32));
+                self.pressure_tokens = None;
+                self.projected_tokens = None;
+                self.phase = "preparing".into();
+            }
             "request/header" => {
-                let token_budget = data.pointer("/header/options/tokenBudget");
-                self.projected_tokens = token_budget
-                    .and_then(|budget| budget.get("estimate"))
-                    .and_then(|estimate| {
-                        estimate
-                            .get("totalInputTokens")
-                            .or_else(|| estimate.get("total_input_tokens"))
+                self.awaiting_request = false;
+                let budget = data.pointer("/header/options/tokenBudget");
+                self.projected_tokens = budget
+                    .and_then(|b| {
+                        b.pointer("/estimate/totalInputTokens")
+                            .or_else(|| b.pointer("/estimate/total_input_tokens"))
                     })
                     .and_then(Value::as_u64);
+                self.accuracy = budget
+                    .and_then(|b| b["accuracy"].as_str())
+                    .unwrap_or("estimated")
+                    .into();
+                self.measurement=data.pointer("/header/options/measurement").cloned().unwrap_or_else(||json!({"turn":self.active.map(|a|a.0),"step":self.active.map(|a|a.1),"source":"legacy_request"}));
+                self.pressure_tokens = None;
+                self.phase = "in_flight".into();
                 if !self.request_context_seen {
-                    self.context_window = token_budget
-                        .and_then(|budget| {
-                            budget
-                                .get("contextWindowTokens")
-                                .or_else(|| budget.get("context_window_tokens"))
+                    self.context_window = budget
+                        .and_then(|b| {
+                            b.get("contextWindowTokens")
+                                .or_else(|| b.get("context_window_tokens"))
                         })
                         .and_then(Value::as_u64);
                 }
@@ -127,48 +145,68 @@ impl ContextPressureProjectionState {
                     .or_else(|| data.get("context_window"))
                     .and_then(Value::as_u64);
             }
+            "session/model-selected" => {
+                self.pressure_tokens = None;
+                self.projected_tokens = None;
+                self.active = None;
+                self.awaiting_request = true;
+                self.measurement = Value::Null;
+                self.phase = "model_changed".into();
+                self.context_window = None;
+                self.request_context_seen = false;
+            }
             "assistant/chunk" | "assistant/message" => {
-                let Some((_turn, _step, usage)) = usage_sample(event) else {
+                if self.awaiting_request {
+                    return;
+                }
+                let Some((turn, step, usage)) = usage_sample(event) else {
                     return;
                 };
+                if self.active.is_some_and(|a| a != (turn, step)) {
+                    return;
+                }
                 let Some(usage) = web_token_usage(usage) else {
                     return;
                 };
-                self.pressure_tokens = Some(
-                    usage
-                        .get("inputTokens")
-                        .and_then(Value::as_u64)
-                        .unwrap_or_default()
-                        .saturating_add(
-                            usage
-                                .get("cacheReadTokens")
-                                .and_then(Value::as_u64)
-                                .unwrap_or_default(),
-                        )
-                        .saturating_add(
-                            usage
-                                .get("cacheWriteTokens")
-                                .and_then(Value::as_u64)
-                                .unwrap_or_default(),
-                        ),
-                );
+                self.pressure_tokens = usage["inputTokens"].as_u64().map(|n| {
+                    n.saturating_add(usage["cacheReadTokens"].as_u64().unwrap_or(0))
+                        .saturating_add(usage["cacheWriteTokens"].as_u64().unwrap_or(0))
+                });
+                self.phase = "measured".into();
+            }
+            "tool/result" | "user/message" | "compaction/summary" => {
+                self.phase = "history_changed".into();
+            }
+            "turn/end" if self.pressure_tokens.is_none() => {
+                self.phase = "unmeasured".into();
             }
             _ => {}
         }
     }
-
     fn view(&self) -> Value {
-        let mut value = Map::new();
-        if let Some(tokens) = self.pressure_tokens {
-            value.insert("pressureTokens".to_owned(), json!(tokens));
+        let mut v = Map::new();
+        if let Some(n) = self.pressure_tokens {
+            v.insert("pressureTokens".into(), json!(n));
         }
-        if let Some(tokens) = self.projected_tokens {
-            value.insert("projectedTokens".to_owned(), json!(tokens));
+        if let Some(n) = self.projected_tokens {
+            v.insert("projectedTokens".into(), json!(n));
         }
-        if let Some(tokens) = self.context_window {
-            value.insert("contextWindow".to_owned(), json!(tokens));
+        if let Some(n) = self.context_window {
+            v.insert("contextWindow".into(), json!(n));
         }
-        Value::Object(value)
+        if !v.is_empty() {
+            v.insert("measurement".into(), self.measurement.clone());
+            v.insert("phase".into(), json!(self.phase));
+            v.insert(
+                "accuracy".into(),
+                json!(if self.pressure_tokens.is_some() {
+                    "provider_reported"
+                } else {
+                    &self.accuracy
+                }),
+            );
+        }
+        Value::Object(v)
     }
 }
 
@@ -630,6 +668,7 @@ mod tests {
                 "pressureTokens": 1_850,
                 "projectedTokens": 1_830,
                 "contextWindow": 53_248,
+                "accuracy":"provider_reported", "phase":"measured", "measurement":{"source":"legacy_request","turn":null,"step":null}
             })
         );
     }
@@ -648,7 +687,7 @@ mod tests {
         let state = MetricsProjectionState::rebuild([&header]);
         assert_eq!(
             state.context_pressure(),
-            json!({"projectedTokens": 1_830, "contextWindow": 262_144})
+            json!({"projectedTokens": 1_830, "contextWindow": 262_144,"accuracy":"estimated","phase":"in_flight","measurement":{"source":"legacy_request","turn":null,"step":null}})
         );
     }
 
@@ -726,5 +765,37 @@ mod tests {
                 "decodeTokens": 0,
             })
         );
+    }
+    #[test]
+    fn context_samples_are_request_scoped_and_rebuildable() {
+        let events = vec![
+            event(1, 1, "step/start", json!({"turn":1,"step":1})),
+            event(
+                2,
+                2,
+                "request/header",
+                json!({"header":{"options":{"tokenBudget":{"contextWindowTokens":1000000,"estimate":{"totalInputTokens":415395}},"measurement":{"requestId":"r1","turn":1,"step":1}}}}),
+            ),
+            event(
+                3,
+                3,
+                "assistant/message",
+                json!({"turn":1,"step":1,"usage":{"inputTokens":454,"cacheReadTokens":116992,"outputTokens":10}}),
+            ),
+        ];
+        let mut s = MetricsProjectionState::rebuild(&events);
+        assert_eq!(s.context_pressure()["pressureTokens"], 117446);
+        s.apply(&events[2]);
+        assert_eq!(s.context_pressure()["pressureTokens"], 117446);
+        s.apply(&event(4, 4, "step/start", json!({"turn":1,"step":2})));
+        s.apply(&events[2]);
+        assert!(s.context_pressure().get("pressureTokens").is_none());
+        s.apply(&event(
+            5,
+            5,
+            "session/model-selected",
+            json!({"provider":"other","model":"small"}),
+        ));
+        assert!(s.context_pressure().get("contextWindow").is_none());
     }
 }

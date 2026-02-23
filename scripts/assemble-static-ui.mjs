@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { patchContextAccounting, patchContextConnection } from './patch-context-accounting.mjs'
 import { patchModelControls, patchModelConnection } from './patch-model-controls.mjs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
@@ -101,10 +102,10 @@ for (const entry of composed) {
   const source = resolve(dirname(packagePath), relative)
   let bytes = portableBytes(readFileSync(source))
   if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') {
-    bytes = patchConversationClient(bytes)
+    bytes = patchContextAccounting(patchConversationClient(bytes))
   }
   if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchModelConnection(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextConnection(patchModelConnection(bytes))
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
