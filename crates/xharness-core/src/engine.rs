@@ -1099,8 +1099,11 @@ impl Runner {
         let guard = guard.clone();
         let provider_cancellation = self.cancellation.child_token();
         let provider = self.request.provider.clone();
-        let mut count_future =
-            Box::pin(provider.count_input_tokens(provider_request, provider_cancellation.clone()));
+        let mut count_future = Box::pin(tokio::time::timeout(
+            guard.counter_timeout(),
+            provider.count_input_tokens(provider_request, provider_cancellation.clone()),
+        ));
+        let mut fallback_reason = None;
         let provider_count = loop {
             enum CountProgress {
                 Command(Option<CommandEnvelope>),
@@ -1111,14 +1114,26 @@ impl Runner {
                 command = self.command_rx.recv(), if self.command_open => {
                     CountProgress::Command(command)
                 }
-                count = &mut count_future => CountProgress::Ready(count),
+                count = &mut count_future => CountProgress::Ready(match count {
+                    Ok(result)=>result,
+                    Err(_)=> { provider_cancellation.cancel(); Err(ProviderError::retryable("input count deadline exceeded")) },
+                }),
             };
             match progress {
-                CountProgress::Ready(count) => {
-                    break count.map_err(|error| {
-                        RunFailure::Failed(format!("provider input token count failed: {error}"))
-                    })?
-                }
+                CountProgress::Ready(count) => match count {
+                    Ok(value) => break value,
+                    Err(error) if error.retryable && guard.allows_counter_fallback() => {
+                        fallback_reason = Some("transient_counter_failure".to_owned());
+                        provider.input_counter_failed();
+                        self.debug("token_count.fallback",json!({"reason":"transient_counter_failure","status":error.http_status})).await;
+                        break None;
+                    }
+                    Err(error) => {
+                        return Err(RunFailure::Failed(format!(
+                            "provider input token count failed: {error}"
+                        )))
+                    }
+                },
                 CountProgress::Command(Some(envelope)) => {
                     let interrupt = self.handle_envelope(envelope, true).await?;
                     if interrupt || self.paused {
@@ -1129,9 +1144,17 @@ impl Runner {
                 CountProgress::Command(None) => self.command_open = false,
             }
         };
-        if let Some(count) = provider_count {
+        if let Some(count) = provider_count.or_else(|| {
+            guard
+                .allows_provider_estimate()
+                .then(|| provider.estimate_input_tokens(provider_request))
+                .flatten()
+        }) {
             return match guard.check_provider_count(&count) {
-                Ok(report) => Ok(TokenBudgetCheck::Ready(Some(report))),
+                Ok(mut report) => {
+                    report.fallback_reason = fallback_reason.clone();
+                    Ok(TokenBudgetCheck::Ready(Some(report)))
+                }
                 Err(
                     error @ TokenBudgetError::Exceeded {
                         estimated_input_tokens,
@@ -1169,7 +1192,10 @@ impl Runner {
             conversation_messages,
             tools: tools.to_vec(),
         }) {
-            Ok(report) => Ok(TokenBudgetCheck::Ready(Some(report))),
+            Ok(mut report) => {
+                report.fallback_reason = fallback_reason.clone();
+                Ok(TokenBudgetCheck::Ready(Some(report)))
+            }
             Err(
                 error @ TokenBudgetError::Exceeded {
                     estimated_input_tokens,
@@ -1931,6 +1957,14 @@ impl Runner {
             .collect::<Vec<_>>()
             .join("\n\n");
         let mut header = RequestHeader::new(provider, model);
+        header.options.insert(
+            "measurement".into(),
+            json!({
+                "requestId":format!("{}:{}",self.run_id,self.step),
+                "turn":self.journal.as_ref().map(|j|j.turn),"step":self.step,
+                "source":"request_admission","phase":"prepared",
+            }),
+        );
         header.system = (!system.is_empty()).then_some(system);
         header.options.insert(
             "toolDefinitionsSha256".to_owned(),

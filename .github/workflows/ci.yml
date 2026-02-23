@@ -75,6 +75,7 @@ jobs:
           node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
       - run: python3 -B scripts/test-remote-sync.py
       - run: node scripts/test-context-plugin.mjs
+      - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-model-controls.mjs
       - run: node scripts/test-workspace-directory.mjs
       - name: Real browser layout regression
