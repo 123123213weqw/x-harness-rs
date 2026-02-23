@@ -3547,11 +3547,13 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-util",
  "xharness-attachments",
  "xharness-core",
  "xharness-debug",
+ "xharness-token",
 ]
 
 [[package]]
