@@ -2923,12 +2923,16 @@ window.__ModuleLoader__.load({
 		* @returns occupancy with its numerator and denominator, or null until both values are known.
 		*/
 		function contextOccupancy(pressure) {
-			const usedTokens = pressure?.projectedTokens ?? pressure?.pressureTokens;
-			if (usedTokens === void 0 || pressure?.contextWindow === void 0) return null;
+			// xharness-context-measurement/v1
+            const measured = Number.isFinite(pressure?.pressureTokens);
+            const usedTokens = measured ? pressure.pressureTokens : pressure?.projectedTokens;
+            const exact = measured || ['exact_request', 'exact_tokenizer'].includes(pressure?.accuracy);
+            const label = measured ? '最近请求实际输入' : exact ? '本次请求输入计数' : '本次请求估算输入';
+			if (!Number.isFinite(usedTokens) || usedTokens < 0 || !Number.isFinite(pressure?.contextWindow) || pressure.contextWindow <= 0) return null;
 			return {
 				percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
 				usedTokens,
-				contextWindow: pressure.contextWindow
+				contextWindow: pressure.contextWindow, exact, label
 			};
 		}
 		const StatsLine = (0, react.memo)(function StatsLine({ useSession, useProjection, t }) {
@@ -3085,7 +3089,7 @@ window.__ModuleLoader__.load({
 			}, [available, open]);
 			if (context === null) return null;
 			const percent = context.percent;
-			const reading = `${percent}%`;
+			const reading = `${context.exact ? "" : "≈"}${percent}%`;
 			const [headBefore = "", headAfter = ""] = t("context.aria", { percent: READING_SLOT }).split(READING_SLOT).map((part) => part.trim());
 			const breakdownTotal = breakdown === void 0 ? 0 : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens;
 			const segments = (breakdown === void 0 || breakdownTotal === 0 ? [{
@@ -3144,7 +3148,7 @@ window.__ModuleLoader__.load({
 							children: [
 								(0, react_jsx_runtime.jsx)("span", {
 									className: ContextMeter_module_css_default.headline,
-									children: headBefore
+									children: context.label
 								}),
 								(0, react_jsx_runtime.jsx)("span", {
 									className: ContextMeter_module_css_default.percent,
@@ -3156,7 +3160,7 @@ window.__ModuleLoader__.load({
 								}),
 								(0, react_jsx_runtime.jsx)("span", {
 									className: ContextMeter_module_css_default.figures,
-									children: `~${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`
+									children: `${context.exact ? "" : "≈"}${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`
 								})
 							]
 						}),

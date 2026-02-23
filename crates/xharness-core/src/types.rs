@@ -274,6 +274,18 @@ pub trait ModelProvider: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// Notify the adapter that its optional counter had a transient failure.
+    fn input_counter_failed(&self) {}
+
+    /// Local complete-wire estimate, isolated by the adapter's configuration.
+    /// Exact counters take precedence; this must never make network requests.
+    fn estimate_input_tokens(
+        &self,
+        _request: &ProviderRequest,
+    ) -> Option<xharness_token::ProviderInputTokenCount> {
+        None
+    }
+
     async fn stream(
         &self,
         request: ProviderRequest,
