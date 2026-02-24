@@ -18,7 +18,7 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `DESKTOP-FIX-01` macOS CI 固定无 PCRE2 的内部 rg，拒绝外部 dylib，增加签名包内真实搜索验收。
 - [x] `DESKTOP-FIX-02` glob/grep 区分无匹配与进程失败，保留诊断，不再误报 success。
 - [x] `DESKTOP-FIX-03` 审批超时/取消收敛、Host/UI 清理、迟到回答拒绝和旧日志追加式修复。
-- [ ] `DESKTOP-FIX-04` 跨平台 CI、发布并替换本机安装包，验证旧会话不再残留 Waiting for approval；当前安装的 0.2.8 尚无本批修复。
+- [x] `DESKTOP-FIX-04` PR #43 全部跨平台 CI 通过并合并；macOS 0.2.9 已发布、验证签名并替换本机。28 个旧会话及 Provider 配置保留，旧审批追加 cancelled 且 UI history 已返回终态，最终签名包内 rg 实测通过。独立 3082 Web 未重启。
 
 ## 请求级上下文计量专项（2026-09-09）
 
