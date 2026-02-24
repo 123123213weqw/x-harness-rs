@@ -2011,6 +2011,49 @@ async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
         )
         .await;
     assert_eq!(restored["data"], upload);
+    fx.value(RpcMethod::SessionPrompt, json!({"sessionId":sid,"mode":"queue",
+        "requireIdle":true,"content":[{"type":"image_ref","attachmentId":id}, {"type":"text","text":"edited"}]})).await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if provider.requests.lock().unwrap().len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    {
+        let requests = provider.requests.lock().unwrap();
+        let users: Vec<_> = requests[1]
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::User)
+            .collect();
+        assert_eq!(
+            users.len(),
+            2,
+            "editing appends rather than overwrites history"
+        );
+        assert_eq!(users[0].content, "");
+        assert_eq!(users[1].content, "edited");
+        let ContentBlock::Image { attachment } = &users[1].content_blocks[0] else {
+            panic!("missing reused image")
+        };
+        assert_eq!(
+            attachment.id, id,
+            "resending must reuse the durable attachment"
+        );
+    }
+    assert!(!fx
+        .call(
+            RpcMethod::SessionPrompt,
+            json!({"sessionId":sid,"mode":"queue",
+        "content":[{"type":"image_ref","attachmentId":"missing"}]})
+        )
+        .await
+        .is_ok());
+
     let fork = fx
         .value(RpcMethod::SessionFork, json!({"sessionId":sid}))
         .await;
@@ -2037,4 +2080,18 @@ async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
         .await
         .is_ok());
     assert!(!fx.call(RpcMethod::SessionPrompt,json!({"sessionId":sid,"mode":"queue","content":[{"type":"image","mediaType":"image/png","data":"broken"}]})).await.is_ok());
+    assert!(!fx
+        .call(
+            RpcMethod::SessionPrompt,
+            json!({"sessionId":other,"mode":"queue",
+        "content":[{"type":"image_ref","attachmentId":id}]})
+        )
+        .await
+        .is_ok());
+    fx.value(
+        RpcMethod::SessionPrompt,
+        json!({"sessionId":child,"mode":"queue",
+        "content":[{"type":"image_ref","attachmentId":id}]}),
+    )
+    .await;
 }

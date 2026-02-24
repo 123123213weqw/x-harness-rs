@@ -5400,7 +5400,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			literal("image/gif")
 		]);
 		/** Prompt wire content is intentionally narrower than merge-extensible durable core content. */
-		const promptContentPartSchema = discriminatedUnion("type", [object({
+		// xharness-edit-reference-wire/v1
+const promptContentPartSchema = discriminatedUnion("type", [object({type:literal("image_ref"),attachmentId:string().min(1)}),object({
 			type: literal("text"),
 			text: string()
 		}), object({
@@ -5413,6 +5414,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			sessionId: sessionIdSchema,
 			mode: union([literal("queue"), literal("steer")]),
 			content: array(promptContentPartSchema),
+requireIdle: boolean().optional(),
 			clientTimeZone: string().optional()
 		});
 		/** session.prompt response value (the command slot appears only when the prompt dispatched a slash command). */

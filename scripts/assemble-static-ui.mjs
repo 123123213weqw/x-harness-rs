@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { patchConversationMessageEdit, patchMessageEditConnection, patchMessageEditRuntime } from './patch-conversation-message-edit.mjs'
 import { patchContextAccounting, patchContextConnection } from './patch-context-accounting.mjs'
 import { patchModelControls, patchModelConnection } from './patch-model-controls.mjs'
 import { createRequire } from 'node:module'
@@ -102,10 +103,12 @@ for (const entry of composed) {
   const source = resolve(dirname(packagePath), relative)
   let bytes = portableBytes(readFileSync(source))
   if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') {
-    bytes = patchContextAccounting(patchConversationClient(bytes))
+    bytes = patchConversationMessageEdit(patchContextAccounting(patchConversationClient(bytes)))
   }
   if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextConnection(patchModelConnection(bytes))
+  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchMessageEditConnection(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchMessageEditRuntime(bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
@@ -185,7 +188,7 @@ for (const entry of entries) {
   writeFileSync(target, plugin.bytes)
   const sourceMap = `${plugin.source}.map`
   try {
-    if (!['@deepseek-ai/dsh-client-ui-model-selection', '@deepseek-ai/dsh-client-connection'].includes(entry.id)) writeFileSync(`${target}.map`, portableBytes(readFileSync(sourceMap)))
+    if (!['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-model-selection', '@deepseek-ai/dsh-client-connection'].includes(entry.id)) writeFileSync(`${target}.map`, portableBytes(readFileSync(sourceMap)))
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }

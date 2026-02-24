@@ -1286,6 +1286,11 @@ impl BasicHost {
             return Err(bad_request("mode must be queue or steer"));
         }
         let content = required_array(payload, "content")?.clone();
+        let require_idle = match payload.get("requireIdle") {
+            None => false,
+            Some(Value::Bool(value)) => *value,
+            _ => return Err(bad_request("requireIdle must be a boolean")),
+        };
         let client_time_zone = optional_string(payload, "clientTimeZone")?;
         if let Some(zone) = &client_time_zone {
             if zone.trim().is_empty() || zone.contains('\0') {
@@ -1303,6 +1308,52 @@ impl BasicHost {
             .await?
         {
             return Ok(json!({"accepted": true}));
+        }
+
+        if require_idle {
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?;
+            if session.running {
+                return Err(rpc_error(
+                    RpcErrorCode::SessionConflict,
+                    "session started running; edited draft was not submitted",
+                    json!({"reason":"session-running"}),
+                ));
+            }
+        }
+
+        if content.iter().any(|part| {
+            matches!(
+                part.get("type").and_then(Value::as_str),
+                Some("image" | "image_ref")
+            )
+        }) {
+            let state = self.state.read().await;
+            if let Some(session) = state.sessions.get(&session_id) {
+                let unsupported = state
+                    .settings
+                    .get(crate::MODEL_SETTINGS_NAMESPACE)
+                    .and_then(|ns| {
+                        ns.value["providers"][&session.model.provider]["models"].as_array()
+                    })
+                    .and_then(|models| {
+                        models
+                            .iter()
+                            .find(|m| m["id"].as_str() == Some(&session.model.model))
+                    })
+                    .and_then(|model| model["imageInput"].as_bool())
+                    == Some(false);
+                if unsupported {
+                    return Err(rpc_error(
+                        RpcErrorCode::AttachmentError,
+                        "current model does not support images",
+                        json!({"reason":"MODEL_DOES_NOT_SUPPORT_IMAGES"}),
+                    ));
+                }
+            }
         }
 
         // Attachment materialization is deliberately after receipt lookup:
@@ -1423,7 +1474,21 @@ impl BasicHost {
                     });
                     durable.push(json!({"type":"image", "attachment":attachment}));
                 }
-                _ => return Err(bad_request("content part type must be text or image")),
+                Some("image_ref") => {
+                    let id = required_string(part, "attachmentId")?;
+                    let resolved = self.resolve_session_attachment(session_id, &id).await?;
+                    let reference = &resolved.reference;
+                    durable.push(json!({"type":"image", "attachment": {
+                        "attachmentId": reference.id, "mediaType": reference.media_type,
+                        "bytes": reference.bytes, "width": reference.width, "height": reference.height,
+                        "reference": reference,
+                    }}));
+                }
+                _ => {
+                    return Err(bad_request(
+                        "content part type must be text, image or image_ref",
+                    ))
+                }
             }
         }
         if durable.is_empty() {
@@ -1435,27 +1500,41 @@ impl BasicHost {
     async fn session_attachment(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let attachment_id = required_string(payload, "attachmentId")?;
+        let attachment = self
+            .resolve_session_attachment(&session_id, &attachment_id)
+            .await?;
+        let r = &attachment.reference;
+        Ok(
+            json!({"attachment": {"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height}, "data":attachment.base64()}),
+        )
+    }
+
+    async fn resolve_session_attachment(
+        &self,
+        session_id: &str,
+        attachment_id: &str,
+    ) -> Result<xharness_attachments::ResolvedAttachment, RpcError> {
         let state = self.state.read().await;
-        if !state.sessions.contains_key(&session_id) {
-            return Err(session_not_found(&session_id));
+        if !state.sessions.contains_key(session_id) {
+            return Err(session_not_found(session_id));
         }
         drop(state);
         // A fork may legitimately replay a reference owned by its ancestor.
         // Authorize via this session's actual history, never a caller-supplied owner.
-        let mut owner = session_id.clone();
+        let mut owner = session_id.to_owned();
         let reference_owner = |message: &xharness_session::Message| {
             message.content_blocks.iter().find_map(|block| match block {
                 xharness_session::ContentBlock::Image { attachment }
                     if attachment.id == attachment_id =>
                 {
-                    Some(attachment.session_id.clone())
+                    Some(attachment.session_id.to_owned())
                 }
                 _ => None,
             })
         };
         if let Some(session) = self
             .agent_runtime
-            .authoritative_session(&session_id)
+            .authoritative_session(session_id)
             .await
             .map_err(agent_runtime_error)?
         {
@@ -1476,7 +1555,7 @@ impl BasicHost {
             .read()
             .await
             .sessions
-            .get(&session_id)
+            .get(session_id)
             .and_then(|session| session.messages.iter().find_map(reference_owner))
         {
             owner = found;
@@ -1484,7 +1563,7 @@ impl BasicHost {
         let attachment = self
             .config
             .attachment_store
-            .resolve(&owner, &attachment_id)
+            .resolve(&owner, attachment_id)
             .await
             .map_err(|e| {
                 rpc_error(
@@ -1493,10 +1572,7 @@ impl BasicHost {
                     json!({"reason":"NOT_FOUND"}),
                 )
             })?;
-        let r = &attachment.reference;
-        Ok(
-            json!({"attachment": {"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height}, "data":attachment.base64()}),
-        )
+        Ok(attachment)
     }
 
     async fn session_update_queue(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -3622,4 +3698,75 @@ fn queue_item_not_found(item_id: &str, error: AgentRuntimeError) -> RpcError {
 fn mint_stream_id(next_id: &AtomicU64, prefix: &str) -> String {
     let ordinal = next_id.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{}-{ordinal}", now_ms())
+}
+
+#[cfg(test)]
+mod edit_admission_tests {
+    use super::*;
+    use crate::{HostConfig, NoTools};
+
+    #[tokio::test]
+    async fn edit_admission_rejects_running_invalid_flags_and_text_only_models() {
+        let root = std::env::temp_dir().join(format!("xh-edit-admission-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let host = BasicHost::new(HostConfig::new(&root), None, Arc::new(NoTools));
+        let created = host.session_create(&json!({"cwd":root})).await.unwrap();
+        let id = created["sessionId"].as_str().unwrap();
+        host.state
+            .write()
+            .await
+            .sessions
+            .get_mut(id)
+            .unwrap()
+            .running = true;
+        let error = host
+            .session_prompt(
+                RpcId::new("edit-running"),
+                &json!({
+                    "sessionId":id,"mode":"queue","requireIdle":true,
+                    "content":[{"type":"text","text":"draft"}]
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("started running"));
+        assert!(host.state.read().await.sessions[id].queue.is_empty());
+        let error = host
+            .session_prompt(
+                RpcId::new("edit-invalid"),
+                &json!({
+                    "sessionId":id,"mode":"queue","requireIdle":"true","content":[]
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("boolean"));
+        {
+            let mut state = host.state.write().await;
+            let session = state.sessions.get_mut(id).unwrap();
+            session.running = false;
+            let provider = session.model.provider.clone();
+            let model = session.model.model.clone();
+            state
+                .settings
+                .get_mut(crate::MODEL_SETTINGS_NAMESPACE)
+                .unwrap()
+                .value = json!({
+                "providers":{provider:{"models":[{"id":model,"imageInput":false}]}}
+            });
+        }
+        let error = host
+            .session_prompt(
+                RpcId::new("edit-no-vision"),
+                &json!({
+                    "sessionId":id,"mode":"queue","requireIdle":true,
+                    "content":[{"type":"image_ref","attachmentId":"missing"}]
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("does not support images"));
+        assert!(host.state.read().await.sessions[id].queue.is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
