@@ -842,8 +842,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     }
                 }
             }
-            EventData::ApprovalDecided { id, .. } => {
-                if open_turn.is_none() {
+            EventData::ApprovalDecided { id, outcome } => {
+                if open_turn.is_none() && *outcome != crate::ApprovalOutcome::Cancelled {
                     return Err(lifecycle_error(
                         logged.seq,
                         "approval/decided requires an open turn",

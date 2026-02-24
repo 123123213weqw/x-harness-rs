@@ -172,6 +172,54 @@ pub fn pending_user_questions(events: &[LoggedEvent]) -> Vec<PendingUserQuestion
         .collect()
 }
 
+/// Repair old journals whose terminal tools/turns left an undecided approval.
+/// Append-only cancellation; pending calls in an open turn remain recoverable.
+pub fn stale_approval_cancellations(events: &[LoggedEvent]) -> Vec<SessionEvent> {
+    let decided = events
+        .iter()
+        .filter_map(|e| match e.data() {
+            EventData::ApprovalDecided { id, .. } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let settled = events
+        .iter()
+        .filter_map(|e| match e.data() {
+            EventData::ToolResult { result, .. } => Some(result.call_id.as_str()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let ended = events
+        .iter()
+        .filter_map(|e| match e.data() {
+            EventData::TurnEnd { turn, .. } => Some(*turn),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mut turn = None;
+    let mut out = Vec::new();
+    for e in events {
+        match e.data() {
+            EventData::TurnStart { turn: t } => turn = Some(*t),
+            EventData::ApprovalAsked { id, call_id, .. }
+                if !decided.contains(id.as_str())
+                    && (turn.is_some_and(|t| ended.contains(&t))
+                        || call_id.as_deref().is_some_and(|id| settled.contains(id))) =>
+            {
+                out.push(
+                    EventData::ApprovalDecided {
+                        id: id.clone(),
+                        outcome: crate::ApprovalOutcome::Cancelled,
+                    }
+                    .into(),
+                );
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Project undecided approval requests from an immutable Session cut.
 ///
 /// The Session validator already guarantees unique approval ids and valid

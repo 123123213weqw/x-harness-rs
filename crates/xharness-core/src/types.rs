@@ -546,6 +546,8 @@ pub enum LoopEventKind {
         approval_id: String,
         call: ToolCall,
         approved: bool,
+        #[serde(default)]
+        cancelled: bool,
         reason: Option<String>,
     },
     MessageInjected {

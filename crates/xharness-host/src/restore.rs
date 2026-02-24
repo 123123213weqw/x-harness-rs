@@ -108,11 +108,23 @@ impl BasicHost {
 
         for header in headers {
             let session_id = header.id.clone();
-            let session = store.load(&session_id).await?.ok_or_else(|| {
+            let mut session = store.load(&session_id).await?.ok_or_else(|| {
                 HostRestoreError::SessionDisappeared {
                     session_id: session_id.clone(),
                 }
             })?;
+            let cancellations = xharness_session::stale_approval_cancellations(session.events());
+            if !cancellations.is_empty() {
+                store
+                    .append(&session_id, session.revision(), cancellations)
+                    .await?;
+                store.flush(&session_id).await?;
+                session = store.load(&session_id).await?.ok_or_else(|| {
+                    HostRestoreError::SessionDisappeared {
+                        session_id: session_id.clone(),
+                    }
+                })?;
+            }
             let inbox = InboxProjection::from_session(&session).map_err(|error| {
                 HostRestoreError::InvalidInbox {
                     session_id: session_id.clone(),
@@ -1866,6 +1878,84 @@ mod tests {
         assert!(history_events
             .iter()
             .all(|event| event["data"]["chunk"]["text"] != "old answer"));
+    }
+
+    #[tokio::test]
+    async fn restore_persists_orphan_approval_cancellation_once_without_resuming_tools() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        store.create(SessionHeader::new("orphan")).await.unwrap();
+        let call = ToolCall {
+            id: "c".into(),
+            name: "read".into(),
+            arguments_json: "{}".into(),
+            ..Default::default()
+        };
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls = vec![call.clone()];
+        store
+            .append(
+                "orphan",
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call,
+                    }
+                    .into(),
+                    EventData::ApprovalAsked {
+                        id: "a".into(),
+                        tool_name: "read".into(),
+                        call_id: Some("c".into()),
+                        reason: None,
+                    }
+                    .into(),
+                    EventData::ToolResult {
+                        turn: 1,
+                        step: 1,
+                        result: ToolResultData::error("c", "timeout"),
+                    }
+                    .into(),
+                    EventData::StepEnd { turn: 1, step: 1 }.into(),
+                    EventData::TurnEnd {
+                        turn: 1,
+                        reason: TurnEndReason::Completed,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let host = BasicHost::without_provider(config(&std::env::temp_dir()));
+        let report = host.restore_from_store(store.clone()).await.unwrap();
+        assert_eq!(report.resumed_pending_approvals, 0);
+        let s = store.load("orphan").await.unwrap().unwrap();
+        assert!(matches!(
+            s.events().last().unwrap().data(),
+            EventData::ApprovalDecided {
+                outcome: ApprovalOutcome::Cancelled,
+                ..
+            }
+        ));
+        assert!(host.state.read().await.pending.is_empty());
+        let revision = s.revision();
+        BasicHost::without_provider(config(&std::env::temp_dir()))
+            .restore_from_store(store.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            store.load("orphan").await.unwrap().unwrap().revision(),
+            revision
+        );
     }
 
     #[tokio::test]

@@ -95,9 +95,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 ripgrep xvfb dbus-x11
-      - name: Install native macOS ripgrep
-        if: startsWith(matrix.platform, 'darwin-')
-        run: command -v rg >/dev/null || brew install ripgrep
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -109,6 +106,9 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Install native macOS ripgrep
+        if: startsWith(matrix.platform, 'darwin-')
+        run: bash scripts/install-portable-rg.sh
       - name: No-secret Unix acceptance contracts
         run: python3 -B scripts/test-unix-update-acceptance.py
       - name: Build and stage native Host and ripgrep for the disposable base
