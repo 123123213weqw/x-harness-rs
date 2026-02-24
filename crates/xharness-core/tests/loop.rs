@@ -2901,7 +2901,20 @@ async fn cancellation_closes_every_durable_pending_approval() {
         }
     }
     run.cancel();
-    while run.next().await.is_some() {}
+    let mut resolved = Vec::new();
+    while let Some(e) = run.next().await {
+        if let LoopEventKind::ToolApprovalResolved {
+            approval_id,
+            cancelled,
+            ..
+        } = e.kind
+        {
+            assert!(cancelled);
+            resolved.push(approval_id);
+        }
+    }
+    assert_eq!(resolved, asked);
+
     assert_eq!(run.result().await.status, LoopStatus::Cancelled);
 
     let session = journal
@@ -4429,4 +4442,156 @@ async fn optional_counter_failure_timeout_auth_and_strict_policy() {
         );
         assert_eq!(provider.inner.attempts(), usize::from(completed_ok));
     }
+}
+
+#[tokio::test]
+async fn approval_timeout_closes_live_and_durable_state_without_executing() {
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "fixture", json!({"type":"object"})),
+                |_| async {
+                    panic!("expired approval executed");
+                    #[allow(unreachable_code)]
+                    Ok(RuntimeToolOutput::text("bad"))
+                },
+            )
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "expired", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(completed())],
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("go")]);
+    request.session_id = Some("approval-timeout".into());
+    request.journal_store = Some(journal.clone());
+    request.tool_executor = Some(
+        RuntimeToolExecutor::new(registry)
+            .with_approval_timeout(Duration::from_millis(200))
+            .unwrap(),
+    );
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e.kind, LoopEventKind::ToolApprovalRequested { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(
+                e.kind,
+                LoopEventKind::ToolApprovalResolved {
+                    cancelled: true,
+                    approved: false,
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e.kind, LoopEventKind::ToolStarted(_))));
+    let s = journal.load("approval-timeout").await.unwrap().unwrap();
+    assert!(s.events().iter().any(|e| matches!(
+        e.data(),
+        SessionEventData::ApprovalDecided {
+            outcome: ApprovalOutcome::Cancelled,
+            ..
+        }
+    )));
+    assert!(s.pending_tool_approvals().is_empty());
+}
+
+#[tokio::test]
+async fn expired_approval_rejects_late_answers_even_while_paused() {
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    let executed = Arc::new(AtomicUsize::new(0));
+    let calls = executed.clone();
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "fixture", json!({"type":"object"})),
+                move |_| {
+                    let calls = calls.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("never"))
+                    }
+                },
+            )
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "expired", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(completed())],
+    ]));
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("go")]);
+    request.tool_executor = Some(
+        RuntimeToolExecutor::new(registry)
+            .with_approval_timeout(Duration::from_millis(200))
+            .unwrap(),
+    );
+    let mut run = LoopEngine.start(request);
+    let mut call_id = None;
+    while let Some(event) = run.next().await {
+        if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
+            call_id = Some(call.id);
+            break;
+        }
+    }
+    let call_id = call_id.expect("approval requested");
+    run.send(LoopCommand::Pause).await.unwrap();
+    let resolved = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(event) = run.next().await {
+            if matches!(
+                event.kind,
+                LoopEventKind::ToolApprovalResolved {
+                    cancelled: true,
+                    ..
+                }
+            ) {
+                return true;
+            }
+        }
+        false
+    })
+    .await
+    .unwrap();
+    assert!(resolved);
+    assert!(matches!(
+        run.send(LoopCommand::ApproveTool {
+            call_id: call_id.clone()
+        })
+        .await,
+        Err(LoopControlError::Rejected(_))
+    ));
+    assert!(matches!(
+        run.send(LoopCommand::RejectTool {
+            call_id,
+            reason: "late".into()
+        })
+        .await,
+        Err(LoopControlError::Rejected(_))
+    ));
+    run.send(LoopCommand::Resume).await.unwrap();
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    assert_eq!(executed.load(Ordering::SeqCst), 0);
 }
