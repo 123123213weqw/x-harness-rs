@@ -8,6 +8,7 @@ Private credentials are only checked for presence; they are never written/logged
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,36 @@ PLATFORMS = {
     'darwin-aarch64': 'aarch64-apple-darwin',
     'darwin-x86_64': 'x86_64-apple-darwin',
 }
+_spec = importlib.util.spec_from_file_location('desktop_contract', ROOT / 'scripts/desktop-release.py')
+_contract = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_contract)
+release_platforms = _contract.release_platforms
+RUNNERS = {
+    'windows-x86_64': ('windows-2025', 'nsis'),
+    'linux-x86_64-appimage': ('ubuntu-22.04', 'appimage'),
+    'darwin-aarch64': ('macos-15', 'app'),
+    'darwin-x86_64': ('macos-15-intel', 'app'),
+}
+
+
+def platform_matrix(plan, unix_only=False):
+    return {'include': [
+        {'platform': p, 'runner': RUNNERS[p][0], 'target': PLATFORMS[p], 'bundles': RUNNERS[p][1]}
+        for p in release_platforms(plan) if not unix_only or p != 'windows-x86_64'
+    ]}
+
+
+def write_matrix(plan, unix_only=False):
+    with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+        output.write('matrix=' + json.dumps(platform_matrix(plan, unix_only), separators=(',', ':')) + '\n')
+
+
+def signing_plan(plan, environment=None):
+    _contract.validate_plan(plan)
+    for platform in release_platforms(plan):
+        signing_gate(platform, environment)
+
+
 ACCEPTANCE_WORKFLOWS = {
     'unix': '.github/workflows/desktop-unix-update-acceptance.yml',
     'windows': '.github/workflows/desktop-windows-update-acceptance.yml',
@@ -293,7 +324,7 @@ def fetch_promotion(args):
     runs = {'release': {'run': build, 'artifact': build_artifact}}
     for kind, run_id in [('unix', args.unix_run_id), ('windows', args.windows_run_id)]:
         value = successful_run(repo, run_id, None, ACCEPTANCE_WORKFLOWS[kind], event='workflow_dispatch')
-        platforms = [p for p in PLATFORMS if (p == 'windows-x86_64') == (kind == 'windows')]
+        platforms = [p for p in release_platforms(plan) if (p == 'windows-x86_64') == (kind == 'windows')]
         artifacts = []
         for platform in platforms:
             dest = root / 'native-evidence' / platform
@@ -593,6 +624,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('plan'); p.add_argument('--output', required=True, type=Path)
+    p = sub.add_parser('signing-plan'); p.add_argument('--plan', required=True, type=Path)
+    p = sub.add_parser('acceptance-matrix'); p.add_argument('--candidate', type=Path)
     p = sub.add_parser('signing-gate'); p.add_argument('--platform', choices=PLATFORMS, required=True)
     p = sub.add_parser('stage'); p.add_argument('--platform', choices=PLATFORMS, required=True); p.add_argument('--target', required=True)
     p = sub.add_parser('configure'); p.add_argument('--plan', type=Path, required=True); p.add_argument('--public-key', type=Path, required=True)
@@ -623,7 +656,12 @@ def main():
         tag = os.environ.get('RELEASE_TAG_INPUT', '')
         require(re.fullmatch(r'desktop-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag), 'Invalid release tag')
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        contract('plan', tag, '--output', args.output)
+        contract('plan', tag, '--release-scope', os.environ.get('RELEASE_SCOPE_INPUT', 'all'), '--output', args.output)
+        write_matrix(load(args.output))
+    elif args.command == 'signing-plan': signing_plan(load(args.plan))
+    elif args.command == 'acceptance-matrix':
+        plan = _contract.validate_plan(load(args.candidate / 'plan.json')) if args.candidate else {}
+        write_matrix(plan, unix_only=True)
     elif args.command == 'signing-gate': signing_gate(args.platform)
     elif args.command == 'stage': stage(args.platform, args.target)
     elif args.command == 'configure':
@@ -634,11 +672,12 @@ def main():
         run(sys.executable, '-B', ROOT / 'scripts/prepare-desktop-test-version.py', plan['version'])
     elif args.command == 'collect': collect(args)
     elif args.command == 'aggregate':
-        expected = {f'desktop-package-{platform}' for platform in PLATFORMS}
-        require({p.name for p in args.artifacts.iterdir()} == expected, 'Expected exactly four platform artifacts')
+        plan = _contract.validate_plan(load(args.plan))
+        expected = {f'desktop-package-{platform}' for platform in release_platforms(plan)}
+        require({p.name for p in args.artifacts.iterdir()} == expected, 'Expected exactly selected platform artifacts')
         normalized = args.artifacts.parent / 'normalized-platforms'
         normalized.mkdir()
-        for platform in PLATFORMS:
+        for platform in release_platforms(plan):
             shutil.copytree(args.artifacts / f'desktop-package-{platform}', normalized / platform, symlinks=True)
         key = args.output.parent / 'aggregate-trusted.pub'
         public_key(key)
@@ -654,7 +693,7 @@ def main():
         # gh create fails rather than reusing any pre-existing draft or public release.
         run('gh', 'release', 'create', plan['tag'], '--repo', repo, '--verify-tag', '--target', sha,
             '--draft', '--latest=false', '--title', f'XHarness Desktop {plan["version"]}',
-            '--notes', 'Complete signed Windows x64, macOS arm64/Intel and Linux AppImage candidate. Native acceptance is required before separate promotion. No live feed has changed.')
+            '--notes', f'Signed desktop update for {", ".join(release_platforms(plan))}. Native upgrade acceptance is required before publication. Save work before restarting. Other platform channels are unchanged.')
         files = list_files(args.candidate / 'release')
         run('gh', 'release', 'upload', plan['tag'], *[files[n] for n in sorted(files)], '--repo', repo)
         result = api(f'repos/{repo}/releases/tags/{plan["tag"]}')

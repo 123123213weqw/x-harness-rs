@@ -37,6 +37,15 @@ def plan(**overrides):
 
 
 class PlanTests(unittest.TestCase):
+    def test_release_scope_is_explicit_allowlisted_and_legacy_defaults_to_all(self):
+        self.assertEqual(set(contract.release_platforms(plan())), set(contract.PLATFORMS))
+        scoped = plan(release_scope='windows-linux')
+        self.assertEqual(scoped['release_scope'], 'windows-linux')
+        self.assertEqual(set(contract.release_platforms(scoped)), {'windows-x86_64', 'linux-x86_64-appimage'})
+        for invalid in ['', 'windows', 'linux', 'mac', 'windows-linux\n', [], None]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                plan(release_scope=invalid)
+
     def test_same_stable_endpoint_and_plain_incrementing_version(self):
         result = plan()
         self.assertEqual(result['version'], '0.2.6')
@@ -208,7 +217,7 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
     def acceptances(self):
         root = self.root / 'acceptances'
         root.mkdir()
-        for platform in contract.PLATFORMS:
+        for platform in contract.release_platforms(self.plan):
             windows = platform == 'windows-x86_64'
             directory = root / platform
             directory.mkdir()
@@ -249,11 +258,11 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
         path = self.artifacts / 'darwin-x86_64'
         moved = self.root / 'moved'
         path.rename(moved)
-        with self.assertRaisesRegex(ValueError, 'four platform'):
+        with self.assertRaisesRegex(ValueError, 'selected platform'):
             self.assemble()
         moved.rename(path)
         shutil.copytree(path, self.artifacts / 'darwin-x86_64-copy')
-        with self.assertRaisesRegex(ValueError, 'four platform'):
+        with self.assertRaisesRegex(ValueError, 'selected platform'):
             self.assemble()
 
     def test_reject_platform_directory_and_package_symlinks(self):
@@ -438,6 +447,50 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
         self.assertEqual(result['previous_live_version'], '0.2.5')
         self.assertEqual(set(result['acceptance_sha256']), set(contract.PLATFORMS))
 
+    def scoped_artifacts(self):
+        self.plan = plan(release_scope='windows-linux')
+        for platform in contract.PLATFORMS:
+            if platform not in contract.release_platforms(self.plan):
+                shutil.rmtree(self.artifacts / platform)
+            else:
+                path = self.artifacts / platform / 'receipt.json'
+                save(path, dict(contract.read_json(path), release_scope='windows-linux'))
+
+    def test_windows_linux_promotion_requires_exact_selected_evidence(self):
+        self.scoped_artifacts()
+        self.assemble()
+        manifest, _ = contract.validate_release(self.plan, self.output, self.pub)
+        self.assertEqual(set(manifest['platforms']), {'windows-x86_64', 'linux-x86_64-appimage'})
+        accepted = self.acceptances()
+        result = contract.promotion(self.plan, self.output, accepted, self.live(), self.pub, [CI])
+        self.assertEqual(set(result['acceptance_sha256']), set(manifest['platforms']))
+        shutil.rmtree(accepted / 'linux-x86_64-appimage')
+        with self.assertRaises(ValueError):
+            contract.validate_acceptance(self.plan, accepted, self.output, contract.sha256(self.output / 'latest.json'))
+
+    def test_scoped_release_cannot_drop_live_mac_or_change_scope(self):
+        self.scoped_artifacts()
+        self.assemble()
+        manifest, _ = contract.validate_release(self.plan, self.output, self.pub)
+        with self.assertRaisesRegex(ValueError, 'drop a live'):
+            contract.validate_live(self.plan, self.live(all_platforms=True), manifest, self.pub)
+        with self.assertRaises(ValueError):
+            contract.validate_release(plan(), self.output, self.pub)
+
+    def test_scoped_artifacts_reject_extra_platform_and_unbound_receipt(self):
+        self.scoped_artifacts()
+        extra = self.artifacts / 'darwin-aarch64'
+        extra.mkdir()
+        with self.assertRaises(ValueError):
+            self.assemble()
+        extra.rmdir()
+        path = self.artifacts / 'windows-x86_64' / 'receipt.json'
+        value = contract.read_json(path)
+        del value['release_scope']
+        save(path, value)
+        with self.assertRaises(ValueError):
+            self.assemble()
+
     def test_promotion_supports_previous_full_unified_manifest(self):
         self.assemble()
         manifest = contract.read_json(self.output / 'latest.json')
@@ -457,7 +510,7 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
         self.assemble()
         accepted = self.acceptances()
         shutil.rmtree(accepted / 'darwin-x86_64')
-        with self.assertRaisesRegex(ValueError, 'all four'):
+        with self.assertRaisesRegex(ValueError, 'all selected'):
             contract.validate_acceptance(self.plan, accepted, self.output, contract.sha256(self.output / 'latest.json'))
 
     def test_acceptance_cannot_substitute_smoke_old_sha_or_other_manifest(self):

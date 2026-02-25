@@ -31,7 +31,50 @@ env:
   XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
 
 jobs:
+  select:
+    if: inputs.mode == 'rehearsal' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.mode == 'candidate' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository)
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve authenticated candidate source
+        if: inputs.mode == 'candidate'
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: python3 -B scripts/desktop-release-build.py resolve-source --release-run-id "$RELEASE_RUN_ID"
+      - uses: actions/checkout@v6
+        if: inputs.mode == 'candidate'
+        with:
+          ref: ${{ steps.source.outputs.source_sha }}
+          persist-credentials: false
+      - name: Verify immutable candidate before selecting native platforms
+        if: inputs.mode == 'candidate'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: python3 -B scripts/desktop-release-build.py fetch-candidate --release-run-id "$RELEASE_RUN_ID" --output "$RUNNER_TEMP/matrix-candidate"
+      - name: Derive matrix from verified plan (rehearsals always cover all Unix targets)
+        id: matrix
+        env:
+          ACCEPTANCE_MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$ACCEPTANCE_MODE" = candidate ]; then
+            python3 -B scripts/desktop-release-build.py acceptance-matrix --candidate "$RUNNER_TEMP/matrix-candidate"
+          else
+            python3 -B scripts/desktop-release-build.py acceptance-matrix
+          fi
+
   native:
+    needs: select
     # Reusable CI is rehearsal-only and receives no secrets. Formal mode is an
     # explicit master dispatch, with a source-bound production build artifact.
     if: inputs.mode == 'rehearsal' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.mode == 'candidate' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository)
@@ -39,20 +82,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: linux-x86_64-appimage
-            runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: appimage
-          - platform: darwin-aarch64
-            runner: macos-15
-            target: aarch64-apple-darwin
-            bundles: app
-          - platform: darwin-x86_64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            bundles: app
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
