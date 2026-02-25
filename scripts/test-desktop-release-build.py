@@ -61,6 +61,41 @@ class SigningGate(unittest.TestCase):
         build.signing_gate('linux-x86_64-appimage', env)
 
 
+class ScopeMatrix(unittest.TestCase):
+    def test_selected_build_and_unix_acceptance_matrices(self):
+        plan = {'release_scope': 'windows-linux'}
+        self.assertEqual([p['platform'] for p in build.platform_matrix(plan)['include']],
+                         ['windows-x86_64', 'linux-x86_64-appimage'])
+        self.assertEqual(build.platform_matrix(plan, unix_only=True), {'include': [{
+            'platform': 'linux-x86_64-appimage', 'runner': 'ubuntu-22.04',
+            'target': 'x86_64-unknown-linux-gnu', 'bundles': 'appimage'}]})
+        self.assertEqual(len(build.platform_matrix({}, unix_only=True)['include']), 3)
+        with self.assertRaises(ValueError):
+            build.platform_matrix({'release_scope': 'linux'})
+
+    def test_selected_signing_plan_keeps_apple_gate_for_full_scope(self):
+        contract = build._contract
+        sha = 'a' * 40
+        ci = dict(id=1, run_attempt=1, head_sha=sha, head_branch='master', event='push',
+                  status='completed', conclusion='success', path='.github/workflows/ci.yml')
+        args = dict(repository='owner/project', configured_repository='owner/project',
+                    tag='desktop-v0.2.10', sha=sha, run_id='1', attempt='1', releases=[], runs=[ci])
+        env = {k: v for k, v in SigningGate().environment().items() if not k.startswith('APPLE_')}
+        build.signing_plan(contract.make_plan(**args, release_scope='windows-linux'), env)
+        with self.assertRaises(ValueError):
+            build.signing_plan(contract.make_plan(**args), env)
+        for key in env:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                build.signing_plan(contract.make_plan(**args, release_scope='windows-linux'), {**env, key: ''})
+
+    def test_candidate_matrix_cannot_be_selected_by_untrusted_dispatch_input(self):
+        text = (ROOT / '.github/workflows/desktop-unix-update-acceptance.yml').read_text(encoding='utf-8')
+        self.assertIn('fromJSON(needs.select.outputs.matrix)', text)
+        self.assertIn('fetch-candidate --release-run-id', text)
+        self.assertIn('acceptance-matrix --candidate', text)
+        self.assertNotIn('inputs.release_scope', text)
+
+
 class Provenance(unittest.TestCase):
     def test_release_push_and_dispatch_supported(self):
         for event in ['push', 'workflow_dispatch']:
@@ -398,9 +433,13 @@ class WorkflowGuard(unittest.TestCase):
         self.assertIn('needs: [plan, build]', text)
         self.assertNotIn('tauri-apps/tauri-action', text)
         self.assertNotIn('--clobber', text)
-        for platform in build.PLATFORMS: self.assertIn('platform: ' + platform, text)
-        for runner in ['windows-2025', 'ubuntu-22.04', 'macos-15', 'macos-15-intel']: self.assertIn('runner: ' + runner, text)
-        self.assertIn('bundles: appimage', text)
+        self.assertIn('fromJSON(needs.plan.outputs.matrix)', text)
+        self.assertIn("inputs.release_scope || 'all'", text)
+        self.assertIn('signing-plan --plan dist/desktop-plan/plan.json', text)
+        matrix = build.platform_matrix({})
+        self.assertEqual({p['platform'] for p in matrix['include']}, set(build.PLATFORMS))
+        self.assertEqual({p['runner'] for p in matrix['include']}, {'windows-2025', 'ubuntu-22.04', 'macos-15', 'macos-15-intel'})
+        self.assertIn('appimage', {p['bundles'] for p in matrix['include']})
         self.assertNotIn('bundles: deb', text)
         self.assertIn('XHARNESS_FRIENDS_PRIVATE_KEY', text)
         self.assertIn('Fail early unless every formal platform', text)
@@ -424,7 +463,7 @@ class WorkflowGuard(unittest.TestCase):
         self.assertNotIn('APPLE_CERTIFICATE', text)
         self.assertIn('--rehearsal', text)
         for platform in ['linux-x86_64-appimage', 'darwin-aarch64', 'darwin-x86_64']:
-            self.assertIn(platform, text)
+            self.assertIn(platform, {p['platform'] for p in build.platform_matrix({}, unix_only=True)['include']})
 
     def test_exported_evidence_excludes_keys_source_and_home(self):
         with tempfile.TemporaryDirectory() as temporary:
