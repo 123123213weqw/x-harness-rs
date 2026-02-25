@@ -319,3 +319,22 @@ impl BasicHost {
         })
     }
 }
+
+impl BasicHost {
+    pub fn attachment_store(&self) -> Arc<dyn xharness_attachments::AttachmentStore> {
+        self.config.attachment_store.clone()
+    }
+    pub async fn session_accepts_images(&self, id: &str) -> bool {
+        let state = self.state.read().await;
+        let Some(s) = state.sessions.get(id) else {
+            return false;
+        };
+        state
+            .settings
+            .get(crate::MODEL_SETTINGS_NAMESPACE)
+            .and_then(|ns| ns.value["providers"][&s.model.provider]["models"].as_array())
+            .and_then(|ms| ms.iter().find(|m| m["id"].as_str() == Some(&s.model.model)))
+            .and_then(|m| m["imageInput"].as_bool())
+            == Some(true)
+    }
+}

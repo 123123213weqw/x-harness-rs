@@ -7217,7 +7217,7 @@ async prompt(content, mode, signal, options = {}) {
 							details: { childSessionId: this.address.childSessionId }
 						}
 					};
-					else if (content.some((part) => part.type === "image" || part.type === "image_ref")) result = {
+					else if (content.some((part) => part.type === "image" || part.type === "image_ref" || part.type === "file" || part.type === "file_ref")) result = {
 						ok: false,
 						error: {
 							code: "attachment-error",
@@ -10572,3 +10572,5 @@ async prompt(content, mode, signal, options = {}) {
 		return module.exports;
 	}
 });
+
+// XHARNESS DURABLE ATTACHMENTS v1

@@ -65,8 +65,17 @@ pub struct AttachmentRef {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text { text: String },
-    Image { attachment: AttachmentRef },
+    Text {
+        text: String,
+    },
+    Image {
+        attachment: AttachmentRef,
+    },
+    File {
+        attachment: AttachmentRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
 }
 
 /// Provider-neutral message used by [`crate::derive_messages`].
@@ -112,12 +121,18 @@ impl Message {
         }
     }
 
+    /// Attach tool media without replacing the bounded model-facing result text.
+    pub fn with_tool_blocks(mut self, blocks: Vec<ContentBlock>) -> Self {
+        self.content_blocks = blocks;
+        self
+    }
+
     pub fn with_content_blocks(mut self, blocks: Vec<ContentBlock>) -> Self {
         self.content = blocks
             .iter()
             .filter_map(|block| match block {
                 ContentBlock::Text { text } => Some(text.as_str()),
-                ContentBlock::Image { .. } => None,
+                ContentBlock::Image { .. } | ContentBlock::File { .. } => None,
             })
             .collect::<Vec<_>>()
             .join("");
@@ -149,6 +164,15 @@ impl Message {
             tool_call_id: Some(call_id.into()),
             ..Self::default()
         }
+    }
+}
+
+impl ContentBlock {
+    pub fn from_tool_metadata(metadata: Option<&Value>) -> Vec<Self> {
+        metadata
+            .and_then(|m| m.get("xharnessContentBlocks"))
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
     }
 }
 

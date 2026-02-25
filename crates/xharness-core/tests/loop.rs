@@ -4595,3 +4595,77 @@ async fn expired_approval_rejects_late_answers_even_while_paused() {
     assert_eq!(run.result().await.status, LoopStatus::Completed);
     assert_eq!(executed.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn tool_media_survives_next_request_and_durable_replay_without_losing_plain_results() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "image-call", "read_media", "{}")),
+            Ok(tool_delta(1, "plain-call", "plain", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(ProviderEvent::TextDelta("seen".into())), Ok(completed())],
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let blocks = vec![xharness_session::ContentBlock::Image {
+        attachment: xharness_session::AttachmentRef {
+            id: "test-image".into(),
+            session_id: "tool-media-replay".into(),
+            media_type: "image/png".into(),
+            bytes: 12,
+            width: 1,
+            height: 1,
+        },
+    }];
+    let metadata = json!({"xharnessContentBlocks": blocks});
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("inspect")]);
+    request.session_id = Some("tool-media-replay".into());
+    request.journal_store = Some(journal.clone());
+    install_tools(
+        &mut request,
+        vec![
+            TestToolSpec::new("read_media", "fixture", json!({}), move |_, _| {
+                let metadata = metadata.clone();
+                async move {
+                    let mut result = ToolResult::success("image caption remains");
+                    result.metadata = Some(metadata);
+                    result
+                }
+            }),
+            TestToolSpec::new("plain", "fixture", json!({}), |_, _| async {
+                ToolResult::success("ordinary text remains")
+            }),
+        ],
+    )
+    .await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2);
+    let live = requests[1]
+        .messages
+        .iter()
+        .filter(|m| m.role == Role::Tool)
+        .collect::<Vec<_>>();
+    assert_eq!(live.len(), 2);
+    assert_eq!(live[0].content_blocks, blocks);
+    assert!(live[0].content.contains("image caption remains"));
+    assert!(live[1].content.contains("ordinary text remains"));
+    assert!(live[1].content_blocks.is_empty());
+    let restored = journal
+        .load("tool-media-replay")
+        .await
+        .unwrap()
+        .unwrap()
+        .derive_messages();
+    let replay = restored
+        .iter()
+        .filter(|m| m.role == Role::Tool)
+        .collect::<Vec<_>>();
+    assert_eq!(replay.len(), 2);
+    for (live, replay) in live.iter().zip(replay) {
+        assert_eq!(live.content, replay.content);
+        assert_eq!(live.content_blocks, replay.content_blocks);
+        assert_eq!(live.tool_call_id, replay.tool_call_id);
+    }
+}
