@@ -95,6 +95,7 @@ pub struct PlatformConfig {
     access: PlatformAccess,
     network: NetworkAccess,
     allowed_cwd_roots: Vec<PathBuf>,
+    read_only_roots: Vec<PathBuf>,
 }
 
 impl PlatformConfig {
@@ -104,6 +105,7 @@ impl PlatformConfig {
             access: PlatformAccess::WorkspaceWrite,
             network: NetworkAccess::Deny,
             allowed_cwd_roots: Vec::new(),
+            read_only_roots: Vec::new(),
         }
     }
 
@@ -125,6 +127,14 @@ impl PlatformConfig {
 
     pub fn network(mut self, network: NetworkAccess) -> Self {
         self.network = network;
+        self
+    }
+
+    /// Add a product-owned immutable store to read tools and the process sandbox.
+    pub fn read_only_root(mut self, root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
+        self.allowed_cwd_roots.push(root.clone());
+        self.read_only_roots.push(root);
         self
     }
 
@@ -166,6 +176,7 @@ pub struct NativePlatform {
     filesystem_root: PathBuf,
     access: PlatformAccess,
     filesystem: FsService,
+    read_only_filesystems: Vec<FsService>,
     process: ProcessRuntime,
     sandbox: Option<NativeSandbox>,
     readiness: Arc<OnceCell<CapabilityReport>>,
@@ -205,6 +216,11 @@ impl NativePlatform {
             workspace_root.clone()
         };
         let filesystem = FsService::with_observations(&filesystem_root, observations)?;
+        let read_only_filesystems = config
+            .read_only_roots
+            .iter()
+            .map(FsService::new)
+            .collect::<Result<Vec<_>, _>>()?;
         let sandbox = if let Some(mode) = config.access.sandbox_mode() {
             let mut policy = SandboxPolicy::new(&workspace_root, mode).with_network(config.network);
             for root in config.allowed_cwd_roots {
@@ -219,6 +235,7 @@ impl NativePlatform {
             filesystem_root,
             access: config.access,
             filesystem,
+            read_only_filesystems,
             process: ProcessRuntime::with_debug(debug.clone()),
             sandbox,
             readiness: Arc::new(OnceCell::new()),
@@ -245,6 +262,19 @@ impl NativePlatform {
     /// Full access roots that same race-safe implementation at the native
     /// filesystem root, while preserving workspace-relative inputs for
     /// ordinary coding tasks.
+    pub fn resolve_read_file(
+        &self,
+        input: impl AsRef<Path>,
+    ) -> Result<(&FsService, FsTarget), FsError> {
+        let input = input.as_ref();
+        for filesystem in &self.read_only_filesystems {
+            if let Ok(relative) = input.strip_prefix(filesystem.workspace_root()) {
+                return Ok((filesystem, filesystem.resolve(relative)?));
+            }
+        }
+        Ok((&self.filesystem, self.resolve_file(input)?))
+    }
+
     pub fn resolve_file(&self, input: impl AsRef<Path>) -> Result<FsTarget, FsError> {
         let input = input.as_ref();
         if self.access != PlatformAccess::FullAccess {

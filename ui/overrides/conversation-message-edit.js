@@ -75,7 +75,7 @@ class XHarnessMessageEditor {
     const images = this.d.conversation.draftImages(s.imageIds);
     if (images.length !== s.imageIds.length) throw new Error(this.d.t('message.editMissing'));
     return { text: s.draft, images: images.map(a => a.historyRef
-      ? { ref: a.historyRef, name: a.file.name, type: a.file.type }
+      ? { ref: a.historyRef, kind:a.historyKind, name: a.file.name, type: a.file.type }
       : { file: a.file }) };
   }
   persist() {
@@ -90,11 +90,11 @@ class XHarnessMessageEditor {
     await this.ready;
     if (this.disposed || this.busy() || this.d.running()) return;
     if (this.state.phase !== 'idle') { this.set({error:this.d.t('message.editFinish')}); return; }
-    if (!Array.isArray(content) || content.some(b => b.type !== 'text' && b.type !== 'image')) {
+    if (!Array.isArray(content) || content.some(b => b.type !== 'text' && b.type !== 'image' && b.type !== 'file')) {
       this.set({error:this.d.t('message.editUnsupported')}); return;
     }
     this.pending = { text: content.filter(b => b.type === 'text').map(b => b.text).join(''),
-      images: content.filter(b => b.type === 'image').map(b => ({ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
+      images: content.filter(b => b.type === 'image' || b.type === 'file').map(b => ({kind:b.type,ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
     if (this.pending.images.some(a => !a.ref?.attachmentId)) { this.set({error:this.d.t('message.editMissing')}); return; }
     const before = this.capture();
     if (before.text || before.images.length) this.set({phase:'confirm',error:''});
@@ -126,7 +126,7 @@ class XHarnessMessageEditor {
     try { for (const a of draft.images || []) {
       const file = a.file || new File([], a.name || 'image', {type:a.type || 'image/png'});
       const image = conversation.createDraftImages([file])[0];
-      if (a.ref) { image.historyRef = a.ref; image.loadState = 'loading'; }
+      if (a.ref) { image.historyRef = a.ref; image.historyKind = a.kind || "image"; image.loadState = 'loading'; }
       images.push(image);
     } } catch (error) {
       for (const image of images) conversation.releaseDraftImage(image.id);

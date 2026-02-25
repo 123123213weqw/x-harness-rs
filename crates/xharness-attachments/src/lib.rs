@@ -11,6 +11,7 @@ use std::{
 };
 pub use xharness_session::{AttachmentRef, ContentBlock};
 
+pub const MAX_FILE_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 pub const MAX_IMAGE_PIXELS: u64 = 16 * 1024 * 1024;
 
@@ -69,6 +70,23 @@ impl ResolvedAttachment {
 pub trait AttachmentStore: Send + Sync + std::fmt::Debug {
     async fn put(&self, session_id: &str, upload: Upload)
         -> Result<AttachmentRef, AttachmentError>;
+    async fn put_file(
+        &self,
+        _session: &str,
+        _upload: Upload,
+    ) -> Result<AttachmentRef, AttachmentError> {
+        Err(AttachmentError::Invalid("file storage unavailable".into()))
+    }
+    fn read_only_root(&self, _session: &str) -> Result<Option<PathBuf>, AttachmentError> {
+        Ok(None)
+    }
+    async fn file_path(
+        &self,
+        _session: &str,
+        _reference: &AttachmentRef,
+    ) -> Result<Option<PathBuf>, AttachmentError> {
+        Ok(None)
+    }
     async fn resolve(
         &self,
         session_id: &str,
@@ -76,6 +94,35 @@ pub trait AttachmentStore: Send + Sync + std::fmt::Debug {
     ) -> Result<ResolvedAttachment, AttachmentError>;
 }
 
+fn file_id(media: &str, data: &[u8]) -> String {
+    let mut h = Sha256::new();
+    h.update(b"xharness-file-v1\0");
+    h.update(media.as_bytes());
+    h.update([0]);
+    h.update(data);
+    format!("{:x}", h.finalize())
+}
+fn validate_file(session: &str, upload: Upload) -> Result<ResolvedAttachment, AttachmentError> {
+    if session.is_empty()
+        || upload.data.len() > MAX_FILE_BYTES
+        || upload.media_type.len() > 255
+        || !upload.media_type.contains('/')
+        || upload.media_type.chars().any(char::is_control)
+    {
+        return Err(AttachmentError::Invalid("invalid or oversized file".into()));
+    }
+    Ok(ResolvedAttachment {
+        reference: AttachmentRef {
+            id: file_id(&upload.media_type, &upload.data),
+            session_id: session.into(),
+            media_type: upload.media_type,
+            bytes: upload.data.len() as u64,
+            width: 0,
+            height: 0,
+        },
+        data: Arc::new(upload.data),
+    })
+}
 fn validate(session: &str, upload: Upload) -> Result<ResolvedAttachment, AttachmentError> {
     if session.is_empty() || upload.data.is_empty() || upload.data.len() > MAX_IMAGE_BYTES {
         return Err(AttachmentError::Invalid("empty or oversized upload".into()));
@@ -129,6 +176,18 @@ pub struct MemoryAttachmentStore {
 }
 #[async_trait]
 impl AttachmentStore for MemoryAttachmentStore {
+    async fn put_file(
+        &self,
+        session: &str,
+        upload: Upload,
+    ) -> Result<AttachmentRef, AttachmentError> {
+        let item = validate_file(session, upload)?;
+        self.entries
+            .lock()
+            .map_err(storage)?
+            .insert((session.into(), item.reference.id.clone()), item.clone());
+        Ok(item.reference)
+    }
     async fn put(&self, session: &str, upload: Upload) -> Result<AttachmentRef, AttachmentError> {
         let session = session.to_owned();
         let item = tokio::task::spawn_blocking(move || validate(&session, upload))
@@ -223,11 +282,22 @@ impl FileAttachmentStore {
         };
         let reference: AttachmentRef =
             serde_json::from_slice(&read("metadata.json", 4096)?).map_err(storage)?;
-        let data = read("image", MAX_IMAGE_BYTES)?;
+        let data = read(
+            "image",
+            if reference.width == 0 {
+                MAX_FILE_BYTES
+            } else {
+                MAX_IMAGE_BYTES
+            },
+        )?;
         if reference.id != id
             || reference.session_id != session
             || reference.bytes != data.len() as u64
-            || format!("{:x}", Sha256::digest(&data)) != id
+            || (if reference.width == 0 {
+                file_id(&reference.media_type, &data)
+            } else {
+                format!("{:x}", Sha256::digest(&data))
+            }) != id
         {
             return Err(AttachmentError::Unavailable);
         }
@@ -298,6 +368,47 @@ impl FileAttachmentStore {
 }
 #[async_trait]
 impl AttachmentStore for FileAttachmentStore {
+    async fn put_file(
+        &self,
+        session: &str,
+        upload: Upload,
+    ) -> Result<AttachmentRef, AttachmentError> {
+        let this = self.clone();
+        let session = session.to_owned();
+        tokio::task::spawn_blocking(move || this.write(validate_file(&session, upload)?))
+            .await
+            .map_err(storage)?
+    }
+    fn read_only_root(&self, session: &str) -> Result<Option<PathBuf>, AttachmentError> {
+        if session.is_empty() {
+            return Err(AttachmentError::Unavailable);
+        }
+        let dir = self
+            .root
+            .join(format!("{:x}", Sha256::digest(session.as_bytes())));
+        private_dir(&dir)?;
+        Ok(Some(dir))
+    }
+    async fn file_path(
+        &self,
+        session: &str,
+        reference: &AttachmentRef,
+    ) -> Result<Option<PathBuf>, AttachmentError> {
+        let item = self.resolve(&reference.session_id, &reference.id).await?;
+        if item.reference != *reference {
+            return Err(AttachmentError::Unavailable);
+        }
+        let r = self
+            .put_file(
+                session,
+                Upload {
+                    media_type: reference.media_type.clone(),
+                    data: item.data.as_ref().clone(),
+                },
+            )
+            .await?;
+        Ok(Some(self.path(session, &r.id)?.join("image")))
+    }
     async fn put(&self, session: &str, upload: Upload) -> Result<AttachmentRef, AttachmentError> {
         let this = self.clone();
         let session = session.to_owned();
@@ -441,5 +552,79 @@ mod tests {
         assert!(FileAttachmentStore::new(&alias).is_err());
         std::fs::remove_file(alias).unwrap();
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::*;
+    #[tokio::test]
+    async fn files_reopen_retain_bytes_and_isolate_forks_without_changing_images() {
+        let root = std::env::temp_dir().join(format!(
+            "xh-file-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = FileAttachmentStore::new(&root).unwrap();
+        let data = vec![0, 255, 1, 2, 13, 10];
+        let r = store
+            .put_file(
+                "a",
+                Upload {
+                    media_type: "application/octet-stream".into(),
+                    data: data.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        let empty = store
+            .put_file(
+                "a",
+                Upload {
+                    media_type: "text/plain".into(),
+                    data: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(empty.bytes, 0);
+        assert!(store.resolve("b", &r.id).await.is_err());
+        let reopened = FileAttachmentStore::new(&root).unwrap();
+        assert_eq!(*reopened.resolve("a", &r.id).await.unwrap().data, data);
+        let inherited = reopened.file_path("child", &r).await.unwrap().unwrap();
+        assert!(inherited.starts_with(reopened.read_only_root("child").unwrap().unwrap()));
+        assert_eq!(std::fs::read(inherited).unwrap(), data);
+        assert!(reopened.resolve("other", &r.id).await.is_err());
+        let png = include_bytes!("../tests/fixtures/red-blue.png");
+        let image = reopened
+            .put(
+                "a",
+                Upload {
+                    media_type: "image/png".into(),
+                    data: png.to_vec(),
+                },
+            )
+            .await
+            .unwrap();
+        let file = reopened
+            .put_file(
+                "a",
+                Upload {
+                    media_type: "image/png".into(),
+                    data: png.to_vec(),
+                },
+            )
+            .await
+            .unwrap();
+        assert_ne!(image.id, file.id);
+        assert_eq!(image.id, format!("{:x}", Sha256::digest(png)));
+        assert_eq!(
+            reopened.resolve("a", &image.id).await.unwrap().reference,
+            image
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 }

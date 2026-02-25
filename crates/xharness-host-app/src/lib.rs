@@ -6,6 +6,7 @@
 //! implementations.
 
 pub mod ownership;
+mod read_media;
 
 use std::{
     collections::BTreeMap,
@@ -39,7 +40,7 @@ use xharness_web::WebRuntime;
 pub struct NativeToolFactory {
     jobs: Arc<JobRegistry>,
     web: Arc<WebRuntime>,
-    platforms: RwLock<BTreeMap<(String, PermissionPreset), Arc<NativePlatform>>>,
+    platforms: RwLock<BTreeMap<(String, String, PermissionPreset), Arc<NativePlatform>>>,
     debug: DebugRecorder,
     questions: Option<Arc<DurableQuestionHub>>,
     schedules: Option<Arc<ScheduleManager>>,
@@ -110,17 +111,27 @@ impl NativeToolFactory {
 
     async fn platform(
         &self,
+        session_id: &str,
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<Arc<NativePlatform>, String> {
-        let key = (cwd.to_owned(), permission);
+        let key = (session_id.to_owned(), cwd.to_owned(), permission);
         if let Some(platform) = self.platforms.read().await.get(&key).cloned() {
             return Ok(platform);
         }
-        let config = match permission {
+        let mut config = match permission {
             PermissionPreset::WorkspaceWrite => PlatformConfig::new(cwd),
             PermissionPreset::DangerFullAccess => PlatformConfig::new(cwd).full_access(),
         };
+        if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+            if let Some(root) = host
+                .attachment_store()
+                .read_only_root(session_id)
+                .map_err(|e| e.to_string())?
+            {
+                config = config.read_only_root(root);
+            }
+        }
         let platform = Arc::new(
             NativePlatform::with_debug(config, self.debug.clone())
                 .map_err(|error| error.to_string())?,
@@ -134,11 +145,11 @@ impl NativeToolFactory {
 
     pub async fn readiness(
         &self,
-        _session_id: &str,
+        session_id: &str,
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<NativeToolReadiness, String> {
-        let platform = self.platform(cwd, permission).await?;
+        let platform = self.platform(session_id, cwd, permission).await?;
         Ok(NativeToolReadiness {
             platform: platform.capability_report().await,
             search_available: self.web.has_search_provider(),
@@ -163,16 +174,26 @@ impl SessionToolFactory for NativeToolFactory {
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<ToolExecutor, String> {
-        let platform = self.platform(cwd, permission).await?;
+        let platform = self.platform(session_id, cwd, permission).await?;
         let readiness = self.readiness(session_id, cwd, permission).await?;
-        let mut specs = CodingToolBundle::new(
-            platform,
+        let mut bundle = CodingToolBundle::new(
+            platform.clone(),
             Arc::clone(&self.jobs),
             Arc::clone(&self.web),
             session_id,
             session_id,
-        )
-        .specs();
+        );
+        if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+            bundle = bundle.with_media_reader(Arc::new(read_media::Reader {
+                host: Arc::downgrade(&host),
+                platform,
+                session: session_id.into(),
+            }));
+        }
+        let mut specs = bundle.specs();
+        if let Some(read) = specs.iter_mut().find(|s| s.definition.name == "read") {
+            read.definition.description.push_str(" PNG/JPEG/WebP/GIF files return image content when the selected model explicitly supports vision; no separate read_image tool is needed. Uploaded user images are already provided directly. Image reads do not accept text pagination options.");
+        }
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
             specs.push(xharness_host::AgentTool::for_host(&host, session_id));
