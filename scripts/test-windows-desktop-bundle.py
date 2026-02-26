@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 from pathlib import Path
 import subprocess
 import sys
@@ -72,13 +73,30 @@ class WindowsDesktopBundleTests(unittest.TestCase):
 
     def test_tagged_release_includes_pinned_windows_sidecars(self) -> None:
         workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("platform: windows-2025", workflow)
-        self.assertIn(f"target: {TARGET}", workflow)
+        spec = importlib.util.spec_from_file_location("release_build", REPOSITORY_ROOT / "scripts/desktop-release-build.py")
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        self.assertIn("fromJSON(needs.plan.outputs.matrix)", workflow)
+        for scope in ("all", "windows-linux"):
+            matrix = build.platform_matrix({"release_scope": scope})["include"]
+            windows = [entry for entry in matrix if entry["platform"] == "windows-x86_64"]
+            self.assertEqual(windows, [{"platform": "windows-x86_64", "runner": "windows-2025",
+                                       "target": TARGET, "bundles": "nsis"}])
         self.assertIn("--name xharness-windows-sandbox-runner", workflow)
         self.assertIn(
             "71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5",
             workflow,
         )
+
+    def test_windows_native_commands_fail_immediately(self) -> None:
+        workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("- run: python -B scripts/test-windows-desktop-bundle.py", workflow)
+        start = workflow.index("      - name: Stage Windows Tauri sidecars")
+        end = workflow.index("      - name: Build installable Windows application", start)
+        lines = workflow[start:end].splitlines()
+        for index, line in enumerate(lines):
+            if line.strip().startswith(("cargo ", "python ", "node ")):
+                self.assertIn("if ($LASTEXITCODE)", lines[index + 1], line)
 
 
 if __name__ == "__main__":
