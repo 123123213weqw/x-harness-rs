@@ -7,12 +7,13 @@ installation evidence and cannot authorize a real release.
 import copy
 import importlib.util
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('unified_release', ROOT / 'scripts/desktop-release.py')
@@ -34,6 +35,33 @@ def plan(**overrides):
             'releases': [{'tagName': 'friends-v0.2.5', 'isDraft': False}], 'runs': [copy.deepcopy(CI)]}
     args.update(overrides)
     return contract.make_plan(**args)
+
+
+class ChecksumTests(unittest.TestCase):
+    NAMES = ['latest.json', 'XHarness_0.2.12_x64-setup.exe', 'updater.pub',
+             'XHarness_0.2.12_amd64.AppImage', 'SHA256SUMS']
+    EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+    ORDER = ['XHarness_0.2.12_amd64.AppImage', 'XHarness_0.2.12_x64-setup.exe',
+             'latest.json', 'updater.pub']
+
+    def expected(self):
+        return ''.join(f'{self.EMPTY_HASH}  {name}\n' for name in self.ORDER)
+
+    def test_fixed_mixed_case_inventory_on_native_filesystem(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in self.NAMES:
+                (root / name).write_bytes(b'')
+            self.assertEqual(contract.checksums(root), self.expected())
+
+    def test_same_inventory_for_posix_and_windows_path_comparisons(self):
+        # Exercise Windows ordering on Linux CI too, rather than generating and
+        # verifying an expected value using the same host-dependent comparator.
+        for flavor in [PurePosixPath, PureWindowsPath]:
+            with self.subTest(flavor=flavor.__name__), patch.object(contract, 'Path') as paths, \
+                    patch.object(contract, 'sha256', return_value=self.EMPTY_HASH):
+                paths.return_value.iterdir.return_value = [flavor(name) for name in self.NAMES]
+                self.assertEqual(contract.checksums('fixture'), self.expected())
 
 
 class PlanTests(unittest.TestCase):
@@ -422,6 +450,7 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
     def test_release_inventory_checksum_and_receipt_evidence_must_match(self):
         self.assemble()
         checksum_path = self.output / 'SHA256SUMS'
+        self.assertEqual(checksum_path.read_bytes(), contract.checksums(self.output).encode('ascii'))
         original = checksum_path.read_text(encoding='utf-8')
         checksum_path.write_text(original + '0' * 64 + '  unexpected\n')
         with self.assertRaisesRegex(ValueError, 'checksum inventory'):
