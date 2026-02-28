@@ -523,7 +523,7 @@ window.__ModuleLoader__.load({
 		/** Draft-image rail, document drop target, and original-image preview slot entry. */
 // Shared attachment card presentation, matching the existing upstream tokens.
 const attachmentStyle = document.createElement('style');
-attachmentStyle.textContent = `.xh-file-card{box-sizing:border-box;position:relative;flex:0 0 240px;max-width:100%;width:240px;height:64px;border:1px solid var(--dsw-alias-border-l2-darkmode-thin);border-radius:16px;background:var(--dsw-alias-interactive-bg-hover);padding:10px 32px 10px 12px;display:flex;gap:10px;align-items:center;color:var(--dsw-alias-label-primary)}.xh-file-card button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}.xh-file-card .xh-file-info{min-width:0;overflow:hidden;text-align:left;display:flex;flex-direction:column;gap:4px}.xh-file-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:175px;font-size:13px}.xh-file-size{font-size:11px;color:var(--dsw-alias-label-tertiary)}.xh-file-remove{position:absolute;right:6px;top:4px;width:24px;height:24px}.xh-attachment-toolbar{padding:4px 12px;display:flex;align-items:center}.xh-attachment-toolbar button{border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;padding:4px 6px}.xh-attachment-toolbar button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.xh-attachment-toolbar button:disabled{opacity:.5;cursor:default}.xh-file-card :focus-visible,.xh-attachment-toolbar :focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}`;
+attachmentStyle.textContent = `.xh-file-card{box-sizing:border-box;position:relative;flex:0 0 240px;max-width:100%;width:240px;height:64px;border:1px solid var(--dsw-alias-border-l2-darkmode-thin);border-radius:16px;background:var(--dsw-alias-interactive-bg-hover);padding:10px 32px 10px 12px;display:flex;gap:10px;align-items:center;color:var(--dsw-alias-label-primary)}.xh-file-card button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}.xh-file-card .xh-file-info{min-width:0;overflow:hidden;text-align:left;display:flex;flex-direction:column;gap:4px}.xh-file-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:175px;font-size:13px}.xh-file-size{font-size:11px;color:var(--dsw-alias-label-tertiary)}.xh-file-remove{position:absolute;right:6px;top:4px;width:24px;height:24px}.xh-file-card :focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}`;
 document.head.appendChild(attachmentStyle);
 function XHarnessFileCard({name,bytes,onRemove,removeLabel,onDownload,busy,error}) {
   const h=react.createElement;
@@ -604,7 +604,6 @@ function XHarnessHistoryFile({attachment,load}) {
 					window.removeEventListener("dragend", reset);
 				};
 			}, [canAcceptDrop, onAddImages]);
-			const picker = (0, react.useRef)(null);
 			const railItems = (0, react.useMemo)(() => attachments.map((attachment) => ({
 				id: attachment.id,
 				previewUrl: attachment.previewUrl,
@@ -613,11 +612,7 @@ function XHarnessHistoryFile({attachment,load}) {
 				attachment
 			})), [attachments, t]);
 			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-				(0,react_jsx_runtime.jsxs)('div',{className:'xh-attachment-toolbar',children:[
-      (0,react_jsx_runtime.jsx)('button',{type:'button',disabled:!canAcceptDrop,onClick:()=>picker.current?.click(),children:'＋ 添加附件',title:'拖入、粘贴或选择图片及文件'}),
-      (0,react_jsx_runtime.jsx)('input',{ref:picker,type:'file',multiple:true,hidden:true,'aria-label':'添加附件',onChange:event=>{const files=Array.from(event.target.files??[]);event.target.value='';if(canAcceptDrop&&files.length)onAddImages(files);}})
-    ]}),
-    dragActive && (0, react_jsx_runtime.jsx)(DropOverlay, {
+				dragActive && (0, react_jsx_runtime.jsx)(DropOverlay, {
 					disabled: !canAcceptDrop,
 					labels: dropOverlayLabels(t, canAcceptDrop, dropLimits)
 				}),
@@ -810,3 +805,4 @@ function XHarnessHistoryFile({attachment,load}) {
 
 //# sourceMappingURL=client.js.map
 // XHARNESS DURABLE ATTACHMENTS v1
+// XHARNESS COMPOSER ADD MENU v1

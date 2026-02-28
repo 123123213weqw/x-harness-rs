@@ -5,9 +5,10 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { patchAttachments } from './patch-attachments.mjs'
+import { patchComposerAddMenu } from './patch-composer-add-menu.mjs'
 const root = fileURLToPath(new URL('../',import.meta.url))
 const id = '@deepseek-ai/dsh-client-ui-conversation'
-const source = readFileSync(resolve(root,`ui/dist/plugins/${id}/client.js`),'utf8')
+const source = readFileSync(resolve(root,`ui/dist/plugins/${id}/client.js`),'utf8').replaceAll('\r\n','\n')
 assert.equal(patchAttachments(id,Buffer.from(source)).toString(),source,'patch must be idempotent')
 const start = source.indexOf('function attachmentMediaType(')
 const end = source.indexOf('//#region lib/types/client/input/blocks.js',start)
@@ -37,7 +38,14 @@ assert.throws(()=>context.validate(Array.from({length:21},()=>({name:'a.png',typ
 const svg=controller.createDraftImages([new File(['<svg/>'],'unsafe.svg',{type:'image/svg+xml'})])[0]
 assert.equal(svg.kind,'file','SVG stays a download, not active inline content')
 const cards=readFileSync(resolve(root,'ui/dist/plugins/@deepseek-ai/dsh-client-ui-attachment/client.js'),'utf8')
-assert.ok(cards.includes('XHarnessHistoryFile'));assert.ok(cards.includes('multiple:true'))
+assert.ok(cards.includes('XHarnessHistoryFile'));
+assert.ok(!cards.includes("className:'xh-attachment-toolbar'"), 'standalone attachment toolbar must be removed');
+assert.ok(source.includes('XHarnessComposerAddMenu'), 'reuse the composer plus for attachments');
+assert.ok(source.includes("multiple: true"), 'composer picker accepts mixed files');
+assert.equal(patchAttachments('@deepseek-ai/dsh-client-ui-attachment',Buffer.from(cards)).toString(),cards.replaceAll('\r\n','\n'));
+assert.ok(source.includes(readFileSync(resolve(root,'ui/overrides/composer-add-menu.js'),'utf8').replaceAll('\r\n','\n').trim()), 'shipped helper matches source');
+assert.throws(()=>patchComposerAddMenu(id,Buffer.from('unexpected upstream composer')),/signature changed/);
+assert.throws(()=>patchComposerAddMenu('@deepseek-ai/dsh-client-ui-attachment',Buffer.from('unexpected upstream rail')),/signature changed/);
 const models=readFileSync(resolve(root,'ui/dist/plugins/@deepseek-ai/dsh-client-ui-settings-models/client.js'),'utf8')
 assert.ok(models.includes("imageInput"), "reuse the existing explicit model capability")
 console.log('attachments: ordered mixed payloads, failure retention, success release, size/count limits, safe generic fallback, model checkbox and idempotent UI patch passed')

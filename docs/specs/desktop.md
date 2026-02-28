@@ -18,6 +18,17 @@ Tauri WebView
 
 ## 2. 进程与数据边界
 
+主窗口显式设置 `dragDropEnabled: false`，让共享聊天 UI 接收 HTML
+`dragenter` / `dragover` / `drop` 和 `DataTransfer.files`。Tauri 默认的原生
+拖拽处理器会在 Windows 上替换 WebView2 的处理器，阻断这条网页事件链路；
+当前应用没有消费原生 `DragDropEvent` 的另一套附件入口，因此不得恢复默认值。
+这里关闭的是壳层拦截，不是关闭用户拖拽，也不开放任意路径读取权限。
+参见 [Tauri 配置说明](https://v2.tauri.app/reference/config/#dragdropenabled)。
+
+回归验证包含配置契约及共享 UI 的文件拖入、预览和拒绝流程；浏览器合成事件
+不等同于 Windows 原生拖拽验收。安装新构建后，还需从资源管理器拖入图片及
+普通文件，确认附件出现、可移除，且没有跳转到文件页面。
+
 1. 桌面壳必须把 `xharness-host` 和与目标架构一致的 `rg` 作为 Tauri external binary
    打包；Windows 还必须携带 `xharness-windows-sandbox-runner.exe`，否则 restricted execution
    会 fail closed。Host 仍是唯一后端，桌面壳不得代理每个 API 请求。缺失 `rg` 会让 fresh
