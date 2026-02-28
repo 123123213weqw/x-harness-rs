@@ -228,3 +228,14 @@ jobs:
           path: dist/desktop-candidate/
           if-no-files-found: error
           retention-days: 90
+      - name: Preserve public-material draft identity even when staging fails
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-draft-staging-evidence
+          path: |
+            dist/desktop-candidate/draft-creation-attempt.json
+            dist/desktop-candidate/draft-created.json
+            dist/desktop-candidate/draft-snapshot.json
+          if-no-files-found: warn
+          retention-days: 90

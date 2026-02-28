@@ -197,6 +197,170 @@ class DraftAndLive(unittest.TestCase):
             with self.assertRaises(ValueError): build.compare_release_files(a, b)
 
 
+class DraftIdentity(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.plan = {'repository': REPO, 'sha': SHA, 'tag': 'desktop-v0.2.6',
+                     'version': '0.2.6', 'release_scope': 'windows-linux'}
+        build.write(self.root / 'plan.json', self.plan)
+        (self.root / 'release').mkdir()
+        (self.root / 'release/latest.json').write_bytes(b'1234567890')
+        self.created = {**release(), 'assets': []}
+        self.remote = release()
+        self.pages = [[]]
+        self.create_error = None
+        self.upload_error = None
+        self.args = type('Args', (), {'candidate': self.root})()
+        for p in (patch.object(build, 'trusted_checkout', return_value=(REPO, SHA)),
+                  patch.object(build, 'contract'), patch.object(build, 'verify_tag'),
+                  patch.dict(os.environ, {'GITHUB_SHA': SHA})):
+            p.start(); self.addCleanup(p.stop)
+        p = patch.object(build, 'run', side_effect=self.command)
+        self.command_mock = p.start(); self.addCleanup(p.stop)
+        p = patch.object(build, 'api', side_effect=self.read)
+        self.api_mock = p.start(); self.addCleanup(p.stop)
+
+    def command(self, *args, **kwargs):
+        if '--paginate' in args:
+            return json.dumps(self.pages)
+        if 'POST' in args:
+            if self.create_error: raise self.create_error
+            return json.dumps(self.created)
+        if args[:3] == ('gh', 'release', 'upload'):
+            if self.upload_error: raise self.upload_error
+            return None
+        raise AssertionError(f'Unexpected command: {args}')
+
+    def read(self, path):
+        if path == f'repos/{REPO}/releases/12':
+            return self.remote
+        raise AssertionError('Published-only tag endpoint is unavailable for this draft: ' + path)
+
+    def test_stage_captures_create_id_when_published_tag_lookup_is_404(self):
+        build.stage_draft(self.args)
+        self.api_mock.assert_called_once_with(f'repos/{REPO}/releases/12')
+        self.assertEqual(build.load(self.root / 'draft-snapshot.json'), build.snapshot(self.remote))
+        self.assertEqual(build.load(self.root / 'draft-created.json')['id'], 12)
+        create = [c for c in self.command_mock.call_args_list if 'POST' in c.args]
+        self.assertEqual(len(create), 1)
+        for value in ['draft=true', 'prerelease=false', 'make_latest=false', 'tag_name=desktop-v0.2.6', 'target_commitish=' + SHA]:
+            self.assertIn(value, create[0].args)
+
+    def test_existing_published_or_draft_on_later_page_is_not_reused(self):
+        for draft in (True, False):
+            self.pages = [[{**release(), 'tag_name': 'desktop-v0.2.5'}], [{**release(), 'draft': draft}]]
+            with self.subTest(draft=draft), self.assertRaisesRegex(ValueError, 'already exists'):
+                build.stage_draft(self.args)
+        self.assertFalse(any('POST' in c.args for c in self.command_mock.call_args_list))
+
+    def test_uncertain_creation_is_not_retried_and_preserves_intent(self):
+        self.create_error = TimeoutError('private server body')
+        with self.assertRaisesRegex(ValueError, 'uncertain') as error:
+            build.stage_draft(self.args)
+        self.assertNotIn('private server body', str(error.exception))
+        self.assertEqual(len([c for c in self.command_mock.call_args_list if 'POST' in c.args]), 1)
+        self.assertTrue((self.root / 'draft-creation-attempt.json').exists())
+        self.assertFalse((self.root / 'draft-snapshot.json').exists())
+        self.api_mock.assert_not_called()
+
+    def test_upload_failure_keeps_created_id_and_cannot_emit_accepted_snapshot(self):
+        self.upload_error = OSError('upload stopped')
+        with self.assertRaises(OSError): build.stage_draft(self.args)
+        self.assertEqual(build.load(self.root / 'draft-created.json')['id'], 12)
+        self.assertFalse((self.root / 'draft-snapshot.json').exists())
+        self.api_mock.assert_not_called()
+
+    def test_bad_creation_identity_is_rejected_before_upload(self):
+        self.created['target_commitish'] = NEW_SHA
+        with self.assertRaises(ValueError): build.stage_draft(self.args)
+        self.assertFalse(any(c.args[:3] == ('gh', 'release', 'upload') for c in self.command_mock.call_args_list))
+
+    def test_metadata_and_asset_changes_during_upload_fail_closed(self):
+        for field, value in [('body', 'changed'), ('name', 'replaced'), ('asset.size', 11), ('asset.name', 'unexpected')]:
+            with self.subTest(field=field):
+                self.remote = release()
+                if field.startswith('asset.'):
+                    self.remote['assets'][0][field.split('.')[1]] = value
+                else:
+                    self.remote[field] = value
+                # Independent candidate workspace per attempt; no overwriting.
+                with tempfile.TemporaryDirectory() as temporary:
+                    candidate = Path(temporary)
+                    build.write(candidate / 'plan.json', self.plan)
+                    (candidate / 'release').mkdir()
+                    (candidate / 'release/latest.json').write_bytes(b'1234567890')
+                    with self.assertRaises(ValueError):
+                        build.stage_draft(type('Args', (), {'candidate': candidate})())
+                    self.assertFalse((candidate / 'draft-snapshot.json').exists())
+
+    def test_bound_lookup_uses_id_and_checks_full_snapshot(self):
+        expected = build.snapshot(release())
+        self.assertEqual(build.bound_draft(REPO, self.plan, expected), self.remote)
+        self.api_mock.assert_called_once_with(f'repos/{REPO}/releases/12')
+        for field, value in [('id', 99), ('tag_name', 'desktop-v0.9.0'), ('target_commitish', NEW_SHA),
+                             ('draft', False), ('prerelease', True), ('body', 'changed')]:
+            self.remote = {**release(), field: value}
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                build.bound_draft(REPO, self.plan, expected)
+
+    def test_missing_or_unsafe_id_is_rejected_without_network(self):
+        for value in (None, True, 0, -1, '12', '../latest'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                build.bound_draft(REPO, self.plan, {**build.snapshot(release()), 'id': value})
+        self.api_mock.assert_not_called()
+
+    def test_bound_id_404_never_falls_back_to_same_tag(self):
+        self.api_mock.side_effect = OSError('404')
+        with self.assertRaises(OSError):
+            build.bound_draft(REPO, self.plan, build.snapshot(release()))
+        self.api_mock.assert_called_once_with(f'repos/{REPO}/releases/12')
+
+    def test_publish_rechecks_same_bound_id_and_rejects_final_drift(self):
+        for drift in (False, True):
+            with self.subTest(drift=drift), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                live = {**release(), 'id': 13, 'tag_name': 'friends-v0.2.5', 'draft': False}
+                build.write(root / 'candidate/plan.json', self.plan)
+                build.write(root / 'candidate/draft-snapshot.json', build.snapshot(release()))
+                build.write(root / 'live-snapshot.json', build.snapshot(live))
+                build.write(root / 'live/latest.json', {'platforms': {'windows-x86_64': {
+                    'url': f'https://github.com/{REPO}/releases/download/friends-v0.2.5/setup.exe'}}})
+                build.write(root / 'provenance.json', {'release': {'run': successful()}})
+                draft_reads = []
+                def read(path):
+                    if path.endswith('/releases/latest'): return live
+                    if path == f'repos/{REPO}/releases/12':
+                        draft_reads.append(path)
+                        if drift and len(draft_reads) == 2: return {**release(), 'body': 'raced'}
+                        return release()
+                    raise AssertionError('Unexpected API path: ' + path)
+                with patch.object(build, 'api', side_effect=read), \
+                        patch.object(build, 'successful_run', return_value=successful()), \
+                        patch.object(build, 'download_release'), patch.object(build, 'compare_release_files'), \
+                        patch.object(build, 'promote_draft') as promote:
+                    args = type('Args', (), {'workspace': root})()
+                    if drift:
+                        with self.assertRaisesRegex(ValueError, 'Draft changed'): build.publish(args)
+                        promote.assert_not_called()
+                    else:
+                        build.publish(args)
+                        promote.assert_called_once_with(REPO, release(), root)
+                self.assertEqual(len(draft_reads), 2)
+
+    def test_all_draft_queries_and_failure_evidence_use_safe_paths(self):
+        source = (ROOT / 'scripts/desktop-release-build.py').read_text(encoding='utf-8')
+        self.assertNotIn('/releases/tags/', source)
+        workflow = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
+        evidence = workflow.split('- name: Preserve public-material draft identity', 1)[1]
+        self.assertIn('if: always()', evidence)
+        for name in ('draft-creation-attempt.json', 'draft-created.json', 'draft-snapshot.json'):
+            self.assertIn('dist/desktop-candidate/' + name, evidence)
+        self.assertNotIn('private', evidence)
+        self.assertNotIn('dist/desktop-candidate/\n', evidence)
+
+
 class PublicPublication(unittest.TestCase):
     def test_rolling_feed_is_verified_without_auth_and_old_cdn_bytes_are_retried(self):
         with tempfile.TemporaryDirectory() as temporary:
