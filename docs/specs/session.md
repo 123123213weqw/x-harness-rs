@@ -1,5 +1,7 @@
 # 事件溯源 Session 规范
 
+> 2026-09-10 更新：请求快照改为无损冷存储、热日志/实时事件只带元数据，Context/Harness 按 seq 读取完整内容。下文早期提到的 inline RequestHeader.input 已由 [请求审计与内存边界](request-audit-storage.md) 中的协议取代；模型实际输入未被裁剪。
+
 **Crate：** `xharness-session`
 **状态：** v1 事件词汇和内存 CAS Store 已实现。
 

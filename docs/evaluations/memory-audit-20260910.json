@@ -1,0 +1,78 @@
+{
+  "date": "2026-09-10",
+  "rust": {
+    "passed": 564,
+    "failed": 0,
+    "ignored": 5,
+    "clippy": "passed"
+  },
+  "browser_engines": [
+    "Chromium",
+    "WebKit"
+  ],
+  "synthetic_replays": [
+    {
+      "cache_bytes": 209244952,
+      "cache_entries": 8,
+      "elapsed_ms": 5548,
+      "facts": 1024,
+      "mode": "replay-raw",
+      "snapshot_read": true,
+      "peak_rss_kib": 79872
+    },
+    {
+      "cache_bytes": 2576800,
+      "cache_entries": 8,
+      "elapsed_ms": 898,
+      "facts": 1024,
+      "mode": "replay-runtime",
+      "snapshot_read": true,
+      "peak_rss_kib": 10240
+    },
+    {
+      "cache_bytes": 2689288,
+      "cache_entries": 8,
+      "elapsed_ms": 87,
+      "facts": 1024,
+      "mode": "replay-runtime",
+      "snapshot_read": true,
+      "peak_rss_kib": 9728
+    }
+  ],
+  "synthetic_disk_bytes": {
+    "legacy": 69462248,
+    "archive": 1049236
+  },
+  "deepseek": {
+    "model": "deepseek-flash",
+    "rounds": 4,
+    "initial_elapsed_ms": 306384,
+    "revision_elapsed_ms": 116253,
+    "generated_tests": 151,
+    "independent_tests": 12,
+    "initial_independent_failure": "CLI default output was human text instead of JSON; corrected through GoalEdit/Resume feedback, not by relaxing acceptance",
+    "first_run_max_rss_kib": 197696,
+    "revision_max_rss_kib": 109960,
+    "confirmation": "complete, duplicate idempotent, JSONL replay passed",
+    "events": 2300,
+    "tools": {
+      "bash": 39,
+      "glob": 1,
+      "write": 3,
+      "edit": 47,
+      "goal_report": 4,
+      "read": 7
+    },
+    "tool_outcomes": {
+      "success": 100,
+      "error": 1
+    },
+    "request_count": 104,
+    "reconstructed_message_entries": 11023,
+    "audit_hashes_valid": true,
+    "journal_bytes": 1755683,
+    "cold_archive_bytes": 1318973,
+    "equivalent_inline_request_bytes": 26279677
+  },
+  "installed_app_updated": false
+}

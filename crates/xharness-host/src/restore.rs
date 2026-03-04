@@ -139,6 +139,7 @@ impl BasicHost {
             let queue = inbox
                 .next_turn()
                 .iter()
+                .filter(|m| !xharness_agent::is_goal_message(m))
                 .map(restored_prompt)
                 .collect::<VecDeque<_>>();
             let projected_queue = restored_queue(&inbox);
@@ -156,16 +157,25 @@ impl BasicHost {
                     false
                 }
             };
-            let metric_events =
-                project_session_event_range(&session, &route, 0, session.events().len());
-            let metrics = MetricsProjectionState::rebuild(metric_events.iter());
+            // Fold one event at a time: startup must not materialize a second
+            // whole-log JSON projection just to compute counters.
+            let mut metrics = MetricsProjectionState::default();
+            let prompts = prompt_views(&session);
+            let initial = initial_request_header_seq(&session);
+            for event in session.events() {
+                metrics.apply(&restored_web_event(event, &route, &prompts, initial, None));
+            }
             let tail = project_session_event_tail(
                 &session,
                 &route,
                 self.config.session_event_cache_capacity,
                 self.config.session_event_cache_bytes,
             );
-            let messages = session.derive_messages();
+            let messages = if self.agent_runtime.has_authoritative_sessions() {
+                Vec::new()
+            } else {
+                session.derive_messages()
+            };
             let updated_at = session
                 .events()
                 .last()
@@ -179,7 +189,12 @@ impl BasicHost {
                 })
                 .max()
                 .unwrap_or_default();
-            let blank = messages.is_empty() && !inbox.has_pending();
+            let blank = !session.events().iter().any(|e| {
+                matches!(
+                    e.data(),
+                    EventData::UserMessage { .. } | EventData::AssistantMessage { .. }
+                )
+            }) && !inbox.has_pending();
             let permission = restored_permission(&session);
             let plan_active = restored_plan_mode(&session);
             let goal = restored_goal(&session);
@@ -493,6 +508,7 @@ pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
         };
         current = match change {
             xharness_session::GoalChange::Snapshot(change) => Some(GoalState {
+                execution: None,
                 id: change.goal.id.clone(),
                 revision: change.goal.revision,
                 objective: change.goal.objective.clone(),
@@ -505,6 +521,9 @@ pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
             }),
             xharness_session::GoalChange::Clear(_) => None,
         };
+    }
+    if let Some(goal) = current.as_mut() {
+        goal.execution = Some(crate::goals::execution_projection(session));
     }
     current
 }
@@ -545,6 +564,7 @@ pub(crate) fn restored_queue(inbox: &InboxProjection) -> Vec<QueuedPrompt> {
     let mut items = inbox
         .next_turn()
         .iter()
+        .filter(|m| !xharness_agent::is_goal_message(m))
         .map(restored_prompt)
         .collect::<Vec<_>>();
     items.extend(inbox.next_step().iter().map(|input| {
@@ -1010,7 +1030,18 @@ fn restored_web_event(
     if matches!(event.data(), EventData::SessionTitleGeneration { .. }) {
         return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"title-generation"}, "hidden":true});
     }
+    if matches!(
+        event.data(),
+        EventData::ExecutionCheckpoint { notice: None, .. }
+    ) {
+        return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"execution-checkpoint-state"}, "hidden":true});
+    }
     let (event_type, data, surface_op) = match event.data() {
+        EventData::ExecutionCheckpoint { turn, notice, .. } => (
+            "run/checkpoint".into(),
+            web_execution_notice(web_turn(*turn), notice.as_ref()),
+            None,
+        ),
         EventData::SessionTitleGeneration { .. }
         | EventData::AgentDelegationFailure { .. }
         | EventData::AgentFailureDelivered { .. }
@@ -1027,6 +1058,7 @@ fn restored_web_event(
         | EventData::CommandRun { .. }
         | EventData::CommandDone { .. }
         | EventData::SessionTitle { .. }
+        | EventData::GoalExecution { .. }
         | EventData::GoalChange { .. }
         | EventData::ScheduleChange { .. }
         | EventData::PlanMode { .. }
@@ -1206,6 +1238,13 @@ fn restored_web_event(
     web
 }
 
+pub(crate) fn web_execution_notice(
+    turn: u32,
+    notice: Option<&xharness_session::ExecutionNotice>,
+) -> Value {
+    json!({"turn":turn,"notice":notice})
+}
+
 fn tagged_event_data(event: &EventData) -> (String, Value, Option<Value>) {
     let mut value = serde_json::to_value(event).expect("EventData is serializable");
     let object = value
@@ -1240,19 +1279,23 @@ fn web_request_header(header: &RequestHeader, initial: bool) -> (String, Value, 
             );
     }
 
-    let mut web_header = json!({
-        "config": config,
-        "tools": header.tools,
-        "input": header.input,
-        "options": header.options,
-        "xharnessVersion": 1,
-    });
-    if let Some(system) = &header.system {
-        web_header
-            .as_object_mut()
-            .expect("request header is an object")
-            .insert("system".to_owned(), Value::String(system.clone()));
+    // Ordinary live/history frames carry metadata only, including for old
+    // stores. Context/Harness explicitly resolve one selected snapshot by seq.
+    let mut options = header.options.clone();
+    if let Some(Value::Object(context)) = options.get_mut("context") {
+        if let Some(Value::Array(edits)) = context.remove("edits") {
+            context.insert("edit_count".into(), json!(edits.len()));
+        }
     }
+    options
+        .entry("inputMessageCount".into())
+        .or_insert(json!(header.input.len()));
+    options
+        .entry("toolCount".into())
+        .or_insert(json!(header.tools.len()));
+    options.insert("snapshotOnDemand".into(), json!(true));
+    let web_header =
+        json!({"config":config,"tools":[],"input":[],"options":options,"xharnessVersion":1});
 
     (
         "request/header".to_owned(),
@@ -1734,6 +1777,60 @@ mod tests {
             )
             .unwrap();
         session
+    }
+
+    #[test]
+    fn execution_checkpoint_projection_is_shared_and_internal_snapshots_are_hidden() {
+        let mut session = Session::new(SessionHeader::new("checkpoint-projection")).unwrap();
+        let state = xharness_session::ExecutionCheckpointState {
+            phase: 1,
+            phase_end_step: 1024,
+            stage_pending: false,
+            repetition: Default::default(),
+            pending_notice: None,
+            pending_repetitions: Vec::new(),
+        };
+        let notice = xharness_session::ExecutionNotice {
+            kind: "issued".into(),
+            message: "检查点".into(),
+            phase: 1,
+            steps_completed: 0,
+            phase_end_step: 1024,
+            hard_max_steps: None,
+        };
+        session
+            .append_batch_at(
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::ExecutionCheckpoint {
+                        turn: 1,
+                        step: 0,
+                        state: state.clone(),
+                        notice: None,
+                    }
+                    .into(),
+                    EventData::ExecutionCheckpoint {
+                        turn: 1,
+                        step: 0,
+                        state,
+                        notice: Some(notice.clone()),
+                    }
+                    .into(),
+                ],
+                1,
+            )
+            .unwrap();
+        let tail =
+            project_session_event_tail(&session, &ModelRoute::new("test", "test"), 100, usize::MAX);
+        assert_eq!(tail.events[1]["hidden"], true);
+        assert_eq!(tail.events[1]["type"], "xharness/internal");
+        assert_eq!(tail.events[2]["type"], "run/checkpoint");
+        assert_eq!(
+            tail.events[2]["data"],
+            super::web_execution_notice(0, Some(&notice))
+        );
+        assert!(session.derive_messages().is_empty());
     }
 
     #[test]
@@ -2317,10 +2414,7 @@ mod tests {
             })
         );
         assert_eq!(projected_header["data"]["reason"], "initial");
-        assert_eq!(
-            projected_header["data"]["header"]["input"][0]["content"],
-            "hello"
-        );
+        assert_eq!(projected_header["data"]["header"]["input"], json!([]));
         assert_eq!(
             projected_header["data"]["header"]["options"]["tokenBudget"]["contextWindowTokens"],
             53_248
@@ -3349,6 +3443,7 @@ mod tests {
                 json!({
                     "sessionId": "goal-session",
                     "objective": "Ship the durable agent",
+                    "executionEnabled": false,
                     "maxGoalRounds": 8,
                 }),
                 CancellationToken::new(),

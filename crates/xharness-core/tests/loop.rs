@@ -2373,147 +2373,186 @@ async fn formal_tool_runtime_materializes_unknown_and_invalid_calls_without_star
 
 #[tokio::test]
 async fn restart_resumes_undecided_approval_without_replaying_or_unknowning_the_tool() {
-    let journal = Arc::new(EventMemorySessionStore::default());
-    journal
-        .create(SessionHeader::new("resume-approval"))
-        .await
-        .unwrap();
-    let call = ToolCall {
-        id: "execution-1".to_owned(),
-        provider_call_id: Some("provider-call-1".to_owned()),
-        index: 0,
-        name: "guarded".to_owned(),
-        arguments_json: "{}".to_owned(),
-    };
-    let mut assistant = AgentMessage::assistant("");
-    assistant.tool_calls.push(call.clone());
-    journal
-        .append(
-            "resume-approval",
-            Revision::ZERO,
-            vec![
-                SessionEventData::TurnStart { turn: 1 }.into(),
-                SessionEventData::UserMessage {
-                    message: AgentMessage::user("run"),
-                    surface_replace: None,
-                }
-                .into(),
-                SessionEventData::StepStart { turn: 1, step: 1 }.into(),
-                SessionEventData::AssistantMessage {
-                    turn: 1,
-                    step: 1,
-                    message: assistant,
-                    usage: None,
-                }
-                .into(),
-                SessionEventData::ToolCall {
-                    turn: 1,
-                    step: 1,
-                    call: call.clone(),
-                }
-                .into(),
-                SessionEventData::ApprovalAsked {
-                    id: "approval-stable".to_owned(),
-                    tool_name: "guarded".to_owned(),
-                    call_id: Some(call.id.clone()),
-                    reason: Some("requires approval".to_owned()),
-                }
-                .into(),
-            ],
-        )
-        .await
-        .unwrap();
-    journal.flush("resume-approval").await.unwrap();
-
-    let provider = Arc::new(ScriptProvider::new([vec![
-        Ok(ProviderEvent::TextDelta("continued".to_owned())),
-        Ok(completed()),
-    ]]));
-    let executions = Arc::new(AtomicUsize::new(0));
-    let registry = Arc::new(RuntimeToolRegistry::new());
-    registry
-        .register(
-            RuntimeToolSpec::new(
-                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
-                {
-                    let executions = Arc::clone(&executions);
-                    move |_context| {
-                        let executions = Arc::clone(&executions);
-                        async move {
-                            executions.fetch_add(1, Ordering::SeqCst);
-                            Ok(RuntimeToolOutput::text("recovered result"))
-                        }
+    for checkpoint_present in [false, true] {
+        let journal = Arc::new(EventMemorySessionStore::default());
+        journal
+            .create(SessionHeader::new("resume-approval"))
+            .await
+            .unwrap();
+        let call = ToolCall {
+            id: "execution-1".to_owned(),
+            provider_call_id: Some("provider-call-1".to_owned()),
+            index: 0,
+            name: "guarded".to_owned(),
+            arguments_json: "{}".to_owned(),
+        };
+        let mut assistant = AgentMessage::assistant("");
+        assistant.tool_calls.push(call.clone());
+        journal
+            .append(
+                "resume-approval",
+                Revision::ZERO,
+                vec![
+                    SessionEventData::TurnStart { turn: 1 }.into(),
+                    SessionEventData::UserMessage {
+                        message: AgentMessage::user("run"),
+                        surface_replace: None,
                     }
-                },
+                    .into(),
+                    SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                    SessionEventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    SessionEventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call: call.clone(),
+                    }
+                    .into(),
+                    SessionEventData::ApprovalAsked {
+                        id: "approval-stable".to_owned(),
+                        tool_name: "guarded".to_owned(),
+                        call_id: Some(call.id.clone()),
+                        reason: Some("requires approval".to_owned()),
+                    }
+                    .into(),
+                ],
             )
-            .requiring_approval(true),
-        )
+            .await
+            .unwrap();
+        if checkpoint_present {
+            let current = journal.load("resume-approval").await.unwrap().unwrap();
+            journal
+                .append(
+                    "resume-approval",
+                    current.revision(),
+                    vec![SessionEventData::ExecutionCheckpoint {
+                        turn: 1,
+                        step: 1,
+                        state: xharness_session::ExecutionCheckpointState {
+                            phase: 9,
+                            phase_end_step: 9216,
+                            stage_pending: false,
+                            repetition: Default::default(),
+                            pending_notice: None,
+                            pending_repetitions: Vec::new(),
+                        },
+                        notice: None,
+                    }
+                    .into()],
+                )
+                .await
+                .unwrap();
+        }
+        journal.flush("resume-approval").await.unwrap();
+
+        let provider = Arc::new(ScriptProvider::new([vec![
+            Ok(ProviderEvent::TextDelta("continued".to_owned())),
+            Ok(completed()),
+        ]]));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let registry = Arc::new(RuntimeToolRegistry::new());
+        registry
+            .register(
+                RuntimeToolSpec::new(
+                    RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                    {
+                        let executions = Arc::clone(&executions);
+                        move |_context| {
+                            let executions = Arc::clone(&executions);
+                            async move {
+                                executions.fetch_add(1, Ordering::SeqCst);
+                                Ok(RuntimeToolOutput::text("recovered result"))
+                            }
+                        }
+                    },
+                )
+                .requiring_approval(true),
+            )
+            .await
+            .unwrap();
+        let mut request = LoopRequest::new(provider.clone(), Vec::new());
+        request.session_id = Some("resume-approval".to_owned());
+        request.journal_store = Some(journal.clone());
+        request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+        let mut run = LoopEngine.start(request);
+
+        assert!(matches!(
+            run.next().await.unwrap().kind,
+            LoopEventKind::InputCommitted
+        ));
+        let event = run.next().await.unwrap();
+        let kind = event.kind;
+        let LoopEventKind::ToolApprovalRequested { approval_id, call } = kind else {
+            panic!("expected recovered approval, got {kind:?}");
+        };
+        assert_eq!(approval_id, "approval-stable");
+        assert_eq!(call.id, "execution-1");
+        assert_eq!(executions.load(Ordering::SeqCst), 0);
+        assert_eq!(provider.attempts(), 0);
+
+        run.send(LoopCommand::ApproveTool {
+            call_id: call.id.clone(),
+        })
         .await
         .unwrap();
-    let mut request = LoopRequest::new(provider.clone(), Vec::new());
-    request.session_id = Some("resume-approval".to_owned());
-    request.journal_store = Some(journal.clone());
-    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
-    let mut run = LoopEngine.start(request);
+        while run.next().await.is_some() {}
+        let result = run.result().await;
+        assert_eq!(result.status, LoopStatus::Completed);
+        assert_eq!(result.final_text, "continued");
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        assert_eq!(provider.attempts(), 1);
+        assert_eq!(provider.requests()[0].step, 2);
+        assert_eq!(
+            provider.requests()[0].messages[1].tool_calls[0].id,
+            "execution-1"
+        );
+        assert_eq!(
+            provider.requests()[0].messages[2].tool_call_id.as_deref(),
+            Some("provider-call-1")
+        );
 
-    assert!(matches!(
-        run.next().await.unwrap().kind,
-        LoopEventKind::InputCommitted
-    ));
-    let event = run.next().await.unwrap();
-    let kind = event.kind;
-    let LoopEventKind::ToolApprovalRequested { approval_id, call } = kind else {
-        panic!("expected recovered approval, got {kind:?}");
-    };
-    assert_eq!(approval_id, "approval-stable");
-    assert_eq!(call.id, "execution-1");
-    assert_eq!(executions.load(Ordering::SeqCst), 0);
-    assert_eq!(provider.attempts(), 0);
-
-    run.send(LoopCommand::ApproveTool {
-        call_id: call.id.clone(),
-    })
-    .await
-    .unwrap();
-    while run.next().await.is_some() {}
-    let result = run.result().await;
-    assert_eq!(result.status, LoopStatus::Completed);
-    assert_eq!(result.final_text, "continued");
-    assert_eq!(executions.load(Ordering::SeqCst), 1);
-    assert_eq!(provider.attempts(), 1);
-    assert_eq!(provider.requests()[0].step, 2);
-    assert_eq!(
-        provider.requests()[0].messages[1].tool_calls[0].id,
-        "execution-1"
-    );
-    assert_eq!(
-        provider.requests()[0].messages[2].tool_call_id.as_deref(),
-        Some("provider-call-1")
-    );
-
-    let session = journal.load("resume-approval").await.unwrap().unwrap();
-    assert_eq!(session.pending_tool_approvals().len(), 0);
-    assert_eq!(
-        session
+        let session = journal.load("resume-approval").await.unwrap().unwrap();
+        let states = session
             .events()
             .iter()
-            .filter(|event| matches!(event.data(), SessionEventData::ApprovalAsked { .. }))
-            .count(),
-        1,
-        "recovery must reuse the durable approval identity"
-    );
-    assert!(session.events().iter().any(|event| matches!(
-        event.data(),
-        SessionEventData::ToolResult { result, .. }
-            if result.call_id == "execution-1"
-                && result.outcome == ToolOutcome::Success
-    )));
-    assert!(!session.events().iter().any(|event| matches!(
-        event.data(),
-        SessionEventData::ToolResult { result, .. }
-            if result.call_id == "execution-1"
-                && result.outcome == ToolOutcome::OutcomeUnknown
-    )));
+            .filter_map(|e| match e.data() {
+                SessionEventData::ExecutionCheckpoint { state, .. } => Some(state),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!states.is_empty());
+        assert!(states
+            .iter()
+            .all(|state| state.phase == if checkpoint_present { 9 } else { 1 }));
+
+        assert_eq!(session.pending_tool_approvals().len(), 0);
+        assert_eq!(
+            session
+                .events()
+                .iter()
+                .filter(|event| matches!(event.data(), SessionEventData::ApprovalAsked { .. }))
+                .count(),
+            1,
+            "recovery must reuse the durable approval identity"
+        );
+        assert!(session.events().iter().any(|event| matches!(
+            event.data(),
+            SessionEventData::ToolResult { result, .. }
+                if result.call_id == "execution-1"
+                    && result.outcome == ToolOutcome::Success
+        )));
+        assert!(!session.events().iter().any(|event| matches!(
+            event.data(),
+            SessionEventData::ToolResult { result, .. }
+                if result.call_id == "execution-1"
+                    && result.outcome == ToolOutcome::OutcomeUnknown
+        )));
+    }
 }
 
 #[tokio::test]
@@ -4668,4 +4707,179 @@ async fn tool_media_survives_next_request_and_durable_replay_without_losing_plai
         assert_eq!(live.content_blocks, replay.content_blocks);
         assert_eq!(live.tool_call_id, replay.tool_call_id);
     }
+}
+
+#[tokio::test]
+async fn execution_checkpoints_continue_past_128_without_schema_or_history_pollution() {
+    let mut scripts = Vec::new();
+    for n in 0..130 {
+        scripts.push(vec![
+            Ok(tool_delta(0, &format!("echo-{n}"), "echo", "{}")),
+            Ok(completed_for_calls()),
+        ]);
+    }
+    scripts.push(vec![
+        Ok(ProviderEvent::TextDelta("done".into())),
+        Ok(completed()),
+    ]);
+    let provider = Arc::new(ScriptProvider::new(scripts));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.prompt = Some(
+        PromptAssembler
+            .assemble([PromptSection::new("identity", "1", "Stable system")])
+            .unwrap(),
+    );
+    request.session_id = Some("execution-checkpoints".into());
+    request.journal_store = Some(journal.clone());
+    request.config.checkpoints = CheckpointConfig {
+        interval_steps: 10,
+        notice_steps: 2,
+        ..Default::default()
+    };
+    install_tool(
+        &mut request,
+        TestToolSpec::new("echo", "echo", json!({}), |_, _| async {
+            ToolResult::success("ok")
+        }),
+    )
+    .await;
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.attempts(), 131);
+    assert!(events
+        .iter()
+        .any(|e| matches!(&e.kind,LoopEventKind::ExecutionNotice(n) if n.kind=="continued")));
+    assert!(!result
+        .messages
+        .iter()
+        .any(|m| m.content.contains("[Harness 执行检查点]")));
+    for req in provider.requests() {
+        assert_eq!(req.tools.len(), 1);
+        assert_eq!(req.messages[0].content, "Stable system");
+        assert!(
+            req.messages
+                .iter()
+                .filter(|m| m.content.contains("[Harness 执行检查点]"))
+                .count()
+                <= 1
+        );
+    }
+    let session = journal
+        .load("execution-checkpoints")
+        .await
+        .unwrap()
+        .unwrap();
+    let durable = session
+        .events()
+        .iter()
+        .filter_map(|e| match e.data() {
+            SessionEventData::ExecutionCheckpoint {
+                notice: Some(n), ..
+            } => Some(n.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let live = events
+        .iter()
+        .filter_map(|e| match &e.kind {
+            LoopEventKind::ExecutionNotice(n) => Some(n.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(durable, live);
+    assert!(!session
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("[Harness 执行检查点]")));
+}
+
+#[tokio::test]
+async fn execution_checkpoint_polling_exemption_keeps_tools_running_without_repeat_notice() {
+    let scripts = (0..7).map(|n| {
+        vec![
+            Ok(tool_delta(0, &format!("poll-{n}"), "poll", "{}")),
+            Ok(completed_for_calls()),
+        ]
+    });
+    let provider = Arc::new(ScriptProvider::new(scripts));
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("poll")]);
+    request.config.max_steps = 7;
+    let mut tool = TestToolSpec::new("poll", "poll", json!({}), |_, _| async {
+        ToolResult::success("pending")
+    });
+    tool.0 = tool.0.with_repetition_exemption();
+    install_tool(&mut request, tool).await;
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::LimitReached);
+    assert!(!events.iter().any(
+        |e| matches!(&e.kind,LoopEventKind::ExecutionNotice(n) if n.message.contains("连续"))
+    ));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(&e.kind, LoopEventKind::ToolCompleted { .. }))
+            .count(),
+        7
+    );
+}
+
+#[tokio::test]
+async fn execution_notice_survives_projection_and_network_retry_without_double_extension() {
+    let provider = Arc::new(ScriptProvider::with_attempts([
+        Ok(vec![
+            Ok(tool_delta(0, "call-1", "echo", "{}")),
+            Ok(completed_for_calls()),
+        ]),
+        Err(ProviderError::retryable("connection refused")),
+        Ok(vec![
+            Ok(tool_delta(0, "call-2", "echo", "{}")),
+            Ok(completed_for_calls()),
+        ]),
+        Ok(vec![
+            Ok(ProviderEvent::TextDelta("done".into())),
+            Ok(completed()),
+        ]),
+    ]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.context_policy = Arc::new(RecordingCompactionPolicy::default());
+    request.config.checkpoints = CheckpointConfig {
+        interval_steps: 2,
+        notice_steps: 1,
+        ..Default::default()
+    };
+    request.config.provider_retry_base_delay_ms = 1;
+    request.config.provider_retry_max_delay_ms = 1;
+    install_tool(
+        &mut request,
+        TestToolSpec::new("echo", "echo", json!({}), |_, _| async {
+            ToolResult::success("ok")
+        }),
+    )
+    .await;
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(provider.attempts(), 4);
+    let requests = provider.requests();
+    for index in [1, 2] {
+        assert_eq!(
+            requests[index]
+                .messages
+                .iter()
+                .filter(|m| m.content.contains("[Harness 执行检查点]"))
+                .count(),
+            1
+        );
+    }
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(&e.kind,LoopEventKind::ExecutionNotice(n) if n.kind=="continued"))
+            .count(),
+        1
+    );
+    assert!(!requests[3]
+        .messages
+        .iter()
+        .any(|m| m.content.contains("[Harness 执行检查点]")));
 }

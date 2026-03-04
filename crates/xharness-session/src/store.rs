@@ -46,6 +46,33 @@ pub trait Store: Send + Sync + 'static {
     /// Load one complete logical snapshot.
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError>;
 
+    /// Store request audit data outside the hot journal when supported.
+    /// This never changes the messages delivered to the provider.
+    async fn archive_request(
+        &self,
+        header: crate::RequestHeader,
+    ) -> Result<crate::RequestHeader, StoreError> {
+        Ok(header)
+    }
+
+    /// Explicit, on-demand audit lookup, not part of ordinary history replay.
+    async fn request_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<crate::RequestHeader>, StoreError> {
+        Ok(self.load(session_id).await?.and_then(|s| {
+            s.events().iter().find_map(|e| {
+                if e.seq == seq {
+                    if let crate::EventData::RequestHeader { header } = e.data() {
+                        return Some(header.clone());
+                    }
+                }
+                None
+            })
+        }))
+    }
+
     /// Atomically append a batch iff `expected_revision` is still current.
     async fn append(
         &self,

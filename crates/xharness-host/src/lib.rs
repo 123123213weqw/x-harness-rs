@@ -7,6 +7,7 @@
 mod control;
 mod delegation;
 mod delegation_concurrency;
+mod goals;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod driver;
@@ -119,6 +120,14 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<ToolExecutor, String>;
+
+    async fn goal_dependencies(
+        &self,
+        _session_id: &str,
+        _references: &[xharness_session::goal::GoalEvidence],
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
 
     /// Release factory-owned resources that outlive one Tool batch, such as
     /// persistent PTYs. Stateless factories keep the default no-op.

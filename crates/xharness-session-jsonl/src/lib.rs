@@ -8,7 +8,7 @@
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
-    io::{ErrorKind, Read, Write},
+    io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
 };
@@ -27,6 +27,8 @@ use xharness_session::{
     AppendReceipt, LoggedEvent, Revision, Session, SessionEvent, SessionHeader, SessionInspection,
     Store, StoreError,
 };
+
+mod audit;
 
 const FILE_FORMAT: &str = "xharness.session.jsonl";
 const FILE_FORMAT_VERSION: u32 = 1;
@@ -52,11 +54,12 @@ static PROCESS_LOCKS: OnceLock<LockTable> = OnceLock::new();
 #[derive(Clone, Debug)]
 pub struct JsonlSessionStore {
     root: Arc<PathBuf>,
+    audit_reads: Arc<tokio::sync::Semaphore>,
     /// Detached logical snapshots keyed by the exact on-disk identity.  The
     /// advisory file lock still owns cross-process CAS correctness; this cache
     /// only removes the previous O(file-size) replay from every in-process
     /// append/load/checkpoint.
-    cache: Arc<StdMutex<HashMap<PathBuf, CachedFile>>>,
+    cache: Arc<StdMutex<SnapshotCache>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,14 +87,61 @@ struct LoadedFile {
     valid_len: u64,
     /// The accepted final record had no newline terminator.
     needs_separator: bool,
+    estimated_bytes: usize,
+    audit_offsets: Arc<HashMap<u64, (u64, u64)>>,
 }
 
 #[derive(Clone, Debug)]
 struct CachedFile {
     fingerprint: FileFingerprint,
     loaded: LoadedFile,
+    touched: u64,
 }
 
+/// Cache limits are accounted logical bytes, not a promise about allocator RSS.
+#[derive(Debug)]
+struct SnapshotCache {
+    entries: HashMap<PathBuf, CachedFile>,
+    max_bytes: usize,
+    max_entries: usize,
+    clock: u64,
+    runtime_audit_view: bool,
+}
+impl Default for SnapshotCache {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+            max_bytes: 128 * 1024 * 1024,
+            max_entries: 16,
+            clock: 0,
+            runtime_audit_view: false,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct CacheStats {
+    pub entries: usize,
+    pub accounted_bytes: usize,
+    pub max_bytes: usize,
+}
+fn event_weight(event: &LoggedEvent) -> usize {
+    struct Count(usize);
+    impl Write for Count {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(b.len());
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut n = Count(0);
+    if serde_json::to_writer(&mut n, event).is_err() {
+        return usize::MAX;
+    }
+    n.0.saturating_mul(3)
+        .saturating_add(std::mem::size_of::<LoggedEvent>())
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FileFingerprint {
     dev: u64,
@@ -125,8 +175,39 @@ impl JsonlSessionStore {
         }
         Ok(Self {
             root: Arc::new(root),
-            cache: Arc::new(StdMutex::new(HashMap::new())),
+            audit_reads: Arc::new(tokio::sync::Semaphore::new(2)),
+            cache: Arc::new(StdMutex::new(SnapshotCache::default())),
         })
+    }
+
+    /// Runtime replay omits only redundant legacy request audit bodies. On-disk
+    /// bytes, event identities and provider-message facts remain unchanged.
+    /// `request_header` resolves full audits; `inspect` returns exact on-disk
+    /// journal events (including archive references for new requests).
+    pub fn for_runtime(self) -> Self {
+        {
+            let mut cache = self.cache.lock().unwrap();
+            cache.runtime_audit_view = true;
+            cache.entries.clear();
+        }
+        self
+    }
+    pub fn with_cache_limits(self, max_bytes: usize, max_entries: usize) -> Self {
+        {
+            let mut c = self.cache.lock().unwrap();
+            c.max_bytes = max_bytes;
+            c.max_entries = max_entries;
+            c.entries.clear();
+        }
+        self
+    }
+    pub fn cache_stats(&self) -> CacheStats {
+        let c = self.cache.lock().unwrap();
+        CacheStats {
+            entries: c.entries.len(),
+            accounted_bytes: c.entries.values().map(|e| e.loaded.estimated_bytes).sum(),
+            max_bytes: c.max_bytes,
+        }
     }
 
     pub fn root(&self) -> &Path {
@@ -215,6 +296,8 @@ impl Store for JsonlSessionStore {
                     session: session.clone(),
                     valid_len: fingerprint.len,
                     needs_separator: false,
+                    estimated_bytes: 1024,
+                    audit_offsets: Arc::new(HashMap::new()),
                 },
             )?;
             Ok(session)
@@ -289,6 +372,9 @@ impl Store for JsonlSessionStore {
                 return Ok(receipt);
             }
 
+            loaded.estimated_bytes = loaded
+                .estimated_bytes
+                .saturating_add(receipt.events.iter().map(event_weight).sum::<usize>());
             let record = BatchRecord {
                 record: BATCH_RECORD.to_owned(),
                 previous_revision: receipt.previous_revision,
@@ -325,6 +411,21 @@ impl Store for JsonlSessionStore {
                     .metadata()
                     .map_err(|error| backend_error("inspect appended session", &path, error))?,
             )?;
+            for event in &receipt.events {
+                if matches!(
+                    event.data(),
+                    xharness_session::EventData::RequestHeader { .. }
+                ) {
+                    Arc::make_mut(&mut loaded.audit_offsets).insert(
+                        event.seq,
+                        (
+                            loaded.valid_len + u64::from(loaded.needs_separator),
+                            bytes.len() as u64,
+                        ),
+                    );
+                    loaded.estimated_bytes = loaded.estimated_bytes.saturating_add(64);
+                }
+            }
             loaded.valid_len = fingerprint.len;
             loaded.needs_separator = false;
             cache_store(&cache, &path, fingerprint, loaded)?;
@@ -369,11 +470,76 @@ impl Store for JsonlSessionStore {
         .await
     }
 
+    async fn archive_request(
+        &self,
+        header: xharness_session::RequestHeader,
+    ) -> Result<xharness_session::RequestHeader, StoreError> {
+        let root = self.root.clone();
+        run_blocking(move || audit::archive(&root, header)).await
+    }
+    async fn request_header(
+        &self,
+        id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, StoreError> {
+        let permit = self
+            .audit_reads
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| backend_message("audit reader closed"))?;
+        let owned = id.to_owned();
+        let (path, guard) = self.locked_path(id).await?;
+        let root = self.root.clone();
+        let cache = self.cache.clone();
+        run_blocking(move || {
+            let _permit = permit;
+            let _guard = guard;
+            let _lock = acquire_file_lock(&path)?;
+            let Some(cut) = load_file_cached(&path, &owned, &cache)? else {
+                return Ok(None);
+            };
+            let Some((offset, len)) = cut.audit_offsets.get(&seq).copied() else {
+                return Ok(None);
+            };
+            drop(cut);
+            if len > 128 * 1024 * 1024 {
+                return Err(backend_message("audit record exceeds 128 MiB"));
+            }
+            let mut file = secure_open_options()
+                .read(true)
+                .open(&path)
+                .map_err(|e| backend_error("open request audit", &path, e))?;
+            ensure_regular_file(&file, &path, "session audit")?;
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|e| backend_error("seek request audit", &path, e))?;
+            let mut bytes = vec![0; len as usize];
+            file.read_exact(&mut bytes)
+                .map_err(|e| backend_error("read request audit", &path, e))?;
+            let record: BatchRecord =
+                serde_json::from_slice(&bytes).map_err(|e| backend_message(e.to_string()))?;
+            for event in record.events {
+                if event.seq == seq {
+                    if let xharness_session::EventData::RequestHeader { header } = event.event.0 {
+                        return audit::expand(&root, header).map(Some);
+                    }
+                }
+            }
+            Err(backend_message(
+                "audit index did not match authoritative sequence",
+            ))
+        })
+        .await
+    }
     async fn inspect(&self, session_id: &str) -> Result<Option<SessionInspection>, StoreError> {
-        Ok(self
-            .load(session_id)
-            .await?
-            .map(|session| session.inspect()))
+        let owned = session_id.to_owned();
+        let (path, guard) = self.locked_path(session_id).await?;
+        run_blocking(move || {
+            let _guard = guard;
+            let _lock = acquire_file_lock(&path)?;
+            Ok(load_file_mode(&path, &owned, false)?.map(|s| s.session.inspect()))
+        })
+        .await
     }
 }
 
@@ -509,23 +675,30 @@ fn encode_line<T: Serialize>(record: &T, path: &Path) -> Result<Vec<u8>, StoreEr
 fn load_file_cached(
     path: &Path,
     session_id: &str,
-    cache: &StdMutex<HashMap<PathBuf, CachedFile>>,
+    cache: &StdMutex<SnapshotCache>,
 ) -> Result<Option<LoadedFile>, StoreError> {
     let Some(fingerprint) = file_fingerprint(path)? else {
         cache_remove(cache, path)?;
         return Ok(None);
     };
-    if let Some(loaded) = cache
-        .lock()
-        .map_err(|_| backend_message("session snapshot cache is poisoned"))?
-        .get(path)
-        .filter(|entry| entry.fingerprint == fingerprint)
-        .map(|entry| entry.loaded.clone())
+    let runtime_audit_view;
     {
-        return Ok(Some(loaded));
+        let mut c = cache
+            .lock()
+            .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
+        c.clock = c.clock.wrapping_add(1);
+        let touched = c.clock;
+        runtime_audit_view = c.runtime_audit_view;
+        if let Some(entry) = c
+            .entries
+            .get_mut(path)
+            .filter(|e| e.fingerprint == fingerprint)
+        {
+            entry.touched = touched;
+            return Ok(Some(entry.loaded.clone()));
+        }
     }
-
-    let loaded = load_file(path, session_id)?;
+    let loaded = load_file_mode(path, session_id, runtime_audit_view)?;
     let Some(loaded) = loaded else {
         cache_remove(cache, path)?;
         return Ok(None);
@@ -546,51 +719,76 @@ fn load_file_cached(
 fn take_file_cached(
     path: &Path,
     session_id: &str,
-    cache: &StdMutex<HashMap<PathBuf, CachedFile>>,
+    cache: &StdMutex<SnapshotCache>,
 ) -> Result<Option<LoadedFile>, StoreError> {
     let Some(fingerprint) = file_fingerprint(path)? else {
         cache_remove(cache, path)?;
         return Ok(None);
     };
-    if let Some(loaded) = cache
+    let mut c = cache
         .lock()
-        .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+        .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
+    if let Some(entry) = c
+        .entries
         .remove(path)
-        .filter(|entry| entry.fingerprint == fingerprint)
-        .map(|entry| entry.loaded)
+        .filter(|e| e.fingerprint == fingerprint)
     {
-        return Ok(Some(loaded));
+        return Ok(Some(entry.loaded));
     }
-
-    load_file(path, session_id)
+    let runtime_audit_view = c.runtime_audit_view;
+    drop(c);
+    load_file_mode(path, session_id, runtime_audit_view)
 }
 
 fn cache_store(
-    cache: &StdMutex<HashMap<PathBuf, CachedFile>>,
+    cache: &StdMutex<SnapshotCache>,
     path: &Path,
     fingerprint: FileFingerprint,
     loaded: LoadedFile,
 ) -> Result<(), StoreError> {
-    cache
+    let mut c = cache
         .lock()
-        .map_err(|_| backend_message("session snapshot cache is poisoned"))?
-        .insert(
-            path.to_owned(),
-            CachedFile {
-                fingerprint,
-                loaded,
-            },
-        );
+        .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
+    c.entries.remove(path);
+    if loaded.estimated_bytes > c.max_bytes || c.max_entries == 0 {
+        return Ok(());
+    }
+    while c.entries.len() >= c.max_entries
+        || c.entries
+            .values()
+            .map(|e| e.loaded.estimated_bytes)
+            .sum::<usize>()
+            .saturating_add(loaded.estimated_bytes)
+            > c.max_bytes
+    {
+        let Some(old) = c
+            .entries
+            .iter()
+            .min_by_key(|(_, e)| e.touched)
+            .map(|(p, _)| p.clone())
+        else {
+            break;
+        };
+        c.entries.remove(&old);
+    }
+    c.clock = c.clock.wrapping_add(1);
+    let touched = c.clock;
+    c.entries.insert(
+        path.to_owned(),
+        CachedFile {
+            fingerprint,
+            loaded,
+            touched,
+        },
+    );
     Ok(())
 }
 
-fn cache_remove(
-    cache: &StdMutex<HashMap<PathBuf, CachedFile>>,
-    path: &Path,
-) -> Result<(), StoreError> {
+fn cache_remove(cache: &StdMutex<SnapshotCache>, path: &Path) -> Result<(), StoreError> {
     cache
         .lock()
         .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+        .entries
         .remove(path);
     Ok(())
 }
@@ -696,7 +894,11 @@ fn sample_file_hash(path: &Path, len: u64) -> Result<u64, StoreError> {
     Ok(hash)
 }
 
-fn load_file(path: &Path, session_id: &str) -> Result<Option<LoadedFile>, StoreError> {
+fn load_file_mode(
+    path: &Path,
+    session_id: &str,
+    runtime_audit_view: bool,
+) -> Result<Option<LoadedFile>, StoreError> {
     let path_metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
@@ -709,102 +911,107 @@ fn load_file(path: &Path, session_id: &str) -> Result<Option<LoadedFile>, StoreE
         return Err(corrupt(path, 1, "session path is not a regular file"));
     }
 
-    let mut file = match secure_open_options().read(true).open(path) {
+    let file = match secure_open_options().read(true).open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(backend_error("open session", path, error)),
     };
     ensure_regular_file(&file, path, "session log")?;
 
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|error| backend_error("read session", path, error))?;
-    parse_file(path, session_id, &bytes).map(Some)
+    parse_reader(path, session_id, BufReader::new(file), runtime_audit_view).map(Some)
 }
 
-fn parse_file(path: &Path, session_id: &str, bytes: &[u8]) -> Result<LoadedFile, StoreError> {
-    if bytes.is_empty() {
+// Bound a single corrupt/hostile record, not the number of history records.
+fn read_record(
+    reader: &mut impl BufRead,
+    line: &mut Vec<u8>,
+    path: &Path,
+) -> Result<usize, StoreError> {
+    let n = reader
+        .take(128 * 1024 * 1024 + 1)
+        .read_until(b'\n', line)
+        .map_err(|e| backend_error("read session record", path, e))?;
+    if n > 128 * 1024 * 1024 {
+        return Err(backend_message(
+            "session record exceeds 128 MiB; file left unchanged",
+        ));
+    }
+    Ok(n)
+}
+
+fn parse_reader(
+    path: &Path,
+    session_id: &str,
+    mut reader: impl BufRead,
+    runtime_audit_view: bool,
+) -> Result<LoadedFile, StoreError> {
+    let mut line = Vec::new();
+    let read = read_record(&mut reader, &mut line, path)?;
+    if read == 0 {
         return Err(corrupt(path, 1, "missing header record"));
     }
-
-    let (header_line, mut cursor, header_terminated) = next_line(bytes, 0);
-    let header_record: HeaderRecord = serde_json::from_slice(header_line)
-        .map_err(|error| corrupt(path, 1, format!("invalid header JSON: {error}")))?;
+    let header_record: HeaderRecord = serde_json::from_slice(&line)
+        .map_err(|e| corrupt(path, 1, format!("invalid header JSON: {e}")))?;
     validate_header_record(path, session_id, &header_record)?;
     let header = header_record.header;
-
-    if !header_terminated {
-        return Ok(LoadedFile {
-            session: Session::new(header).map_err(StoreError::from)?,
-            valid_len: bytes.len() as u64,
-            needs_separator: true,
-        });
-    }
-
+    let mut valid_len = read as u64;
+    let mut needs_separator = !line.ends_with(b"\n");
     let mut revision = Revision::ZERO;
     let mut events = Vec::new();
-    let mut line_number = 2usize;
-    let mut valid_len = cursor as u64;
-    let mut needs_separator = false;
-    while cursor < bytes.len() {
-        let line_start = cursor;
-        let (line, next_cursor, terminated) = next_line(bytes, cursor);
-        cursor = next_cursor;
-        if line.is_empty() {
-            return Err(corrupt(path, line_number, "empty record"));
+    let mut line_number = 1;
+    let mut estimated_bytes = 1024usize;
+    let mut audit_offsets = HashMap::new();
+    loop {
+        line.clear();
+        let count = read_record(&mut reader, &mut line, path)?;
+        if count == 0 {
+            break;
         }
-
-        match serde_json::from_slice::<BatchRecord>(line) {
-            Ok(record) => {
+        line_number += 1;
+        let terminated = line.ends_with(b"\n");
+        match serde_json::from_slice::<BatchRecord>(&line) {
+            Ok(mut record) => {
+                for event in &record.events {
+                    if matches!(
+                        event.data(),
+                        xharness_session::EventData::RequestHeader { .. }
+                    ) {
+                        audit_offsets.insert(event.seq, (valid_len, count as u64));
+                        estimated_bytes = estimated_bytes.saturating_add(64);
+                    }
+                }
+                if runtime_audit_view {
+                    for e in &mut record.events {
+                        audit::elide(e);
+                    }
+                }
+                estimated_bytes = estimated_bytes
+                    .saturating_add(record.events.iter().map(event_weight).sum::<usize>());
                 extend_batch_record(path, line_number, &mut revision, &mut events, record)?;
-                valid_len = cursor as u64;
+                valid_len += count as u64;
                 needs_separator = !terminated;
             }
-            Err(_) if !terminated && line_start + line.len() == bytes.len() => {
-                // Only a syntactically incomplete, unterminated final record
-                // may be discarded. Any earlier or newline-terminated damage
-                // is an authoritative corruption error.
-                valid_len = line_start as u64;
-                needs_separator = false;
-                break;
-            }
-            Err(error) => {
+            // Only syntactically truncated final JSON is recoverable. Complete
+            // unknown versions/events must never be silently discarded.
+            Err(e) if !terminated && e.is_eof() => break,
+            Err(e) => {
                 return Err(corrupt(
                     path,
                     line_number,
-                    format!("invalid batch JSON: {error}"),
-                ));
+                    format!("invalid batch JSON: {e}"),
+                ))
             }
         }
-
-        line_number += 1;
     }
-
-    // Validate the complete logical cut exactly once. Replaying every JSONL
-    // batch through Session::append_batch_at revalidated the full prefix for
-    // each line and made cold restore quadratic in the number of checkpoints.
-    let session = Session::restore(header, revision, events).map_err(|error| {
-        corrupt(
-            path,
-            line_number.saturating_sub(1),
-            format!("invalid event log: {error}"),
-        )
-    })?;
+    let session = Session::restore(header, revision, events)
+        .map_err(|e| corrupt(path, line_number, format!("invalid event log: {e}")))?;
     Ok(LoadedFile {
         session,
         valid_len,
         needs_separator,
+        estimated_bytes,
+        audit_offsets: Arc::new(audit_offsets),
     })
-}
-
-fn next_line(bytes: &[u8], start: usize) -> (&[u8], usize, bool) {
-    match bytes[start..].iter().position(|byte| *byte == b'\n') {
-        Some(relative_end) => {
-            let end = start + relative_end;
-            (&bytes[start..end], end + 1, true)
-        }
-        None => (&bytes[start..], bytes.len(), false),
-    }
 }
 
 fn validate_header_record(

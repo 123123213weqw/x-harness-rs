@@ -1,0 +1,155 @@
+{
+  "model": "deepseek-flash",
+  "configuration": "current desktop editable provider + native Keychain credential; credential not persisted",
+  "events": [
+    {
+      "elapsed_ms": 4,
+      "event": "turn_started",
+      "turn": 1
+    },
+    {
+      "elapsed_ms": 56618,
+      "error": null,
+      "event": "turn_finished",
+      "status": "completed",
+      "turn": 1,
+      "usage": {
+        "cache_read_tokens": 77056,
+        "cache_write_tokens": 0,
+        "input_tokens": 5044,
+        "output_tokens": 8512,
+        "reasoning_tokens": 5066
+      }
+    },
+    {
+      "elapsed_ms": 56632,
+      "event": "turn_started",
+      "turn": 2
+    },
+    {
+      "elapsed_ms": 128655,
+      "error": null,
+      "event": "turn_finished",
+      "status": "completed",
+      "turn": 2,
+      "usage": {
+        "cache_read_tokens": 272896,
+        "cache_write_tokens": 0,
+        "input_tokens": 26521,
+        "output_tokens": 8973,
+        "reasoning_tokens": 7816
+      }
+    },
+    {
+      "elapsed_ms": 128679,
+      "event": "turn_started",
+      "turn": 3
+    },
+    {
+      "effort": null,
+      "elapsed_ms": 237868,
+      "event": "awaiting_independent_acceptance",
+      "model": "deepseek-flash",
+      "rounds": 3
+    }
+  ],
+  "tools": {
+    "bash": 19,
+    "write": 4,
+    "edit": 11,
+    "read": 1
+  },
+  "tool_api_failures": [],
+  "independent_tests_passed": 12,
+  "model_written_tests_passed": 106,
+  "verified_goal_rounds": 3,
+  "artifact_sha256": {
+    "ledger.py": "4fe9b601b21c811df194270fbb4e4e0fe9a12b32b002f00eeee07af80af53367",
+    "README.md": "84d8742d4584ac81048a7d40bfe62c21acb36e12bb532b66d90759273891e5c7",
+    "test_ledger.py": "9ad2e27d6f908ee6a094470c45ced716632a930ecf88d8845159c3f6715e9230"
+  },
+  "durable_turn_starts": [
+    {
+      "turn": 1,
+      "timestamp_ms": 1789025310838
+    },
+    {
+      "turn": 2,
+      "timestamp_ms": 1789025367468
+    },
+    {
+      "turn": 3,
+      "timestamp_ms": 1789025439516
+    }
+  ],
+  "durable_turn_ends": [
+    {
+      "turn": 1,
+      "reason": {
+        "kind": "completed"
+      },
+      "timestamp_ms": 1789025367418
+    },
+    {
+      "turn": 2,
+      "reason": {
+        "kind": "completed"
+      },
+      "timestamp_ms": 1789025439463
+    },
+    {
+      "turn": 3,
+      "reason": {
+        "kind": "completed"
+      },
+      "timestamp_ms": 1789025548634
+    }
+  ],
+  "durable_tools": {
+    "bash": 19,
+    "write": 4,
+    "edit": 11,
+    "read": 1
+  },
+  "durable_tool_failures": [],
+  "durable_usage": {
+    "1": {
+      "cache_read_tokens": 77056,
+      "cache_write_tokens": 0,
+      "input_tokens": 5044,
+      "output_tokens": 8512,
+      "reasoning_tokens": 5066
+    },
+    "2": {
+      "cache_read_tokens": 272896,
+      "cache_write_tokens": 0,
+      "input_tokens": 26521,
+      "output_tokens": 8973,
+      "reasoning_tokens": 7816
+    },
+    "3": {
+      "cache_read_tokens": 861696,
+      "cache_write_tokens": 0,
+      "input_tokens": 29459,
+      "output_tokens": 15988,
+      "reasoning_tokens": 6107
+    }
+  },
+  "event_types": {
+    "goal/change": 5,
+    "goal/execution": 12,
+    "agent/inbox/spliced": 6,
+    "turn/start": 3,
+    "user/message": 3,
+    "run/checkpoint": 38,
+    "step/start": 35,
+    "request/header": 35,
+    "request/context": 1,
+    "assistant/chunk": 989,
+    "assistant/message": 35,
+    "tool/call": 35,
+    "tool/result": 35,
+    "step/end": 35,
+    "turn/end": 3
+  }
+}
