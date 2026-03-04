@@ -510,3 +510,73 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
         "Full Debug trace leaked the provider API key"
     );
 }
+
+/// Behavioral smoke test, not a claim that a model never loops.
+#[tokio::test]
+#[ignore = "requires an explicitly configured live model endpoint"]
+async fn live_model_continues_coding_across_execution_checkpoints() {
+    let workspace = LiveWorkspace::new();
+    let platform = Arc::new(NativePlatform::new(PlatformConfig::new(&workspace.0)).unwrap());
+    let bundle = CodingToolBundle::new(
+        platform,
+        Arc::new(JobRegistry::default()),
+        Arc::new(WebRuntime::default()),
+        "checkpoint-live",
+        "checkpoint-live",
+    );
+    let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+        OpenAiProtocol::ChatCompletions,
+        std::env::var("XHARNESS_LIVE_BASE_URL").expect("base URL"),
+        std::env::var("XHARNESS_LIVE_API_KEY").expect("API key"),
+        std::env::var("XHARNESS_LIVE_MODEL").expect("model"),
+    ))
+    .unwrap();
+    fs::write(
+        workspace.0.join("calc.py"),
+        "def multiply(a, b):\n    return a + b\n",
+    )
+    .unwrap();
+    let mut request=LoopRequest::new(Arc::new(provider),vec![AgentMessage::user(format!(
+        "Fix the incorrect multiply function in calc.py. Read it before editing, then use {NATIVE_SHELL_TOOL} to execute a Python assertion that multiply(17,19)==323. End only after verifying the corrected code. Work only in this temporary workspace."
+    ))]);
+    request.tool_executor = Some(ToolExecutor::new(bundle.registry().await.unwrap()));
+    request.config.checkpoints = xharness_core::CheckpointConfig {
+        interval_steps: 2,
+        notice_steps: 1,
+        ..Default::default()
+    };
+    request.config.max_steps = 24;
+    let mut run = LoopEngine.start(request);
+    let mut continued = 0;
+    let mut calls = Vec::new();
+    tokio::time::timeout(std::time::Duration::from_secs(180), async {
+        while let Some(event) = run.next().await {
+            match event.kind {
+                LoopEventKind::ToolApprovalRequested { call, .. } => {
+                    run.send(LoopCommand::ApproveTool { call_id: call.id })
+                        .await
+                        .unwrap();
+                }
+                LoopEventKind::ToolStarted(call) => calls.push(call.name),
+                LoopEventKind::ExecutionNotice(n) if n.kind == "continued" => continued += 1,
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("live smoke deadline");
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert!(continued > 0, "no checkpoint crossed: {calls:?}");
+    assert!(calls.iter().any(|c| c == NATIVE_SHELL_TOOL));
+    let verified = Command::new(PYTHON_PROGRAM)
+        .args([
+            "-c",
+            "from calc import multiply; assert multiply(17,19)==323; assert multiply(2,7)==14",
+        ])
+        .current_dir(&workspace.0)
+        .status()
+        .unwrap();
+    assert!(verified.success());
+    println!("checkpoint live: status={:?}, stages_continued={continued}, tools={calls:?}; independent Python assertions passed",result.status);
+}

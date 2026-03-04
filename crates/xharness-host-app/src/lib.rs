@@ -168,6 +168,47 @@ fn project_tools(specs: &mut Vec<ToolSpec>, readiness: &NativeToolReadiness) {
 
 #[async_trait]
 impl SessionToolFactory for NativeToolFactory {
+    async fn goal_dependencies(
+        &self,
+        id: &str,
+        refs: &[xharness_session::goal::GoalEvidence],
+    ) -> Result<bool, String> {
+        use xharness_session::goal::GoalEvidence;
+        let mut pending = false;
+        for reference in refs {
+            match reference {
+                GoalEvidence::Job { reference } => {
+                    let job = self.jobs.get(id, reference).map_err(|e| {
+                        format!(
+                            "required job unavailable (may have been interrupted by restart): {e}"
+                        )
+                    })?;
+                    match job.status {
+                        xharness_jobs::JobStatus::Running | xharness_jobs::JobStatus::Stopping => {
+                            pending = true
+                        }
+                        xharness_jobs::JobStatus::Completed => {}
+                        _ => {
+                            return Err(format!(
+                                "required job {reference} failed or was killed; inspect its output"
+                            ))
+                        }
+                    }
+                }
+                GoalEvidence::Agent { reference } => {
+                    let host = self
+                        .agent_host
+                        .get()
+                        .and_then(std::sync::Weak::upgrade)
+                        .ok_or("agent dependency service unavailable")?;
+                    pending |= host.goal_agent_dependency(id, reference).await?;
+                }
+                _ => {}
+            }
+        }
+        Ok(pending)
+    }
+
     async fn executor(
         &self,
         session_id: &str,
@@ -654,6 +695,54 @@ mod tests {
         ) -> Result<(), String> {
             Ok(())
         }
+    }
+    #[tokio::test]
+    async fn goal_jobs_are_explicit_owner_scoped_and_unknown_never_counts_as_success() {
+        use xharness_session::goal::GoalEvidence;
+        let f =
+            NativeToolFactory::new(WebRuntime::new(xharness_web::WebConfig::default()).unwrap());
+        let (id, lease) = f
+            .jobs
+            .reserve("s", "eval", "required", None)
+            .unwrap()
+            .commit(None, Arc::new(|_| Ok(())))
+            .unwrap();
+        let refs = vec![GoalEvidence::Job {
+            reference: id.as_str().into(),
+        }];
+        assert!(
+            !f.goal_dependencies("s", &[]).await.unwrap(),
+            "unrelated background processes must not block"
+        );
+        assert!(f.goal_dependencies("s", &refs).await.unwrap());
+        assert!(f.goal_dependencies("other", &refs).await.is_err());
+        lease.finish(xharness_jobs::JobOutcome::completed("verified"));
+        assert!(!f.goal_dependencies("s", &refs).await.unwrap());
+        assert!(f
+            .goal_dependencies(
+                "s",
+                &[GoalEvidence::Job {
+                    reference: "missing".into()
+                }]
+            )
+            .await
+            .is_err());
+        let (id, lease) = f
+            .jobs
+            .reserve("s", "eval", "failed", None)
+            .unwrap()
+            .commit(None, Arc::new(|_| Ok(())))
+            .unwrap();
+        drop(lease);
+        assert!(f
+            .goal_dependencies(
+                "s",
+                &[GoalEvidence::Job {
+                    reference: id.as_str().into()
+                }]
+            )
+            .await
+            .is_err());
     }
 }
 pub mod config;

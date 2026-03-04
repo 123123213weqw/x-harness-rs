@@ -528,6 +528,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut next_turn_inbox = Vec::<InboxMessage>::new();
     let mut next_step_inbox = Vec::<InboxMessage>::new();
     let mut current_goal = None::<(crate::GoalSnapshot, u64, u64, u64)>;
+    let mut has_goal_execution_events = false;
     let mut seen_goal_ids = std::collections::HashSet::<String>::new();
     let mut active_schedules = HashMap::<String, crate::ScheduleKind>::new();
     let mut seen_schedule_ids = std::collections::HashSet::<String>::new();
@@ -568,6 +569,18 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
 
         match logged.data() {
+            EventData::ExecutionCheckpoint { turn, state, .. } => {
+                if open_turn != Some(*turn)
+                    || state.phase == 0
+                    || state.phase_end_step == 0
+                    || state.pending_repetitions.len() > 16
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "invalid execution checkpoint scope/state",
+                    ));
+                }
+            }
             EventData::AgentDelegated {
                 parent_session_id,
                 invocation_id,
@@ -1095,10 +1108,14 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     }
                 }
             }
+            EventData::GoalExecution { .. } => {
+                has_goal_execution_events = true;
+            }
             EventData::GoalChange { change } => match change {
                 crate::GoalChange::Snapshot(change) => {
+                    has_goal_execution_events |= change.version == 2;
                     let goal = &change.goal;
-                    if change.version != 1
+                    if !matches!(change.version, 1 | 2)
                         || goal.id.trim().is_empty()
                         || goal.objective.trim().is_empty()
                         || goal.revision == 0
@@ -1151,7 +1168,10 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                                 || goal.revision != current.revision.saturating_add(1)
                                 || change.created_at != *created_at
                                 || change.updated_at < *updated_at
-                                || change.rounds_started != *rounds
+                                || (change.rounds_started != *rounds
+                                    && !(change.version == 2
+                                        && change.operation == crate::GoalSnapshotOperation::Edit
+                                        && change.rounds_started == rounds.saturating_add(1)))
                             {
                                 return Err(lifecycle_error(
                                     logged.seq,
@@ -1874,6 +1894,10 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
             expected: revision,
             actual: current_logged_revision,
         });
+    }
+    if has_goal_execution_events {
+        crate::goal_validation::validate(events)
+            .map_err(|message| lifecycle_error(events.last().map_or(0, |e| e.seq), &message))?;
     }
     Ok(())
 }

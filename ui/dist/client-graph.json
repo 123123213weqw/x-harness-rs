@@ -1,5 +1,5 @@
 {
-  "rev": "bee440e12ef65626",
+  "rev": "060d356812415ff8",
   "entries": [
     {
       "id": "@deepseek-ai/dsh-typert-registry",
@@ -181,8 +181,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-conversation",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=403bec1daa74424d",
-      "rev": "403bec1daa74424d",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=a36b066bb0477deb",
+      "rev": "a36b066bb0477deb",
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
@@ -338,8 +338,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-goal",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-goal/client.js?rev=7adfce46460f7abc",
-      "rev": "7adfce46460f7abc",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-goal/client.js?rev=d6b601319e932d0d",
+      "rev": "d6b601319e932d0d",
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-api-remotes",
@@ -438,8 +438,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-context",
-      "url": "/plugins/@xlang/xharness-client-ui-context/client.js?rev=6a93bb49a5f3c8e6",
-      "rev": "6a93bb49a5f3c8e6",
+      "url": "/plugins/@xlang/xharness-client-ui-context/client.js?rev=33b00bb702e772da",
+      "rev": "33b00bb702e772da",
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation"

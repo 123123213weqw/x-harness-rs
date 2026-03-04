@@ -1,3 +1,6 @@
+/// Pure output normalization for conservative repetition observation.
+pub type RepetitionObservation = fn(&str) -> Option<(bool, Value)>;
+
 use std::{fmt, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
@@ -136,6 +139,10 @@ pub struct ToolSpec {
     pub batch_policy: ToolBatchPolicy,
     pub concurrency: ToolConcurrency,
     pub requires_approval: bool,
+    /// Expected waiting/polling: omit from exact repetition detection.
+    pub repetition_exempt: bool,
+    /// Pure observation adapter: None means incomplete/unsafe to compare.
+    pub repetition_observation: Option<RepetitionObservation>,
     pub resource_key_resolver: Option<ResourceKeyResolver>,
     pub(crate) handler: ToolHandler,
 }
@@ -157,9 +164,21 @@ impl ToolSpec {
             // fail safe to the global exclusive lane.
             concurrency: ToolConcurrency::Exclusive,
             requires_approval: false,
+            repetition_exempt: false,
+            repetition_observation: None,
             resource_key_resolver: None,
             handler: Arc::new(move |context| Box::pin(handler(context))),
         }
+    }
+
+    pub fn with_repetition_observation(mut self, adapter: RepetitionObservation) -> Self {
+        self.repetition_observation = Some(adapter);
+        self
+    }
+
+    pub fn with_repetition_exemption(mut self) -> Self {
+        self.repetition_exempt = true;
+        self
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {

@@ -513,6 +513,7 @@ pub enum LoopControlError {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LoopEventKind {
+    ExecutionNotice(xharness_session::ExecutionNotice),
     /// The run's initial input is now durable and visible through the
     /// authoritative Session store. Hosts use this pre-provider boundary to
     /// remove claimed input from their pending queue and publish the user
@@ -645,7 +646,9 @@ pub struct SessionSnapshot {
 
 #[derive(Clone, Debug)]
 pub struct LoopConfig {
+    /// Legacy explicit hard limit. usize::MAX means unset; explicit values retain their meaning.
     pub max_steps: usize,
+    pub checkpoints: crate::CheckpointConfig,
     pub max_tool_concurrency: usize,
     pub tool_result_limit_bytes: usize,
     pub provider_retries: usize,
@@ -687,7 +690,8 @@ impl LoopValidationError {
 impl Default for LoopConfig {
     fn default() -> Self {
         Self {
-            max_steps: 128,
+            max_steps: usize::MAX,
+            checkpoints: crate::CheckpointConfig::default(),
             max_tool_concurrency: 8,
             tool_result_limit_bytes: 256 * 1024,
             provider_retries: 2,
@@ -706,6 +710,9 @@ impl Default for LoopConfig {
 
 impl LoopConfig {
     pub fn validate(&self) -> Result<(), LoopValidationError> {
+        self.checkpoints
+            .validate()
+            .map_err(LoopValidationError::new)?;
         if self.provider_retry_base_delay_ms == 0
             || self.provider_retry_max_delay_ms < self.provider_retry_base_delay_ms
             || self.provider_retry_budget_ms == 0
@@ -792,6 +799,7 @@ pub struct LoopRequest {
     /// Durable control-plane facts committed in the same atomic batch as the
     /// next `turn/start` and new user input. Long-lived agents use this to
     /// claim inbox messages without a crash window between dequeue and turn.
+    pub journal_expected_revision: Option<xharness_session::Revision>,
     pub journal_prelude: Vec<xharness_session::SessionEvent>,
     pub context_policy: Arc<dyn crate::ContextPolicy>,
     pub config: LoopConfig,
@@ -812,6 +820,7 @@ impl LoopRequest {
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
             journal_store: None,
+            journal_expected_revision: None,
             journal_prelude: Vec::new(),
             context_policy: Arc::new(crate::IdentityContextPolicy),
             config: LoopConfig::default(),

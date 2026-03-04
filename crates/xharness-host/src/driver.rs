@@ -42,6 +42,28 @@ impl BasicHost {
         let Some(mut notices) = self.agent_runtime.subscribe_background_turns() else {
             return;
         };
+        if let Some(mut changes) = self.agent_runtime.subscribe_goal_changes() {
+            let weak = Arc::downgrade(self);
+            tokio::spawn(async move {
+                loop {
+                    let ids = match changes.recv().await {
+                        Ok(id) => vec![id],
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            let Some(host) = weak.upgrade() else { break };
+                            let ids = host.state.read().await.goals.keys().cloned().collect();
+                            ids
+                        }
+                        Err(_) => break,
+                    };
+                    let Some(host) = weak.upgrade() else { break };
+                    for id in ids {
+                        if let Err(e) = host.sync_authoritative_session(&id).await {
+                            host.push_host(json!({"type":"host/agent-error","sessionId":id,"message":e.message}));
+                        }
+                    }
+                }
+            });
+        }
         let host = Arc::clone(self);
         tokio::spawn(async move {
             loop {
@@ -270,7 +292,9 @@ impl BasicHost {
                     tail.events,
                     tail.bytes,
                 );
-                record.messages = session.derive_messages();
+                // Durable Runtime derives provider messages from the journal on demand.
+                // Do not retain a second transcript for every idle conversation.
+                record.messages.clear();
                 record.permission_preset = permission;
                 record.agent_preset = agent_preset;
                 record.title = title;
@@ -290,8 +314,8 @@ impl BasicHost {
                 }
                 (new_events, queue_changed)
             };
-            if let Some(goal) = goal {
-                state.goals.insert(session_id.to_owned(), goal);
+            if let Some(goal) = goal.as_ref() {
+                state.goals.insert(session_id.to_owned(), goal.clone());
             } else {
                 state.goals.remove(session_id);
             }
@@ -324,6 +348,12 @@ impl BasicHost {
         if queue_changed {
             self.emit_queue(session_id).await;
         }
+        self.push_projection(
+            session_id,
+            "goal",
+            goal.as_ref().map_or(Value::Null, |g| g.projection()),
+        )
+        .await;
         Ok(true)
     }
 
@@ -1120,6 +1150,15 @@ impl BasicHost {
             .await?;
         let step = u32::try_from(event.step).unwrap_or(u32::MAX);
         match event.kind {
+            LoopEventKind::ExecutionNotice(notice) => {
+                self.append_session_event(
+                    session_id,
+                    "run/checkpoint",
+                    crate::restore::web_execution_notice(turn, Some(&notice)),
+                    None,
+                )
+                .await?;
+            }
             LoopEventKind::TextDelta(text) => {
                 self.append_session_event(
                     session_id,

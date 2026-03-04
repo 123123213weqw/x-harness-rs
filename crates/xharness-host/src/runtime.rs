@@ -537,6 +537,23 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(None)
     }
 
+    async fn request_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        Ok(self.authoritative_session(session_id).await?.and_then(|s| {
+            s.events().iter().find_map(|e| {
+                if e.seq == seq {
+                    if let xharness_session::EventData::RequestHeader { header } = e.data() {
+                        return Some(header.clone());
+                    }
+                }
+                None
+            })
+        }))
+    }
+
     /// Persist product/control-plane session facts outside an active model
     /// turn. Returns `true` only when this runtime owns and flushed an
     /// authoritative Session log; ephemeral runtimes leave projection to the
@@ -579,6 +596,10 @@ pub trait AgentRuntime: Send + Sync + 'static {
     /// reminders. The notice is emitted only after an event receiver has been
     /// installed, so the Host can safely attach live projection.
     fn subscribe_background_turns(&self) -> Option<broadcast::Receiver<ScheduleDeliveryNotice>> {
+        None
+    }
+
+    fn subscribe_goal_changes(&self) -> Option<broadcast::Receiver<String>> {
         None
     }
 
@@ -740,6 +761,7 @@ struct DurableSessionConfig {
 }
 
 struct DurableTurnFactory {
+    goals: Arc<crate::goals::GoalBridge>,
     store: Arc<dyn Store>,
     delegation_slots: Arc<tokio::sync::Semaphore>,
     models: Arc<StdRwLock<ModelRegistry>>,
@@ -752,6 +774,38 @@ struct DurableTurnFactory {
 
 #[async_trait]
 impl TurnRequestFactory for DurableTurnFactory {
+    async fn goal_dependencies(&self, id: &str) -> Result<bool, String> {
+        let session = self.store.load(id).await.map_err(|e| e.to_string())?;
+        let refs = session
+            .as_ref()
+            .and_then(xharness_session::goal::execution_state)
+            .and_then(|s| s.latest_turn)
+            .and_then(|t| t.report)
+            .map_or_else(Vec::new, |r| r.evidence);
+        self.tool_factory.goal_dependencies(id, &refs).await
+    }
+    async fn goal_changed(&self, id: &str) {
+        let _ = self.goals.changes.send(id.to_owned());
+    }
+    async fn prepare_goal_turn(
+        &self,
+        id: &str,
+        input: &str,
+        events: broadcast::Receiver<AgentEvent>,
+    ) -> Result<(), String> {
+        self.goals.prepare(id, input, events).await
+    }
+    async fn goal_report(
+        &self,
+        id: &str,
+        _result: &LoopResult,
+    ) -> Result<Option<xharness_agent::GoalReportBody>, String> {
+        let session = self.store.load(id).await.map_err(|e| e.to_string())?;
+        Ok(session
+            .as_ref()
+            .and_then(xharness_agent::recorded_goal_report))
+    }
+
     async fn acquire(
         &self,
         agent_id: &str,
@@ -798,6 +852,23 @@ impl TurnRequestFactory for DurableTurnFactory {
             .tool_factory
             .executor(agent_id, &config.cwd, config.permission)
             .await?;
+        if let Some(session) = self.store.load(agent_id).await.map_err(|e| e.to_string())? {
+            if let Some(state) = xharness_session::goal::execution_state(&session).filter(|s| {
+                s.definition.execution_enabled && (s.pending.is_some() || s.running.is_some())
+            }) {
+                tool_executor
+                    .registry()
+                    .register(crate::goals::report_tool(
+                        Arc::clone(&self.store),
+                        Arc::clone(&self.tool_factory),
+                        agent_id.into(),
+                        state.definition,
+                        state.activation_epoch,
+                    ))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         let mut request = LoopRequest::new(provider, input);
         request.reasoning_effort = config.route.reasoning_effort;
         request.compaction_reasoning_effort = compaction_reasoning_effort;
@@ -827,6 +898,7 @@ impl TurnRequestFactory for DurableTurnFactory {
 /// The Web DTO cache is not authoritative. A later Host-store migration can
 /// rebuild it from this runtime's Session log without changing [`AgentRuntime`].
 pub struct DurableLoopAgentRuntime {
+    goals: Arc<crate::goals::GoalBridge>,
     models: Arc<StdRwLock<ModelRegistry>>,
     default_route: ModelRoute,
     store: Arc<dyn Store>,
@@ -840,10 +912,10 @@ pub struct DurableLoopAgentRuntime {
     schedules: Option<Arc<ScheduleManager>>,
 }
 
-struct PreparedDurableTurn {
-    handle: DurableAgentHandle,
-    events: broadcast::Receiver<AgentEvent>,
-    input_id: String,
+pub(crate) struct PreparedDurableTurn {
+    pub(crate) handle: DurableAgentHandle,
+    pub(crate) events: broadcast::Receiver<AgentEvent>,
+    pub(crate) input_id: String,
 }
 
 impl DurableLoopAgentRuntime {
@@ -930,7 +1002,9 @@ impl DurableLoopAgentRuntime {
         let models = Arc::new(StdRwLock::new(models));
         let debug = Arc::new(StdRwLock::new(DebugRecorder::disabled()));
         let compaction = Arc::new(StdRwLock::new(None));
+        let goals = Arc::new(crate::goals::GoalBridge::default());
         let factory = Arc::new(DurableTurnFactory {
+            goals: Arc::clone(&goals),
             store: Arc::clone(&store),
             delegation_slots: Arc::new(tokio::sync::Semaphore::new(delegation_concurrency.limit())),
             models: Arc::clone(&models),
@@ -947,6 +1021,7 @@ impl DurableLoopAgentRuntime {
             store,
             sessions,
             supervisor: AgentSupervisor::new(registry, factory, event_capacity),
+            goals,
             tool_factory,
             prepared: Mutex::new(HashMap::new()),
             next_control_id: Arc::new(AtomicU64::new(1)),
@@ -988,11 +1063,64 @@ impl DurableLoopAgentRuntime {
     /// Install the durable session-local Schedule projection. Deployments
     /// must pass this same manager to their Tool factory.
     pub fn with_schedules(mut self, schedules: Arc<ScheduleManager>) -> Self {
+        let mut deliveries = schedules.subscribe_deliveries();
+        let goals = Arc::clone(&self.goals);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _=goals.shutdown.cancelled()=>break,
+                    notice=deliveries.recv()=>match notice {Ok(n)=>{let _=goals.notices.send(n);},Err(broadcast::error::RecvError::Lagged(_))=>continue,Err(_)=>break}
+                }
+            }
+        });
         self.schedules = Some(schedules);
         self
     }
 
     async fn attach_schedules(&self, handle: &DurableAgentHandle) -> Result<(), AgentRuntimeError> {
+        self.goals
+            .handles
+            .write()
+            .await
+            .insert(handle.id().into(), handle.clone());
+        let has_goal = self
+            .store
+            .load(handle.id())
+            .await
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: e.to_string(),
+            })?
+            .as_ref()
+            .and_then(xharness_session::goal::execution_state)
+            .is_some_and(|s| s.definition.execution_enabled || s.pending.is_some());
+        if has_goal && self.goals.watched.lock().await.insert(handle.id().into()) {
+            let handle = handle.clone();
+            let goals = Arc::clone(&self.goals);
+            let store = Arc::clone(&self.store);
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    tokio::select! {
+                        _=goals.shutdown.cancelled()=>break,
+                        _=tick.tick()=>{
+                            if handle.status()!=xharness_agent::AgentStatus::Idle {continue}
+                            // Serialize retirement with re-attachment so resume cannot lose its watcher.
+                            let mut watched=goals.watched.lock().await;
+                            let Ok(Some(session))=store.load(handle.id()).await else {continue};
+                            let state=xharness_session::goal::execution_state(&session);
+                            let needs_wake=state.is_some_and(|s| {
+                                let review_wait=s.latest_turn.as_ref().and_then(|t|t.report.as_ref()).is_some_and(|r|r.status==xharness_session::goal::GoalReportStatus::Complete) && s.review.is_none();
+                                (s.definition.execution_enabled && s.definition.snapshot.phase==xharness_session::GoalPhase::Active && !review_wait) || s.pending.is_some()
+                            });
+                            if !needs_wake {watched.remove(handle.id());break}
+                            drop(watched);
+                            if handle.wake().await.is_err() {break}
+
+                        }
+                    }
+                }
+            });
+        }
         if let Some(schedules) = &self.schedules {
             schedules
                 .attach(handle.clone())
@@ -1135,6 +1263,28 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     fn needs_session_resume(&self, session: &Session) -> Result<bool, AgentRuntimeError> {
+        if xharness_session::goal::execution_state(session).is_some_and(|s| {
+            let awaiting_review = s
+                .latest_turn
+                .as_ref()
+                .and_then(|t| t.report.as_ref())
+                .is_some_and(|r| r.status == xharness_session::goal::GoalReportStatus::Complete)
+                && s.review.is_none();
+            (s.definition.execution_enabled
+                && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
+                && !awaiting_review)
+                || s.pending.is_some()
+                || s.running.is_some()
+        }) || xharness_agent::InboxProjection::from_session(session)
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: e.to_string(),
+            })?
+            .next_turn()
+            .iter()
+            .any(xharness_agent::is_goal_message)
+        {
+            return Ok(true);
+        }
         match &self.schedules {
             Some(_) => xharness_schedule::has_active_schedules(session)
                 .map_err(|message| AgentRuntimeError::Preparation { message }),
@@ -1143,9 +1293,11 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     fn subscribe_background_turns(&self) -> Option<broadcast::Receiver<ScheduleDeliveryNotice>> {
-        self.schedules
-            .as_ref()
-            .map(|schedules| schedules.subscribe_deliveries())
+        Some(self.goals.notices.subscribe())
+    }
+
+    fn subscribe_goal_changes(&self) -> Option<broadcast::Receiver<String>> {
+        Some(self.goals.changes.subscribe())
     }
 
     async fn authoritative_session(
@@ -1157,6 +1309,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .await
             .map_err(|error| AgentRuntimeError::Preparation {
                 message: format!("could not load durable session {session_id:?}: {error}"),
+            })
+    }
+
+    async fn request_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        self.store
+            .request_header(session_id, seq)
+            .await
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: format!("request audit unavailable: {e}"),
             })
     }
 
@@ -1248,6 +1413,14 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .activate(header)
             .await
             .map_err(registry_error)?;
+        if handle.status() == xharness_agent::AgentStatus::Idle {
+            xharness_agent::GoalController::new(Arc::clone(&self.store), &request.session_id)
+                .recover_abandoned()
+                .await
+                .map_err(|e| AgentRuntimeError::Preparation {
+                    message: e.to_string(),
+                })?;
+        }
         let snapshot =
             handle
                 .inbox()
@@ -1256,7 +1429,11 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 .map_err(|error| AgentRuntimeError::Preparation {
                     message: error.to_string(),
                 })?;
-        let pending_turns = snapshot.next_turn().len();
+        let pending_turns = snapshot
+            .next_turn()
+            .iter()
+            .filter(|m| !xharness_agent::is_goal_message(m))
+            .count();
         let pending_next_step = snapshot.next_step().len();
         let session = self
             .store
@@ -1310,6 +1487,15 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         // several turns before the browser reconnects.
         let mut prepared = self.prepared.lock().await;
         for input in snapshot.next_turn() {
+            if input
+                .source
+                .as_ref()
+                .and_then(|s| s.get("kind"))
+                .and_then(serde_json::Value::as_str)
+                == Some("goal")
+            {
+                continue;
+            }
             prepared
                 .entry((request.session_id.clone(), input.id.clone()))
                 .or_insert_with(|| PreparedDurableTurn {
@@ -1343,7 +1529,12 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 .await
                 .map_err(agent_command_error)?;
         }
-        if pending_turns > 0 {
+        self.attach_schedules(&handle).await?;
+        if handle.status() == xharness_agent::AgentStatus::Idle
+            && (!snapshot.next_turn().is_empty()
+                || xharness_session::goal::execution_state(&session)
+                    .is_some_and(|s| s.definition.execution_enabled))
+        {
             handle.wake().await.map_err(agent_command_error)?;
         }
         self.attach_schedules(&handle).await?;
@@ -1360,6 +1551,15 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         session_id: &str,
         work_id: &str,
     ) -> Result<Option<Box<dyn RunningTurn>>, AgentRuntimeError> {
+        if let Some(prepared) = self
+            .goals
+            .prepared
+            .lock()
+            .await
+            .remove(&(session_id.into(), work_id.into()))
+        {
+            return Ok(Some(self.running_from_prepared(prepared)));
+        }
         if let Some(prepared) = self
             .prepared
             .lock()
@@ -1484,6 +1684,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     async fn shutdown(&self, grace: Duration) -> AgentShutdownReport {
+        self.goals.shutdown.cancel();
         let deadline = tokio::time::Instant::now() + grace;
         let mut schedule_errors = Vec::new();
         if let Some(schedules) = &self.schedules {

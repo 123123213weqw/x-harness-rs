@@ -1,5 +1,7 @@
 # 上下文预算与压缩规范
 
+> 2026-09-10 更新：请求快照改为无损冷存储、热日志/实时事件只带元数据，Context/Harness 按 seq 读取完整内容。下文早期提到的 inline RequestHeader.input 已由 [请求审计与内存边界](request-audit-storage.md) 中的协议取代；模型实际输入未被裁剪。
+
 **所属层：** `xharness-context`、`xharness-token`、`xharness-prompt`
 **状态：** Surface 抽象、请求前硬预算、自动 Compact Session Replace 和生产请求侧 Tool Result
 Pruner 已实现；按模型本地精确 Tokenizer、手动 Compact 与持久 Spill/Replace 仍待实现。详见
