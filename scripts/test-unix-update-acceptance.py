@@ -409,14 +409,14 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         files = ['apps/desktop/src-tauri/src/lib.rs', 'apps/desktop/src-tauri/src/sidecar.rs',
                  'apps/desktop/src-tauri/src/updater.rs', 'apps/desktop/src-tauri/Cargo.toml',
                  'apps/desktop/src-tauri/Cargo.lock', 'apps/desktop/src-tauri/tauri.conf.json',
-                 'scripts/prepare-desktop-test-version.py']
+                 'scripts/prepare-desktop-test-version.py', 'ui/dist/desktop-updater.js']
         for name in files:
             target = source / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(m.REPO / name, target)
         (source / '.env').write_text('NEVER_COPY=secret')
         (source / 'signer.key').write_text('NEVER_COPY_PRIVATE_KEY')
-        (source / 'ui/dist').mkdir(parents=True)
+        (source / 'ui/dist').mkdir(parents=True, exist_ok=True)
         (source / 'ui/dist/index.html').write_text('<html>fixture</html>')
         hashes = {name: m.digest(source / name) for name in files}
         _, _, pub = self.key_material()
@@ -429,6 +429,10 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         self.assertFalse((root / 'source/.env').exists())
         self.assertFalse((root / 'source/signer.key').exists())
         self.assertTrue((root / 'source/ui/dist/index.html').exists())
+        base_ui = (root / 'source/ui/dist/desktop-updater.js').read_text()
+        self.assertNotIn('initialTimer = window.setTimeout', base_ui)
+        self.assertNotIn('periodicTimer = window.setInterval', base_ui)
+        self.assertIn("await listen('xharness-update'", base_ui)
         desktop = root / 'source/apps/desktop/src-tauri'
         config = m.read_json(desktop / 'tauri.conf.json')
         self.assertFalse(config['bundle']['createUpdaterArtifacts'])
@@ -442,6 +446,20 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         self.assertIn('ISOLATED_UNIX_UPDATE_ONLY', (desktop / 'src/rehearsal.rs').read_text())
         self.assertEqual(m.read_json(root / 'build-env.json')['XHARNESS_UPDATER_PUBKEY'], pub.read_text())
         self.assertEqual(m.read_json(root / 'rehearsal.json')['target_version'], '0.2.6')
+
+    def test_base_timer_isolation_rejects_missing_duplicate_or_changed_anchors(self):
+        source = (m.REPO / 'ui/dist/desktop-updater.js').read_text()
+        anchor = '    initialTimer = window.setTimeout(() => controller.check(), 1500)'
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / 'updater.js'
+            with self.assertRaisesRegex(ValueError, 'Missing regular'):
+                m.isolate_base_updater_timers(path)
+            for text in [source.replace(anchor, ''), source + '\n' + anchor,
+                         source.replace('6 * 60 * 60 * 1000', '12345')]:
+                path.write_text(text)
+                with self.assertRaisesRegex(ValueError, 'anchor drifted'):
+                    m.isolate_base_updater_timers(path)
+                self.assertEqual(path.read_text(), text)
 
     def test_macos_owns_group_without_cross_session_or_preexec_callback(self):
         self.assertEqual(m.process_ownership('linux-x86_64-appimage'), {'start_new_session': True})
