@@ -508,6 +508,9 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    /// Bind host-owned tools without a strong runtime/Host reference cycle.
+    fn bind_host(&self, _host: std::sync::Weak<crate::BasicHost>) {}
+
     fn auxiliary_model(&self, _route: &ModelRoute) -> Option<AuxiliaryModel> {
         None
     }
@@ -852,22 +855,26 @@ impl TurnRequestFactory for DurableTurnFactory {
             .tool_factory
             .executor(agent_id, &config.cwd, config.permission)
             .await?;
-        if let Some(session) = self.store.load(agent_id).await.map_err(|e| e.to_string())? {
-            if let Some(state) = xharness_session::goal::execution_state(&session).filter(|s| {
+        let snapshot = self.store.load(agent_id).await.map_err(|e| e.to_string())?;
+        let fence = snapshot
+            .as_ref()
+            .and_then(xharness_session::goal::execution_state)
+            .filter(|s| {
                 s.definition.execution_enabled && (s.pending.is_some() || s.running.is_some())
-            }) {
-                tool_executor
-                    .registry()
-                    .register(crate::goals::report_tool(
-                        Arc::clone(&self.store),
-                        Arc::clone(&self.tool_factory),
-                        agent_id.into(),
-                        state.definition,
-                        state.activation_epoch,
-                    ))
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
+            })
+            .map(|s| (s.definition, s.activation_epoch));
+        if let Some(host) = self.goals.host.get() {
+            tool_executor
+                .registry()
+                .register(crate::goal_tool::spec(
+                    host.clone(),
+                    Arc::clone(&self.store),
+                    Arc::clone(&self.tool_factory),
+                    agent_id.into(),
+                    fence,
+                ))
+                .await
+                .map_err(|e| e.to_string())?;
         }
         let mut request = LoopRequest::new(provider, input);
         request.reasoning_effort = config.route.reasoning_effort;
@@ -1221,6 +1228,10 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
+    fn bind_host(&self, host: std::sync::Weak<crate::BasicHost>) {
+        let _ = self.goals.host.set(host);
+    }
+
     fn auxiliary_model(&self, route: &ModelRoute) -> Option<AuxiliaryModel> {
         let models = self.models.read().expect("model registry lock poisoned");
         let model = models.resolve(route)?;
@@ -1523,7 +1534,11 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 });
         }
         drop(prepared);
-        if recovered_approval_work_id.is_some() || recovered_question_work_id.is_some() {
+        // Attaching a Goal while an ordinary turn is live must never replay
+        // its currently waiting approval/question as a crashed turn.
+        if handle.status() == xharness_agent::AgentStatus::Idle
+            && (recovered_approval_work_id.is_some() || recovered_question_work_id.is_some())
+        {
             handle
                 .recover_open_turn()
                 .await

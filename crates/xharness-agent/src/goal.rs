@@ -634,11 +634,40 @@ pub fn is_goal_message(m: &InboxMessage) -> bool {
 pub fn recorded_goal_report(session: &Session) -> Option<GoalReportBody> {
     let state = execution_state(session)?;
     let turn = state.running?.turn;
-    session.events().iter().rev().find_map(|e| {
-        let EventData::ToolResult {turn:t,result,..}=e.data() else {return None};
-        if *t!=turn || result.outcome!=xharness_session::ToolOutcome::Success {return None}
-        let authentic=session.events().iter().any(|c|matches!(c.data(),EventData::ToolCall{turn:t,call,..} if *t==turn && call.id==result.call_id && call.name=="goal_report"));
-        if !authentic {return None}
+    session.events().iter().rev().find_map(|event| {
+        let EventData::ToolResult {
+            turn: result_turn,
+            result,
+            ..
+        } = event.data()
+        else {
+            return None;
+        };
+        if *result_turn != turn || result.outcome != xharness_session::ToolOutcome::Success {
+            return None;
+        }
+        let authentic = session.events().iter().any(|event| {
+            let EventData::ToolCall {
+                turn: call_turn,
+                call,
+                ..
+            } = event.data()
+            else {
+                return false;
+            };
+            if *call_turn != turn || call.id != result.call_id {
+                return false;
+            }
+            // Read old journals without advertising a second tool in new requests.
+            call.name == "goal_report"
+                || (call.name == "goal"
+                    && serde_json::from_str::<serde_json::Value>(&call.arguments_json)
+                        .ok()
+                        .is_some_and(|args| args["action"] == "report"))
+        });
+        if !authentic {
+            return None;
+        }
         serde_json::from_value(result.metadata.as_ref()?.get("goalReport")?.clone()).ok()
     })
 }
