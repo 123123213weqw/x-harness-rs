@@ -17,9 +17,9 @@ Pruner 已实现；按模型本地精确 Tokenizer、手动 Compact 与持久 Sp
 - `SurfaceEdit`：用半开源区间记录 Tool Result Prune、历史压缩或自定义替换。
 - `IdentityContextPolicy`：嵌入式兼容策略，逐字完整重放。
 - `ToolResultPruningContextPolicy`：正式 Host 的兼容类型名，当前实际投影身份为
-  `context-history-pruning/v2`。除超过 8,192 字符的 Tool Message 会转换成确定性的
-  `tool_result_pruned/v1` Head/Tail Envelope 外，还治理已完成的大型文件变更参数和旧 Turn
-  reasoning。原 Session 事件与 Provider Call ID 始终不变。
+  `context-history-pruning/v3`。超过 8,192 字符的 Tool Message 会转换成确定性的
+  `tool_result_pruned/v1` Head/Tail Envelope，并清理旧 Turn reasoning；所有工具参数和
+  Provider Replay Item 逐字保留，不再投影大型文件变更参数。原 Session 事件与 Provider Call ID 始终不变。
 
 Core 在任何 Provider I/O 前调用 Policy、验证 Surface 结构，并把 Policy、源/可见消息数量及
 Edit 写入 `request/header.options.context`。随后 `xharness-token::TokenGuard` 对冻结 Surface 和
@@ -30,22 +30,25 @@ Session 原始历史不因 Surface 替换而改变。
 
 正式请求侧策略在每次 Provider I/O 前执行以下确定性变换：
 
-1. 只有找到位于 Tool Call 之后、`ok=true` 且 Call ID 匹配的 Tool Result，才允许缩短历史
-   `write`/`edit` 参数；失败、未完成、坏 JSON 和未知工具逐字保留。
-2. `write.content`、`edit.old` 或 `edit.new` 达到 1,024 字符时，替换为包含原字符数、UTF-8
-   Byte 数和 SHA-256 的 `tool_arguments_pruned/v1` 标记。`path`、Tool 名、Harness/Provider
-   Call ID 和 Tool Result 保持不变；需要正文时模型重新调用 `read`。
-3. Responses 历史中的已知 `function_call` Provider Item 与 provider-neutral Tool Call 使用同一
-   投影参数，避免两套 wire replay 不一致；未知 opaque Item 不改写。
+1. 所有历史工具调用参数逐字保留，包括成功、失败、未完成、坏 JSON 和未知工具。
+2. 不在 `write.content`、`edit.old/new` 中插入省略文本，也不往参数对象加入内部元数据。
+   大型调用历史占用预算时由独立 Durable Compact Coordinator 把完整旧交互转为摘要。
+3. Responses `function_call` 及其他 Provider Replay Item 不改写；工具调用/结果配对不变。
 4. 最新 User Message 之前的 Assistant reasoning 视为已完成 Turn，可从一次性 Surface 清空；
    当前 User Turn 的 reasoning 完整保留，确保 Thinking 模型的多 Step Tool 连续性。
 5. 每条发生变化的 Assistant Message 记录一个 `AssistantHistoryPruned` Surface Edit，包含实际
-   移除的 reasoning 和 Tool Argument 字符数。一次性 Surface 仍保留相同消息数量和 Tool Call/
-   Result 拓扑，因此不会伪造、删除或重新执行副作用。
+   移除的 reasoning 字符数；兼容字段 `tool_argument_chars_removed` 在 v3 恒为零。
+   一次性 Surface 仍保留相同消息数量和 Tool Call/Result 拓扑。
 
-该 P0 主要降低 Provider 传输、Token Count 和 Prefill；Core 当前仍需从不可变 Session Surface
-克隆源消息并计算 Hash，所以请求侧 CPU 不保证比 Identity Policy 更低。持久 Surface Replace、
-内容引用和投影缓存继续由 TODO 的 `P1-03/P0-12` 跟踪。
+v2 的参数占位会被模型照抄成新调用：新增私有字段遭 Schema 拒绝，而仅删掉字段会使占位正文
+成为可执行写入。v3 因此取消参数裁剪；写入密集历史可能更早触发完整压缩，旧 5x 参数压缩测量
+不再代表当前策略。结果/旧 reasoning 裁剪、硬预算和独立摘要仍保留，不改原日志或旧请求快照。
+
+兼容保护在 `xharness-tools` 的执行边界、Schema/审批/Handler 之前执行：`write/edit` 根参数带
+`_xharness_history_projection`，或整个 `content/old/new` 字符串符合旧省略标记格式时，返回
+不可自动重试的 `InvalidArguments`，明确要求 `read` 后重新生成真实参数。不剥离字段、不自动
+重放写操作、不放宽 `additionalProperties: false`。只在文档/源码中提及标记不应被误拦；
+这不是通用的模型输出正确性检测器，也不能恢复已缺失的正文。
 
 正式 `xharness-host-app` 只要配置了模型，就必须通过 `XHARNESS_CONTEXT_WINDOW` 或
 `--context-window` 显式给出部署真实窗口；未知窗口拒绝启动。嵌入式 Core 仍允许不安装 Guard，
@@ -153,8 +156,8 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 
 ## 当前实现差距
 
-- 正式 Host 已安装 `ToolResultPruningContextPolicy`（`context-history-pruning/v2`）；除 Tool
-  Result 外会投影已成功的大型 `write/edit` 参数和旧 Turn reasoning。独立 Durable Compact
+- 正式 Host 已安装 `ToolResultPruningContextPolicy`（`context-history-pruning/v3`）；只裁剪 Tool
+  Result 和旧 Turn reasoning，工具参数保持原样。独立 Durable Compact
   Coordinator 按 0.8 阈值、0.16 尾部、8,192 摘要上限自动改写当前 Session Surface，并在每次
   成功后重新计量。
 - `compaction/start|summary|end|prune`、Checkpoint Replace、Web 投影和未闭合 Start 恢复已
