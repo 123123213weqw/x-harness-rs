@@ -95,6 +95,117 @@ async fn executor(workspace: &TempWorkspace) -> ToolExecutor {
 }
 
 #[tokio::test]
+async fn copied_history_arguments_cannot_create_overwrite_or_edit_files() {
+    let workspace = TempWorkspace::new();
+    fs::write(workspace.0.join("existing.txt"), "original contents").unwrap();
+    let approvals = Arc::new(AtomicU64::new(0));
+    struct CountApprovals(Arc<AtomicU64>);
+    #[async_trait]
+    impl ApprovalProvider for CountApprovals {
+        async fn request_approval(
+            &self,
+            _request: ApprovalRequest,
+        ) -> Result<ApprovalDecision, MiddlewareError> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(ApprovalDecision::Approved)
+        }
+    }
+    let executor = executor(&workspace)
+        .await
+        .with_approval_provider(Arc::new(CountApprovals(Arc::clone(&approvals))));
+    let read = executor
+        .execute(ToolRequest::new("read", r#"{"path":"existing.txt"}"#))
+        .await;
+    assert!(read.is_ok(), "{read:?}");
+    let marker = format!("[xharness history projection: successful write.content omitted; chars=2048; utf8_bytes=2048; sha256={}; re-read the file if content is needed]", "b".repeat(64));
+    let metadata = serde_json::json!({"format":"tool_arguments_pruned/v1","successful":true});
+    for path in ["new.txt", "existing.txt"] {
+        for (tool, args) in [
+            (
+                "write",
+                serde_json::json!({"path":path,"content":marker,"_xharness_history_projection":metadata}),
+            ),
+            ("write", serde_json::json!({"path":path,"content":marker})),
+            (
+                "write",
+                serde_json::json!({"path":path,"content":"real","_xharness_history_projection":metadata}),
+            ),
+            (
+                "edit",
+                serde_json::json!({"path":path,"old":"original contents","new":marker}),
+            ),
+            (
+                "edit",
+                serde_json::json!({"path":path,"old":marker,"new":"replacement"}),
+            ),
+        ] {
+            let result = executor
+                .execute(ToolRequest::new(tool, args.to_string()))
+                .await;
+            let failure = result
+                .failure
+                .expect("copied projection must fail before mutation");
+            assert_eq!(
+                failure.kind,
+                xharness_tools::ToolFailureKind::InvalidArguments
+            );
+            assert!(failure.message.contains("Use read"), "{}", failure.message);
+            assert!(
+                !failure.retryable,
+                "never automatically retry a projected mutation"
+            );
+            assert!(!workspace.0.join("new.txt").exists());
+            assert_eq!(
+                fs::read_to_string(workspace.0.join("existing.txt")).unwrap(),
+                "original contents"
+            );
+        }
+    }
+    assert_eq!(
+        approvals.load(Ordering::Relaxed),
+        0,
+        "invalid calls must not request approval"
+    );
+    let unrelated = executor
+        .execute(ToolRequest::new(
+            "write",
+            r#"{"path":"new.txt","content":"real","extra":true}"#,
+        ))
+        .await;
+    assert!(unrelated
+        .failure
+        .unwrap()
+        .message
+        .contains("additional property is not allowed"));
+
+    // A fresh real call can recover, and documenting the old marker is allowed.
+    let document = format!("Example of an obsolete marker (do not execute):\n{marker}\n");
+    let write = executor
+        .execute(ToolRequest::new(
+            "write",
+            serde_json::json!({"path":"new.txt","content":document}).to_string(),
+        ))
+        .await;
+    assert!(write.is_ok(), "{write:?}");
+    assert_eq!(
+        fs::read_to_string(workspace.0.join("new.txt")).unwrap(),
+        document
+    );
+    let edit = executor
+        .execute(ToolRequest::new(
+            "edit",
+            r#"{"path":"existing.txt","old":"original contents","new":"real updated contents"}"#,
+        ))
+        .await;
+    assert!(edit.is_ok(), "{edit:?}");
+    assert_eq!(
+        fs::read_to_string(workspace.0.join("existing.txt")).unwrap(),
+        "real updated contents"
+    );
+    assert_eq!(approvals.load(Ordering::Relaxed), 2);
+}
+
+#[tokio::test]
 async fn standard_tools_register_and_basic_file_shell_flow_runs() {
     let workspace = TempWorkspace::new();
     let executor = executor(&workspace).await;
