@@ -7,6 +7,7 @@
 mod control;
 mod delegation;
 mod delegation_concurrency;
+mod goal_tool;
 mod goals;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
@@ -248,7 +249,7 @@ impl BasicHost {
         let capacity = config.event_capacity.max(16);
         let (mux_tx, _) = broadcast::channel(capacity);
         let (host_tx, _) = broadcast::channel(capacity);
-        Arc::new(Self {
+        let host = Arc::new(Self {
             state: Arc::new(RwLock::new(state::HostState::new(&config))),
             config,
             agent_runtime,
@@ -264,7 +265,9 @@ impl BasicHost {
             next_id: Arc::new(AtomicU64::new(1)),
             delegation_listener_started: Arc::new(AtomicBool::new(false)),
             title_work: Arc::new(titles::TitleWork::default()),
-        })
+        });
+        host.agent_runtime.bind_host(Arc::downgrade(&host));
+        host
     }
 
     pub fn without_provider(config: HostConfig) -> Arc<Self> {

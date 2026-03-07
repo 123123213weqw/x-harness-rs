@@ -1,6 +1,6 @@
 # Goal：产品运行时与现有 UI 接入
 
-状态：2026-09-10 源码已接通，Linux 远程回归、Chromium/WebKit 和正式 Host 真实 DeepSeek 实验通过。**本分支尚未合并发布，也未替换用户已安装软件**。
+状态：2026-09-10 的 Goal 运行时已随 0.2.16 发布；2026-09-11 的常规 `goal` 工具与单框 UI 变更见本文末节，当前尚未打包发布。
 
 ## 1. 直接使用
 
@@ -17,7 +17,7 @@
 /goal clear
 ```
 
-复用上游 `dsh-client-ui-goal` 的 GoalBar、GoalDock、编辑/暂停/恢复/清除按钮和命令气泡；没有另做目标管理页面。补充的展开区显示轮数、执行状态、报告、剩余事项、证据、错误详情和轮数预算编辑。
+复用上游 `dsh-client-ui-goal` 的 GoalBar、GoalDock、编辑/暂停/恢复/清除按钮和命令气泡；没有另做目标管理页面。2026-09-11 改为在同一个 GoalBar 内显示状态、轮数和操作，不再追加下方展开区。
 
 - 新建 Goal 显式开启持续推进。旧日志只有 v1 Goal 时不自动启用，用户点击“启用自动推进”或 `/goal resume`。
 - 模型报告完成后停在“等待你确认完成”。用户可“确认完成”或“尚未完成，继续”。完成状态仍可见，不再直接消失。
@@ -50,7 +50,7 @@ ToolResult + TurnEnd → Goal 报告结算 → 继续 / 等待 / 暂停 / 待确
 - enqueue 不增加轮数；claim、Inbox 删除、UserMessage、TurnStart 和轮数增长同一 CAS 提交。
 - claim revision 变化必须重新准备，不能把旧目标重放到新版本。若准备期间目标被暂停/清除，发送 Parked 收尾已订阅的 Host 通道，避免假运行。普通 Schedule 保留原有规则。
 
-## 3. 唯一新增模型工具：goal_report
+## 3. 0.2.16 的报告接口：goal_report（新设计见末节）
 
 只在已启用的 Goal 轮和它的恢复轮注册，复用 `ToolRegistry` / Standalone batch policy / 参数校验 / 原有日志。普通会话不额外注入此工具。
 
@@ -128,3 +128,38 @@ ToolResult + TurnEnd → Goal 报告结算 → 继续 / 等待 / 暂停 / 待确
 - 原生 job：owner 隔离、未知/失败不可视为完成、无关任务不阻塞。
 - UI：使用实际分发的 React、GoalBar/GoalDock，Chromium/WebKit 验证确认、继续、错误重试、换目标、完成可见和窄屏布局。
 - 实际 DeepSeek 正式 Host 链路：3 轮、46 次工具调用、115 个生成代码测试、12 个独立验收，见 [产品实验](../evaluations/goal-product-20260910.md)。
+
+## 2026-09-11：常规 Goal 工具与单框 UI（本地开发，尚未发布）
+
+### 一个与 Bash 同层的工具
+
+正式 Durable Host 每个普通模型轮次都通过现有 `ToolRegistry` 注册 `goal`，无需先输入 `/goal`。同一张模型工具列表里包含 Bash/Read 等原有工具与 Goal。不是新建外层 Loop，也不把长期任务放进 Bash 子命令。
+
+- `create`：`objective`，可选 `max_goal_rounds`（默认 256）。只有用户明确要求持久目标或持续推进时创建，不把普通问题隐式升级为 Goal。
+- `get`：返回当前目标、执行状态、预算和 `ref`；没有目标时返回 `goal:null`。
+- `update`：携带最新 `ref:{id,revision}`，修改目标或预算，禁用后续自动推进；不会清零历史轮数。
+- `pause` / `resume`：携带最新 `ref`，复用原 Host CAS 和状态校验。暂停不杀当前工具。
+- `report`：`report:{status,summary,remaining,evidence,blocked_reason}`。只接受自动 Goal 轮次的进展报告。`status=complete` 仍进入待用户确认，不等于验收完成。
+
+模型不拥有 `sessionId`、执行 epoch、完成确认或删除接口。用户并发修改后旧 ref 会失败，模型应重新 `get`，不能覆盖用户更改。`goal` 为独立工具批次：防止同批创建/暂停与报告互相竞争；并非绕开原 Scheduler。
+
+普通轮执行中创建目标只写入授权，原 Controller 的 open-turn 屏障会等待本轮结束，不会重启当前轮或同时生成第二个回答；已有正在执行/排队的 Goal 仍不能重新 Enable。绑定活动会话时不把活跃审批/问答误当崩溃恢复。
+
+`create/update/pause/resume` 调用现有 Goal RPC，使用工具 execution ID 生成持久收据，复用幂等与取消后的已接纳操作语义。开始接纳前取消不写入；接纳后完成原子持久化，取消不撤销已确认写入。
+
+原 `goal_report` 不再作为新请求工具暴露。历史回放仍识别老日志里的真实 `goal_report` 成功记录；新日志只识别 `goal(action=report)` 的成功记录，其他 Goal 操作不能伪造成进度报告。
+
+### UI：只有输入框上方原有 GoalBar
+
+删除 GoalBar 下方额外的 `details/summary` 展开区域，不创建新页面。运行状态、轮数、预算入口、暂停/恢复、完成确认均位于原目标框。预算编辑也留在同一框内；窄窗口允许框内控件换行，不生成第二块展开面板。进展、证据和错误说明保存在原投影，完整说明可在目标框提示中查看。
+
+沿用原有编辑/清除和 mutation 锁；网络失败可重试，切换目标不接受旧操作的异步结果。没有目标时，上方原框显示“Goal · 未设置目标 · 设定目标”。用户可在同框输入目标后明确创建并启动；也可让模型通过常规 Goal 工具创建。取消不创建；失败可重试，切换会话会丢弃旧异步回调。
+
+### 回归与发布边界
+
+- 普通 Provider 轮次发现 `goal` → 工具创建目标 → 原轮完成 → 自动目标轮报告；验证没有额外 `goal_report` 定义。
+- 创建重试收据不重复建目标；新旧 ref 冲突；编辑暂停自动推进；恢复后用户确认。
+- 参数混用、未知操作、跨会话字段、缺失字段、零预算、无 Goal 报告、取消均失败且不误写。
+- 保留多轮推进、依赖、崩溃恢复、未知结果不重放等既有回归。
+- Chromium/WebKit：仅一个目标框、无 details、移动宽度、完成/恢复、异常重试、异步过期操作、预算编辑。
+- 安装包必须通过 CI 重新构建发布后才更新用户桌面。禁止单独改已签名 App 内部资源并假装升级成功。
