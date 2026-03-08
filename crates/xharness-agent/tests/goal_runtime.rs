@@ -710,3 +710,109 @@ async fn preparation_failure_persists_diagnostic_and_discards_only_goal_intent()
         revision
     );
 }
+
+struct DependencyFaultFactory {
+    calls: Arc<AtomicUsize>,
+    checks: Arc<AtomicUsize>,
+    pending: bool,
+}
+#[async_trait]
+impl TurnRequestFactory for DependencyFaultFactory {
+    async fn goal_dependencies(&self, _: &str) -> Result<bool, String> {
+        self.checks.fetch_add(1, Ordering::SeqCst);
+        if self.pending {
+            Ok(true)
+        } else {
+            Err("required job unavailable: unknown job bash-1".into())
+        }
+    }
+    async fn build(&self, _: &str, input: Vec<AgentMessage>) -> Result<LoopRequest, String> {
+        Ok(LoopRequest::new(
+            Arc::new(Provider(self.calls.clone())),
+            input,
+        ))
+    }
+}
+
+#[tokio::test]
+async fn dependency_failure_pauses_only_goal_and_preserves_user_chat_across_restart() {
+    // Covers enabled error, paused/disabled legacy state and unresolved running
+    // dependencies; none may swallow ordinary user input or spend Goal rounds.
+    for mode in ["error", "paused", "disabled", "pending"] {
+        let (store, inbox, c) = setup().await;
+        if mode != "disabled" {
+            enable(&store, &c).await;
+        }
+        if mode == "paused" {
+            c.pause().await.unwrap();
+        }
+        if mode == "error" {
+            c.reconcile().await.unwrap();
+        } // stale auto intent
+        let calls = Arc::new(AtomicUsize::new(0));
+        let checks = Arc::new(AtomicUsize::new(0));
+        for round in 0..2 {
+            inbox
+                .append(
+                    InboxTarget::NextTurn,
+                    InboxMessage::user(format!("user-{round}"), "chat normally"),
+                )
+                .await
+                .unwrap();
+            // New driver and lease manager exercise recovery of already-durable input.
+            let registry =
+                AgentRegistry::new(store.clone(), Arc::new(MemoryLeaseManager::default()));
+            let handle = DurableAgentHandle::start(
+                registry
+                    .activate(SessionHeader::new("goal-test"))
+                    .await
+                    .unwrap(),
+                Arc::new(DependencyFaultFactory {
+                    calls: calls.clone(),
+                    checks: checks.clone(),
+                    pending: mode == "pending",
+                }),
+                64,
+            );
+            let mut events = handle.subscribe();
+            handle.wake().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    match events.recv().await.unwrap() {
+                        AgentEvent::Error { message } => panic!("{mode}: {message}"),
+                        _ => {
+                            let s = store.load("goal-test").await.unwrap().unwrap();
+                            let ends = s
+                                .events()
+                                .iter()
+                                .filter(|e| matches!(e.data(), EventData::TurnEnd { .. }))
+                                .count();
+                            if ends == round + 1 {
+                                break;
+                            }
+                        }
+                    }
+                }
+            })
+            .await
+            .expect("user input must not stay queued behind Goal failure");
+            handle.shutdown(Duration::from_secs(1)).await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "{mode}");
+        assert!(!inbox.snapshot().await.unwrap().has_pending(), "{mode}");
+        if mode == "error" {
+            let state = c.state().await.unwrap().unwrap();
+            assert_eq!(state.pause_reason, Some(PauseReason::ExecutionError));
+            assert!(state.pause_detail.unwrap().contains("unknown job bash-1"));
+            assert_eq!(state.rounds_started, 0);
+            assert_eq!(
+                checks.load(Ordering::SeqCst),
+                1,
+                "paused Goal must not recheck stale refs"
+            );
+        }
+        if mode == "paused" || mode == "disabled" {
+            assert_eq!(checks.load(Ordering::SeqCst), 0);
+        }
+    }
+}

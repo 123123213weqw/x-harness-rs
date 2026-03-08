@@ -1,4 +1,4 @@
-import {readFileSync,writeFileSync} from 'node:fs';
+import {readFileSync,writeFileSync,realpathSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -37,15 +37,16 @@ export function patchGoalRuntime(bytes) {
   if(s.split(anchor).length!==2)throw Error('Goal wrap anchor changed');
   s=s.replace(anchor,anchor+' // xh-goal-wrap/v1\nstyle:{minHeight:36,height:"auto",flexWrap:"wrap"},');
  }
- if(!s.includes('// xh-goal-create/v1')) {
-  const once=(a,b)=>{if(s.split(a).length!==2)throw Error('Goal create UI anchor changed: '+a);s=s.replace(a,b)};
-  once('function GoalDock({ useProjection, onEdit, onPause, onResume, onClear, onComplete, onBudget, t }) {','// xh-goal-create/v1\nfunction GoalDock({ useProjection, goalSessionId, onCreate, onEdit, onPause, onResume, onClear, onComplete, onBudget, t }) {');
-  once('const projection = useProjection("goal");','const projection = useProjection("goal");\nif(!projection?.goal)return react_jsx_runtime.jsx(XhGoalCreate,{onCreate},goalSessionId);');
-  once('inject: (sessionId) => ({','inject: (sessionId) => ({goalSessionId:sessionId,onCreate:async objective=>await ctx.remote.goals.create(sessionId,{objective}),');
+ // Remove the previous explicit empty-state entry when upgrading an installed bundle.
+ if(s.includes('// xh-goal-create/v1')) {
+  const once=(a,b)=>{if(s.split(a).length!==2)throw Error('Goal silent UI anchor changed: '+a);s=s.replace(a,b)};
+  once('// xh-goal-create/v1\nfunction GoalDock({ useProjection, goalSessionId, onCreate, onEdit, onPause, onResume, onClear, onComplete, onBudget, t }) {','function GoalDock({ useProjection, onEdit, onPause, onResume, onClear, onComplete, onBudget, t }) {');
+  once('\nif(!projection?.goal)return react_jsx_runtime.jsx(XhGoalCreate,{onCreate},goalSessionId);','');
+  once('inject: (sessionId) => ({goalSessionId:sessionId,onCreate:async objective=>await ctx.remote.goals.create(sessionId,{objective}),','inject: (sessionId) => ({');
  }
  return Buffer.from(s);
 }
-if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
+if(process.argv[1]&&realpathSync(process.argv[1])===fileURLToPath(import.meta.url)){
  const dist=resolve(process.argv[2]??'ui/dist'),p=resolve(dist,'plugins/@deepseek-ai/dsh-client-ui-goal/client.js');
  const bytes=patchGoalRuntime(readFileSync(p));writeFileSync(p,bytes);
  const hash=b=>createHash('sha256').update(b).digest('hex').slice(0,16),gp=resolve(dist,'client-graph.json'),g=JSON.parse(readFileSync(gp));

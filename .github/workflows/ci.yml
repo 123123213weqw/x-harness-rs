@@ -107,6 +107,9 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-attachments-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-execution-checkpoints-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-execution-checkpoints-browser.mjs
+          node scripts/test-question-continuation-patch.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-question-continuation-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-question-continuation-browser.mjs
           node scripts/test-goal-runtime-patch.mjs
           UI_TEST_BROWSER=chromium node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-goal-runtime-browser.mjs

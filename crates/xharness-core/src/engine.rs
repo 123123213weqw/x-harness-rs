@@ -1928,6 +1928,8 @@ impl Runner {
                                     | SessionEventData::SessionMutationCommitted { .. }
                                     | SessionEventData::PlanMode { .. }
                                     | SessionEventData::QuestionRequested { .. }
+                                    | SessionEventData::QuestionDeferred { .. }
+                                    | SessionEventData::QuestionAnswerDelivered { .. }
                                     | SessionEventData::QuestionDraftUpdated { .. }
                                     | SessionEventData::QuestionResolved { .. }
                                     | SessionEventData::QuestionCancelled { .. }

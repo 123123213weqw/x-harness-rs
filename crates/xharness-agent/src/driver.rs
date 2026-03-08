@@ -575,16 +575,32 @@ impl DriverWorker {
                 self.park_pending().await?;
                 return Ok(());
             }
-            let dependencies = match self.factory.goal_dependencies(self.activation.id()).await {
-                Ok(pending) => pending,
-                Err(message) => {
-                    self.goal_controller()
-                        .pause_error(&message)
-                        .await
-                        .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
-                    self.factory.goal_changed(self.activation.id()).await;
-                    return Err(AgentCommandError::Failed(message));
+            // Goal dependency failures belong to automatic Goal work, never to
+            // the user's inbox. Inactive Goals must not resolve stale Job refs.
+            let goal_active = stored
+                .as_ref()
+                .and_then(xharness_session::goal::execution_state)
+                .is_some_and(|s| {
+                    s.definition.execution_enabled
+                        && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
+                });
+            let dependencies = if goal_active {
+                match self.factory.goal_dependencies(self.activation.id()).await {
+                    Ok(pending) => pending,
+                    Err(message) => {
+                        // Persist the pause and invalidate automatic input before
+                        // continuing to claim ordinary input. Persistence errors
+                        // still fail closed; a failed dependency is NOT success.
+                        self.goal_controller()
+                            .pause_error(&message)
+                            .await
+                            .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+                        self.factory.goal_changed(self.activation.id()).await;
+                        false
+                    }
                 }
+            } else {
+                false
             };
             match self
                 .goal_controller()

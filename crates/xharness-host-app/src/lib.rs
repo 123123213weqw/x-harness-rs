@@ -264,7 +264,11 @@ impl SessionToolFactory for NativeToolFactory {
             .await
             .map_err(|error| error.to_string())?;
         }
-        Ok(ToolExecutor::new(registry).with_debug(self.debug.clone()))
+        let mut executor = ToolExecutor::new(registry).with_debug(self.debug.clone());
+        if let Some(questions) = &self.questions {
+            executor = executor.with_guards(vec![questions.exploration_guard(session_id)]);
+        }
+        Ok(executor)
     }
 
     async fn shutdown(&self) -> Result<(), String> {

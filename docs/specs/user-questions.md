@@ -4,6 +4,10 @@
 **模型工具：** `ask_user_question`  
 **上游兼容 Frame：** `question/requested`、`question/resolved`
 
+## 2026-09-11 软等待扩展
+
+新版增加 60 秒软等待：`deferred` 只完成原工具等待，不终结待答问题，也不代表用户同意。低风险探索由执行层 Guard 强制约束，迟到答案经持久化 outbox 进入原 Steering 队列。详细状态和边界见 [问答继续规范](question-continuation.md)。下文原“同一 Tool Call 等待至回答”的语义仅适用于超时前；新代码尚需 CI 安装包部署。
+
 ## 目标
 
 当模型缺少的是用户决定、偏好或系统无法自行取得的事实时，可以暂停当前 Tool Call，等待用户回答，

@@ -1305,7 +1305,11 @@ impl BasicHost {
         Ok(json!({"sessionId": child_id}))
     }
 
-    async fn session_prompt(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+    pub(crate) async fn session_prompt(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let mode = required_string(payload, "mode")?;
         if mode != "queue" && mode != "steer" {
