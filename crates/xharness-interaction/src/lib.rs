@@ -199,6 +199,8 @@ pub enum ResolveAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResolutionStatus {
+    /// Wait expired; the question is still pending, not answered or skipped.
+    Deferred,
     Answered,
     PartiallyAnswered,
     Skipped,
@@ -496,7 +498,9 @@ impl QuestionProviderError {
 #[async_trait]
 pub trait UserQuestionProvider: Send + Sync + 'static {
     /// Implementations must persist `question/requested` before waiting and
-    /// persist `question/resolved` before returning. They may release all
+    /// persist `question/resolved` before returning an answer. A Deferred result
+    /// instead requires durable `question/deferred` and leaves the question pending.
+    /// They may release all
     /// process resources while pending and rebuild from the session log.
     async fn ask(
         &self,
@@ -530,7 +534,13 @@ impl AskUserQuestionTool {
                         message: error.message,
                         retryable: error.retryable,
                     })?;
-                let content = serde_json::to_string(&resolution)
+                let mut payload = serde_json::to_value(&resolution)
+                    .map_err(|error| ToolHandlerError::new(error.to_string()))?;
+                if resolution.status == ResolutionStatus::Deferred {
+                    payload["interactionId"] = json!(invocation.interaction_id);
+                    payload["notice"] = json!("The user has not answered after 60 seconds. The question remains pending; no answer or permission is implied. Only perform independent read-only investigation, do not assume an answer. If no independent work remains, finish this turn and wait. Do not repeat the question or poll for an answer.");
+                }
+                let content = serde_json::to_string(&payload)
                     .map_err(|error| ToolHandlerError::new(error.to_string()))?;
                 Ok(ToolOutput {
                     content,
@@ -556,7 +566,7 @@ impl AskUserQuestionTool {
 pub fn tool_definition() -> ToolDefinition {
     ToolDefinition::new(
         ASK_USER_QUESTION_TOOL,
-        "Ask the user only when a user decision or unavailable fact blocks safe progress. Inspect available context and tools first. Ask 1-3 concise questions. For a boolean or finite decision, provide at most 3 choices; allowCustom lets the user provide or qualify an answer. Use destination=context for short-lived decisions and agent_markdown only for an explicitly durable goal. Call this tool alone, never in a batch with side-effecting tools.",
+        "Ask the user only when a user decision or unavailable fact blocks safe progress. Inspect available context and tools first. Ask 1-3 concise questions. For a boolean or finite decision, provide at most 3 choices; allowCustom lets the user provide or qualify an answer. Use destination=context for short-lived decisions and agent_markdown only for an explicitly durable goal. After 60 seconds without an answer this may return status=deferred: the question remains pending. Only continue independent read-only investigation; never infer consent. If nothing independent remains, finish and wait. Call this tool alone, never in a batch with side-effecting tools.",
         json!({
             "type": "object",
             "properties": {

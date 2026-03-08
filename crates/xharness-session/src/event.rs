@@ -585,9 +585,22 @@ pub enum EventData {
     },
     /// Durable opening barrier for one model-requested human interaction.
     /// The referenced tool call remains incomplete until this interaction is
-    /// resolved or cancelled and its ordinary `tool/result` is committed.
+    /// resolved, cancelled, or durably deferred and its ordinary `tool/result`
+    /// is committed. Deferral does not resolve the human interaction.
     #[serde(rename = "question/requested")]
     QuestionRequested { invocation: QuestionInvocation },
+    /// Releases the tool wait, not the unanswered interaction or any approval.
+    #[serde(rename = "question/deferred")]
+    QuestionDeferred {
+        #[serde(rename = "interactionId")]
+        interaction_id: String,
+    },
+    /// Idempotent outbox acknowledgement after a late answer enters Steering.
+    #[serde(rename = "question/answer-delivered")]
+    QuestionAnswerDelivered {
+        #[serde(rename = "interactionId")]
+        interaction_id: String,
+    },
     /// Optional durable draft checkpoint. The bundled Web UI keeps drafts in
     /// memory, while alternative clients may use this event for reconnects.
     #[serde(rename = "question/draft-updated")]

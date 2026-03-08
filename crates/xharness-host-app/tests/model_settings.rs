@@ -98,8 +98,9 @@ async fn fixture_with_store(
     )
     .await
     .unwrap();
-    host.restore_from_store(store).await.unwrap();
-    host.refresh_model_settings().await.unwrap();
+    let report = host.restore_from_store(store).await.unwrap();
+    assert!(report.model_settings_error.is_none(), "{report:?}");
+    assert!(report.issues.is_empty(), "{report:?}");
     (host, runtime)
 }
 async fn rpc(host: &BasicHost, method: RpcMethod, payload: Value) -> Value {
@@ -199,7 +200,7 @@ async fn settings_credentials_routes_and_restart_are_one_pipeline() {
 }
 
 #[tokio::test]
-async fn configured_route_sends_authenticated_request_to_real_http_adapter() {
+async fn restored_settings_activate_before_queued_input_reaches_real_http_adapter() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -243,7 +244,9 @@ async fn configured_route_sends_authenticated_request_to_real_http_adapter() {
         }
     });
     let dir = TempDir::new();
-    let (host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
+    let keys = Arc::new(TestCredentials::default());
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let (host, runtime) = fixture_with_store(&dir, keys.clone(), store.clone()).await;
     add(&host, profile(&endpoint)).await;
     rpc(
         &host,
@@ -261,15 +264,46 @@ async fn configured_route_sends_authenticated_request_to_real_http_adapter() {
         input_metadata: None,
     };
     runtime.admit_turn(request.clone()).await.unwrap();
-    let mut turn = runtime.start_turn(request).await.unwrap();
+    // Record the explicit route just as session.selectModel does. Admission
+    // has not yet emitted a provider RequestHeader.
+    let session = store.load(&request.session_id).await.unwrap().unwrap();
+    store
+        .append(
+            &request.session_id,
+            session.revision(),
+            vec![xharness_session::EventData::SessionModelSelected {
+                provider: request.route.provider.clone(),
+                model: request.route.model.clone(),
+                reasoning_effort: None,
+                context_window_tokens: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    drop(host);
+    drop(runtime);
+    let (_host, _runtime) = fixture_with_store(&dir, keys, store.clone()).await;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        while turn.next_event().await.is_some() {}
-        let result = turn.result().await;
-        assert_eq!(
-            result.final_text, "model configuration works",
-            "provider error: {:?}",
-            result.error
-        );
+        loop {
+            let session = store.load(&request.session_id).await.unwrap().unwrap();
+            if session.events().iter().any(|e| {
+                matches!(
+                    e.data(),
+                    xharness_session::EventData::TurnEnd {
+                        reason: xharness_session::TurnEndReason::Completed,
+                        ..
+                    }
+                )
+            }) {
+                assert!(xharness_agent::InboxProjection::from_session(&session)
+                    .unwrap()
+                    .next_turn()
+                    .is_empty());
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
         server.await.unwrap();
     })
     .await
@@ -394,4 +428,67 @@ async fn legacy_deepseek_effort_selection_survives_restore_and_model_switch() {
         .find(|m| m["id"] == "unknown")
         .unwrap()["reasoning"]
         .is_null());
+}
+
+struct LockedCredentials;
+#[async_trait]
+impl CredentialStore for LockedCredentials {
+    async fn get(&self, _: &str) -> Result<Option<String>, String> {
+        Err("test keychain locked".to_owned())
+    }
+    async fn set(&self, _: &str, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+    async fn delete(&self, _: &str) -> Result<(), String> {
+        unreachable!()
+    }
+}
+
+#[tokio::test]
+async fn restore_activation_failure_clears_stale_routes_but_preserves_settings_repair() {
+    let dir = TempDir::new();
+    let (old_host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
+    add(&old_host, profile("http://127.0.0.1:12345/v1")).await;
+    rpc(
+        &old_host,
+        RpcMethod::CredentialsSet,
+        json!({"ref":"XHARNESS_SETTINGS_TEST_KEY","value":"test-only-key"}),
+    )
+    .await;
+    assert!(runtime.has_available_route());
+    drop(old_host);
+    let control: Arc<dyn ControlStore> =
+        Arc::new(JsonlControlStore::new(dir.0.join("control")).unwrap());
+    let host = BasicHost::with_agent_runtime_and_control_store(
+        HostConfig::new(&dir.0),
+        runtime.clone(),
+        control,
+    );
+    host.install_model_settings(
+        Arc::new(NativeModelSettings::new(
+            runtime.clone(),
+            Arc::new(LockedCredentials),
+            DebugRecorder::disabled(),
+        )),
+        json!({"providers":{}}),
+    )
+    .await
+    .unwrap();
+    let report = host
+        .restore_from_store(Arc::new(MemorySessionStore::default()))
+        .await
+        .unwrap();
+    assert_eq!(
+        report.model_settings_error.as_deref(),
+        Some("test keychain locked")
+    );
+    assert!(
+        !runtime.has_available_route(),
+        "stale bootstrap routes must fail closed"
+    );
+    let settings = rpc(&host, RpcMethod::SettingsDescribe, json!({})).await;
+    assert!(
+        settings.to_string().contains("test-gateway"),
+        "settings remain available for repair"
+    );
 }

@@ -195,7 +195,9 @@ pub(crate) fn execution_projection(session: &Session) -> Value {
         "disabled"
     } else if !session.pending_tool_approvals().is_empty() {
         "awaiting_approval"
-    } else if !session.recoverable_user_questions().is_empty() {
+    } else if !session.recoverable_user_questions().is_empty()
+        || xharness_session::has_unanswered_deferred_question(session.events())
+    {
         "awaiting_answer"
     } else if s.running.is_some() {
         "running"

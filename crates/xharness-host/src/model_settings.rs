@@ -213,8 +213,8 @@ pub(crate) fn empty_model_namespace() -> SettingsNamespace {
 }
 
 impl BasicHost {
-    /// Call before restore_from_store; then call refresh_model_settings after
-    /// restore. Imported defaults remain distinct from user overrides.
+    /// Call before restore_from_store, which activates restored settings before
+    /// resuming queued inputs. Imported defaults remain distinct from overrides.
     pub async fn install_model_settings(
         &self,
         backend: std::sync::Arc<dyn ModelSettingsBackend>,
