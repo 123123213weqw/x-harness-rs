@@ -328,15 +328,31 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
                 .get(call_id)
                 .map(String::as_str)
                 .unwrap_or("unknown");
-            message.content = json!({
+            // Keep durable recovery handles out of the head/tail excerpt: a
+            // subsequent projection must not truncate the only way back to raw output.
+            let archive = serde_json::from_str::<Value>(&message.content)
+                .ok()
+                .and_then(|value| {
+                    let archive = value.get("archive")?;
+                    let key = archive.get("sha256")?.as_str()?;
+                    xharness_session::ToolArchiveRef::validate_key(key).ok()?;
+                    let bytes = archive.get("bytes")?.as_u64()?;
+                    if bytes > xharness_session::MAX_TOOL_ARCHIVE_BYTES as u64 { return None; }
+                    // Rebuild bounded fields instead of copying arbitrary large JSON.
+                    Some(json!({"sha256":key,"bytes":bytes,"read_with":"history","format":"tool_result/v1"}))
+                });
+            let mut envelope = json!({
                 "format": "tool_result_pruned/v1",
                 "tool": tool,
                 "call_id": call_id,
                 "chars_before": pruned.chars_before,
                 "chars_removed": pruned.chars_removed,
                 "content": pruned.text,
-            })
-            .to_string();
+            });
+            if let Some(archive) = archive {
+                envelope["archive"] = archive;
+            }
+            message.content = envelope.to_string();
             edits.push(SurfaceEdit::new(
                 index,
                 index + 1,
@@ -356,6 +372,18 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn durable_archive_reference_survives_additional_pruning() {
+        let archive = json!({"sha256":"a".repeat(64),"bytes":30000,"read_with":"history","format":"tool_result/v1"});
+        let original = json!({"content":"x".repeat(20000),"archive":archive}).to_string();
+        let policy = ToolResultPruningContextPolicy::default();
+        let surface = policy
+            .prepare(ContextRequest::new(vec![Message::tool("call", original)]))
+            .await
+            .unwrap();
+        let value: Value = serde_json::from_str(&surface.messages[0].content).unwrap();
+        assert_eq!(value["archive"], archive);
+    }
     use super::*;
     use serde_json::json;
     use xharness_session::{MessageRole, ToolCall};

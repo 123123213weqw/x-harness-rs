@@ -43,6 +43,22 @@ Handler 和 Middleware Panic 必须在各自信任边界捕获。
 
 ## Policy 语义
 
+### 历史证据工具
+
+共享 Host Runtime 注册一个只读 `history`，不依赖 Windows/macOS/Linux 专用实现。
+它在构造时绑定当前 session，参数不能传 session ID 或文件路径，不支持自动跨会话检索。
+
+- `action=search, query`：大小写敏感的字面量搜索（1–256 UTF-8 字节），搜索 User/Assistant
+  正文、ToolCall 原参数、ToolResult（有存档时检索完整原文）。不暴露 Request Audit 或配置事件。
+  每次最多检查 128 个事件/扫描 256 KiB 文本，最多返回 4 个短命中；按 `next.seq/offset` 继续，
+  仅 `next=null` 表示到达当前日志末尾。UTF-8 字节边界和跨扫描边界的命中均有测试。
+- `action=read`：必须且只能提供 `seq` 或 `archive`（sha256）。`offset` 是原文 UTF-8 字节位置，
+  `limit` 为 1–2048，默认 2048；JSON 转义后过大时进一步缩小，按 `next_offset` 继续。
+  原始工具结果是 JSON envelope，页可能不是独立合法 JSON，不应把页误当成可执行调用参数。
+- 老记录没有存档时只读取已有日志，不声称恢复了旧版已丢失内容。引用缺失/损坏明确报错。
+- 返回内容标明为历史证据，不能当成新用户指令或权限。调用不改变历史；工具调用本身仍由
+  正常 Core 管线记账。存档不随结果回读自动全量注入上下文。
+
 Guard 状态单调：后续阶段可以把 `allow` 收紧为 `ask` 或 `deny`，禁止放宽已经存在的
 限制。Approval 缺失、出错、Panic、超时或取消时必须 fail closed。Finalizer 禁止把拒绝
 或执行失败改成成功。
