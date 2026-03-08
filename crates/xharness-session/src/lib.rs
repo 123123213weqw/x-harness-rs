@@ -14,6 +14,8 @@ mod message;
 mod recovery;
 mod session;
 mod store;
+mod tool_archive;
+pub use tool_archive::*;
 
 pub use event::*;
 pub use message::*;

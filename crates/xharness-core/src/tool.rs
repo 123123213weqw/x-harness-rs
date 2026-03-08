@@ -163,3 +163,26 @@ pub fn tool_result_for_model(result: &ToolResult, max_bytes: usize) -> (String, 
     }
     (best, true)
 }
+
+/// Preserve a durable reference outside the excerpt, within the same byte budget.
+pub(crate) fn tool_result_with_archive(
+    result: &ToolResult,
+    reference: &xharness_session::ToolArchiveRef,
+    max_bytes: usize,
+) -> Result<String, String> {
+    let archive = json!({"sha256":reference.sha256,"bytes":reference.bytes,
+        "read_with":"history", "format":"tool_result/v1"});
+    let overhead = archive.to_string().len() + 32;
+    let budget = max_bytes
+        .checked_sub(overhead)
+        .filter(|n| *n >= MIN_TOOL_RESULT_LIMIT_BYTES)
+        .ok_or("tool result budget cannot hold its durable archive reference")?;
+    let (text, _) = tool_result_for_model(result, budget);
+    let mut envelope: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    envelope["archive"] = archive;
+    let text = envelope.to_string();
+    if text.len() > max_bytes {
+        return Err("archived tool result exceeded its byte budget".into());
+    }
+    Ok(text)
+}

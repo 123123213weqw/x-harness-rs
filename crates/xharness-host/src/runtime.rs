@@ -856,6 +856,14 @@ impl TurnRequestFactory for DurableTurnFactory {
             .executor(agent_id, &config.cwd, config.permission)
             .await?;
         let snapshot = self.store.load(agent_id).await.map_err(|e| e.to_string())?;
+        tool_executor
+            .registry()
+            .register(crate::history_tool::spec(
+                Arc::clone(&self.store),
+                agent_id.into(),
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
         let fence = snapshot
             .as_ref()
             .and_then(xharness_session::goal::execution_state)
