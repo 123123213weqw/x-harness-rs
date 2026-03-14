@@ -250,6 +250,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let _ = server_stop_tx.send(());
     host.shutdown_auto_titles().await;
     let mut shutdown = runtime.shutdown(Duration::from_secs(10)).await;
+    host.stop_background_listeners();
     // Upgraded WebSockets are not terminated by Hyper's graceful shutdown.
     // After backend quiescence, bound transport drain and then abort only the
     // carrier task; no Provider, Tool, Process or PTY remains owned by it.
