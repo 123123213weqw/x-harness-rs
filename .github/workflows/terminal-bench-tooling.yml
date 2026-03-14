@@ -1,0 +1,39 @@
+name: Terminal-Bench tooling (no paid calls)
+
+on:
+  pull_request:
+    paths:
+      - scripts/terminal_bench/**
+      - .github/workflows/terminal-bench-tooling.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s scripts/terminal_bench -v
+
+  harbor-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      LITELLM_LOCAL_MODEL_COST_MAP: 'True'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r scripts/terminal_bench/requirements.txt
+      - run: python -B -m unittest discover -s scripts/terminal_bench -v
