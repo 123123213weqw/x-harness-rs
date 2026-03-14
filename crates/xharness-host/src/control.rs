@@ -114,6 +114,7 @@ impl BasicHost {
                 }
             }
         }
+        state.defined_workspaces = projection.workspaces.keys().cloned().collect();
         if let Some(order) = projection.workspace_order {
             let mut merged = order
                 .into_iter()
@@ -203,6 +204,23 @@ impl BasicHost {
                 .expect("namespace response")
                 .remove("schema");
         }
+        // Workspaces discovered from restored Session cwds exist only in
+        // memory. Define them inside this batch, which already carries the one
+        // receipt its revision requires, so the durable order can never
+        // reference an id the log cannot resolve. `definitions` keeps their
+        // order relative to the mutation's own events.
+        let definitions = {
+            let state = self.state.read().await;
+            state
+                .workspaces
+                .values()
+                .filter(|workspace| !state.defined_workspaces.contains(&workspace.workspace_id))
+                .map(|workspace| ControlEvent::WorkspaceDefined {
+                    workspace: workspace_snapshot(workspace),
+                })
+                .collect::<Vec<_>>()
+        };
+        events.splice(0..0, definitions);
         events.push(ControlEvent::MutationCommitted {
             receipt: MutationReceipt {
                 rpc_id: rpc_id.as_str().to_owned(),
