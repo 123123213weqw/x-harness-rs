@@ -87,6 +87,7 @@ jobs:
       - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-model-controls.mjs
       - run: node scripts/test-workspace-directory.mjs
+      - run: node scripts/test-workspace-created-at.mjs
       - name: Real browser layout regression
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
