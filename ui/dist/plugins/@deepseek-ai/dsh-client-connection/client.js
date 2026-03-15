@@ -7609,11 +7609,11 @@ requireIdle: boolean().optional(),
 		* the projection did before that field existed.
 		*/
 		function contextPressureOf(log) {
-            // xharness-context-replay/v1
-            let value = {}, active, waiting = false;
+            // xharness-context-replay/v2
+            let value = {}, active, waiting = false, contextSeen = false;
             for (const event of log) {
                 const d=event.data ?? {};
-                if(event.type === 'session/model-selected') { value={}; active=undefined; waiting=true; }
+                if(event.type === 'session/model-selected') { value={}; active=undefined; waiting=true; contextSeen=false; }
                 if(event.type === 'step/start') {
                     active=[d.turn,d.step]; waiting=false;
                     value={contextWindow:value.contextWindow, phase:'preparing'};
@@ -7621,18 +7621,20 @@ requireIdle: boolean().optional(),
                 if(event.type === 'request/header') {
                     const b=d.header?.options?.tokenBudget;
                     waiting=false;
-                    value={contextWindow:value.contextWindow ?? b?.contextWindowTokens,
-                        projectedTokens:b?.estimate?.totalInputTokens,
+                    value={contextWindow:(contextSeen ? value.contextWindow : (b?.contextWindowTokens ?? b?.context_window_tokens)),
+                        projectedTokens:b?.estimate?.totalInputTokens ?? b?.estimate?.total_input_tokens,
+                        projectedAccuracy:b?.accuracy ?? 'estimated',
                         accuracy:b?.accuracy ?? 'estimated', phase:'in_flight',
-                        measurement:d.header?.options?.measurement};
+                        measurement:d.header?.options?.measurement ?? {turn:active?.[0] ?? null,step:active?.[1] ?? null,source:'legacy_request'}};
                 }
-                if(event.type === 'request/context') value.contextWindow=d.contextWindow;
+                if(event.type === 'request/context') { contextSeen=true; value.contextWindow=d.contextWindow ?? d.context_window; }
                 const sample=usageSampleOf(event);
                 if(!waiting && sample && (!active || (active[0]===sample.turn && active[1]===sample.step))) {
                     const n=sample.usage.inputTokens+(sample.usage.cacheReadTokens??0)+(sample.usage.cacheWriteTokens??0);
-                    if(Number.isSafeInteger(n)&&n>=0)Object.assign(value,{pressureTokens:n,accuracy:'provider_reported',phase:'measured'});
+                    if(Number.isSafeInteger(n)&&n>=0)Object.assign(value,{pressureTokens:n,pressureAccuracy:'provider_reported',accuracy:'provider_reported',phase:value.phase==='history_changed'?'history_changed':'measured'});
                 }
                 if(['user/message','tool/result','compaction/summary'].includes(event.type))value.phase='history_changed';
+                if(event.type==='turn/end' && value.pressureTokens===undefined)value.phase='unmeasured';
             }
             return Object.fromEntries(Object.entries(value).filter(([,v])=>v!==undefined));
         }

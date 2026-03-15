@@ -271,7 +271,7 @@ pub enum TokenBudgetError {
     #[error(transparent)]
     Meter(#[from] TokenMeterError),
     #[error(
-        "estimated request input ({estimated_input_tokens} tokens) exceeds available input budget ({available_input_tokens}); context={context_window_tokens}, output_reserve={reserved_output_tokens}, safety_margin={safety_margin_tokens}"
+        "estimated request input ({estimated_input_tokens} tokens) exceeds available input budget ({available_input_tokens}); context={context_window_tokens}, output_reserve={reserved_output_tokens}, minimum_output={minimum_output_tokens}, safety_margin={safety_margin_tokens}"
     )]
     Exceeded {
         estimated_input_tokens: u64,
@@ -347,7 +347,7 @@ impl TokenGuard {
                 estimated_input_tokens: estimate.total_input_tokens,
                 available_input_tokens,
                 context_window_tokens: self.budget.context_window_tokens,
-                reserved_output_tokens: self.budget.minimum_output_tokens,
+                reserved_output_tokens: self.budget.reserved_output_tokens,
                 minimum_output_tokens: self.budget.minimum_output_tokens,
                 safety_margin_tokens: self.budget.safety_margin_tokens,
             });
@@ -387,7 +387,7 @@ impl TokenGuard {
                 estimated_input_tokens: count.input_tokens,
                 available_input_tokens,
                 context_window_tokens: self.budget.context_window_tokens,
-                reserved_output_tokens: self.budget.minimum_output_tokens,
+                reserved_output_tokens: self.budget.reserved_output_tokens,
                 minimum_output_tokens: self.budget.minimum_output_tokens,
                 safety_margin_tokens: self.budget.safety_margin_tokens,
             });
@@ -440,6 +440,49 @@ impl fmt::Debug for TokenGuard {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn exceeded_reports_desired_and_minimum_output_without_changing_admission() {
+        let guard = TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1024,
+            reserved_output_tokens: 512,
+            minimum_output_tokens: 64,
+            safety_margin_tokens: 32,
+        })
+        .unwrap();
+        let request = TokenEstimateRequest {
+            conversation_messages: vec![json!({"content":"x".repeat(2048)})],
+            ..TokenEstimateRequest::default()
+        };
+        let count = ConservativeByteMeter
+            .estimate(&request)
+            .unwrap()
+            .total_input_tokens;
+        let local = guard.check(&request).unwrap_err();
+        let provider = guard
+            .check_provider_count(&ProviderInputTokenCount::exact_request("test", count))
+            .unwrap_err();
+        assert_eq!(local, provider);
+        assert!(matches!(
+            local,
+            TokenBudgetError::Exceeded {
+                reserved_output_tokens: 512,
+                minimum_output_tokens: 64,
+                available_input_tokens: 928,
+                ..
+            }
+        ));
+        let diagnostic = local.to_string();
+        assert!(diagnostic.contains("output_reserve=512"));
+        assert!(diagnostic.contains("minimum_output=64"));
+        let edge = guard
+            .check_provider_count(&ProviderInputTokenCount::exact_request("test", 928))
+            .unwrap();
+        assert_eq!(edge.selected_output_tokens, 64);
+        assert!(guard
+            .check_provider_count(&ProviderInputTokenCount::exact_request("test", 929))
+            .is_err());
+    }
+
     #[test]
     fn explicit_meter_and_smaller_window_keep_selection_policy() {
         let custom = TokenGuard::new(

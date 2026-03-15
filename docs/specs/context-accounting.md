@@ -22,7 +22,7 @@
 2. 原生计数不支持，或可重试网络故障 / 超时，使用 Adapter 本地估算；没有 Adapter 实现时继续使用现有 Meter。显式通过 `TokenGuard::new` 注入的自定义 Meter 不被 Adapter 估算覆盖，只有 `conservative` 默认允许；也可用 `with_provider_estimate` 明确选择。Meter 可声明自身精度。
 3. 默认计数阶段总截止时间 10 秒，可通过 `TokenGuard.with_counter_policy` 配置。瞬态失败使 Adapter 冷却 60 秒，避免每轮重复等待。`fallback_reason=transient_counter_failure` 写入预算报告和 Debug。
 4. 401/403、坏响应等非重试错误不掩盖；严格模式可关闭瞬态降级。取消和暂停仍优先中断计数，不继续发生成请求。
-5. 即使降级，也必须执行 `输入 + 输出预留 + 安全边界 <= 有效上下文容量`。估算不是精确保证；服务端拒绝仍走已有有界 overflow/Compact 恢复，不绕过预算。
+5. 即使降级，也必须执行 `输入 + 最低输出保留 + 安全边界 <= 有效上下文容量`（期望输出预留可向下调节，实际选择的输出不能越过剩余容量）。估算不是精确保证；服务端拒绝仍走已有有界 overflow/Compact 恢复，不绕过预算。
 
 ## 本地校准
 
@@ -60,3 +60,31 @@
 验证记录见 [2026-09-09 验证报告](../reports/context-accounting-20260909.md)。本机禁止 Rust 编译，全部同步 WZU_Server 执行；跨平台构建由 GitHub CI 验证。
 
 软件安装更新是独立交付步骤：源码测试通过不等于已运行的软件自动生效。
+
+## #59：每个读数独立标记精度（2026-09-12）
+
+| 字段 | 含义 | 精度字段 |
+|---|---|---|
+| `pressureTokens` | 最近请求实际输入，非缓存 + 缓存读 + 缓存写 | `pressureAccuracy=provider_reported` |
+| `projectedTokens` | 请求前计数；不是实时变化后的下一轮预测 | `projectedAccuracy` 保持原计量器的精度 |
+
+旧的 `accuracy` 为兼容旧客户端仍保留，描述当前优先显示的读数；新客户端不能
+用这个字段替代两个独立精度字段。收到 usage 不能把 estimated/calibrated 升格为精确值。
+`projectedAccuracy` 缺失时可读取旧 `accuracy`，但只有 `exact_request` / `exact_tokenizer`
+能把请求前读数标为精确；旧 `provider_reported` 不会把估算值升级为实测。
+
+圆环优先显示实际输入，否则显示请求前计数。estimated/calibrated 显示 `≈`；
+缺少有效容量或读数时不显示百分比，0 是有效值，百分比上限 100%。
+工具结果、用户新消息或 Compact 到来后标记“历史已变化”；即使随后收到同轮迟到 usage，
+也不宣称它是变化后历史的大小。下一轮 step/start 清空旧读数，新请求重新计量。
+Host 实时增量 fold 和前端历史 replay 使用同样的精度/生命周期约定。
+
+## #57：超限诊断字段（2026-09-12）
+
+`TokenBudgetError::Exceeded.reserved_output_tokens` 必须报告配置期望输出预留，
+不能错误填入 `minimum_output_tokens`。报错同时展示 `output_reserve`、`minimum_output`
+和 `safety_margin`，本地计量和 Provider 计数两条分支一致。
+
+**预算算法未变**：硬准入仍使用 `context - minimum_output - safety_margin`；
+通过后实际选择的输出长度随剩余空间调节，不能把期望预留误当成始终固定的硬扣除。
+测试覆盖预留 512 / 最低输出 64 的不同值、准入边界 928 可用 / 929 拒绝。

@@ -830,13 +830,23 @@ impl TurnRequestFactory for DurableTurnFactory {
         }
     }
     async fn build(&self, agent_id: &str, input: Vec<AgentMessage>) -> Result<LoopRequest, String> {
-        let config = self
+        let mut config = self
             .sessions
             .read()
             .await
             .get(agent_id)
             .cloned()
             .ok_or_else(|| format!("durable agent {agent_id:?} has no Host configuration"))?;
+        // Prepared inbox entries and autonomous Goal/Schedule turns must not
+        // reuse the permission/prompt captured when an input was queued.
+        if let Some(host) = self.goals.host.get().and_then(std::sync::Weak::upgrade) {
+            let (permission, prompt) = host
+                .capture_turn_permission(agent_id)
+                .await
+                .map_err(|e| e.message)?;
+            config.permission = permission;
+            config.prompt = Some(prompt);
+        }
         let (provider, token_guard, compaction_reasoning_effort) = {
             let models = self.models.read().expect("model registry lock poisoned");
             let model = models.resolve(&config.route).ok_or_else(|| {

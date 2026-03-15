@@ -492,3 +492,81 @@ async fn restore_activation_failure_clears_stale_routes_but_preserves_settings_r
         "settings remain available for repair"
     );
 }
+
+#[tokio::test]
+async fn configured_usage_semantics_reaches_the_native_adapter() {
+    use futures::StreamExt;
+    use xharness_core::{ProviderEvent, ProviderRequest};
+    for (semantics, expected_uncached) in [("total_includes_cache", 3), ("uncached_input", 3003)] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let mut buf = [0; 4096];
+            loop {
+                let n = socket.read(&mut buf).await.unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&buf[..n]);
+                if let Some(end) = bytes.windows(4).position(|x| x == b"\r\n\r\n") {
+                    let length = String::from_utf8_lossy(&bytes[..end])
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|x| x.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if bytes.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let body="data: {\"choices\":[],\"usage\":{\"input_tokens\":3003,\"cache_read_input_tokens\":2000,\"cache_creation_input_tokens\":1000}}\n\ndata: [DONE]\n\n";
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+        });
+        let dir = TempDir::new();
+        let (host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
+        let mut p = profile(&endpoint);
+        p.as_object_mut().unwrap().remove("apiKeyEnv");
+        p["usageInputSemantics"] = json!(semantics);
+        add(&host, p).await;
+        let model = runtime
+            .auxiliary_model(&ModelRoute::new("test-gateway", "coder"))
+            .unwrap();
+        let req = ProviderRequest {
+            messages: vec![AgentMessage::user("test")],
+            tools: vec![],
+            step: 1,
+            reasoning_effort: None,
+            max_output_tokens: None,
+            debug_scope: Default::default(),
+        };
+        let mut stream = model
+            .provider
+            .stream(req, CancellationToken::new())
+            .await
+            .unwrap();
+        let mut seen = false;
+        while let Some(event) = stream.next().await {
+            if let ProviderEvent::Completed {
+                usage: Some(usage), ..
+            } = event.unwrap()
+            {
+                assert_eq!(
+                    [
+                        usage.input_tokens,
+                        usage.cache_read_tokens,
+                        usage.cache_write_tokens
+                    ],
+                    [expected_uncached, 2000, 1000]
+                );
+                seen = true;
+            }
+        }
+        assert!(seen);
+        server.await.unwrap();
+        let result=host.call(RpcId::new("bad-usage-semantics"),RpcMethod::SettingsMutate,json!({"ns":MODEL_SETTINGS_NAMESPACE,"expectedRevision":1,"ops":[{"op":"set","path":["providers","test-gateway","usageInputSemantics"],"value":"guess"}]}),CancellationToken::new()).await;
+        assert!(matches!(result, RpcResult::Failure { .. }));
+    }
+}
