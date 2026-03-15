@@ -10,6 +10,7 @@
   "permissions": [
     "core:default",
     "allow-desktop-status",
+    "allow-desktop-open-diagnostics",
     "allow-desktop-check-update",
     "allow-desktop-update-status",
     "allow-desktop-download-update",

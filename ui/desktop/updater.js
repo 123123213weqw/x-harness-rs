@@ -111,12 +111,16 @@
       <div class="confirm" hidden>重启将停止当前 Agent、工具和后台 Job。会话会保存，但运行中的命令不保证自动恢复。确认现在更新？</div>
       <div class="footer"><button class="later" hidden>稍后</button><button class="action primary">检查更新</button></div>
       <div class="hint">下载不影响当前工作；安装需要重启应用。</div>
+      <div class="footer"><button class="diagnostics">运行诊断</button></div>
     </section>
     <button class="toggle" aria-label="检查 XHarness 更新" aria-expanded="false" title="XHarness 更新">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg>
     </button>`
   document.body.append(host)
   const $ = selector => root.querySelector(selector)
+  $('.diagnostics').addEventListener('click', async () => {
+    try { await invoke('desktop_open_diagnostics') } catch { $('.hint').textContent = '无法打开运行诊断，请重启客户端后再试。' }
+  })
   const panel = $('.panel'), toggle = $('.toggle'), action = $('.action')
   const text = $('.text'), notes = $('.notes'), progress = $('progress'), confirmation = $('.confirm'), later = $('.later')
   const controller = createController(invoke, (state, { pending, confirming }) => {

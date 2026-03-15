@@ -352,7 +352,20 @@ def assemble(plan, artifacts, public_key_path, output):
 def validate_release(plan, root, public_key_path):
     validate_plan(plan)
     root = Path(root)
-    exact_tree(root, release_names(plan))
+    names = release_names(plan)
+    # Optional for historical releases; all new Windows release builds attach
+    # exact symbols before draft creation. Not part of latest.json/installers.
+    symbols = root / 'windows-debug-symbols.zip'
+    if symbols.exists():
+        regular_file(symbols)
+        require('windows-x86_64' in release_platforms(plan), 'Windows symbols without a Windows package')
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('desktop_symbols', ROOT / 'scripts/archive-desktop-symbols.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.verify_archive(symbols, plan['sha'])
+        names.add(symbols.name)
+    exact_tree(root, names)
     require((root / 'SHA256SUMS').read_text(encoding='ascii') == checksums(root), 'Release checksum inventory mismatch')
     evidence = read_json(root / 'release-evidence.json')
     fields(evidence, {'schema_version', 'plan', 'public_key_sha256', 'manifest_sha256', 'receipts', 'status'}, 'release evidence')

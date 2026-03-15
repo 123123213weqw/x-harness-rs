@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>XHarness · 运行诊断</title>
+  <style>
+    :root { color-scheme: light dark; font: 14px/1.65 "Segoe UI", "Microsoft YaHei", sans-serif; background: Canvas; color: CanvasText; }
+    * { box-sizing: border-box; } body { margin: 0; padding: 28px; }
+    header { border-bottom: 1px solid #8884; padding-bottom: 18px; margin-bottom: 22px; }
+    .eyebrow { margin: 0; opacity: .6; font-size: 11px; letter-spacing: .18em; }
+    h1 { font-size: 24px; font-weight: 600; margin: 4px 0 8px; } h2 { font-size: 15px; margin: 0 0 8px; }
+    p { margin: 8px 0; } .muted { opacity: .65; font-size: 12px; }
+    section { margin-bottom: 18px; padding: 16px; border: 1px solid #8884; border-radius: 10px; }
+    .incident { border-color: #ba873b; background: #c4951910; } [hidden] { display: none !important; }
+    button { font: inherit; cursor: pointer; border: 1px solid #8885; border-radius: 7px; padding: 7px 12px; background: Canvas; color: CanvasText; }
+    button:hover { background: color-mix(in srgb, CanvasText 7%, Canvas); } button:disabled { opacity: .5; cursor: wait; }
+    button:focus-visible, input:focus-visible { outline: 2px solid #8d9baa; outline-offset: 3px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    label { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; } input { margin-top: 4px; }
+    #output { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; padding-top: 4px; }
+    .status { font-variant-numeric: tabular-nums; } .error { color: #cb5252; }
+  </style>
+</head>
+<body>
+  <header><p class="eyebrow">XHARNESS / LOCAL DIAGNOSTICS</p><h1>运行诊断</h1><p id="status" class="status" role="status">正在读取本机状态…</p></header>
+  <section id="incident" class="incident" hidden>
+    <h2>检测到异常退出</h2><p>后台可能已经停止。此窗口不依赖后台服务，聊天窗口和未发送的草稿不会被替换。</p>
+    <p class="muted">先导出诊断记录，再手动退出并重新打开 XHarness。不会在这里自动重跑工具；重启仍应检查未完成任务的实际结果。</p>
+    <button id="acknowledge">我已了解，清除提醒</button>
+  </section>
+  <section>
+    <h2>标准诊断 · 默认常驻</h2>
+    <p>保存启动与退出信息、操作类型与资源采样；桌面和后台日志各限制为 4 MiB。</p>
+    <p class="muted">导出仅包含结构化元数据，不包含聊天、命令参数、密钥、原始错误输出或内存转储。不自动上传。</p>
+    <p class="muted">Windows 异常现场另存本机（最多保留 2 份）。转储可能包含敏感内容，不自动导出；快速失败、强制结束等情况可能无法捕获。</p>
+    <p id="dump-status" class="muted"></p>
+    <div class="actions"><button id="export">导出本机诊断包</button></div>
+  </section>
+  <section>
+    <h2>深度诊断 · 最长 15 分钟</h2>
+    <p id="deep-status">默认关闭；退出应用后不会继续开启。</p><p class="muted">临时提高 Windows 资源采样频率，逐项记录最多 4096 条操作类型事件；不记录对话正文。控制变更最多约 2 秒生效。</p>
+    <label><input id="consent" type="checkbox">我同意临时增加诊断采样。敏感追踪与内存文件不属于标准导出，分享前需单独检查。</label>
+    <label><input id="full-memory" type="checkbox">同时尝试完整内存转储（仅 Windows，可能含密钥和对话；单份上限 512 MiB，超限会失败而不是伪装完整）。</label>
+    <label><input id="heap-check" type="checkbox">每分钟检查 Windows 主进程堆一致性（可能明显卡顿，仅排查内存损坏时开启；不是逐次分配的 PageHeap 检查）。</label>
+    <div class="actions"><button id="enable">开启 15 分钟</button><button id="disable">立即关闭</button></div>
+  </section>
+  <p id="output" role="status" aria-live="polite"></p>
+  <script src="diagnostics.js"></script>
+</body>
+</html>

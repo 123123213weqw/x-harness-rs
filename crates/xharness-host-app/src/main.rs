@@ -44,8 +44,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // Must precede even debug/config writes and all session restoration.
     let _ownership = xharness_host_app::ownership::acquire(&args.state_dir).await?;
+    #[cfg(windows)]
+    if let (Some(context), Ok(event)) = (
+        env::var_os("XHARNESS_CRASH_CONTEXT"),
+        env::var("XHARNESS_CRASH_EVENT"),
+    ) {
+        // Best effort only: diagnostic setup must not prevent normal startup.
+        if xharness_win32::install_crash_signal(&PathBuf::from(context), &event).is_err() {
+            eprintln!("xharness crash signal unavailable");
+        }
+    }
     let (debug, trace) =
         DebugRecorder::open(DebugTraceConfig::new(args.debug_trace, &args.debug_dir)).await?;
+    let debug = match (
+        env::var_os("XHARNESS_DIAGNOSTICS_DIR"),
+        env::var_os("XHARNESS_DIAGNOSTICS_CONTROL"),
+    ) {
+        (Some(root), Some(control)) => debug.with_runtime_diagnostics(root.into(), control.into()),
+        _ => debug,
+    };
     if let Some(trace) = trace {
         eprintln!("xharness full debug trace: {}", trace.directory.display());
     }

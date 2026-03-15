@@ -8,6 +8,7 @@ members = [
     "crates/xharness-control",
     "crates/xharness-core",
     "crates/xharness-debug",
+    "crates/xharness-diagnostics",
     "crates/xharness-fs",
     "crates/xharness-goal",
     "crates/xharness-host",
