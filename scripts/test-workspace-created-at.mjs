@@ -42,6 +42,7 @@ const other=patchWorkspaceCreatedAt('@deepseek-ai/dsh-client-ui-settings',worksp
 assert.deepEqual(other,workspaceFixture,'unrelated modules stay byte-identical');
 const patchedWorkspace=patchWorkspaceCreatedAt(WORKSPACE,workspaceFixture);
 assert.deepEqual(patchWorkspaceCreatedAt(WORKSPACE,patchedWorkspace),patchedWorkspace,'patching is idempotent');
+assert.deepEqual(patchWorkspaceCreatedAt(WORKSPACE,Buffer.from(workspaceFixture.toString().replaceAll('\n','\r\n'))),patchedWorkspace,'Windows CRLF input produces the same canonical patch');
 const workspaceText=patchedWorkspace.toString();
 assert.equal(workspaceText.includes('Date.parse(workspace.createdAt)'),false,'ordering key uses the helper');
 assert.ok(workspaceText.includes('new Date(xhEpochMs(createdAt))'),'hover label parses through the helper');

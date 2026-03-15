@@ -5,8 +5,8 @@ mod provider;
 mod sse;
 
 pub use protocol::{
-    build_openai_request, build_openai_token_count_request, OpenAiProtocol, OpenAiStreamNormalizer,
-    CHAT_COMPLETIONS, RESPONSES,
+    build_openai_request, build_openai_token_count_request, InputUsageSemantics, OpenAiProtocol,
+    OpenAiStreamNormalizer, CHAT_COMPLETIONS, RESPONSES,
 };
 pub use provider::{
     OpenAiCapabilityProbe, OpenAiProvider, OpenAiProviderConfig, OpenAiReasoningProfile,

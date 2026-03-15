@@ -23,3 +23,20 @@ assert.equal(replay(history).pressureTokens,300);
 assert.equal(replay([...history,start(2),usage(1,900)]).pressureTokens,undefined);
 assert.equal(replay([...history,event('session/model-selected',{}),event('user/message',{}),usage(1,900)]).pressureTokens,undefined);
 console.log('context replay: new request / stale usage / model switch passed');
+// Precision belongs to each reading. A provider usage must not promote an estimate.
+for(const accuracy of ['estimated','calibrated']) {
+ const h=[start(1),event('request/header',{header:{options:{tokenBudget:{contextWindowTokens:1000,accuracy,estimate:{totalInputTokens:600}}}}}),usage(1,200)];
+ let p=replay(h);
+ assert.equal(p.pressureAccuracy,'provider_reported');assert.equal(p.projectedAccuracy,accuracy);
+ assert.equal(fn(p).accuracy,'provider_reported');
+ p={...p,pressureTokens:undefined};
+ assert.equal(fn(p).exact,false);assert.equal(fn(p).accuracy,accuracy);
+ const stale=replay([...h,event('compaction/summary',{}),usage(1,200)]);
+ assert.equal(stale.phase,'history_changed');assert.equal(fn(stale).stale,true);assert.match(fn(stale).label,/历史已变化/);
+ assert.equal(stale.projectedTokens,600,'no invented post-compaction prediction');
+}
+const noUsage=replay([start(1),event('request/header',{header:{options:{tokenBudget:{context_window_tokens:1000,accuracy:'exact_tokenizer',estimate:{total_input_tokens:200}}}}}),event('turn/end',{})]);
+assert.equal(noUsage.phase,'unmeasured');assert.equal(fn(noUsage).exact,true);assert.equal(noUsage.pressureTokens,undefined);
+assert.equal(fn({projectedTokens:100,contextWindow:1000,accuracy:'provider_reported'}).exact,false,'legacy shared accuracy cannot turn a preflight estimate into an exact count');
+assert.equal(fn({projectedTokens:1100,contextWindow:1000,projectedAccuracy:'estimated'}).percent,100);
+console.log('context precision: independent readings / calibrated / compaction / late usage / legacy / failed request passed');

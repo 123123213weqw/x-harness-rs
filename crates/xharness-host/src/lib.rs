@@ -4,6 +4,9 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
+mod assistant_projection;
+type SessionGateMap = Arc<Mutex<std::collections::HashMap<(String, bool), Arc<Mutex<()>>>>>;
+
 mod control;
 mod delegation;
 mod delegation_concurrency;
@@ -15,6 +18,8 @@ pub use delegation_concurrency::DelegationConcurrency;
 mod driver;
 mod metrics;
 mod model_settings;
+#[cfg(test)]
+mod permission_tests;
 mod questions;
 mod restore;
 mod rpc;
@@ -166,7 +171,7 @@ pub struct BasicHost {
     pub(crate) host_tx: broadcast::Sender<ServerRequest>,
     pub(crate) questions: Arc<DurableQuestionHub>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
-    admission_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
+    admission_gates: SessionGateMap,
     projection_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
     background_listener_started: Arc<AtomicBool>,
     background_listener_lifetime: Arc<driver::BackgroundListenerLifetime>,
@@ -284,11 +289,21 @@ impl BasicHost {
     }
 
     pub(crate) async fn lock_admission(&self, session_id: &str) -> OwnedMutexGuard<()> {
+        self.lock_session_gate(session_id, false).await
+    }
+
+    /// Separate lane: turn factories must never wait on a control/admission
+    /// lock whose holder may be waiting for that same agent to acknowledge.
+    pub(crate) async fn lock_permission_selection(&self, session_id: &str) -> OwnedMutexGuard<()> {
+        self.lock_session_gate(session_id, true).await
+    }
+
+    async fn lock_session_gate(&self, session_id: &str, permission: bool) -> OwnedMutexGuard<()> {
         let gate = {
             let mut gates = self.admission_gates.lock().await;
             Arc::clone(
                 gates
-                    .entry(session_id.to_owned())
+                    .entry((session_id.to_owned(), permission))
                     .or_insert_with(|| Arc::new(Mutex::new(()))),
             )
         };

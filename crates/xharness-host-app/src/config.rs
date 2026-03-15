@@ -253,6 +253,8 @@ struct ProviderConfig {
     #[serde(default = "chat_protocol")]
     protocol: String,
     #[serde(default)]
+    usage_input_semantics: xharness_provider_openai::InputUsageSemantics,
+    #[serde(default)]
     api_key_env: Option<String>,
     models: Vec<ModelConfig>,
 }
@@ -316,6 +318,7 @@ impl ProviderConfig {
             let mut provider_config =
                 OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model)
                     .with_context_window_fallback(fallback_context_window_tokens);
+            provider_config.usage_input_semantics = self.usage_input_semantics;
             if let Some(capability) = context_window_capability {
                 let mut probe = OpenAiCapabilityProbe::new(
                     capability.url,
@@ -408,6 +411,7 @@ pub(crate) async fn registry_from_settings(
         })).collect::<Vec<_>>();
         let provider: ProviderConfig = serde_json::from_value(serde_json::json!({
             "id":id,"display_name":profile.display_name,"base_url":profile.base_url,
+            "usage_input_semantics":profile.usage_input_semantics.as_deref().unwrap_or("auto"),
             "protocol":if profile.api == "openai-responses" {"responses"} else {"chat"},
             "models":models
         }))
@@ -456,6 +460,7 @@ pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
             id.to_owned(),
             serde_json::json!({"displayName":p["display_name"],"baseURL":p["base_url"],
             "api":if p["protocol"] == "responses" {"openai-responses"} else {"openai-completions"},
+            "usageInputSemantics":p.get("usage_input_semantics").cloned().unwrap_or_else(||serde_json::json!("auto")),
             "apiKeyEnv":p["api_key_env"],"models":models}),
         );
     }
@@ -900,5 +905,41 @@ mod tests {
         .unwrap();
         let error = config.build().await.err().unwrap();
         assert!(error.contains("reserved field \"messages\""));
+    }
+}
+
+#[cfg(test)]
+mod usage_settings_tests {
+    use super::*;
+    #[test]
+    fn deployment_file_preserves_usage_semantics_in_editable_settings() {
+        let mut value: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../config/providers.deepseek.example.json"
+        ))
+        .unwrap();
+        let defaults: ProviderFile = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(
+            defaults.providers[0].usage_input_semantics,
+            xharness_provider_openai::InputUsageSemantics::Auto
+        );
+        value["providers"][0]["usage_input_semantics"] = serde_json::json!("uncached_input");
+        let path = std::env::temp_dir().join(format!(
+            "xh-usage-config-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        let settings = settings_from_file(&path);
+        std::fs::remove_file(path).unwrap();
+        let settings = settings.unwrap();
+        assert_eq!(
+            settings["providers"]["deepseek"]["usageInputSemantics"],
+            "uncached_input"
+        );
+        value["providers"][0]["usage_input_semantics"] = serde_json::json!("invalid");
+        assert!(serde_json::from_value::<ProviderFile>(value).is_err());
     }
 }

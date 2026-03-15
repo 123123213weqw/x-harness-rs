@@ -2929,30 +2929,23 @@ window.__ModuleLoader__.load({
 		function billedInputTokens(usage) {
 			return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
 		}
-		/**
-		* Approximate context occupancy, using the TUI's integer rounding and upper
-		* clamp. The numerator is `projectedTokens` — the provider sample carried
-		* forward over the surface's movement since — so compaction shows immediately
-		* instead of waiting for the next request to report usage; it falls back to the
-		* bare sample only for a log whose projection predates that field. Numerator
-		* and capacity remain independent last-wins projection fields, so this is a
-		* reference figure rather than an exact measurement of one request (see the
-		* token-meter README).
-		* @param pressure - the session's context-pressure projection value.
-		* @returns occupancy with its numerator and denominator, or null until both values are known.
-		*/
+		/** Last request input: provider-reported usage first, otherwise preflight count. Never predicts post-compaction input. */
 		function contextOccupancy(pressure) {
-			// xharness-context-measurement/v1
+            // xharness-context-measurement/v2: accuracy belongs to a reading, not the whole projection.
             const measured = Number.isFinite(pressure?.pressureTokens);
             const usedTokens = measured ? pressure.pressureTokens : pressure?.projectedTokens;
-            const exact = measured || ['exact_request', 'exact_tokenizer'].includes(pressure?.accuracy);
-            const label = measured ? '最近请求实际输入' : exact ? '本次请求输入计数' : '本次请求估算输入';
-			if (!Number.isFinite(usedTokens) || usedTokens < 0 || !Number.isFinite(pressure?.contextWindow) || pressure.contextWindow <= 0) return null;
-			return {
-				percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
-				usedTokens,
-				contextWindow: pressure.contextWindow, exact, label
-			};
+            const accuracy = measured ? (pressure?.pressureAccuracy ?? 'provider_reported')
+                : (pressure?.projectedAccuracy ?? pressure?.accuracy ?? 'estimated');
+            const exact = measured ? accuracy === 'provider_reported'
+                : ['exact_request', 'exact_tokenizer'].includes(accuracy);
+            const stale = pressure?.phase === 'history_changed';
+            const label = (measured ? '最近请求实际输入' : stale ? '最近请求输入计数' : '本次请求输入计数')
+                + (!measured && !exact ? '（估算）' : '') + (stale ? ' · 历史已变化' : '');
+            if (!Number.isFinite(usedTokens) || usedTokens < 0 || !Number.isFinite(pressure?.contextWindow) || pressure.contextWindow <= 0) return null;
+            return {
+                percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
+                usedTokens, contextWindow: pressure.contextWindow, exact, label, accuracy, stale
+            };
 		}
 		const StatsLine = (0, react.memo)(function StatsLine({ useSession, useProjection, t }) {
 			const settledNodes = useSession((s) => s.chat.legacy.nodes);
@@ -3314,7 +3307,13 @@ window.__ModuleLoader__.load({
 		function optionLabel(option) {
 			return option.value === FULL_ACCESS ? "Full access" : displayName(option.name);
 		}
-		function PermissionSelect({ value, locked, command, t }) {
+		function permissionFeedback(value) {
+            // xharness-permission-selection/v1
+            if (!value?.pending) return '';
+            const active = value.activeValue ?? '正在准备';
+            return '下一轮生效；当前轮：' + active + '。立即收紧请停止当前任务；已有后台任务需单独停止。';
+        }
+        function PermissionSelect({ value, locked, command, t }) {
 			const [pick, setPick] = (0, react.useState)(null);
 			const [open, setOpen] = (0, react.useState)(false);
 			const [confirmation, setConfirmation] = (0, react.useState)(null);
@@ -3376,7 +3375,7 @@ window.__ModuleLoader__.load({
 					type: "button",
 					className: PermissionSelect_module_css_default.trigger,
 					"aria-label": t("input.accessMode", { name: current === void 0 ? displayName(currentValue) : optionLabel(current) }),
-					title: current?.description,
+					title: pick !== null ? '正在保存权限选择；当前执行权限不变' : permissionFeedback(value) || current?.description,
 					disabled: locked || busy,
 					onClick: () => {
 						setOpen(!open);
@@ -3389,7 +3388,7 @@ window.__ModuleLoader__.load({
 						}),
 						(0, react_jsx_runtime.jsx)("span", {
 							className: PermissionSelect_module_css_default.triggerLabel,
-							children: current === void 0 ? displayName(currentValue) : optionLabel(current)
+							children: (current === void 0 ? displayName(currentValue) : optionLabel(current)) + (pick !== null ? ' · 保存中' : value.pending ? ' · 下一轮生效' : '')
 						}),
 						(0, react_jsx_runtime.jsx)("span", {
 							className: clsx(PermissionSelect_module_css_default.chevron, open && PermissionSelect_module_css_default.chevronOpen),
@@ -3886,7 +3885,7 @@ function XHarnessComposerAddMenu({ className, canAttach, canCommands, onAddFiles
 			};
 			const accessSelect = command === void 0 ? null : (0, react_jsx_runtime.jsx)(PermissionSelect, {
 				value: permissions,
-				locked: locked || running,
+				locked,
 				command,
 				t
 			}, sessionId);

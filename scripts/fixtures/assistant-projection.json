@@ -1,0 +1,14 @@
+{
+  "chunks": [
+    {"type":"text-delta","index":1,"text":"正文🙂"},
+    {"type":"reasoning-delta","index":0,"text":"思考α"},
+    {"type":"tool-call-delta","index":2,"id":"call-a","name":"read","argumentsDelta":"{}"},
+    {"type":"reasoning-delta","index":0,"text":"再想"},
+    {"type":"text-delta","index":1,"text":"done"},
+    {"type":"tool-call-delta","index":3,"id":"call-b","name":"read","argumentsDelta":"{}"}
+  ],
+  "content": [
+    {"type":"reasoning","text":"思考α再想"},
+    {"type":"text","text":"正文🙂done"}
+  ]
+}

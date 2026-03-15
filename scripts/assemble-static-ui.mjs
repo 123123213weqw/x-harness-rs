@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { patchQuestionContinuation } from './patch-question-continuation.mjs'
+import { patchPermissionSelection } from './patch-permission-selection.mjs'
 import { patchGoalRuntime } from './patch-goal-runtime.mjs'
 import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
 
@@ -73,20 +74,9 @@ function portableBytes(bytes) {
   )
 }
 
-// The upstream composer keeps the permission picker interactive while a turn
-// is running, but XHarness intentionally rejects permission changes during an
-// active turn so an already-created tool executor cannot disagree with the UI.
-// Without this small product patch the picker shows an optimistic value, the
-// Host rejects it, and the next reload appears to "forget" the user's choice.
-// Keep the patch signature exact so an upstream UI change fails the assembly
-// instead of silently reintroducing the misleading control state.
+// Keep the reproducible product patch identical to the checked-in bundle.
 function patchConversationClient(bytes) {
-  const source = bytes.toString('utf8')
-  const before = 'locked,\n\t\t\t\tcommand,'
-  if (source.split(before).length !== 2) {
-    throw new Error('upstream conversation permission lock signature changed')
-  }
-  return Buffer.from(source.replace(before, 'locked: locked || running,\n\t\t\t\tcommand,'))
+  return patchPermissionSelection(bytes)
 }
 
 const composed = appBoot.composeEntries(

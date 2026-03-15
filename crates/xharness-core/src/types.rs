@@ -94,7 +94,8 @@ pub enum ProviderEvent {
 pub struct TokenUsage {
     /// Uncached input tokens. Provider totals that include cached input are
     /// normalized by subtracting `cache_read_tokens` and
-    /// `cache_write_tokens`.
+    /// `cache_write_tokens`. Providers reporting disjoint uncached input retain
+    /// that input unchanged; adapters normalize their wire-specific semantics.
     #[serde(default)]
     pub input_tokens: u64,
     /// Visible, non-reasoning output tokens. Provider totals that include

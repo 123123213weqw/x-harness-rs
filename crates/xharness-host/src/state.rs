@@ -259,7 +259,10 @@ pub struct SessionRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub model: ModelSelection,
+    /// Durable desired selection; running executors keep their captured value.
     pub permission_preset: PermissionPreset,
+    #[serde(skip)]
+    pub(crate) active_permission: Option<PermissionPreset>,
     pub plan_active: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<GoalState>,
@@ -295,6 +298,27 @@ pub struct SessionRecord {
 }
 
 impl SessionRecord {
+    pub(crate) fn execution_permission(&self) -> PermissionPreset {
+        if self.running {
+            self.active_permission.unwrap_or(self.permission_preset)
+        } else {
+            self.permission_preset
+        }
+    }
+
+    pub(crate) fn permission_projection(&self) -> Value {
+        let mut value = self.permission_preset.select();
+        let active = self.running.then_some(self.active_permission).flatten();
+        value["activeValue"] = json!(active.map(PermissionPreset::as_str));
+        value["pending"] = json!(self.running && active != Some(self.permission_preset));
+        value["effectiveAt"] = json!(if self.running {
+            "next_turn"
+        } else {
+            "next_start"
+        });
+        value
+    }
+
     pub(crate) fn next_event_seq(&self) -> u64 {
         self.authoritative_seq.unwrap_or_else(|| {
             self.event_base_seq
@@ -370,7 +394,7 @@ impl SessionRecord {
             // `session/title` event retains source metadata separately.
             values.insert("title".to_owned(), json!(title));
         }
-        values.insert("permissions".to_owned(), self.permission_preset.select());
+        values.insert("permissions".to_owned(), self.permission_projection());
         values.insert(
             "plan".to_owned(),
             json!({"active": self.plan_active, "pending": false}),
