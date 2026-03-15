@@ -18,6 +18,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+mod diagnostics;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -376,6 +377,7 @@ impl DebugSink for MemoryDebugSink {
 /// Cloneable dependency injected into Host/Core/Provider/Tool layers.
 #[derive(Clone)]
 pub struct DebugRecorder {
+    observer: Option<Arc<diagnostics::Observer>>,
     sink: Arc<dyn DebugSink>,
     deferred_error: Arc<StdMutex<Option<DebugError>>>,
 }
@@ -383,6 +385,7 @@ pub struct DebugRecorder {
 impl DebugRecorder {
     pub fn disabled() -> Self {
         Self {
+            observer: None,
             sink: Arc::new(NoopDebugSink),
             deferred_error: Arc::new(StdMutex::new(None)),
         }
@@ -390,6 +393,7 @@ impl DebugRecorder {
 
     pub fn new(sink: Arc<dyn DebugSink>) -> Self {
         Self {
+            observer: None,
             sink,
             deferred_error: Arc::new(StdMutex::new(None)),
         }
@@ -417,7 +421,17 @@ impl DebugRecorder {
         self.sink.enabled()
     }
 
+    /// Payload-free, bounded observer. Does not enable expensive full payload
+    /// construction or change the configured full-trace sink.
+    pub fn with_runtime_diagnostics(mut self, root: PathBuf, control: PathBuf) -> Self {
+        self.observer = Some(Arc::new(diagnostics::Observer::start(root, control)));
+        self
+    }
+
     pub async fn record(&self, event: DebugEvent) -> Result<(), DebugError> {
+        if let Some(observer) = &self.observer {
+            observer.record(&event);
+        }
         self.sink.record(event).await
     }
 
@@ -426,6 +440,9 @@ impl DebugRecorder {
     /// boundaries: full tracing is best-effort, while the Host still performs
     /// an explicit [`Self::flush`] at shutdown to surface writer failures.
     pub async fn record_lossy(&self, event: DebugEvent) {
+        if let Some(observer) = &self.observer {
+            observer.record(&event);
+        }
         if self.enabled() {
             if let Err(error) = self.sink.record(event).await {
                 let mut deferred = self

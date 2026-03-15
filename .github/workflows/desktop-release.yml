@@ -141,6 +141,12 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Preserve Windows release symbols without changing optimization
+        if: matrix.platform == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          'CARGO_PROFILE_RELEASE_DEBUG=2' >> $env:GITHUB_ENV
+          'CARGO_PROFILE_RELEASE_STRIP=none' >> $env:GITHUB_ENV
       - name: Install native macOS ripgrep
         if: startsWith(matrix.platform, 'darwin-')
         run: bash scripts/install-portable-rg.sh
@@ -179,6 +185,16 @@ jobs:
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
         run: ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path 'dist/desktop-package/windows-x86_64/XHarness_${{ needs.plan.outputs.version }}_x64-setup.exe').Path
+      - name: Verify and archive exact EXE/PDB pairs separately from installers
+        if: matrix.platform == 'windows-x86_64'
+        run: python -B scripts/archive-desktop-symbols.py --target '${{ matrix.target }}' --output dist/desktop-symbols-windows
+      - uses: actions/upload-artifact@v7
+        if: matrix.platform == 'windows-x86_64'
+        with:
+          name: desktop-symbols-windows-${{ needs.plan.outputs.version }}
+          path: dist/desktop-symbols-windows.zip
+          if-no-files-found: error
+          retention-days: 90
       - uses: actions/upload-artifact@v7
         if: always() && matrix.platform == 'windows-x86_64'
         with:
@@ -218,6 +234,12 @@ jobs:
         env:
           XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
         run: python3 -B scripts/desktop-release-build.py aggregate --plan dist/desktop-candidate/plan.json --artifacts dist/matrix-artifacts --output dist/desktop-candidate/release
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-symbols-windows-${{ needs.plan.outputs.version }}
+          path: dist/symbols-archive
+      - name: Retain verified symbols as a separate immutable release asset
+        run: python3 -B scripts/attach-desktop-symbols.py --candidate dist/desktop-candidate --symbols dist/symbols-archive/desktop-symbols-windows.zip
       - name: Stage one complete draft, never latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
