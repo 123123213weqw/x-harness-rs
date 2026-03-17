@@ -1,6 +1,20 @@
 name: Runtime diagnostics acceptance
 on:
   workflow_dispatch:
+    inputs:
+      desktop_bundle:
+        description: Build a local Windows diagnostic installer (never publish a Release)
+        type: boolean
+        default: false
+      desktop_version:
+        description: Preserve the installed stable version
+        type: string
+      updater_endpoint:
+        description: Existing HTTPS updater endpoint (public, not a secret)
+        type: string
+      updater_public_key:
+        description: Existing base64 updater PUBLIC key; never supply a private key
+        type: string
   pull_request:
     paths:
       - 'crates/xharness-diagnostics/**'
@@ -14,6 +28,7 @@ permissions:
   contents: read
 jobs:
   native:
+    if: ${{ !inputs.desktop_bundle }}
     strategy:
       fail-fast: false
       matrix:
@@ -50,6 +65,7 @@ jobs:
             target/release/xharness_host.pdb
           if-no-files-found: error
           retention-days: 30
+
       - name: Exercise the reasoning projection crash path with synthetic data
         run: cargo test --locked --release -p xharness-host offline_reasoning_projection_stress -- --ignored --nocapture
       - name: Validate isolated journal replay with a synthetic fixture only
@@ -77,5 +93,83 @@ jobs:
         with:
           name: windows-offline-projection-test
           path: dist/offline-projection-test/
+          if-no-files-found: error
+          retention-days: 30
+
+  local-desktop:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.desktop_bundle }}
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_PROFILE_RELEASE_DEBUG: '2'
+      CARGO_PROFILE_RELEASE_STRIP: none
+      XHARNESS_UPDATER_ENDPOINT: ${{ inputs.updater_endpoint }}
+      XHARNESS_UPDATER_PUBKEY: ${{ inputs.updater_public_key }}
+      DIAGNOSTIC_VERSION: ${{ inputs.desktop_version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Validate public channel inputs and preserve installed version
+        run: |
+          python -B scripts/prepare-local-diagnostics.py
+          if ($LASTEXITCODE) { throw 'Diagnostic channel validation failed' }
+      - name: Install pinned ripgrep
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'rg.zip'
+          Invoke-WebRequest 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip' -OutFile $archive
+          if ((Get-FileHash $archive).Hash -ne '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5') { throw 'ripgrep checksum mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath "$env:RUNNER_TEMP/rg"
+          "XHARNESS_RG=$env:RUNNER_TEMP/rg/ripgrep-15.2.0-x86_64-pc-windows-msvc/rg.exe" >> $env:GITHUB_ENV
+      - name: Build and stage exact symbol-bearing Host and sandbox
+        run: |
+          cargo test --locked -p xharness-diagnostics -p xharness-debug
+          if ($LASTEXITCODE) { throw 'Diagnostic tests failed' }
+          cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Host build failed' }
+          python -B scripts/desktop-release-build.py stage --platform windows-x86_64 --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Sidecar staging failed' }
+          python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
+          if ($LASTEXITCODE) { throw 'Sandbox staging failed' }
+      - name: Verify desktop persistence and build local installer
+        run: |
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          if ($LASTEXITCODE) { throw 'Desktop tests failed' }
+          node scripts/test-runtime-diagnostics.mjs
+          if ($LASTEXITCODE) { throw 'Desktop UI tests failed' }
+      - uses: tauri-apps/tauri-action@v0.6.2
+        with:
+          projectPath: apps/desktop
+          args: --target x86_64-pc-windows-msvc --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Archive matching symbols and run native installer checks
+        run: |
+          python -B scripts/archive-desktop-symbols.py --target x86_64-pc-windows-msvc --output dist/local-diagnostic-symbols
+          if ($LASTEXITCODE) { throw 'Symbol identity verification failed' }
+          $installer = @(Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe)
+          if ($installer.Count -ne 1) { throw 'Expected one installer' }
+          ./scripts/test-windows-install-ownership.ps1 -Installer $installer[0].FullName
+          if ($LASTEXITCODE) { throw 'Native installer acceptance failed' }
+          $hash = (Get-FileHash -LiteralPath $installer[0].FullName).Hash
+          "$hash  $($installer[0].Name)" | Set-Content "$($installer[0].FullName).sha256" -Encoding ascii
+      - uses: actions/upload-artifact@v7
+        with:
+          name: local-diagnostic-desktop
+          path: |
+            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sha256
+            dist/local-diagnostic-symbols.zip
+            dist/local-diagnostic-build.json
           if-no-files-found: error
           retention-days: 30
