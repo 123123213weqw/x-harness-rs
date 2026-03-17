@@ -10,7 +10,9 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use xharness_diagnostics::{now_ms, Activity, Phase, Record, Recorder, DEEP_SECONDS};
+use xharness_diagnostics::{
+    now_ms, Activity, Phase, Record, Recorder, DEEP_SECONDS, PERSISTENT_DEEP,
+};
 
 /// The producer never performs I/O and never waits for the writer. Queue
 /// overflow is counted, not allowed to slow a tool/model stream.
@@ -34,6 +36,7 @@ impl Observer {
             let mut count = 0u64;
             let mut last = Record::new(Phase::Activity);
             let mut deep_records = 0;
+            let mut deep_window = Instant::now();
             #[cfg(windows)]
             let mut next_heap_check = Instant::now();
             loop {
@@ -49,6 +52,15 @@ impl Observer {
                         .unwrap_or(0);
                     if lease.update(value) {
                         deep_records = 0;
+                        deep_window = Instant::now();
+                    }
+                    if lease.last == PERSISTENT_DEEP
+                        && deep_window.elapsed() >= Duration::from_secs(DEEP_SECONDS)
+                    {
+                        // Bounded per-window allowance, not a lifetime cap that
+                        // silently stops recording during a long session.
+                        deep_records = 0;
+                        deep_window = Instant::now();
                     }
                     next_control = Instant::now() + Duration::from_secs(2);
                     #[cfg(windows)]
@@ -72,7 +84,8 @@ impl Observer {
                     Ok(record) => {
                         count += 1;
                         if lease.active() && deep_records < 4096 {
-                            // At most 4096 fixed-schema records per consent lease;
+                            // At most 4096 fixed-schema records per timed lease
+                            // or 15-minute persistent window;
                             // no raw payload, stderr, prompt or tool command.
                             if recorder.append(&record).is_err() {
                                 let _ = fs::write(root.join("write-failed"), b"1");
@@ -146,8 +159,10 @@ impl ControlLease {
         true
     }
     fn active(&self) -> bool {
-        self.deadline
-            .is_some_and(|deadline| Instant::now() < deadline)
+        self.last == PERSISTENT_DEEP
+            || self
+                .deadline
+                .is_some_and(|deadline| Instant::now() < deadline)
     }
 }
 
@@ -170,5 +185,20 @@ mod tests {
     fn classification_never_copies_arbitrary_text() {
         let serialized = serde_json::to_string(&classify("secret-key", "private command")).unwrap();
         assert_eq!(serialized, "\"other\"");
+    }
+    #[test]
+    fn persistent_control_does_not_expire_and_zero_disables_it() {
+        let mut lease = ControlLease::default();
+        assert!(lease.update(PERSISTENT_DEEP));
+        lease.deadline = Some(Instant::now() - Duration::from_secs(1));
+        assert!(lease.active());
+        assert!(!lease.update(PERSISTENT_DEEP));
+        assert!(lease.active());
+        assert!(lease.update(0));
+        assert!(!lease.active());
+        lease.update(now_ms() + 1000);
+        assert!(lease.active());
+        lease.deadline = Some(Instant::now() - Duration::from_secs(1));
+        assert!(!lease.active());
     }
 }
