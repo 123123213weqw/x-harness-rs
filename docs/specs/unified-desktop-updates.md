@@ -2,15 +2,16 @@
 
 > 2026-09-08。本规范区分“代码可用”“CI 验收通过”“正式更新已发布”。
 > 三者不能互相替代。验收结束时 Windows 原通道为 friends-v0.2.6；Mac/Linux 的正式
-> 发布必须满足所选策略的门禁。默认 `all` 缺少 Apple 凭据时明确阻断；
+> 发布必须满足所选策略的门禁。显式 `all` 缺少 Apple 凭据时明确阻断；
 > 只有显式 `all-macos-preview` 允许未公证 Mac 内测包，不会自动降级。
 
-## 2026-09-09：显式 Windows/Linux 发布范围
+## 2026-09-09 / 2026-09-13：显式 Windows/Linux 发布范围
 
 维护者可在 `Desktop Release` 的 master 手动运行中选择 `release_scope=windows-linux`。
 这次正式发布只包含 Windows x64 NSIS 与 Linux x64 AppImage，不构建、不发布、不修改
-macOS 固定测试通道。默认 `all` 和标签自动触发仍要求四个平台及 Apple 正式凭据；
-不是自动降级。未公证 Mac 分发必须使用下述显式内测策略。
+macOS 固定测试通道。显式 `all` 仍要求四个平台及 Apple 正式凭据，不会自动降级；
+标签触发无法选择范围，因此缺少 Apple 凭据的仓库按 `windows-linux` 解析（见「操作」）。
+未公证 Mac 分发必须使用下述显式内测策略。
 
 范围写入不可变 plan 和每份平台 receipt。构建矩阵、包清单、签名检查和 Promote 证据
 均从同一个计划推导，必须恰好覆盖选定平台。Unix candidate 验收先验证真实构建来源、
@@ -18,16 +19,20 @@ macOS 固定测试通道。默认 `all` 和标签自动触发仍要求四个平�
 rehearsal 继续跑 Linux 和两种 Mac 架构。
 
 稳定源平台只能增加，不能减少：如果未来 live latest.json 已包含 Mac，windows-linux
-发布将被 Promote 拒绝，必须恢复 all 或先设计独立平台通道，不能静默删除 Mac。
+发布将被 Promote 拒绝，必须恢复 all 或先设计独立平台通道，不能静默删除 Mac。标签默认取 `windows-linux` 依赖这层保护：live 清单一旦包含 Mac，该默认范围会在
+Promote 处被拒绝，而不是静默删除 Mac。
 旧无 release_scope 的计划按 all 验证，旧客户端协议、版本号格式、公钥和标识不变。
 
-操作：创建已通过精确 master CI 的 desktop-vX.Y.Z 标签，再从 master 显式 dispatch
-Desktop Release（release_tag=该标签，release_scope=windows-linux）。标签触发的 all
-运行在缺 Apple 凭据时会在构建前拒绝；它不能作为候选或发布证据。记录成功的 scoped
-构建 Run ID，继续原来的 Windows + Unix(candidate) 验收和 Promote，不能跳过任一项。
+操作：创建已通过精确 master CI 的 desktop-vX.Y.Z 标签。范围按 `inputs.release_scope`
+→ 仓库变量 `XHARNESS_DESKTOP_TAG_RELEASE_SCOPE` → `windows-linux` 依次解析：标签推送
+没有输入，因此缺 Apple 凭据时不再产生必然失败的 all 运行，标签本身即可构建出候选；
+也可继续从 master 显式 dispatch Desktop Release（release_tag=该标签，
+release_scope=windows-linux），两者产物一致。显式 `all` 在缺 Apple 凭据时仍在构建前
+拒绝，不能作为候选或发布证据。记录成功的 scoped 构建 Run ID，继续原来的
+Windows + Unix(candidate) 验收和 Promote，不能跳过任一项。
 首次 Linux 用户仍需安装新的 AppImage 基础包；macOS 用户保持原样。
 
-以下“四个平台”描述是默认 all 范围的要求；windows-linux 对应上述严格两平台集合。
+以下“四个平台”描述是显式 all 范围的要求；windows-linux 对应上述严格两平台集合。
 
 ### 未公证 Mac 内测策略（小范围分发）
 
@@ -47,12 +52,12 @@ Desktop Release（release_tag=该标签，release_scope=windows-linux）。标�
   清单添加 `macos_distribution: ad-hoc-unnotarized-preview`，更新说明必须保留未公证提示。
 - 当前未接入此源的 Mac 需要自愿首次安装。若公开清单已有 Mac 且无上述内测标记，
   按已公证通道处理，Promote 拒绝降级；以后可从内测改为公证，但不可再静默改回内测。
-- 默认 `all` 的 Developer ID/Gatekeeper/公证断言仍完整保留。内测验收要求
+- 显式 `all` 的 Developer ID/Gatekeeper/公证断言仍完整保留。内测验收要求
   `codesignVerified`、`adHocSignatureVerified` 及全部原生升级/重启/数据保留断言，
   不会将未执行的 Gatekeeper、公证校验伪装为通过。两个 Mac 架构各连续测试三轮。
 
 发布顺序沿用第 7 节，在 master 手动运行 Desktop Release 时显式选择本策略。
-标签自动触发仍默认 `all`，不会因 Apple 凭据缺失自动选择内测。仍必须使用新版本号，
+标签触发按 `windows-linux` 解析，既不会选 `all`，也不会因 Apple 凭据缺失自动选择内测。仍必须使用新版本号，
 通过全套 CI、候选构建和原生验收后才 Promote；不覆盖已经发布的 0.2.18。
 
 ## 1. 支持范围与复用边界
@@ -183,7 +188,7 @@ Linux 未配置更新器的旧包同样需要一次新基础包安装。AppImage
 - `APPLE_SIGNING_IDENTITY`：匹配证书的 Developer ID Application 身份；
 - `APPLE_ID`、`APPLE_PASSWORD`（App-specific password）、`APPLE_TEAM_ID`：公证凭据。
 
-通过 GitHub Actions Secrets 配置，不能在对话中粘贴私钥。默认 `all` 证书和公证失败时
+通过 GitHub Actions Secrets 配置，不能在对话中粘贴私钥。显式 `all` 证书和公证失败时
 构建失败，不会自动切换到 `APPLE_SIGNING_IDENTITY=-`。只有显式内测策略的 Mac 构建
 使用该临时签名身份，并从打包步骤排除 Apple 凭据；正式 updater 密钥仍不可缺少。
 独立临时 updater 密钥只允许隔离演练，其产物不能发正式源。
@@ -225,8 +230,8 @@ Tauri 更新包签名不等于 Apple 公证，也不等于 Windows Authenticode�
    PATCH 网络超时则记录“发布状态未知”，保留 Release ID 与请求意图，先人工核实，
    不自动重试发布；这两种异常都有独立可下载证据，不删除已经发布的包。
 
-默认 `all` 无 Apple 凭据时第 2 步应阻断，这是设计行为。维护者须明确选择
-`windows-linux` 或 `all-macos-preview` 才使用其他策略。无 Secret 的 CI `rehearsal` 构件只能作
+显式 `all` 无 Apple 凭据时第 2 步应阻断，这是设计行为。标签触发与手动运行默认
+取 `windows-linux`；须显式选择 `all` 或 `all-macos-preview` 才使用其他策略。无 Secret 的 CI `rehearsal` 构件只能作
 测试证据，不提供给用户当作正式基础包，也不能拿其 Run ID 通过正式发布门禁。
 
 验收控制工作流从可信 master 启动，再显式 checkout 候选构建 SHA；发布期间主干可继续

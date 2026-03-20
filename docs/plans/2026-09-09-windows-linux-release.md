@@ -19,6 +19,7 @@
 
 - Modify `scripts/desktop-release-build.py`, `.github/workflows/desktop-release.yml`, `.github/workflows/desktop-unix-update-acceptance.yml`.
 - Release input selects scope; tag pushes retain `all`. Candidate acceptance derives its matrix from the authenticated immutable candidate, never a separately supplied platform list.
+- Superseded 2026-09-13 (docs/specs/unified-desktop-updates.md): tag pushes resolve `inputs.release_scope` -> `XHARNESS_DESKTOP_TAG_RELEASE_SCOPE` -> `windows-linux`, so a tag no longer starts a guaranteed-failing full-scope run. The `all` signing gate and the no-platform-regression rule are unchanged.
 - Selected platforms retain existing signing gates. Rehearsal still tests all Unix targets without production secrets.
 - Run `python -B scripts/test-desktop-release-build.py`, `python -B scripts/test-unix-update-acceptance.py` and all release contract tests; commit.
 
