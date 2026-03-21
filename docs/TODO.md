@@ -932,7 +932,7 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 
 - [x] Interaction/Session：Deferred 非答案结果、独立持久事件、一次性等待解除、保留迟答问题。
 - [x] Host：60 秒持久截止时间、取消不唤醒、固定 RPC 身份的迟答 Steering outbox。
-- [x] Tool Guard：只读探索白名单、Full Access 不绕过、同轮迟答不提前开放写入。
+- [x] 原 Tool Guard 白名单已在 2026-09-13 移除：待答不改变工具权限，模型判断答案依赖；原审批与沙箱仍生效。
 - [x] UI：同一问答卡片提示超时可继续、保持当前草稿、无自动选择。
 - [x] 远程 333 项回归、Clippy、Chromium/WebKit；真实 DeepSeek 60.022 秒解除等待 → 只读侦查 → 重启 → 接收迟答 → 正常继续。
 - [x] CI macOS 构建并部署本机 3082 Web 后端（42e72b9）；真实 DeepSeek 验收 60.039 秒解除等待，重启后迟答接回；会话与配置已备份保留。
@@ -960,3 +960,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] 部署配置与可编辑设置接入 usage 语义覆盖，未知值拒绝；流内固定口径，旧历史不改写。
 - [x] V100 155 项回归与 Clippy 通过；旧解析函数在新增矩阵测试失败、修复后通过，SSE 单字节分片及 HTTP/Host 配置接线通过。
 - [ ] 跨平台 CI、推送发布及客户端更新；旧历史 usage 不自动回填。
+
+## 2026-09-13 问答不改变工具权限
+
+- [x] 删除 ExplorationGuard 和生产接线，保留 60 秒 deferred、持久化与迟答 Steering。
+- [x] 同步工具描述、deferred notice、问答卡片文案及可重入前端补丁。
+- [x] WZU_Server 94 项 Rust 回归通过（另 1 个子进程辅助测试按设计 ignored）：待答继续工具执行、原审批不被绕过、回答竞态与恢复；前端补丁一致性及 Chromium/WebKit 问答交互回归通过。
+- [ ] CI 发布与已安装软件更新（本次源码修改不代表已部署）。
