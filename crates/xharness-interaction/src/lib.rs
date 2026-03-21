@@ -538,7 +538,7 @@ impl AskUserQuestionTool {
                     .map_err(|error| ToolHandlerError::new(error.to_string()))?;
                 if resolution.status == ResolutionStatus::Deferred {
                     payload["interactionId"] = json!(invocation.interaction_id);
-                    payload["notice"] = json!("The user has not answered after 60 seconds. The question remains pending; no answer or permission is implied. Only perform independent read-only investigation, do not assume an answer. If no independent work remains, finish this turn and wait. Do not repeat the question or poll for an answer.");
+                    payload["notice"] = json!("The user has not answered after 60 seconds. The question remains pending; no answer or permission is implied. Continue work that does not depend on the unanswered question. Do not assume the user's choice or authorization. Existing tool permissions and approvals still apply. If no independent work remains, finish this turn and wait. Do not repeat the question or poll for an answer.");
                 }
                 let content = serde_json::to_string(&payload)
                     .map_err(|error| ToolHandlerError::new(error.to_string()))?;
@@ -566,7 +566,7 @@ impl AskUserQuestionTool {
 pub fn tool_definition() -> ToolDefinition {
     ToolDefinition::new(
         ASK_USER_QUESTION_TOOL,
-        "Ask the user only when a user decision or unavailable fact blocks safe progress. Inspect available context and tools first. Ask 1-3 concise questions. For a boolean or finite decision, provide at most 3 choices; allowCustom lets the user provide or qualify an answer. Use destination=context for short-lived decisions and agent_markdown only for an explicitly durable goal. After 60 seconds without an answer this may return status=deferred: the question remains pending. Only continue independent read-only investigation; never infer consent. If nothing independent remains, finish and wait. Call this tool alone, never in a batch with side-effecting tools.",
+        "Ask the user only when a user decision or unavailable fact blocks safe progress. Inspect available context and tools first. Ask 1-3 concise questions. For a boolean or finite decision, provide at most 3 choices; allowCustom lets the user provide or qualify an answer. Use destination=context for short-lived decisions and agent_markdown only for an explicitly durable goal. After 60 seconds without an answer this may return status=deferred: the question remains pending. Continue work that does not depend on the unanswered question; never assume the user's choice or authorization. Asking a question does not change existing tool permissions or approval requirements. If nothing independent remains, finish and wait. Call this tool alone, never in a batch with side-effecting tools.",
         json!({
             "type": "object",
             "properties": {
@@ -1032,6 +1032,63 @@ mod tests {
                 .resolve(ResolveAction::Continue, Vec::new())
                 .map_err(|error| QuestionProviderError::new(error.to_string()))
         }
+    }
+
+    struct DeferredProvider;
+    #[async_trait]
+    impl UserQuestionProvider for DeferredProvider {
+        async fn ask(
+            &self,
+            invocation: QuestionInvocation,
+            _cancellation: CancellationToken,
+        ) -> Result<QuestionResolution, QuestionProviderError> {
+            Ok(QuestionResolution {
+                status: ResolutionStatus::Deferred,
+                action: ResolveAction::Continue,
+                answers: vec![],
+                unanswered_question_ids: invocation
+                    .request
+                    .questions
+                    .iter()
+                    .map(|q| q.id.clone())
+                    .collect(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn deferred_tool_guidance_preserves_independent_work_and_no_consent() {
+        let registry = Arc::new(ToolRegistry::new());
+        AskUserQuestionTool::new(Arc::new(DeferredProvider))
+            .register(&registry)
+            .await
+            .unwrap();
+        let result = ToolExecutor::new(registry)
+            .execute(
+                ToolRequest::new(
+                    ASK_USER_QUESTION_TOOL,
+                    serde_json::to_string(&AskUserQuestionRequest {
+                        questions: vec![question("target", AnswerDestination::Context)],
+                    })
+                    .unwrap(),
+                )
+                .with_execution_id("deferred-execution")
+                .unwrap(),
+            )
+            .await;
+        assert!(result.is_ok());
+        let payload: serde_json::Value =
+            serde_json::from_str(&result.output.unwrap().content).unwrap();
+        assert_eq!(payload["status"], "deferred");
+        assert_eq!(payload["answers"], json!([]));
+        assert_eq!(payload["unansweredQuestionIds"], json!(["target"]));
+        assert_eq!(payload["interactionId"], "question:deferred-execution");
+        let notice = payload["notice"].as_str().unwrap();
+        assert!(notice.contains("does not depend"));
+        assert!(notice.contains("no answer or permission is implied"));
+        assert!(notice.contains("Existing tool permissions and approvals still apply"));
+        assert!(!notice.contains("read-only"));
+        assert!(!tool_definition().description.contains("read-only"));
     }
 
     #[tokio::test]
