@@ -13,3 +13,12 @@ for(const name of ['@deepseek-ai/dsh-client-connection','@deepseek-ai/dsh-client
  assert.ok(readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8').includes(entry.url));
 }
 console.log('Question patch syntax, idempotence, fail-closed anchors and shipped hashes passed');
+
+const questionName='@deepseek-ai/dsh-client-ui-user-questions';
+const updated=readFileSync(new URL('../ui/dist/plugins/'+questionName+'/client.js',import.meta.url),'utf8');
+const current='等待回答 · 可继续不依赖答案的工作；未回答不代表同意';
+const legacy='等待回答 · 仅允许独立的只读探索；未回答不代表同意';
+assert.ok(updated.includes(current));
+assert.ok(!updated.includes(legacy));
+assert.equal(patchQuestionContinuation(questionName,Buffer.from(updated.replace(current,legacy))).toString(),updated);
+console.log('Deferred question guidance migration passed');

@@ -26,6 +26,14 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `ISSUE-59` 实际/请求前读数独立精度、历史变化提示、前后端 replay 与文档统一。见 [计量规范](specs/context-accounting.md)。
 - [ ] `ISSUE-57-61-RELEASE` 推送、GitHub 跨平台 CI、合并与软件安装更新；源代码验收不代表已安装版本已生效。
 
+## 前端闲置会话历史缓存（2026-09-13）
+
+- [x] `UI-CACHE-01` 保留 Session/scope 的历史 LRU，默认 6 个闲置会话 / 64 MiB 估算历史容量；保护当前/运行/待处理任务。见 [规范](specs/session-history-cache.md)。
+- [x] `UI-CACHE-02` 清理原始历史与派生视图，按原范围分页恢复；错误可重试、旧请求 generation 防护、cold 重连不复活缓存。
+- [x] `UI-CACHE-03` 实际打包 Runtime 27 项断言、V100 Chromium 三次内存对比、本机 WebKit 测试，并接入双引擎 CI。见 [实验记录](reports/session-history-cache-20260913.md)。
+- [ ] `UI-CACHE-04` 推送并通过 GitHub CI 后合并发布；已安装 App 的真实多会话内存对照验收。
+- [ ] `UI-CACHE-05` 独立评估共享 projection/图片/插件缓存；按锚点区间恢复优化，避免很长历史重新打开时逐页回补。
+
 ## 内存与请求审计（2026-09-10）
 
 规范见 [请求审计与内存边界](specs/request-audit-storage.md)。
@@ -932,7 +940,7 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 
 - [x] Interaction/Session：Deferred 非答案结果、独立持久事件、一次性等待解除、保留迟答问题。
 - [x] Host：60 秒持久截止时间、取消不唤醒、固定 RPC 身份的迟答 Steering outbox。
-- [x] Tool Guard：只读探索白名单、Full Access 不绕过、同轮迟答不提前开放写入。
+- [x] 原 Tool Guard 白名单已在 2026-09-13 移除：待答不改变工具权限，模型判断答案依赖；原审批与沙箱仍生效。
 - [x] UI：同一问答卡片提示超时可继续、保持当前草稿、无自动选择。
 - [x] 远程 333 项回归、Clippy、Chromium/WebKit；真实 DeepSeek 60.022 秒解除等待 → 只读侦查 → 重启 → 接收迟答 → 正常继续。
 - [x] CI macOS 构建并部署本机 3082 Web 后端（42e72b9）；真实 DeepSeek 验收 60.039 秒解除等待，重启后迟答接回；会话与配置已备份保留。
@@ -960,3 +968,27 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] 部署配置与可编辑设置接入 usage 语义覆盖，未知值拒绝；流内固定口径，旧历史不改写。
 - [x] V100 155 项回归与 Clippy 通过；旧解析函数在新增矩阵测试失败、修复后通过，SSE 单字节分片及 HTTP/Host 配置接线通过。
 - [ ] 跨平台 CI、推送发布及客户端更新；旧历史 usage 不自动回填。
+
+## 2026-09-13 问答不改变工具权限
+
+- [x] 删除 ExplorationGuard 和生产接线，保留 60 秒 deferred、持久化与迟答 Steering。
+- [x] 同步工具描述、deferred notice、问答卡片文案及可重入前端补丁。
+- [x] WZU_Server 94 项 Rust 回归通过（另 1 个子进程辅助测试按设计 ignored）：待答继续工具执行、原审批不被绕过、回答竞态与恢复；前端补丁一致性及 Chromium/WebKit 问答交互回归通过。
+- [ ] CI 发布与已安装软件更新（本次源码修改不代表已部署）。
+
+## 2026-09-13 历史消息 DOM 窗口化
+
+- [x] 实测高度占位、前后各一屏缓冲、共享观察器、按帧更新、交互行和活动后缀保留。
+- [x] 接入真实 ChatView 和静态 UI 重建流程，保留原锚点与滚动逻辑。
+- [x] 服务器 Chromium 三次 DOM/JS 堆 A/B、真实 ChatView 滚动回归；本机 WebKit 通过，详见 `reports/transcript-windowing-20260913.md`。
+- [ ] Linux WebKit 本地运行（浏览器下载失败/缓慢）；CI 已接入两个引擎，尚待远端 CI 验证。
+- [ ] macOS 桌面真实长对话 footprint 对照与首次加载峰值优化。
+- [ ] 跨组件轻量交互状态外置后，进一步释放大量已交互的历史行。
+- [ ] 数据层全文检索替代依赖所有消息 DOM 的原生查找。
+- [ ] CI 通过后才允许合并；尚未发布或替换生产软件。
+
+## 2026-09-13 流式数学公式
+
+- [x] `UI-MATH-01` 流式/最终解析器共享数学扩展，未闭合块公式保留原文，保留 frozen/tail 增量缓存。见 [规范](specs/streaming-math.md)。
+- [x] `UI-MATH-02` 打包入口补丁、内容哈希、重建接线，真实 MarkdownText 在 WebKit / V100 Chromium 上 18 组检查通过。
+- [ ] `UI-MATH-03` GitHub CI 通过后合并发布、更新软件并在真实流式回答验收。

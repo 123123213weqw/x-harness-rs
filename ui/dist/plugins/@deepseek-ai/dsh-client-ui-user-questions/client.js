@@ -452,7 +452,7 @@ window.__ModuleLoader__.load({
 						className: QuestionComposer_module_css_default.header,
 						children: [(0, react_jsx_runtime.jsxs)("div", {
 							className: QuestionComposer_module_css_default.headingBlock,
-							children: [pending.deferred && react_jsx_runtime.jsx("div",{role:"status",children:minimized ? "待回答 · 不阻塞当前对话" : "等待回答 · 仅允许独立的只读探索；未回答不代表同意"}),question.header !== void 0 && (0, react_jsx_runtime.jsx)("div", {
+							children: [pending.deferred && react_jsx_runtime.jsx("div",{role:"status",children:minimized ? "待回答 · 不阻塞当前对话" : "等待回答 · 可继续不依赖答案的工作；未回答不代表同意"}),question.header !== void 0 && (0, react_jsx_runtime.jsx)("div", {
 								className: QuestionComposer_module_css_default.eyebrow,
 								children: question.header
 							}), (0, react_jsx_runtime.jsx)("h2", {
