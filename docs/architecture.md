@@ -170,7 +170,7 @@ web_search web_fetch
 交互层另通过同一个正式 Tool Registry 注册第 12 个模型可见工具 `ask_user_question`。它使用
 `Exclusive + External Settlement + Standalone Batch`，由 Session/Host/Web 持久链路结算，不属于
 Platform Coding Bundle，也不会绕过统一 Schema、Guard、Lifecycle 和审计。
-60 秒软等待通过 `question/deferred` 解除工具阻塞而不回答问题；原 Guard 限制当前轮只读探索，
+60 秒软等待通过 `question/deferred` 解除工具阻塞而不回答问题；不再注入问答专用工具白名单，模型可继续不依赖答案的工作；原权限和审批不变，
 迟到答案用固定 RPC 身份进入 Steering，恢复过程复用已有 Session 扫描，详见 `specs/question-continuation.md`。
 
 Schedule 层同样复用正式 Registry，额外注册 `schedule_create/schedule_list/schedule_delete`。

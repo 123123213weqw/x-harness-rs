@@ -264,11 +264,9 @@ impl SessionToolFactory for NativeToolFactory {
             .await
             .map_err(|error| error.to_string())?;
         }
-        let mut executor = ToolExecutor::new(registry).with_debug(self.debug.clone());
-        if let Some(questions) = &self.questions {
-            executor = executor.with_guards(vec![questions.exploration_guard(session_id)]);
-        }
-        Ok(executor)
+        // Questions collect information; they do not change tool permissions.
+        // Existing platform policy and approval requirements remain authoritative.
+        Ok(ToolExecutor::new(registry).with_debug(self.debug.clone()))
     }
 
     async fn shutdown(&self) -> Result<(), String> {
@@ -647,6 +645,130 @@ mod tests {
         assert!(matches!(
             spec.batch_policy,
             xharness_tools::ToolBatchPolicy::Standalone
+        ));
+    }
+
+    #[tokio::test]
+    async fn pending_question_does_not_restrict_tools_or_bypass_approval() {
+        use serde_json::json;
+        use xharness_session::{EventData, Message, Revision, SessionHeader, ToolCall};
+        use xharness_tools::{ToolDefinition, ToolFailureKind, ToolOutput, ToolRequest, ToolSpec};
+        let workspace = TempWorkspace::new();
+        let store: Arc<dyn xharness_session::Store> =
+            Arc::new(xharness_session::MemorySessionStore::default());
+        let id = "pending-question-permissions";
+        store.create(SessionHeader::new(id)).await.unwrap();
+        let args = json!({"questions":[{"id":"target","header":"Deploy","question":"Deploy where?","options":[],"allowCustom":true,"destination":"context"}]});
+        let invocation = QuestionInvocation::new(
+            "question-call",
+            xharness_interaction::AskUserQuestionRequest::parse(&args.to_string()).unwrap(),
+        );
+        let call = ToolCall {
+            id: "question-call".into(),
+            provider_call_id: None,
+            index: 0,
+            name: xharness_interaction::ASK_USER_QUESTION_TOOL.into(),
+            arguments_json: args.to_string(),
+        };
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls.push(call.clone());
+        store
+            .append(
+                id,
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("build first, ask deployment target"),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call,
+                    }
+                    .into(),
+                    EventData::QuestionRequested {
+                        invocation: invocation.clone(),
+                    }
+                    .into(),
+                    EventData::QuestionDeferred {
+                        interaction_id: invocation.interaction_id,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        store.flush(id).await.unwrap();
+        let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopTestSink));
+        let factory = NativeToolFactory::new_with_questions(
+            WebRuntime::default(),
+            DebugRecorder::disabled(),
+            hub,
+        );
+        for permission in [
+            PermissionPreset::WorkspaceWrite,
+            PermissionPreset::DangerFullAccess,
+        ] {
+            let executor = factory
+                .executor(id, &workspace.0.to_string_lossy(), permission)
+                .await
+                .unwrap();
+            // Use harmless probes for tool categories. This checks production
+            // middleware without depending on OS shell/network availability.
+            for name in [
+                NATIVE_SHELL_TOOL,
+                "write",
+                "web_fetch",
+                "job_create",
+                "agent",
+            ] {
+                let name = format!("probe_{name}");
+                executor
+                    .registry()
+                    .register(ToolSpec::new(
+                        ToolDefinition::new(
+                            &name,
+                            "independent work probe",
+                            json!({"type":"object"}),
+                        ),
+                        |_| async {
+                            Ok(ToolOutput {
+                                content: "independent work done".into(),
+                                metadata: None,
+                            })
+                        },
+                    ))
+                    .await
+                    .unwrap();
+                let result = executor.execute(ToolRequest::new(&name, "{}")).await;
+                assert!(
+                    result.is_ok(),
+                    "{permission:?} {name}: {:?}",
+                    result.failure
+                );
+                let protected = executor
+                    .execute(ToolRequest::new(&name, "{}").requiring_approval(true))
+                    .await;
+                assert_eq!(
+                    protected.failure.unwrap().kind,
+                    ToolFailureKind::ApprovalUnavailable,
+                    "a deferred question must not grant permission"
+                );
+            }
+        }
+        assert!(xharness_session::has_unanswered_deferred_question(
+            store.load(id).await.unwrap().unwrap().events()
         ));
     }
 
