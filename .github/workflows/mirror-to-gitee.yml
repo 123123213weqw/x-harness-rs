@@ -14,9 +14,17 @@ on:
   push:
     branches: ['**']
     tags: ['**']
+  # Deleting a tag or branch emits no `push` event, so a ref removed upstream would stay
+  # on Gitee until the safety net ran. GitHub also creates no event when more than three
+  # tags are deleted at once, and a scheduled slot can be dropped under load, so the
+  # schedules below remain the last resort.
+  delete:
   schedule:
     # Safety net for missed push events and upstream ref deletions.
     - cron: '17 */6 * * *'
+    # Second offset slot: one dropped slot would otherwise leave a six-hour hole with
+    # nothing able to recover a missed or deleted ref.
+    - cron: '43 2,8,14,20 * * *'
   workflow_dispatch:
 
 permissions:
