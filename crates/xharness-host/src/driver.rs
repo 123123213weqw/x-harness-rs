@@ -19,6 +19,10 @@ use crate::{
     BasicHost,
 };
 
+#[cfg(test)]
+#[path = "projection_publication_tests.rs"]
+mod projection_publication_tests;
+
 pub(crate) struct PromptAdmission {
     pub rpc_id: RpcId,
     pub session_id: String,
@@ -27,6 +31,71 @@ pub(crate) struct PromptAdmission {
     pub content: Vec<Value>,
     pub source: Value,
     pub fingerprint: Option<String>,
+}
+
+/// Inputs that must still match before a prepared projection is published.
+/// The per-session gate orders synchronizers; model selection has a separate
+/// admission path, so the global write lock still needs this validation.
+struct ProjectionInputs {
+    cursor: Option<u64>,
+    created_at: u64,
+    route: ModelRoute,
+}
+
+impl ProjectionInputs {
+    fn capture(record: &crate::state::SessionRecord) -> Self {
+        Self {
+            cursor: record.authoritative_seq,
+            created_at: record.created_at,
+            route: ModelRoute {
+                provider: record.model.provider.clone(),
+                model: record.model.model.clone(),
+                reasoning_effort: record.model.reasoning_effort.clone(),
+                context_window_tokens: record.model.context_window_tokens,
+            },
+        }
+    }
+
+    fn matches(&self, record: &crate::state::SessionRecord) -> bool {
+        self.cursor == record.authoritative_seq
+            && self.created_at == record.created_at
+            && self.route.provider == record.model.provider
+            && self.route.model == record.model.model
+            && self.route.reasoning_effort == record.model.reasoning_effort
+            && self.route.context_window_tokens == record.model.context_window_tokens
+    }
+}
+
+// All history scans and event/view construction happen without a Host state
+// write guard. Applying the small mutable metrics cache stays in publication.
+fn prepare_projection_events(
+    session: &xharness_session::Session,
+    route: &ModelRoute,
+    previous: u64,
+) -> Result<Vec<(Value, Option<Value>)>, RpcError> {
+    let start = usize::try_from(previous)
+        .map_err(|_| RpcError::internal("authoritative session cursor overflow"))?;
+    if start > session.events().len() {
+        return Err(RpcError::internal(format!(
+            "authoritative session {:?} moved behind cursor {previous}",
+            session.header().id
+        )));
+    }
+    Ok(
+        project_session_event_range(session, route, start, session.events().len())
+            .into_iter()
+            .map(|event| {
+                // An output offset is not a journal index: folding may omit events.
+                let view = event
+                    .get("seq")
+                    .and_then(Value::as_u64)
+                    .and_then(|seq| usize::try_from(seq).ok())
+                    .and_then(|index| session.events().get(index))
+                    .and_then(|event| project_session_event_view(session, event));
+                (event, view)
+            })
+            .collect(),
+    )
 }
 
 /// Owned only by Host clones, never by a listener. Last-owner drop wakes idle
@@ -280,155 +349,148 @@ impl BasicHost {
         // Serialize read -> projection -> publication, not just the final write.
         // Otherwise an older concurrent read can arrive after a newer cursor.
         let _projection_guard = self.lock_projection(session_id).await;
-        let Some(session) = self
-            .agent_runtime
-            .authoritative_session(session_id)
-            .await
-            .map_err(agent_runtime_error)?
-        else {
-            return Ok(true);
-        };
-        let route = {
-            let state = self.state.read().await;
-            let record = state.sessions.get(session_id).ok_or_else(|| {
-                rpc_error(
-                    RpcErrorCode::SessionNotFound,
-                    format!("session {session_id:?} was not found"),
-                    json!({"sessionId": session_id}),
-                )
+        // Do not spin indefinitely if another admission path keeps changing
+        // projection inputs. Each retry reloads the authoritative snapshot.
+        for _ in 0..3 {
+            let Some(session) = self
+                .agent_runtime
+                .authoritative_session(session_id)
+                .await
+                .map_err(agent_runtime_error)?
+            else {
+                return Ok(true);
+            };
+            let inputs = {
+                let state = self.state.read().await;
+                let record = state.sessions.get(session_id).ok_or_else(|| {
+                    rpc_error(
+                        RpcErrorCode::SessionNotFound,
+                        format!("session {session_id:?} was not found"),
+                        json!({"sessionId": session_id}),
+                    )
+                })?;
+                ProjectionInputs::capture(record)
+            };
+            let route = &inputs.route;
+            let permission = restored_permission(&session);
+            let agent_preset = restored_agent_preset(&session);
+            let title = restored_title(&session);
+            let plan_active = restored_plan_mode(&session);
+            let goal = restored_goal(&session);
+            let mutation_receipts = restored_session_mutation_receipts(&session);
+            let inbox = InboxProjection::from_session(&session).map_err(|error| {
+                RpcError::internal(format!(
+                    "authoritative session {session_id:?} has an invalid inbox: {error}"
+                ))
             })?;
-            ModelRoute {
-                provider: record.model.provider.clone(),
-                model: record.model.model.clone(),
-                reasoning_effort: record.model.reasoning_effort.clone(),
-                context_window_tokens: record.model.context_window_tokens,
-            }
-        };
-        let permission = restored_permission(&session);
-        let agent_preset = restored_agent_preset(&session);
-        let title = restored_title(&session);
-        let plan_active = restored_plan_mode(&session);
-        let goal = restored_goal(&session);
-        let mutation_receipts = restored_session_mutation_receipts(&session);
-        let inbox = InboxProjection::from_session(&session).map_err(|error| {
-            RpcError::internal(format!(
-                "authoritative session {session_id:?} has an invalid inbox: {error}"
-            ))
-        })?;
-        let projected_queue = restored_queue(&inbox);
-        let tail = project_session_event_tail(
-            &session,
-            &route,
-            self.config.session_event_cache_capacity,
-            self.config.session_event_cache_bytes,
-        );
-        let (new_events, queue_changed, permission_changed) = {
-            let mut state = self.state.write().await;
+            let projected_queue = restored_queue(&inbox);
+            let tail = project_session_event_tail(
+                &session,
+                route,
+                self.config.session_event_cache_capacity,
+                self.config.session_event_cache_bytes,
+            );
+            let prepared_events =
+                prepare_projection_events(&session, route, inputs.cursor.unwrap_or_default())?;
+            let has_turn = session
+                .events()
+                .iter()
+                .any(|event| matches!(event.data(), xharness_session::EventData::TurnStart { .. }));
             let (new_events, queue_changed, permission_changed) = {
-                let record = state
-                    .sessions
-                    .get_mut(session_id)
-                    .expect("session checked before projection");
-                let previous = record.authoritative_seq.unwrap_or_default();
-                let start = usize::try_from(previous)
-                    .map_err(|_| RpcError::internal("authoritative session cursor overflow"))?;
-                if start > session.events().len() {
-                    return Err(RpcError::internal(format!(
-                        "authoritative session {session_id:?} moved behind cursor {previous}"
-                    )));
-                }
-                let projected_events =
-                    project_session_event_range(&session, &route, start, session.events().len());
-                let new_events = projected_events
-                    .into_iter()
-                    .map(|event| {
-                        let updates = record.metrics.apply(&event);
-                        // Projection may fold or omit durable events (for
-                        // example completed Assistant chunks), so an output
-                        // offset is not a durable-journal index. Correlate by
-                        // the preserved monotonic sequence instead.
-                        let view = event
-                            .get("seq")
-                            .and_then(Value::as_u64)
-                            .and_then(|seq| usize::try_from(seq).ok())
-                            .and_then(|index| session.events().get(index))
-                            .and_then(|event| project_session_event_view(&session, event));
-                        (event, updates, view)
-                    })
-                    .collect::<Vec<_>>();
-                record.replace_authoritative_tail(
-                    tail.base_seq,
-                    tail.next_seq,
-                    tail.events,
-                    tail.bytes,
-                );
-                // Durable Runtime derives provider messages from the journal on demand.
-                // Do not retain a second transcript for every idle conversation.
-                record.messages.clear();
-                let permission_changed = record.permission_preset != permission;
-                record.permission_preset = permission;
-                record.agent_preset = agent_preset;
-                record.title = title;
-                record.plan_active = plan_active;
-                record.goal = goal.clone();
-                record.mutation_receipts = mutation_receipts;
-                let queue_changed = record.projected_queue != projected_queue;
-                record.projected_queue = projected_queue;
-                record.updated_at = session
-                    .events()
-                    .last()
-                    .map_or(record.created_at, |event| event.timestamp_ms);
-                if session.events().iter().any(|event| {
-                    matches!(event.data(), xharness_session::EventData::TurnStart { .. })
-                }) {
-                    record.blank = false;
+                let mut state = self.state.write().await;
+                let (new_events, queue_changed, permission_changed) = {
+                    let record = state.sessions.get_mut(session_id).ok_or_else(|| {
+                        rpc_error(
+                            RpcErrorCode::SessionNotFound,
+                            format!("session {session_id:?} was removed during projection"),
+                            json!({"sessionId": session_id}),
+                        )
+                    })?;
+                    if !inputs.matches(record) {
+                        continue;
+                    }
+                    let new_events = prepared_events
+                        .into_iter()
+                        .map(|(event, view)| {
+                            let updates = record.metrics.apply(&event);
+                            (event, updates, view)
+                        })
+                        .collect::<Vec<_>>();
+                    record.replace_authoritative_tail(
+                        tail.base_seq,
+                        tail.next_seq,
+                        tail.events,
+                        tail.bytes,
+                    );
+                    // Durable Runtime derives provider messages from the journal on demand.
+                    // Do not retain a second transcript for every idle conversation.
+                    record.messages.clear();
+                    let permission_changed = record.permission_preset != permission;
+                    record.permission_preset = permission;
+                    record.agent_preset = agent_preset;
+                    record.title = title;
+                    record.plan_active = plan_active;
+                    record.goal = goal.clone();
+                    record.mutation_receipts = mutation_receipts;
+                    let queue_changed = record.projected_queue != projected_queue;
+                    record.projected_queue = projected_queue;
+                    record.updated_at = session
+                        .events()
+                        .last()
+                        .map_or(record.created_at, |event| event.timestamp_ms);
+                    if has_turn {
+                        record.blank = false;
+                    }
+                    (new_events, queue_changed, permission_changed)
+                };
+                if let Some(goal) = goal.as_ref() {
+                    state.goals.insert(session_id.to_owned(), goal.clone());
+                } else {
+                    state.goals.remove(session_id);
                 }
                 (new_events, queue_changed, permission_changed)
             };
-            if let Some(goal) = goal.as_ref() {
-                state.goals.insert(session_id.to_owned(), goal.clone());
-            } else {
-                state.goals.remove(session_id);
-            }
-            (new_events, queue_changed, permission_changed)
-        };
-        for (event, updates, view) in new_events {
-            let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
-            let mut frame = json!({
-                "type": "session/event",
-                "sessionId": session_id,
-                "event": event,
-            });
-            if let Some(view) = view {
-                frame
-                    .as_object_mut()
-                    .expect("session event frame is an object")
-                    .insert("view".to_owned(), view);
-            }
-            self.push_mux(frame);
-            for update in updates {
-                self.push_mux(json!({
-                    "type": "session/projection",
+            for (event, updates, view) in new_events {
+                let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
+                let mut frame = json!({
+                    "type": "session/event",
                     "sessionId": session_id,
-                    "key": update.key,
-                    "value": update.value,
-                    "seq": seq,
-                }));
+                    "event": event,
+                });
+                if let Some(view) = view {
+                    frame
+                        .as_object_mut()
+                        .expect("session event frame is an object")
+                        .insert("view".to_owned(), view);
+                }
+                self.push_mux(frame);
+                for update in updates {
+                    self.push_mux(json!({
+                        "type": "session/projection",
+                        "sessionId": session_id,
+                        "key": update.key,
+                        "value": update.value,
+                        "seq": seq,
+                    }));
+                }
             }
+            if queue_changed {
+                self.emit_queue(session_id).await;
+            }
+            self.push_projection(
+                session_id,
+                "goal",
+                goal.as_ref().map_or(Value::Null, |g| g.projection()),
+            )
+            .await;
+            if permission_changed {
+                self.push_permission_projection(session_id).await;
+            }
+            return Ok(true);
         }
-        if queue_changed {
-            self.emit_queue(session_id).await;
-        }
-        self.push_projection(
-            session_id,
-            "goal",
-            goal.as_ref().map_or(Value::Null, |g| g.projection()),
-        )
-        .await;
-        if permission_changed {
-            self.push_permission_projection(session_id).await;
-        }
-        Ok(true)
+        Err(RpcError::internal(format!(
+            "authoritative session {session_id:?} changed repeatedly during projection; retry synchronization"
+        )))
     }
 
     pub(crate) async fn append_session_event(
