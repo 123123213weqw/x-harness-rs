@@ -92,3 +92,22 @@ function XHarnessModelSelect(props) {
     react.createElement('style', null, `.xh-context-form{box-sizing:border-box;width:300px;max-width:calc(100vw - 48px);padding:10px;font-size:13px;overflow:auto}.xh-context-form h3{font-size:14px;margin:12px 0 6px}.xh-context-form p{font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;margin:8px 0}.xh-context-form input{display:block;box-sizing:border-box;width:100%;padding:8px;margin-top:6px;color:inherit;background:transparent;border:1px solid var(--dsw-alias-border-l2,#aaa);border-radius:6px}.xh-context-form button{padding:6px 10px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2,#aaa);background:transparent;color:inherit;cursor:pointer}.xh-context-form button:disabled{opacity:.5;cursor:default}.xh-context-form [role=alert]{color:var(--dsw-alias-state-error-label,#c33)}.xh-context-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}`),
     react.createElement(ModelSelect, props));
 }
+
+function xhReasoningStatus(state) {
+  const {model} = xhModelInfo(state);
+  const capability = model?.reasoningCapability;
+  if (capability?.state === 'disabled') return '已禁用配置';
+  if (!model?.reasoning) return '能力未知';
+  if (capability?.stale) return '沿用上次能力 · 待刷新';
+  return ({configured:'已配置',documented:'厂商文档',provider_reported:'服务端提供',last_known_good:'上次有效能力'})[capability?.source] ?? '已配置';
+}
+function XHarnessReasoningStatus({state, load, itemRef}) {
+  const busy = state.status === 'loading' || state.status === 'selecting';
+  return react.createElement('button', {
+    type:'button', role:'menuitem', disabled:busy,
+    style:{display:'flex',justifyContent:'space-between',gap:12,padding:'8px 12px',width:'100%',fontSize:12},
+    ref:itemRef, 'aria-label':'刷新模型能力',
+    onClick:()=>Promise.resolve(load(true)).catch(()=>{}),
+  },react.createElement('span',null,'思考能力：'+xhReasoningStatus(state)),react.createElement('span',null,busy?'获取中…':'刷新'));
+}
+exports.xhReasoningStatus = xhReasoningStatus;

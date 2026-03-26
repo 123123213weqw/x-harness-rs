@@ -7,6 +7,7 @@
 
 pub mod ownership;
 mod read_media;
+pub mod reasoning_discovery;
 
 use std::{
     collections::BTreeMap,

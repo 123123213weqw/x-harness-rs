@@ -570,3 +570,112 @@ async fn configured_usage_semantics_reaches_the_native_adapter() {
         assert!(matches!(result, RpcResult::Failure { .. }));
     }
 }
+
+#[tokio::test]
+async fn omitted_reasoning_survives_edit_restart_and_explicit_disable() {
+    let dir = TempDir::new();
+    let keys = Arc::new(TestCredentials::default());
+    let (host, runtime) = fixture(&dir, keys.clone()).await;
+    let mut p = profile("http://127.0.0.1:12345/v1");
+    p["apiKeyEnv"] = Value::Null;
+    p["models"] = json!([{"id":"coder","contextWindow":32768,"reasoning":{"default_effort":"deep","efforts":[{"id":"deep","name":"Deep","request_patch":{"custom_reasoning":{"level":7}}}]}}]);
+    add(&host, p).await;
+    assert!(runtime.model_catalog()[0].reasoning.is_some());
+    let section = json!({"providers":{"test-gateway":{"baseURL":"http://127.0.0.1:12345/v1","api":"openai-completions","models":[{"id":"coder","name":"Renamed","contextWindow":32768}]}}});
+    rpc(
+        &host,
+        RpcMethod::SettingsReplace,
+        json!({"ns":MODEL_SETTINGS_NAMESPACE,"section":section}),
+    )
+    .await;
+    assert!(runtime.model_catalog()[0].reasoning.is_some());
+    drop(host);
+    drop(runtime);
+    let (host, runtime) = fixture(&dir, keys).await;
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .reasoning
+            .as_ref()
+            .unwrap()
+            .default_effort
+            .as_deref(),
+        Some("deep")
+    );
+    let mut section = section;
+    section["providers"]["test-gateway"]["models"][0]["reasoning"] = Value::Null;
+    rpc(
+        &host,
+        RpcMethod::SettingsReplace,
+        json!({"ns":MODEL_SETTINGS_NAMESPACE,"section":section}),
+    )
+    .await;
+    assert!(runtime.model_catalog()[0].reasoning.is_none());
+    assert_eq!(
+        runtime.model_catalog()[0].reasoning_capability["state"],
+        "disabled"
+    );
+}
+
+#[tokio::test]
+async fn capability_refresh_rpc_updates_native_levels_and_keeps_last_good_on_failure() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        for level in [Some("brief"), Some("deep"), None] {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 8192];
+            let n = socket.read(&mut request).await.unwrap();
+            assert!(String::from_utf8_lossy(&request[..n]).starts_with("GET /capabilities "));
+            let (status, body) = match level {
+                Some(level) => (
+                    "200 OK",
+                    json!({"data":[{"id":"coder","levels":[level],"default":level}]}).to_string(),
+                ),
+                None => ("503 Service Unavailable", "{}".into()),
+            };
+            socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    let dir = TempDir::new();
+    let (host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
+    let mut p = profile(&base);
+    p["apiKeyEnv"] = Value::Null;
+    p["reasoningDiscovery"] = json!({"url":format!("{base}/capabilities"),"effortsPointer":"/levels","defaultEffortPointer":"/default","requestTemplate":{"thinking":{"level":"$effort"}}});
+    add(&host, p).await;
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .reasoning
+            .as_ref()
+            .unwrap()
+            .default_effort
+            .as_deref(),
+        Some("brief")
+    );
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    let id = created["sessionId"].as_str().unwrap();
+    for stale in [false, true] {
+        rpc(
+            &host,
+            RpcMethod::SessionModels,
+            json!({"sessionId":id,"refreshCapabilities":true}),
+        )
+        .await;
+        let models = runtime.model_catalog();
+        assert_eq!(
+            models[0]
+                .reasoning
+                .as_ref()
+                .unwrap()
+                .default_effort
+                .as_deref(),
+            Some("deep")
+        );
+        assert_eq!(
+            models[0].reasoning_capability["stale"]
+                .as_bool()
+                .unwrap_or(false),
+            stale
+        );
+    }
+    server.await.unwrap();
+}

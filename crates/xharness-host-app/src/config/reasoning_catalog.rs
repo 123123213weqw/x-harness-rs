@@ -4,7 +4,7 @@
 use super::{ModelReasoningConfig, ModelReasoningEffortConfig, OpenAiProtocol};
 use serde_json::json;
 
-pub(super) fn builtin(
+pub(crate) fn builtin(
     endpoint: &str,
     upstream_model: &str,
     protocol: OpenAiProtocol,
@@ -21,7 +21,10 @@ pub(super) fn builtin(
         || !matches!(url.path().trim_end_matches('/'), "" | "/v1" | "/beta")
         || !matches!(
             upstream_model,
-            "deepseek-v4-flash" | "deepseek-v4-pro" | "deepseek-v4-flash-vision-exp"
+            "deepseek-flash"
+                | "deepseek-v4-flash"
+                | "deepseek-v4-pro"
+                | "deepseek-v4-flash-vision-exp"
         )
     {
         return None;
@@ -72,6 +75,7 @@ mod tests {
             "https://api.deepseek.com/beta",
         ] {
             for model in [
+                "deepseek-flash",
                 "deepseek-v4-flash",
                 "deepseek-v4-pro",
                 "deepseek-v4-flash-vision-exp",

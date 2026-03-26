@@ -25,11 +25,11 @@ try {
    if(id==='@deepseek-ai/dsh-client-runtime/client')return {createSnapshotStore:makeStore};
    return {};
   });
-  window.saved={provider:'p',model:'large',reasoningEffort:'max',contextWindowTokens:65536};window.calls=[];window.offline=false;
+  window.saved={provider:'p',model:'large',reasoningEffort:'max',contextWindowTokens:65536};window.calls=[];window.refreshes=0;window.offline=false;
   const groups=[{id:'p',models:[{id:'large',name:'Large',contextWindow:131072,contextWindowSource:'provider_reported',reasoning:{defaultEffort:'high',efforts:[{id:'high',name:'高'},{id:'max',name:'极高'}]}},{id:'small',name:'Small',contextWindow:32768},{id:'unknown',name:'Unknown'}]}];
-  const sessions={models:async()=>{if(offline)throw Error('offline');return {result:{ok:true,value:{current:saved,groups,failures:[],routable:true}}}},selectModel:async payload=>{if(offline)throw Error('offline');calls.push(payload);saved={...payload};delete saved.sessionId;return {result:{ok:true,value:{selected:saved}}}}};
+  const sessions={models:async(payload)=>{if(payload?.refreshCapabilities)refreshes++;if(offline)throw Error('offline');return {result:{ok:true,value:{current:saved,groups,failures:[],routable:true}}}},selectModel:async payload=>{if(offline)throw Error('offline');calls.push(payload);saved={...payload};delete saved.sessionId;return {result:{ok:true,value:{selected:saved}}}}};
   window.root=ReactDOM.createRoot(document.getElementById('root'));
-  window.mount=async()=>{window.directory=new api.ModelDirectory(sessions,'test',()=>true);await directory.load();root.render(React.createElement(api.XHarnessModelSelect,{t:(key,args)=>({'trigger.aria':'选择模型 '+args?.model,'trigger.ariaEffort':'选择模型 '+args?.model,'menu.model':'模型','menu.effort':'思考强度','menu.aria':'模型设置'}[key]??key),locked:false,available:true,directory:directory.store,load:()=>directory.load().catch(()=>{}),select:s=>directory.select(s).then(()=>true,()=>false)}))};
+  window.mount=async()=>{window.directory=new api.ModelDirectory(sessions,'test',()=>true);await directory.load();root.render(React.createElement(api.XHarnessModelSelect,{t:(key,args)=>({'trigger.aria':'选择模型 '+args?.model,'trigger.ariaEffort':'选择模型 '+args?.model,'menu.model':'模型','menu.effort':'思考强度','menu.aria':'模型设置'}[key]??key),locked:false,available:true,directory:directory.store,load:(refresh)=>directory.load(refresh).catch(()=>{}),select:s=>directory.select(s).then(()=>true,()=>false)}))};
   await mount();
  })
 
@@ -39,6 +39,7 @@ try {
  const closeAll=async()=>{await page.keyboard.press('Escape');await page.keyboard.press('Escape')};
  assert.equal(await page.getByRole('button').count(),1,'composer must have only the upstream model trigger');
  assert.equal(await page.getByRole('button',{name:/^(思考：|上下文：)/}).count(),0,'no duplicate first-level controls');
+ await openMenu();await page.getByRole('menuitem',{name:'刷新模型能力'}).click();await page.waitForFunction(()=>refreshes===1);
  await openContext();assert.equal(await page.getByRole('textbox').inputValue(),'65536');
  await page.getByRole('textbox').fill('131073');await page.getByRole('button',{name:'保存',exact:true}).click();
  await page.getByRole('alert').waitFor();assert.equal(await page.evaluate(()=>calls.length),0);
