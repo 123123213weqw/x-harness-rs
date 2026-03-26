@@ -176,6 +176,16 @@ impl ContentBlock {
     }
 }
 
+/// Model-visible fact, projected only from an explicit user-interrupted turn.
+/// Does not claim process cleanup succeeded or request resumption of old work.
+pub const USER_INTERRUPTION_CONTENT: &str = "<turn_aborted>\nThe user intentionally interrupted the previous turn. Some operations may have partially executed, and background tasks may still be running.\n</turn_aborted>";
+
+pub fn user_interruption_message(turn: u32) -> Message {
+    let mut message = Message::user(USER_INTERRUPTION_CONTENT);
+    message.id = Some(format!("turn-aborted-{turn}"));
+    message
+}
+
 #[cfg(test)]
 mod multimodal_tests {
     use super::*;

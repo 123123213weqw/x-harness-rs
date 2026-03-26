@@ -1786,7 +1786,8 @@ impl BasicHost {
 
     async fn session_cancel(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
-        self.send_control(&session_id, LoopCommand::Cancel).await?;
+        self.send_control(&session_id, LoopCommand::InterruptByUser)
+            .await?;
         Ok(json!({"accepted": true}))
     }
 
@@ -1795,7 +1796,8 @@ impl BasicHost {
         session_id: &str,
         command: LoopCommand,
     ) -> Result<(), RpcError> {
-        let cancel_is_idempotent = matches!(&command, LoopCommand::Cancel);
+        let cancel_is_idempotent =
+            matches!(&command, LoopCommand::Cancel | LoopCommand::InterruptByUser);
         if cancel_is_idempotent {
             self.set_dispatch_paused(session_id, true).await?;
         }

@@ -324,6 +324,11 @@ impl DurableAgentHandle {
         self.send(DriverCommand::Control(LoopCommand::Resume)).await
     }
 
+    pub async fn interrupt_by_user(&self) -> Result<(), AgentCommandError> {
+        self.send(DriverCommand::Control(LoopCommand::InterruptByUser))
+            .await
+    }
+
     pub async fn cancel_turn(&self) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::Control(LoopCommand::Cancel)).await
     }
@@ -631,7 +636,7 @@ impl DriverWorker {
                     biased;
                     _ = self.shutdown.cancelled() => return Err(AgentCommandError::Closed),
                     Some(envelope) = self.commands.recv() => {
-                        if matches!(envelope.command, DriverCommand::Control(LoopCommand::Cancel)) {
+                        if matches!(envelope.command, DriverCommand::Control(LoopCommand::Cancel | LoopCommand::InterruptByUser)) {
                             self.park_pending().await?;
                             let _ = envelope.acknowledgement.send(Ok(()));
                             return Ok(());
@@ -997,7 +1002,9 @@ impl DriverWorker {
                 result
             }
             DriverCommand::Inject(message) => self.persist(InboxTarget::NextStep, message).await,
-            DriverCommand::Control(LoopCommand::Cancel) => self.park_pending().await,
+            DriverCommand::Control(LoopCommand::Cancel | LoopCommand::InterruptByUser) => {
+                self.park_pending().await
+            }
             DriverCommand::Control(_) => Err(AgentCommandError::NoActiveTurn),
         };
         let _ = envelope.acknowledgement.send(result);
@@ -1043,7 +1050,7 @@ impl DriverWorker {
                 }
             }
             DriverCommand::Control(command) => {
-                if matches!(command, LoopCommand::Cancel) {
+                if matches!(command, LoopCommand::Cancel | LoopCommand::InterruptByUser) {
                     if let Err(e) = self.goal_controller().pause().await {
                         let _ = envelope
                             .acknowledgement

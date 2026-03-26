@@ -1654,3 +1654,51 @@ fn stale_approval_repair_is_append_only_idempotent_and_never_approves() {
         }
     ));
 }
+
+#[test]
+fn only_explicit_user_stop_projects_a_model_marker_not_a_user_event() {
+    for reason in [
+        TurnEndReason::Completed,
+        TurnEndReason::Cancelled,
+        TurnEndReason::Interrupted,
+        TurnEndReason::MaxTokens,
+        TurnEndReason::LimitReached,
+        TurnEndReason::Failed {
+            error: "network timeout".into(),
+        },
+        TurnEndReason::UserInterrupted,
+    ] {
+        let explicit = reason == TurnEndReason::UserInterrupted;
+        let mut session = Session::new(header("stop-source")).unwrap();
+        session
+            .append_batch(
+                Revision::ZERO,
+                vec![
+                    event(EventData::TurnStart { turn: 1 }),
+                    event(EventData::UserMessage {
+                        message: Message::user("original"),
+                        surface_replace: None,
+                    }),
+                    event(EventData::TurnEnd { turn: 1, reason }),
+                ],
+            )
+            .unwrap();
+        let messages = session.derive_messages();
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|m| m.content == xharness_session::USER_INTERRUPTION_CONTENT)
+                .count(),
+            usize::from(explicit)
+        );
+        assert_eq!(
+            session
+                .events()
+                .iter()
+                .filter(|e| matches!(e.data(), EventData::UserMessage { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(messages, session.derive_messages());
+    }
+}
