@@ -388,6 +388,7 @@ impl LoopEngine {
             command_open: true,
             pending_messages: VecDeque::new(),
             paused: false,
+            user_interrupted: false,
             approval_decisions: HashMap::new(),
             closed_approval_calls: HashSet::new(),
             startup_error,
@@ -521,6 +522,7 @@ struct Runner {
     command_open: bool,
     pending_messages: VecDeque<AgentMessage>,
     paused: bool,
+    user_interrupted: bool,
     approval_decisions: HashMap<String, ApprovalDecision>,
     closed_approval_calls: HashSet<String>,
     startup_error: Option<String>,
@@ -1922,6 +1924,7 @@ impl Runner {
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }
                                     | SessionEventData::SessionTitle { .. }
+                                    | SessionEventData::SessionTitleGeneration { .. }
                                     | SessionEventData::GoalExecution { .. }
                                     | SessionEventData::GoalChange { .. }
                                     | SessionEventData::ScheduleChange { .. }
@@ -2429,7 +2432,30 @@ impl Runner {
         error: Option<&str>,
     ) -> Result<(), String> {
         if self.journal.is_none() {
+            if status == LoopStatus::Cancelled && self.user_interrupted {
+                let mut marker = xharness_session::user_interruption_message(0);
+                marker.id = Some(format!("turn-aborted-{}", self.run_id));
+                self.messages.push(marker);
+            }
             return Ok(());
+        }
+        // Settle orphaned call/result pairs before projecting the interruption marker.
+        // Cancellation can stop the batch before its final result commit. Reuse
+        // recovery's conservative unknown outcome rather than inventing success.
+        if status == LoopStatus::Cancelled && self.user_interrupted {
+            let journal = self.journal.as_ref().expect("journal checked above");
+            let session = journal
+                .store
+                .load(&journal.session_id)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "session disappeared during user interruption".to_owned())?;
+            let recovery = session.outcome_unknown_recovery();
+            if !recovery.is_empty() {
+                self.journal_append_events(recovery, true)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
         }
         self.journal_step_end()
             .await
@@ -2443,6 +2469,7 @@ impl Runner {
         let reason = match status {
             LoopStatus::Completed => TurnEndReason::Completed,
             LoopStatus::MaxTokens => TurnEndReason::MaxTokens,
+            LoopStatus::Cancelled if self.user_interrupted => TurnEndReason::UserInterrupted,
             LoopStatus::Cancelled => TurnEndReason::Cancelled,
             LoopStatus::LimitReached => TurnEndReason::LimitReached,
             LoopStatus::Failed => TurnEndReason::Failed {
@@ -2455,6 +2482,11 @@ impl Runner {
             .map_err(|failure| failure.to_string())?;
         if let Some(journal) = self.journal.as_mut() {
             journal.turn_open = false;
+        }
+        if status == LoopStatus::Cancelled && self.user_interrupted {
+            self.reload_journal_messages()
+                .await
+                .map_err(|error| error.to_string())?;
         }
         Ok(())
     }
@@ -2531,7 +2563,8 @@ impl Runner {
             let _ = acknowledgement.send(Err(error));
             return Ok(false);
         }
-        if matches!(&command, LoopCommand::Cancel) {
+        if matches!(&command, LoopCommand::Cancel | LoopCommand::InterruptByUser) {
+            self.user_interrupted = matches!(&command, LoopCommand::InterruptByUser);
             // Publish acceptance before cancellation tears down the runner and
             // closes the command receiver.
             let _ = acknowledgement.send(Ok(()));
@@ -2615,7 +2648,9 @@ impl Runner {
                 }
                 Ok(false)
             }
-            LoopCommand::Cancel => unreachable!("cancel commands are handled by the envelope"),
+            LoopCommand::Cancel | LoopCommand::InterruptByUser => {
+                unreachable!("cancel commands are handled by the envelope")
+            }
             LoopCommand::ApproveTool { call_id } => {
                 self.store_approval(call_id, ApprovalDecision::Approved);
                 Ok(false)

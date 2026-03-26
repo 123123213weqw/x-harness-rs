@@ -2226,6 +2226,10 @@ async fn steering_interrupts_model_and_preserves_partial_assistant_turn() {
     let result = run.result().await;
     let requests = provider.requests();
     assert!(saw_interrupted_event);
+    assert!(!result
+        .messages
+        .iter()
+        .any(|m| m.content == xharness_session::USER_INTERRUPTION_CONTENT));
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[1].messages[1].content, "partial");
     assert!(requests[1].messages[1].interrupted);
@@ -4522,6 +4526,10 @@ async fn interrupted_text_is_durable_and_explicit_new_turn_has_no_orphan_tools()
     assert_eq!(result.status, LoopStatus::Failed);
     assert_eq!(provider.attempts(), 1);
     assert!(result.error.as_ref().unwrap().contains("额外计费"));
+    assert!(!result
+        .messages
+        .iter()
+        .any(|m| m.content == xharness_session::USER_INTERRUPTION_CONTENT));
     let partial = result.messages.last().unwrap();
     assert!(partial.interrupted);
     assert_eq!(partial.content, "unfinished answer");
@@ -5005,4 +5013,188 @@ async fn execution_notice_survives_projection_and_network_retry_without_double_e
         .messages
         .iter()
         .any(|m| m.content.contains("[Harness 执行检查点]")));
+}
+
+#[tokio::test]
+async fn explicit_user_interrupt_is_durable_once_before_the_next_user_input() {
+    let provider = Arc::new(GatedProvider::new());
+    let store = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("old task")]);
+    request.session_id = Some("user-interrupt".into());
+    request.journal_store = Some(store.clone());
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::TextDelta(_)) {
+            break;
+        }
+    }
+    run.send(LoopCommand::InterruptByUser).await.unwrap();
+    let (_, result) = collect(run).await;
+    assert_eq!(result.status, LoopStatus::Cancelled);
+    let session = store.load("user-interrupt").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|e| matches!(
+        e.data(),
+        SessionEventData::TurnEnd {
+            reason: TurnEndReason::UserInterrupted,
+            ..
+        }
+    )));
+    let marker = xharness_session::USER_INTERRUPTION_CONTENT;
+    assert_eq!(
+        result
+            .messages
+            .iter()
+            .filter(|m| m.content == marker)
+            .count(),
+        1
+    );
+    assert_eq!(
+        session
+            .derive_messages()
+            .iter()
+            .filter(|m| m.content == marker)
+            .count(),
+        1
+    );
+    // Serializing and restoring the journal must not duplicate the projected fact.
+    let restored: Vec<xharness_session::LoggedEvent> =
+        serde_json::from_str(&serde_json::to_string(session.events()).unwrap()).unwrap();
+    assert_eq!(
+        xharness_session::derive_messages(&restored),
+        session.derive_messages()
+    );
+    let mut next = LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user("check disk only")],
+    );
+    next.session_id = Some("user-interrupt".into());
+    next.journal_store = Some(store);
+    let (_, result) = collect(LoopEngine.start(next)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let requests = provider.requests();
+    let messages = &requests[1].messages;
+    let index = messages.iter().position(|m| m.content == marker).unwrap();
+    assert!(messages[..index].iter().any(|m| m.content == "old task"));
+    assert_eq!(messages[index + 1].content, "check disk only");
+    assert_eq!(messages.iter().filter(|m| m.content == marker).count(), 1);
+}
+
+#[tokio::test]
+async fn only_explicit_user_interrupt_emits_the_context_marker() {
+    for explicit in [false, true] {
+        let provider = Arc::new(GatedProvider::new());
+        let mut run = LoopEngine.start(LoopRequest::new(provider, vec![AgentMessage::user("go")]));
+        while let Some(event) = run.next().await {
+            if matches!(event.kind, LoopEventKind::TextDelta(_)) {
+                break;
+            }
+        }
+        run.send(if explicit {
+            LoopCommand::InterruptByUser
+        } else {
+            LoopCommand::Cancel
+        })
+        .await
+        .unwrap();
+        let (_, result) = collect(run).await;
+        assert_eq!(
+            result
+                .messages
+                .iter()
+                .any(|m| m.content == xharness_session::USER_INTERRUPTION_CONTENT),
+            explicit
+        );
+    }
+}
+
+#[tokio::test]
+async fn user_interrupt_during_tools_preserves_result_pairing_before_marker() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(tool_delta(0, "wait", "wait", "{}")),
+        Ok(completed_for_calls()),
+    ]]));
+    let tool = TestToolSpec::new("wait", "wait", json!({}), |_, token| async move {
+        token.cancelled().await;
+        ToolResult::failure("cancelled; operation may have partially executed")
+    });
+    let store = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    install_tool(&mut request, tool).await;
+    request.session_id = Some("user-tool-stop".into());
+    request.journal_store = Some(store.clone());
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::ToolStarted(_)) {
+            break;
+        }
+    }
+    run.send(LoopCommand::InterruptByUser).await.unwrap();
+    let (_, result) = collect(run).await;
+    assert_eq!(result.status, LoopStatus::Cancelled);
+    let session = store.load("user-tool-stop").await.unwrap().unwrap();
+    let messages = session.derive_messages();
+    let marker = messages
+        .iter()
+        .position(|m| m.content == xharness_session::USER_INTERRUPTION_CONTENT)
+        .unwrap();
+    assert!(messages[..marker].iter().any(|m| m.role == Role::Tool));
+    assert_eq!(messages[marker - 1].role, Role::Tool);
+    let call_id = &messages[1].tool_calls[0];
+    assert_eq!(
+        messages[marker - 1].tool_call_id.as_deref(),
+        Some(call_id.provider_id())
+    );
+}
+
+#[tokio::test]
+async fn active_loop_adopts_title_generation_metadata_without_changing_context() {
+    use xharness_session::TitleGenerationPhase;
+    for phase in [
+        TitleGenerationPhase::Pending,
+        TitleGenerationPhase::Retry,
+        TitleGenerationPhase::Completed,
+        TitleGenerationPhase::Exhausted,
+    ] {
+        let journal = Arc::new(EventMemorySessionStore::default());
+        let provider = Arc::new(GatedProvider::new());
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+        request.session_id = Some("title-race".to_owned());
+        request.journal_store = Some(journal.clone());
+        let mut run = LoopEngine.start(request);
+        while let Some(event) = run.next().await {
+            if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+                break;
+            }
+        }
+        let session = journal.load("title-race").await.unwrap().unwrap();
+        journal
+            .append(
+                "title-race",
+                session.revision(),
+                vec![SessionEventData::SessionTitleGeneration {
+                    version: 1,
+                    attempt: 1,
+                    phase,
+                    retry_at_ms: 0,
+                }
+                .into()],
+            )
+            .await
+            .unwrap();
+        provider.release_first.notify_one();
+        while run.next().await.is_some() {}
+        assert_eq!(run.result().await.status, LoopStatus::Completed);
+        let session = journal.load("title-race").await.unwrap().unwrap();
+        assert!(session.events().iter().any(|event| matches!(
+            event.data(),
+            SessionEventData::TurnEnd {
+                reason: TurnEndReason::Completed,
+                ..
+            }
+        )));
+        assert!(!session
+            .derive_surface_messages()
+            .iter()
+            .any(|message| message.message.content.contains("title-generation")));
+    }
 }

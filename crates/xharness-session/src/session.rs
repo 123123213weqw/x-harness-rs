@@ -417,6 +417,21 @@ pub fn derive_surface_messages(events: &[LoggedEvent]) -> Vec<SurfaceMessage> {
                     ),
                 );
             }
+            EventData::TurnEnd {
+                turn,
+                reason: crate::TurnEndReason::UserInterrupted,
+            } => {
+                flush_tool_results(
+                    &mut messages,
+                    &mut call_order,
+                    &mut tool_results,
+                    &provider_call_ids,
+                );
+                messages.push(SurfaceMessage {
+                    seq: logged.seq,
+                    message: crate::user_interruption_message(*turn),
+                });
+            }
             EventData::StepEnd { .. } | EventData::TurnEnd { .. } => flush_tool_results(
                 &mut messages,
                 &mut call_order,

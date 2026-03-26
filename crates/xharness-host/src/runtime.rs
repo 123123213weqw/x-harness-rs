@@ -1860,6 +1860,7 @@ impl DurableRunningTurn {
             LoopCommand::Pause => self.handle.pause().await,
             LoopCommand::Resume => self.handle.resume().await,
             LoopCommand::Cancel => self.handle.cancel_turn().await,
+            LoopCommand::InterruptByUser => self.handle.interrupt_by_user().await,
             LoopCommand::ApproveTool { call_id } => self.handle.approve_tool(call_id).await,
             LoopCommand::RejectTool { call_id, reason } => {
                 self.handle.reject_tool(call_id, reason).await
