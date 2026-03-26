@@ -1,4 +1,4 @@
-mod reasoning_catalog;
+pub(crate) mod reasoning_catalog;
 
 use std::{collections::BTreeMap, env, fs, path::Path, sync::Arc};
 
@@ -311,10 +311,18 @@ impl ProviderConfig {
                 token_safety_margin,
                 image_input,
                 reasoning,
+                reasoning_disabled,
+                reasoning_capability,
             } = model;
             let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
-            let reasoning = reasoning
-                .or_else(|| reasoning_catalog::builtin(&self.base_url, &upstream_model, protocol));
+            let reasoning = if reasoning_disabled {
+                None
+            } else {
+                reasoning.or_else(|| {
+                    reasoning_catalog::builtin(&self.base_url, &upstream_model, protocol)
+                })
+            };
+            let reasoning_state = reasoning_capability.unwrap_or_else(|| serde_json::json!({"state":if reasoning_disabled {"disabled"} else if reasoning.is_some() {"supported"} else {"unknown"},"source":if reasoning_disabled {"explicit"} else {"configured_or_documented"}}));
             let mut provider_config =
                 OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model)
                     .with_context_window_fallback(fallback_context_window_tokens);
@@ -372,6 +380,7 @@ impl ProviderConfig {
                 display_name.unwrap_or_else(|| id.clone()),
             )
             .with_context_window(capabilities.context_window);
+            descriptor.reasoning_capability = reasoning_state;
             if let Some(reasoning) = reasoning {
                 descriptor = descriptor.with_reasoning(reasoning.public());
             }
@@ -386,11 +395,22 @@ impl ProviderConfig {
 /// Reuse native adapter construction for editable profiles. Missing credentials
 /// leave a configured provider inactive so the subsequent credentials.set can
 /// activate it; no placeholder model is advertised as usable.
+#[cfg(test)]
 pub(crate) async fn registry_from_settings(
     document: &xharness_host::ModelSettingsDocument,
     keys: &BTreeMap<String, Option<String>>,
     debug: DebugRecorder,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
+) -> Result<ModelRegistry, String> {
+    registry_from_resolved_settings(document, keys, debug, attachments, &BTreeMap::new()).await
+}
+
+pub(crate) async fn registry_from_resolved_settings(
+    document: &xharness_host::ModelSettingsDocument,
+    keys: &BTreeMap<String, Option<String>>,
+    debug: DebugRecorder,
+    attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
+    observations: &BTreeMap<(String, String), serde_json::Value>,
 ) -> Result<ModelRegistry, String> {
     let mut registry = ModelRegistry::new();
     for (id, profile) in &document.providers {
@@ -407,7 +427,7 @@ pub(crate) async fn registry_from_settings(
             "max_output_tokens":m.max_tokens.or(profile.max_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
             "minimum_output_tokens":m.minimum_output_tokens,
             "token_safety_margin":m.token_safety_margin.unwrap_or(DEFAULT_TOKEN_SAFETY_MARGIN),
-            "reasoning":m.reasoning,"context_window_capability":m.context_window_capability,"image_input":m.image_input
+            "reasoning_capability":observations.get(&(id.clone(),m.id.clone())),"reasoning":m.reasoning,"reasoning_disabled":m.reasoning.as_ref().is_some_and(serde_json::Value::is_null),"context_window_capability":m.context_window_capability,"image_input":m.image_input
         })).collect::<Vec<_>>();
         let provider: ProviderConfig = serde_json::from_value(serde_json::json!({
             "id":id,"display_name":profile.display_name,"base_url":profile.base_url,
@@ -494,6 +514,10 @@ struct ModelConfig {
     #[serde(default)]
     reasoning: Option<ModelReasoningConfig>,
     #[serde(default)]
+    reasoning_disabled: bool,
+    #[serde(default)]
+    reasoning_capability: Option<serde_json::Value>,
+    #[serde(default)]
     image_input: Option<bool>,
 }
 
@@ -517,16 +541,17 @@ struct ContextWindowCapabilityConfig {
     ttl_seconds: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-struct ModelReasoningConfig {
+pub(crate) struct ModelReasoningConfig {
     #[serde(default)]
+    #[serde(alias = "defaultEffort")]
     default_effort: Option<String>,
     efforts: Vec<ModelReasoningEffortConfig>,
 }
 
 impl ModelReasoningConfig {
-    fn adapter_profile(&self) -> Result<OpenAiReasoningProfile, String> {
+    pub(crate) fn adapter_profile(&self) -> Result<OpenAiReasoningProfile, String> {
         OpenAiReasoningProfile::new(
             self.default_effort.clone(),
             self.efforts
@@ -555,7 +580,7 @@ impl ModelReasoningConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 struct ModelReasoningEffortConfig {
     id: String,
@@ -563,6 +588,7 @@ struct ModelReasoningEffortConfig {
     #[serde(default)]
     description: Option<String>,
     #[serde(default = "empty_request_patch")]
+    #[serde(alias = "requestPatch")]
     request_patch: serde_json::Value,
 }
 

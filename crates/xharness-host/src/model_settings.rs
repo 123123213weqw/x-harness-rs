@@ -16,6 +16,9 @@ pub const MODEL_SETTINGS_NAMESPACE: &str = "llm-pi-ai";
 pub trait ModelSettingsBackend: Send + Sync + 'static {
     async fn prepare(&self, section: &Value) -> Result<ModelRegistry, String>;
     fn activate(&self, registry: ModelRegistry);
+    async fn refresh(&self, section: &Value) -> Result<ModelRegistry, String> {
+        self.prepare(section).await
+    }
     async fn credential_info(&self, reference: &str) -> Result<Value, String>;
     async fn set_credential(
         &self,
@@ -55,6 +58,9 @@ pub struct ProviderProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u64>,
     pub models: Vec<ConfiguredModel>,
+    /// Optional, explicitly configured capability endpoint; never guessed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_discovery: Option<Value>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -74,13 +80,68 @@ pub struct ConfiguredModel {
     pub minimum_output_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_safety_margin: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_json",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reasoning: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window_capability: Option<Value>,
     /// None: unknown; false: reject images before network; true: explicitly supported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_input: Option<bool>,
+}
+
+fn present_json<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
+}
+
+/// Fill omitted capability fields only for the same endpoint/protocol/upstream route.
+/// Array replacement must not erase capabilities, but explicit null disables reasoning.
+/// No deleted models are re-added, and user values always take precedence.
+pub(crate) fn inherit_model_capabilities(value: &mut Value, previous: &Value) {
+    let Some(providers) = value.get_mut("providers").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for (id, profile) in providers {
+        let Some(old) = previous.get("providers").and_then(|p| p.get(id)) else {
+            continue;
+        };
+        if profile.get("baseURL") != old.get("baseURL") || profile.get("api") != old.get("api") {
+            continue;
+        }
+        let Some(models) = profile.get_mut("models").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for model in models {
+            let Some(prior) = old
+                .get("models")
+                .and_then(Value::as_array)
+                .and_then(|ms| ms.iter().find(|m| m.get("id") == model.get("id")))
+            else {
+                continue;
+            };
+            if model
+                .get("upstreamModel")
+                .filter(|v| !v.is_null())
+                .or_else(|| model.get("id"))
+                != prior
+                    .get("upstreamModel")
+                    .filter(|v| !v.is_null())
+                    .or_else(|| prior.get("id"))
+            {
+                continue;
+            }
+            for key in ["reasoning", "contextWindowCapability", "imageInput"] {
+                if model.get(key).is_none() {
+                    if let Some(v) = prior.get(key) {
+                        model[key] = v.clone();
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub fn valid_credential_reference(value: &str) -> bool {
@@ -203,7 +264,7 @@ pub fn model_settings_schema() -> Value {
         "6": {"type":"any"},
         "7": {"type":"object", "dict": {"id":1,"name":1,"contextWindow":2,"maxTokens":2,"upstreamModel":1,"minimumOutputTokens":2,"tokenSafetyMargin":2,"reasoning":6,"contextWindowCapability":6,"imageInput":6}},
         "8": {"type":"array", "inner":7},
-        "9": {"type":"object", "dict": {"displayName":1,"baseURL":1,"api":5,"apiKeyEnv":1,"usageInputSemantics":1,"defaultContextWindow":2,"maxTokens":2,"models":8}},
+        "9": {"type":"object", "dict": {"displayName":1,"baseURL":1,"api":5,"apiKeyEnv":1,"usageInputSemantics":1,"defaultContextWindow":2,"maxTokens":2,"models":8,"reasoningDiscovery":6}},
         "10": {"type":"dict", "inner":9},
         "12": {"type":"object", "dict":{"providers":10}}
     }})
@@ -249,14 +310,14 @@ impl BasicHost {
             let section = self.state.read().await.settings[MODEL_SETTINGS_NAMESPACE]
                 .value
                 .clone();
-            backend.activate(backend.prepare(&section).await?);
+            backend.activate(backend.refresh(&section).await?);
         }
         Ok(())
     }
 
     pub(crate) async fn prepare_model_change(
         &self,
-        ns: &SettingsNamespace,
+        ns: &mut SettingsNamespace,
     ) -> Result<Option<ModelRegistry>, RpcError> {
         if ns.ns != MODEL_SETTINGS_NAMESPACE {
             return Ok(None);
@@ -264,6 +325,11 @@ impl BasicHost {
         let backend = self.model_settings.get().ok_or_else(|| {
             model_settings_error("Model configuration is unavailable in this embedded Host")
         })?;
+        let previous = self.state.read().await.settings[MODEL_SETTINGS_NAMESPACE]
+            .value
+            .clone();
+        inherit_model_capabilities(&mut ns.value, &previous);
+        inherit_model_capabilities(&mut ns.value, &ns.base);
         parse_model_settings(&ns.value).map_err(model_settings_error)?;
         backend
             .prepare(&ns.value)
@@ -352,5 +418,60 @@ mod tests {
         assert_eq!(s["refs"]["12"]["dict"]["providers"], 10);
         assert_eq!(s["refs"]["10"]["inner"], 9);
         assert_eq!(s["refs"]["5"]["list"], json!([3, 4]));
+    }
+}
+
+#[cfg(test)]
+mod capability_inheritance_tests {
+    use super::*;
+    fn base() -> Value {
+        json!({"providers":{"p":{"baseURL":"https://api.example/v1","api":"openai-completions","models":[{"id":"m","reasoning":{"efforts":[{"id":"high"}]},"imageInput":true}]}}})
+    }
+    #[test]
+    fn omitted_metadata_survives_array_replacement_but_explicit_null_does_not_inherit() {
+        let base = base();
+        let mut value = base.clone();
+        value["providers"]["p"]["models"] = json!([{"id":"m","name":"renamed"}]);
+        inherit_model_capabilities(&mut value, &base);
+        assert_eq!(
+            value["providers"]["p"]["models"][0]["reasoning"],
+            base["providers"]["p"]["models"][0]["reasoning"]
+        );
+        assert_eq!(value["providers"]["p"]["models"][0]["name"], "renamed");
+        value["providers"]["p"]["models"][0]["reasoning"] = Value::Null;
+        inherit_model_capabilities(&mut value, &base);
+        let doc = parse_model_settings(&value).unwrap();
+        assert_eq!(doc.providers["p"].models[0].reasoning, Some(Value::Null));
+    }
+    #[test]
+    fn never_inherits_across_endpoint_protocol_or_model_changes() {
+        let base = base();
+        for (field, new) in [
+            ("baseURL", json!("https://other.example/v1")),
+            ("api", json!("openai-responses")),
+        ] {
+            let mut value = base.clone();
+            value["providers"]["p"][field] = new;
+            value["providers"]["p"]["models"] = json!([{"id":"m"}]);
+            inherit_model_capabilities(&mut value, &base);
+            assert!(value["providers"]["p"]["models"][0]
+                .get("reasoning")
+                .is_none());
+        }
+        for model in [
+            json!({"id":"new"}),
+            json!({"id":"m","upstreamModel":"other"}),
+        ] {
+            let mut value = base.clone();
+            value["providers"]["p"]["models"] = json!([model]);
+            inherit_model_capabilities(&mut value, &base);
+            assert!(value["providers"]["p"]["models"][0]
+                .get("reasoning")
+                .is_none());
+        }
+        let mut value = base.clone();
+        value["providers"]["p"]["models"] = json!([]);
+        inherit_model_capabilities(&mut value, &base);
+        assert_eq!(value["providers"]["p"]["models"], json!([]));
     }
 }
