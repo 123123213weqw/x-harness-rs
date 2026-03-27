@@ -1,0 +1,80 @@
+[
+  {
+    "events": [
+      {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 5,
+        "time": 1789368493475,
+        "type": "turn/start"
+      },
+      {
+        "data": {
+          "reason": {
+            "kind": "max-tokens"
+          },
+          "turn": 0
+        },
+        "seq": 27,
+        "time": 1789368493480,
+        "type": "turn/end"
+      }
+    ],
+    "provider_calls": 3,
+    "queued": false,
+    "running": false
+  },
+  {
+    "events": [
+      {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 6,
+        "time": 1789368493500,
+        "type": "turn/start"
+      },
+      {
+        "data": {
+          "reason": {
+            "kind": "max-tokens"
+          },
+          "turn": 0
+        },
+        "seq": 28,
+        "time": 1789368493505,
+        "type": "turn/end"
+      },
+      {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 1
+        },
+        "seq": 29,
+        "time": 1789368493515,
+        "type": "turn/start"
+      }
+    ],
+    "provider_calls": 4,
+    "queued": true,
+    "running": true
+  }
+]
