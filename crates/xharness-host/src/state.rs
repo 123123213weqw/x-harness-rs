@@ -212,6 +212,21 @@ pub(crate) struct QueuedPrompt {
     pub placement: QueuePlacement,
 }
 
+impl QueuedPrompt {
+    /// Runtime inputs may have role=user for the model without being user drafts.
+    pub(crate) fn user_mutable(&self) -> bool {
+        self.source.get("kind").and_then(Value::as_str) == Some("user")
+    }
+
+    pub(crate) fn ui_placement(&self) -> QueuePlacement {
+        if self.user_mutable() {
+            self.placement
+        } else {
+            QueuePlacement::Context
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ProjectedSessionMutationReceipt {
     pub receipt: SessionMutationReceipt,
@@ -425,7 +440,7 @@ impl SessionRecord {
             .map(|item| {
                 json!({
                     "id": item.id,
-                    "placement": item.placement.as_str(),
+                    "placement": item.ui_placement().as_str(),
                     "message": {
                         "id": item.id,
                         "role": "user",

@@ -625,7 +625,7 @@ window.__ModuleLoader__.load({
       if (compaction === undefined) return null
       const beforeTokens = numberOrUndefined(compaction.shadowedTokenCount ?? compaction.shadowed_token_count)
       const afterBudget = after === undefined ? {} : tokenBudget(normalizedRequest(after))
-      const summary = typeof compaction.summary === 'string' ? compaction.summary : ''
+      const summary = typeof compaction.summary === 'string' ? compaction.summary : Array.isArray(compaction.summary) ? compaction.summary.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('') : ''
       return h('details', { className: 'xhctx-compaction-banner', open: true }, [
         h('summary', { key: 'summary' }, [
           h('strong', { key: 'title' }, `压缩 ${compaction.compactionId ?? compaction.compaction_id ?? ''}`),

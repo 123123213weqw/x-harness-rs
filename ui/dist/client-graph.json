@@ -1,5 +1,5 @@
 {
-  "rev": "449c20b467e22c5a",
+  "rev": "34495ea5db76bcaf",
   "entries": [
     {
       "id": "@deepseek-ai/dsh-typert-registry",
@@ -181,8 +181,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-conversation",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=13100b7e4afbe6a6",
-      "rev": "13100b7e4afbe6a6",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=c3aaa59feb6929d6",
+      "rev": "c3aaa59feb6929d6",
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
@@ -438,8 +438,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-context",
-      "url": "/plugins/@xlang/xharness-client-ui-context/client.js?rev=33b00bb702e772da",
-      "rev": "33b00bb702e772da",
+      "url": "/plugins/@xlang/xharness-client-ui-context/client.js?rev=3b259d33ef554a28",
+      "rev": "3b259d33ef554a28",
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation"
