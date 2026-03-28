@@ -49,7 +49,9 @@ use tokio::{
 };
 use xharness_debug::{DebugEvent, DebugRecorder};
 #[cfg(windows)]
-use xharness_win32::{resume_suspended_process, Job, Win32Error, WINDOWS_CREATE_SUSPENDED};
+use xharness_win32::{
+    resume_suspended_process, Job, Win32Error, WINDOWS_CREATE_NO_WINDOW, WINDOWS_CREATE_SUSPENDED,
+};
 
 pub const DEFAULT_CAPTURE_LIMIT: usize = 256 * 1024;
 pub const DEFAULT_TERMINATION_GRACE: Duration = Duration::from_secs(2);
@@ -577,11 +579,13 @@ impl ProcessRuntime {
         // Windows processes start suspended so Job assignment is complete
         // before their first instruction. Without this ordering, a fast child
         // can create descendants before the parent joins the Job and escape
-        // tree-wide cancellation.
+        // tree-wide cancellation. These are non-interactive, pipe-backed
+        // commands: suppress console allocation without detaching their pipes
+        // or weakening Job ownership. Interactive terminals use ConPTY.
         #[cfg(windows)]
         command
             .as_std_mut()
-            .creation_flags(WINDOWS_CREATE_SUSPENDED);
+            .creation_flags(WINDOWS_CREATE_SUSPENDED | WINDOWS_CREATE_NO_WINDOW);
 
         // SAFETY: the closure captures no state and performs exactly one
         // async-signal-safe syscall in the post-fork/pre-exec child. Linux
