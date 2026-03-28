@@ -79,6 +79,10 @@ impl RestrictedChild {
                 ptr::null(),
                 ptr::null(),
                 1,
+                // Inherit the runner's console: ProcessRuntime already starts
+                // it with CREATE_NO_WINDOW. A fresh console under a restricted
+                // token can fail initialization; detaching can break PowerShell
+                // execution. Preserve inherited console state and explicit pipes.
                 CREATE_SUSPENDED,
                 ptr::null(),
                 cwd.as_ptr(),

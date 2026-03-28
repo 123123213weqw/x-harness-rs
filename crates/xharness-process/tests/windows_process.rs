@@ -58,6 +58,27 @@ fn pwsh(cwd: &Path, command: &str) -> SpawnSpec {
 }
 
 #[tokio::test]
+async fn non_interactive_child_has_no_console_and_keeps_streams_and_exit_code() {
+    let dir = TestDir::new();
+    let output = ProcessRuntime::new()
+        .spawn(
+            pwsh(
+                dir.path(),
+                include_str!("../../../scripts/fixtures/windows-no-console.ps1"),
+            )
+            .timeout(Duration::from_secs(30)),
+        )
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert_eq!(output.termination, TerminationReason::Exited);
+    assert_eq!(output.status.code, Some(17), "{}", output.stderr.text);
+    assert_eq!(output.stdout.text, "no-console-stdout-你好");
+    assert_eq!(output.stderr.text, "no-console-stderr-错误");
+}
+
+#[tokio::test]
 async fn foreground_process_preserves_utf8_cwd_and_nonzero_status() {
     let dir = TestDir::new();
     let output = ProcessRuntime::new()

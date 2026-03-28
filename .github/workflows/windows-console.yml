@@ -1,0 +1,28 @@
+name: Windows console boundaries
+
+on:
+  pull_request:
+    paths:
+      - 'crates/xharness-process/**'
+      - 'crates/xharness-sandbox/**'
+      - 'crates/xharness-win32/**'
+      - 'crates/xharness-terminal/**'
+      - 'scripts/fixtures/windows-no-console.ps1'
+      - '.github/workflows/windows-console.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Native console, pipe, ACL, cancellation and ConPTY regressions
+        run: cargo test --locked -p xharness-process -p xharness-sandbox -p xharness-terminal --all-targets
