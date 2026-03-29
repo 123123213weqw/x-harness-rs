@@ -22,8 +22,22 @@ name: Mirror releases to Gitee
 #   variable XHARNESS_GITEE_REPOSITORY = <owner>/<repo>
 #   secret   XHARNESS_GITEE_TOKEN      = <Gitee private token, projects scope>
 on:
+  # Human-published releases reach here directly.
   release:
     types: [published]
+  # Releases published by this repository's own workflows use GITHUB_TOKEN, and GitHub
+  # creates no workflow run for GITHUB_TOKEN-triggered events (workflow_dispatch and
+  # repository_dispatch excepted). `release: published` therefore never fires on the
+  # normal automated path: desktop-v0.2.19 was published by Desktop Promote at
+  # 2026-09-14T10:35:03Z and started nothing here. This workflow is therefore named
+  # explicitly as a listener so a channel promotion is mirrored anyway.
+  workflow_run:
+    workflows: ["Desktop Promote", "Friends Windows Release"]
+    types: [completed]
+  # Last resort for anything the triggers above still miss; resolves every channel and
+  # is idempotent, so a redundant run only re-checks what is already attached.
+  schedule:
+    - cron: '29 4 * * *'
   workflow_dispatch:
     inputs:
       tag:
@@ -52,7 +66,10 @@ concurrency:
 
 jobs:
   mirror:
-    if: vars.XHARNESS_GITEE_REPOSITORY != ''
+    # A failed promotion has nothing to mirror; the alert workflow owns that report.
+    if: >-
+      vars.XHARNESS_GITEE_REPOSITORY != '' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     env:
