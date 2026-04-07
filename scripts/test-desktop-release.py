@@ -52,7 +52,7 @@ class PortableSearch(unittest.TestCase):
 
     def test_all_mac_packaging_paths_use_portable_rg(self):
         for name in ('ci.yml', 'desktop-release.yml', 'desktop-update-test.yml',
-                     'desktop-unix-update-acceptance.yml'):
+                     'desktop-unix-update-acceptance.yml', 'desktop-macos-preview.yml'):
             source = (ROOT / '.github/workflows' / name).read_text()
             self.assertIn('scripts/install-portable-rg.sh', source, name)
             self.assertNotIn('brew install ripgrep', source, name)
