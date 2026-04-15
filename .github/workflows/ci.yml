@@ -98,12 +98,15 @@ jobs:
       - run: node scripts/test-model-controls.mjs
       - run: node scripts/test-workspace-directory.mjs
       - run: node scripts/test-workspace-created-at.mjs
+      - run: node scripts/test-settings-save-feedback.mjs
       - name: Real browser layout regression
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
         run: |
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-settings-save-feedback-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-settings-save-feedback-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-desktop-updater-layer.mjs
           node scripts/test-runtime-diagnostics-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-desktop-updater-layer.mjs

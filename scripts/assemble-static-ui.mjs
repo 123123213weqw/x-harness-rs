@@ -19,6 +19,7 @@ import { patchConversationMessageEdit, patchMessageEditConnection, patchMessageE
 import { patchContextAccounting, patchContextConnection } from './patch-context-accounting.mjs'
 import { patchModelControls, patchModelConnection, patchReasoningSettings } from './patch-model-controls.mjs'
 import { patchWorkspaceCreatedAt } from './patch-workspace-created-at.mjs'
+import { patchSettingsSaveFeedback } from './patch-settings-save-feedback.mjs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -114,6 +115,7 @@ for (const entry of composed) {
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchMaxTokensNotice(bytes)
   bytes = patchWorkspaceCreatedAt(entry.name, bytes)
+  bytes = patchSettingsSaveFeedback(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchTranscriptWindowing(bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })

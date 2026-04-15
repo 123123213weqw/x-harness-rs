@@ -706,7 +706,7 @@ impl BasicHost {
             }));
         }
         let now = now_ms();
-        let effective_preset = preset.or_else(|| Some("coding".to_owned()));
+        let effective_preset = preset.or_else(|| Some(state.default_agent_preset().to_owned()));
         let permission_preset = state
             .settings
             .get("permission")
@@ -2451,7 +2451,11 @@ impl BasicHost {
         require_object(payload)?;
         let state = self.state.read().await;
         Ok(json!({
-            "presets": state.presets.values().collect::<Vec<_>>(),
+            "presets": state.presets.values().map(|preset| {
+                let mut preset = preset.clone();
+                preset.is_default = preset.id == state.default_agent_preset();
+                preset
+            }).collect::<Vec<_>>(),
             "authorable": true,
             "hasDocument": false,
         }))
@@ -3034,6 +3038,7 @@ impl BasicHost {
             .ok_or_else(|| settings_rejected(&ns))?;
         check_revision(&namespace, expected)?;
         merge_object(&mut namespace.user, &Value::Object(patch));
+        crate::preference_settings::validate(&namespace)?;
         merge_object(&mut namespace.value, &namespace.user);
         namespace.revision = namespace.revision.saturating_add(1);
         drop(state);
@@ -3085,6 +3090,7 @@ impl BasicHost {
             .ok_or_else(|| settings_rejected(&ns))?;
         check_revision(&namespace, expected)?;
         namespace.user = Value::Object(section.clone());
+        crate::preference_settings::validate(&namespace)?;
         namespace.value = Value::Object(section);
         if ns == crate::MODEL_SETTINGS_NAMESPACE {
             namespace.value = namespace.base.clone();
@@ -3169,6 +3175,7 @@ impl BasicHost {
                 _ => return Err(bad_request("settings op must be set or unset")),
             }
         }
+        crate::preference_settings::validate(&namespace)?;
         namespace.value = namespace.user.clone();
         if ns == crate::MODEL_SETTINGS_NAMESPACE {
             namespace.value = namespace.base.clone();
