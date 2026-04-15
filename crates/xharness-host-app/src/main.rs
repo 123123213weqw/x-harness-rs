@@ -186,7 +186,13 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         None => serde_json::json!({"providers":{}}),
     };
     let credentials = Arc::new(NativeCredentialStore::new(&args.state_dir)?);
+    let calibration_path = args.state_dir.join("token-calibration-v1.json");
+    let calibration = tokio::task::spawn_blocking(move || {
+        xharness_provider_openai::CalibrationStore::open(calibration_path)
+    })
+    .await?;
     let model_settings = NativeModelSettings::new(runtime.clone(), credentials, debug.clone())
+        .with_calibration_store(Arc::new(calibration))
         .with_capability_cache(args.state_dir.join("reasoning-capabilities.json"))
         .with_attachments(attachments)
         .with_process_key(

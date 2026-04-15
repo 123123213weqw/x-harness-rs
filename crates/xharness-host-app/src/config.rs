@@ -286,7 +286,7 @@ impl ProviderConfig {
             })?,
             None => String::new(),
         };
-        self.register_models_with_key(registry, debug, api_key, None)
+        self.register_models_with_key(registry, debug, api_key, None, None)
             .await
     }
 
@@ -296,6 +296,7 @@ impl ProviderConfig {
         debug: DebugRecorder,
         api_key: String,
         attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
+        calibration: Option<Arc<xharness_provider_openai::CalibrationStore>>,
     ) -> Result<(), String> {
         let protocol = parse_protocol(&self.protocol)?;
         let provider_display_name = self.display_name.unwrap_or_else(|| self.id.clone());
@@ -352,6 +353,10 @@ impl ProviderConfig {
                 .map_err(|error| error.to_string())?
                 .with_debug(debug.clone())
                 .with_image_support(image_input);
+            let adapter = match calibration.clone() {
+                Some(store) => adapter.with_calibration_store(store),
+                None => adapter,
+            };
             let adapter = match attachments.clone() {
                 Some(store) => adapter.with_attachments(store),
                 None => adapter,
@@ -402,7 +407,8 @@ pub(crate) async fn registry_from_settings(
     debug: DebugRecorder,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
 ) -> Result<ModelRegistry, String> {
-    registry_from_resolved_settings(document, keys, debug, attachments, &BTreeMap::new()).await
+    registry_from_resolved_settings(document, keys, debug, attachments, &BTreeMap::new(), None)
+        .await
 }
 
 pub(crate) async fn registry_from_resolved_settings(
@@ -411,6 +417,7 @@ pub(crate) async fn registry_from_resolved_settings(
     debug: DebugRecorder,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
     observations: &BTreeMap<(String, String), serde_json::Value>,
+    calibration: Option<Arc<xharness_provider_openai::CalibrationStore>>,
 ) -> Result<ModelRegistry, String> {
     let mut registry = ModelRegistry::new();
     for (id, profile) in &document.providers {
@@ -436,7 +443,7 @@ pub(crate) async fn registry_from_resolved_settings(
             "models":models
         }))
         .map_err(|_| "Invalid native model metadata".to_owned())?;
-        provider.register_models_with_key(&mut registry, debug.clone(), key, attachments.clone()).await
+        provider.register_models_with_key(&mut registry, debug.clone(), key, attachments.clone(), calibration.clone()).await
             .map_err(|_| format!("Provider {id} configuration could not be activated; check model metadata and token limits"))?;
     }
     Ok(registry)

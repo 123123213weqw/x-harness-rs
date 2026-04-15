@@ -6,7 +6,7 @@
 //! an HTTP request that the model server must reject.
 
 mod calibration;
-pub use calibration::{Calibration, WireFeatures};
+pub use calibration::{Calibration, WireFeatures, MAX_CALIBRATION_BYTES};
 
 use std::{fmt, sync::Arc};
 
