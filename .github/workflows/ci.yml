@@ -93,6 +93,7 @@ jobs:
       - run: node scripts/test-silver-surface.mjs
       - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-assistant-projection.mjs
+      - run: node scripts/test-retry-turn-projection.mjs
       - run: node scripts/test-permission-selection.mjs
       - run: node --check scripts/assemble-static-ui.mjs
       - run: node scripts/test-model-controls.mjs
