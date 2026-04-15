@@ -96,6 +96,7 @@ pub struct NativeModelSettings {
     /// persisted; they remain read-only, just like environment overrides.
     process_keys: BTreeMap<String, String>,
     discovery: crate::reasoning_discovery::ReasoningDiscovery,
+    calibration: Option<Arc<xharness_provider_openai::CalibrationStore>>,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
 }
 
@@ -111,8 +112,16 @@ impl NativeModelSettings {
             debug,
             process_keys: BTreeMap::new(),
             discovery: Default::default(),
+            calibration: None,
             attachments: None,
         }
+    }
+    pub fn with_calibration_store(
+        mut self,
+        store: Arc<xharness_provider_openai::CalibrationStore>,
+    ) -> Self {
+        self.calibration = Some(store);
+        self
     }
     pub fn with_capability_cache(mut self, path: std::path::PathBuf) -> Self {
         self.discovery = crate::reasoning_discovery::ReasoningDiscovery::with_path(path);
@@ -229,6 +238,7 @@ impl NativeModelSettings {
                 self.debug.clone(),
                 self.attachments.clone(),
                 &observations,
+                self.calibration.clone(),
             ),
         )
         .await
