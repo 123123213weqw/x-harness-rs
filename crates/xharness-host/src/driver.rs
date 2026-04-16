@@ -800,15 +800,32 @@ impl BasicHost {
         mut control_rx: mpsc::Receiver<DriverCommand>,
     ) {
         loop {
-            let paused = {
+            let (paused, queued_user_prompt) = {
                 let state = self.state.read().await;
                 let Some(record) = state.sessions.get(&session_id) else {
                     return;
                 };
-                record.dispatch_paused
+                (record.dispatch_paused, record.has_queued_user_prompt())
             };
             self.queue_title(&session_id);
             if paused {
+                // An explicit stop ends the current turn; it never discards a
+                // queued user prompt (`docs/specs/host.md`). Reopen the gate so
+                // that prompt starts the next turn, exactly like a prompt
+                // admitted after the stop. Internal receipts project as context
+                // and keep the gate shut.
+                if queued_user_prompt {
+                    match self.set_dispatch_paused(&session_id, false).await {
+                        Ok(()) => continue,
+                        Err(error) => {
+                            self.push_host(json!({
+                                "type": "host/agent-error",
+                                "sessionId": session_id,
+                                "message": error.message,
+                            }));
+                        }
+                    }
+                }
                 let mut state = self.state.write().await;
                 if let Some(record) = state.sessions.get_mut(&session_id) {
                     record.running = false;
