@@ -379,3 +379,220 @@ async fn host_flood_steer_stop_clears_running_and_parks_internal_followup() {
     )));
     runtime.shutdown(Duration::from_secs(1)).await;
 }
+
+/// Blocks the first turn until it is cancelled, then completes every later one.
+struct BlockFirstTurn {
+    attempts: AtomicUsize,
+}
+#[async_trait]
+impl ModelProvider for BlockFirstTurn {
+    async fn stream(
+        &self,
+        _: ProviderRequest,
+        _: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        if self.attempts.fetch_add(1, AtomicOrdering::SeqCst) == 0 {
+            Ok(Box::pin(stream::pending()))
+        } else {
+            Ok(Box::pin(async_stream::stream! {
+                yield Ok(ProviderEvent::Completed {
+                    finish_reason: Some(FinishReason::Stop),
+                    usage: None,
+                    provider_items: Vec::new(),
+                });
+            }))
+        }
+    }
+}
+
+/// An explicit stop ends the current turn only. A user prompt that was already
+/// queued must still start the next turn instead of waiting behind the gate for
+/// an unrelated new message (live regression: session-1789634172710-56127).
+#[tokio::test]
+async fn user_stop_lets_the_already_queued_prompt_start_the_next_turn() {
+    use serde_json::json;
+    use std::time::Duration;
+    use xharness_api::{ApiBackend, RpcId, RpcMethod};
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let runtime = Arc::new(DurableLoopAgentRuntime::new(
+        "test",
+        "test-model",
+        Some(Arc::new(BlockFirstTurn {
+            attempts: AtomicUsize::new(0),
+        })),
+        Arc::new(NoTools),
+        Arc::new(IdentityContextPolicy),
+        store.clone(),
+        Arc::new(MemoryLeaseManager::default()),
+        2048,
+    ));
+    let mut config = crate::HostConfig::new(std::env::current_dir().unwrap());
+    config.provider_id = "test".into();
+    config.model_id = "test-model".into();
+    let host = crate::BasicHost::with_agent_runtime(config, runtime.clone());
+    host.session_create(&json!({"sessionId":"stop-queue"}))
+        .await
+        .unwrap();
+    let admission = |id: &str| crate::driver::PromptAdmission {
+        rpc_id: RpcId::new(id),
+        session_id: "stop-queue".into(),
+        mode: "queue".into(),
+        text: id.into(),
+        content: vec![json!({"type":"text","text":id})],
+        source: json!({"kind":"user"}),
+        fingerprint: None,
+    };
+    let turn_count = |session: &xharness_session::Session| {
+        session
+            .events()
+            .iter()
+            .filter(|e| matches!(e.data(), xharness_session::EventData::TurnStart { .. }))
+            .count()
+    };
+    host.enqueue_prompt(admission("first")).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let session = store.load("stop-queue").await.unwrap().unwrap();
+            if turn_count(&session) == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the first turn must start");
+    // Queued while the first turn is still running.
+    host.enqueue_prompt(admission("queued")).await.unwrap();
+    let response = host
+        .call(
+            RpcId::new("stop"),
+            RpcMethod::SessionCancel,
+            json!({"sessionId":"stop-queue"}),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(
+        matches!(response, xharness_api::RpcResult::Success { .. }),
+        "{response:?}"
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let session = store.load("stop-queue").await.unwrap().unwrap();
+            if session.events().iter().any(|e| {
+                matches!(
+                    e.data(),
+                    xharness_session::EventData::TurnEnd { turn: 2, .. }
+                )
+            }) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the queued user prompt must start the next turn after the stop");
+    let session = store.load("stop-queue").await.unwrap().unwrap();
+    assert_eq!(turn_count(&session), 2);
+    assert!(session.events().iter().any(|e| matches!(
+        e.data(),
+        xharness_session::EventData::TurnEnd {
+            turn: 1,
+            reason: xharness_session::TurnEndReason::UserInterrupted
+        }
+    )));
+    // The reopened gate is durable: a restart must not re-freeze the session.
+    let state = host.state.read().await;
+    assert!(!state.sessions["stop-queue"].dispatch_paused);
+    assert!(!state.sessions["stop-queue"].running);
+    drop(state);
+    assert!(!crate::delegation::restored_dispatch_paused(&session));
+    runtime.shutdown(Duration::from_secs(1)).await;
+}
+
+/// Completes every turn immediately.
+struct CompleteImmediately;
+#[async_trait]
+impl ModelProvider for CompleteImmediately {
+    async fn stream(
+        &self,
+        _: ProviderRequest,
+        _: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        Ok(Box::pin(async_stream::stream! {
+            yield Ok(ProviderEvent::Completed {
+                finish_reason: Some(FinishReason::Stop),
+                usage: None,
+                provider_items: Vec::new(),
+            });
+        }))
+    }
+}
+
+/// The persisted stop also outlives the process: a user prompt queued before it
+/// must be resumed at startup instead of staying parked behind the gate.
+#[tokio::test]
+async fn restart_resumes_a_queued_user_prompt_despite_the_persisted_stop() {
+    use std::time::Duration;
+    use xharness_session::{EventData, InboxMessage, InboxTarget, Revision};
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    store
+        .create(SessionHeader::new("stop-restore"))
+        .await
+        .unwrap();
+    store
+        .append(
+            "stop-restore",
+            Revision::ZERO,
+            vec![
+                EventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    start: 0,
+                    removed_count: 0,
+                    inserted: vec![InboxMessage::user("queued", "queued prompt")],
+                    outcome: None,
+                }
+                .into(),
+                EventData::AgentDispatchPaused { paused: true }.into(),
+            ],
+        )
+        .await
+        .unwrap();
+    let runtime = Arc::new(DurableLoopAgentRuntime::new(
+        "test",
+        "test-model",
+        Some(Arc::new(CompleteImmediately)),
+        Arc::new(NoTools),
+        Arc::new(IdentityContextPolicy),
+        store.clone(),
+        Arc::new(MemoryLeaseManager::default()),
+        2048,
+    ));
+    let mut config = crate::HostConfig::new(std::env::current_dir().unwrap());
+    config.provider_id = "test".into();
+    config.model_id = "test-model".into();
+    let host = crate::BasicHost::with_agent_runtime(config, runtime.clone());
+    let report = host.restore_from_store(store.clone()).await.unwrap();
+    assert_eq!(report.resumed_pending_turns, 1);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let session = store.load("stop-restore").await.unwrap().unwrap();
+            if session.events().iter().any(|e| {
+                matches!(
+                    e.data(),
+                    xharness_session::EventData::TurnEnd { turn: 1, .. }
+                )
+            }) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("a queued user prompt must still run after a restart");
+    let state = host.state.read().await;
+    assert!(!state.sessions["stop-restore"].dispatch_paused);
+    drop(state);
+    let session = store.load("stop-restore").await.unwrap().unwrap();
+    assert!(!crate::delegation::restored_dispatch_paused(&session));
+    runtime.shutdown(Duration::from_secs(1)).await;
+}
