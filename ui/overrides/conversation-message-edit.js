@@ -241,6 +241,6 @@ function XHarnessEditableInputBar(props) {
   ]});
 }
 function XHarnessEditAction({ content, editMessage, t }) {
-  return react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.Tooltip,{label:t('message.edit'),side:'bottom',children:
+  return react_jsx_runtime.jsx(_xharness_dsh_client_ui_primitives.Tooltip,{label:t('message.edit'),side:'bottom',children:
     react_jsx_runtime.jsx('button',{type:'button',className:MessageIconActions_module_css_default.action,'aria-label':t('message.edit'),'data-message-edit':'',onClick:()=>editMessage(content),children:'✎'})});
 }

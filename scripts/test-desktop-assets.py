@@ -42,8 +42,8 @@ def verify(app=None):
         web = app / 'Contents/Resources/web'
         for relative in ['index.html', 'client-graph.json',
                          directory_plugin,
-                         'plugins/@deepseek-ai/dsh-client-connection/client.js',
-                         'plugins/@deepseek-ai/dsh-client-ui-model-selection/client.js']:
+                         'plugins/@xharness/dsh-client-connection/client.js',
+                         'plugins/@xharness/dsh-client-ui-model-selection/client.js']:
             assert digest(web / relative) == digest(ROOT / 'ui/dist' / relative), f'packaged UI is stale: {relative}'
 
         # Execute the final signed sidecar, not the CI machine's PATH rg.

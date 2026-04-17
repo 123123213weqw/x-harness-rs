@@ -25,7 +25,7 @@ try{
  });
  await page.goto('http://math.test');await page.waitForFunction(()=>window.staticModules);
  await page.evaluate(()=>{
-  const R=staticModules.react,D=staticModules['react-dom'],M=staticModules['@deepseek-ai/dsh-client-ui-primitives'].MarkdownText;
+  const R=staticModules.react,D=staticModules['react-dom'],M=staticModules['@xharness/dsh-client-ui-primitives'].MarkdownText;
   const root=D.createRoot(document.getElementById('root'));const labels={copyLabel:'copy',copiedLabel:'copied'};
   window.renderMath=(text,streaming=true,key='test')=>D.flushSync(()=>root.render(R.createElement(M,{text,streaming,key,codeLabels:labels})));
  });
