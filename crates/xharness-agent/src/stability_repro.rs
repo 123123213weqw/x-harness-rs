@@ -27,9 +27,15 @@ use xharness_session::{
 };
 
 use crate::{
-    AgentEvent, AgentRegistry, AgentSupervisor, InboxMessage, MemoryLeaseManager,
-    TurnRequestFactory,
+    driver::WORKER_RESPAWN_BACKOFF, AgentEvent, AgentRegistry, AgentSupervisor, InboxMessage,
+    MemoryLeaseManager, TurnRequestFactory,
 };
+
+/// Wait out the respawn gate so the next command is allowed to spawn a worker.
+/// Derived from the implementation constant so the two cannot drift apart.
+async fn wait_out_respawn_backoff() {
+    tokio::time::sleep(WORKER_RESPAWN_BACKOFF + Duration::from_millis(150)).await;
+}
 
 /// A store that can be switched into failing reads and appends.
 struct ToggleFailStore {
@@ -238,9 +244,12 @@ async fn a_subscriber_attached_before_the_death_observes_the_respawned_worker() 
     .expect("turn 1 must finish on the original worker");
     assert_eq!(first, 1);
 
-    // One transient store error ends that worker task.
+    // One transient store error ends that worker task. Whether *this* call
+    // observes the death (`Err`) or is acknowledged just before it (`Ok`) is a
+    // race between the worker returning to its idle snapshot and this command,
+    // so only the invariant is asserted: the worker stops.
     failing.store(true, Ordering::Release);
-    handle.wake().await.unwrap_err();
+    let _ = handle.wake().await;
     tokio::time::timeout(Duration::from_secs(2), handle.when_stopped())
         .await
         .expect("the worker must stop after the transient store error");
@@ -248,6 +257,7 @@ async fn a_subscriber_attached_before_the_death_observes_the_respawned_worker() 
 
     // Storage recovers; the next durable input must run on the replacement.
     failing.store(false, Ordering::Release);
+    wait_out_respawn_backoff().await;
     handle
         .followup(InboxMessage::user("prompt-2", "second"))
         .await
@@ -325,7 +335,7 @@ async fn a_worker_that_died_mid_drive_can_still_be_replaced() {
     assert!(handle.is_stopped());
 
     // Past the respawn backoff, a second input must still run.
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_out_respawn_backoff().await;
     handle
         .followup(InboxMessage::user("prompt-2", "second"))
         .await

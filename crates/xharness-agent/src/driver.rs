@@ -172,7 +172,7 @@ struct CommandEnvelope {
 /// Minimum spacing between worker respawns on one handle. A worker that dies
 /// immediately — for example while the store is persistently unavailable — must
 /// not be respawned at loop speed by a caller that is itself retrying.
-const WORKER_RESPAWN_BACKOFF: Duration = Duration::from_millis(250);
+pub(crate) const WORKER_RESPAWN_BACKOFF: Duration = Duration::from_millis(250);
 
 /// The command surface of one spawned worker task.
 struct WorkerGeneration {
