@@ -22,3 +22,6 @@ pub use delegation::{AgentOperation, DelegationRuntime};
 
 mod goal;
 pub use goal::*;
+
+#[cfg(test)]
+mod stability_repro;

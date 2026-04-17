@@ -1145,7 +1145,13 @@ impl DurableLoopAgentRuntime {
                             });
                             if !needs_wake {watched.remove(handle.id());break}
                             drop(watched);
-                            if handle.wake().await.is_err() {break}
+                            // A failed wake is transient: the worker may be mid-replacement,
+                            // or the activation may already be shutting down. Retiring here
+                            // would strand this id in `watched`, so no later
+                            // `attach_schedules` could recreate the watcher. Retry next tick
+                            // instead — this loop is the only thing that wakes an idle
+                            // Goal, and it is already gated on `needs_wake`.
+                            let _ = handle.wake().await;
 
                         }
                     }
