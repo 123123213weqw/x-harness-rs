@@ -118,6 +118,7 @@ Subscribed/Projection，并为非空 Inbox 发送完整 Queue Snapshot；空列�
 - 终态按输入所属 turn 的 TurnEnd 恢复；结果仅使用该结束位置及之前的消息，禁止混入已经开始的后续 turn。能恢复的 Usage/Finish 信息保留，旧日志缺失字段不伪造。
 - 删除、Parked、Idle 和广播关闭均触发身份/终态检查。静默时最多每秒检查一次 Agent 是否 Idle；模型/工具忙碌期间不轮询完整日志。Idle 的遗留观察器可以收敛，不依赖下一条模型输出唤醒。
 - 正常结束后仍走原有 Host Driver 收尾：同步事件、清除 running/control、发布状态。用户停止的 dispatch-paused 门禁不变；内部 settlement 到达只排队，不恢复运行。
+- 例外是用户自己排队的 Prompt：恢复时若仍有 `source.kind=user` 的 next-turn 输入，即使门禁为 paused 也恢复该会话，并由 Driver 打开门禁开始下一 Turn；内部回执（`placement=context`）在两种路径下都不能解冻已停止的会话。
 - 恢复只重建观察状态，不重放输入、不重新执行工具、不伪造新的 TurnEnd，也不通过扩大缓冲区掩盖丢事件。
 
 回归覆盖：默认 2048 容量下 2200 片流式输出；订阅滞后后 Steer/删除再停止；旧观察器晚于后续四轮恢复；完整 Host RPC 的队列 Steering、用户停止、running/control 清理及后续内部回执不得唤醒。

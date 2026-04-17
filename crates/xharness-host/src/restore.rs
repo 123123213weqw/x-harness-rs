@@ -163,6 +163,11 @@ impl BasicHost {
             let projected_queue = restored_queue(&inbox);
             let admissions = restored_admissions(&session);
             let projected_queue_len = queue.len();
+            // A stop outlives the process, but a prompt the user queued before
+            // it does not belong to the aborted turn: resume it instead of
+            // stranding it behind the admission gate. Internal receipts project
+            // as context and keep the gate shut.
+            let queued_user_prompt = queue.iter().any(|prompt| prompt.user_mutable());
             let pending_approval_count = session.pending_tool_approvals().len();
             let recoverable_question_count = session.recoverable_user_questions().len();
             let runtime_background_work = match self.agent_runtime.needs_session_resume(&session) {
@@ -267,7 +272,7 @@ impl BasicHost {
             }
             report.restored_sessions += 1;
             report.waiting_next_step_inputs += inbox.next_step().len();
-            if !crate::delegation::restored_dispatch_paused(&session)
+            if (!crate::delegation::restored_dispatch_paused(&session) || queued_user_prompt)
                 && (projected_queue_len > 0
                     || pending_approval_count > 0
                     || recoverable_question_count > 0
