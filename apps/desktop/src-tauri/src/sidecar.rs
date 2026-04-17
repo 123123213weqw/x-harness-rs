@@ -88,7 +88,10 @@ impl DesktopState {
             .transpose()?
             .unwrap_or_default();
         Ok(Self {
-            diagnostics: crate::diagnostics::Diagnostics::new(app_cache.join("diagnostics")),
+            diagnostics: crate::diagnostics::Diagnostics::new(
+                app_cache.join("diagnostics"),
+                app_config.join("diagnostics.json"),
+            ),
             stop_requested: AtomicBool::new(false),
             #[cfg(windows)]
             host_job: xharness_win32::Job::new_kill_on_close()?,
