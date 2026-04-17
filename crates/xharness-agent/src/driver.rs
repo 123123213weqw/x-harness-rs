@@ -3,12 +3,12 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
     AgentMessage, InjectionMode, LoopCommand, LoopControlError, LoopEngine, LoopEvent, LoopRequest,
@@ -169,16 +169,75 @@ struct CommandEnvelope {
     acknowledgement: oneshot::Sender<Result<(), AgentCommandError>>,
 }
 
+/// Minimum spacing between worker respawns on one handle. A worker that dies
+/// immediately — for example while the store is persistently unavailable — must
+/// not be respawned at loop speed by a caller that is itself retrying.
+const WORKER_RESPAWN_BACKOFF: Duration = Duration::from_millis(250);
+
+/// The command surface of one spawned worker task.
+struct WorkerGeneration {
+    commands: mpsc::Sender<CommandEnvelope>,
+    abort: tokio::task::AbortHandle,
+    /// Earliest instant at which a further respawn is permitted.
+    respawn_allowed_at: Option<Instant>,
+}
+
+/// Spawn one worker task over the handle's shared channels.
+///
+/// `events`, `status` and `stopped` belong to the handle, not to the task, so a
+/// respawned worker publishes through the same broadcast/watch senders the Host
+/// already subscribed to.
+fn spawn_worker(
+    activation: &Arc<AgentActivation>,
+    factory: &Arc<dyn TurnRequestFactory>,
+    events: &broadcast::Sender<AgentEvent>,
+    status: &watch::Sender<AgentStatus>,
+    stopped: &watch::Sender<bool>,
+    shutdown: &CancellationToken,
+) -> WorkerGeneration {
+    let (commands, command_rx) = mpsc::channel(64);
+    let worker = DriverWorker {
+        activation: Arc::clone(activation),
+        factory: Arc::clone(factory),
+        commands: command_rx,
+        events: events.clone(),
+        status: status.clone(),
+        wake_requested: false,
+        recovery_requested: false,
+        shutdown: shutdown.clone(),
+    };
+    // A new generation is live again until its own task finishes.
+    stopped.send_replace(false);
+    let done = stopped.clone();
+    let task = tokio::spawn(async move {
+        let _done = WorkerDoneGuard(done);
+        worker.run().await;
+    });
+    WorkerGeneration {
+        commands,
+        abort: task.abort_handle(),
+        respawn_allowed_at: None,
+    }
+}
+
 /// Cloneable control handle for one long-lived Agent worker.
+///
+/// The handle outlives any single worker task. Every `Err` out of the worker
+/// loop ends that task, so the next command respawns a worker against the same
+/// [`AgentActivation`] — and therefore the same lease — instead of answering
+/// [`AgentCommandError::Closed`] for the rest of the process lifetime.
 #[derive(Clone)]
 pub struct DurableAgentHandle {
     activation: Arc<AgentActivation>,
-    commands: mpsc::Sender<CommandEnvelope>,
+    factory: Arc<dyn TurnRequestFactory>,
     events: broadcast::Sender<AgentEvent>,
     status: watch::Receiver<AgentStatus>,
+    status_tx: watch::Sender<AgentStatus>,
     shutdown: CancellationToken,
     stopped: watch::Receiver<bool>,
-    abort: tokio::task::AbortHandle,
+    stopped_tx: watch::Sender<bool>,
+    /// Current worker generation, shared by every clone of this handle.
+    worker: Arc<Mutex<WorkerGeneration>>,
 }
 
 impl DurableAgentHandle {
@@ -191,34 +250,28 @@ impl DurableAgentHandle {
         factory: Arc<dyn TurnRequestFactory>,
         event_capacity: usize,
     ) -> Self {
-        let (commands, command_rx) = mpsc::channel(64);
         let (events, _) = broadcast::channel(event_capacity.max(16));
         let (status_tx, status) = watch::channel(AgentStatus::Idle);
-        let shutdown = activation.cancellation();
         let (stopped_tx, stopped) = watch::channel(false);
-        let worker = DriverWorker {
-            activation: Arc::clone(&activation),
-            factory,
-            commands: command_rx,
-            events: events.clone(),
-            status: status_tx,
-            wake_requested: false,
-            recovery_requested: false,
-            shutdown: shutdown.clone(),
-        };
-        let task = tokio::spawn(async move {
-            let _done = WorkerDoneGuard(stopped_tx);
-            worker.run().await;
-        });
-        let abort = task.abort_handle();
+        let shutdown = activation.cancellation();
+        let worker = spawn_worker(
+            &activation,
+            &factory,
+            &events,
+            &status_tx,
+            &stopped_tx,
+            &shutdown,
+        );
         Self {
             activation,
-            commands,
+            factory,
             events,
             status,
+            status_tx,
             shutdown,
             stopped,
-            abort,
+            stopped_tx,
+            worker: Arc::new(Mutex::new(worker)),
         }
     }
 
@@ -238,8 +291,17 @@ impl DurableAgentHandle {
         *self.status.borrow()
     }
 
+    /// Identity of the handle rather than of its current worker task: a respawn
+    /// keeps the same handle, so holders that attached a subscriber or a timer
+    /// stay valid across it.
     pub fn is_same_worker(&self, other: &Self) -> bool {
-        self.commands.same_channel(&other.commands)
+        Arc::ptr_eq(&self.worker, &other.worker)
+    }
+
+    /// True once the current worker task has finished — returned, errored, or
+    /// panicked. The next command respawns it.
+    pub fn is_stopped(&self) -> bool {
+        *self.stopped.borrow()
     }
 
     pub async fn when_idle(&self) -> Result<(), AgentCommandError> {
@@ -276,7 +338,9 @@ impl DurableAgentHandle {
         {
             return AgentShutdownOutcome::Graceful;
         }
-        self.abort.abort();
+        // Clone the abort handle out of the lock: `when_stopped()` awaits below.
+        let abort = { self.worker.lock().await.abort.clone() };
+        abort.abort();
         self.when_stopped().await;
         AgentShutdownOutcome::ForcedCleanup
     }
@@ -352,13 +416,53 @@ impl DurableAgentHandle {
         .await
     }
 
+    /// The current worker's command sender, spawning a replacement worker when
+    /// the previous task has stopped.
+    ///
+    /// Holding the generation lock across the spawn keeps concurrent callers
+    /// from starting two workers. The send itself happens after the lock is
+    /// released, so awaiting a full channel cannot block a respawn.
+    async fn live_worker(&self) -> Result<mpsc::Sender<CommandEnvelope>, AgentCommandError> {
+        let mut worker = self.worker.lock().await;
+        if !*self.stopped.borrow() && !worker.commands.is_closed() {
+            return Ok(worker.commands.clone());
+        }
+        // A shutting-down activation must never grow a new worker task: `run()`
+        // would exit immediately and the shutdown deadline would be spent on it.
+        if self.shutdown.is_cancelled() {
+            return Err(AgentCommandError::Closed);
+        }
+        if worker
+            .respawn_allowed_at
+            .is_some_and(|at| Instant::now() < at)
+        {
+            return Err(AgentCommandError::Closed);
+        }
+        // A predecessor that died by panic or abort never reached
+        // `finish_driver()`, so its reservation would make the replacement fail
+        // `reserve_driver()` forever.
+        self.activation.release_stale_driver().await;
+        *worker = spawn_worker(
+            &self.activation,
+            &self.factory,
+            &self.events,
+            &self.status_tx,
+            &self.stopped_tx,
+            &self.shutdown,
+        );
+        worker.respawn_allowed_at = Some(Instant::now() + WORKER_RESPAWN_BACKOFF);
+        Ok(worker.commands.clone())
+    }
+
     async fn send(&self, command: DriverCommand) -> Result<(), AgentCommandError> {
         let (acknowledgement, accepted) = oneshot::channel();
-        self.commands
-            .send(CommandEnvelope {
-                command,
-                acknowledgement,
-            })
+        let envelope = CommandEnvelope {
+            command,
+            acknowledgement,
+        };
+        self.live_worker()
+            .await?
+            .send(envelope)
             .await
             .map_err(|_| AgentCommandError::Closed)?;
         accepted.await.map_err(|_| AgentCommandError::Closed)?
