@@ -680,25 +680,25 @@ mod tests {
     fn provider_secret_projection_is_deduplicated_and_path_safe() {
         let document = serde_json::json!({
             "providers": [
-                { "api_key_env": "DEEPSEEK_API_KEY" },
-                { "api_key_env": "DEEPSEEK_API_KEY" },
+                { "api_key_env": "EXAMPLE_API_KEY" },
+                { "api_key_env": "EXAMPLE_API_KEY" },
                 { "api_key_env": "../../ESCAPE" },
                 { "api_key_env": "SECONDARY_TOKEN" }
             ]
         });
         assert_eq!(
             provider_key_env_names(&document),
-            vec!["DEEPSEEK_API_KEY", "SECONDARY_TOKEN"]
+            vec!["EXAMPLE_API_KEY", "SECONDARY_TOKEN"]
         );
 
-        let candidates = provider_secret_candidates(Path::new("/app/config"), "DEEPSEEK_API_KEY");
+        let candidates = provider_secret_candidates(Path::new("/app/config"), "EXAMPLE_API_KEY");
         assert_eq!(
             candidates[0],
-            Path::new("/app/config/secrets/DEEPSEEK_API_KEY")
+            Path::new("/app/config/secrets/EXAMPLE_API_KEY")
         );
         assert_eq!(
             candidates[1],
-            Path::new("/app/config/secrets/deepseek_api_key")
+            Path::new("/app/config/secrets/example_api_key")
         );
     }
 }

@@ -121,8 +121,8 @@ async fn live_model_calls_real_tool_and_finishes_the_loop() {
 /// mentions legacy PTY/nohup patterns, then verifies that a real model follows
 /// the advertised Harness-native API instead of synthesizing its own daemon.
 #[tokio::test]
-#[ignore = "requires a live DeepSeek OpenAI-compatible endpoint"]
-async fn live_deepseek_uses_managed_jobs_instead_of_pty_or_nohup() {
+#[ignore = "requires a live OpenAI-compatible endpoint (XHARNESS_LIVE_BASE_URL/_API_KEY)"]
+async fn live_model_uses_managed_jobs_instead_of_pty_or_nohup() {
     let base_url = std::env::var("XHARNESS_LIVE_BASE_URL").expect("XHARNESS_LIVE_BASE_URL");
     let model = std::env::var("XHARNESS_LIVE_MODEL").expect("XHARNESS_LIVE_MODEL");
     let api_key = std::env::var("XHARNESS_LIVE_API_KEY").expect("XHARNESS_LIVE_API_KEY");
@@ -136,8 +136,8 @@ async fn live_deepseek_uses_managed_jobs_instead_of_pty_or_nohup() {
         platform,
         Arc::new(JobRegistry::default()),
         Arc::new(WebRuntime::default()),
-        "deepseek-job-session",
-        "deepseek-job-agent",
+        "live-job-session",
+        "live-job-agent",
     );
     let registry = bundle.registry().await.expect("register live tools");
     let definitions = registry.definitions().await;
@@ -156,12 +156,12 @@ async fn live_deepseek_uses_managed_jobs_instead_of_pty_or_nohup() {
         api_key,
         model,
     ))
-    .expect("create live DeepSeek provider");
+    .expect("create live provider");
 
     let background_command = if cfg!(windows) {
-        "Start-Sleep -Seconds 1; Write-Output 'deepseek-job-ok'"
+        "Start-Sleep -Seconds 1; Write-Output 'live-job-ok'"
     } else {
-        "sleep 1; printf 'deepseek-job-ok\\n'"
+        "sleep 1; printf 'live-job-ok\\n'"
     };
     let mut request = LoopRequest::new(
         Arc::new(provider),
@@ -200,39 +200,39 @@ async fn live_deepseek_uses_managed_jobs_instead_of_pty_or_nohup() {
         }
     }
     let result = run.result().await;
-    println!("deepseek background calls={calls:?}");
-    println!("deepseek background result={result:?}");
+    println!("live background calls={calls:?}");
+    println!("live background result={result:?}");
 
     assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
     let shell = calls
         .iter()
         .find(|(name, _)| name == NATIVE_SHELL_TOOL)
-        .expect("DeepSeek did not call the native shell tool");
+        .expect("the live model did not call the native shell tool");
     let shell_arguments: serde_json::Value =
-        serde_json::from_str(&shell.1).expect("DeepSeek emitted invalid shell arguments");
+        serde_json::from_str(&shell.1).expect("the live model emitted invalid shell arguments");
     assert_eq!(shell_arguments["run_in_background"], true);
     let command = shell_arguments["command"].as_str().unwrap_or_default();
     for forbidden in ["nohup", "disown", "tmux", "screen", "pty"] {
         assert!(
             !command.to_ascii_lowercase().contains(forbidden),
-            "DeepSeek bypassed managed jobs with {forbidden}: {command}"
+            "the live model bypassed managed jobs with {forbidden}: {command}"
         );
     }
     assert!(
         calls.iter().any(|(name, _)| name == "job_output"),
-        "DeepSeek never collected the managed job"
+        "the live model never collected the managed job"
     );
-    assert!(result.final_text.contains("deepseek-job-ok"));
+    assert!(result.final_text.contains("live-job-ok"));
 }
 
-/// Release-candidate coding acceptance: a real DeepSeek model must inspect a
+/// Release-candidate coding acceptance: a real model must inspect a
 /// multi-file scheduling package, repair interacting parsing and dependency
 /// bugs through the ordinary tools, and run its visible tests. The harness
 /// then runs hidden acceptance cases and audits the Full Debug evidence instead
 /// of trusting the model's final text.
 #[tokio::test]
-#[ignore = "requires a live DeepSeek Flash endpoint"]
-async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
+#[ignore = "requires a live OpenAI-compatible endpoint (XHARNESS_LIVE_BASE_URL/_API_KEY)"]
+async fn live_model_repairs_code_and_emits_complete_debug_evidence() {
     let base_url = std::env::var("XHARNESS_LIVE_BASE_URL").expect("XHARNESS_LIVE_BASE_URL");
     let model = std::env::var("XHARNESS_LIVE_MODEL").expect("XHARNESS_LIVE_MODEL");
     let api_key = std::env::var("XHARNESS_LIVE_API_KEY").expect("XHARNESS_LIVE_API_KEY");
@@ -336,8 +336,8 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
         platform,
         Arc::new(JobRegistry::default()),
         Arc::new(WebRuntime::default().with_debug(debug.clone())),
-        "deepseek-coding-session",
-        "deepseek-coding-agent",
+        "live-coding-session",
+        "live-coding-agent",
     );
     let tool_executor =
         ToolExecutor::new(bundle.registry().await.unwrap()).with_debug(debug.clone());
@@ -347,7 +347,7 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
         api_key.clone(),
         model,
     ))
-    .expect("create live DeepSeek provider")
+    .expect("create live provider")
     .with_debug(debug.clone());
 
     let prompt = format!(
@@ -362,7 +362,7 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
     request.debug = debug.clone();
     request.tool_executor = Some(tool_executor);
     let journal = Arc::new(MemorySessionStore::default());
-    request.session_id = Some("deepseek-flash-coding-acceptance".to_owned());
+    request.session_id = Some("live-coding-acceptance".to_owned());
     request.journal_store = Some(journal.clone());
     let mut run = LoopEngine.start(request);
 
@@ -401,7 +401,7 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
     assert!(calls.iter().any(|name| name == "edit" || name == "write"));
     assert!(calls.iter().any(|name| name == NATIVE_SHELL_TOOL));
     let durable = journal
-        .load("deepseek-flash-coding-acceptance")
+        .load("live-coding-acceptance")
         .await
         .unwrap()
         .unwrap();
