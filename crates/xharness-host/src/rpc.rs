@@ -1815,6 +1815,13 @@ impl BasicHost {
     ) -> Result<(), RpcError> {
         let cancel_is_idempotent =
             matches!(&command, LoopCommand::Cancel | LoopCommand::InterruptByUser);
+        // Order stop with queue admission and the paused-to-running handoff.
+        // Release before waiting for the driver's acknowledgement.
+        let admission_guard = if cancel_is_idempotent {
+            Some(self.lock_admission(session_id).await)
+        } else {
+            None
+        };
         if cancel_is_idempotent {
             self.set_dispatch_paused(session_id, true).await?;
         }
@@ -1846,6 +1853,7 @@ impl BasicHost {
                 Err(RpcError::internal("session driver is no longer available"))
             };
         }
+        drop(admission_guard);
         match accepted.await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(LoopControlError::Closed)) | Err(_) if cancel_is_idempotent => Ok(()),
