@@ -1207,8 +1207,12 @@ fn open_regular_contained(root: &Path, target: &PhysicalTarget) -> Result<Option
 
 #[cfg(target_os = "linux")]
 fn open_file_beneath(target: &PhysicalTarget) -> Result<Option<OwnedFd>, FsError> {
+    // `O_NONBLOCK` is required, not cosmetic: the regular-file check happens
+    // after this open, so without it `open(2)` on a FIFO with no writer blocks
+    // per POSIX and `resolve` never returns. It is ignored for regular files,
+    // and every other file type is rejected by the `is_file` check below.
     let how = OpenHow::new()
-        .flags(OFlag::O_RDONLY | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW)
+        .flags(OFlag::O_RDONLY | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK)
         .resolve(
             ResolveFlag::RESOLVE_BENEATH
                 | ResolveFlag::RESOLVE_NO_MAGICLINKS
@@ -1229,7 +1233,9 @@ fn open_file_beneath(target: &PhysicalTarget) -> Result<Option<OwnedFd>, FsError
 
 #[cfg(target_os = "macos")]
 fn open_file_beneath(target: &PhysicalTarget) -> Result<Option<OwnedFd>, FsError> {
-    let flags = OFlag::O_RDONLY | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW;
+    // See the Linux twin: the type check runs after the open, so the open must
+    // not be able to block on a FIFO.
+    let flags = OFlag::O_RDONLY | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK;
     match openat(
         target.parent_fd.as_ref(),
         target.file_name.as_os_str(),
