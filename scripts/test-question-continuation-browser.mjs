@@ -36,9 +36,9 @@ try {
   await page.goto('http://workspace-fixture.test/')
   await page.waitForFunction(() => window.staticModules)
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
-  const plugins = readdirSync(resolve(dist,'plugins/@deepseek-ai'));
+  const plugins = readdirSync(resolve(dist,'plugins/@xharness'));
   for (const name of plugins) {
-    const file = resolve(dist,'plugins/@deepseek-ai',name,'client.js');
+    const file = resolve(dist,'plugins/@xharness',name,'client.js');
     let source=readFileSync(file,'utf8');
     if(name==='dsh-client-ui-user-questions') source=source.replace('exports.PendingQuestion =','exports.QuestionComposer = QuestionComposer; exports.PendingQuestion =');
     if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =', 'exports.XhCheckpointView = XhCheckpointView; exports.xhCheckpointDefinition = xhCheckpointDefinition; exports.XHarnessMessageEditor =');
@@ -47,7 +47,7 @@ try {
   await page.evaluate(() => {
     const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;if(cache[name])return cache[name];return cache[name]=registrations[name].factory(load)};
     const React=staticModules.react,DOM=staticModules['react-dom'];
-    const module=load('@deepseek-ai/dsh-client-ui-user-questions/client');
+    const module=load('@xharness/dsh-client-ui-user-questions/client');
     const root=DOM.createRoot(document.getElementById('root'));window.answers=[];
     window.renderQuestion=(deferred=false,key='q:test')=>{
       const wait={key,sessionId:'test',payload:{deferred,questions:[{id:'target',header:'选择',question:'Choose target?',options:[],multiSelect:false}]},respond:async answer=>{answers.push(answer);return {accepted:true}}};

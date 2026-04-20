@@ -98,8 +98,8 @@ let checks=0;
 }
 const graph=JSON.parse(readFileSync(new URL('ui/dist/client-graph.json',root)));
 for(const [id,patch] of [['dsh-client-ui-conversation',patchConversationMessageEdit],['dsh-client-connection',patchMessageEditConnection],['dsh-client-runtime',patchMessageEditRuntime]]){
- const bytes=readFileSync(new URL(`ui/dist/plugins/@deepseek-ai/${id}/client.js`,root));new vm.Script(bytes.toString());
- assert.equal(patch(bytes).toString(),bytes.toString());assert.equal(graph.entries.find(e=>e.id===`@deepseek-ai/${id}`).rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
+ const bytes=readFileSync(new URL(`ui/dist/plugins/@xharness/${id}/client.js`,root));new vm.Script(bytes.toString());
+ assert.equal(patch(bytes).toString(),bytes.toString());assert.equal(graph.entries.find(e=>e.id===`@xharness/${id}`).rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
  assert.throws(()=>patch(Buffer.from('upstream changed')),/signature changed/);
 }
 const html=readFileSync(new URL('ui/dist/index.html',root),'utf8');assert.deepEqual(JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]),graph);

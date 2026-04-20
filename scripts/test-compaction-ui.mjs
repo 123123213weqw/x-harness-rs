@@ -4,7 +4,7 @@ import vm from 'node:vm';
 const root=new URL('../',import.meta.url);
 const read=p=>readFileSync(new URL(p,root),'utf8');
 const fixtures=JSON.parse(read('tests/fixtures/compaction-ui.json'));
-const source=read('ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js');
+const source=read('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js');
 const start=source.indexOf('const COMPACT_PLUGIN = "compact";');
 const end=source.indexOf('//#endregion',source.indexOf('function registerCompactionConversationNode',start));
 assert.ok(start>=0 && end>start);
@@ -13,8 +13,8 @@ const jsx=(type,props)=>({type,props});
 const env={
  react:{memo:fn=>fn,useState:()=>[expanded,fn=>{expanded=fn(expanded);}]},
  react_jsx_runtime:{jsx,jsxs:jsx}, MessageItem_module_css_default:{},
- _deepseek_ai_dsh_client_ui_primitives:{MarkdownText:'markdown'},
- _deepseek_ai_dsh_client_runtime_client:{isReplacementSurfaceEvent:e=>e.surfaceOp?.op==='replace'},
+ _xharness_dsh_client_ui_primitives:{MarkdownText:'markdown'},
+ _xharness_dsh_client_runtime_client:{isReplacementSurfaceEvent:e=>e.surfaceOp?.op==='replace'},
  chatNode:(_context,kind,seq,data)=>({kind,seq,data}),
 };
 const itemStart=source.indexOf('const CompactionItem =');
