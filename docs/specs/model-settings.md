@@ -125,3 +125,20 @@ Web 和 Tauri 共用 `ui/dist`，输入区只保留模型选择按钮。点击�
 - 回归：精确端点、协议、别名、未知模型、自定义优先、坏配置、旧配置重复恢复、四档切换/持久化、切换未知模型清理旧档位；HTTP fixture 检查两协议的默认与四档共 10 个真实出站请求。
 
 依据：[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/) 与 [Chat API](https://api-docs.deepseek.com/api/create-chat-completion/)，核对日期 2026-09-07。
+
+## 2026-09-17：厂商能力表退出 Host
+
+- 删除 `xharness-host-app` 内置的官方能力目录（`config/reasoning_catalog.rs`）。该目录只在
+  “HTTPS `api.deepseek.com` + 三个精确模型 ID” 时生效，用于给旧配置补 `reasoning`；模型
+  `reasoning` 已经在同一文件里显式声明，因此它是冗余的厂商分支。
+- 现在思考档位的唯一来源是配置：模型条目里的 `reasoning.efforts[].request_patch`（见
+  `config/providers.remote.example.json`）或 `reasoningDiscovery` 的实时发现结果。优先级变为
+  **显式 `reasoning` > 实时发现 > 不声明（`state=unknown`）**，Host 不再按主机名或模型名推断能力。
+- 迁移：把原内置档位（`off/low/high/max`，默认 `high`，Chat 下 `off` 用
+  `{"thinking":{"type":"disabled"}}`、其余用 `{"thinking":{"type":"enabled"},"reasoning_effort":...}`）
+  写进自己的 provider 条目即可；`XHARNESS_BASE_URL` 单模型 CLI 路径不再自动获得档位，
+  需要档位时使用 `--providers-file`。
+- 观测字段 `source` 由 `configured_or_documented` / `documented` 收敛为 `configured` 与发现来源；
+  未知端点仍不主动发起推理探测。
+- 回归：模型设置集成测试改为在部署里声明档位后验证 four-effort 选择、重启恢复与切换未知模型清空；
+  `LlmModels` 投影、真实请求体断言与 UI 测试不变。

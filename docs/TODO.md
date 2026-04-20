@@ -1,5 +1,17 @@
 # XHarness 总任务清单
 
+## 厂商耦合清除：Host 能力表、示例与 CI（2026-09-17）
+
+承接「上游命名空间退出出厂产物」。产物侧的 `@deepseek-ai` 已随 `feat/ui-namespace` 迁到
+`@xharness/`；这里清掉剩余会**影响行为**的厂商耦合。
+
+- [x] `VENDOR-01` 删除 `xharness-host-app` 内置能力目录（只在 HTTPS `api.deepseek.com` + 三个精确模型 ID 生效的冗余回退），思考档位改由部署声明（`reasoning.efforts[].request_patch`）或 `reasoningDiscovery` 发现；观测来源收敛为 `configured` / 发现来源，未知端点照旧不主动探测。
+- [x] `VENDOR-02` `config/providers.deepseek.example.json` → `config/providers.remote.example.json`（占位端点 + `EXAMPLE_API_KEY` + 显式档位）；`scripts/start-windows.ps1`、Windows 打包步骤、`docs/windows.md`、`docs/specs/model-settings.md` 同步。
+- [x] `VENDOR-03` live 验收工作流 `deepseek-live.yml` → `live-model-acceptance.yml`：端点、模型与密名都变成 `workflow_dispatch` 输入；`live_loop.rs` 的用例名/会话名/断言文案中性化；`history_live_eval` 例子的端点由输入提供（`scripts/history-live-ab.py` 转发并记录 `base_url`）。
+- [x] `VENDOR-04` 测试夹具里的 `DEEPSEEK_API_KEY` 示例名改为 `EXAMPLE_API_KEY`（control / process / desktop sidecar）；compaction 的用例名与注释、host 的示例 provider id、server/metrics 的文档注释改为按「上游契约版本」表述。
+- [ ] `VENDOR-05` 发版与装机复验：确认移除内置能力表后，现有 `providers.json`（已显式声明档位）行为不变；未声明档位的旧配置在 Web 中显示 `unknown`，需要按 `docs/specs/model-settings.md` 迁移段落补 `reasoning`。
+- [ ] `UI-NS-06` 保留项与仍属上游语义的名字：`--dsw-static-deepseek-*` 设计令牌、`__DSH_BOOT__`、`--dsh-*` class 前缀、UI 侧 provider/settings id（`deepseek-official`、`llm-deepseek`、`web-search-deepseek`）与 onboarding/搜索文案；必须保留的上游溯源记录（`xharness-api::UPSTREAM_CONTRACT_REVISION`、`docs/compat/*`、`scripts/terminal_bench/official-*`、`THIRD_PARTY_NOTICES.md`）。
+
 ## Worker 生命周期监督（2026-09-18，PR #102）
 
 - [x] `WORKER-01` 稳定 Handle 与 Worker 可用性分离，监督任务独占 Join/重建，旧代结束后才释放 reservation。
@@ -70,6 +82,9 @@ import 路径派生的标识符（`deepseek_ai_*`）以及打包时写入的 reg
 - [x] `UI-NS-02` `scripts/rewrite-ui-namespace.mjs` 在装配最后一步执行：迁移插件目录、改写 scope 与派生标识符、重算每个 entry 的 `rev`/`url`、重算 `graph.rev` 并刷新 `index.html` 的 boot 清单；重复执行是空操作，残留 scope 直接抛错。
 - [x] `UI-NS-03` `assemble-static-ui.mjs` 末尾调用改写并把 region 注释来源标签从 `deepseek-harness/` 改为 `vendored/`；`sync-workspace-directory.mjs` 的依赖注入表、`rebuild-ui.sh` 的 brand 目录、`ui/plugins/**` 与 `ui/overrides/**` 同步改名；dual-use 补丁（settings 保存提示、workspace 时间戳、attachments、composer、question continuation）改为用 `pluginName()` 比对，装配期（上游名）与出厂后（`@xharness`）两种拼写都能命中。
 - [x] `UI-NS-04` 回归：`ui/dist` 内 `@deepseek-ai` 与 `deepseek_ai_` 均为 0；非浏览器 UI 测试 29/30 通过（唯一失败 `test-context-layout` 是本机缺 playwright，master 上同样失败）；服务端真实 Chromium 跑 CI 浏览器清单；真实 Host + 真实页面复验 GoalBar 六条 `/api/goals/*` 仍 200。
+- [x] `UI-NS-05` Host 侧厂商耦合清除：删除内置 `reasoning_catalog`（只在 `api.deepseek.com` + 精确模型 ID 生效的冗余回退），思考档位改由配置声明；`config/providers.deepseek.example.json` → `config/providers.remote.example.json`（占位端点 + 显式 `reasoning`），Windows 启动脚本、打包步骤、文档同步；live 验收工作流改为 `live-model-acceptance.yml`（端点/模型为输入，凭据统一使用仓库 Secret `XHARNESS_LIVE_API_KEY`），live 测试、示例与测试夹具改名。详见 PR。
+- [ ] `UI-NS-06` 仍是上游语义的名字（不构成依赖，按需处理）：`--dsw-static-deepseek-*` 设计令牌与 `__DSH_BOOT__` 协议名、`--dsh-*` class 前缀；UI 侧 provider/settings id（`deepseek-official`、`llm-deepseek`、`web-search-deepseek`）与 onboarding/搜索文案；必须保留的上游溯源记录（`xharness-api::UPSTREAM_CONTRACT_REVISION`、`docs/compat/*`、`scripts/terminal_bench/official-*`、`THIRD_PARTY_NOTICES.md`）。
+
 - [ ] `UI-NS-05` 仍是上游语义的名字，按层 B/C 后续处理（不影响本项“依赖”目标）：`--dsw-static-deepseek-*` 设计令牌与 `__DSH_BOOT__` 协议名；UI 侧 provider/settings id（`deepseek-official`、`llm-deepseek`、`web-search-deepseek`、`DEEPSEEK_API_KEY`）与 onboarding/搜索文案；Rust 侧 `reasoning_catalog.rs` 的 host/model 白名单；CI `deepseek-live.yml` 与 live 测试；`xharness-api::UPSTREAM_CONTRACT_REVISION`、`docs/compat/*`、`scripts/terminal_bench/official-*` 等上游溯源记录（保留）。
 
 ## Token 校准重启恢复（2026-09-17）

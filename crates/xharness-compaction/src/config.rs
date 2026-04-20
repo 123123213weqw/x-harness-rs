@@ -367,7 +367,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_deepseek_basic_compaction() {
+    fn defaults_match_the_documented_baseline_compaction() {
         let config = CompactionConfig::default();
         assert_eq!(config.threshold_ratio, 0.8);
         assert_eq!(config.retain_ratio, Some(0.16));
