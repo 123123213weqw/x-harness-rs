@@ -1,5 +1,15 @@
 # XHarness 总任务清单
 
+## Worker 生命周期监督（2026-09-18，PR #102）
+
+- [x] `WORKER-01` 稳定 Handle 与 Worker 可用性分离，监督任务独占 Join/重建，旧代结束后才释放 reservation。
+- [x] `WORKER-02` 普通错误保留 Worker；异常退出自动退避重建，不自动重放命令/副作用；关闭可取消恢复。
+- [x] `WORKER-03` idle/ready/stopped 等待、跨代通知、并发恢复、强制退出和最后 Handle 释放回归。
+- [x] `WORKER-04` Schedule 等待 Ready，临时故障间隔重试；丢失 Worker 后真实 Owner 投递回归。
+- [x] `WORKER-05` V100 全工作区回归：679 通过、9 忽略、0 失败；相关模块 Clippy 通过。
+- [ ] `WORKER-06` 更新 PR 后通过跨平台 CI，再合并/发布；当前已安装软件不因源码修改自动生效。
+- 规范见 [Agent 生命周期](specs/agent.md#worker-故障监督与等待语义pr-102-调整)。
+
 ## Token 校准重启恢复（2026-09-17）
 
 规范见 [校准持久化](specs/token-calibration-persistence.md)。

@@ -175,3 +175,30 @@ Step End、Turn End 七个通用持久切点，并用可验证日志前缀覆盖
 Store 矩阵另加入 Approval Asked，共八点：切点完成后写 Ready Marker，父进程发送 SIGKILL，再在
 同一 State Dir 重启 Durable Host/Core。该矩阵同时覆盖内核 Page Cache、目录 Sync、锁释放、
 未批准工具不执行和真实进程终止时序。
+
+## Worker 故障监督与等待语义（PR #102 调整）
+
+稳定的 `DurableAgentHandle`、事件订阅和 Activation Lease 不随 Worker 重建而变化。
+每个 Handle 对应一个监督任务，独占 Worker 的 JoinHandle 与重建时机；调用方不负责拉起任务。
+
+- **活动与可用性分离**：原 `idle | running` 仅描述活动；新增
+  `WorkerAvailability` 为 `Starting | Ready | Unavailable | Closed`。
+  `status() == Idle` 不再被当作“Worker 可接收命令”的充分条件。
+- **正常错误不杀 Worker**：请求构造、命令和单次存储读写错误返回/发布错误，保留 Actor。
+  启动时 `reconcile_consumed` 失败不能发布 Ready，进入有退避的重建。
+- **异常退出统一收敛**：监督任务收到 Join 结果之后才释放旧 Driver reservation，发布
+  Unavailable，并重建私有命令/活动通道。旧代状态无法覆盖新代状态。
+- **不依赖新消息自救**：250ms 起步指数退避，上限 30s；运行稳定 30s 后重置退避。
+  重建只恢复可接收命令的 Worker，不自动 Wake、不重送未确认命令、不重放副作用。
+  Durable Inbox 与显式开放 Turn 恢复仍使用原来的去重/恢复路径。
+- **等待明确结束**：`when_idle()` 遇到当前代死亡返回 `Unavailable`，关闭返回 `Closed`；
+  `when_ready()` 可等待监督恢复，并响应关闭。`when_stopped()` 跨代观察，避免遗漏短暂停止。
+  普通命令在 Unavailable 时返回可识别错误，不等待永无尽头的后台恢复。
+- **定时任务**：驱动前等待 Ready；停止信号可取消等待。存储/提交临时失败采用有间隔的重试，
+  不忙循环、不等待一条无关用户消息。是否已经投递仍按原持久 Message ID 去重。
+- **关闭/释放**：关闭等待监督任务结束，而非短暂 Unavailable；超过宽限期由监督任务 Abort
+  并 Join 当前 Worker。最后一个 Handle 被释放也会回收任务，不让监督任务强持有自身 Handle。
+
+回归覆盖：Panic 后 idle waiter 退出、无新命令自动重建但不执行旧输入、旧订阅持续有效、
+并发等待者共享 Worker、启动持续失败退避、恢复中关闭、强制回收、最后 Handle 释放及真实
+Schedule Owner 在命令随 Worker 丢失后的继续投递。此处测试不需要真实模型或 API Key。
