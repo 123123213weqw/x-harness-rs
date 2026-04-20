@@ -3,7 +3,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -92,6 +92,8 @@ pub enum AgentEvent {
 pub enum AgentCommandError {
     #[error("agent driver is closed")]
     Closed,
+    #[error("agent worker is temporarily unavailable")]
+    Unavailable,
     #[error("agent command is unavailable while no turn is running")]
     NoActiveTurn,
     #[error("agent is busy with another activity")]
@@ -123,14 +125,6 @@ pub struct AgentShutdownReport {
 impl AgentShutdownReport {
     pub const fn is_graceful(&self) -> bool {
         self.forced_cleanup == 0 && self.cleanup_errors.is_empty()
-    }
-}
-
-struct WorkerDoneGuard(watch::Sender<bool>);
-
-impl Drop for WorkerDoneGuard {
-    fn drop(&mut self) {
-        self.0.send_replace(true);
     }
 }
 
@@ -169,16 +163,142 @@ struct CommandEnvelope {
     acknowledgement: oneshot::Sender<Result<(), AgentCommandError>>,
 }
 
-/// Cloneable control handle for one long-lived Agent worker.
+/// Minimum spacing between failed worker generations. Recovery does not depend
+/// on a new command; persistent startup failures back off up to 30 seconds.
+pub(crate) const WORKER_RESPAWN_BACKOFF: Duration = Duration::from_millis(250);
+const WORKER_MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Task availability is distinct from the legacy idle/running activity status.
+/// Only the per-agent supervisor publishes this lifecycle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkerAvailability {
+    Starting,
+    Ready,
+    Unavailable,
+    Closed,
+}
+
+#[derive(Clone)]
+enum WorkerState {
+    Starting,
+    Ready {
+        generation: u64,
+        commands: mpsc::Sender<CommandEnvelope>,
+        status: watch::Receiver<AgentStatus>,
+    },
+    Unavailable,
+    Closed,
+}
+
+/// Owns JoinHandles, fences generations and settles death before replacement.
+/// It owns no DurableAgentHandle (nor receiver of `state`), avoiding a retention
+/// cycle. Dropping the last handle closes `state` and reaps the worker.
+struct WorkerSupervisor {
+    activation: Arc<AgentActivation>,
+    factory: Arc<dyn TurnRequestFactory>,
+    events: broadcast::Sender<AgentEvent>,
+    state: watch::Sender<WorkerState>,
+    shutdown: CancellationToken,
+    force: CancellationToken,
+    finished: CancellationToken,
+}
+
+impl WorkerSupervisor {
+    async fn run(self) {
+        let mut backoff = WORKER_RESPAWN_BACKOFF;
+        let mut generation = 0u64;
+        loop {
+            if self.shutdown.is_cancelled() || self.state.is_closed() {
+                break;
+            }
+            let Some(next_generation) = generation.checked_add(1) else {
+                break;
+            };
+            generation = next_generation;
+            self.state.send_replace(WorkerState::Starting);
+            let (commands, command_rx) = mpsc::channel(64);
+            let (status_tx, status) = watch::channel(AgentStatus::Idle);
+            let (ready_tx, mut ready_rx) = oneshot::channel();
+            let worker = DriverWorker {
+                activation: Arc::clone(&self.activation),
+                factory: Arc::clone(&self.factory),
+                commands: command_rx,
+                events: self.events.clone(),
+                status: status_tx,
+                wake_requested: false,
+                recovery_requested: false,
+                shutdown: self.shutdown.clone(),
+            };
+            let started = Instant::now();
+            let mut task = tokio::spawn(worker.run(ready_tx));
+            let mut ready = false;
+            let result = loop {
+                tokio::select! {
+                    biased;
+                    result = &mut task => break result,
+                    _ = self.force.cancelled() => {
+                        task.abort();
+                        break task.await;
+                    }
+                    _ = self.state.closed() => {
+                        self.shutdown.cancel();
+                        task.abort();
+                        break task.await;
+                    }
+                    outcome = &mut ready_rx, if !ready => {
+                        // A failed startup is handled by joining the task, never
+                        // advertised as Idle/ready to process commands.
+                        ready = true;
+                        if outcome.is_ok() && !self.shutdown.is_cancelled() {
+                            self.state.send_replace(WorkerState::Ready {
+                                generation,
+                                commands: commands.clone(),
+                                status: status.clone(),
+                            });
+                        }
+                    }
+                }
+            };
+            // Join has settled the predecessor, including Drop of LoopRun and
+            // its cancellation guard. No predecessor can publish into a new
+            // generation's private status channel or retain its reservation.
+            self.activation.release_stale_driver().await;
+            self.state.send_replace(WorkerState::Unavailable);
+            if self.shutdown.is_cancelled() || self.state.is_closed() {
+                break;
+            }
+            if let Err(error) = result {
+                let _ = self.events.send(AgentEvent::Error {
+                    message: format!("agent worker stopped unexpectedly: {error}"),
+                });
+            }
+            if started.elapsed() >= WORKER_MAX_BACKOFF {
+                backoff = WORKER_RESPAWN_BACKOFF;
+            }
+            tokio::select! {
+                biased;
+                _ = self.shutdown.cancelled() => break,
+                _ = self.state.closed() => break,
+                _ = tokio::time::sleep(backoff) => {}
+            }
+            backoff = (backoff * 2).min(WORKER_MAX_BACKOFF);
+            // Rebuild only the worker. Do NOT replay an unacknowledged command,
+            // Wake, tool call or unknown-outcome operation on its behalf.
+        }
+        self.state.send_replace(WorkerState::Closed);
+        self.finished.cancel();
+    }
+}
+
+/// Stable identity and subscriptions over replaceable worker generations.
 #[derive(Clone)]
 pub struct DurableAgentHandle {
     activation: Arc<AgentActivation>,
-    commands: mpsc::Sender<CommandEnvelope>,
     events: broadcast::Sender<AgentEvent>,
-    status: watch::Receiver<AgentStatus>,
+    worker: watch::Receiver<WorkerState>,
     shutdown: CancellationToken,
-    stopped: watch::Receiver<bool>,
-    abort: tokio::task::AbortHandle,
+    force: CancellationToken,
+    finished: CancellationToken,
 }
 
 impl DurableAgentHandle {
@@ -191,34 +311,30 @@ impl DurableAgentHandle {
         factory: Arc<dyn TurnRequestFactory>,
         event_capacity: usize,
     ) -> Self {
-        let (commands, command_rx) = mpsc::channel(64);
         let (events, _) = broadcast::channel(event_capacity.max(16));
-        let (status_tx, status) = watch::channel(AgentStatus::Idle);
+        let (state, worker) = watch::channel(WorkerState::Starting);
         let shutdown = activation.cancellation();
-        let (stopped_tx, stopped) = watch::channel(false);
-        let worker = DriverWorker {
-            activation: Arc::clone(&activation),
-            factory,
-            commands: command_rx,
-            events: events.clone(),
-            status: status_tx,
-            wake_requested: false,
-            recovery_requested: false,
-            shutdown: shutdown.clone(),
-        };
-        let task = tokio::spawn(async move {
-            let _done = WorkerDoneGuard(stopped_tx);
-            worker.run().await;
-        });
-        let abort = task.abort_handle();
+        let force = CancellationToken::new();
+        let finished = CancellationToken::new();
+        tokio::spawn(
+            WorkerSupervisor {
+                activation: Arc::clone(&activation),
+                factory,
+                events: events.clone(),
+                state,
+                shutdown: shutdown.clone(),
+                force: force.clone(),
+                finished: finished.clone(),
+            }
+            .run(),
+        );
         Self {
             activation,
-            commands,
             events,
-            status,
+            worker,
             shutdown,
-            stopped,
-            abort,
+            force,
+            finished,
         }
     }
 
@@ -234,25 +350,78 @@ impl DurableAgentHandle {
         self.events.subscribe()
     }
 
+    /// Activity only; use `availability`/`when_ready` before assuming a worker
+    /// exists. An unavailable worker is not an idle worker for admission.
     pub fn status(&self) -> AgentStatus {
-        *self.status.borrow()
+        match &*self.worker.borrow() {
+            WorkerState::Ready { status, .. } => *status.borrow(),
+            _ => AgentStatus::Idle,
+        }
+    }
+
+    pub fn availability(&self) -> WorkerAvailability {
+        match &*self.worker.borrow() {
+            WorkerState::Starting => WorkerAvailability::Starting,
+            WorkerState::Ready { .. } => WorkerAvailability::Ready,
+            WorkerState::Unavailable => WorkerAvailability::Unavailable,
+            WorkerState::Closed => WorkerAvailability::Closed,
+        }
     }
 
     pub fn is_same_worker(&self, other: &Self) -> bool {
-        self.commands.same_channel(&other.commands)
+        self.worker.same_channel(&other.worker)
+    }
+
+    /// A failed generation is reaped; recovery is owned by the supervisor, not
+    /// by whichever caller happens to issue the next command.
+    pub fn is_stopped(&self) -> bool {
+        matches!(
+            self.availability(),
+            WorkerAvailability::Unavailable | WorkerAvailability::Closed
+        )
     }
 
     pub async fn when_idle(&self) -> Result<(), AgentCommandError> {
-        let mut status = self.status.clone();
+        let mut worker = self.worker.clone();
         loop {
-            if *status.borrow_and_update() == AgentStatus::Idle {
-                return Ok(());
+            if self.shutdown.is_cancelled() {
+                return Err(AgentCommandError::Closed);
             }
-            status
-                .changed()
-                .await
-                .map_err(|_| AgentCommandError::Closed)?;
+            let snapshot = worker.borrow_and_update().clone();
+            match snapshot {
+                WorkerState::Unavailable => return Err(AgentCommandError::Unavailable),
+                WorkerState::Closed => return Err(AgentCommandError::Closed),
+                WorkerState::Starting => {
+                    tokio::select! {
+                        _ = self.shutdown.cancelled() => return Err(AgentCommandError::Closed),
+                        result = worker.changed() => result.map_err(|_| AgentCommandError::Closed)?,
+                    }
+                }
+                WorkerState::Ready { mut status, .. } => {
+                    if *status.borrow_and_update() == AgentStatus::Idle {
+                        return Ok(());
+                    }
+                    tokio::select! {
+                        _ = self.shutdown.cancelled() => return Err(AgentCommandError::Closed),
+                        result = worker.changed() => result.map_err(|_| AgentCommandError::Closed)?,
+                        // Closure means join/cleanup is in progress. Wait for
+                        // the supervisor, rather than spin on a closed channel.
+                        result = status.changed() => {
+                            if result.is_err() {
+                                tokio::select! {
+                                    _ = self.shutdown.cancelled() => return Err(AgentCommandError::Closed),
+                                    result = worker.changed() => result.map_err(|_| AgentCommandError::Closed)?,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    pub async fn when_ready(&self) -> Result<(), AgentCommandError> {
+        self.worker_commands(true).await.map(|_| ())
     }
 
     pub fn request_shutdown(&self) {
@@ -260,9 +429,20 @@ impl DurableAgentHandle {
     }
 
     pub async fn when_stopped(&self) {
-        let mut stopped = self.stopped.clone();
-        while !*stopped.borrow_and_update() {
-            if stopped.changed().await.is_err() {
+        let mut worker = self.worker.clone();
+        let mut observed_generation = None;
+        loop {
+            match &*worker.borrow_and_update() {
+                WorkerState::Unavailable | WorkerState::Closed => return,
+                WorkerState::Ready { generation, .. } => {
+                    if observed_generation.is_some_and(|old| old != *generation) {
+                        return;
+                    }
+                    observed_generation = Some(*generation);
+                }
+                WorkerState::Starting => {}
+            }
+            if worker.changed().await.is_err() {
                 return;
             }
         }
@@ -270,14 +450,15 @@ impl DurableAgentHandle {
 
     pub async fn shutdown(&self, grace: Duration) -> AgentShutdownOutcome {
         self.request_shutdown();
-        if tokio::time::timeout(grace, self.when_stopped())
+        // Wait for the supervisor itself, not a transient unavailable state.
+        if tokio::time::timeout(grace, self.finished.cancelled())
             .await
             .is_ok()
         {
             return AgentShutdownOutcome::Graceful;
         }
-        self.abort.abort();
-        self.when_stopped().await;
+        self.force.cancel();
+        self.finished.cancelled().await;
         AgentShutdownOutcome::ForcedCleanup
     }
 
@@ -352,16 +533,52 @@ impl DurableAgentHandle {
         .await
     }
 
+    /// Wait out supervised recovery without owning a generation lock or
+    /// replaying commands. Shutdown always wins over admission.
+    async fn worker_commands(
+        &self,
+        wait_for_recovery: bool,
+    ) -> Result<mpsc::Sender<CommandEnvelope>, AgentCommandError> {
+        let mut worker = self.worker.clone();
+        loop {
+            if self.shutdown.is_cancelled() {
+                return Err(AgentCommandError::Closed);
+            }
+            if let WorkerState::Ready { commands, .. } = &*worker.borrow_and_update() {
+                if !commands.is_closed() {
+                    return Ok(commands.clone());
+                }
+            }
+            if matches!(*worker.borrow(), WorkerState::Closed) {
+                return Err(AgentCommandError::Closed);
+            }
+            if !wait_for_recovery && matches!(*worker.borrow(), WorkerState::Unavailable) {
+                return Err(AgentCommandError::Unavailable);
+            }
+            tokio::select! {
+                _ = self.shutdown.cancelled() => return Err(AgentCommandError::Closed),
+                result = worker.changed() => result.map_err(|_| AgentCommandError::Closed)?,
+            }
+        }
+    }
+
     async fn send(&self, command: DriverCommand) -> Result<(), AgentCommandError> {
         let (acknowledgement, accepted) = oneshot::channel();
-        self.commands
-            .send(CommandEnvelope {
-                command,
-                acknowledgement,
-            })
-            .await
-            .map_err(|_| AgentCommandError::Closed)?;
-        accepted.await.map_err(|_| AgentCommandError::Closed)?
+        let envelope = CommandEnvelope {
+            command,
+            acknowledgement,
+        };
+        let commands = self.worker_commands(false).await?;
+        tokio::select! {
+            biased;
+            _ = self.shutdown.cancelled() => return Err(AgentCommandError::Closed),
+            result = commands.send(envelope) => result.map_err(|_| AgentCommandError::Closed)?,
+        }
+        tokio::select! {
+            biased;
+            _ = self.shutdown.cancelled() => Err(AgentCommandError::Closed),
+            result = accepted => result.map_err(|_| AgentCommandError::Closed)?,
+        }
     }
 }
 
@@ -464,10 +681,12 @@ impl DriverWorker {
         crate::GoalController::new(self.activation.inbox().store(), self.activation.id())
     }
 
-    async fn run(mut self) {
+    async fn run(mut self, ready: oneshot::Sender<()>) {
         if let Err(error) = self.activation.inbox().reconcile_consumed().await {
             self.publish_error(error.to_string());
+            return;
         }
+        let _ = ready.send(());
         loop {
             if self.shutdown.is_cancelled() {
                 return;
@@ -479,19 +698,19 @@ impl DriverWorker {
                         return;
                     }
                     self.publish_error(error.to_string());
-                    return;
                 }
                 continue;
             }
-            let snapshot = match self.activation.inbox().snapshot().await {
-                Ok(snapshot) => snapshot,
-                Err(error) => {
-                    self.publish_error(error.to_string());
-                    return;
-                }
-            };
             if self.wake_requested {
                 self.wake_requested = false;
+                let snapshot = match self.activation.inbox().snapshot().await {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        self.publish_error(error.to_string());
+                        self.set_status(AgentStatus::Idle);
+                        continue;
+                    }
+                };
                 if !snapshot.next_turn().is_empty()
                     || self
                         .goal_controller()
@@ -510,8 +729,9 @@ impl DriverWorker {
                             return;
                         }
                         self.publish_error(error.to_string());
-                        return;
                     }
+                } else {
+                    self.set_status(AgentStatus::Idle);
                 }
                 continue;
             }
