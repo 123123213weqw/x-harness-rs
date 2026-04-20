@@ -52,7 +52,12 @@ try {
  assert.equal(await page.locator('textarea').getAttribute('data-target'),'parent')
  assert.equal(await page.evaluate(()=>manager.navigationAddress('parent')),undefined,'parent must not retain child transport address')
  // Repeat child -> parent via keyboard, preserving editable main composer even if child continues running.
- await page.evaluate(()=>{manager.select('child')});await parent.focus();await page.keyboard.press('Enter')
+ await page.evaluate(()=>{manager.select('child')})
+ // React createRoot commits asynchronously. Focus does not auto-wait for enabled:
+ // otherwise it can target the still-disabled parent button from the previous view.
+ await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(button=>button.textContent==='主 Agent'&&!button.disabled))
+ await parent.focus();await page.keyboard.press('Enter')
+ await page.waitForFunction(()=>manager.selected==='parent')
  assert.equal(await page.evaluate(()=>manager.selected),'parent')
  await page.locator('textarea').fill('继续主任务')
  assert.equal(await page.locator('textarea').inputValue(),'继续主任务')

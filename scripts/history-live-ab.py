@@ -1,4 +1,4 @@
-"""Repeatable four-run live pilot; read {api_key, model} on stdin, never persist it.
+"""Repeatable four-run live pilot; read {api_key, model, base_url} on stdin, never persist it.
 
 Compile history_live_eval against BOTH revisions before invoking this script.
 Use --output NEW_DIRECTORY and explicitly selected --baseline / --candidate binaries.
@@ -33,11 +33,13 @@ def main():
     if root.exists():
         parser.error("output directory must not already exist")
     config = json.load(sys.stdin)
-    if not isinstance(config.get("api_key"), str) or not isinstance(config.get("model"), str):
-        parser.error("stdin must contain api_key and model strings")
-    credential_input = json.dumps({"api_key": config["api_key"], "model": config["model"]})
+    for field in ("api_key", "model", "base_url"):
+        if not isinstance(config.get(field), str):
+            parser.error(f"stdin must contain {field}")
+    credential_input = json.dumps({
+        "api_key": config["api_key"], "model": config["model"], "base_url": config["base_url"]})
     root.mkdir(mode=0o700, parents=True)
-    metadata = {"model": config["model"], "revisions": {
+    metadata = {"model": config["model"], "endpoint": config["base_url"], "revisions": {
         "baseline": args.baseline_revision, "candidate": args.candidate_revision},
         "binary_sha256": {key: sha256(path) for key, path in binaries.items()},
         "context_policy": "IdentityContextPolicy; compaction disabled", "output_limit_per_request": None,

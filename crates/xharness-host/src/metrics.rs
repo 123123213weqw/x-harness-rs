@@ -215,7 +215,7 @@ impl ContextPressureProjectionState {
 }
 
 /// Convert the provider-neutral Rust usage type at the Web boundary. Internal
-/// serialization stays snake_case; the frozen DeepSeek Harness wire contract
+/// serialization stays snake_case; the frozen upstream wire contract
 /// is camelCase.
 pub(crate) fn web_token_usage_from_core(usage: &TokenUsage) -> Value {
     json!({

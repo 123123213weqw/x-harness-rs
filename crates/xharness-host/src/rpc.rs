@@ -123,7 +123,7 @@ impl ApiBackend for BasicHost {
 
     async fn call_dynamic(
         &self,
-        _rpc_id: RpcId,
+        rpc_id: RpcId,
         endpoint: &str,
         payload: Value,
         _cancellation: CancellationToken,
@@ -132,6 +132,12 @@ impl ApiBackend for BasicHost {
             "session.requestSnapshot" => self.request_snapshot(&payload).await.map(Some),
             "commands/list" => self.commands_list(&payload).await.map(Some),
             "commands/execute" => self.commands_execute(&payload).await,
+            // The shipped Web client mutates Goals through the upstream
+            // namespaced remotes (`/api/goals/*`). Map them onto the flat
+            // methods above so every GoalBar action works instead of 404ing.
+            // The other upstream namespaces stay unmounted on purpose.
+            "goals/create" | "goals/edit" | "goals/pause" | "goals/resume" | "goals/complete"
+            | "goals/clear" => self.goal_remote(rpc_id, endpoint, &payload).await.map(Some),
             _ => return None,
         };
         Some(match result {
@@ -313,6 +319,69 @@ impl ApiBackend for BasicHost {
 }
 
 impl BasicHost {
+    /// Namespaced `goals/*` mutations for the shipped Web client.
+    ///
+    /// `args.agentId` names the session, `args.ref` the exact goal revision and
+    /// `args.request` the optional objective/budget change. Flat mutations answer
+    /// with `{ref}` only; the namespaced remotes answer with the whole goal state
+    /// their schemas require, so the client accepts them.
+    async fn goal_remote(
+        &self,
+        rpc_id: RpcId,
+        endpoint: &str,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
+        let args = payload
+            .get("args")
+            .ok_or_else(|| bad_request(format!("{endpoint} requires args")))?;
+        let session_id = required_string(args, "agentId")?;
+        let request = args.get("request").cloned().unwrap_or_else(|| json!({}));
+        let mut flat = json!({"sessionId": session_id});
+        if let Some(objective) = optional_string(&request, "objective")? {
+            flat["objective"] = json!(objective);
+        }
+        if let Some(rounds) = optional_u64(&request, "maxGoalRounds")? {
+            flat["maxGoalRounds"] = json!(rounds);
+        }
+        if endpoint == "goals/create" {
+            // The shipped client never sends `executionEnabled`, but the flat
+            // method understands it, so pass it through instead of silently
+            // arming a goal the caller asked to create disarmed.
+            if let Some(enabled) = request.get("executionEnabled") {
+                let enabled = enabled
+                    .as_bool()
+                    .ok_or_else(|| bad_request("request.executionEnabled must be a boolean"))?;
+                flat["executionEnabled"] = json!(enabled);
+            }
+            // Creation arms the goal and already answers with exactly the ref
+            // the upstream create schema expects.
+            return self.goal_create(rpc_id, &flat).await;
+        }
+        let reference = args
+            .get("ref")
+            .cloned()
+            .ok_or_else(|| bad_request(format!("{endpoint} requires ref")))?;
+        goal_ref(&json!({"ref": reference}))?;
+        flat["ref"] = reference;
+        match endpoint {
+            "goals/edit" => self.goal_edit_reply(rpc_id, &flat, true).await,
+            "goals/pause" => {
+                self.goal_transition_reply(rpc_id, &flat, "paused", true)
+                    .await
+            }
+            "goals/resume" => {
+                self.goal_transition_reply(rpc_id, &flat, "active", true)
+                    .await
+            }
+            "goals/complete" => {
+                self.goal_transition_reply(rpc_id, &flat, "complete", true)
+                    .await
+            }
+            "goals/clear" => self.goal_clear_reply(rpc_id, &flat, true).await,
+            _ => unreachable!("goal_remote is only mounted for goals/*"),
+        }
+    }
+
     async fn commands_list(&self, payload: &Value) -> Result<Value, RpcError> {
         let args = payload
             .get("args")
@@ -2770,7 +2839,24 @@ impl BasicHost {
     }
 
     async fn goal_edit(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        self.goal_edit_reply(rpc_id, payload, false).await
+    }
+
+    async fn goal_edit_reply(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+        remote: bool,
+    ) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        // A valid flat request always has a top-level sessionId; wrapping only
+        // remote receipts gives the two protocols disjoint fingerprints while
+        // preserving all historical flat receipts unchanged.
+        let receipt_payload = if remote {
+            json!({"goalRemoteRequest": payload})
+        } else {
+            payload.clone()
+        };
         let objective = optional_string(payload, "objective")?;
         let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?;
         if objective.is_none() && max_goal_rounds.is_none() {
@@ -2779,7 +2865,12 @@ impl BasicHost {
         let expected = goal_ref(payload)?;
         let _session_guard = self.lock_admission(&session_id).await;
         if let Some(response) = self
-            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalEdit, payload)
+            .replay_session_mutation_receipt(
+                &session_id,
+                &rpc_id,
+                RpcMethod::GoalEdit,
+                &receipt_payload,
+            )
             .await?
         {
             return Ok(response);
@@ -2811,17 +2902,22 @@ impl BasicHost {
         }
         goal.revision = goal.revision.saturating_add(1);
         goal.updated_at = now_ms().max(goal.updated_at);
-        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+
         let mut events = vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Edit)];
         events.extend(
             self.invalidate_goal_pending(&session_id, Some(&goal))
                 .await?,
         );
+        let response = if remote {
+            goal_remote_snapshot(&goal, &events)
+        } else {
+            json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}})
+        };
         self.commit_session_mutation(
             &session_id,
             &rpc_id,
             RpcMethod::GoalEdit,
-            payload,
+            &receipt_payload,
             events,
             SessionMutationResponse::fixed(response.clone()),
         )
@@ -2850,7 +2946,26 @@ impl BasicHost {
         payload: &Value,
         transition: &str,
     ) -> Result<Value, RpcError> {
+        self.goal_transition_reply(rpc_id, payload, transition, false)
+            .await
+    }
+
+    async fn goal_transition_reply(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+        transition: &str,
+        remote: bool,
+    ) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        // A valid flat request always has a top-level sessionId; wrapping only
+        // remote receipts gives the two protocols disjoint fingerprints while
+        // preserving all historical flat receipts unchanged.
+        let receipt_payload = if remote {
+            json!({"goalRemoteRequest": payload})
+        } else {
+            payload.clone()
+        };
         let expected = goal_ref(payload)?;
         let _session_guard = self.lock_admission(&session_id).await;
         let method = match transition {
@@ -2860,7 +2975,7 @@ impl BasicHost {
             _ => return Err(RpcError::internal("unknown goal transition")),
         };
         if let Some(response) = self
-            .replay_session_mutation_receipt(&session_id, &rpc_id, method, payload)
+            .replay_session_mutation_receipt(&session_id, &rpc_id, method, &receipt_payload)
             .await?
         {
             return Ok(response);
@@ -2916,12 +3031,16 @@ impl BasicHost {
                     .await?,
             );
         }
-        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+        let response = if remote {
+            goal_remote_snapshot(&goal, &events)
+        } else {
+            json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}})
+        };
         self.commit_session_mutation(
             &session_id,
             &rpc_id,
             method,
-            payload,
+            &receipt_payload,
             events,
             SessionMutationResponse::fixed(response.clone()),
         )
@@ -2948,11 +3067,33 @@ impl BasicHost {
     }
 
     async fn goal_clear(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        self.goal_clear_reply(rpc_id, payload, false).await
+    }
+
+    async fn goal_clear_reply(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+        remote: bool,
+    ) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        // A valid flat request always has a top-level sessionId; wrapping only
+        // remote receipts gives the two protocols disjoint fingerprints while
+        // preserving all historical flat receipts unchanged.
+        let receipt_payload = if remote {
+            json!({"goalRemoteRequest": payload})
+        } else {
+            payload.clone()
+        };
         let expected = goal_ref(payload)?;
         let _session_guard = self.lock_admission(&session_id).await;
         if let Some(response) = self
-            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalClear, payload)
+            .replay_session_mutation_receipt(
+                &session_id,
+                &rpc_id,
+                RpcMethod::GoalClear,
+                &receipt_payload,
+            )
             .await?
         {
             return Ok(response);
@@ -2971,7 +3112,11 @@ impl BasicHost {
             id: goal.id.clone(),
             revision: goal.revision.saturating_add(1),
         };
-        let response = json!({"cleared": true});
+        let response = if remote {
+            json!({"id": &cleared.id, "revision": cleared.revision})
+        } else {
+            json!({"cleared": true})
+        };
         let mut events = vec![SessionEventData::GoalChange {
             change: SessionGoalChange::Clear(GoalClearChange {
                 kind: GoalChangeKind::GoalChange,
@@ -2987,7 +3132,7 @@ impl BasicHost {
             &session_id,
             &rpc_id,
             RpcMethod::GoalClear,
-            payload,
+            &receipt_payload,
             events,
             SessionMutationResponse::fixed(response.clone()),
         )
@@ -3954,6 +4099,40 @@ fn queue_item_not_found(item_id: &str, error: AgentRuntimeError) -> RpcError {
 fn mint_stream_id(next_id: &AtomicU64, prefix: &str) -> String {
     let ordinal = next_id.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{}-{ordinal}", now_ms())
+}
+
+/// Build a reply from the exact mutation being committed, never by re-reading
+/// mutable Host state after releasing admission (or after a receipt replay).
+fn goal_remote_snapshot(goal: &GoalState, events: &[SessionEvent]) -> Value {
+    let armed = events
+        .iter()
+        .rev()
+        .find_map(|event| match event.data() {
+            SessionEventData::GoalExecution { change } => {
+                Some(change.state.definition.execution_enabled)
+            }
+            SessionEventData::GoalChange {
+                change: SessionGoalChange::Snapshot(change),
+            } if change.version == 1 => Some(false),
+            _ => None,
+        })
+        .unwrap_or(false);
+    let mut value = json!({
+        "ref": {"id": &goal.id, "revision": goal.revision},
+        "id": &goal.id,
+        "revision": goal.revision,
+        "objective": &goal.objective,
+        "phase": goal.phase,
+        "maxGoalRounds": goal.max_goal_rounds,
+        "roundsStarted": goal.rounds_started,
+        "createdAt": goal.created_at,
+        "updatedAt": goal.updated_at,
+        "activation": if armed { "armed" } else { "disarmed" },
+    });
+    if let Some(reason) = &goal.blocked_reason {
+        value["blockedReason"] = json!(reason);
+    }
+    value
 }
 
 #[cfg(test)]
