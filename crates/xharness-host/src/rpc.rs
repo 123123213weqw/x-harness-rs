@@ -4101,6 +4101,40 @@ fn mint_stream_id(next_id: &AtomicU64, prefix: &str) -> String {
     format!("{prefix}-{}-{ordinal}", now_ms())
 }
 
+/// Build a reply from the exact mutation being committed, never by re-reading
+/// mutable Host state after releasing admission (or after a receipt replay).
+fn goal_remote_snapshot(goal: &GoalState, events: &[SessionEvent]) -> Value {
+    let armed = events
+        .iter()
+        .rev()
+        .find_map(|event| match event.data() {
+            SessionEventData::GoalExecution { change } => {
+                Some(change.state.definition.execution_enabled)
+            }
+            SessionEventData::GoalChange {
+                change: SessionGoalChange::Snapshot(change),
+            } if change.version == 1 => Some(false),
+            _ => None,
+        })
+        .unwrap_or(false);
+    let mut value = json!({
+        "ref": {"id": &goal.id, "revision": goal.revision},
+        "id": &goal.id,
+        "revision": goal.revision,
+        "objective": &goal.objective,
+        "phase": goal.phase,
+        "maxGoalRounds": goal.max_goal_rounds,
+        "roundsStarted": goal.rounds_started,
+        "createdAt": goal.created_at,
+        "updatedAt": goal.updated_at,
+        "activation": if armed { "armed" } else { "disarmed" },
+    });
+    if let Some(reason) = &goal.blocked_reason {
+        value["blockedReason"] = json!(reason);
+    }
+    value
+}
+
 #[cfg(test)]
 mod edit_admission_tests {
     use super::*;
@@ -4170,38 +4204,4 @@ mod edit_admission_tests {
         assert!(host.state.read().await.sessions[id].queue.is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
-}
-
-/// Build a reply from the exact mutation being committed, never by re-reading
-/// mutable Host state after releasing admission (or after a receipt replay).
-fn goal_remote_snapshot(goal: &GoalState, events: &[SessionEvent]) -> Value {
-    let armed = events
-        .iter()
-        .rev()
-        .find_map(|event| match event.data() {
-            SessionEventData::GoalExecution { change } => {
-                Some(change.state.definition.execution_enabled)
-            }
-            SessionEventData::GoalChange {
-                change: SessionGoalChange::Snapshot(change),
-            } if change.version == 1 => Some(false),
-            _ => None,
-        })
-        .unwrap_or(false);
-    let mut value = json!({
-        "ref": {"id": &goal.id, "revision": goal.revision},
-        "id": &goal.id,
-        "revision": goal.revision,
-        "objective": &goal.objective,
-        "phase": goal.phase,
-        "maxGoalRounds": goal.max_goal_rounds,
-        "roundsStarted": goal.rounds_started,
-        "createdAt": goal.created_at,
-        "updatedAt": goal.updated_at,
-        "activation": if armed { "armed" } else { "disarmed" },
-    });
-    if let Some(reason) = &goal.blocked_reason {
-        value["blockedReason"] = json!(reason);
-    }
-    value
 }
