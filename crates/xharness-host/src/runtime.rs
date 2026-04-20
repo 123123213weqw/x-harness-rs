@@ -1766,6 +1766,9 @@ fn agent_command_error(error: AgentCommandError) -> AgentRuntimeError {
 fn loop_control_error(error: AgentCommandError) -> LoopControlError {
     match error {
         AgentCommandError::Closed => LoopControlError::Closed,
+        AgentCommandError::Unavailable => {
+            LoopControlError::Rejected("agent worker is recovering; retry when ready".to_owned())
+        }
         AgentCommandError::NoActiveTurn => {
             LoopControlError::Rejected("durable Agent has no active turn".to_owned())
         }
