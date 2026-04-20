@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import {patchPermissionSelection} from './patch-permission-selection.mjs';
-const path=new URL('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js',import.meta.url);
+const path=new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',import.meta.url);
 const bytes=readFileSync(path),s=bytes.toString();
 assert.equal(patchPermissionSelection(bytes).toString(),s);
 const props=s.slice(s.indexOf('const accessSelect ='),s.indexOf('const deco ='));
@@ -20,7 +20,7 @@ let cells=[],cursor=0,commands=[];
 const ctx={
  react:{useState:initial=>{const i=cursor++;if(!(i in cells))cells[i]=initial;return[cells[i],x=>{cells[i]=x;}];},useEffect:()=>{}},
  react_jsx_runtime:{Fragment:'fragment',jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},
- _deepseek_ai_dsh_client_ui_primitives:{Menu:'menu',RiskConfirmation:'confirm',IconChevronDownOutline14:'icon'},
+ _xharness_dsh_client_ui_primitives:{Menu:'menu',RiskConfirmation:'confirm',IconChevronDownOutline14:'icon'},
  PermissionSelect_module_css_default:{},FULL_ACCESS:'danger-full-access',permissionGlyph:()=>undefined,
  optionLabel:o=>o.name,displayName:x=>x,clsx:()=>'',permissionFeedback:feedback,
 };
@@ -43,6 +43,6 @@ value={...value,currentValue:'danger-full-access',pending:true};
 [menu]=render();assert.equal(menu.props.selectedId,'danger-full-access');assert.match(menu.props.anchor.props.title,/当前轮：workspace-write/);
 assert.equal(render(true)[0].props.anchor.props.disabled,true,'read-only/locked contexts remain locked');
 const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url)));
-const entry=graph.entries.find(e=>e.id==='@deepseek-ai/dsh-client-ui-conversation');
+const entry=graph.entries.find(e=>e.id==='@xharness/dsh-client-ui-conversation');
 assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
 console.log('permission selection: running/locked/confirmation/pending/save-failure/active-vs-selected/hash passed');

@@ -6,13 +6,15 @@
 // recency fallback. Signature-checked so an upstream UI change fails the static
 // assembly instead of silently restoring NaN.
 import { readFileSync, writeFileSync } from 'node:fs'
+import { UI_NAMESPACE, isPlugin, pluginName } from './ui-namespace.mjs'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const WORKSPACE_ID = '@deepseek-ai/dsh-client-ui-workspace'
-const RUNTIME_ID = '@deepseek-ai/dsh-client-runtime'
+const WORKSPACE_ID = `${UI_NAMESPACE}/dsh-client-ui-workspace`
+const RUNTIME_ID = `${UI_NAMESPACE}/dsh-client-runtime`
+const is = (id, target) => pluginName(id) === pluginName(target)
 const T = '\t'
 const BEGIN = '// XHARNESS WORKSPACE CREATED-AT BEGIN'
 const END = '// XHARNESS WORKSPACE CREATED-AT END'
@@ -34,12 +36,12 @@ function injected() {
 }
 
 export function patchWorkspaceCreatedAt(id, bytes) {
-  if (id !== WORKSPACE_ID && id !== RUNTIME_ID) return bytes
+  if (!is(id, WORKSPACE_ID) && !is(id, RUNTIME_ID)) return bytes
   let text = bytes.toString('utf8').replaceAll('\r\n', '\n')
   if (text.includes(BEGIN)) return Buffer.from(text)
   const anchor = T + T + 'var module = { exports: {} };'
   text = once(text, anchor, injected() + anchor)
-  if (id === WORKSPACE_ID) {
+  if (is(id, WORKSPACE_ID)) {
     text = once(text, 'Date.parse(workspace.createdAt)', 'xhEpochMs(workspace.createdAt)')
     text = once(
       text,

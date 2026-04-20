@@ -47,9 +47,9 @@ export function patchGoalRuntime(bytes) {
  return Buffer.from(s);
 }
 if(process.argv[1]&&realpathSync(process.argv[1])===fileURLToPath(import.meta.url)){
- const dist=resolve(process.argv[2]??'ui/dist'),p=resolve(dist,'plugins/@deepseek-ai/dsh-client-ui-goal/client.js');
+ const dist=resolve(process.argv[2]??'ui/dist'),p=resolve(dist,'plugins/@xharness/dsh-client-ui-goal/client.js');
  const bytes=patchGoalRuntime(readFileSync(p));writeFileSync(p,bytes);
  const hash=b=>createHash('sha256').update(b).digest('hex').slice(0,16),gp=resolve(dist,'client-graph.json'),g=JSON.parse(readFileSync(gp));
- const e=g.entries.find(e=>e.id==='@deepseek-ai/dsh-client-ui-goal');e.rev=hash(bytes);e.url='/plugins/'+e.id+'/client.js?rev='+e.rev;g.rev=hash(JSON.stringify(g.entries));writeFileSync(gp,JSON.stringify(g,null,2)+'\n');
+ const e=g.entries.find(e=>e.id==='@xharness/dsh-client-ui-goal');e.rev=hash(bytes);e.url='/plugins/'+e.id+'/client.js?rev='+e.rev;g.rev=hash(JSON.stringify(g.entries));writeFileSync(gp,JSON.stringify(g,null,2)+'\n');
  const ip=resolve(dist,'index.html');writeFileSync(ip,readFileSync(ip,'utf8').replace(/window\.__DSH_BOOT__ = .*?<\/script>/,()=>`window.__DSH_BOOT__ = ${JSON.stringify(g)}</script>`));
 }
