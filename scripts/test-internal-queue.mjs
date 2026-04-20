@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-const code = readFileSync(new URL('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js', import.meta.url), 'utf8');
+const code = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js', import.meta.url), 'utf8');
 const dock = code.slice(code.indexOf('function QueueDock('));
 const filter = dock.match(/inbox\.filter\(\(row\) => row\.placement === "queued"\)/)?.[0];
 assert.ok(filter, 'QueueDock must keep runtime context out of editable drafts');

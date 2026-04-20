@@ -44,9 +44,9 @@ try {
   await page.goto('http://workspace-fixture.test/')
   await page.waitForFunction(() => window.staticModules)
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
-  const plugins = readdirSync(resolve(dist,'plugins/@deepseek-ai'));
+  const plugins = readdirSync(resolve(dist,'plugins/@xharness'));
   for (const name of plugins) {
-    const file = resolve(dist,'plugins/@deepseek-ai',name,'client.js');
+    const file = resolve(dist,'plugins/@xharness',name,'client.js');
     let source=readFileSync(file,'utf8');
     // ApprovalPanel is registered through a slot, not exported; surface it and the
     // selector so the takeover contract can be exercised directly.
@@ -56,15 +56,15 @@ try {
   await page.evaluate(() => {
     const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;if(cache[name])return cache[name];return cache[name]=registrations[name].factory(load)};
     const React=staticModules.react,DOM=staticModules['react-dom'];
-    const conversation=load('@deepseek-ai/dsh-client-ui-conversation/client');
-    const runtime=load('@deepseek-ai/dsh-client-runtime/client');
+    const conversation=load('@xharness/dsh-client-ui-conversation/client');
+    const runtime=load('@xharness/dsh-client-runtime/client');
     // The palette is provided by the theme plugin at apply time, not by the module
     // CSS; install it so the evidence screenshots carry the real tokens instead of
     // bare DOM that could be misread as an unstyled prompt.
     const themeCtx={effect:fn=>fn(),provide:(name,value)=>{themeCtx[name]=value},on:()=>{},emit:()=>{},
       settingsScope:{bind:()=>({subscribe:()=>()=>{},getSnapshot:()=>({value:{preference:'light'}})})},
       locale:{register:()=>()=>{}},slots:{inject:()=>{}}};
-    registrations['@deepseek-ai/dsh-client-ui-theme'].factory(id=>id==='@deepseek-ai/dsh-client-runtime/client'?{...runtime,defineStore:spec=>spec}:staticModules[id]).apply(themeCtx);
+    registrations['@xharness/dsh-client-ui-theme'].factory(id=>id==='@xharness/dsh-client-runtime/client'?{...runtime,defineStore:spec=>spec}:staticModules[id]).apply(themeCtx);
     document.documentElement.dataset.theme='light';
     for(const [name,value] of Object.entries(themeCtx.theme.getTheme().active.tokens))document.documentElement.style.setProperty(name,value);
     document.body.style.fontFamily='system-ui,sans-serif';

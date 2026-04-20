@@ -36,9 +36,9 @@ try {
   await page.goto('http://workspace-fixture.test/')
   await page.waitForFunction(() => window.staticModules)
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
-  const plugins = readdirSync(resolve(dist,'plugins/@deepseek-ai'));
+  const plugins = readdirSync(resolve(dist,'plugins/@xharness'));
   for (const name of plugins) {
-    const file = resolve(dist,'plugins/@deepseek-ai',name,'client.js');
+    const file = resolve(dist,'plugins/@xharness',name,'client.js');
     let source=readFileSync(file,'utf8');
     if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =', 'exports.XhCheckpointView = XhCheckpointView; exports.xhCheckpointDefinition = xhCheckpointDefinition; exports.XHarnessMessageEditor =');
     await page.addScriptTag({content:source});
@@ -53,10 +53,10 @@ try {
       return cache[name]=registrations[name].factory(load);
     }
     const React=staticModules.react,DOM=staticModules['react-dom'];
-    const module=load('@deepseek-ai/dsh-client-ui-conversation/client');
+    const module=load('@xharness/dsh-client-ui-conversation/client');
     window.module=module;
     const def=module.xhCheckpointDefinition;
-    const Runtime=load('@deepseek-ai/dsh-client-runtime/client');
+    const Runtime=load('@xharness/dsh-client-runtime/client');
     const registry={entries:()=>[def],fallbackEntry:()=>undefined};
     const views={entries:()=>[{target:'chat',create:()=>{let nodes=new Map();return {empty:[],replace:x=>{nodes=new Map(x.nodes.map(n=>[n.key,n]));return [...nodes.values()]},apply:x=>{for(const n of x.upserts)nodes.set(n.key,n);return [...nodes.values()]}}}}]};
     const events=[{seq:0,time:1,type:'turn/start',data:{turn:0}},{seq:1,time:1,type:'run/checkpoint',data:{turn:0,notice:{kind:'issued',message:'执行检查点'}}},{seq:2,time:1,type:'turn/end',data:{turn:0,reason:{kind:'max-steps'}}}];
