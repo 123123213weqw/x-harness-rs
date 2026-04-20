@@ -115,10 +115,20 @@ impl BasicHost {
                 backend.activate(crate::ModelRegistry::new());
             }
         }
-        let headers = store.list_headers().await?;
+        // Tolerant scan: one unreadable entry must not make every healthy
+        // session undiscoverable, and it must not be dropped silently either.
+        // Whatever cannot be published is reported below as a startup issue.
+        let (headers, unreadable) = store.scan_sessions().await?;
         let mut report = HostRestoreReport {
-            discovered_sessions: headers.len(),
+            discovered_sessions: headers.len() + unreadable.len(),
             model_settings_error,
+            issues: unreadable
+                .into_iter()
+                .map(|entry| HostRestoreIssue {
+                    session_id: entry.session_id,
+                    message: entry.reason,
+                })
+                .collect(),
             ..HostRestoreReport::default()
         };
         let mut resumable = Vec::new();
@@ -418,6 +428,9 @@ impl BasicHost {
                 message: error.to_string(),
             });
         }
+        // Publishing the issues on the Host state is what makes them reachable
+        // from the product surface (`host.describe`) rather than only stderr.
+        self.state.write().await.startup_issues = report.issues.clone();
         Ok(report)
     }
 }
@@ -1876,6 +1889,41 @@ mod tests {
                 .map_err(|error| error.to_string())?;
             Ok(ToolExecutor::new(registry))
         }
+    }
+
+    /// One unreadable entry must not stop startup, and it must be reported on
+    /// the Host state so the surface can show it.
+    #[tokio::test]
+    async fn an_unreadable_session_is_reported_without_blocking_restore() {
+        use xharness_session_jsonl::JsonlSessionStore;
+
+        let dir = std::env::temp_dir().join(format!(
+            "xharness-restore-unreadable-{}-{}",
+            std::process::id(),
+            crate::state::now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(&dir).unwrap());
+        store.create(SessionHeader::new("healthy")).await.unwrap();
+        std::fs::write(dir.join("broken.jsonl"), b"not-json\n").unwrap();
+
+        let host = BasicHost::without_provider(config(&dir));
+        let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
+
+        assert_eq!(report.discovered_sessions, 2);
+        assert_eq!(report.restored_sessions, 1, "the healthy session must load");
+        assert_eq!(report.issues.len(), 1);
+        assert_eq!(report.issues[0].session_id, "broken");
+        assert!(
+            report.issues[0].message.contains("invalid header JSON"),
+            "got {:?}",
+            report.issues[0].message
+        );
+        assert_eq!(
+            host.state.read().await.startup_issues,
+            report.issues,
+            "the report must be reachable from the product surface"
+        );
     }
 
     fn config(cwd: &Path) -> HostConfig {
