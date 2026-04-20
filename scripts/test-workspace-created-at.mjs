@@ -5,7 +5,7 @@ import {Script} from 'node:vm';
 import {patchWorkspaceCreatedAt} from './patch-workspace-created-at.mjs';
 const root=new URL('..',import.meta.url);
 const read=path=>readFileSync(new URL(path,root),'utf8');
-const WORKSPACE='@deepseek-ai/dsh-client-ui-workspace',RUNTIME='@deepseek-ai/dsh-client-runtime',T='\t';
+const WORKSPACE='@xharness/dsh-client-ui-workspace',RUNTIME='@xharness/dsh-client-runtime',T='\t';
 
 // The product-owned helper must accept the Host's decimal millisecond string and
 // still tolerate ISO-8601, because the shipped wire format is milliseconds.
@@ -38,7 +38,7 @@ const workspaceFixture=fixture(WORKSPACE,[
 ].join('\n'));
 const runtimeFixture=fixture(RUNTIME,`${T.repeat(4)}latest = Date.parse(workspace.createdAt);`);
 assert.throws(()=>patchWorkspaceCreatedAt(WORKSPACE,fixture(WORKSPACE,'// nothing patched here')),/anchor changed/);
-const other=patchWorkspaceCreatedAt('@deepseek-ai/dsh-client-ui-settings',workspaceFixture);
+const other=patchWorkspaceCreatedAt('@xharness/dsh-client-ui-settings',workspaceFixture);
 assert.deepEqual(other,workspaceFixture,'unrelated modules stay byte-identical');
 const patchedWorkspace=patchWorkspaceCreatedAt(WORKSPACE,workspaceFixture);
 assert.deepEqual(patchWorkspaceCreatedAt(WORKSPACE,patchedWorkspace),patchedWorkspace,'patching is idempotent');

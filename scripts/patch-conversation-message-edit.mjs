@@ -122,9 +122,9 @@ export function refreshConversationMessageEdit(dist) {
   const graphPath = resolve(dist, 'client-graph.json')
   const graph = JSON.parse(readFileSync(graphPath, 'utf8'))
   for (const [id, patch] of [
-    ['@deepseek-ai/dsh-client-ui-conversation', patchConversationMessageEdit],
-    ['@deepseek-ai/dsh-client-connection', patchMessageEditConnection],
-    ['@deepseek-ai/dsh-client-runtime', patchMessageEditRuntime],
+    ['@xharness/dsh-client-ui-conversation', patchConversationMessageEdit],
+    ['@xharness/dsh-client-connection', patchMessageEditConnection],
+    ['@xharness/dsh-client-runtime', patchMessageEditRuntime],
   ]) {
     const path = resolve(dist, `plugins/${id}/client.js`);
     const bytes = patch(readFileSync(path));
