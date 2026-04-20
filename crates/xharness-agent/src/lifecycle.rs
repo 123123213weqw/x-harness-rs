@@ -105,6 +105,21 @@ impl AgentLifecycle {
         Ok(())
     }
 
+    /// Release a driver reservation whose worker task is already gone.
+    ///
+    /// [`Self::finish_driver`] is skipped when a worker dies by panic or abort,
+    /// which strands the phase at `Running` and makes every replacement worker
+    /// fail [`Self::reserve_driver`] with `AlreadyActive`. The reservation
+    /// belongs to a task rather than to durable state, so recovering from a lost
+    /// task is the same move a process restart makes when it rebuilds the
+    /// lifecycle from the journal. `last_turn` — the durable coordinate — is
+    /// untouched.
+    pub fn release_stale_driver(&mut self) {
+        if matches!(self.phase, AgentPhase::Running { .. }) {
+            self.phase = AgentPhase::Idle;
+        }
+    }
+
     pub fn reserve_maintenance(&mut self) -> Result<(), LifecycleError> {
         if self.phase != AgentPhase::Idle {
             return Err(LifecycleError::AlreadyActive);
