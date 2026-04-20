@@ -129,7 +129,7 @@ pub enum CompactionDecision {
     },
 }
 
-/// DeepSeek-compatible default pressure planner, expressed without depending
+/// Baseline-compatible default pressure planner, expressed without depending
 /// on a concrete provider, tokenizer, agent or session store.
 #[derive(Clone, Debug)]
 pub struct BasicCompactionPlanner {
