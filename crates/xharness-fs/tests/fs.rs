@@ -431,3 +431,137 @@ async fn paged_read_cursor_is_contiguous_line_aware_and_version_bound() {
         Err(FsError::InvalidReadCursor)
     ));
 }
+// ---------------------------------------------------------------------------
+// FIFO containment (regression for #95).
+// ---------------------------------------------------------------------------
+
+/// A FIFO in the workspace must be rejected as a non-regular file, not opened.
+///
+/// The open happens *before* the regular-file check, so without `O_NONBLOCK` the
+/// `open(2)` on a FIFO with no writer blocks per POSIX: `resolve` never returns,
+/// taking the runtime worker thread that called it with it. `resolve` is a
+/// synchronous `pub fn` reached from the `read`/`write`/`edit` handlers, so
+/// nothing above it can cancel the syscall.
+#[test]
+fn resolve_rejects_a_fifo_without_blocking() {
+    let workspace = TestDir::new("fifo-resolve");
+    let fifo = workspace.path().join("p");
+    let status = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo must be available");
+    assert!(status.success(), "mkfifo failed: {status}");
+
+    let root = workspace.path().to_path_buf();
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    // A detached thread: if the open ever blocks again, the assertion below
+    // fails and the process exit reclaims the thread.
+    std::thread::spawn(move || {
+        let service = FsService::new(&root).expect("service");
+        let _ = finished_tx.send(format!("{:?}", service.resolve("p")));
+    });
+
+    match finished_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(outcome) => assert!(
+            outcome.contains("NotRegularFile"),
+            "resolve must reject a FIFO as a non-regular file, got: {outcome}"
+        ),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            panic!("resolve blocked on a FIFO instead of rejecting it")
+        }
+        Err(error) => panic!("unexpected channel error: {error:?}"),
+    }
+}
+
+/// A FIFO used as a path *component* must fail closed for the same reason: the
+/// parent walk opens with `O_DIRECTORY`, which rejects a FIFO with `ENOTDIR`
+/// rather than blocking on it.
+#[test]
+fn resolve_rejects_a_fifo_parent_component_without_blocking() {
+    let workspace = TestDir::new("fifo-parent");
+    let fifo = workspace.path().join("p");
+    let status = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo must be available");
+    assert!(status.success(), "mkfifo failed: {status}");
+
+    let root = workspace.path().to_path_buf();
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let service = FsService::new(&root).expect("service");
+        let _ = finished_tx.send(format!("{:?}", service.resolve("p/inner")));
+    });
+
+    match finished_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(outcome) => assert!(
+            outcome.starts_with("Err("),
+            "a FIFO parent component must be rejected, got: {outcome}"
+        ),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            panic!("resolve blocked on a FIFO parent component")
+        }
+        Err(error) => panic!("unexpected channel error: {error:?}"),
+    }
+}
+
+/// The same call shape the `read`/`write`/`edit` handlers use — a synchronous
+/// `resolve` awaited inside an async task — must not consume the runtime worker.
+#[test]
+fn a_fifo_does_not_starve_the_runtime_worker() {
+    let workspace = TestDir::new("fifo-starvation");
+    let fifo = workspace.path().join("p");
+    let status = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo must be available");
+    assert!(status.success(), "mkfifo failed: {status}");
+    let root = workspace.path().to_path_buf();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    // `xharness-fs` does not enable tokio's `time` feature, so the liveness
+    // heartbeat yields cooperatively instead of sleeping.
+    let ticks = Arc::new(AtomicU64::new(0));
+    runtime.spawn({
+        let ticks = Arc::clone(&ticks);
+        async move {
+            loop {
+                tokio::task::yield_now().await;
+                ticks.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    });
+    for _ in 0..2_000 {
+        if ticks.load(Ordering::Relaxed) >= 10_000 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(
+        ticks.load(Ordering::Relaxed) >= 10_000,
+        "the heartbeat never ran; the runtime did not start"
+    );
+
+    runtime.spawn(async move {
+        let service = FsService::new(&root).expect("service");
+        let outcome = service.resolve("p");
+        assert!(
+            format!("{outcome:?}").contains("NotRegularFile"),
+            "the handler call shape must get NotRegularFile, got: {outcome:?}"
+        );
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let before = ticks.load(Ordering::Relaxed);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let after = ticks.load(Ordering::Relaxed);
+
+    assert!(
+        after > before,
+        "the runtime worker stopped ticking ({before} -> {after}); the FIFO call \
+         consumed the only worker thread"
+    );
+}
