@@ -5,9 +5,9 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {execFileSync} from 'node:child_process'
 const dir=mkdtempSync(join(tmpdir(),'xh-headline-'))
-const plugin='plugins/@deepseek-ai/dsh-client-ui-conversation/client.js'
+const plugin='plugins/@xharness/dsh-client-ui-conversation/client.js'
 try {
- mkdirSync(join(dir,'plugins/@deepseek-ai/dsh-client-ui-conversation'),{recursive:true})
+ mkdirSync(join(dir,'plugins/@xharness/dsh-client-ui-conversation'),{recursive:true})
  for(const file of [plugin,'index.html','client-graph.json']) cpSync(new URL('../ui/dist/'+file,import.meta.url),join(dir,file))
  const run=()=>execFileSync(process.execPath,[fileURLToPath(new URL('./patch-brand-headline.mjs',import.meta.url)),dir])
  run(); const before=readFileSync(join(dir,'index.html'),'utf8');run()

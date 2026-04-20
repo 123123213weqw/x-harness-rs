@@ -5,7 +5,7 @@ import {Script} from 'node:vm';
 import {patchSettingsSaveFeedback} from './patch-settings-save-feedback.mjs';
 
 const read = path => readFileSync(new URL('../'+path, import.meta.url),'utf8');
-const text = read('ui/dist/plugins/@deepseek-ai/dsh-client-ui-settings/client.js');
+const text = read('ui/dist/plugins/@xharness/dsh-client-ui-settings/client.js');
 const start = text.indexOf('var SettingsScopeController = class');
 const end = text.indexOf('var SettingsScopeBinder = class', start);
 assert.ok(start >= 0 && end > start);
@@ -14,7 +14,7 @@ const makeStore = initial => {
   let value = initial;
   return {getSnapshot:()=>value, subscribe:()=>()=>{}, update:fn=>{value=structuredClone(value);fn(value);}};
 };
-const Controller = new Function('_deepseek_ai_dsh_client_runtime_client','xhSettingsSaveFeedback',
+const Controller = new Function('_xharness_dsh_client_runtime_client','xhSettingsSaveFeedback',
   text.slice(start,end)+';return SettingsScopeController;')({createSnapshotStore:makeStore},(ns,failed)=>notifications.push({ns,failed}));
 const make = (mutate,load=async()=>{},mode='host') => new Controller({settings:{mutate}},
   {namespace:'ui-theme'}, {subscribe:()=>()=>{},getSnapshot:()=>({}),load,acceptView:()=>{}}, mode, {});
@@ -55,7 +55,7 @@ await make(()=>{throw Error('remote browser must not write');},undefined,'memory
 assert.deepEqual(notifications,[]);
 console.log('Settings save settlement: refusal, offline/recovery failure, supersession, disposal and memory mode passed');
 
-const id='@deepseek-ai/dsh-client-ui-settings';
+const id='@xharness/dsh-client-ui-settings';
 const helper=read('ui/overrides/settings-save-feedback.js').replaceAll('\r\n','\n');
 assert.ok(text.includes(helper));
 const original=text.replace('// XHARNESS SETTINGS SAVE FEEDBACK\n'+helper+'\n','')

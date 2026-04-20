@@ -76,7 +76,7 @@ Create/Fork/Cancel/Attachment 等 RPC、补 Credential Reference，并继续减�
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
 HTTP 404。当前先实现 Web 控件依赖的 `commands/list` 和 `commands/execute`，以及上游 GoalBar
 动词所依赖的 `goals/create|edit|pause|resume|complete|clear`（把 `args.{agentId,ref,request}`
-映射到扁平 `goal.*`，按客户端 schema 返回 `{ref}`、`{cleared:true}` 或整个目标状态）；
+映射到扁平 `goal.*`，按客户端 schema 返回 `{ref}`、清除后的 `{id,revision}` 或整个目标状态）；
 其他上游命名空间（`fileReferences`、`sessionReferenceResolver`、`dynamicCordisRunner` 等）仍未
 声明，保持 404。动态目录已暴露 `permission` 与 `plan` 两个命令。
 
@@ -270,3 +270,14 @@ Workspace/Session/Fork/Settings/Goal/Export 状态变化；通过 ClientResponse
 并重放 `64,196 > 53,248` 上下文样本和 Sandbox Probe 不可用后的动态工具投影。
 结构化关闭门禁还必须证明：活动 Turn 取消并持久闭合后才停 Worker，所有
 活跃 Job/Process 已退出，关闭后新 Admission 被拒绝，Forced Cleanup 导致二进制非零退出。
+
+### Goal Remote 响应与重放
+
+`goals/clear` 返回清除事件的 GoalRef（revision 为清除后的版本），旧扁平 `goal.clear` 保持
+`{cleared:true}`。两种协议复用状态变更逻辑，但 Remote 的结果必须在持有 Admission、提交
+状态变更时生成，并与事件原子写入 Mutation Receipt；禁止完成后再读取当前 Goal 拼装结果。
+后续编辑、清除或创建新 Goal 后，重试旧 RPC 仍返回原结果，不再次执行操作。Remote 使用独立
+请求指纹封装，旧扁平回执格式不变；同 ID 不同请求或协议必须报冲突。
+
+回归包括 RPC 重放/替换 Goal、进程级 HTTP 测试，以及把真实 Host 的六个 HTTP 响应交给
+出厂 `dsh-api-remotes` 内嵌 schema 校验。该契约测试已接入 Linux CI，不调用外部模型。

@@ -1198,7 +1198,10 @@ mod tests {
             json!({"args": {"agentId": "g", "ref": completed["ref"]}}),
         )
         .await;
-        assert_eq!(cleared, json!({"cleared": true}));
+        assert_eq!(
+            cleared,
+            json!({"id": completed["id"], "revision": completed["revision"].as_u64().unwrap() + 1})
+        );
         let session = store.load("g").await.unwrap().unwrap();
         assert!(session.events().iter().any(|event| matches!(
             event.data(),
@@ -1291,6 +1294,121 @@ mod tests {
             )
             .await
             .is_none());
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+    #[tokio::test]
+    async fn goal_remote_receipts_replay_original_state_after_edit_clear_and_replacement() {
+        async fn remote(host: &BasicHost, id: &str, endpoint: &str, args: Value) -> Value {
+            match host
+                .call_dynamic(
+                    RpcId::new(id),
+                    endpoint,
+                    json!({"args":args}),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap()
+            {
+                RpcResult::Success { value: Some(value) } => value,
+                other => panic!("{other:?}"),
+            }
+        }
+        let (host, store, _) = setup("progress").await;
+        let created = call(
+            &host,
+            "create",
+            RpcMethod::GoalCreate,
+            json!({"sessionId":"g", "objective":"original", "executionEnabled":false}),
+        )
+        .await;
+        let edit_args =
+            json!({"agentId":"g", "ref":created["ref"], "request":{"objective":"edited"}});
+        let edited = remote(&host, "remote-edit", "goals/edit", edit_args.clone()).await;
+        let paused = remote(
+            &host,
+            "remote-pause",
+            "goals/pause",
+            json!({"agentId":"g", "ref":edited["ref"]}),
+        )
+        .await;
+        assert_eq!(
+            remote(&host, "remote-edit", "goals/edit", edit_args.clone()).await,
+            edited
+        );
+        let clear_args = json!({"agentId":"g", "ref":paused["ref"]});
+        let cleared = remote(&host, "remote-clear", "goals/clear", clear_args.clone()).await;
+        assert_eq!(
+            cleared,
+            json!({"id":paused["id"], "revision":paused["revision"].as_u64().unwrap()+1})
+        );
+        assert_eq!(
+            remote(&host, "remote-edit", "goals/edit", edit_args.clone()).await,
+            edited
+        );
+        assert_eq!(
+            remote(&host, "remote-clear", "goals/clear", clear_args.clone()).await,
+            cleared
+        );
+        let second = call(
+            &host,
+            "second",
+            RpcMethod::GoalCreate,
+            json!({"sessionId":"g", "objective":"replacement", "executionEnabled":false}),
+        )
+        .await;
+        assert_eq!(
+            remote(&host, "remote-clear", "goals/clear", clear_args).await,
+            cleared
+        );
+        assert_eq!(
+            host.state.read().await.goals["g"].id,
+            second["ref"]["id"].as_str().unwrap()
+        );
+        // Receipts include the immutable wire response in the durable event,
+        // not just the flattened method's ref or a read of the latest Goal.
+        let session = store.load("g").await.unwrap().unwrap();
+        let receipt = session
+            .events()
+            .iter()
+            .find_map(|e| match e.data() {
+                EventData::SessionMutationCommitted { receipt }
+                    if receipt.rpc_id == "remote-edit" =>
+                {
+                    Some(receipt)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(receipt.response, edited);
+        // Reusing an id for a different request or flat protocol cannot replay
+        // a different-shaped response or silently mutate the replacement.
+        let bad = host
+            .call_dynamic(
+                RpcId::new("remote-edit"),
+                "goals/edit",
+                json!({"args":{"agentId":"g","ref":second["ref"],"request":{"objective":"wrong"}}}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(!bad.is_ok());
+        assert!(!host
+            .call(
+                RpcId::new("remote-clear"),
+                RpcMethod::GoalClear,
+                json!({"sessionId":"g","ref":paused["ref"]}),
+                CancellationToken::new()
+            )
+            .await
+            .is_ok());
+        let flat = call(
+            &host,
+            "flat-clear",
+            RpcMethod::GoalClear,
+            json!({"sessionId":"g","ref":second["ref"]}),
+        )
+        .await;
+        assert_eq!(flat, json!({"cleared":true}));
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
 }

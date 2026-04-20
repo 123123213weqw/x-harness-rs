@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 const root=new URL('../',import.meta.url);
 const fixturePath=new URL('docs/evidence/max-tokens-notice-20260914/host-events.json',root);
-const bundles=[fileURLToPath(new URL('ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js',root))];
+const bundles=[fileURLToPath(new URL('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',root))];
 const copy=JSON.parse(readFileSync(new URL('ui/overrides/max-tokens-notice.json',root),'utf8'));
 const fixtures=JSON.parse(readFileSync(fixturePath,'utf8'));
 for(const path of bundles) {
@@ -27,7 +27,7 @@ for(const path of bundles) {
  assert.throws(()=>patchMaxTokensNotice(Buffer.from(source.replace('const en = {','const renamed = {'))),/anchor changed/);
  const jsx=(type,props)=>({type,props});
  const env={react_jsx_runtime:{jsx,jsxs:jsx},MessageItem_module_css_default:{},
-  _deepseek_ai_dsh_client_ui_primitives:{StateDot:'dot'},
+  _xharness_dsh_client_ui_primitives:{StateDot:'dot'},
   chatNode:(_ctx,kind,seq,data)=>({kind,seq,data})};
  vm.runInNewContext(source.slice(start,defEnd)+'\nglobalThis.def=turnMaxTokensDefinition;\n'+source.slice(itemStart,itemEnd)+'\nglobalThis.render=TurnMaxTokensItem;',env);
  for(const fixture of fixtures) {
@@ -57,7 +57,7 @@ for(const path of bundles) {
 }
 
 const graph=JSON.parse(readFileSync(new URL('ui/dist/client-graph.json',root),'utf8'));
-const entry=graph.entries.find(e=>e.id==='@deepseek-ai/dsh-client-ui-conversation');
+const entry=graph.entries.find(e=>e.id==='@xharness/dsh-client-ui-conversation');
 const hash=createHash('sha256').update(readFileSync(bundles[0])).digest('hex').slice(0,16);
 assert.equal(entry.rev,hash);
 assert.equal(entry.url,`/plugins/${entry.id}/client.js?rev=${hash}`);

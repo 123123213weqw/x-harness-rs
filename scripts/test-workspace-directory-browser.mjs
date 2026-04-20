@@ -36,7 +36,7 @@ try {
   await page.goto('http://workspace-fixture.test/')
   await page.waitForFunction(() => window.staticModules)
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
-  for (const id of ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-theme', '@deepseek-ai/dsh-client-ui-workspace', '@xlang/xharness-client-ui-directory']) {
+  for (const id of ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-theme', '@xharness/dsh-client-ui-workspace', '@xlang/xharness-client-ui-directory']) {
     await page.addScriptTag({ content: readFileSync(resolve(dist, `plugins/${id}/client.js`), 'utf8') })
   }
   await page.evaluate(() => {
@@ -44,8 +44,8 @@ try {
     const ReactDOM = staticModules['react-dom']
     const h = React.createElement
     const slotMap = new Map(), dictionaries = new Map()
-    const runtime = registrations['@deepseek-ai/dsh-client-runtime'].factory(id => staticModules[id])
-    const readModule = id => id === '@deepseek-ai/dsh-client-runtime/client' ? { ...runtime, defineStore: spec => spec } : staticModules[id]
+    const runtime = registrations['@xharness/dsh-client-runtime'].factory(id => staticModules[id])
+    const readModule = id => id === '@xharness/dsh-client-runtime/client' ? { ...runtime, defineStore: spec => spec } : staticModules[id]
     window.base = 'D:\\工作区'
     window.paths = new Map([[base, ['已有项目', '.hidden']], [base + '\\已有项目', []], [base + '\\.hidden', []], ['C:\\', ['Users']], ['D:\\', ['工作区']], ['\\\\server\\share', []], ['/tmp/projects', []]])
     window.drives = ['C:\\', 'D:\\', 'Z:\\'] // Assigned but unavailable Z: must still be visible.
@@ -92,10 +92,10 @@ try {
       slots: { inject: (_name, fn) => fn(), register: (def, component) => { slotMap.set(def.name, { def, component }); return () => slotMap.delete(def.name) },
         entries: name => slotMap.has(name) ? [slotMap.get(name)] : [], subscribe: () => () => {} },
     }
-    registrations['@deepseek-ai/dsh-client-ui-theme'].factory(readModule).apply(ctx)
+    registrations['@xharness/dsh-client-ui-theme'].factory(readModule).apply(ctx)
     document.documentElement.dataset.theme = 'light'
     for (const [name, value] of Object.entries(ctx.theme.getTheme().active.tokens)) document.documentElement.style.setProperty(name, value)
-    registrations['@deepseek-ai/dsh-client-ui-workspace'].factory(readModule).apply(ctx)
+    registrations['@xharness/dsh-client-ui-workspace'].factory(readModule).apply(ctx)
     registrations['@xlang/xharness-client-ui-directory'].factory(readModule).apply(ctx)
     const renderSlot = (name, owner) => { const { def, component } = slotMap.get(name); return h(component, { ...def.inject(), ...owner }) }
     const sessions = { items: [], ids: [], byId: {}, current: undefined, phase: 'ready' }
