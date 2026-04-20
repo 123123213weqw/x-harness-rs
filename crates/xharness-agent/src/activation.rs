@@ -58,6 +58,12 @@ impl AgentActivation {
     pub async fn finish_driver(&self) -> Result<(), LifecycleError> {
         self.lifecycle.lock().await.finish_driver()
     }
+
+    /// Drop the driver reservation left behind by a worker that died without
+    /// reaching `finish_driver()` (panic or abort).
+    pub async fn release_stale_driver(&self) {
+        self.lifecycle.lock().await.release_stale_driver();
+    }
 }
 
 impl Drop for AgentActivation {

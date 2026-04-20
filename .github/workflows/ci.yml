@@ -135,6 +135,7 @@ jobs:
           UI_TEST_BROWSER=chromium node scripts/test-approval-prompt-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-approval-prompt-browser.mjs
           node scripts/test-goal-runtime-patch.mjs
+          node scripts/test-ui-namespace.mjs
           UI_TEST_BROWSER=chromium node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-request-audit-browser.mjs
@@ -177,6 +178,12 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Goal remote HTTP replies match shipped client schemas
+        env:
+          XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json
+        run: |
+          cargo test -p xharness-host-app --test goal_remotes
+          node scripts/test-goal-remote-contract.mjs "$XHARNESS_GOAL_REMOTE_FIXTURE"
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1

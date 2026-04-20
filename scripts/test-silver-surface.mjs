@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {patchSilverSurface} from './patch-silver-surface.mjs'
-const source=readFileSync(new URL('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js',import.meta.url),'utf8')
+const source=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',import.meta.url),'utf8')
 assert.equal(patchSilverSurface(source),source)
 const block=source.slice(source.indexOf('function HeroGlow('),source.indexOf('\n\t\t/**',source.indexOf('function HeroGlow(')))
 assert.ok(block.includes('"data-xh-silver-glow"'))

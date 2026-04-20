@@ -5,8 +5,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const runtimeSource = read('../ui/dist/plugins/@deepseek-ai/dsh-client-runtime/client.js');
-const ui = read('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js');
+const runtimeSource = read('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js');
+const ui = read('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js');
 const fixture = JSON.parse(read('./fixtures/retry-turn-projection.json'));
 let registration;
 vm.runInNewContext(runtimeSource, {
@@ -14,10 +14,10 @@ vm.runInNewContext(runtimeSource, {
   console, URL, AbortController, setTimeout, clearTimeout,
 });
 const runtime = registration.factory(id => {
-  if (id === '@deepseek-ai/cordis') return { Service: class {} };
+  if (id === '@xharness/cordis') return { Service: class {} };
   return {};
 });
-const context = vm.createContext({ _deepseek_ai_dsh_client_runtime_client: runtime });
+const context = vm.createContext({ _xharness_dsh_client_runtime_client: runtime });
 for (const name of ['contextLocation', 'chatNode', 'lastStep$1', 'retryTurn', 'failureFrom', 'fallbackState']) {
   const start = ui.indexOf(`function ${name}(`);
   const end = ui.indexOf('\n\t\t}', start);

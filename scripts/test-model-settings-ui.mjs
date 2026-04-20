@@ -10,13 +10,13 @@ const rust = fs.readFileSync(path.join(root, 'crates/xharness-host/src/model_set
 const literal = rust.match(/pub fn model_settings_schema\(\) -> Value \{\s*json!\(([\s\S]*?)\)\s*\}/)?.[1];
 assert.ok(literal, 'Rust must expose an inspectable serialized schema');
 const serialized = JSON.parse(literal);
-const bundle = fs.readFileSync(path.join(root, 'ui/dist/plugins/@deepseek-ai/dsh-client-ui-settings/client.js'), 'utf8');
+const bundle = fs.readFileSync(path.join(root, 'ui/dist/plugins/@xharness/dsh-client-ui-settings/client.js'), 'utf8');
 let factory;
 const context = vm.createContext({window:{__ModuleLoader__:{load(module){factory=module.factory;}}}, console});
 vm.runInContext(bundle.replace('exports.apply = apply;', 'exports.testSchema = new SettingsSchemaService({}); exports.apply = apply;'), context);
 const api = factory(name => {
-  if(name === '@deepseek-ai/cordis') return {Service:class {}};
-  if(name === '@deepseek-ai/dsh-client-runtime/client') return {};
+  if(name === '@xharness/cordis') return {Service:class {}};
+  if(name === '@xharness/dsh-client-runtime/client') return {};
   throw new Error(`Unexpected bundle dependency ${name}`);
 });
 const schema = api.testSchema;
