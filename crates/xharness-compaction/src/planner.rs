@@ -147,9 +147,26 @@ impl BasicCompactionPlanner {
     }
 
     pub fn plan(&self, request: &CompactionRequest) -> Result<CompactionDecision, CompactionError> {
-        let spec = self
+        self.plan_with_input_budget(request, None, 0)
+    }
+
+    /// Pressure is bounded by the actual input region, not only total context.
+    /// Reserve 5–20% of that region, responding to the largest recent step growth.
+    pub fn plan_with_input_budget(
+        &self,
+        request: &CompactionRequest,
+        available_input_tokens: Option<u64>,
+        recent_growth: u64,
+    ) -> Result<CompactionDecision, CompactionError> {
+        let mut spec = self
             .config
             .resolve(request.target.clone(), request.context_window_tokens)?;
+        if let Some(available) = available_input_tokens {
+            let floor = (available / 20).max(1);
+            let ceiling = (available / 5).max(floor);
+            let buffer = recent_growth.saturating_mul(2).clamp(floor, ceiling);
+            spec.threshold_tokens = spec.threshold_tokens.min(available.saturating_sub(buffer));
+        }
         if request.trigger == CompactionTrigger::Pressure && !self.config.auto {
             return Ok(CompactionDecision::Disabled);
         }
@@ -373,5 +390,43 @@ mod tests {
             SurfaceNode::assistant_tool_calls(2, 1, ["same"]),
         ];
         assert!(select_compactable_range(&duplicate, 0).is_err());
+    }
+    #[test]
+    fn pressure_tracks_usable_budget_and_bounded_growth_not_total_capacity() {
+        let planner = BasicCompactionPlanner::new(CompactionConfig::default()).unwrap();
+        let request = CompactionRequest {
+            trigger: CompactionTrigger::Pressure,
+            target: ModelTarget::new("test", "model"),
+            context_window_tokens: 262_144,
+            current_input_tokens: 199_000,
+            surface_generation: 1,
+            nodes: vec![
+                SurfaceNode::plain(1, 180_000),
+                SurfaceNode::plain(2, 45_000),
+            ],
+        };
+        assert!(matches!(
+            planner
+                .plan_with_input_budget(&request, Some(211_968), 0)
+                .unwrap(),
+            CompactionDecision::NotNeeded {
+                threshold_tokens: 201_370,
+                ..
+            }
+        ));
+        let CompactionDecision::Planned { plan } = planner
+            .plan_with_input_budget(&request, Some(211_968), 8_000)
+            .unwrap()
+        else {
+            panic!("growth buffer must trigger")
+        };
+        assert_eq!(plan.spec.threshold_tokens, 195_968);
+        let CompactionDecision::Planned { plan } = planner
+            .plan_with_input_budget(&request, Some(211_968), u64::MAX)
+            .unwrap()
+        else {
+            panic!("must trigger")
+        };
+        assert_eq!(plan.spec.threshold_tokens, 169_575);
     }
 }
