@@ -19,7 +19,7 @@ use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
 use xharness_compaction::{
     frame_summary, BasicCompactionPlanner, CompactionDecision, CompactionPlan, CompactionRequest,
-    CompactionTrigger, ModelTarget, SurfaceNode, SurfaceNodeKind, DEFAULT_COMPACTION_INSTRUCTION,
+    CompactionTrigger, ModelTarget, SurfaceNode, SurfaceNodeKind,
 };
 use xharness_debug::{DebugEvent, DebugScope};
 use xharness_session::{
@@ -78,6 +78,7 @@ enum CompactionOutcome {
 struct CompactionSummaryOutput {
     text: String,
     usage: Option<TokenUsage>,
+    max_output_tokens: u64,
 }
 
 pub struct LoopRun {
@@ -395,6 +396,9 @@ impl LoopEngine {
             journal,
             recovered_tool_batch: None,
             overflow_recoveries: 0,
+            last_input_tokens: None,
+            recent_input_growth: VecDeque::new(),
+            failed_compactions: HashMap::new(),
         };
         let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
@@ -529,6 +533,9 @@ struct Runner {
     journal: Option<JournalState>,
     recovered_tool_batch: Option<RecoveredToolBatch>,
     overflow_recoveries: u32,
+    last_input_tokens: Option<u64>,
+    recent_input_growth: VecDeque<u64>,
+    failed_compactions: HashMap<String, String>,
 }
 
 struct JournalState {
@@ -781,6 +788,20 @@ impl Runner {
                     .await?
                 {
                     TokenBudgetCheck::Ready(report) => {
+                        if let Some(report) = &report {
+                            let input = report.estimate.total_input_tokens;
+                            if let Some(previous) = self.last_input_tokens {
+                                if input >= previous {
+                                    self.recent_input_growth.push_back(input - previous);
+                                    if self.recent_input_growth.len() > 8 {
+                                        self.recent_input_growth.pop_front();
+                                    }
+                                } else {
+                                    self.recent_input_growth.clear();
+                                }
+                            }
+                            self.last_input_tokens = Some(input);
+                        }
                         if !pressure_attempted {
                             pressure_attempted = true;
                             if let Some(report) = report.as_ref() {
@@ -1295,14 +1316,21 @@ impl Runner {
         let planner = BasicCompactionPlanner::new(config)
             .map_err(|error| RunFailure::Failed(error.to_string()))?;
         let plan = match planner
-            .plan(&CompactionRequest {
-                trigger,
-                target,
-                context_window_tokens,
-                current_input_tokens,
-                surface_generation: session.revision().get(),
-                nodes,
-            })
+            .plan_with_input_budget(
+                &CompactionRequest {
+                    trigger,
+                    target,
+                    context_window_tokens,
+                    current_input_tokens,
+                    surface_generation: session.revision().get(),
+                    nodes,
+                },
+                self.request
+                    .token_guard
+                    .as_ref()
+                    .map(|guard| guard.budget().available_input_tokens()),
+                self.recent_input_growth.iter().copied().max().unwrap_or(0),
+            )
             .map_err(|error| RunFailure::Failed(error.to_string()))?
         {
             CompactionDecision::Planned { plan } => *plan,
@@ -1377,55 +1405,50 @@ impl Runner {
         )
         .await;
 
-        let mut last_error = None;
-        let mut summary = None;
-        for attempt in 1..=plan.max_summary_attempts {
-            match self.run_compaction_summary(&plan, &selected).await {
-                Ok(output) => {
-                    summary = Some(output);
-                    break;
-                }
-                Err(failure @ RunFailure::Stopped(_)) => {
-                    self.journal_append(
-                        vec![SessionEventData::CompactionEnd {
-                            compaction_id: compaction_id.clone(),
-                            source_command_id: None,
-                            turn: Some(turn),
-                            error: Some("compaction cancelled before replacement".to_owned()),
-                        }],
-                        true,
-                    )
-                    .await?;
-                    return Err(failure);
-                }
-                Err(error) => {
-                    last_error = Some(error.to_string());
-                    self.debug(
-                        "compaction.summary_retry",
-                        json!({
-                            "compactionId": &compaction_id,
-                            "attempt": attempt,
-                            "maxAttempts": plan.max_summary_attempts,
-                            "error": error.to_string(),
-                        }),
-                    )
-                    .await;
-                }
+        // Cache deterministic failure for this exact source within the run;
+        // a later step must not repeatedly pay to summarize the same span.
+        let fingerprint = sha256_json(&json!({
+            "selected": &selected,
+            "system": self.messages.iter().find(|m| m.role == Role::System),
+            "target": &plan.spec.target, "context": context_window_tokens,
+            "output": plan.spec.max_tokens, "reasoning": &self.request.compaction_reasoning_effort,
+        }))?;
+        let summarized = if let Some(error) = self.failed_compactions.get(&fingerprint) {
+            Err(crate::compaction::SummaryError::Invalid(error.clone()))
+        } else {
+            self.run_compaction_summary(&plan, &selected).await
+        };
+        let summary = match summarized {
+            Ok(summary) => {
+                self.failed_compactions.clear();
+                summary
             }
-        }
-        let Some(summary) = summary else {
-            let error = last_error.unwrap_or_else(|| "summary produced no result".to_owned());
-            self.journal_append(
-                vec![SessionEventData::CompactionEnd {
-                    compaction_id: compaction_id.clone(),
-                    source_command_id: None,
-                    turn: Some(turn),
-                    error: Some(error.clone()),
-                }],
-                true,
-            )
-            .await?;
-            return Err(RunFailure::Failed(error));
+            Err(error) => {
+                if !matches!(&error, crate::compaction::SummaryError::Cancelled)
+                    && !matches!(&error, crate::compaction::SummaryError::Provider(error) if error.retryable)
+                {
+                    if self.failed_compactions.len() >= 32 {
+                        self.failed_compactions.clear();
+                    }
+                    self.failed_compactions
+                        .insert(fingerprint, error.to_string());
+                }
+                let error = match error {
+                    crate::compaction::SummaryError::Cancelled => self.stopped_failure(),
+                    _ => RunFailure::Failed(error.to_string()),
+                };
+                self.journal_append(
+                    vec![SessionEventData::CompactionEnd {
+                        compaction_id: compaction_id.clone(),
+                        source_command_id: None,
+                        turn: Some(turn),
+                        error: Some(error.to_string()),
+                    }],
+                    true,
+                )
+                .await?;
+                return Err(error);
+            }
         };
         let checkpoint =
             frame_summary(&summary.text).map_err(|error| RunFailure::Failed(error.to_string()))?;
@@ -1473,7 +1496,7 @@ impl Runner {
                     shadowed_token_count: plan.range.shadowed_token_count,
                     provider: current_provider,
                     model: current_model,
-                    max_tokens: Some(plan.spec.max_tokens),
+                    max_tokens: Some(summary.max_output_tokens),
                     usage,
                 },
                 SessionEventData::UserMessage {
@@ -1513,85 +1536,51 @@ impl Runner {
         &mut self,
         plan: &CompactionPlan,
         selected: &[AgentMessage],
-    ) -> Result<CompactionSummaryOutput, RunFailure> {
-        self.ensure_running()?;
-        let mut messages = Vec::with_capacity(selected.len().saturating_add(2));
-        if let Some(system) = self
-            .messages
-            .iter()
-            .find(|message| message.role == Role::System)
-        {
-            messages.push(system.clone());
+    ) -> Result<CompactionSummaryOutput, crate::compaction::SummaryError> {
+        if self.cancellation.is_cancelled() {
+            return Err(crate::compaction::SummaryError::Cancelled);
         }
-        messages.extend_from_slice(selected);
-        messages.push(AgentMessage::user(DEFAULT_COMPACTION_INSTRUCTION));
-        let request = ProviderRequest {
-            messages,
-            // Compaction is a closed summarization operation. Tool schemas add
-            // prompt cost and can make otherwise capable models attempt a call
-            // that this path must reject, so never expose them here.
+        let guard = self.request.token_guard.clone().ok_or_else(|| {
+            crate::compaction::SummaryError::Invalid(
+                "compaction needs an explicitly bound context budget".into(),
+            )
+        })?;
+        let template = ProviderRequest {
+            messages: self
+                .messages
+                .iter()
+                .find(|m| m.role == Role::System)
+                .cloned()
+                .into_iter()
+                .collect(),
             tools: Vec::new(),
             step: self.step,
-            // This is deliberately independent from the interactive turn. A
-            // high/xhigh user selection must not consume the summary's bounded
-            // output budget with hidden reasoning.
             reasoning_effort: self.request.compaction_reasoning_effort.clone(),
             max_output_tokens: Some(plan.spec.max_tokens),
             debug_scope: self.debug_scope(),
         };
-        let cancellation = self.cancellation.child_token();
-        let provider = Arc::clone(&self.request.provider);
-        let mut stream = tokio::select! {
-            _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
-            stream = provider.stream(request, cancellation.clone()) => {
-                stream.map_err(|error| RunFailure::Failed(error.message))?
-            }
-        };
-        let mut text = String::new();
-        let mut usage = None;
-        let mut completed = false;
-        while let Some(event) = tokio::select! {
-            _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
-            event = stream.next() => event,
-        } {
-            match event.map_err(|error| RunFailure::Failed(error.message))? {
-                ProviderEvent::TextDelta(delta) => text.push_str(&delta),
-                ProviderEvent::ReasoningDelta(_) => {}
-                ProviderEvent::ToolCallDelta { .. } => {
-                    cancellation.cancel();
-                    return Err(RunFailure::Failed(
-                        "compaction summary attempted to call a tool".to_owned(),
-                    ));
-                }
-                ProviderEvent::Completed {
-                    finish_reason,
-                    usage: reported_usage,
-                    ..
-                } => {
-                    let reason = finish_reason.unwrap_or(FinishReason::Stop);
-                    if reason != FinishReason::Stop {
-                        return Err(RunFailure::Failed(format!(
-                            "compaction summary was incomplete: {}",
-                            reason.description()
-                        )));
-                    }
-                    usage = reported_usage;
-                    completed = true;
-                    break;
-                }
-            }
-        }
-        if !completed {
-            return Err(RunFailure::Failed(
-                "compaction summary stream ended without completion".to_owned(),
-            ));
-        }
-        if text.trim().is_empty() {
-            return Err(RunFailure::Failed(
-                "compaction summary produced no text".to_owned(),
-            ));
-        }
-        Ok(CompactionSummaryOutput { text, usage })
+        let output = crate::compaction::SummaryRunner::new(
+            self.request.provider.clone(),
+            guard,
+            template,
+            self.cancellation.child_token(),
+            plan.spec.compaction_retries,
+        )
+        .with_debug(self.request.debug.clone())
+        .run(selected.to_vec())
+        .await?;
+        self.debug(
+            "compaction.summary_completed",
+            json!({
+                "calls": output.calls, "splits": output.splits, "usage": output.usage,
+            }),
+        )
+        .await;
+        Ok(CompactionSummaryOutput {
+            text: output.text,
+            usage: output.usage,
+            max_output_tokens: output.max_output_tokens,
+        })
     }
 
     async fn initialize_journal(&mut self) -> Result<(), RunFailure> {

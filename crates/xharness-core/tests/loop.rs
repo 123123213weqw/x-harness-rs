@@ -1723,7 +1723,7 @@ async fn provider_exact_count_prevents_conservative_byte_false_positive() {
 #[tokio::test]
 async fn pressure_compaction_is_durable_then_recounted_before_the_main_request() {
     let provider = Arc::new(SequencedCountingProvider::new(
-        [900, 300],
+        [900, 500, 300],
         [
             vec![
                 Ok(ProviderEvent::TextDelta(
@@ -1822,7 +1822,7 @@ async fn pressure_compaction_is_durable_then_recounted_before_the_main_request()
 #[tokio::test]
 async fn hard_overflow_compacts_and_recounts_instead_of_failing_immediately() {
     let provider = Arc::new(SequencedCountingProvider::new(
-        [980, 300],
+        [980, 500, 300],
         [
             vec![
                 Ok(ProviderEvent::TextDelta(
@@ -5197,4 +5197,105 @@ async fn active_loop_adopts_title_generation_metadata_without_changing_context()
             .iter()
             .any(|message| message.message.content.contains("title-generation")));
     }
+}
+
+#[tokio::test]
+async fn failed_auxiliary_summary_does_not_shadow_or_replace_original_history() {
+    let provider = Arc::new(SequencedCountingProvider {
+        inner: ScriptProvider::with_attempts([Err(ProviderError::http(
+            401,
+            "invalid summary credential",
+        ))]),
+        counts: Arc::new(Mutex::new(VecDeque::from([980, 500]))),
+    });
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "failed-compact").await;
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some("failed-compact".into());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1_000,
+            reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
+            safety_margin_tokens: 10,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(
+        provider.inner.attempts(),
+        1,
+        "permanent failure must not repeat"
+    );
+    let session = journal.load("failed-compact").await.unwrap().unwrap();
+    assert!(session
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+    assert!(!session
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+    assert!(session.events().iter().any(|e| matches!(
+        e.data(),
+        SessionEventData::CompactionEnd { error: Some(_), .. }
+    )));
+}
+
+#[tokio::test]
+async fn partial_chunk_success_followed_by_failure_never_commits_partial_checkpoint() {
+    let provider = Arc::new(SequencedCountingProvider {
+        inner: ScriptProvider::with_attempts([
+            Ok(vec![
+                Ok(ProviderEvent::TextDelta("PARTIAL-CHECKPOINT".into())),
+                Ok(completed()),
+            ]),
+            Err(ProviderError::http(401, "second chunk rejected")),
+        ]),
+        counts: Arc::new(Mutex::new(VecDeque::from([980, 980, 500, 500]))),
+    });
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "partial-compact").await;
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some("partial-compact".into());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1000,
+            reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
+            safety_margin_tokens: 10,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.inner.attempts(), 2);
+    let session = journal.load("partial-compact").await.unwrap().unwrap();
+    assert!(session
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+    assert!(!session
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("PARTIAL-CHECKPOINT")));
+    assert!(!session
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
 }

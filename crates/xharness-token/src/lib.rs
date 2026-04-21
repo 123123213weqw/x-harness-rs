@@ -406,6 +406,14 @@ impl TokenGuard {
         })
     }
 
+    /// Rebind an auxiliary reserve while preserving meter and counter policy.
+    pub fn with_budget(&self, budget: TokenBudget) -> Result<Self, TokenBudgetError> {
+        budget.validate()?;
+        let mut guard = self.clone();
+        guard.budget = budget;
+        Ok(guard)
+    }
+
     pub fn budget(&self) -> &TokenBudget {
         &self.budget
     }
