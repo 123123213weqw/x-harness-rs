@@ -5824,3 +5824,55 @@ async fn concurrent_durable_inbox_preserves_pending_input_and_allows_valid_compa
         "next-turn input is not part of this step's model request"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Stability reproductions (temporary audit artifacts).
+// ---------------------------------------------------------------------------
+
+/// Regression: after a max-token continuation ends, the accumulated
+/// `continuation_text` must not keep absorbing later steps.
+///
+/// The guard is `if reached_output_limit || !self.continuation_text.is_empty()`,
+/// so unless the sequence is closed when a step ends without
+/// `FinishReason::Length`, the flag stays latched for the rest of the run: a
+/// tool-call step's narration and the real answer both get appended to the
+/// truncated message with no separator.
+#[tokio::test]
+async fn text_after_a_continuation_is_not_glued_into_final_text() {
+    let provider = Arc::new(ScriptProvider::new([
+        // 1. Truncated by the output limit -> schedules a continuation.
+        vec![
+            Ok(ProviderEvent::TextDelta("first part".to_owned())),
+            Ok(completed_with(
+                FinishReason::Length,
+                TokenUsage {
+                    output_tokens: 3,
+                    ..TokenUsage::default()
+                },
+            )),
+        ],
+        // 2. A tool-call step: the continuation sequence is over here.
+        vec![
+            Ok(tool_delta(0, "call-1", "no_such_tool", "{}")),
+            Ok(ProviderEvent::TextDelta("NARRATION".to_owned())),
+            Ok(completed_for_calls()),
+        ],
+        // 3. The final answer for the user.
+        vec![
+            Ok(ProviderEvent::TextDelta("FINAL".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let tool = TestToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
+        ToolResult::success("should not run")
+    });
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    install_tool(&mut request, tool).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(
+        result.final_text, "FINAL",
+        "final_text must report the answer, not the latched continuation buffer"
+    );
+}
