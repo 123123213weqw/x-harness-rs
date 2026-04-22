@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use xharness_session::{
     AppendReceipt, LoggedEvent, Revision, Session, SessionEvent, SessionHeader, SessionInspection,
-    Store, StoreError,
+    Store, StoreError, UnreadableSession,
 };
 
 mod audit;
@@ -289,6 +289,16 @@ impl Store for JsonlSessionStore {
 
         let mut headers = Vec::with_capacity(session_ids.len());
         for session_id in session_ids {
+            // `create` publishes the name before the header, so a crash inside
+            // that window leaves a zero-byte regular file. It provably carries
+            // no event and cannot be resumed, so enumeration skips it instead
+            // of failing closed: one such writer artifact must never make every
+            // healthy session undiscoverable. Symlinks and non-regular files
+            // are deliberately not covered here — they still reach `load` and
+            // keep their existing validation errors.
+            if is_zero_byte_regular_file(&self.session_path(&session_id)?) {
+                continue;
+            }
             let session = self.load(&session_id).await?.ok_or_else(|| {
                 backend_message(format!(
                     "session {session_id:?} disappeared during startup enumeration"
@@ -297,6 +307,31 @@ impl Store for JsonlSessionStore {
             headers.push(session.header().clone());
         }
         Ok(headers)
+    }
+
+    async fn scan_sessions(
+        &self,
+    ) -> Result<(Vec<SessionHeader>, Vec<UnreadableSession>), StoreError> {
+        let root = Arc::clone(&self.root);
+        let mut session_ids = run_blocking(move || discover_session_ids(root.as_path())).await?;
+        session_ids.sort();
+
+        let mut headers = Vec::with_capacity(session_ids.len());
+        let mut unreadable = Vec::new();
+        for session_id in session_ids {
+            match self.load(&session_id).await {
+                Ok(Some(session)) => headers.push(session.header().clone()),
+                Ok(None) => unreadable.push(UnreadableSession {
+                    session_id,
+                    reason: "session disappeared during startup enumeration".to_owned(),
+                }),
+                Err(error) => unreadable.push(UnreadableSession {
+                    session_id,
+                    reason: error.to_string(),
+                }),
+            }
+        }
+        Ok((headers, unreadable))
     }
 
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
@@ -314,24 +349,51 @@ impl Store for JsonlSessionStore {
                 header: session.header().clone(),
             };
             let bytes = encode_line(&record, &path)?;
-            let mut file = match secure_open_options()
+            // Publish atomically. `create` used to open `<id>.jsonl` first and
+            // write the header second, so a crash in between left a zero-byte
+            // file under the very name startup discovery enumerates. Staging
+            // the bytes elsewhere and hard-linking them into place means the
+            // name only ever exists once it already has its header. The link is
+            // os-atomic and refuses to replace, which is the `create_new`
+            // contract `AlreadyExists` callers depend on.
+            static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let tmp = path.with_file_name(format!(
+                ".creating-{}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos(),
+                NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            let mut file = secure_open_options()
                 .write(true)
                 .create_new(true)
-                .open(&path)
-            {
-                Ok(file) => file,
-                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                    return Err(StoreError::AlreadyExists { session_id });
+                .open(&tmp)
+                .map_err(|error| backend_error("create session staging file", &tmp, error))?;
+            let published = (|| -> Result<(), StoreError> {
+                file.write_all(&bytes)
+                    .and_then(|_| file.sync_all())
+                    .map_err(|error| backend_error("durably write session header", &tmp, error))?;
+                match fs::hard_link(&tmp, &path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                        return Err(StoreError::AlreadyExists {
+                            session_id: session_id.clone(),
+                        });
+                    }
+                    Err(error) => {
+                        return Err(backend_error("publish session header", &path, error));
+                    }
                 }
-                Err(error) => return Err(backend_error("create session", &path, error)),
-            };
-            if let Err(error) = file.write_all(&bytes).and_then(|_| file.sync_all()) {
-                drop(file);
-                let _ = fs::remove_file(&path);
-                let _ = sync_parent_directory(&path);
-                return Err(backend_error("durably write session header", &path, error));
-            }
-            sync_parent_directory(&path)?;
+                sync_parent_directory(&path)?;
+                Ok(())
+            })();
+            drop(file);
+            // Only ever our own exclusively created staging file. A published
+            // session is never removed here.
+            let _ = fs::remove_file(&tmp);
+            published?;
             let fingerprint = file_fingerprint(&path)?.ok_or_else(|| {
                 backend_message(format!(
                     "session {} disappeared after creation",
@@ -593,6 +655,15 @@ impl Store for JsonlSessionStore {
     }
 }
 
+/// True only for a regular file that is exactly zero bytes. Symlinks are
+/// resolved by `symlink_metadata` rather than followed, so a symlink is never
+/// treated as empty just because its target is.
+fn is_zero_byte_regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_file() && metadata.len() == 0)
+        .unwrap_or(false)
+}
+
 fn discover_session_ids(root: &Path) -> Result<Vec<String>, StoreError> {
     let mut session_ids = Vec::new();
     let entries = fs::read_dir(root)
@@ -604,19 +675,20 @@ fn discover_session_ids(root: &Path) -> Result<Vec<String>, StoreError> {
         if path.extension().and_then(|extension| extension.to_str()) != Some("jsonl") {
             continue;
         }
-        let file_name = path
+        // A name that cannot denote a session id is not a session of this
+        // store, because `load`/`create` reject such ids outright. Skipping it
+        // keeps stray artifacts (`.tmp`, `.hidden`, cloud-sync conflict copies
+        // like `session-1 copy.jsonl`) from making startup enumeration fail.
+        let Some(session_id) = path
             .file_name()
             .and_then(|name| name.to_str())
-            .ok_or_else(|| {
-                backend_message(format!(
-                    "session directory contains a non-UTF-8 JSONL filename: {}",
-                    path.display()
-                ))
-            })?;
-        let session_id = file_name
-            .strip_suffix(FILE_SUFFIX)
-            .expect("the JSONL extension was checked");
-        validate_session_id(session_id)?;
+            .and_then(|file_name| file_name.strip_suffix(FILE_SUFFIX))
+        else {
+            continue;
+        };
+        if validate_session_id(session_id).is_err() {
+            continue;
+        }
         session_ids.push(session_id.to_owned());
     }
     Ok(session_ids)
