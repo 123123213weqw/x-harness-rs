@@ -432,6 +432,15 @@ mod tests {
             if self.mode == 2 && n == 0 {
                 return Err(ProviderError::http(503, "temporary"));
             }
+            if self.mode == 10 {
+                return Err(ProviderError::http(503, "persistent transient failure"));
+            }
+            if self.mode == 11 && n == 0 {
+                return Ok(Box::pin(futures::stream::iter(vec![
+                    Ok(ProviderEvent::TextDelta("DISCARDED-PARTIAL".into())),
+                    Err(ProviderError::retryable("disconnected after first delta")),
+                ])));
+            }
             if self.mode == 3 {
                 return Err(ProviderError::http(401, "invalid credential"));
             }
@@ -750,5 +759,138 @@ mod tests {
             .unwrap();
         assert_eq!(result.splits, 1);
         assert_eq!(result.calls, 4, "one full attempt, two chunks, one merge");
+    }
+    #[tokio::test]
+    async fn summary_admission_matrix_324_budget_and_unicode_cases() {
+        for capacity in [1024, 4096, 16384] {
+            for safety in [0, 10, 256] {
+                for output in [1, 64, 8192] {
+                    for repeats in [0, 50, 500, 1000] {
+                        let fake = Arc::new(Fake::default());
+                        let mut r = runner(fake.clone(), CancellationToken::new());
+                        r.guard = TokenGuard::conservative(TokenBudget {
+                            context_window_tokens: capacity,
+                            reserved_output_tokens: 32768,
+                            minimum_output_tokens: 32,
+                            safety_margin_tokens: safety,
+                        })
+                        .unwrap();
+                        let template = ProviderRequest {
+                            max_output_tokens: Some(output),
+                            ..r.template.clone()
+                        };
+                        let r = SummaryRunner::new(
+                            fake.clone(),
+                            r.guard.clone(),
+                            template,
+                            CancellationToken::new(),
+                            1,
+                        );
+                        let result = r
+                            .run(vec![AgentMessage::user("界🙂\\\n".repeat(repeats))])
+                            .await;
+                        assert!(result.is_ok(), "capacity={capacity} safety={safety} output={output} repeats={repeats}: {:?}", result.err());
+                        let requests = fake.requests.lock().unwrap();
+                        assert!(!requests.is_empty() && requests.len() <= 64);
+                        for request in requests.iter() {
+                            assert!(
+                                price(request) + request.max_output_tokens.unwrap() + safety
+                                    <= capacity
+                            );
+                            assert!(request.max_output_tokens.unwrap() > 0);
+                            assert!(request.tools.is_empty());
+                            assert_eq!(request.reasoning_effort.as_deref(), Some("off"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn seeded_unicode_fragment_splits_are_lossless_and_strictly_shrink() {
+        let alphabet = ["a", "中", "🙂", "\n", "\"", "\\", "\0", "e\u{301}", "👩‍💻"];
+        let mut seed = 0x5848_554eu64;
+        for case in 0..512 {
+            let mut raw = String::new();
+            for _ in 0..(256 + case) {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                raw.push_str(alphabet[(seed as usize) % alphabet.len()]);
+            }
+            let mut fragments = vec![AgentMessage::user(&raw).with_id("compaction-fragment")];
+            for _ in 0..4 {
+                let mut next = Vec::new();
+                for fragment in fragments {
+                    if fragment.content.chars().count() < 256 {
+                        next.push(fragment);
+                        continue;
+                    }
+                    let (left, right) = split_messages(std::slice::from_ref(&fragment)).unwrap();
+                    assert_eq!(
+                        format!("{}{}", left[0].content, right[0].content),
+                        fragment.content
+                    );
+                    assert!(left[0].content.len() < fragment.content.len());
+                    assert!(right[0].content.len() < fragment.content.len());
+                    next.extend(left);
+                    next.extend(right);
+                }
+                assert_eq!(
+                    next.iter().map(|m| m.content.as_str()).collect::<String>(),
+                    raw
+                );
+                fragments = next;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn already_cancelled_summary_performs_no_count_or_network_call() {
+        let fake = Arc::new(Fake::default());
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        assert!(matches!(
+            runner(fake.clone(), cancellation)
+                .run(vec![AgentMessage::user("facts")])
+                .await,
+            Err(SummaryError::Cancelled)
+        ));
+        assert_eq!(fake.counts.load(Ordering::SeqCst), 0);
+        assert!(fake.requests.lock().unwrap().is_empty());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn auxiliary_retries_are_bounded_and_discard_partial_attempts() {
+        for mode in [10, 11] {
+            let fake = Arc::new(Fake {
+                mode,
+                ..Fake::default()
+            });
+            let result = runner(fake.clone(), CancellationToken::new())
+                .run(vec![AgentMessage::user("facts")])
+                .await;
+            assert_eq!(fake.requests.lock().unwrap().len(), 2);
+            if mode == 10 {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(result.unwrap().text, "checkpoint");
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancellation_during_retry_backoff_prevents_the_next_attempt() {
+        let fake = Arc::new(Fake {
+            mode: 10,
+            ..Fake::default()
+        });
+        let cancellation = CancellationToken::new();
+        let future =
+            runner(fake.clone(), cancellation.clone()).run(vec![AgentMessage::user("facts")]);
+        tokio::pin!(future);
+        tokio::select! { _ = &mut future => panic!("retry must be waiting"), _ = tokio::task::yield_now() => {} }
+        assert_eq!(fake.requests.lock().unwrap().len(), 1);
+        cancellation.cancel();
+        assert!(matches!(future.await, Err(SummaryError::Cancelled)));
+        assert_eq!(fake.requests.lock().unwrap().len(), 1);
     }
 }

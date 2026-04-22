@@ -429,4 +429,115 @@ mod tests {
         };
         assert_eq!(plan.spec.threshold_tokens, 169_575);
     }
+    #[test]
+    fn pressure_boundary_matrix_is_monotone_and_leaves_headroom() {
+        let planner = BasicCompactionPlanner::new(CompactionConfig {
+            retain_ratio: None,
+            retain_tokens: Some(0),
+            ..CompactionConfig::default()
+        })
+        .unwrap();
+        for capacity in [1024, 4096, 16384, 53248, 262144, 1048576] {
+            for available in [1, 20, capacity / 4, capacity / 2, capacity - 1] {
+                let mut previous = u64::MAX;
+                for growth in [0, 1, 10, available / 10, available, u64::MAX] {
+                    let minimum = (available / 20).max(1);
+                    let maximum = (available / 5).max(minimum);
+                    let buffer = (u128::from(growth) * 2)
+                        .clamp(u128::from(minimum), u128::from(maximum))
+                        as u64;
+                    let expected = ((capacity as f64 * 0.8).floor() as u64)
+                        .min(available.saturating_sub(buffer));
+                    // The growth list isn't sorted for tiny budgets; test monotonicity separately below.
+                    for input in [expected.saturating_sub(1), expected, expected + 1] {
+                        let request = CompactionRequest {
+                            trigger: CompactionTrigger::Pressure,
+                            target: ModelTarget::new("matrix", "route"),
+                            context_window_tokens: capacity,
+                            current_input_tokens: input,
+                            surface_generation: 42,
+                            nodes: vec![SurfaceNode::plain(1, 1), SurfaceNode::plain(2, 1)],
+                        };
+                        let result = planner
+                            .plan_with_input_budget(&request, Some(available), growth)
+                            .unwrap();
+                        if input < expected {
+                            assert!(
+                                matches!(result, CompactionDecision::NotNeeded { threshold_tokens, .. } if threshold_tokens == expected)
+                            );
+                        } else {
+                            let CompactionDecision::Planned { plan } = result else {
+                                panic!("expected plan")
+                            };
+                            assert_eq!(plan.spec.threshold_tokens, expected);
+                            assert_eq!(plan.surface_generation, 42);
+                            assert_eq!(plan.range.shadowed_seqs, vec![1]);
+                        }
+                    }
+                    if growth == 0 || growth >= available {
+                        assert!(expected <= previous);
+                        previous = expected;
+                    }
+                    assert!(expected < available);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn seeded_multi_tool_ranges_never_cut_unresolved_calls() {
+        let mut seed = 0x5848_504cu64;
+        for case in 0..512 {
+            let mut next = || {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                seed
+            };
+            let mut nodes = vec![SurfaceNode::plain(1, next() % 100)];
+            let mut safe_cuts = vec![1usize];
+            for batch in 0..(1 + case % 12) {
+                let count = 1 + next() % 8;
+                let ids = (0..count)
+                    .map(|i| format!("{case}-{batch}-{i}"))
+                    .collect::<Vec<_>>();
+                nodes.push(SurfaceNode::assistant_tool_calls(
+                    nodes.len() as u64 + 1,
+                    next() % 100,
+                    ids.clone(),
+                ));
+                // Results can arrive in reverse completion order.
+                for id in ids.into_iter().rev() {
+                    nodes.push(SurfaceNode::tool_result(
+                        nodes.len() as u64 + 1,
+                        next() % 100,
+                        id,
+                    ));
+                }
+                safe_cuts.push(nodes.len());
+            }
+            nodes.push(SurfaceNode::plain(nodes.len() as u64 + 1, next() % 100));
+            let total = nodes.iter().map(|n| n.tokens).sum::<u64>();
+            for retain in [0, 1, total / 2, total, u64::MAX] {
+                if let Some(range) = select_compactable_range(&nodes, retain).unwrap() {
+                    let cut = range.end_index + 1;
+                    assert!(safe_cuts.contains(&cut));
+                    assert!(cut < nodes.len(), "must retain a tail");
+                    assert_eq!(
+                        range.shadowed_seqs,
+                        nodes[..cut].iter().map(|n| n.seq).collect::<Vec<_>>()
+                    );
+                    assert_eq!(
+                        range.shadowed_token_count + range.retained_token_count,
+                        total
+                    );
+                    assert!(range.retained_token_count >= retain);
+                }
+            }
+            let mut corrupt = nodes.clone();
+            corrupt.last_mut().unwrap().seq = nodes[0].seq;
+            assert!(select_compactable_range(&corrupt, 0).is_err());
+            let mut corrupt = nodes;
+            corrupt.insert(0, SurfaceNode::tool_result(u64::MAX, 0, "orphan"));
+            assert!(select_compactable_range(&corrupt, 0).is_err());
+        }
+    }
 }
