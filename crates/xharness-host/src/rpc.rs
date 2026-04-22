@@ -2038,7 +2038,10 @@ impl BasicHost {
 
     async fn host_describe(&self, payload: &Value) -> Result<Value, RpcError> {
         require_object(payload)?;
-        let attached = self.state.read().await.sessions.len();
+        let (attached, startup_issues) = {
+            let state = self.state.read().await;
+            (state.sessions.len(), state.startup_issues.clone())
+        };
         Ok(json!({
             "version": self.config.version,
             "cwd": self.config.cwd,
@@ -2047,6 +2050,10 @@ impl BasicHost {
             "attachedSessions": attached,
             "home": self.config.home,
             "canOpenPath": cfg!(target_os = "macos"),
+            // Durable sessions that startup could not publish. Reported here so
+            // the surface can tell the user what was skipped instead of
+            // presenting a silently shorter session list.
+            "startupIssues": startup_issues,
         }))
     }
 
