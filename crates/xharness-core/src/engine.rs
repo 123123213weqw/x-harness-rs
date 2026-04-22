@@ -73,6 +73,7 @@ enum TokenBudgetCheck {
 enum CompactionOutcome {
     NotApplied,
     Applied,
+    Interrupted,
 }
 
 struct CompactionSummaryOutput {
@@ -731,38 +732,9 @@ impl Runner {
                     .map_err(|error| {
                         RunFailure::Failed(format!("could not serialize tool schema: {error}"))
                     })?;
-                let mut context_messages = self.messages.clone();
-                if let Some(continuation) = self.pending_continuation.clone() {
-                    context_messages.push(continuation);
-                }
-                let context_request = ContextRequest::new(context_messages)
-                    .with_target(
-                        self.request.provider.provider_name(),
-                        self.request.provider.model_name(),
-                    )
-                    .with_step(self.step)
-                    .with_tools(context_tools.clone());
-                let mut prepared = self
-                    .request
-                    .context_policy
-                    .prepare(context_request)
-                    .await
-                    .map_err(|error| RunFailure::Failed(error.to_string()))?;
-                prepared
-                    .validate()
-                    .map_err(|error| RunFailure::Failed(error.to_string()))?;
-                self.validate_prompt_surface(&prepared)?;
-                // Runtime controls are transient, not new user history. Add AFTER
-                // policy projection so compaction/custom policies cannot remove
-                // an unconsumed notice, and BEFORE admission/counting/audit.
-                // A user-role control note keeps the assembled system prompt
-                // immutable and works with providers requiring one initial system.
-                if let Some(notice) = &self.checkpoint.pending_notice {
-                    prepared.messages.push(
-                        AgentMessage::user(notice.clone())
-                            .with_id(format!("execution-notice-{}-{}", self.run_id, self.step)),
-                    );
-                }
+                let prepared = self
+                    .prepare_context(self.messages.clone(), &context_tools)
+                    .await?;
                 self.debug(
                     "context.prepared",
                     json!({
@@ -815,6 +787,11 @@ impl Runner {
                                     .await
                                 {
                                     Ok(CompactionOutcome::Applied) => continue,
+                                    Ok(CompactionOutcome::Interrupted) => {
+                                        self.journal_step_end().await?;
+                                        self.settle_control_at_boundary().await?;
+                                        continue 'steps;
+                                    }
                                     Ok(CompactionOutcome::NotApplied) => {}
                                     Err(error) => {
                                         self.debug(
@@ -860,7 +837,13 @@ impl Runner {
                                 .await
                             {
                                 Ok(CompactionOutcome::Applied) => continue,
+                                Ok(CompactionOutcome::Interrupted) => {
+                                    self.journal_step_end().await?;
+                                    self.settle_control_at_boundary().await?;
+                                    continue 'steps;
+                                }
                                 Ok(CompactionOutcome::NotApplied) => {}
+                                Err(error @ RunFailure::Stopped(_)) => return Err(error),
                                 Err(compaction_error) => {
                                     return Err(RunFailure::Failed(format!(
                                         "token budget rejected request: {error}; overflow compaction failed: {compaction_error}"
@@ -925,13 +908,15 @@ impl Runner {
                         )
                         .await
                     {
-                        Ok(CompactionOutcome::Applied) => {
+                        Ok(CompactionOutcome::Applied | CompactionOutcome::Interrupted) => {
                             self.journal_step_end().await?;
+                            self.settle_control_at_boundary().await?;
                             continue 'steps;
                         }
                         Ok(CompactionOutcome::NotApplied) => {
                             return Err(RunFailure::ContextOverflow(message));
                         }
+                        Err(error @ RunFailure::Stopped(_)) => return Err(error),
                         Err(error) => {
                             return Err(RunFailure::Failed(format!(
                                 "provider context overflow: {message}; recovery failed: {error}"
@@ -1129,6 +1114,48 @@ impl Runner {
             usage,
             finish_reason,
         });
+    }
+
+    // Shared by normal requests and pre-commit compaction admission. Keeping
+    // policy, continuations and runtime notices identical avoids undercounting
+    // a candidate that would grow again immediately after its replacement.
+    async fn prepare_context(
+        &self,
+        mut context_messages: Vec<AgentMessage>,
+        context_tools: &[Value],
+    ) -> Result<ContextSurface, RunFailure> {
+        if let Some(continuation) = self.pending_continuation.clone() {
+            context_messages.push(continuation);
+        }
+        let context_request = ContextRequest::new(context_messages)
+            .with_target(
+                self.request.provider.provider_name(),
+                self.request.provider.model_name(),
+            )
+            .with_step(self.step)
+            .with_tools(context_tools.to_vec());
+        let mut prepared = self
+            .request
+            .context_policy
+            .prepare(context_request)
+            .await
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        prepared
+            .validate()
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        self.validate_prompt_surface(&prepared)?;
+        // Runtime controls are transient, not new user history. Add AFTER
+        // policy projection so compaction/custom policies cannot remove
+        // an unconsumed notice, and BEFORE admission/counting/audit.
+        // A user-role control note keeps the assembled system prompt
+        // immutable and works with providers requiring one initial system.
+        if let Some(notice) = &self.checkpoint.pending_notice {
+            prepared.messages.push(
+                AgentMessage::user(notice.clone())
+                    .with_id(format!("execution-notice-{}-{}", self.run_id, self.step)),
+            );
+        }
+        Ok(prepared)
     }
 
     fn validate_prompt_surface(&self, surface: &ContextSurface) -> Result<(), RunFailure> {
@@ -1419,10 +1446,7 @@ impl Runner {
             self.run_compaction_summary(&plan, &selected).await
         };
         let summary = match summarized {
-            Ok(summary) => {
-                self.failed_compactions.clear();
-                summary
-            }
+            Ok(summary) => summary,
             Err(error) => {
                 if !matches!(&error, crate::compaction::SummaryError::Cancelled)
                     && !matches!(&error, crate::compaction::SummaryError::Provider(error) if error.retryable)
@@ -1485,6 +1509,92 @@ impl Runner {
             })?;
         let checkpoint_message = AgentMessage::user(checkpoint)
             .with_id(format!("compaction-checkpoint-{compaction_id}"));
+        // Build exactly the surface that Session::surface_replace will publish,
+        // then include the same prompt/policy/tools/control notes as a real call.
+        // No candidate summary becomes durable before this admission succeeds.
+        let validation: Result<bool, RunFailure> = async {
+            let mut candidate = surface
+                .iter()
+                .map(|node| node.message.clone())
+                .collect::<Vec<_>>();
+            candidate.splice(
+                plan.range.start_index..=plan.range.end_index,
+                [checkpoint_message.clone()],
+            );
+            let tool_definitions = self.tool_definitions().await;
+            let tools = tool_definitions
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
+            let prepared = self
+                .prepare_context(self.prompt_prefixed(candidate), &tools)
+                .await?;
+            let request = ProviderRequest {
+                messages: prepared.messages.clone(),
+                tools: tool_definitions,
+                step: self.step,
+                reasoning_effort: self.request.reasoning_effort.clone(),
+                max_output_tokens: self
+                    .request
+                    .token_guard
+                    .as_ref()
+                    .map(|guard| guard.budget().reserved_output_tokens),
+                debug_scope: self.debug_scope(),
+            };
+            match self.check_token_budget(&request, &prepared, &tools).await? {
+                TokenBudgetCheck::Ready(report) => {
+                    self.debug("compaction.candidate_budget", json!({"budget":report}))
+                        .await;
+                }
+                TokenBudgetCheck::Exceeded { error, .. } => {
+                    return Err(RunFailure::Failed(format!(
+                        "compaction candidate still exceeds the main request budget: {error}"
+                    )))
+                }
+                TokenBudgetCheck::Interrupted => return Ok(false),
+            }
+            self.ensure_running()?;
+            let latest = store
+                .load(&session_id)
+                .await
+                .map_err(|e| RunFailure::Failed(e.to_string()))?
+                .ok_or_else(|| {
+                    RunFailure::Failed("compaction session disappeared during validation".into())
+                })?;
+            if latest.derive_surface_messages() != surface {
+                return Err(RunFailure::Failed(
+                    "compaction source changed during validation; original history is unchanged"
+                        .into(),
+                ));
+            }
+            Ok(true)
+        }
+        .await;
+        if !matches!(validation, Ok(true)) {
+            let message = match &validation {
+                Ok(false) => {
+                    "compaction candidate validation interrupted by runtime control".to_owned()
+                }
+                Err(error) => error.to_string(),
+                Ok(true) => unreachable!(),
+            };
+            self.journal_append(
+                vec![SessionEventData::CompactionEnd {
+                    compaction_id: compaction_id.clone(),
+                    source_command_id: None,
+                    turn: Some(turn),
+                    error: Some(message),
+                }],
+                true,
+            )
+            .await?;
+            return match validation {
+                Ok(_) => Ok(CompactionOutcome::Interrupted),
+                Err(error) => Err(error),
+            };
+        }
+        self.failed_compactions.clear();
         self.journal_append(
             vec![
                 SessionEventData::CompactionSummary {
