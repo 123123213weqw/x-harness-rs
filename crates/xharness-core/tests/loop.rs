@@ -1723,7 +1723,7 @@ async fn provider_exact_count_prevents_conservative_byte_false_positive() {
 #[tokio::test]
 async fn pressure_compaction_is_durable_then_recounted_before_the_main_request() {
     let provider = Arc::new(SequencedCountingProvider::new(
-        [900, 300],
+        [900, 500, 300, 300],
         [
             vec![
                 Ok(ProviderEvent::TextDelta(
@@ -1822,7 +1822,7 @@ async fn pressure_compaction_is_durable_then_recounted_before_the_main_request()
 #[tokio::test]
 async fn hard_overflow_compacts_and_recounts_instead_of_failing_immediately() {
     let provider = Arc::new(SequencedCountingProvider::new(
-        [980, 300],
+        [980, 500, 300, 300],
         [
             vec![
                 Ok(ProviderEvent::TextDelta(
@@ -5197,4 +5197,630 @@ async fn active_loop_adopts_title_generation_metadata_without_changing_context()
             .iter()
             .any(|message| message.message.content.contains("title-generation")));
     }
+}
+
+#[tokio::test]
+async fn failed_auxiliary_summary_does_not_shadow_or_replace_original_history() {
+    let provider = Arc::new(SequencedCountingProvider {
+        inner: ScriptProvider::with_attempts([Err(ProviderError::http(
+            401,
+            "invalid summary credential",
+        ))]),
+        counts: Arc::new(Mutex::new(VecDeque::from([980, 500]))),
+    });
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "failed-compact").await;
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some("failed-compact".into());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1_000,
+            reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
+            safety_margin_tokens: 10,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(
+        provider.inner.attempts(),
+        1,
+        "permanent failure must not repeat"
+    );
+    let session = journal.load("failed-compact").await.unwrap().unwrap();
+    assert!(session
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+    assert!(!session
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+    assert!(session.events().iter().any(|e| matches!(
+        e.data(),
+        SessionEventData::CompactionEnd { error: Some(_), .. }
+    )));
+}
+
+#[tokio::test]
+async fn partial_chunk_success_followed_by_failure_never_commits_partial_checkpoint() {
+    let provider = Arc::new(SequencedCountingProvider {
+        inner: ScriptProvider::with_attempts([
+            Ok(vec![
+                Ok(ProviderEvent::TextDelta("PARTIAL-CHECKPOINT".into())),
+                Ok(completed()),
+            ]),
+            Err(ProviderError::http(401, "second chunk rejected")),
+        ]),
+        counts: Arc::new(Mutex::new(VecDeque::from([980, 1000, 500, 500]))),
+    });
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "partial-compact").await;
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some("partial-compact".into());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1000,
+            reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
+            safety_margin_tokens: 10,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.inner.attempts(), 2);
+    let session = journal.load("partial-compact").await.unwrap().unwrap();
+    assert!(session
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+    assert!(!session
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("PARTIAL-CHECKPOINT")));
+    assert!(!session
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+}
+
+#[tokio::test]
+async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
+    for input in [900, 980] {
+        let provider = Arc::new(SequencedCountingProvider::new(
+            if input == 900 {
+                vec![900, 500, 980]
+            } else {
+                vec![980, 500, 980]
+            },
+            [
+                vec![
+                    Ok(ProviderEvent::TextDelta("SMALL-CANDIDATE".into())),
+                    Ok(completed()),
+                ],
+                vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+            ],
+        ));
+        let journal = Arc::new(EventMemorySessionStore::default());
+        seed_long_compaction_history(journal.as_ref(), "candidate-budget").await;
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+        request.session_id = Some("candidate-budget".into());
+        request.journal_store = Some(journal.clone());
+        request.token_guard = Some(
+            TokenGuard::conservative(TokenBudget {
+                context_window_tokens: 1000,
+                reserved_output_tokens: 40,
+                minimum_output_tokens: 40,
+                safety_margin_tokens: 10,
+            })
+            .unwrap(),
+        );
+        request.compaction = Some(CompactionConfig {
+            retain_ratio: None,
+            retain_tokens: Some(10),
+            max_tokens: 64,
+            ..CompactionConfig::default()
+        });
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(
+            result.status,
+            if input == 900 {
+                LoopStatus::Completed
+            } else {
+                LoopStatus::Failed
+            }
+        );
+        let session = journal.load("candidate-budget").await.unwrap().unwrap();
+        assert!(session
+            .derive_messages()
+            .iter()
+            .any(|m| m.content.contains("OLD-CONTEXT")));
+        assert!(!session
+            .events()
+            .iter()
+            .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+        assert!(session.events().iter().any(|e| matches!(e.data(), SessionEventData::CompactionEnd { error: Some(message), .. } if message.contains("candidate still exceeds"))));
+        assert_eq!(provider.inner.attempts(), if input == 900 { 2 } else { 1 });
+    }
+}
+
+struct CandidateAdmissionProbe {
+    release: Notify,
+    inner: ScriptProvider,
+    counts: AtomicUsize,
+    seen: Notify,
+    block: bool,
+    journal: Arc<EventMemorySessionStore>,
+    requests: Mutex<Vec<ProviderRequest>>,
+}
+#[async_trait]
+impl ModelProvider for CandidateAdmissionProbe {
+    async fn count_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        _: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        let call = self.counts.fetch_add(1, Ordering::SeqCst);
+        self.requests.lock().unwrap().push(request.clone());
+        if call == 2 {
+            let session = self.journal.load("candidate-probe").await.unwrap().unwrap();
+            assert!(
+                !session
+                    .events()
+                    .iter()
+                    .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })),
+                "candidate counting must happen before durable replacement"
+            );
+            self.seen.notify_one();
+            if self.block {
+                self.release.notified().await;
+            }
+        }
+        Ok(Some(ProviderInputTokenCount::exact_request(
+            "test",
+            match call {
+                0 => 980,
+                1 => 500,
+                _ => 300,
+            },
+        )))
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        token: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.inner.stream(request, token).await
+    }
+}
+async fn candidate_probe(block: bool) -> (LoopRequest, Arc<CandidateAdmissionProbe>) {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "candidate-probe").await;
+    let provider = Arc::new(CandidateAdmissionProbe {
+        release: Notify::new(),
+        inner: ScriptProvider::new([
+            vec![
+                Ok(ProviderEvent::TextDelta("CHECKPOINT".into())),
+                Ok(completed()),
+            ],
+            vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+        ]),
+        counts: AtomicUsize::new(0),
+        seen: Notify::new(),
+        block,
+        journal: journal.clone(),
+        requests: Mutex::new(Vec::new()),
+    });
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some("candidate-probe".into());
+    request.journal_store = Some(journal);
+    request.prompt = Some(
+        PromptAssembler
+            .assemble([PromptSection::new("identity", "1", "Stable system")])
+            .unwrap(),
+    );
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1000,
+            reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
+            safety_margin_tokens: 10,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+    install_tool(
+        &mut request,
+        TestToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
+            ToolResult::success("ok")
+        }),
+    )
+    .await;
+    (request, provider)
+}
+#[tokio::test]
+async fn candidate_admission_counts_the_same_full_surface_as_the_next_request() {
+    let (request, provider) = candidate_probe(false).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let counted = provider.requests.lock().unwrap();
+    assert_eq!(counted.len(), 4);
+    assert_eq!(counted[2].messages, counted[3].messages);
+    assert_eq!(counted[2].tools, counted[3].tools);
+    assert_eq!(counted[2].messages[0].role, Role::System);
+    assert!(!counted[2].tools.is_empty());
+    assert!(counted[2].messages.iter().any(|m| m.content == "new work"));
+    assert!(!counted[2]
+        .messages
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+}
+#[tokio::test]
+async fn cancelling_candidate_admission_preserves_history_and_cancelled_status() {
+    let (request, provider) = candidate_probe(true).await;
+    let mut run = LoopEngine.start(request);
+    tokio::time::timeout(Duration::from_secs(5), provider.seen.notified())
+        .await
+        .unwrap();
+    run.cancel();
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Cancelled, "{:?}", result.error);
+    assert_eq!(provider.inner.attempts(), 1);
+    let session = provider
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(session
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+    assert!(!session
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+}
+#[tokio::test]
+async fn steering_candidate_admission_discards_the_candidate_before_new_work() {
+    let (request, provider) = candidate_probe(true).await;
+    let mut run = LoopEngine.start(request);
+    tokio::time::timeout(Duration::from_secs(5), provider.seen.notified())
+        .await
+        .unwrap();
+    run.send(LoopCommand::Steer(AgentMessage::user("new direction")))
+        .await
+        .unwrap();
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let session = provider
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!session
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+    let requests = provider.inner.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1]
+        .messages
+        .iter()
+        .any(|m| m.content.contains("new direction")));
+    assert!(requests[1]
+        .messages
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+}
+
+#[tokio::test]
+async fn summary_fault_matrix_keeps_history_and_never_sends_overbudget_main_request() {
+    let terminal = |reason| {
+        Ok(ProviderEvent::Completed {
+            finish_reason: reason,
+            usage: None,
+            provider_items: vec![],
+        })
+    };
+    let faults = vec![
+        vec![],
+        vec![Ok(ProviderEvent::TextDelta("PARTIAL".into()))],
+        vec![terminal(Some(FinishReason::Stop))],
+        vec![Ok(ProviderEvent::TextDelta(" \n\t".into())), terminal(None)],
+        vec![
+            Ok(ProviderEvent::ReasoningDelta(
+                "private reasoning is not a checkpoint".into(),
+            )),
+            terminal(Some(FinishReason::Stop)),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            terminal(Some(FinishReason::ContentFilter)),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            terminal(Some(FinishReason::Incomplete("network".into()))),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            terminal(Some(FinishReason::Other("unknown".into()))),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            terminal(Some(FinishReason::ToolCalls)),
+        ],
+        vec![
+            Ok(ProviderEvent::ToolCallDelta {
+                index: 0,
+                id: "forbidden".into(),
+                name: "echo".into(),
+                arguments_delta: "{}".into(),
+            }),
+            terminal(Some(FinishReason::Stop)),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            Err(ProviderError::http(401, "revoked")),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            Err(ProviderError::retryable("stream disconnected")),
+        ],
+    ];
+    for (case, fault) in faults.into_iter().enumerate() {
+        for pressure in [false, true] {
+            let (mut request, probe) = candidate_probe(false).await;
+            request.compaction.as_mut().unwrap().compaction_retries = 0;
+            let provider = Arc::new(SequencedCountingProvider::new(
+                vec![if pressure { 900 } else { 980 }, 500],
+                [
+                    fault.clone(),
+                    vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+                ],
+            ));
+            request.provider = provider.clone();
+            let (_, result) =
+                tokio::time::timeout(Duration::from_secs(5), collect(LoopEngine.start(request)))
+                    .await
+                    .unwrap();
+            assert_eq!(
+                result.status,
+                if pressure {
+                    LoopStatus::Completed
+                } else {
+                    LoopStatus::Failed
+                },
+                "case={case} pressure={pressure}: {:?}",
+                result.error
+            );
+            assert_eq!(
+                provider.inner.attempts(),
+                if pressure { 2 } else { 1 },
+                "case={case}"
+            );
+            let session = probe
+                .journal
+                .load("candidate-probe")
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(
+                !session
+                    .events()
+                    .iter()
+                    .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })),
+                "case={case}"
+            );
+            assert!(
+                session
+                    .derive_messages()
+                    .iter()
+                    .any(|m| m.content.contains("OLD-CONTEXT")),
+                "case={case}"
+            );
+            assert!(
+                !session
+                    .derive_messages()
+                    .iter()
+                    .any(|m| m.content.contains("PARTIAL")),
+                "case={case}"
+            );
+            assert!(session.events().iter().any(|e| matches!(
+                e.data(),
+                SessionEventData::CompactionEnd { error: Some(_), .. }
+            )));
+        }
+    }
+}
+
+#[tokio::test]
+async fn summary_stream_fragmentation_and_reasoning_do_not_change_committed_checkpoint() {
+    let text = "事实：Unicode🙂，路径 /a/b.rs，保留结论而不是推理。";
+    let chars = text.chars().collect::<Vec<_>>();
+    for width in 1..=chars.len() {
+        for legacy_finish in [false, true] {
+            let (mut request, probe) = candidate_probe(false).await;
+            let mut summary = Vec::new();
+            for chunk in chars.chunks(width) {
+                summary.push(Ok(ProviderEvent::ReasoningDelta("NOT-SUMMARY".into())));
+                summary.push(Ok(ProviderEvent::TextDelta(chunk.iter().collect())));
+            }
+            summary.push(Ok(ProviderEvent::Completed {
+                finish_reason: if legacy_finish {
+                    None
+                } else {
+                    Some(FinishReason::Stop)
+                },
+                usage: None,
+                provider_items: vec![],
+            }));
+            let provider = Arc::new(SequencedCountingProvider::new(
+                vec![980, 500, 300, 300],
+                [
+                    summary,
+                    vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+                ],
+            ));
+            request.provider = provider.clone();
+            let (_, result) = collect(LoopEngine.start(request)).await;
+            assert_eq!(
+                result.status,
+                LoopStatus::Completed,
+                "width={width}: {:?}",
+                result.error
+            );
+            let main = provider.inner.requests().last().unwrap().messages.clone();
+            assert!(main.iter().any(|m| m.content.contains(text)));
+            assert!(!main
+                .iter()
+                .any(|m| m.content.contains("NOT-SUMMARY") || m.content.contains("OLD-CONTEXT")));
+            let session = probe
+                .journal
+                .load("candidate-probe")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. }))
+                    .count(),
+                1
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn pause_during_candidate_admission_does_not_commit_and_resume_keeps_history() {
+    let (request, provider) = candidate_probe(true).await;
+    let mut run = LoopEngine.start(request);
+    tokio::time::timeout(Duration::from_secs(5), provider.seen.notified())
+        .await
+        .unwrap();
+    run.send(LoopCommand::Pause).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(event) = run.next().await {
+            if matches!(event.kind, LoopEventKind::RunPaused) {
+                return;
+            }
+        }
+        panic!("run ended without pause");
+    })
+    .await
+    .unwrap();
+    assert_eq!(provider.inner.attempts(), 1);
+    let session = provider
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!session
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+    run.send(LoopCommand::Resume).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while run.next().await.is_some() {}
+    })
+    .await
+    .unwrap();
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    assert!(provider.inner.requests()[1]
+        .messages
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+}
+
+#[tokio::test]
+async fn concurrent_durable_inbox_preserves_pending_input_and_allows_valid_compaction() {
+    let (request, provider) = candidate_probe(true).await;
+    let mut run = LoopEngine.start(request);
+    tokio::time::timeout(Duration::from_secs(5), provider.seen.notified())
+        .await
+        .unwrap();
+    let before = provider
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    // External user input enters the durable inbox, not UserMessage mid-step.
+    provider
+        .journal
+        .append(
+            "candidate-probe",
+            before.revision(),
+            vec![SessionEventData::AgentInboxSpliced {
+                target: InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 0,
+                inserted: vec![InboxMessage::user(
+                    "concurrent-input",
+                    "CONCURRENT-NEW-INPUT",
+                )],
+                outcome: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    provider.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while run.next().await.is_some() {}
+    })
+    .await
+    .unwrap();
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let after = provider
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        after
+            .events()
+            .iter()
+            .filter(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. }))
+            .count(),
+        1
+    );
+    assert!(after.events().iter().any(|e| matches!(e.data(), SessionEventData::UserMessage { message, .. } if message.content.contains("OLD-CONTEXT"))));
+    assert!(after.events().iter().any(|e| matches!(e.data(), SessionEventData::AgentInboxSpliced { inserted, .. } if inserted.iter().any(|m| m.id == "concurrent-input"))));
+    assert!(
+        !provider.inner.requests()[1]
+            .messages
+            .iter()
+            .any(|m| m.content.contains("CONCURRENT-NEW-INPUT")),
+        "next-turn input is not part of this step's model request"
+    );
 }
