@@ -406,6 +406,14 @@ impl TokenGuard {
         })
     }
 
+    /// Rebind an auxiliary reserve while preserving meter and counter policy.
+    pub fn with_budget(&self, budget: TokenBudget) -> Result<Self, TokenBudgetError> {
+        budget.validate()?;
+        let mut guard = self.clone();
+        guard.budget = budget;
+        Ok(guard)
+    }
+
     pub fn budget(&self) -> &TokenBudget {
         &self.budget
     }
@@ -661,5 +669,138 @@ mod multimodal_tests {
         assert!(images >= base + 16384);
         request.conversation_messages[0]["content_blocks"][0]["attachment"]["width"] = Value::Null;
         assert!(ConservativeByteMeter.estimate(&request).is_err());
+    }
+}
+
+#[cfg(test)]
+mod budget_corner_matrix {
+    use super::*;
+
+    fn verify(budget: TokenBudget, input: u64) {
+        // Independent u128 oracle: exercise u64 saturation/overflow boundaries.
+        let valid = budget.context_window_tokens > 0
+            && budget.reserved_output_tokens > 0
+            && budget.minimum_output_tokens > 0
+            && budget.minimum_output_tokens <= budget.reserved_output_tokens
+            && u128::from(budget.minimum_output_tokens) + u128::from(budget.safety_margin_tokens)
+                < u128::from(budget.context_window_tokens);
+        let checked = TokenGuard::conservative(budget.clone());
+        assert_eq!(checked.is_ok(), valid, "{budget:?}");
+        let Ok(guard) = checked else { return };
+        let available = budget.context_window_tokens
+            - budget.minimum_output_tokens
+            - budget.safety_margin_tokens;
+        let result =
+            guard.check_provider_count(&ProviderInputTokenCount::exact_request("matrix", input));
+        assert_eq!(
+            result.is_ok(),
+            input <= available,
+            "{budget:?}, input={input}"
+        );
+        match result {
+            Ok(report) => {
+                let expected = budget
+                    .reserved_output_tokens
+                    .min(budget.context_window_tokens - input - budget.safety_margin_tokens);
+                assert_eq!(report.selected_output_tokens, expected);
+                assert!(report.selected_output_tokens >= budget.minimum_output_tokens);
+                assert!(
+                    u128::from(input)
+                        + u128::from(report.selected_output_tokens)
+                        + u128::from(budget.safety_margin_tokens)
+                        <= u128::from(budget.context_window_tokens)
+                );
+                assert_eq!(report.accuracy, TokenCountAccuracy::ExactRequest);
+            }
+            Err(TokenBudgetError::Exceeded {
+                available_input_tokens,
+                minimum_output_tokens,
+                reserved_output_tokens,
+                ..
+            }) => {
+                assert_eq!(available_input_tokens, available);
+                assert_eq!(minimum_output_tokens, budget.minimum_output_tokens);
+                assert_eq!(reserved_output_tokens, budget.reserved_output_tokens);
+            }
+            Err(error) => panic!("unexpected error: {error}"),
+        }
+        assert_eq!(
+            guard.budget(),
+            &budget,
+            "admission must not mutate configuration"
+        );
+    }
+
+    #[test]
+    fn exhaustive_small_budgets_and_u64_extremes() {
+        // 7^4 configurations, each checked at three exact admission boundaries.
+        let edges = [0, 1, 2, 64, 1024, u64::MAX - 1, u64::MAX];
+        for capacity in edges {
+            for target in edges {
+                for minimum in edges {
+                    for safety in edges {
+                        let budget = TokenBudget {
+                            context_window_tokens: capacity,
+                            reserved_output_tokens: target,
+                            minimum_output_tokens: minimum,
+                            safety_margin_tokens: safety,
+                        };
+                        let available = budget.available_input_tokens();
+                        for input in [
+                            available.saturating_sub(1),
+                            available,
+                            available.saturating_add(1),
+                        ] {
+                            verify(budget.clone(), input);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn seeded_ten_thousand_budget_and_model_capacity_transitions() {
+        let mut seed = 0x5848_434f_524e_4552u64;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            seed
+        };
+        for case in 0..10_000 {
+            let capacity = 2 + next() % 1_048_576;
+            let safety = next() % (capacity - 1);
+            let minimum = 1 + next() % (capacity - safety - 1);
+            let target = minimum.saturating_add(next() % 131_072);
+            let input = next() % 1_100_000;
+            let budget = TokenBudget {
+                context_window_tokens: capacity,
+                reserved_output_tokens: target,
+                minimum_output_tokens: minimum,
+                safety_margin_tokens: safety,
+            };
+            verify(budget.clone(), input);
+            let old = TokenGuard::conservative(budget.clone()).unwrap();
+            let new_capacity = if case % 2 == 0 {
+                capacity / 2
+            } else {
+                capacity * 2
+            };
+            let changed = TokenBudget {
+                context_window_tokens: new_capacity,
+                ..budget.clone()
+            };
+            verify(changed.clone(), input);
+            assert_eq!(
+                old.with_budget(changed.clone()).is_ok(),
+                changed.validate().is_ok()
+            );
+            assert_eq!(
+                old.budget(),
+                &budget,
+                "rebinding must leave the old route unchanged"
+            );
+        }
     }
 }

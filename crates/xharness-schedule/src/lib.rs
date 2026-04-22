@@ -506,6 +506,13 @@ impl ScheduleOwner {
             // Recovery is supervised independently of commands. Waiting for
             // readiness here avoids spinning on a stopped generation and lets
             // idle waiters resume without an unrelated user prompt.
+            //
+            // This gate is load-bearing, not merely an ordering convenience:
+            // once the worker is stopped, `when_stopped()` is immediately ready,
+            // so the `Wait(None)` arm below cannot block and the owner would
+            // re-drive itself in a tight loop. Removing this await reintroduces
+            // that hot loop; `an_unrecoverable_worker_does_not_spin_the_schedule_owner`
+            // fails when it is bypassed.
             let handle = self.handle.read().await.clone();
             if let Some(handle) = handle {
                 let ready = tokio::select! {
@@ -1289,7 +1296,7 @@ mod tests {
     use std::{
         collections::VecDeque,
         sync::{
-            atomic::{AtomicI64, Ordering},
+            atomic::{AtomicI64, AtomicUsize, Ordering},
             Arc, Mutex as StdMutex,
         },
     };
@@ -1609,6 +1616,114 @@ mod tests {
             }
             Ok(LoopRequest::new(self.provider.clone(), input))
         }
+    }
+
+    /// A store that counts reads and can be switched into permanent failure.
+    struct CountingFailStore {
+        inner: Arc<dyn Store>,
+        loads: Arc<AtomicUsize>,
+        failing: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl Store for CountingFailStore {
+        async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+            self.inner.list_headers().await
+        }
+        async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
+            self.inner.create(header).await
+        }
+        async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
+            self.loads.fetch_add(1, Ordering::Relaxed);
+            if self.failing.load(Ordering::Acquire) {
+                return Err(StoreError::Backend {
+                    message: "injected load failure".to_owned(),
+                });
+            }
+            self.inner.load(session_id).await
+        }
+        async fn append(
+            &self,
+            session_id: &str,
+            expected_revision: xharness_session::Revision,
+            events: Vec<SessionEvent>,
+        ) -> Result<xharness_session::AppendReceipt, StoreError> {
+            self.inner
+                .append(session_id, expected_revision, events)
+                .await
+        }
+        async fn flush(&self, session_id: &str) -> Result<xharness_session::Revision, StoreError> {
+            self.inner.flush(session_id).await
+        }
+        async fn inspect(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<xharness_session::SessionInspection>, StoreError> {
+            self.inner.inspect(session_id).await
+        }
+    }
+
+    /// Regression for the hot loop: when the worker cannot be recovered, the
+    /// timer owner must wait instead of re-driving itself.
+    ///
+    /// `run()` opens every iteration with `handle.when_ready()`, which awaits
+    /// the worker state rather than re-entering `drive_once`. That gate is what
+    /// bounds this test: with it removed the identical scenario re-enters the
+    /// loop tens of thousands of times in 400ms, because the `Wait(None)` arm
+    /// cannot block on a worker that is already stopped.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_unrecoverable_worker_does_not_spin_the_schedule_owner() {
+        let now = DateTime::parse_from_rfc3339("2026-09-02T00:00:30.000Z")
+            .unwrap()
+            .timestamp_millis();
+        let clock = FixedClock::new(now);
+        clock.set(now);
+        let inner: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        inner
+            .create(SessionHeader::new("unrecoverable"))
+            .await
+            .unwrap();
+
+        let loads = Arc::new(AtomicUsize::new(0));
+        let failing = Arc::new(AtomicBool::new(false));
+        let store: Arc<dyn Store> = Arc::new(CountingFailStore {
+            inner: Arc::clone(&inner),
+            loads: Arc::clone(&loads),
+            failing: Arc::clone(&failing),
+        });
+        // The registry must read through the wrapper, otherwise the injected
+        // failure never reaches the worker.
+        let registry =
+            AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));
+        let activation = registry
+            .activate(SessionHeader::new("unrecoverable"))
+            .await
+            .unwrap();
+        let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+            scripts: StdMutex::new(VecDeque::new()),
+        });
+        let handle = DurableAgentHandle::start(activation, Arc::new(Factory(provider)), 64);
+        let manager = ScheduleManager::with_clock(Arc::clone(&store), clock);
+        manager.attach(handle.clone()).await.unwrap();
+
+        // Storage never recovers, so every worker incarnation dies on its first
+        // read and recovery can never complete.
+        failing.store(true, Ordering::Release);
+        let _ = handle.wake().await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        loads.store(0, Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let observed = loads.load(Ordering::Relaxed);
+        eprintln!("OBSERVED_LOADS_IN_400MS_WITH_UNRECOVERABLE_WORKER={observed}");
+
+        manager.shutdown().await.unwrap();
+        let _ = handle.shutdown(Duration::from_secs(1)).await;
+        assert!(
+            observed < 200,
+            "the schedule owner retried {observed} times in 400ms while its worker \
+             could not be recovered; the iteration gate is not holding"
+        );
     }
 
     #[tokio::test]
