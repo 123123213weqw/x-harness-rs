@@ -59,11 +59,20 @@ impl SummaryRunner {
         retries: u32,
     ) -> Self {
         let initial = template.max_output_tokens.unwrap_or(8192);
-        let max_output = initial.max(
-            initial
-                .saturating_mul(4)
-                .min(guard.budget().reserved_output_tokens),
-        );
+        // Auxiliary output can never consume the entire context. The actual
+        // allocation is resolved again against each counted summary input.
+        let capacity = guard
+            .budget()
+            .context_window_tokens
+            .saturating_sub(guard.budget().safety_margin_tokens)
+            .saturating_sub(1);
+        let max_output = initial
+            .max(
+                initial
+                    .saturating_mul(4)
+                    .min(guard.budget().reserved_output_tokens),
+            )
+            .min(capacity);
         Self {
             provider,
             guard,
@@ -113,7 +122,12 @@ impl SummaryRunner {
                 "compaction recovery exhausted; original history is unchanged".into(),
             ));
         }
-        let mut output = self.template.max_output_tokens.unwrap_or(8192);
+        let mut output = self
+            .template
+            .max_output_tokens
+            .unwrap_or(8192)
+            .min(self.max_output);
+        let mut previous_truncated_output = 0;
         let mut retries = 0;
         loop {
             let mut request = self.template.clone();
@@ -128,8 +142,16 @@ impl SummaryRunner {
             };
             request.messages.push(AgentMessage::user(instruction));
             request.max_output_tokens = Some(output);
+            let mut allocated_output = output;
             let result = match self.admit(&request).await {
                 Ok(report) => {
+                    allocated_output = report.selected_output_tokens;
+                    // Increasing the target without increasing the real allocation
+                    // would repeat the same truncated request. Split instead.
+                    if allocated_output <= previous_truncated_output {
+                        break;
+                    }
+                    request.max_output_tokens = Some(allocated_output);
                     self.trace(
                         "compaction.summary_budget",
                         json!({"depth":depth,"nextCall":self.calls+1,"budget":report}),
@@ -141,7 +163,10 @@ impl SummaryRunner {
             };
             match result {
                 Ok(text) => return Ok(text),
-                Err(SummaryError::Output) if output < self.max_output => {
+                Err(SummaryError::Output)
+                    if allocated_output == output && output < self.max_output =>
+                {
+                    previous_truncated_output = allocated_output;
                     output = output.saturating_mul(2).min(self.max_output);
                     self.trace(
                         "compaction.summary_retry",
@@ -182,7 +207,10 @@ impl SummaryRunner {
     async fn admit(&self, request: &ProviderRequest) -> Result<TokenBudgetReport, SummaryError> {
         let mut budget = self.guard.budget().clone();
         budget.reserved_output_tokens = request.max_output_tokens.unwrap_or(8192);
-        budget.minimum_output_tokens = budget.reserved_output_tokens;
+        // A summary has its own dynamic output budget; this never changes
+        // the main request's minimum generation reserve. If the allocated
+        // output truncates, part() splits rather than retrying it unchanged.
+        budget.minimum_output_tokens = 1;
         let guard = self
             .guard
             .with_budget(budget)
@@ -410,12 +438,14 @@ mod tests {
             if self.mode == 7 {
                 return Ok(Box::pin(futures::stream::pending()));
             }
-            let finish =
-                if self.mode == 8 || (self.mode == 4 && request.max_output_tokens == Some(64)) {
-                    FinishReason::Length
-                } else {
-                    FinishReason::Stop
-                };
+            let finish = if self.mode == 8
+                || (self.mode == 9 && price(&request) > 4000)
+                || (self.mode == 4 && request.max_output_tokens == Some(64))
+            {
+                FinishReason::Length
+            } else {
+                FinishReason::Stop
+            };
             Ok(Box::pin(futures::stream::iter(vec![
                 Ok(ProviderEvent::TextDelta("checkpoint".into())),
                 Ok(ProviderEvent::Completed {
@@ -647,5 +677,78 @@ mod tests {
             .await
             .is_err());
         assert!(fake.requests.lock().unwrap().len() <= 64);
+    }
+    fn small_window_runner(fake: Arc<Fake>, capacity: u64) -> SummaryRunner {
+        SummaryRunner::new(
+            fake,
+            TokenGuard::conservative(TokenBudget {
+                context_window_tokens: capacity,
+                reserved_output_tokens: 32_768,
+                minimum_output_tokens: 1024,
+                safety_margin_tokens: 1024,
+            })
+            .unwrap(),
+            ProviderRequest {
+                messages: vec![AgentMessage::system("preserve facts")],
+                tools: vec![],
+                step: 1,
+                reasoning_effort: Some("off".into()),
+                max_output_tokens: Some(8192),
+                debug_scope: Default::default(),
+            },
+            CancellationToken::new(),
+            1,
+        )
+    }
+
+    #[tokio::test]
+    async fn small_window_truncation_splits_instead_of_invalid_output_budget() {
+        let fake = Arc::new(Fake {
+            mode: 9,
+            ..Fake::default()
+        });
+        let result = small_window_runner(fake.clone(), 16384)
+            .run(vec![
+                AgentMessage::user("a".repeat(3000)),
+                AgentMessage::user("b".repeat(3000)),
+            ])
+            .await
+            .unwrap();
+        assert!(result.splits > 0);
+        for req in fake.requests.lock().unwrap().iter() {
+            assert!(price(req) + req.max_output_tokens.unwrap() + 1024 <= 16384);
+        }
+    }
+
+    #[tokio::test]
+    async fn default_summary_output_adapts_to_4k_8k_16k_windows() {
+        for capacity in [4096, 8192, 16384] {
+            let fake = Arc::new(Fake::default());
+            let result = small_window_runner(fake.clone(), capacity)
+                .run(vec![AgentMessage::user("a".repeat(1000))])
+                .await
+                .unwrap();
+            assert_eq!(result.calls, 1);
+            let reqs = fake.requests.lock().unwrap();
+            assert!(price(&reqs[0]) + reqs[0].max_output_tokens.unwrap() + 1024 <= capacity);
+            assert!(reqs[0].max_output_tokens.unwrap() > 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn no_output_growth_room_splits_without_identical_retry() {
+        let fake = Arc::new(Fake {
+            mode: 9,
+            ..Fake::default()
+        });
+        let result = small_window_runner(fake.clone(), 8192)
+            .run(vec![
+                AgentMessage::user("a".repeat(3000)),
+                AgentMessage::user("b".repeat(3000)),
+            ])
+            .await
+            .unwrap();
+        assert_eq!(result.splits, 1);
+        assert_eq!(result.calls, 4, "one full attempt, two chunks, one merge");
     }
 }
