@@ -273,7 +273,7 @@ threshold = min(floor(context * thresholdRatio), B - buffer)
 DeepSeek/Qwen 费用调用，也不代表当前已安装软件已经替换。
 
 
-### 扩展 Corner Case 矩阵（2026-09-18，新增测试待远程验证）
+### 扩展 Corner Case 矩阵（2026-09-18）
 
 新增 13 个测试函数，不引入随机测试依赖、不调用真实模型：
 
@@ -295,9 +295,16 @@ DeepSeek/Qwen 费用调用，也不代表当前已安装软件已经替换。
 - 候选验收中 Pause/Resume，以及通过真实 Inbox 接口并发入队的新用户消息：Pause 中止旧候选；NextTurn 入队不误判
   当前 Surface 变化，摘要可正常提交，并保留新消息供下一轮消费。
 
-此次 V100 SSH 超时，新增测试尚未取得运行结果；交由 PR #111 远程 CI 验证。
+此次 V100 SSH 超时，因此没有在本机编译；新增测试由 PR #111 远程 CI 执行。
 不把参数组数称为独立测试函数数，不据此宣称真实模型质量或网络恢复已经完成验收。
 
 第一轮新增测试 CI：Linux/macOS 的 Core 91/92 个 Loop 集成测试通过；一个测试直接在 open step
 写入 UserMessage，被 Session 生命周期校验正确拒绝（属于测试夹具无效，不是生产缺陷）。已改为
-实际使用的 AgentInboxSpliced/NextTurn 接口重新验证；预算层用例不能因本轮提前退出被标记通过。
+实际使用的 AgentInboxSpliced/NextTurn 接口重新验证。第一轮提前退出的预算层用例不算通过。
+
+第二轮验证：测试源码提交 `4dac7065b0cc09505217b21c35f41ac0a3cd84a6`，
+[CI 35324269598](https://github.com/123123213weqw/x-harness-rs/actions/runs/35324269598)。
+Linux、macOS arm64、Windows 的 `cargo test --workspace --all-targets` 均通过；Linux 和 Windows
+全工作区 Clippy 通过。Linux Core 单元 28 项、Loop 集成 92 项全部通过，预算随机矩阵也已执行。
+本节约 32253 组矩阵/生成场景位于 13 个新增测试函数内，不能与独立测试函数数混算。
+当时 Windows 原生安装包构建和 Unix 更新演练仍在继续，不能称整个 CI 已绿；本批未合并、发布或部署。
