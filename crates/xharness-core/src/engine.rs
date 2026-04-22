@@ -19,7 +19,7 @@ use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
 use xharness_compaction::{
     frame_summary, BasicCompactionPlanner, CompactionDecision, CompactionPlan, CompactionRequest,
-    CompactionTrigger, ModelTarget, SurfaceNode, SurfaceNodeKind, DEFAULT_COMPACTION_INSTRUCTION,
+    CompactionTrigger, ModelTarget, SurfaceNode, SurfaceNodeKind,
 };
 use xharness_debug::{DebugEvent, DebugScope};
 use xharness_session::{
@@ -73,11 +73,13 @@ enum TokenBudgetCheck {
 enum CompactionOutcome {
     NotApplied,
     Applied,
+    Interrupted,
 }
 
 struct CompactionSummaryOutput {
     text: String,
     usage: Option<TokenUsage>,
+    max_output_tokens: u64,
 }
 
 pub struct LoopRun {
@@ -395,6 +397,9 @@ impl LoopEngine {
             journal,
             recovered_tool_batch: None,
             overflow_recoveries: 0,
+            last_input_tokens: None,
+            recent_input_growth: VecDeque::new(),
+            failed_compactions: HashMap::new(),
         };
         let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
@@ -529,6 +534,9 @@ struct Runner {
     journal: Option<JournalState>,
     recovered_tool_batch: Option<RecoveredToolBatch>,
     overflow_recoveries: u32,
+    last_input_tokens: Option<u64>,
+    recent_input_growth: VecDeque<u64>,
+    failed_compactions: HashMap<String, String>,
 }
 
 struct JournalState {
@@ -724,38 +732,9 @@ impl Runner {
                     .map_err(|error| {
                         RunFailure::Failed(format!("could not serialize tool schema: {error}"))
                     })?;
-                let mut context_messages = self.messages.clone();
-                if let Some(continuation) = self.pending_continuation.clone() {
-                    context_messages.push(continuation);
-                }
-                let context_request = ContextRequest::new(context_messages)
-                    .with_target(
-                        self.request.provider.provider_name(),
-                        self.request.provider.model_name(),
-                    )
-                    .with_step(self.step)
-                    .with_tools(context_tools.clone());
-                let mut prepared = self
-                    .request
-                    .context_policy
-                    .prepare(context_request)
-                    .await
-                    .map_err(|error| RunFailure::Failed(error.to_string()))?;
-                prepared
-                    .validate()
-                    .map_err(|error| RunFailure::Failed(error.to_string()))?;
-                self.validate_prompt_surface(&prepared)?;
-                // Runtime controls are transient, not new user history. Add AFTER
-                // policy projection so compaction/custom policies cannot remove
-                // an unconsumed notice, and BEFORE admission/counting/audit.
-                // A user-role control note keeps the assembled system prompt
-                // immutable and works with providers requiring one initial system.
-                if let Some(notice) = &self.checkpoint.pending_notice {
-                    prepared.messages.push(
-                        AgentMessage::user(notice.clone())
-                            .with_id(format!("execution-notice-{}-{}", self.run_id, self.step)),
-                    );
-                }
+                let prepared = self
+                    .prepare_context(self.messages.clone(), &context_tools)
+                    .await?;
                 self.debug(
                     "context.prepared",
                     json!({
@@ -781,6 +760,20 @@ impl Runner {
                     .await?
                 {
                     TokenBudgetCheck::Ready(report) => {
+                        if let Some(report) = &report {
+                            let input = report.estimate.total_input_tokens;
+                            if let Some(previous) = self.last_input_tokens {
+                                if input >= previous {
+                                    self.recent_input_growth.push_back(input - previous);
+                                    if self.recent_input_growth.len() > 8 {
+                                        self.recent_input_growth.pop_front();
+                                    }
+                                } else {
+                                    self.recent_input_growth.clear();
+                                }
+                            }
+                            self.last_input_tokens = Some(input);
+                        }
                         if !pressure_attempted {
                             pressure_attempted = true;
                             if let Some(report) = report.as_ref() {
@@ -794,6 +787,11 @@ impl Runner {
                                     .await
                                 {
                                     Ok(CompactionOutcome::Applied) => continue,
+                                    Ok(CompactionOutcome::Interrupted) => {
+                                        self.journal_step_end().await?;
+                                        self.settle_control_at_boundary().await?;
+                                        continue 'steps;
+                                    }
                                     Ok(CompactionOutcome::NotApplied) => {}
                                     Err(error) => {
                                         self.debug(
@@ -839,7 +837,13 @@ impl Runner {
                                 .await
                             {
                                 Ok(CompactionOutcome::Applied) => continue,
+                                Ok(CompactionOutcome::Interrupted) => {
+                                    self.journal_step_end().await?;
+                                    self.settle_control_at_boundary().await?;
+                                    continue 'steps;
+                                }
                                 Ok(CompactionOutcome::NotApplied) => {}
+                                Err(error @ RunFailure::Stopped(_)) => return Err(error),
                                 Err(compaction_error) => {
                                     return Err(RunFailure::Failed(format!(
                                         "token budget rejected request: {error}; overflow compaction failed: {compaction_error}"
@@ -904,13 +908,15 @@ impl Runner {
                         )
                         .await
                     {
-                        Ok(CompactionOutcome::Applied) => {
+                        Ok(CompactionOutcome::Applied | CompactionOutcome::Interrupted) => {
                             self.journal_step_end().await?;
+                            self.settle_control_at_boundary().await?;
                             continue 'steps;
                         }
                         Ok(CompactionOutcome::NotApplied) => {
                             return Err(RunFailure::ContextOverflow(message));
                         }
+                        Err(error @ RunFailure::Stopped(_)) => return Err(error),
                         Err(error) => {
                             return Err(RunFailure::Failed(format!(
                                 "provider context overflow: {message}; recovery failed: {error}"
@@ -1110,6 +1116,48 @@ impl Runner {
         });
     }
 
+    // Shared by normal requests and pre-commit compaction admission. Keeping
+    // policy, continuations and runtime notices identical avoids undercounting
+    // a candidate that would grow again immediately after its replacement.
+    async fn prepare_context(
+        &self,
+        mut context_messages: Vec<AgentMessage>,
+        context_tools: &[Value],
+    ) -> Result<ContextSurface, RunFailure> {
+        if let Some(continuation) = self.pending_continuation.clone() {
+            context_messages.push(continuation);
+        }
+        let context_request = ContextRequest::new(context_messages)
+            .with_target(
+                self.request.provider.provider_name(),
+                self.request.provider.model_name(),
+            )
+            .with_step(self.step)
+            .with_tools(context_tools.to_vec());
+        let mut prepared = self
+            .request
+            .context_policy
+            .prepare(context_request)
+            .await
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        prepared
+            .validate()
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        self.validate_prompt_surface(&prepared)?;
+        // Runtime controls are transient, not new user history. Add AFTER
+        // policy projection so compaction/custom policies cannot remove
+        // an unconsumed notice, and BEFORE admission/counting/audit.
+        // A user-role control note keeps the assembled system prompt
+        // immutable and works with providers requiring one initial system.
+        if let Some(notice) = &self.checkpoint.pending_notice {
+            prepared.messages.push(
+                AgentMessage::user(notice.clone())
+                    .with_id(format!("execution-notice-{}-{}", self.run_id, self.step)),
+            );
+        }
+        Ok(prepared)
+    }
+
     fn validate_prompt_surface(&self, surface: &ContextSurface) -> Result<(), RunFailure> {
         let Some(prompt) = &self.request.prompt else {
             return Ok(());
@@ -1295,14 +1343,21 @@ impl Runner {
         let planner = BasicCompactionPlanner::new(config)
             .map_err(|error| RunFailure::Failed(error.to_string()))?;
         let plan = match planner
-            .plan(&CompactionRequest {
-                trigger,
-                target,
-                context_window_tokens,
-                current_input_tokens,
-                surface_generation: session.revision().get(),
-                nodes,
-            })
+            .plan_with_input_budget(
+                &CompactionRequest {
+                    trigger,
+                    target,
+                    context_window_tokens,
+                    current_input_tokens,
+                    surface_generation: session.revision().get(),
+                    nodes,
+                },
+                self.request
+                    .token_guard
+                    .as_ref()
+                    .map(|guard| guard.budget().available_input_tokens()),
+                self.recent_input_growth.iter().copied().max().unwrap_or(0),
+            )
             .map_err(|error| RunFailure::Failed(error.to_string()))?
         {
             CompactionDecision::Planned { plan } => *plan,
@@ -1377,55 +1432,47 @@ impl Runner {
         )
         .await;
 
-        let mut last_error = None;
-        let mut summary = None;
-        for attempt in 1..=plan.max_summary_attempts {
-            match self.run_compaction_summary(&plan, &selected).await {
-                Ok(output) => {
-                    summary = Some(output);
-                    break;
+        // Cache deterministic failure for this exact source within the run;
+        // a later step must not repeatedly pay to summarize the same span.
+        let fingerprint = sha256_json(&json!({
+            "selected": &selected,
+            "system": self.messages.iter().find(|m| m.role == Role::System),
+            "target": &plan.spec.target, "context": context_window_tokens,
+            "output": plan.spec.max_tokens, "reasoning": &self.request.compaction_reasoning_effort,
+        }))?;
+        let summarized = if let Some(error) = self.failed_compactions.get(&fingerprint) {
+            Err(crate::compaction::SummaryError::Invalid(error.clone()))
+        } else {
+            self.run_compaction_summary(&plan, &selected).await
+        };
+        let summary = match summarized {
+            Ok(summary) => summary,
+            Err(error) => {
+                if !matches!(&error, crate::compaction::SummaryError::Cancelled)
+                    && !matches!(&error, crate::compaction::SummaryError::Provider(error) if error.retryable)
+                {
+                    if self.failed_compactions.len() >= 32 {
+                        self.failed_compactions.clear();
+                    }
+                    self.failed_compactions
+                        .insert(fingerprint, error.to_string());
                 }
-                Err(failure @ RunFailure::Stopped(_)) => {
-                    self.journal_append(
-                        vec![SessionEventData::CompactionEnd {
-                            compaction_id: compaction_id.clone(),
-                            source_command_id: None,
-                            turn: Some(turn),
-                            error: Some("compaction cancelled before replacement".to_owned()),
-                        }],
-                        true,
-                    )
-                    .await?;
-                    return Err(failure);
-                }
-                Err(error) => {
-                    last_error = Some(error.to_string());
-                    self.debug(
-                        "compaction.summary_retry",
-                        json!({
-                            "compactionId": &compaction_id,
-                            "attempt": attempt,
-                            "maxAttempts": plan.max_summary_attempts,
-                            "error": error.to_string(),
-                        }),
-                    )
-                    .await;
-                }
+                let error = match error {
+                    crate::compaction::SummaryError::Cancelled => self.stopped_failure(),
+                    _ => RunFailure::Failed(error.to_string()),
+                };
+                self.journal_append(
+                    vec![SessionEventData::CompactionEnd {
+                        compaction_id: compaction_id.clone(),
+                        source_command_id: None,
+                        turn: Some(turn),
+                        error: Some(error.to_string()),
+                    }],
+                    true,
+                )
+                .await?;
+                return Err(error);
             }
-        }
-        let Some(summary) = summary else {
-            let error = last_error.unwrap_or_else(|| "summary produced no result".to_owned());
-            self.journal_append(
-                vec![SessionEventData::CompactionEnd {
-                    compaction_id: compaction_id.clone(),
-                    source_command_id: None,
-                    turn: Some(turn),
-                    error: Some(error.clone()),
-                }],
-                true,
-            )
-            .await?;
-            return Err(RunFailure::Failed(error));
         };
         let checkpoint =
             frame_summary(&summary.text).map_err(|error| RunFailure::Failed(error.to_string()))?;
@@ -1462,6 +1509,92 @@ impl Runner {
             })?;
         let checkpoint_message = AgentMessage::user(checkpoint)
             .with_id(format!("compaction-checkpoint-{compaction_id}"));
+        // Build exactly the surface that Session::surface_replace will publish,
+        // then include the same prompt/policy/tools/control notes as a real call.
+        // No candidate summary becomes durable before this admission succeeds.
+        let validation: Result<bool, RunFailure> = async {
+            let mut candidate = surface
+                .iter()
+                .map(|node| node.message.clone())
+                .collect::<Vec<_>>();
+            candidate.splice(
+                plan.range.start_index..=plan.range.end_index,
+                [checkpoint_message.clone()],
+            );
+            let tool_definitions = self.tool_definitions().await;
+            let tools = tool_definitions
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
+            let prepared = self
+                .prepare_context(self.prompt_prefixed(candidate), &tools)
+                .await?;
+            let request = ProviderRequest {
+                messages: prepared.messages.clone(),
+                tools: tool_definitions,
+                step: self.step,
+                reasoning_effort: self.request.reasoning_effort.clone(),
+                max_output_tokens: self
+                    .request
+                    .token_guard
+                    .as_ref()
+                    .map(|guard| guard.budget().reserved_output_tokens),
+                debug_scope: self.debug_scope(),
+            };
+            match self.check_token_budget(&request, &prepared, &tools).await? {
+                TokenBudgetCheck::Ready(report) => {
+                    self.debug("compaction.candidate_budget", json!({"budget":report}))
+                        .await;
+                }
+                TokenBudgetCheck::Exceeded { error, .. } => {
+                    return Err(RunFailure::Failed(format!(
+                        "compaction candidate still exceeds the main request budget: {error}"
+                    )))
+                }
+                TokenBudgetCheck::Interrupted => return Ok(false),
+            }
+            self.ensure_running()?;
+            let latest = store
+                .load(&session_id)
+                .await
+                .map_err(|e| RunFailure::Failed(e.to_string()))?
+                .ok_or_else(|| {
+                    RunFailure::Failed("compaction session disappeared during validation".into())
+                })?;
+            if latest.derive_surface_messages() != surface {
+                return Err(RunFailure::Failed(
+                    "compaction source changed during validation; original history is unchanged"
+                        .into(),
+                ));
+            }
+            Ok(true)
+        }
+        .await;
+        if !matches!(validation, Ok(true)) {
+            let message = match &validation {
+                Ok(false) => {
+                    "compaction candidate validation interrupted by runtime control".to_owned()
+                }
+                Err(error) => error.to_string(),
+                Ok(true) => unreachable!(),
+            };
+            self.journal_append(
+                vec![SessionEventData::CompactionEnd {
+                    compaction_id: compaction_id.clone(),
+                    source_command_id: None,
+                    turn: Some(turn),
+                    error: Some(message),
+                }],
+                true,
+            )
+            .await?;
+            return match validation {
+                Ok(_) => Ok(CompactionOutcome::Interrupted),
+                Err(error) => Err(error),
+            };
+        }
+        self.failed_compactions.clear();
         self.journal_append(
             vec![
                 SessionEventData::CompactionSummary {
@@ -1473,7 +1606,7 @@ impl Runner {
                     shadowed_token_count: plan.range.shadowed_token_count,
                     provider: current_provider,
                     model: current_model,
-                    max_tokens: Some(plan.spec.max_tokens),
+                    max_tokens: Some(summary.max_output_tokens),
                     usage,
                 },
                 SessionEventData::UserMessage {
@@ -1513,85 +1646,51 @@ impl Runner {
         &mut self,
         plan: &CompactionPlan,
         selected: &[AgentMessage],
-    ) -> Result<CompactionSummaryOutput, RunFailure> {
-        self.ensure_running()?;
-        let mut messages = Vec::with_capacity(selected.len().saturating_add(2));
-        if let Some(system) = self
-            .messages
-            .iter()
-            .find(|message| message.role == Role::System)
-        {
-            messages.push(system.clone());
+    ) -> Result<CompactionSummaryOutput, crate::compaction::SummaryError> {
+        if self.cancellation.is_cancelled() {
+            return Err(crate::compaction::SummaryError::Cancelled);
         }
-        messages.extend_from_slice(selected);
-        messages.push(AgentMessage::user(DEFAULT_COMPACTION_INSTRUCTION));
-        let request = ProviderRequest {
-            messages,
-            // Compaction is a closed summarization operation. Tool schemas add
-            // prompt cost and can make otherwise capable models attempt a call
-            // that this path must reject, so never expose them here.
+        let guard = self.request.token_guard.clone().ok_or_else(|| {
+            crate::compaction::SummaryError::Invalid(
+                "compaction needs an explicitly bound context budget".into(),
+            )
+        })?;
+        let template = ProviderRequest {
+            messages: self
+                .messages
+                .iter()
+                .find(|m| m.role == Role::System)
+                .cloned()
+                .into_iter()
+                .collect(),
             tools: Vec::new(),
             step: self.step,
-            // This is deliberately independent from the interactive turn. A
-            // high/xhigh user selection must not consume the summary's bounded
-            // output budget with hidden reasoning.
             reasoning_effort: self.request.compaction_reasoning_effort.clone(),
             max_output_tokens: Some(plan.spec.max_tokens),
             debug_scope: self.debug_scope(),
         };
-        let cancellation = self.cancellation.child_token();
-        let provider = Arc::clone(&self.request.provider);
-        let mut stream = tokio::select! {
-            _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
-            stream = provider.stream(request, cancellation.clone()) => {
-                stream.map_err(|error| RunFailure::Failed(error.message))?
-            }
-        };
-        let mut text = String::new();
-        let mut usage = None;
-        let mut completed = false;
-        while let Some(event) = tokio::select! {
-            _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
-            event = stream.next() => event,
-        } {
-            match event.map_err(|error| RunFailure::Failed(error.message))? {
-                ProviderEvent::TextDelta(delta) => text.push_str(&delta),
-                ProviderEvent::ReasoningDelta(_) => {}
-                ProviderEvent::ToolCallDelta { .. } => {
-                    cancellation.cancel();
-                    return Err(RunFailure::Failed(
-                        "compaction summary attempted to call a tool".to_owned(),
-                    ));
-                }
-                ProviderEvent::Completed {
-                    finish_reason,
-                    usage: reported_usage,
-                    ..
-                } => {
-                    let reason = finish_reason.unwrap_or(FinishReason::Stop);
-                    if reason != FinishReason::Stop {
-                        return Err(RunFailure::Failed(format!(
-                            "compaction summary was incomplete: {}",
-                            reason.description()
-                        )));
-                    }
-                    usage = reported_usage;
-                    completed = true;
-                    break;
-                }
-            }
-        }
-        if !completed {
-            return Err(RunFailure::Failed(
-                "compaction summary stream ended without completion".to_owned(),
-            ));
-        }
-        if text.trim().is_empty() {
-            return Err(RunFailure::Failed(
-                "compaction summary produced no text".to_owned(),
-            ));
-        }
-        Ok(CompactionSummaryOutput { text, usage })
+        let output = crate::compaction::SummaryRunner::new(
+            self.request.provider.clone(),
+            guard,
+            template,
+            self.cancellation.child_token(),
+            plan.spec.compaction_retries,
+        )
+        .with_debug(self.request.debug.clone())
+        .run(selected.to_vec())
+        .await?;
+        self.debug(
+            "compaction.summary_completed",
+            json!({
+                "calls": output.calls, "splits": output.splits, "usage": output.usage,
+            }),
+        )
+        .await;
+        Ok(CompactionSummaryOutput {
+            text: output.text,
+            usage: output.usage,
+            max_output_tokens: output.max_output_tokens,
+        })
     }
 
     async fn initialize_journal(&mut self) -> Result<(), RunFailure> {
