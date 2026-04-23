@@ -1,5 +1,19 @@
 # XHarness 总任务清单
 
+## macOS 预览签名分支（2026-09-18）
+
+现场：`0.2.20` 的三平台候选构建里 Windows、Linux 通过，两个 Mac 架构都在
+`Build and sign desktop bundle` 失败：`SecKeychainItemImport: One or more parameters
+passed to a function were not valid`。`desktop-release.yml` 用空字符串表示「不用 Apple
+凭据」（`APPLE_CERTIFICATE: ${{ !matrix.macos_preview && secrets.APPLE_CERTIFICATE || '' }}`），
+但 bundler 用 `std::env::var_os` 选分支，**已定义但为空**仍返回 `Some("")`，预览版因此照样
+走证书导入与公证，`APPLE_SIGNING_IDENTITY: '-'` 永远轮不到。该写法由 #69 引入；0.2.16/0.2.18/
+0.2.19 均无 Mac 资产，说明这条路径从未成功过。原有回归还断言了 `|| ''` 这个机制本身，锁住了缺陷。
+
+- [x] `MAC-PREVIEW-SIGN-01` 拆成两个 `if` 守卫的构建步骤：正式步骤用 `!matrix.macos_preview` 并直接引用 Secrets；预览步骤用 `matrix.macos_preview`，只设 `APPLE_SIGNING_IDENTITY: '-'` 与 updater 密钥，**完全不定义** Apple 凭据。与已成功的 `desktop-macos-preview.yml`、CI 预演写法一致。
+- [x] `MAC-PREVIEW-SIGN-02` 把回归从「断言空字符串」改为「断言预览步骤存在且不含 Apple 凭据、任何 `APPLE_*` 赋值都不得带 `|| ''`」；已验证旧 workflow 会失败。
+- [ ] `MAC-PREVIEW-SIGN-03` 合并后以 0.2.21 重跑三平台候选、原生验收与发布；正式公证范围 `all` 仍需先配置 Apple 凭据（本仓库只有 updater 密钥）。
+
 ## 统一发布任务入口（2026-09-18）
 
 - [x] `RELEASE-TASK-01` 单命令协调既有构建、Unix/Windows 验收与 Promote；固定来源 SHA，自动传递 Run ID。

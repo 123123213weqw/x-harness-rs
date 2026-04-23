@@ -633,10 +633,25 @@ class WorkflowGuard(unittest.TestCase):
         self.assertIn('Fail early unless every selected platform meets its explicit signing policy', text)
         self.assertIn('options: [all, windows-linux, all-macos-preview]', text)
         self.assertIn("signing-gate --platform '${{ matrix.platform }}' --plan dist/desktop-plan/plan.json", text)
-        bundler = text.split('      - name: Build and sign desktop bundle (artifacts only)', 1)[1].split('      - name:', 1)[0]
-        self.assertIn("matrix.macos_preview && '-' || secrets.APPLE_SIGNING_IDENTITY", bundler)
+        # The bundler selects its Apple branch with `var_os`, which reports a
+        # present-but-empty variable as `Some("")`. Blanks therefore still
+        # import an empty keychain certificate and notarize with empty
+        # credentials, so the ad-hoc preview must leave the variables unset
+        # instead of defining them as empty.
+        self.assertTrue('      - name: Build and sign ad-hoc Mac preview bundle (artifacts only)' in text,
+                        'the ad-hoc Mac preview needs its own build step that never defines Apple credentials')
+        formal = text.split('      - name: Build and sign desktop bundle (artifacts only)', 1)[1].split('      - name:', 1)[0]
+        preview = text.split('      - name: Build and sign ad-hoc Mac preview bundle (artifacts only)', 1)[1].split('      - name:', 1)[0]
+        self.assertIn('if: ${{ !matrix.macos_preview }}', formal)
+        self.assertIn('APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}', formal)
+        self.assertIn('if: ${{ matrix.macos_preview }}', preview)
+        self.assertIn("APPLE_SIGNING_IDENTITY: '-'", preview)
+        self.assertIn('TAURI_SIGNING_PRIVATE_KEY', preview)
         for name in ('APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID'):
-            self.assertIn(f"!matrix.macos_preview && secrets.{name} || ''", bundler)
+            self.assertNotIn(name, preview)
+        for line in text.splitlines():
+            if line.strip().startswith('APPLE_'):
+                self.assertNotIn("|| ''", line, f'blank Apple credential selects the formal branch: {line.strip()}')
 
     def test_promotion_only_and_shared_serialization(self):
         for name in ['desktop-release.yml', 'desktop-promote.yml', 'friends-release.yml']:
