@@ -40,13 +40,71 @@ function Get-XHarnessDirectory([string]$Directory) {
     return $item.FullName
 }
 
-function Get-XHarnessProcesses {
-    # Only inspect this user's processes; never kill by name, PID or wildcard.
+function Assert-XHarnessFilesAvailable([string[]]$Directories) {
+    if (-not $Directories -or @($Directories | Where-Object { -not $_ }).Count) {
+        throw 'An explicit installation directory is required for process recovery'
+    }
+    foreach ($directory in $Directories) {
+        $full = [IO.Path]::GetFullPath($directory)
+        Assert-XHarnessRecoveryPath $full
+        foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe', 'xharness-windows-sandbox-runner.exe', 'rg.exe')) {
+            $path = Join-Path $full $name
+            try { $file = Get-Item -LiteralPath $path -Force -ErrorAction Stop }
+            catch [System.Management.Automation.ItemNotFoundException] { continue } # First installation.
+            if ($file.PSIsContainer) { throw "Invalid application binary: $path" }
+            Assert-XHarnessNoRedirect $file
+            try {
+                $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+                $stream.Dispose()
+            } catch {
+                throw "Application file is busy or not writable: $path. Close the application using this directory and retry; do not remove its locks."
+            }
+        }
+    }
+}
+
+function Test-XHarnessRetiredProcess($Process, [string[]]$Directories) {
+    # CIM can retain an inaccessible process object after all its threads and
+    # handles have gone. Do not equate access denied (or a missing field) with exit.
+    # Re-query by PID twice and require the same creation identity in both samples.
+    $processId = [uint32]$Process.ProcessId
+    for ($sample = 0; $sample -lt 2; $sample++) {
+        if ($sample) { Start-Sleep -Milliseconds 100 }
+        $current = @(Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction Stop)
+        if ($current.Count -eq 0) { return $true }
+        if ($current.Count -ne 1) { return $false }
+        $record = $current[0]
+        if ($null -eq $Process.CreationDate -or $null -eq $record.CreationDate -or
+            $record.CreationDate -ne $Process.CreationDate -or $record.Name -ine $Process.Name -or
+            $null -eq $record.ThreadCount -or $null -eq $record.HandleCount -or
+            $record.ThreadCount -ne 0 -or $record.HandleCount -ne 0) { return $false }
+    }
+    # A zero-thread entry alone is insufficient: a nascent process could have no
+    # thread yet. Require exclusive write access to all binaries being replaced.
+    # This does not hold a lock across NSIS; file replacement still fails closed.
+    Assert-XHarnessFilesAvailable $Directories
+    Write-Warning "Ignoring stable threadless/handleless process entry PID $processId after checking target files. No process was terminated."
+    return $true
+}
+
+function Get-XHarnessProcesses([string[]]$Directories) {
+    # Copies owned by this user may share data even when their image paths differ.
+    # Never terminate a process or request broader privileges to inspect it.
     $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='xharness-desktop.exe' OR Name='xharness-host.exe'")) {
-        $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid
-        if ($owner.ReturnValue -ne 0) { throw 'Cannot determine XHarness process ownership' }
-        if ($owner.Sid -eq $userSid) { $process }
+    foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='xharness-desktop.exe' OR Name='xharness-host.exe'" -ErrorAction Stop)) {
+        $owner = $null
+        $status = 'query exception'
+        try {
+            $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -ErrorAction Stop
+            $status = [string]$owner.ReturnValue
+        } catch { $status = 'query exception' }
+        if ($null -ne $owner -and $null -ne $owner.ReturnValue -and $owner.ReturnValue -eq 0) {
+            if (-not $owner.Sid) { throw "Cannot determine XHarness process ownership for PID $($process.ProcessId): empty owner SID. Retry after closing the application." }
+            if ($owner.Sid -eq $userSid) { $process }
+            continue
+        }
+        if (Test-XHarnessRetiredProcess $process $Directories) { continue }
+        throw "Cannot safely inspect XHarness PID $($process.ProcessId) (owner status: $status). It is active, changed identity, or has incomplete metadata. Close that application's window and retry. If it cannot be closed, save work and restart Windows; do not force-delete application or state locks."
     }
 }
 
@@ -70,16 +128,18 @@ function Get-XHarnessLinks([string[]]$Roots) {
     }
 }
 
-function Invoke-XHarnessPreflight([string]$Inventory) {
+function Invoke-XHarnessPreflight([string]$Inventory, [string]$Directory) {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
-        $live = @(Get-XHarnessProcesses)
+        $live = @(Get-XHarnessProcesses -Directories @($Directory))
         if ($live.Count -eq 0) { break }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
     if ($live.Count) {
         throw ('Close all XHarness windows and Hosts before installing. Live PIDs: ' + (($live | ForEach-Object ProcessId) -join ', '))
     }
+    # Also protect target binaries held by a known foreign-user process.
+    Assert-XHarnessFilesAvailable @($Directory)
     # Capture old targets BEFORE NSIS replaces its normal shortcuts.
     ConvertTo-Json -InputObject @(Get-XHarnessLinks) | Set-Content -LiteralPath $Inventory -Encoding UTF8
 }
@@ -182,7 +242,8 @@ function Move-XHarnessLegacyShortcutBackup([string]$Link, [string]$Target, [vers
 
 function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
     $canonical = Get-XHarnessDirectory $Directory
-    if (@(Get-XHarnessProcesses).Count) { throw 'An XHarness process started during installation; close it and retry' }
+    if (@(Get-XHarnessProcesses -Directories @($canonical)).Count) { throw 'An XHarness process started during installation; close it and retry' }
+    Assert-XHarnessFilesAvailable @($canonical)
     # Windows PowerShell 5.1 can wrap an empty JSON array as one pipeline item
     # inside @(...). Keep the parsed array itself, so a first install has no links.
     $records = Get-Content -LiteralPath $Inventory -Raw | ConvertFrom-Json
@@ -225,7 +286,8 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
         }
         $moved = @()
         try {
-            if (@(Get-XHarnessProcesses).Count) { throw 'XHarness restarted during migration' }
+            if (@(Get-XHarnessProcesses -Directories @($canonical, $verified)).Count) { throw 'XHarness restarted during migration' }
+            Assert-XHarnessFilesAvailable @($canonical, $verified)
             foreach ($name in $retireNames) {
                 $binary = Join-Path $verified $name
                 Move-Item -LiteralPath $binary -Destination ($binary + '.before-xharness-update')
@@ -246,7 +308,7 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
 if ($MyInvocation.InvocationName -ne '.') {
     try {
         if (-not $InventoryPath -or -not $Mode) { throw 'Mode and InventoryPath are required' }
-        if ($Mode -eq 'Preflight') { Invoke-XHarnessPreflight $InventoryPath }
+        if ($Mode -eq 'Preflight') { Invoke-XHarnessPreflight $InventoryPath $InstallDirectory }
         else { Invoke-XHarnessReconcile $InstallDirectory $InventoryPath }
     } catch { Write-Error $_; exit 1 }
 }
