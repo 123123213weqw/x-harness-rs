@@ -33,7 +33,7 @@ try {
  for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
   let source=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
   if(name==='dsh-client-runtime')source=source.replace('exports.apply = apply;', 'exports.Session = Session; exports.SessionManager = SessionManager; exports.apply = apply;');
-  if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.registerConversationNodes = registerConversationNodes; exports.apply = apply;');
+  if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.ChatView = ChatView; exports.registerConversationNodes = registerConversationNodes; exports.apply = apply;');
   await page.addScriptTag({content:source});
  }
  const checks=await page.evaluate(async()=>{
@@ -42,6 +42,29 @@ try {
   const definitions=[],views=[];let fallback;
   load('@xharness/dsh-client-ui-conversation/client').registerConversationNodes({conversationEvents:{register:d=>definitions.push(d),registerFallback:d=>{fallback=d}},conversationViews:{register:d=>views.push(d)}});
   const conversation={events:{entries:()=>definitions,fallbackEntry:()=>fallback},views:{entries:()=>views}};
+  window.atomicFixture = async () => {
+    const row = seq => ({event:{seq,time:seq,type:'user/message',surfaceOp:'append',data:{id:String(seq),source:{kind:'user'},content:[{type:'text',text:'retained message'}],text:'retained message'}}});
+    let invalid = false, calls = 0;
+    const bad = ['compaction/summary','compaction/start'].map((type,index)=>({event:{seq:index+2,time:index+2,type,data:{compactionId:'broken'}}}));
+    const api = {sessions:{history:async()=>{calls++;return {result:{ok:true,value:{events:invalid?[row(1),...bad]:[row(1)],hasMore:false}}}}}};
+    const manager = new SessionManager(api, {}, undefined, undefined, conversation);
+    manager.summaries.push({sessionId:'atomic',running:false,blank:false}); manager.select('atomic');
+    const session = manager.get('atomic'); await session.open(); session.getSnapshot();
+    const before = session.events, snapshot = session.conversation.snapshot('chat');
+    invalid = true; await session.resync();
+    if(session.events!==before || session.conversation.snapshot('chat')!==snapshot || session.openState!=='error') throw Error('real compaction classifier discarded the old window');
+    const R=staticModules.react,D=staticModules['react-dom'],View=load('@xharness/dsh-client-ui-conversation/client').ChatView;
+    const root=D.createRoot(document.getElementById('root'));
+    const props={sessionId:'atomic',useSession:f=>f(session.getSnapshot()),useSessions:f=>f({byId:{atomic:{cwd:'/fixture'}}}),useStore:f=>f({}),t:k=>k,
+      chatScroll:{read:()=>null,save:()=>{}},fileMentions:[],openFile:async()=>{},loadImage:async()=>{},inspectCall:()=>{},forkAt:()=>{},editMessage:()=>{},
+      renderSlot:(_slot,owner)=>R.createElement('div',{'data-retained-message':owner.node.key},'retained message'),
+      loadOlder:async()=>{invalid=false;await session.loadOlder();render();}
+    };
+    function render(){D.flushSync(()=>root.render(R.createElement(View,props)));}
+    render();
+    window.atomicState=()=>({calls,state:session.openState,events:session.events.length});
+    window.atomicUnmount=()=>root.unmount();
+  };
   let checks=0;function ok(v,m){if(!v)throw Error(m);checks++}
   const tick=()=>new Promise(r=>setTimeout(r,0));
   const row=seq=>({event:{seq,time:seq,type:'user/message',surfaceOp:'append',data:{id:String(seq),source:{kind:'user'},content:[{type:'text',text:'body '+seq}],text:'body '+seq}},view:{text:'view '+seq}});
@@ -121,6 +144,17 @@ try {
   };
   return checks;
  });
+ await page.evaluate(()=>atomicFixture());
+ assert.equal(await page.locator('[data-retained-message]').count(),1,'old message remains visible after real compaction mapping failure');
+ await page.waitForSelector('[role="alert"]');
+ assert.match(await page.locator('[role="alert"]').innerText(),/chat.loadError/);
+ if(process.env.UI_TEST_SCREENSHOT) await page.screenshot({path:process.env.UI_TEST_SCREENSHOT});
+ await page.locator('[data-history-retry]').click();
+ await page.waitForFunction(()=>atomicState().state==='open');
+ assert.equal(await page.locator('[role="alert"]').count(),0);
+ assert.equal(await page.locator('[data-retained-message]').count(),1);
+ assert.deepEqual(await page.evaluate(()=>atomicState()),{calls:3,state:'open',events:1});
+ await page.evaluate(()=>atomicUnmount());
  const cdp=engine==='chromium'?await page.context().newCDPSession(page):null;
  async function heap(){if(!cdp)return null;await cdp.send('HeapProfiler.collectGarbage');return (await cdp.send('Runtime.getHeapUsage')).usedSize;}
  const baselineStats=await page.evaluate(()=>makeMemoryFixture(false));const baseline=await heap();
@@ -128,5 +162,5 @@ try {
  assert.equal(baselineStats.inactiveSessions,31);assert.equal(boundedStats.inactiveSessions,6);
  if(cdp){assert.ok(bounded<baseline*.7,JSON.stringify({baseline,bounded}));assert.equal(await page.evaluate(()=>oldEvents.deref()===undefined&&oldEvent.deref()===undefined),true,'evicted raw history and event objects are GC-reclaimable');}
  assert.deepEqual(errors.filter(e=>!e.includes('fixture stop boot')),[]);
- console.log(JSON.stringify({engine,checks,baselineHeapBytes:baseline,boundedHeapBytes:bounded,baselineStats,boundedStats,note:'32 synthetic sessions x 160 events; payload estimates are not process RSS'}));
+ console.log(JSON.stringify({engine,checks,atomicHistory:'real compaction mapping failure retains ChatView; retry succeeds with history RPC only',baselineHeapBytes:baseline,boundedHeapBytes:bounded,baselineStats,boundedStats,note:'32 synthetic sessions x 160 events; payload estimates are not process RSS'}));
 }finally{await browser.close()}
