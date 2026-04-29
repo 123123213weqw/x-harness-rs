@@ -1,5 +1,14 @@
 # XHarness 总任务清单
 
+## Control Log 启动恢复（2026-09-19，Issue #109）
+
+- [x] `CONTROL-RECOVERY-01` 精确零字节日志按空状态加载，首次 Append 自动补齐 Header；非空损坏保持 fail closed。
+- [x] `CONTROL-RECOVERY-02` Header 改为同目录完整写入并同步后再发布，正式路径不暴露半写 Header。
+- [x] `CONTROL-RECOVERY-03` 仅容忍完整记录后的纯换行后缀，并在下一次 Append 截断；中间空行仍拒绝。
+- [x] `CONTROL-RECOVERY-04` 补零字节重启/追加、尾部空行修复、中间损坏、空白/坏 Header、符号链接与跨实例 CAS 回归。
+- [x] `CONTROL-RECOVERY-05` WZU_Server 全 Workspace 测试与 Clippy 零警告；真实桌面姿态 Host 在零字节 Control Log 下成功进入 Ready 并优雅退出。
+- [ ] `CONTROL-RECOVERY-06` PR 跨平台 CI 通过后合并；源码修复不自动替换已安装软件。
+
 ## macOS 预览签名分支（2026-09-18）
 
 现场：`0.2.20` 的三平台候选构建里 Windows、Linux 通过，两个 Mac 架构都在
