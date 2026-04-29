@@ -428,9 +428,16 @@ impl BasicHost {
                 message: error.to_string(),
             });
         }
+        // A stored model selection can outlive the deployment that advertised
+        // it, and the registry that was just refreshed is the authority on what
+        // is still offered. Repair before publishing so a healthy provider is
+        // not reported as an unavailable model.
+        report.issues.extend(self.reconcile_model_routes().await);
         // Publishing the issues on the Host state is what makes them reachable
         // from the product surface (`host.describe`) rather than only stderr.
-        self.state.write().await.startup_issues = report.issues.clone();
+        let mut state = self.state.write().await;
+        state.startup_issues = report.issues.clone();
+        state.model_settings_error = report.model_settings_error.clone();
         Ok(report)
     }
 }
