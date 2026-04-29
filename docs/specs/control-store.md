@@ -46,10 +46,18 @@ Update/Replace/Mutate 均先取得 Host-global Mutation Gate：
 ## JSONL 与崩溃恢复
 
 生产文件为 `<state-dir>/control/host-control.jsonl`，旁路 Lock 文件用于进程内 Mutex 与跨进程
-Advisory Lock。Header 使用 `create_new + O_NOFOLLOW + 0600`；首次创建和每次显式 Flush 都同步
-文件与父目录。加载严格校验格式、Seq、Revision、每批唯一 Receipt、Workspace Identity、Settings
-Revision 与 Receipt 唯一性。只有未换行且 JSON 不完整的最后一条记录可作为 Torn Tail 忽略并在
-下次 Append 前截断；完整中间损坏必须阻止 Host 监听。
+Advisory Lock。Header 先写入同目录的 `O_NOFOLLOW + 0600` 暂存文件并同步，再以不覆盖的硬链接
+发布；正式文件名不会先暴露一个尚未写入 Header 的文件。首次创建和每次显式 Flush 都同步文件与
+父目录。
+
+加载严格校验格式、Seq、Revision、每批唯一 Receipt、Workspace Identity、Settings Revision 与
+Receipt 唯一性，恢复边界只有三种：
+
+- 精确的零字节普通文件不含任何状态，按 Revision 0 加载；首次 Append 以完整 Header 安全替换；
+- 只有未换行且 JSON 不完整的最后一条记录可作为 Torn Tail 忽略；完整记录后的纯换行后缀也可
+  加载，两者均在下次 Append 前截断；
+- 空白文件、损坏 Header、中间空行/坏记录、版本或 Revision 链不一致继续 fail closed，不能以
+  默认设置覆盖用户状态；符号链接和非普通文件始终拒绝。
 
 Host 启动顺序是：先重放 Control Log，再枚举 Agent Session 并恢复 Session→Workspace 归属，最后
 再次应用 Control Workspace 排序和 Tombstone。这样自定义元数据与 Session 真源都不会互相覆盖。
