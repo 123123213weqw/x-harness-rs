@@ -16,6 +16,8 @@ mod history_tool;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod driver;
+#[cfg(test)]
+mod failed_turn_projection_tests;
 mod metrics;
 mod model_settings;
 #[cfg(test)]
