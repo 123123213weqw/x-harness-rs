@@ -475,10 +475,15 @@ impl ControlStore for JsonlControlStore {
         run_blocking(move || {
             let _process = process;
             let _file_lock = file_lock;
-            if !path.exists() {
+            let mut loaded = load_file(&path)?;
+            if loaded.is_none() {
                 create_header(&path)?;
+                loaded = load_file(&path)?;
+            } else if loaded.as_ref().is_some_and(|loaded| loaded.valid_len == 0) {
+                repair_empty_header(&path)?;
+                loaded = load_file(&path)?;
             }
-            let mut loaded = load_file(&path)?.ok_or_else(|| {
+            let mut loaded = loaded.ok_or_else(|| {
                 backend_message(format!("control log {} disappeared", path.display()))
             })?;
             let receipt = loaded.log.append_batch(expected_revision, events)?;
@@ -740,9 +745,21 @@ fn load_file(path: &Path) -> Result<Option<LoadedFile>, ControlError> {
 }
 
 fn parse_file(path: &Path, bytes: &[u8]) -> Result<LoadedFile, ControlError> {
+    // A zero-byte file contains no control state. It can be left behind if the
+    // process or filesystem dies between creating the name and writing the
+    // header. Treat only the exact zero-byte case as empty; whitespace and
+    // malformed non-empty files remain fail-closed.
+    if bytes.is_empty() {
+        return Ok(LoadedFile {
+            log: ControlLog::empty(),
+            valid_len: 0,
+            needs_separator: false,
+        });
+    }
     let terminated = bytes.ends_with(b"\n");
     let mut cursor = 0usize;
     let mut records = Vec::<&[u8]>::new();
+    let mut trailing_empty_start = None;
     while cursor < bytes.len() {
         let relative = bytes[cursor..].iter().position(|byte| *byte == b'\n');
         let (end, next) = relative.map_or((bytes.len(), bytes.len()), |offset| {
@@ -750,6 +767,13 @@ fn parse_file(path: &Path, bytes: &[u8]) -> Result<LoadedFile, ControlError> {
         });
         let line = &bytes[cursor..end];
         if line.is_empty() {
+            // Editors and interrupted append repair can leave extra newlines
+            // after an otherwise complete log. Only a suffix made entirely of
+            // newlines is repairable. Empty records in the middle still fail.
+            if !records.is_empty() && bytes[cursor..].iter().all(|byte| *byte == b'\n') {
+                trailing_empty_start = Some(cursor as u64);
+                break;
+            }
             return Err(backend_message(format!(
                 "control log {} contains an empty record",
                 path.display()
@@ -805,7 +829,9 @@ fn parse_file(path: &Path, bytes: &[u8]) -> Result<LoadedFile, ControlError> {
         }
     }
     let log = ControlLog::restore(revision, events)?;
-    let valid_len = if accepted_records == records.len() {
+    let valid_len = if let Some(valid_len) = trailing_empty_start {
+        valid_len
+    } else if accepted_records == records.len() {
         bytes.len() as u64
     } else {
         records[..accepted_records]
@@ -816,7 +842,9 @@ fn parse_file(path: &Path, bytes: &[u8]) -> Result<LoadedFile, ControlError> {
     Ok(LoadedFile {
         log,
         valid_len,
-        needs_separator: accepted_records == records.len() && !terminated,
+        needs_separator: trailing_empty_start.is_none()
+            && accepted_records == records.len()
+            && !terminated,
     })
 }
 
@@ -826,18 +854,63 @@ fn create_header(path: &Path) -> Result<(), ControlError> {
         format: FILE_FORMAT.to_owned(),
         format_version: FILE_FORMAT_VERSION,
     };
-    let encoded = encode_line(&record, path)?;
+    publish_header(path, &encode_line(&record, path)?, false)
+}
+
+fn repair_empty_header(path: &Path) -> Result<(), ControlError> {
+    // Re-check under both control locks. Never reinterpret a non-empty or
+    // non-regular path as disposable state.
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| backend_error("inspect empty control log", path, error))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() != 0 {
+        return Err(backend_message(format!(
+            "control log {} changed while repairing its empty header",
+            path.display()
+        )));
+    }
+    let record = HeaderRecord {
+        record: HEADER_RECORD.to_owned(),
+        format: FILE_FORMAT.to_owned(),
+        format_version: FILE_FORMAT_VERSION,
+    };
+    publish_header(path, &encode_line(&record, path)?, true)
+}
+
+fn publish_header(path: &Path, encoded: &[u8], replace_empty: bool) -> Result<(), ControlError> {
+    static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = path.with_file_name(format!(
+        ".creating-control-{}-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     let mut file = secure_open_options()
         .write(true)
         .create_new(true)
-        .open(path)
-        .map_err(|error| backend_error("create control log", path, error))?;
-    if let Err(error) = file.write_all(&encoded).and_then(|_| file.sync_all()) {
-        drop(file);
-        let _ = fs::remove_file(path);
-        return Err(backend_error("write control header", path, error));
-    }
-    sync_directory(path.parent().unwrap_or_else(|| Path::new(".")))
+        .open(&tmp)
+        .map_err(|error| backend_error("create control staging file", &tmp, error))?;
+    let published = (|| -> Result<(), ControlError> {
+        file.write_all(encoded)
+            .and_then(|_| file.sync_all())
+            .map_err(|error| backend_error("durably write control header", &tmp, error))?;
+        if replace_empty {
+            // Removing an empty file creates no state-loss window: a crash
+            // before publication leaves either empty or absent state, both of
+            // which load as revision zero. The final name is introduced only
+            // with a fully synced header and is never overwritten.
+            fs::remove_file(path)
+                .map_err(|error| backend_error("remove empty control log", path, error))?;
+        }
+        fs::hard_link(&tmp, path)
+            .map_err(|error| backend_error("publish control header", path, error))?;
+        sync_directory(path.parent().unwrap_or_else(|| Path::new(".")))
+    })();
+    drop(file);
+    let _ = fs::remove_file(&tmp);
+    published
 }
 
 fn encode_line<T: Serialize>(value: &T, path: &Path) -> Result<Vec<u8>, ControlError> {

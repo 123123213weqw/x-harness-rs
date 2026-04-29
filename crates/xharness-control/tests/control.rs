@@ -231,6 +231,112 @@ async fn jsonl_round_trip_torn_tail_and_cross_instance_cas() {
     assert_eq!(first.load().await.unwrap().revision(), ControlRevision(2));
 }
 
+#[tokio::test]
+async fn zero_byte_control_log_loads_empty_and_repairs_on_first_append() {
+    let dir = TestDir::new();
+    let path = dir.0.join("host-control.jsonl");
+    fs::write(&path, []).unwrap();
+    let store = JsonlControlStore::new(&dir.0).unwrap();
+
+    let empty = store.load().await.unwrap();
+    assert_eq!(empty.revision(), ControlRevision::ZERO);
+    assert!(empty.events().is_empty());
+
+    store
+        .append(
+            ControlRevision::ZERO,
+            vec![ControlEvent::MutationCommitted {
+                receipt: receipt("rpc-after-empty", "settings.replace", json!({})),
+            }],
+        )
+        .await
+        .unwrap();
+    store.flush().await.unwrap();
+
+    let raw = fs::read_to_string(&path).unwrap();
+    assert!(raw.starts_with("{\"record\":\"header\""));
+    assert!(raw.ends_with('\n'));
+    assert_eq!(raw.lines().count(), 2);
+    assert!(fs::read_dir(&dir.0).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".creating-control-")
+    }));
+
+    let restarted = JsonlControlStore::new(&dir.0)
+        .unwrap()
+        .load()
+        .await
+        .unwrap();
+    assert_eq!(restarted.revision(), ControlRevision(1));
+    assert_eq!(restarted.events().len(), 1);
+}
+
+#[tokio::test]
+async fn trailing_blank_lines_are_repaired_without_hiding_middle_corruption() {
+    let dir = TestDir::new();
+    let path = dir.0.join("host-control.jsonl");
+    let store = JsonlControlStore::new(&dir.0).unwrap();
+    store
+        .append(
+            ControlRevision::ZERO,
+            vec![ControlEvent::MutationCommitted {
+                receipt: receipt("rpc-before-blanks", "settings.replace", json!({})),
+            }],
+        )
+        .await
+        .unwrap();
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(b"\n\n")
+        .unwrap();
+
+    assert_eq!(store.load().await.unwrap().revision(), ControlRevision(1));
+    store
+        .append(
+            ControlRevision(1),
+            vec![ControlEvent::MutationCommitted {
+                receipt: receipt("rpc-after-blanks", "settings.replace", json!({})),
+            }],
+        )
+        .await
+        .unwrap();
+    let repaired = fs::read_to_string(&path).unwrap();
+    assert!(!repaired.contains("\n\n"));
+    assert_eq!(store.load().await.unwrap().revision(), ControlRevision(2));
+
+    let split = repaired.find('\n').unwrap() + 1;
+    fs::write(
+        &path,
+        format!("{}\n{}", &repaired[..split], &repaired[split..]),
+    )
+    .unwrap();
+    let error = store.load().await.unwrap_err();
+    assert!(matches!(error, ControlError::Backend { message } if message.contains("empty record")));
+}
+
+#[tokio::test]
+async fn nonempty_headerless_control_logs_remain_fail_closed() {
+    for bytes in [
+        b"\n".as_slice(),
+        b"   \n".as_slice(),
+        b"not-json\n".as_slice(),
+    ] {
+        let dir = TestDir::new();
+        fs::write(dir.0.join("host-control.jsonl"), bytes).unwrap();
+        let error = JsonlControlStore::new(&dir.0)
+            .unwrap()
+            .load()
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ControlError::Backend { .. }));
+    }
+}
+
 #[test]
 fn subprocess_append_worker() {
     let Ok(root) = std::env::var("XHARNESS_CONTROL_WORKER_ROOT") else {
