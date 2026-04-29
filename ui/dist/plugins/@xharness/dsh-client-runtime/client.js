@@ -8623,6 +8623,7 @@ async prompt(content, mode, signal, options = {}) {
 // History transactions are low-frequency. Streaming append stays incremental.
 function installAtomicHistory(Assembler, Session) {
   const replace = Assembler.prototype.replaceWindow;
+  const acceptLiveEvent = Session.prototype.acceptLiveEvent;
   function prepare(assembler, entries, hasMore) {
     const staged = new Assembler(assembler.eventDefinitions, assembler.viewDefinitions);
     replace.call(staged, entries, hasMore);
@@ -8652,6 +8653,27 @@ function installAtomicHistory(Assembler, Session) {
     if (!result.ok) throw Error(result.error?.message ?? 'History request failed');
     return result.value;
   }
+  async function retryHistory(session) {
+    // This is a data-plane retry on the current connection, not a transport
+    // generation change. Pending approvals/questions and the subscribed
+    // watermark remain authoritative and must not be discarded.
+    if (session.events.length) session.xhRestoreBaseSeq = session.baseSeq;
+    session.openGeneration++;
+    session.loadingOlder = false; session.stitching = false; session.openPromise = null;
+    session.openState = 'cold'; session.openError = null;
+    session.notifier.markDirty();
+    await session.open();
+  }
+  Session.prototype.acceptLiveEvent = function(event, view) {
+    // A history mapping/read failure keeps the committed window visible. Keep
+    // its live suffix too so retry can stitch every event that arrived while
+    // the error banner was displayed.
+    if (this.openState === 'error') {
+      this.liveBuffer.push({ event, view });
+      return;
+    }
+    return acceptLiveEvent.call(this, event, view);
+  };
   Session.prototype.installWindow = function(entries, hasMore, projections) {
     const combined = [...entries];
     let tail = combined.at(-1)?.event.seq;
@@ -8680,14 +8702,17 @@ function installAtomicHistory(Assembler, Session) {
   };
   Session.prototype.loadOlder = async function() {
     // The error-banner retry shares this read-only action; never resubmit a prompt.
-    if (this.openState === 'error') return this.resync();
+    if (this.openState === 'error') return retryHistory(this);
     if (this.openState !== 'open' || !this.hasMore || this.loadingOlder || this.stitching) return;
     this.loadingOlder = true;
     const generation = this.openGeneration, beforeSeq = this.baseSeq;
     this.notifier.markDirty();
     try {
       const { result } = await this.history({ beforeSeq, maxMessages: 50 });
-      if (generation !== this.openGeneration || this.openState !== 'open') return;
+      // A live gap discovered while this request was in flight owns the next
+      // full-window publication. Discard this stale pagination response and
+      // let repairGap settle rather than racing both installers.
+      if (generation !== this.openGeneration || this.openState !== 'open' || this.stitching) return;
       const value = responseValue(result), older = value.events;
       if (this.baseSeq !== beforeSeq) throw Error('History window changed during pagination; retry history loading');
       if (older.length && (older.at(-1).event.seq + 1 !== beforeSeq || older[0].event.seq >= beforeSeq))
