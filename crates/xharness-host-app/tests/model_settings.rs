@@ -16,8 +16,9 @@ use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::{AgentMessage, IdentityContextPolicy};
 use xharness_debug::DebugRecorder;
 use xharness_host::{
-    AgentRuntime, AgentTurnRequest, BasicHost, DurableLoopAgentRuntime, HostConfig, ModelRegistry,
-    ModelRoute, NoTools, PermissionPreset, MODEL_SETTINGS_NAMESPACE,
+    AgentRuntime, AgentTurnRequest, BasicHost, DurableLoopAgentRuntime, HostConfig,
+    HostRestoreReport, ModelRegistry, ModelRoute, NoTools, PermissionPreset,
+    MODEL_SETTINGS_NAMESPACE,
 };
 use xharness_host_app::model_settings::{CredentialStore, NativeModelSettings};
 use xharness_session::{MemorySessionStore, Store};
@@ -684,4 +685,347 @@ async fn capability_refresh_rpc_updates_native_levels_and_keeps_last_good_on_fai
         );
     }
     server.await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// REPRO for "我已经配置模型了，他却显示模型不可用".
+//
+// The user's exact string is the model selector's `blocked.composer` copy
+// ("当前模型不可用，请先选择模型"), rendered when `session.models` reports
+// `routable: false`. These tests drive the real RPCs the client calls, against
+// the real `BasicHost`, the real `NativeModelSettings` and a real on-disk
+// control log across a restart. The credential store is the only stand-in,
+// because it is the component that fails intermittently in the field.
+// ---------------------------------------------------------------------------
+
+/// Wired like `fixture_with_store`, but returns the startup report instead of
+/// asserting it succeeded, so a failing refresh stays observable.
+async fn reported_fixture(
+    dir: &TempDir,
+    credentials: Arc<dyn CredentialStore>,
+    store: Arc<dyn Store>,
+) -> (
+    Arc<BasicHost>,
+    Arc<DurableLoopAgentRuntime>,
+    HostRestoreReport,
+) {
+    let runtime = Arc::new(
+        DurableLoopAgentRuntime::from_registry(
+            ModelRoute::new("none", "unconfigured"),
+            ModelRegistry::new(),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            store.clone(),
+            Arc::new(MemoryLeaseManager::default()),
+            128,
+        )
+        .unwrap(),
+    );
+    let control: Arc<dyn ControlStore> =
+        Arc::new(JsonlControlStore::new(dir.0.join("control")).unwrap());
+    let host = BasicHost::with_agent_runtime_and_control_store(
+        HostConfig::new(&dir.0),
+        runtime.clone(),
+        control,
+    );
+    host.install_model_settings(
+        Arc::new(NativeModelSettings::new(
+            runtime.clone(),
+            credentials,
+            DebugRecorder::disabled(),
+        )),
+        json!({"providers":{}}),
+    )
+    .await
+    .unwrap();
+    let report = host.restore_from_store(store).await.unwrap();
+    (host, runtime, report)
+}
+
+/// Configure a provider, store its key, and open a session on it. Returns the
+/// session id; the caller drops the host to simulate quitting the app.
+async fn configure_select_and_quit(dir: &TempDir, store: &Arc<dyn Store>) -> String {
+    let (host, runtime, report) =
+        reported_fixture(dir, Arc::new(TestCredentials::default()), store.clone()).await;
+    assert!(report.model_settings_error.is_none(), "{report:?}");
+    add(&host, profile("http://127.0.0.1:12345/v1")).await;
+    rpc(
+        &host,
+        RpcMethod::CredentialsSet,
+        json!({"ref":"XHARNESS_SETTINGS_TEST_KEY","value":"test-only-private-value"}),
+    )
+    .await;
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    rpc(
+        &host,
+        RpcMethod::SessionSelectModel,
+        json!({"sessionId":id,"provider":"test-gateway","model":"coder"}),
+    )
+    .await;
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert_eq!(
+        catalog["routable"],
+        json!(true),
+        "the composer must not be blocked before the restart: {catalog}"
+    );
+    println!("phase 1  session.models = {catalog}");
+    drop(host);
+    drop(runtime);
+    id
+}
+
+#[tokio::test]
+async fn repro_a_locked_keychain_blocks_the_composer_and_shows_no_reason() {
+    let dir = TempDir::new();
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let id = configure_select_and_quit(&dir, &store).await;
+
+    // Next start: the keychain cannot be read at all.
+    let (host, runtime, report) = reported_fixture(&dir, Arc::new(LockedCredentials), store).await;
+
+    println!(
+        "phase 2  report.model_settings_error = {:?}",
+        report.model_settings_error
+    );
+    println!("phase 2  report.issues               = {:?}", report.issues);
+    println!(
+        "phase 2  has_available_route         = {}",
+        runtime.has_available_route()
+    );
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    println!("phase 2  session.models              = {catalog}");
+    let providers = rpc(&host, RpcMethod::LlmProviders, json!({})).await;
+    println!("phase 2  llm.providers               = {providers}");
+    let describe = rpc(&host, RpcMethod::HostDescribe, json!({})).await;
+    println!("phase 2  host.describe               = {describe}");
+
+    // The reason exists, but only in the startup report. `LockedCredentials`
+    // carries the same shape a real locked keychain produces.
+    assert_eq!(
+        report.model_settings_error.as_deref(),
+        Some("test keychain locked"),
+        "startup records the real reason"
+    );
+    // The whole registry was replaced, so every route is gone.
+    assert!(
+        !runtime.has_available_route(),
+        "the last good registry was discarded"
+    );
+    // This is the bit the model selector turns into
+    // "当前模型不可用，请先选择模型".
+    assert_eq!(
+        catalog["routable"],
+        json!(false),
+        "routable false is what blocks the composer: {catalog}"
+    );
+    // The settings still declare exactly the model the user configured.
+    assert_eq!(providers["providers"][0]["provider"], json!("test-gateway"));
+    assert_eq!(providers["providers"][0]["declared"], json!(true));
+    assert_eq!(providers["providers"][0]["active"], json!(false));
+    // The catalog is empty, not merely missing this one model.
+    assert_eq!(
+        catalog["groups"],
+        json!([]),
+        "every group disappeared, not just the selected model: {catalog}"
+    );
+    // The declared provider is reported as a failure with the real reason, in
+    // the channel the selector already renders.
+    assert_eq!(catalog["failures"][0]["id"], json!("test-gateway"));
+    assert_eq!(catalog["failures"][0]["name"], json!("Test gateway"));
+    assert!(
+        catalog["failures"][0]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("test keychain locked")),
+        "the selector can explain the missing model: {catalog}"
+    );
+    // And a client that asks the Host directly gets the same answer.
+    assert!(
+        describe["modelSettingsError"]
+            .as_str()
+            .is_some_and(|error| error.contains("test keychain locked")),
+        "host.describe carries the activation reason: {describe}"
+    );
+}
+
+#[tokio::test]
+async fn repro_b_a_missing_key_blocks_the_composer_with_no_error_anywhere() {
+    let dir = TempDir::new();
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let id = configure_select_and_quit(&dir, &store).await;
+
+    // Next start: the entry is simply absent -- another state directory, a
+    // cleared keychain, a restored machine.
+    let (host, runtime, report) =
+        reported_fixture(&dir, Arc::new(UnavailableCredentials), store).await;
+
+    println!(
+        "phase 2  report.model_settings_error = {:?}",
+        report.model_settings_error
+    );
+    println!("phase 2  report.issues               = {:?}", report.issues);
+    println!(
+        "phase 2  has_available_route         = {}",
+        runtime.has_available_route()
+    );
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    println!("phase 2  session.models              = {catalog}");
+    let providers = rpc(&host, RpcMethod::LlmProviders, json!({})).await;
+    println!("phase 2  llm.providers               = {providers}");
+
+    // Activation itself succeeded, so there is no startup error to report.
+    assert!(
+        report.model_settings_error.is_none(),
+        "credential absence is not an activation failure: {report:?}"
+    );
+    assert!(!runtime.has_available_route());
+    assert_eq!(catalog["routable"], json!(false), "{catalog}");
+    assert_eq!(providers["providers"][0]["declared"], json!(true));
+    assert_eq!(providers["providers"][0]["active"], json!(false));
+    // The provider is dropped from the registry, so the only place the user can
+    // learn why is the catalog failures list.
+    assert_eq!(catalog["failures"][0]["id"], json!("test-gateway"));
+    assert!(
+        catalog["failures"][0]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("XHARNESS_SETTINGS_TEST_KEY")),
+        "the missing credential is named: {catalog}"
+    );
+}
+
+#[tokio::test]
+async fn repro_c_the_composer_blocks_when_the_stored_window_outgrows_the_model() {
+    let dir = TempDir::new();
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    // Reused across the "restart", so no credential problem is involved: this
+    // test isolates the descriptor check inside `can_route`.
+    let keys = Arc::new(TestCredentials::default());
+
+    let (host, runtime, report) = reported_fixture(&dir, keys.clone(), store.clone()).await;
+    assert!(report.model_settings_error.is_none(), "{report:?}");
+    add(&host, profile("http://127.0.0.1:12345/v1")).await;
+    rpc(
+        &host,
+        RpcMethod::CredentialsSet,
+        json!({"ref":"XHARNESS_SETTINGS_TEST_KEY","value":"test-only-private-value"}),
+    )
+    .await;
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    // Accepted here: 32768 does not exceed the advertised 32768.
+    rpc(
+        &host,
+        RpcMethod::SessionSelectModel,
+        json!({"sessionId":id,"provider":"test-gateway","model":"coder","contextWindowTokens":32768}),
+    )
+    .await;
+    let before = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert_eq!(before["routable"], json!(true), "{before}");
+
+    // The same model is reconfigured with a smaller window: a settings edit, or
+    // a deployment shipping a different default.
+    rpc(
+        &host,
+        RpcMethod::SettingsMutate,
+        json!({"ns":MODEL_SETTINGS_NAMESPACE,"expectedRevision":1,"ops":[{"op":"set",
+            "path":["providers","test-gateway"],
+            "value":json!({"displayName":"Test gateway","baseURL":"http://127.0.0.1:12345/v1",
+                "api":"openai-completions","apiKeyEnv":"XHARNESS_SETTINGS_TEST_KEY",
+                "models":[{"id":"coder","name":"Coding model","contextWindow":16384,"maxTokens":4096}]})}]}),
+    )
+    .await;
+    drop(host);
+    drop(runtime);
+
+    let (host, runtime, report) = reported_fixture(&dir, keys, store).await;
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    println!(
+        "phase 2  model_settings_error = {:?}",
+        report.model_settings_error
+    );
+    println!("phase 2  report.issues        = {:?}", report.issues);
+    println!(
+        "phase 2  has_available_route  = {}",
+        runtime.has_available_route()
+    );
+    println!("phase 2  session.models       = {catalog}");
+    let providers = rpc(&host, RpcMethod::LlmProviders, json!({})).await;
+    println!("phase 2  llm.providers        = {providers}");
+
+    // The registry is healthy -- the provider and model are both live.
+    assert!(
+        runtime.has_available_route(),
+        "no credential or refresh failure here"
+    );
+    assert_eq!(providers["providers"][0]["active"], json!(true));
+    assert_eq!(providers["providers"][0]["declared"], json!(true));
+    // The stored window was clamped onto what the model now advertises, so the
+    // composer keeps working instead of blocking on a stale snapshot.
+    assert_eq!(
+        catalog["current"]["contextWindowTokens"],
+        json!(16384),
+        "the stale selection was clamped: {catalog}"
+    );
+    assert_eq!(
+        catalog["routable"],
+        json!(true),
+        "a healthy provider must not read as an unavailable model: {catalog}"
+    );
+    assert_eq!(catalog["failures"], json!([]));
+    // And the repair is reported rather than silent.
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("context window 32768 -> 16384")),
+        "the clamp is explained: {report:?}"
+    );
+}
+
+#[tokio::test]
+async fn repro_c_live_settings_edit_heals_without_a_restart() {
+    let dir = TempDir::new();
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let (host, _runtime, report) =
+        reported_fixture(&dir, Arc::new(TestCredentials::default()), store).await;
+    assert!(report.model_settings_error.is_none(), "{report:?}");
+    add(&host, profile("http://127.0.0.1:12345/v1")).await;
+    rpc(
+        &host,
+        RpcMethod::CredentialsSet,
+        json!({"ref":"XHARNESS_SETTINGS_TEST_KEY","value":"test-only-private-value"}),
+    )
+    .await;
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    rpc(
+        &host,
+        RpcMethod::SessionSelectModel,
+        json!({"sessionId":id,"provider":"test-gateway","model":"coder","contextWindowTokens":32768}),
+    )
+    .await;
+
+    rpc(
+        &host,
+        RpcMethod::SettingsMutate,
+        json!({"ns":MODEL_SETTINGS_NAMESPACE,"expectedRevision":1,"ops":[{"op":"set",
+            "path":["providers","test-gateway"],
+            "value":json!({"displayName":"Test gateway","baseURL":"http://127.0.0.1:12345/v1",
+                "api":"openai-completions","apiKeyEnv":"XHARNESS_SETTINGS_TEST_KEY",
+                "models":[{"id":"coder","name":"Coding model","contextWindow":16384,"maxTokens":4096}]})}]}),
+    )
+    .await;
+
+    // No restart, no manual re-selection: the next catalog load repairs it.
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    println!("live  session.models = {catalog}");
+    assert_eq!(catalog["current"]["contextWindowTokens"], json!(16384));
+    assert_eq!(catalog["routable"], json!(true), "{catalog}");
+    let describe = rpc(&host, RpcMethod::HostDescribe, json!({})).await;
+    assert!(
+        describe["startupIssues"]
+            .to_string()
+            .contains("context window 32768 -> 16384"),
+        "the live repair is reported too: {describe}"
+    );
 }
