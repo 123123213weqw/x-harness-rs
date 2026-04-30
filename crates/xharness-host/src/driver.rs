@@ -10,7 +10,7 @@ use xharness_session::SessionEvent;
 use crate::{
     metrics::web_token_usage_from_core,
     restore::{
-        project_session_event_range, project_session_event_tail, project_session_event_view,
+        project_session_event_range, project_session_event_tail_from, project_session_event_view,
         project_web_event_view, restored_agent_preset, restored_goal, restored_permission,
         restored_plan_mode, restored_queue, restored_session_mutation_receipts, restored_title,
     },
@@ -38,6 +38,7 @@ pub(crate) struct PromptAdmission {
 /// admission path, so the global write lock still needs this validation.
 struct ProjectionInputs {
     cursor: Option<u64>,
+    cache_base_seq: u64,
     created_at: u64,
     route: ModelRoute,
 }
@@ -46,6 +47,7 @@ impl ProjectionInputs {
     fn capture(record: &crate::state::SessionRecord) -> Self {
         Self {
             cursor: record.authoritative_seq,
+            cache_base_seq: record.event_base_seq,
             created_at: record.created_at,
             route: ModelRoute {
                 provider: record.model.provider.clone(),
@@ -58,6 +60,7 @@ impl ProjectionInputs {
 
     fn matches(&self, record: &crate::state::SessionRecord) -> bool {
         self.cursor == record.authoritative_seq
+            && self.cache_base_seq == record.event_base_seq
             && self.created_at == record.created_at
             && self.route.provider == record.model.provider
             && self.route.model == record.model.model
@@ -384,9 +387,10 @@ impl BasicHost {
                 ))
             })?;
             let projected_queue = restored_queue(&inbox);
-            let tail = project_session_event_tail(
+            let tail = project_session_event_tail_from(
                 &session,
                 route,
+                inputs.cache_base_seq,
                 self.config.session_event_cache_capacity,
                 self.config.session_event_cache_bytes,
             );
