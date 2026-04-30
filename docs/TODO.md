@@ -1,5 +1,30 @@
 # XHarness 总任务清单
 
+## 模型路由对账与原因可见（2026-09-19）
+
+现场：已配置模型的用户被作曲家提示「当前模型不可用，请先选择模型」，而 `llm.providers` 里该
+provider 仍是 `active: true`。三条互不相关的路径都会产生这一矛盾，且**都没有任何原因到达用户**。
+
+- **C（无故障即可触发）**：`can_route` 拿会话里存的 `contextWindowTokens`/`reasoningEffort` 与实时注册表
+  比对，而这两个值是用户选择那一刻的快照。此后一次设置改动或一次升级把模型声明改小（例如
+  `contextWindow` 32768 → 16384），provider 与 model 都健康，路由却永久失败。`selectModel` 只在选择
+  当时校验，之后没有任何地方重新对账。
+- **A**：激活失败会用空注册表替换全部路由——这是**有意的 fail-closed**，且已由
+  `restore_activation_failure_clears_stale_routes_but_preserves_settings_repair` 覆盖；问题在于原因只进
+  Host 的 stderr。
+- **B**：凭据缺失的 provider 被 `registry_from_resolved_settings` 静默丢弃（`None => continue`），
+  `model_settings_error` 为 `None`、`startupIssues` 为空、stderr 也没有任何输出。
+
+- [x] `MODEL-ROUTE-01` 对账会话存储的选择：仍合法的用户窗口原样保留，只有超出新上限时才夹回
+  `effective_hard_max`；effort 依次回退到模型默认与无，必要时才尝试其他可路由窗口。provider/model
+  真消失时不动（无可夹目标）。夹回结果只作进程状态，不写新的持久事件。
+- [x] `MODEL-ROUTE-02` 在 `restore_from_store` 与读取 `session.models` 两处对账，使**实时改设置无需重启**即自愈；修复写入 `startupIssues` 说明改了什么。
+- [x] `MODEL-ROUTE-03` `host.describe.modelSettingsError` 暴露激活失败原因（与 #94 让 `startupIssues` 可达同构）；客户端 schema 忽略未知字段，加字段不破坏客户端。
+- [x] `MODEL-ROUTE-04` 填充 `session.models.failures` / `llm.models.failures`——UI **已渲染**该通道（`warning.groupLoad`、`option.loadError`），Host 此前恒返回 `[]`；凭据缺失时点名具体引用。
+- [x] `MODEL-ROUTE-05` WZU_Server：`-p xharness-host -p xharness-host-app` 209 项通过、Clippy `-D warnings` 与 fmt 干净；仅回退 `crates/xharness-host/src` 时三个回归测试全部失败，确认判别力。
+- [ ] `MODEL-ROUTE-06` PR 跨平台 CI 通过后合并；源码修复不代表已安装桌面/Web 已生效。
+- [ ] `MODEL-ROUTE-07` 桌面启动屏仍只监听 `xharness-bootstrap`，不显示上述原因；主 UI 模型选择器已可见，启动失败场景待接。
+
 ## 历史读取失败后的实时回答可见性（2026-09-19，Issue #119）
 
 用户上报：「有时候我发消息，前面已经 fail，后面发了消息；有可能模型还在回答，但是前端不显示」。

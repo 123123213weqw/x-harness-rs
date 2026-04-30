@@ -1026,22 +1026,35 @@ impl BasicHost {
                 .await
                 .map_err(crate::model_settings::model_settings_error)?;
         }
-        let state = self.state.read().await;
-        let session = state
-            .sessions
-            .get(&session_id)
-            .ok_or_else(|| session_not_found(&session_id))?;
-        let route = ModelRoute {
-            provider: session.model.provider.clone(),
-            model: session.model.model.clone(),
-            reasoning_effort: session.model.reasoning_effort.clone(),
-            context_window_tokens: session.model.context_window_tokens,
+        // A stored selection can outlive the deployment that advertised it: a
+        // settings edit or an upgrade can shrink the model's context window or
+        // drop the reasoning effort the session recorded. Repair that here, at
+        // the point of observation, so the selector does not block a healthy
+        // provider behind "model unavailable".
+        let repaired = self.reconcile_model_routes().await;
+        if !repaired.is_empty() {
+            self.state.write().await.startup_issues.extend(repaired);
+        }
+        let (current, route) = {
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?;
+            let route = ModelRoute {
+                provider: session.model.provider.clone(),
+                model: session.model.model.clone(),
+                reasoning_effort: session.model.reasoning_effort.clone(),
+                context_window_tokens: session.model.context_window_tokens,
+            };
+            (session.model.clone(), route)
         };
+        let failures = self.model_catalog_failures().await;
         Ok(json!({
-            "current": session.model,
+            "current": current,
             "routable": self.agent_runtime.can_route(&route),
             "groups": self.model_groups(),
-            "failures": [],
+            "failures": failures,
         }))
     }
 
@@ -2038,9 +2051,13 @@ impl BasicHost {
 
     async fn host_describe(&self, payload: &Value) -> Result<Value, RpcError> {
         require_object(payload)?;
-        let (attached, startup_issues) = {
+        let (attached, startup_issues, model_settings_error) = {
             let state = self.state.read().await;
-            (state.sessions.len(), state.startup_issues.clone())
+            (
+                state.sessions.len(),
+                state.startup_issues.clone(),
+                state.model_settings_error.clone(),
+            )
         };
         Ok(json!({
             "version": self.config.version,
@@ -2054,6 +2071,10 @@ impl BasicHost {
             // the surface can tell the user what was skipped instead of
             // presenting a silently shorter session list.
             "startupIssues": startup_issues,
+            // Why the persisted model settings are not live. Without this the
+            // user sees every configured provider listed while every session
+            // reports its model as unavailable.
+            "modelSettingsError": model_settings_error,
         }))
     }
 
@@ -3462,6 +3483,69 @@ impl BasicHost {
         Ok(json!({}))
     }
 
+    /// Why each declared provider currently has no live route, in the shape the
+    /// model selector already renders (`session.models.failures` /
+    /// `llm.models.failures`). Empty means every declared provider resolved.
+    ///
+    /// This is the developer-facing half of the same problem `host.describe`
+    /// reports: the Host knows perfectly well that a provider is configured and
+    /// absent from the runtime, and until now it answered `failures: []` for
+    /// every one of them, so the selector could only say "no models available".
+    async fn model_catalog_failures(&self) -> Vec<Value> {
+        let Some(backend) = self.model_settings.get() else {
+            return Vec::new();
+        };
+        let live = self
+            .agent_runtime
+            .model_catalog()
+            .into_iter()
+            .map(|descriptor| descriptor.provider)
+            .collect::<std::collections::BTreeSet<_>>();
+        let (declared, activation_error) = {
+            let state = self.state.read().await;
+            (
+                crate::parse_model_settings(&state.settings[crate::MODEL_SETTINGS_NAMESPACE].value)
+                    .ok()
+                    .map(|document| document.providers),
+                state.model_settings_error.clone(),
+            )
+        };
+        let Some(declared) = declared else {
+            return Vec::new();
+        };
+        let mut failures = Vec::new();
+        for (id, profile) in declared {
+            if live.contains(&id) {
+                continue;
+            }
+            let message = match &activation_error {
+                // The whole activation failed; every declared provider shares it.
+                Some(error) => error.clone(),
+                None => match profile.api_key_env.as_deref() {
+                    Some(reference) => match backend.credential_info(reference).await {
+                        Ok(info) if info["configured"] == json!(true) => {
+                            "the provider is configured but the Host built no route for it"
+                                .to_owned()
+                        }
+                        Ok(_) => {
+                            format!("credential {reference} is not stored for this state directory")
+                        }
+                        Err(error) => error,
+                    },
+                    None => {
+                        "the provider is configured but the Host built no route for it".to_owned()
+                    }
+                },
+            };
+            failures.push(json!({
+                "id": id,
+                "name": profile.display_name.clone().unwrap_or_else(|| id.clone()),
+                "message": message,
+            }));
+        }
+        failures
+    }
+
     async fn llm_providers(&self, payload: &Value) -> Result<Value, RpcError> {
         require_object(payload)?;
         if self.model_settings.get().is_some() {
@@ -3497,7 +3581,8 @@ impl BasicHost {
 
     async fn llm_models(&self, payload: &Value) -> Result<Value, RpcError> {
         require_object(payload)?;
-        Ok(json!({"groups": self.model_groups(), "failures": []}))
+        let failures = self.model_catalog_failures().await;
+        Ok(json!({"groups": self.model_groups(), "failures": failures}))
     }
 
     async fn llm_discover_models(&self, payload: &Value) -> Result<Value, RpcError> {

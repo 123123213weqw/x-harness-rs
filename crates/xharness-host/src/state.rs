@@ -527,6 +527,11 @@ pub(crate) struct HostState {
     /// sessions that could not be published are recorded here so the surface
     /// can report them instead of the process exiting with only a stderr line.
     pub startup_issues: Vec<crate::HostRestoreIssue>,
+
+    /// Why the persisted model settings could not be activated at startup, or
+    /// `None` when activation succeeded. Kept on the state so the reason reaches
+    /// `host.describe` instead of only the Host's stderr.
+    pub model_settings_error: Option<String>,
 }
 
 impl HostState {
@@ -668,6 +673,7 @@ impl HostState {
             goals: BTreeMap::new(),
             pending: BTreeMap::new(),
             startup_issues: Vec::new(),
+            model_settings_error: None,
         }
     }
 
