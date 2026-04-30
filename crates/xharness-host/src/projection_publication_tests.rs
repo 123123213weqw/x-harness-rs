@@ -68,15 +68,16 @@ async fn projection_inputs_reject_stale_cursor_identity_and_each_route_field() {
     let original = &state.sessions[ID];
     let inputs = ProjectionInputs::capture(original);
     assert!(inputs.matches(original));
-    for field in 0..7 {
+    for field in 0..8 {
         let mut changed = ProjectionInputs::capture(original);
         match field {
             0 => changed.cursor = Some(original.authoritative_seq.unwrap() + 1),
             1 => changed.cursor = None,
-            2 => changed.created_at += 1,
-            3 => changed.route.provider.push_str("-new"),
-            4 => changed.route.model.push_str("-new"),
-            5 => changed.route.reasoning_effort = Some("different".into()),
+            2 => changed.cache_base_seq += 1,
+            3 => changed.created_at += 1,
+            4 => changed.route.provider.push_str("-new"),
+            5 => changed.route.model.push_str("-new"),
+            6 => changed.route.reasoning_effort = Some("different".into()),
             _ => changed.route.context_window_tokens = Some(123),
         }
         assert!(!changed.matches(original), "changed field {field}");
@@ -232,7 +233,8 @@ async fn concurrent_projection_sync_publishes_each_new_event_once() {
     let state = host.state.read().await;
     let record = &state.sessions[ID];
     let route = ProjectionInputs::capture(record).route;
-    let expected = project_session_event_tail(&session, &route, 2048, 16 * 1024 * 1024);
+    let expected =
+        project_session_event_tail_from(&session, &route, prior.next_seq(), 2048, 16 * 1024 * 1024);
     assert_eq!(record.events, expected.events);
     assert_eq!(record.authoritative_seq, Some(session.next_seq()));
     assert_eq!(record.title.as_deref(), Some("new"));
