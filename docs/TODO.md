@@ -25,6 +25,31 @@ provider 仍是 `active: true`。三条互不相关的路径都会产生这一�
 - [ ] `MODEL-ROUTE-06` PR 跨平台 CI 通过后合并；源码修复不代表已安装桌面/Web 已生效。
 - [ ] `MODEL-ROUTE-07` 桌面启动屏仍只监听 `xharness-bootstrap`，不显示上述原因；主 UI 模型选择器已可见，启动失败场景待接。
 
+## 历史读取失败后的实时回答可见性（2026-09-19，Issue #119）
+
+用户上报：「有时候我发消息，前面已经 fail，后面发了消息；有可能模型还在回答，但是前端不显示」。
+真实事故 `session-1789711617394-1009`：回合 6（19:57:08）、7（19:59:04）因
+`provider recovery deadline exceeded` 失败 → 20:04:25 App 重启 → 20:27:22 新消息起轮 8，
+20:28:08 已产出文本与工具调用，20:41:29 `completed`；用户于 20:29:13 另开会话上报本问题。
+即模型确实在答、持久日志完整，**丢的只在客户端显示**。
+
+- [x] `LIVE-ANSWER-01` 排除 Host：新增 `failed_turn_projection_tests.rs`，覆盖「失败已结束后再发」与
+  「失败进行中就排队」两种顺序，断言该 Prompt 会真正起轮且 `assistant/message` 经 mux 发到浏览器。
+  master 树 WZU_Server 上两项通过；此前 Host 侧无失败路径投影回归。
+- [x] `LIVE-ANSWER-02` 修复 `ui/overrides/live-answer-recovery.js`：当前会话在 `error` 态收到已接纳
+  Prompt 或 `running=true` 上报时复用错误横幅的只读重试路径重开窗口；Prompt 触发覆盖已运行会话
+  排队时不会产生第二个状态沿的路径，使缓冲的实时回答得以发布；限速 5 秒、仅从
+  `error` 起步、仅当前选中会话，避免拉取循环与后台自发请求。补丁接入
+  `scripts/assemble-static-ui.mjs` 与 `ui/dist`（含 eager `<script src>` 的 rev 收敛）。
+- [x] `LIVE-ANSWER-03` 回归 `scripts/test-live-answer-recovery.mjs`：Prompt/状态双触发、拒绝零请求、发布缓冲回答、限速、后台隔离、
+  健康窗口零请求，以及补丁幂等/锚点失败关闭/图谱哈希；未打补丁时首项即失败（回答留在缓冲不显示）。
+  同轮 15 个涉及 runtime 包的既有 UI 套件全部通过。
+- [ ] `LIVE-ANSWER-04` PR 跨平台 CI 通过后合并；`ui/dist` 只覆盖 `--static-dir` 部署，
+  已安装 App 的 `Contents/Resources/web` 需随版本替换后才对用户生效。
+- [ ] `LIVE-ANSWER-05` 历史接口长期不可用时的降级：当前仍只保证缓冲不丢、不渲染。
+- [ ] `LIVE-ANSWER-06` 前端状态可观测：本次只能靠持久日志反推「模型答了、前端没显示」。
+  建议把 `openState` / `openError` / `liveBuffer` 长度 / 最近一次历史失败原因接入既有运行诊断。
+
 ## Control Log 启动恢复（2026-09-19，Issue #109）
 
 - [x] `CONTROL-RECOVERY-01` 精确零字节日志按空状态加载，首次 Append 自动补齐 Header；非空损坏保持 fail closed。
