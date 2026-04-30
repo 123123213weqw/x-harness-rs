@@ -12,7 +12,8 @@ use std::{
 };
 
 use xharness_fs::{
-    FsError, FsService, Observation, ReadCursor, ReadDiagnostic, ReadLimits, ReadOutcome, ReadStart,
+    FsError, FsService, Observation, ReadCursor, ReadDiagnostic, ReadLimits, ReadOutcome,
+    ReadStart, CONTENT_HASH_LIMIT,
 };
 
 static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
@@ -564,4 +565,292 @@ fn a_fifo_does_not_starve_the_runtime_worker() {
         "the runtime worker stopped ticking ({before} -> {after}); the FIFO call \
          consumed the only worker thread"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Large-file page cost (regression for #110).
+// ---------------------------------------------------------------------------
+
+/// One line of the generated large file, sized so a page holds exactly one.
+const LARGE_LINE: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
+
+fn write_large(workspace: &TestDir, name: &str, lines: u64, tail: &str) -> u64 {
+    let mut content = String::with_capacity(lines as usize * LARGE_LINE.len() + tail.len());
+    for _ in 0..lines {
+        content.push_str(LARGE_LINE);
+    }
+    content.push_str(tail);
+    fs::write(workspace.path().join(name), &content).unwrap();
+    content.len() as u64
+}
+
+fn one_line_limits() -> ReadLimits {
+    ReadLimits {
+        max_bytes: LARGE_LINE.len() * 2,
+        max_lines: 1,
+        max_line_bytes: LARGE_LINE.len(),
+    }
+}
+
+/// A single page of a file larger than the content-hash limit must cost the
+/// page, not the file: `bytes_read` stays within the page while `total_bytes`
+/// reports the real size, and the cursor carries the line so the next page does
+/// not re-count the lines before it.
+#[tokio::test]
+async fn a_page_of_a_file_beyond_the_content_hash_limit_costs_only_the_page() {
+    let workspace = TestDir::new("large-page");
+    let lines = (CONTENT_HASH_LIMIT * 2) / LARGE_LINE.len() as u64 + 1;
+    let total = write_large(&workspace, "big.txt", lines, "");
+    assert!(total > CONTENT_HASH_LIMIT * 2);
+    let service = FsService::new(workspace.path()).unwrap();
+    let target = service.resolve("big.txt").unwrap();
+    let limits = one_line_limits();
+
+    let ReadOutcome::File(first) = service
+        .read_page("large", &target, ReadStart::Byte(0), limits)
+        .await
+        .unwrap()
+    else {
+        panic!("file unexpectedly absent");
+    };
+    assert_eq!(first.text, LARGE_LINE);
+    assert_eq!(
+        first.total_bytes, total,
+        "the page still reports the file size"
+    );
+    assert_eq!(first.page_start_offset, 0);
+    assert_eq!(first.page_start_line, 1);
+    assert_eq!(
+        first.bytes_read,
+        LARGE_LINE.len() as u64,
+        "a one-line page must not scan the whole file"
+    );
+    assert!(first.version.is_sampled());
+    let cursor = first.next_cursor.expect("first page must continue");
+    assert_eq!(cursor.line(), Some(2), "the cursor carries the next line");
+
+    let ReadOutcome::File(second) = service
+        .read_page("large", &target, ReadStart::Cursor(cursor.clone()), limits)
+        .await
+        .unwrap()
+    else {
+        panic!("file unexpectedly absent");
+    };
+    assert_eq!(second.page_start_offset, cursor.offset());
+    assert_eq!(second.page_start_line, 2);
+    assert_eq!(second.text, LARGE_LINE);
+    assert_eq!(second.bytes_read, LARGE_LINE.len() as u64);
+    assert_eq!(second.version, first.version, "pages agree on the version");
+
+    // A deep explicit line number resolves to the right offset.
+    let deep = 100_000_u64;
+    assert!(deep < lines);
+    let ReadOutcome::File(third) = service
+        .read_page("large", &target, ReadStart::Line(deep), limits)
+        .await
+        .unwrap()
+    else {
+        panic!("file unexpectedly absent");
+    };
+    assert_eq!(third.page_start_line, deep);
+    assert_eq!(
+        third.page_start_offset,
+        (deep - 1) * LARGE_LINE.len() as u64
+    );
+    assert_eq!(third.text, LARGE_LINE);
+}
+
+/// The sampled version still binds a cursor to the content: an interior change
+/// that preserves size, node and timestamps is caught by the sample windows.
+#[tokio::test]
+async fn an_interior_change_that_preserves_size_and_time_still_invalidates_a_cursor() {
+    let workspace = TestDir::new("large-stale");
+    let lines = (CONTENT_HASH_LIMIT * 2) / LARGE_LINE.len() as u64 + 1;
+    let total = write_large(&workspace, "big.txt", lines, "");
+    let path = workspace.path().join("big.txt");
+    let original = fs::metadata(&path).unwrap();
+    let service = FsService::new(workspace.path()).unwrap();
+    let target = service.resolve("big.txt").unwrap();
+    let limits = one_line_limits();
+
+    let ReadOutcome::File(first) = service
+        .read_page("large", &target, ReadStart::Byte(0), limits)
+        .await
+        .unwrap()
+    else {
+        panic!("file unexpectedly absent");
+    };
+    let cursor = first.next_cursor.expect("first page must continue");
+
+    // Flip one byte in the middle of the file, then put the modification time
+    // back so only the content sample can notice the change.
+    let middle = total / 2;
+    let mut bytes = fs::read(&path).unwrap();
+    bytes[middle as usize] = if bytes[middle as usize] == b'0' {
+        b'1'
+    } else {
+        b'0'
+    };
+    fs::write(&path, &bytes).unwrap();
+    let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+    file.set_modified(original.modified().unwrap()).unwrap();
+    drop(file);
+    assert_eq!(fs::metadata(&path).unwrap().len(), total);
+
+    let stale = service
+        .read_page("large", &target, ReadStart::Cursor(cursor), limits)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(stale, FsError::StaleReadCursor { .. }),
+        "an interior sample change must invalidate the cursor, got {stale:?}"
+    );
+}
+
+/// Reading a page of a large file is enough to authorize a later literal edit,
+/// and any change in between still fails closed.
+#[tokio::test]
+async fn a_sampled_version_authorizes_an_edit_but_never_hides_a_change() {
+    let workspace = TestDir::new("large-edit");
+    let lines = (CONTENT_HASH_LIMIT * 2) / LARGE_LINE.len() as u64 + 1;
+    write_large(&workspace, "big.txt", lines, "MARKER-ONE\n");
+    let path = workspace.path().join("big.txt");
+    let service = FsService::new(workspace.path()).unwrap();
+    let target = service.resolve("big.txt").unwrap();
+    let limits = one_line_limits();
+
+    service
+        .read_page("editor", &target, ReadStart::Byte(0), limits)
+        .await
+        .unwrap();
+    service
+        .edit_literal("editor", &target, "MARKER-ONE", "MARKER-TWO")
+        .await
+        .expect("a page read must authorize an edit of the same version");
+    assert!(fs::read_to_string(&path).unwrap().ends_with("MARKER-TWO\n"));
+
+    // Same read, but the file changes before the edit.
+    service
+        .read_page("editor", &target, ReadStart::Byte(0), limits)
+        .await
+        .unwrap();
+    let mut appended = fs::read(&path).unwrap();
+    appended.extend_from_slice(b"external\n");
+    fs::write(&path, &appended).unwrap();
+    let refused = service
+        .edit_literal("editor", &target, "MARKER-TWO", "MARKER-THREE")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(refused, FsError::StaleObservation { .. }),
+        "an external append must invalidate the observation, got {refused:?}"
+    );
+    assert!(fs::read_to_string(&path).unwrap().ends_with("external\n"));
+}
+
+/// The byte-offset path reports the same line a byte loop would, across every
+/// alignment and remainder of the word-at-a-time counter, including byte values
+/// that only differ from `\n` by a borrow.
+#[tokio::test]
+async fn byte_offset_reads_report_the_line_a_byte_loop_would() {
+    let mut cases: Vec<Vec<u8>> = vec![
+        Vec::new(),
+        b"\n".to_vec(),
+        b"\n\n\n".to_vec(),
+        b"no newlines here".to_vec(),
+        b"line\nline".to_vec(),
+        vec![b'\n'; 64],
+        // 0x0a differs from these by a borrow across the word boundary.
+        vec![0x09, 0x0b, 0x0a, 0x0a, 0x00, 0xff, 0x0a, 0x0a, 0x0a],
+    ];
+    for length in 1..=80usize {
+        let mut pattern = Vec::with_capacity(length);
+        for index in 0..length {
+            pattern.push(match index % 7 {
+                0 => b'\n',
+                1 => 0x09,
+                2 => 0x0b,
+                3 => 0x00,
+                4 => 0xff,
+                5 => b'a',
+                _ => 0x0a,
+            });
+        }
+        cases.push(pattern);
+    }
+    let workspace = TestDir::new("offset-lines");
+    let service = FsService::new(workspace.path()).unwrap();
+    let limits = ReadLimits {
+        max_bytes: 8,
+        max_lines: 1,
+        max_line_bytes: 8,
+    };
+    for (index, case) in cases.iter().enumerate() {
+        let name = format!("offset-{index}.bin");
+        fs::write(workspace.path().join(&name), case).unwrap();
+        let target = service.resolve(&name).unwrap();
+        // Any offset inside the file must report the line that contains it.
+        for offset in 0..=case.len() as u64 {
+            let expected = 1 + case[..offset as usize]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count() as u64;
+            let ReadOutcome::File(read) = service
+                .read_page("offset-lines", &target, ReadStart::Byte(offset), limits)
+                .await
+                .unwrap()
+            else {
+                panic!("file unexpectedly absent");
+            };
+            assert_eq!(
+                read.page_start_line, expected,
+                "offset {offset} of {case:?} reported line {}",
+                read.page_start_line
+            );
+            assert_eq!(read.page_start_offset, offset.min(case.len() as u64));
+            assert_eq!(read.total_bytes, case.len() as u64);
+        }
+    }
+}
+
+/// The page cost regression in its narrowest form: a one-line page of a
+/// mid-sized file must not report the whole file as scanned. This assertion
+/// compiles against both the old and the new implementation, so it fails on the
+/// old one with `bytes_read == total_bytes`.
+#[tokio::test]
+async fn a_page_does_not_report_the_whole_file_as_scanned() {
+    let workspace = TestDir::new("page-cost");
+    let line = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
+    let lines = 4_000usize;
+    let content = line.repeat(lines);
+    fs::write(workspace.path().join("mid.txt"), &content).unwrap();
+    let service = FsService::new(workspace.path()).unwrap();
+    let target = service.resolve("mid.txt").unwrap();
+
+    let ReadOutcome::File(read) = service
+        .read_page(
+            "page-cost",
+            &target,
+            ReadStart::Byte(0),
+            ReadLimits {
+                max_bytes: 128,
+                max_lines: 1,
+                max_line_bytes: 128,
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("file unexpectedly absent");
+    };
+    assert_eq!(read.text, line, "the page is exactly one line");
+    assert_eq!(read.total_bytes, content.len() as u64);
+    assert!(
+        read.bytes_read <= 4 * 1024,
+        "a one-line page scanned {} bytes of a {} byte file",
+        read.bytes_read,
+        read.total_bytes
+    );
+    assert_eq!(read.page_start_line, 1);
+    assert!(read.next_cursor.is_some(), "the page continues");
 }
