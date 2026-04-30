@@ -441,8 +441,8 @@ async fn experiment() {
         let live = host.state.read().await;
         let cold = restored.state.read().await;
         assert!(
-            live.sessions[ID].events == cold.sessions[ID].events,
-            "live/restart tail mismatch"
+            cold.sessions[ID].events.is_empty(),
+            "authoritative restart unexpectedly projected cold history"
         );
         assert_eq!(
             live.sessions[ID].authoritative_seq,
