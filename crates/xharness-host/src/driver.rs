@@ -9,10 +9,13 @@ use xharness_session::SessionEvent;
 
 use crate::{
     metrics::web_token_usage_from_core,
-    restore::{
+    projection::{
         project_session_event_range, project_session_event_tail, project_session_event_view,
-        project_web_event_view, restored_agent_preset, restored_goal, restored_permission,
-        restored_plan_mode, restored_queue, restored_session_mutation_receipts, restored_title,
+        project_web_event_view,
+    },
+    restore::{
+        restored_agent_preset, restored_goal, restored_permission, restored_plan_mode,
+        restored_queue, restored_session_mutation_receipts, restored_title,
     },
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute, RunningTurn},
     state::{now_ms, DriverCommand, PendingResponse, QueuePlacement, QueuedPrompt},
@@ -1354,7 +1357,7 @@ impl BasicHost {
                 self.append_session_event(
                     session_id,
                     "run/checkpoint",
-                    crate::restore::web_execution_notice(turn, Some(&notice)),
+                    crate::projection::web_execution_notice(turn, Some(&notice)),
                     None,
                 )
                 .await?;
@@ -1431,7 +1434,7 @@ impl BasicHost {
                             "content": [{
                                 "type": "tool-result",
                                 "toolCallId": call.id,
-                                "content": crate::restore::web_tool_content(if result.ok {&result.content} else {&result.error}, result.metadata.as_ref()),
+                                "content": crate::projection::web_tool_content(if result.ok {&result.content} else {&result.error}, result.metadata.as_ref()),
                                 "isError": !result.ok,
                             }],
                             "source": {"kind": "tool", "callId": call.id},
