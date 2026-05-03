@@ -5,6 +5,11 @@ use std::{
         Arc,
     },
 };
+use xharness_projection::metrics::MetricsProjectionState;
+use xharness_projection::{
+    project_session_event_range, project_session_event_view, project_session_history,
+    project_web_event_view,
+};
 
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
@@ -28,11 +33,6 @@ use crate::{
     control::SessionMutationResponse,
     control::{settings_snapshot, workspace_snapshot},
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
-    projection::metrics::MetricsProjectionState,
-    projection::{
-        project_session_event_range, project_session_event_view, project_session_history,
-        project_web_event_view,
-    },
     runtime::{AgentRuntimeError, ModelRoute},
     state::{
         iso_now, now_ms, AgentPreset, DriverCommand, GoalState, ModelSelection, PendingResponse,

@@ -3,6 +3,7 @@ use std::{
     path::Path,
     sync::Arc,
 };
+use xharness_projection::metrics::MetricsProjectionState;
 
 use serde::Serialize;
 #[cfg(test)]
@@ -18,11 +19,10 @@ use xharness_session::{EventData, Session, Store, StoreError};
 mod dynamic_projection_tests;
 
 #[cfg(test)]
-use crate::projection::*;
-use crate::projection::{project_inbox_message, project_session_event_tail, SessionProjector};
+use xharness_projection::*;
+use xharness_projection::{project_inbox_message, project_session_event_tail, SessionProjector};
 
 use crate::{
-    projection::metrics::MetricsProjectionState,
     runtime::{AgentSessionRequest, ModelRoute},
     state::{
         DriverCommand, GoalState, ModelSelection, QueuePlacement, QueuedPrompt, SessionRecord,
@@ -1058,7 +1058,7 @@ mod tests {
 
     #[test]
     fn reasoning_text_and_tools_have_disjoint_live_and_restored_blocks() {
-        use crate::projection;
+        use xharness_projection as projection;
         let fixture: Value = serde_json::from_str(include_str!(
             "../../../scripts/fixtures/assistant-projection.json"
         ))
