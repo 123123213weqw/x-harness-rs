@@ -10,7 +10,7 @@ use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_prompt::{PromptAssembler, PromptAssembly, PromptSection};
 use xharness_session::SessionMutationReceipt;
 
-use crate::metrics::MetricsProjectionState;
+use crate::projection::metrics::MetricsProjectionState;
 use crate::HostConfig;
 
 /// Product-level permission bundle advertised to the Web client and captured
