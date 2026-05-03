@@ -4,7 +4,6 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
-mod assistant_projection;
 type SessionGateMap = Arc<Mutex<std::collections::HashMap<(String, bool), Arc<Mutex<()>>>>>;
 
 mod control;
@@ -18,7 +17,6 @@ pub use delegation_concurrency::DelegationConcurrency;
 mod driver;
 #[cfg(test)]
 mod failed_turn_projection_tests;
-mod metrics;
 mod model_settings;
 #[cfg(test)]
 mod permission_tests;
