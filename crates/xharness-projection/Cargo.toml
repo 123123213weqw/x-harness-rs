@@ -1,0 +1,13 @@
+[package]
+name = "xharness-projection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic Session-to-UI projection for XHarness"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+xharness-core = { path = "../xharness-core" }
+xharness-session = { path = "../xharness-session" }

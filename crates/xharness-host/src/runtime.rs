@@ -404,7 +404,7 @@ impl ModelProvider for RouteBoundProvider {
     }
 }
 
-impl crate::projection::ProjectionRoute for ModelRoute {
+impl xharness_projection::ProjectionRoute for ModelRoute {
     fn provider(&self) -> &str {
         &self.provider
     }
