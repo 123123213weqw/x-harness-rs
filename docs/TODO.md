@@ -22,7 +22,10 @@
 - [x] `RPC-ARCH-03e` 抽出纯 `PresetProcessor` 和 `rpc/preset.rs` 兼容适配器：六个 Agent Preset RPC 统一领域入口；列表默认项、读取、复制、只读删除保护、Session 存在性/运行态选择校验由快照决策核负责，Session Receipt 与耐久提交仍由适配器负责。
 - [x] `RPC-ARCH-03f` PresetProcessor 增加默认项不污染快照、选择错误矩阵、复制冲突零变更、System Preset 删除拒绝测试和源码依赖门禁；WZU_Server quick 回归全绿。
 - [x] `RPC-ARCH-03g` WZU_Server full 回归全绿：全 Workspace Test、Clippy `-D warnings`、进程清理、Preset/Session Receipt 基线和 UI 套件均为 `failures=0`，Preset 阶段完成。
-- [ ] `RPC-ARCH-03h` 依次迁移 Credentials/Model、Subagent、Goal；一次只迁移一个领域。
+- [x] `RPC-ARCH-03h` 抽出纯 `CredentialProcessor` 与 `rpc/credentials.rs` 适配器：引用格式、环境变量遮蔽、内存后备状态和只含元数据的 Describe 响应进入领域核；Keychain/Backend I/O、Registry 激活和 Web 通知留在副作用适配器。
+- [x] `RPC-ARCH-03i` Credential 快照只含引用集合、不含 Secret Value；新增引用矩阵、环境遮蔽、响应/错误不回显密钥和显式内存变更测试，并加入源码依赖门禁；WZU_Server quick 回归全绿。
+- [x] `RPC-ARCH-03j` WZU_Server full 回归全绿：全 Workspace Test、Clippy `-D warnings`、Secret-free Session/Server 测试、Model Settings Keychain/进程重启和 UI 套件均为 `failures=0`，Credentials 阶段完成。
+- [ ] `RPC-ARCH-03k` 依次迁移 Model、Subagent、Goal；一次只迁移一个领域。
 - [ ] `RPC-ARCH-04` 建立统一 `EventGateway`，让实时事件和历史恢复使用同一投影 reducer。
 - [ ] `RPC-ARCH-05` 最后迁移 Session/Prompt/Turn 状态机；本项不夹带 compaction、预算或调度语义改动。
 - [ ] `RPC-ARCH-06` 删除旧 `BasicHost` handler 与双重投影；动态上游端点保留在明确的兼容适配器中。
