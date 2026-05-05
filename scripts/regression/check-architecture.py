@@ -13,6 +13,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = ROOT / "config" / "architecture-dependencies.json"
 
+# Source-level seams that cannot be expressed by Cargo's crate graph yet. Keep
+# this list deliberately small: it guards only processors that have completed
+# the staged extraction and therefore must not regain transport/Host coupling.
+SOURCE_BOUNDARIES = {
+    "crates/xharness-host/src/workspace_processor.rs": {
+        "BasicHost",
+        "RpcId",
+        "RpcMethod",
+        "ControlStore",
+        "tokio::",
+    },
+}
+
 
 def production_dependencies(manifest: Path) -> set[str]:
     section = ""
@@ -56,6 +69,16 @@ def main() -> int:
     if missing_crates:
         errors.append("baseline references missing crates: " + ", ".join(sorted(missing_crates)))
 
+    for relative, forbidden_tokens in SOURCE_BOUNDARIES.items():
+        source = ROOT / relative
+        if not source.is_file():
+            errors.append(f"source boundary target is missing: {relative}")
+            continue
+        text = source.read_text()
+        found = sorted(token for token in forbidden_tokens if token in text)
+        if found:
+            errors.append(f"{relative}: forbidden coupling: {', '.join(found)}")
+
     if errors:
         print("architecture dependency regression:")
         for error in errors:
@@ -68,7 +91,10 @@ def main() -> int:
         for crate in expected
         if expected[crate] - actual.get(crate, set())
     }
-    print(f"architecture dependency boundary passed for {len(actual)} crates")
+    print(
+        f"architecture dependency boundary passed for {len(actual)} crates "
+        f"and {len(SOURCE_BOUNDARIES)} extracted processors"
+    )
     for crate, dependencies in removed.items():
         print(f"- improved {crate}: removed {', '.join(dependencies)}")
     return 0

@@ -77,8 +77,13 @@ Domain events ──> EventGateway ──> 实时投影 + 历史投影
 
 ### 阶段 2：WorkspaceProcessor 样板
 
-选择依赖少、边界清楚的 Workspace 领域作为样板。Processor 只获得 WorkspaceStore、时钟及路径能力，
-不得持有 `Arc<BasicHost>`。新旧实现并行做契约对照，稳定后删除旧分支。
+选择依赖少、边界清楚的 Workspace 领域作为样板。Processor 只获得所需领域输入或窄 port，不得持有
+`Arc<BasicHost>`。新旧实现并行做契约对照，稳定后删除旧分支。
+
+实际落地采用更窄的纯决策核：兼容适配器从 Host 取得一次只读快照，Processor 只根据快照和显式注入的
+ID/时钟计算响应、Control Event 与 Host Event；锁、Receipt、原子提交及提交后的发布顺序全部留在适配器。
+源码门禁禁止 Processor 重新依赖 Host aggregate、RPC 标识、Tokio 或具体 ControlStore。这样既保持旧线协议
+和持久化语义，又使领域决策可做确定性单测。
 
 ### 阶段 3：迁移独立领域
 
@@ -124,4 +129,3 @@ Dispatcher 和 DTO 稳定；禁止跨领域直接读内部字段，协作必须�
 
 每阶段单独提交。Processor 迁移使用一进一出：先接入新实现并做同输入对照，再删除旧实现；不同时
 迁移多个领域。发现行为差异时回滚该阶段，不回滚已冻结的协议目录和回归底座。
-
