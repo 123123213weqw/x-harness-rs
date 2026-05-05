@@ -30,6 +30,7 @@ mod rpc;
 mod runtime;
 mod settings_processor;
 mod state;
+mod subagent_processor;
 mod titles;
 mod workspace_processor;
 

@@ -119,6 +119,10 @@ Model 领域沿用同一原则，但把“事实收集”和“公开投影”�
 优先级。Processor 不接触 Backend、网络、锁或 Secret；`llm.discoverModels` 的真实网络发现仍是 Adapter
 副作用。`session.models` 与 `llm.models` 复用同一个 Catalog View，避免两处手写能力投影发生漂移。
 
+Subagent 领域的 Processor 只接收 Session 的 `id/parent/title/running` 快照，负责直接子项投影和三类
+授权错误（父不存在、子不存在、非直接子项）。History 映射、Prompt Exactly-once Admission、Cancel 控制
+仍由 Adapter 调用现有 Session/Runtime 边界；因此抽离不会产生第二套队列或子 Agent 生命周期。
+
 ### 阶段 4：统一 EventGateway
 
 领域只发结构化事件。实时推送、历史恢复和 UI 所需投影从同一 reducer 生成，解决“刷新前后不一致”。
