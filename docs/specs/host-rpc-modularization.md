@@ -104,6 +104,11 @@ Settings 已沿用 Workspace 的“纯决策核 + 兼容适配器”边界，但
 源码门禁禁止 SettingsProcessor 依赖 `BasicHost`、RPC ID/Method、Tokio 或具体 ControlStore。这样
 Settings 领域可以独立单测，同时不改变现有 Exactly-once、Secret 与 Live Apply 语义。
 
+Agent Preset 随后按相同模式拆分：Processor 只读取 Preset 集合、有效默认项及 Session 的最小运行态，
+计算列表、详情、复制、删除和选择结果；Adapter 保留 Admission Lock、Session Receipt 和 Session Event
+耐久提交。复制与删除仍在原来的 Host 写锁内完成“快照决策 + 应用”，避免为了抽象而引入新的竞态或
+丢失并发修改。Preset 文档打开仍是兼容响应，不在领域层引入平台副作用。
+
 ### 阶段 4：统一 EventGateway
 
 领域只发结构化事件。实时推送、历史恢复和 UI 所需投影从同一 reducer 生成，解决“刷新前后不一致”。
