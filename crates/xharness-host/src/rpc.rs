@@ -39,6 +39,7 @@ use crate::{
 };
 
 mod credentials;
+mod model;
 mod preset;
 mod settings;
 mod subagent;
@@ -110,9 +111,9 @@ impl ApiBackend for BasicHost {
             method @ (RpcMethod::CredentialsDescribe
             | RpcMethod::CredentialsSet
             | RpcMethod::CredentialsUnset) => credentials::call(self, method, &payload).await,
-            RpcMethod::LlmProviders => self.llm_providers(&payload).await,
-            RpcMethod::LlmModels => self.llm_models(&payload).await,
-            RpcMethod::LlmDiscoverModels => self.llm_discover_models(&payload).await,
+            method @ (RpcMethod::LlmProviders
+            | RpcMethod::LlmModels
+            | RpcMethod::LlmDiscoverModels) => model::call(self, method, &payload).await,
         };
         match result {
             Ok(value) => RpcResult::success(value),
@@ -1048,11 +1049,11 @@ impl BasicHost {
             };
             (session.model.clone(), route)
         };
-        let failures = self.model_catalog_failures().await;
+        let (groups, failures) = model::catalog_view(self).await;
         Ok(json!({
             "current": current,
             "routable": self.agent_runtime.can_route(&route),
-            "groups": self.model_groups(),
+            "groups": groups,
             "failures": failures,
         }))
     }
