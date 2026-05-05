@@ -1,241 +1,141 @@
 //! Settings, credential and model-catalog RPC command service.
-//! Transport dispatch remains in the parent module; this module owns the
-//! mutation/read workflow for its bounded domain.
+//!
+//! Settings RPCs are compatibility adapters around the pure
+//! `SettingsProcessor`. Credential and model-catalog RPCs remain here until
+//! their own application boundaries are extracted.
 
 use serde_json::{json, Map, Value};
 use xharness_api::{RpcError, RpcId, RpcMethod};
 use xharness_control::ControlEvent;
 
-use crate::{control::settings_snapshot, state::SettingsNamespace, BasicHost};
-
-use super::{
-    bad_request, check_revision, credential_rejected, merge_object, nonempty, optional_u64,
-    require_object, required_array, required_string, set_json_path, settings_rejected,
-    unset_json_path, validate_credential_ref, validate_permission_patch,
-    validate_permission_section, validate_permission_value,
+use crate::{
+    control::settings_snapshot,
+    settings_processor::{SettingsMutation, SettingsProcessor, SettingsStateView},
+    BasicHost,
 };
 
+use super::{
+    bad_request, credential_rejected, nonempty, optional_u64, require_object, required_array,
+    required_string, validate_credential_ref,
+};
+
+pub(super) async fn call(
+    host: &BasicHost,
+    rpc_id: RpcId,
+    method: RpcMethod,
+    payload: &Value,
+) -> Result<Value, RpcError> {
+    match method {
+        RpcMethod::SettingsDescribe => describe(host, payload).await,
+        RpcMethod::SettingsOpenDocument => open_document(payload),
+        RpcMethod::SettingsUpdate => update(host, rpc_id, payload).await,
+        RpcMethod::SettingsReplace => replace(host, rpc_id, payload).await,
+        RpcMethod::SettingsMutate => mutate(host, rpc_id, payload).await,
+        _ => unreachable!("settings adapter received non-settings method {method}"),
+    }
+}
+
+async fn describe(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
+    require_object(payload)?;
+    Ok(SettingsProcessor::new(snapshot(host).await).describe())
+}
+
+fn open_document(payload: &Value) -> Result<Value, RpcError> {
+    require_object(payload)?;
+    Ok(json!({"opened": true}))
+}
+
+async fn update(host: &BasicHost, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+    let _control_guard = host.control_gate.lock().await;
+    if let Some(response) = host
+        .replay_control_receipt(&rpc_id, RpcMethod::SettingsUpdate, payload)
+        .await?
+    {
+        return Ok(response);
+    }
+    let ns = nonempty(required_string(payload, "ns")?, "ns")?;
+    let patch = payload
+        .get("patch")
+        .and_then(Value::as_object)
+        .ok_or_else(|| bad_request("patch must be an object"))?
+        .clone();
+    let expected = optional_u64(payload, "expectedRevision")?;
+    let mutation = SettingsProcessor::new(snapshot(host).await).update(&ns, patch, expected)?;
+    commit(host, rpc_id, RpcMethod::SettingsUpdate, payload, mutation).await
+}
+
+async fn replace(host: &BasicHost, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+    let _control_guard = host.control_gate.lock().await;
+    if let Some(response) = host
+        .replay_control_receipt(&rpc_id, RpcMethod::SettingsReplace, payload)
+        .await?
+    {
+        return Ok(response);
+    }
+    let ns = nonempty(required_string(payload, "ns")?, "ns")?;
+    let section = payload
+        .get("section")
+        .and_then(Value::as_object)
+        .ok_or_else(|| bad_request("section must be an object"))?
+        .clone();
+    let expected = optional_u64(payload, "expectedRevision")?;
+    let mutation = SettingsProcessor::new(snapshot(host).await).replace(&ns, section, expected)?;
+    commit(host, rpc_id, RpcMethod::SettingsReplace, payload, mutation).await
+}
+
+async fn mutate(host: &BasicHost, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+    let _control_guard = host.control_gate.lock().await;
+    if let Some(response) = host
+        .replay_control_receipt(&rpc_id, RpcMethod::SettingsMutate, payload)
+        .await?
+    {
+        return Ok(response);
+    }
+    let ns = nonempty(required_string(payload, "ns")?, "ns")?;
+    let ops = required_array(payload, "ops")?.clone();
+    let expected = optional_u64(payload, "expectedRevision")?;
+    let mutation = SettingsProcessor::new(snapshot(host).await).mutate(&ns, ops, expected)?;
+    commit(host, rpc_id, RpcMethod::SettingsMutate, payload, mutation).await
+}
+
+async fn snapshot(host: &BasicHost) -> SettingsStateView {
+    SettingsStateView {
+        namespaces: host.state.read().await.settings.clone(),
+    }
+}
+
+async fn commit(
+    host: &BasicHost,
+    rpc_id: RpcId,
+    method: RpcMethod,
+    payload: &Value,
+    mut mutation: SettingsMutation,
+) -> Result<Value, RpcError> {
+    let model_change = host.prepare_model_change(&mut mutation.namespace).await?;
+    let namespace = mutation.namespace;
+    let ns = namespace.ns.clone();
+    let response = namespace.view();
+    let response = host
+        .commit_control_mutation(
+            &rpc_id,
+            method,
+            payload,
+            vec![ControlEvent::SettingsSet {
+                settings: settings_snapshot(&namespace),
+            }],
+            response,
+        )
+        .await?;
+    host.apply_model_change(model_change);
+    host.push_host(json!({
+        "type": "host/remote-event",
+        "event": "settings/document-updated",
+        "args": [ns],
+    }));
+    Ok(response)
+}
+
 impl BasicHost {
-    pub(super) async fn settings_describe(&self, payload: &Value) -> Result<Value, RpcError> {
-        require_object(payload)?;
-        let state = self.state.read().await;
-        Ok(json!({
-            "writable": true,
-            "hasDocument": false,
-            "namespaces": state.settings.values().map(SettingsNamespace::view).collect::<Vec<_>>(),
-        }))
-    }
-
-    pub(super) async fn settings_open_document(&self, payload: &Value) -> Result<Value, RpcError> {
-        require_object(payload)?;
-        Ok(json!({"opened": true}))
-    }
-
-    pub(super) async fn settings_update(
-        &self,
-        rpc_id: RpcId,
-        payload: &Value,
-    ) -> Result<Value, RpcError> {
-        let _control_guard = self.control_gate.lock().await;
-        if let Some(response) = self
-            .replay_control_receipt(&rpc_id, RpcMethod::SettingsUpdate, payload)
-            .await?
-        {
-            return Ok(response);
-        }
-        let ns = nonempty(required_string(payload, "ns")?, "ns")?;
-        let patch = payload
-            .get("patch")
-            .and_then(Value::as_object)
-            .ok_or_else(|| bad_request("patch must be an object"))?
-            .clone();
-        let expected = optional_u64(payload, "expectedRevision")?;
-        if ns == "permission" {
-            validate_permission_patch(&patch)?;
-        }
-        let state = self.state.read().await;
-        let mut namespace = state
-            .settings
-            .get(&ns)
-            .cloned()
-            .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(&namespace, expected)?;
-        merge_object(&mut namespace.user, &Value::Object(patch));
-        crate::preference_settings::validate(&namespace)?;
-        merge_object(&mut namespace.value, &namespace.user);
-        namespace.revision = namespace.revision.saturating_add(1);
-        drop(state);
-        let model_change = self.prepare_model_change(&mut namespace).await?;
-        let view = namespace.view();
-        let view = self
-            .commit_control_mutation(
-                &rpc_id,
-                RpcMethod::SettingsUpdate,
-                payload,
-                vec![ControlEvent::SettingsSet {
-                    settings: settings_snapshot(&namespace),
-                }],
-                view,
-            )
-            .await?;
-        self.apply_model_change(model_change);
-        self.push_host(json!({
-            "type": "host/remote-event",
-            "event": "settings/document-updated",
-            "args": [ns],
-        }));
-        Ok(view)
-    }
-
-    pub(super) async fn settings_replace(
-        &self,
-        rpc_id: RpcId,
-        payload: &Value,
-    ) -> Result<Value, RpcError> {
-        let _control_guard = self.control_gate.lock().await;
-        if let Some(response) = self
-            .replay_control_receipt(&rpc_id, RpcMethod::SettingsReplace, payload)
-            .await?
-        {
-            return Ok(response);
-        }
-        let ns = nonempty(required_string(payload, "ns")?, "ns")?;
-        let section = payload
-            .get("section")
-            .and_then(Value::as_object)
-            .ok_or_else(|| bad_request("section must be an object"))?
-            .clone();
-        let expected = optional_u64(payload, "expectedRevision")?;
-        if ns == "permission" {
-            validate_permission_section(&section)?;
-        }
-        let state = self.state.read().await;
-        let mut namespace = state
-            .settings
-            .get(&ns)
-            .cloned()
-            .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(&namespace, expected)?;
-        namespace.user = Value::Object(section.clone());
-        crate::preference_settings::validate(&namespace)?;
-        namespace.value = Value::Object(section);
-        if ns == crate::MODEL_SETTINGS_NAMESPACE {
-            namespace.value = namespace.base.clone();
-            merge_object(&mut namespace.value, &namespace.user);
-        }
-        namespace.revision = namespace.revision.saturating_add(1);
-        drop(state);
-        let model_change = self.prepare_model_change(&mut namespace).await?;
-        let view = namespace.view();
-        let view = self
-            .commit_control_mutation(
-                &rpc_id,
-                RpcMethod::SettingsReplace,
-                payload,
-                vec![ControlEvent::SettingsSet {
-                    settings: settings_snapshot(&namespace),
-                }],
-                view,
-            )
-            .await?;
-        self.apply_model_change(model_change);
-        self.push_host(json!({
-            "type": "host/remote-event",
-            "event": "settings/document-updated",
-            "args": [ns],
-        }));
-        Ok(view)
-    }
-
-    pub(super) async fn settings_mutate(
-        &self,
-        rpc_id: RpcId,
-        payload: &Value,
-    ) -> Result<Value, RpcError> {
-        let _control_guard = self.control_gate.lock().await;
-        if let Some(response) = self
-            .replay_control_receipt(&rpc_id, RpcMethod::SettingsMutate, payload)
-            .await?
-        {
-            return Ok(response);
-        }
-        let ns = nonempty(required_string(payload, "ns")?, "ns")?;
-        let ops = required_array(payload, "ops")?.clone();
-        let expected = optional_u64(payload, "expectedRevision")?;
-        let state = self.state.read().await;
-        let mut namespace = state
-            .settings
-            .get(&ns)
-            .cloned()
-            .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(&namespace, expected)?;
-        for op in ops {
-            let kind = op
-                .get("op")
-                .and_then(Value::as_str)
-                .ok_or_else(|| bad_request("settings op requires op"))?;
-            let path = op
-                .get("path")
-                .and_then(Value::as_array)
-                .ok_or_else(|| bad_request("settings op requires path"))?
-                .iter()
-                .map(|value| {
-                    value
-                        .as_str()
-                        .map(ToOwned::to_owned)
-                        .ok_or_else(|| bad_request("settings path entries must be strings"))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            match kind {
-                "set" => {
-                    let value = op.get("value").cloned().unwrap_or(Value::Null);
-                    if ns == "permission" {
-                        if path.as_slice() != ["defaultPreset"] {
-                            return Err(settings_rejected(&ns));
-                        }
-                        validate_permission_value(&value)?;
-                    }
-                    set_json_path(&mut namespace.user, &path, value)?
-                }
-                "unset" => {
-                    if ns == "permission" {
-                        return Err(settings_rejected(&ns));
-                    }
-                    unset_json_path(&mut namespace.user, &path)?
-                }
-                _ => return Err(bad_request("settings op must be set or unset")),
-            }
-        }
-        crate::preference_settings::validate(&namespace)?;
-        namespace.value = namespace.user.clone();
-        if ns == crate::MODEL_SETTINGS_NAMESPACE {
-            namespace.value = namespace.base.clone();
-            merge_object(&mut namespace.value, &namespace.user);
-        }
-        namespace.revision = namespace.revision.saturating_add(1);
-        drop(state);
-        let model_change = self.prepare_model_change(&mut namespace).await?;
-        let view = namespace.view();
-        let view = self
-            .commit_control_mutation(
-                &rpc_id,
-                RpcMethod::SettingsMutate,
-                payload,
-                vec![ControlEvent::SettingsSet {
-                    settings: settings_snapshot(&namespace),
-                }],
-                view,
-            )
-            .await?;
-        self.apply_model_change(model_change);
-        self.push_host(json!({
-            "type": "host/remote-event",
-            "event": "settings/document-updated",
-            "args": [ns],
-        }));
-        Ok(view)
-    }
-
     pub(super) async fn credentials_describe(&self, payload: &Value) -> Result<Value, RpcError> {
         let refs = required_array(payload, "refs")?;
         if refs.len() > 64 {

@@ -25,6 +25,7 @@ mod questions;
 mod restore;
 mod rpc;
 mod runtime;
+mod settings_processor;
 mod state;
 mod titles;
 mod workspace_processor;

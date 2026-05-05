@@ -34,7 +34,7 @@ use crate::{
     runtime::{AgentRuntimeError, ModelRoute},
     state::{
         iso_now, now_ms, AgentPreset, DriverCommand, GoalState, ModelSelection, PendingResponse,
-        SessionRecord, SettingsNamespace,
+        SessionRecord,
     },
     BasicHost,
 };
@@ -101,11 +101,11 @@ impl ApiBackend for BasicHost {
             RpcMethod::GoalResume => self.goal_transition(rpc_id, &payload, "active").await,
             RpcMethod::GoalComplete => self.goal_transition(rpc_id, &payload, "complete").await,
             RpcMethod::GoalClear => self.goal_clear(rpc_id, &payload).await,
-            RpcMethod::SettingsDescribe => self.settings_describe(&payload).await,
-            RpcMethod::SettingsOpenDocument => self.settings_open_document(&payload).await,
-            RpcMethod::SettingsUpdate => self.settings_update(rpc_id, &payload).await,
-            RpcMethod::SettingsReplace => self.settings_replace(rpc_id, &payload).await,
-            RpcMethod::SettingsMutate => self.settings_mutate(rpc_id, &payload).await,
+            method @ (RpcMethod::SettingsDescribe
+            | RpcMethod::SettingsOpenDocument
+            | RpcMethod::SettingsUpdate
+            | RpcMethod::SettingsReplace
+            | RpcMethod::SettingsMutate) => settings::call(self, rpc_id, method, &payload).await,
             RpcMethod::CredentialsDescribe => self.credentials_describe(&payload).await,
             RpcMethod::CredentialsSet => self.credentials_set(&payload).await,
             RpcMethod::CredentialsUnset => self.credentials_unset(&payload).await,
@@ -2898,45 +2898,6 @@ fn preset_not_found(preset: &str) -> RpcError {
     )
 }
 
-fn validate_permission_value(value: &Value) -> Result<(), RpcError> {
-    let Some(value) = value.as_str() else {
-        return Err(settings_rejected("permission"));
-    };
-    if crate::PermissionPreset::parse(value).is_none() {
-        return Err(settings_rejected("permission"));
-    }
-    Ok(())
-}
-
-fn validate_permission_patch(patch: &Map<String, Value>) -> Result<(), RpcError> {
-    if patch.keys().any(|key| key != "defaultPreset") {
-        return Err(settings_rejected("permission"));
-    }
-    if let Some(value) = patch.get("defaultPreset") {
-        validate_permission_value(value)?;
-    }
-    Ok(())
-}
-
-fn validate_permission_section(section: &Map<String, Value>) -> Result<(), RpcError> {
-    if section.len() != 1 {
-        return Err(settings_rejected("permission"));
-    }
-    validate_permission_value(
-        section
-            .get("defaultPreset")
-            .ok_or_else(|| settings_rejected("permission"))?,
-    )
-}
-
-fn settings_rejected(ns: &str) -> RpcError {
-    rpc_error(
-        RpcErrorCode::SettingsRejected,
-        format!("settings namespace {ns:?} is unavailable"),
-        json!({"ns": ns}),
-    )
-}
-
 fn credential_rejected(reference: &str) -> RpcError {
     rpc_error(
         RpcErrorCode::CredentialRejected,
@@ -3145,87 +3106,6 @@ fn goal_ref(payload: &Value) -> Result<GoalRef, RpcError> {
 fn require_goal_ref(goal: &GoalState, expected: &GoalRef) -> Result<(), RpcError> {
     if goal.id != expected.id || goal.revision != expected.revision {
         return Err(bad_request("goal reference is stale or does not match"));
-    }
-    Ok(())
-}
-
-fn check_revision(namespace: &SettingsNamespace, expected: Option<u64>) -> Result<(), RpcError> {
-    if let Some(expected) = expected {
-        if namespace.revision != expected {
-            return Err(rpc_error(
-                RpcErrorCode::SettingsConflict,
-                "settings revision does not match",
-                json!({
-                    "ns": namespace.ns,
-                    "expected": expected,
-                    "actual": namespace.revision,
-                }),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn merge_object(target: &mut Value, patch: &Value) {
-    let Some(patch) = patch.as_object() else {
-        *target = patch.clone();
-        return;
-    };
-    if !target.is_object() {
-        *target = json!({});
-    }
-    let target = target.as_object_mut().expect("initialized as object");
-    for (key, value) in patch {
-        match target.get_mut(key) {
-            Some(existing) if existing.is_object() && value.is_object() => {
-                merge_object(existing, value);
-            }
-            _ => {
-                target.insert(key.clone(), value.clone());
-            }
-        }
-    }
-}
-
-fn set_json_path(target: &mut Value, path: &[String], value: Value) -> Result<(), RpcError> {
-    if path.is_empty() {
-        *target = value;
-        return Ok(());
-    }
-    if !target.is_object() {
-        *target = json!({});
-    }
-    let mut cursor = target;
-    for segment in &path[..path.len() - 1] {
-        let object = cursor
-            .as_object_mut()
-            .ok_or_else(|| bad_request("settings path traverses a non-object"))?;
-        cursor = object.entry(segment.clone()).or_insert_with(|| json!({}));
-    }
-    cursor
-        .as_object_mut()
-        .ok_or_else(|| bad_request("settings path parent is not an object"))?
-        .insert(path.last().expect("non-empty path").clone(), value);
-    Ok(())
-}
-
-fn unset_json_path(target: &mut Value, path: &[String]) -> Result<(), RpcError> {
-    if path.is_empty() {
-        *target = json!({});
-        return Ok(());
-    }
-    let mut cursor = target;
-    for segment in &path[..path.len() - 1] {
-        let Some(next) = cursor
-            .as_object_mut()
-            .and_then(|object| object.get_mut(segment))
-        else {
-            return Ok(());
-        };
-        cursor = next;
-    }
-    if let Some(object) = cursor.as_object_mut() {
-        object.remove(path.last().expect("non-empty path"));
     }
     Ok(())
 }
