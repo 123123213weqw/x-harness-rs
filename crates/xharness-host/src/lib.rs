@@ -21,6 +21,7 @@ mod model_settings;
 #[cfg(test)]
 mod permission_tests;
 mod preference_settings;
+mod preset_processor;
 mod questions;
 mod restore;
 mod rpc;
