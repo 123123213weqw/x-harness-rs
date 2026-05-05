@@ -38,6 +38,7 @@ use crate::{
     BasicHost,
 };
 
+mod credentials;
 mod preset;
 mod settings;
 mod subagent;
@@ -106,9 +107,9 @@ impl ApiBackend for BasicHost {
             | RpcMethod::SettingsUpdate
             | RpcMethod::SettingsReplace
             | RpcMethod::SettingsMutate) => settings::call(self, rpc_id, method, &payload).await,
-            RpcMethod::CredentialsDescribe => self.credentials_describe(&payload).await,
-            RpcMethod::CredentialsSet => self.credentials_set(&payload).await,
-            RpcMethod::CredentialsUnset => self.credentials_unset(&payload).await,
+            method @ (RpcMethod::CredentialsDescribe
+            | RpcMethod::CredentialsSet
+            | RpcMethod::CredentialsUnset) => credentials::call(self, method, &payload).await,
             RpcMethod::LlmProviders => self.llm_providers(&payload).await,
             RpcMethod::LlmModels => self.llm_models(&payload).await,
             RpcMethod::LlmDiscoverModels => self.llm_discover_models(&payload).await,
@@ -2748,14 +2749,6 @@ fn session_not_found(session_id: &str) -> RpcError {
     )
 }
 
-fn credential_rejected(reference: &str) -> RpcError {
-    rpc_error(
-        RpcErrorCode::CredentialRejected,
-        "an environment credential shadows this reference",
-        json!({"ref": reference}),
-    )
-}
-
 fn canonical_directory(path: &str) -> Result<String, String> {
     if path.is_empty() {
         return Err("select a filesystem directory, not the location overview".to_owned());
@@ -2956,21 +2949,6 @@ fn goal_ref(payload: &Value) -> Result<GoalRef, RpcError> {
 fn require_goal_ref(goal: &GoalState, expected: &GoalRef) -> Result<(), RpcError> {
     if goal.id != expected.id || goal.revision != expected.revision {
         return Err(bad_request("goal reference is stale or does not match"));
-    }
-    Ok(())
-}
-
-fn validate_credential_ref(reference: &str) -> Result<(), RpcError> {
-    let mut chars = reference.chars();
-    let Some(first) = chars.next() else {
-        return Err(bad_request("credential reference is empty"));
-    };
-    if !(first == '_' || first.is_ascii_alphabetic())
-        || !chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
-    {
-        return Err(bad_request(
-            "credential reference must match [A-Za-z_][A-Za-z0-9_]*",
-        ));
     }
     Ok(())
 }
