@@ -133,6 +133,11 @@ Goal 与操作类型，不写 Session。Adapter 继续严格执行“Admission L
 领域只发结构化事件。实时推送、历史恢复和 UI 所需投影从同一 reducer 生成，解决“刷新前后不一致”。
 事件顺序、序号和持久格式保持兼容。
 
+实际实现中，`EventGateway` 统一持有 Mux 与 Host 两类广播通道，并提供 Session Event、History Event、
+Projection 与 Queue 四类兼容帧的唯一构造入口。实时 Driver 与历史 RPC 都调用同一组投影 reducer；
+`BasicHost` 仅负责装配和转发，不再暴露广播 Sender。网关不承担领域状态或持久化，发布仍严格发生在
+耐久提交之后，因此通道收口不会改变事件序号、JSONL 格式或 Exactly-once 语义。
+
 ### 阶段 5：迁移 Session/Turn
 
 最后迁移耦合最高的 Session、Prompt、队列、模型调用和 Turn 生命周期。先引入 facade，再把状态机从

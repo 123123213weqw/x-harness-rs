@@ -17,6 +17,7 @@ mod history_tool;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod driver;
+mod event_gateway;
 #[cfg(test)]
 mod failed_turn_projection_tests;
 mod model_processor;
@@ -45,8 +46,8 @@ use std::{
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, Mutex, OwnedMutexGuard, RwLock};
-use xharness_api::{RpcId, ServerRequest};
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
+use xharness_api::RpcId;
 use xharness_control::{ControlStore, MemoryControlStore};
 use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider};
 use xharness_token::TokenGuard;
@@ -175,8 +176,7 @@ pub struct BasicHost {
     pub(crate) state: Arc<RwLock<state::HostState>>,
     pub(crate) control_store: Arc<dyn ControlStore>,
     pub(crate) control_gate: Arc<Mutex<()>>,
-    pub(crate) mux_tx: broadcast::Sender<ServerRequest>,
-    pub(crate) host_tx: broadcast::Sender<ServerRequest>,
+    pub(crate) event_gateway: event_gateway::EventGateway,
     pub(crate) questions: Arc<DurableQuestionHub>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     admission_gates: SessionGateMap,
@@ -262,16 +262,14 @@ impl BasicHost {
         questions: Arc<DurableQuestionHub>,
     ) -> Arc<Self> {
         let capacity = config.event_capacity.max(16);
-        let (mux_tx, _) = broadcast::channel(capacity);
-        let (host_tx, _) = broadcast::channel(capacity);
+        let event_gateway = event_gateway::EventGateway::new(capacity);
         let host = Arc::new(Self {
             state: Arc::new(RwLock::new(state::HostState::new(&config))),
             config,
             agent_runtime,
             control_store,
             control_gate: Arc::new(Mutex::new(())),
-            mux_tx,
-            host_tx,
+            event_gateway,
             questions,
             model_settings: Arc::new(std::sync::OnceLock::new()),
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -331,21 +329,17 @@ impl BasicHost {
     }
 
     pub(crate) fn push_mux(&self, payload: Value) {
-        if let Ok(frame) = ServerRequest::frame(RpcId::new(self.mint_id("push")), payload) {
-            let _ = self.mux_tx.send(frame);
-        }
+        self.event_gateway
+            .publish_mux(RpcId::new(self.mint_id("push")), payload);
     }
 
     pub(crate) fn push_mux_correlated(&self, rpc_id: RpcId, payload: Value) {
-        if let Ok(frame) = ServerRequest::frame(rpc_id, payload) {
-            let _ = self.mux_tx.send(frame);
-        }
+        self.event_gateway.publish_mux(rpc_id, payload);
     }
 
     pub(crate) fn push_host(&self, payload: Value) {
-        if let Ok(frame) = ServerRequest::frame(RpcId::new(self.mint_id("host")), payload) {
-            let _ = self.host_tx.send(frame);
-        }
+        self.event_gateway
+            .publish_host(RpcId::new(self.mint_id("host")), payload);
     }
 
     pub async fn snapshot(&self) -> Value {

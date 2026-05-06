@@ -6,10 +6,7 @@ use std::{
     },
 };
 use xharness_projection::metrics::MetricsProjectionState;
-use xharness_projection::{
-    project_session_event_range, project_session_event_view, project_session_history,
-    project_web_event_view,
-};
+use xharness_projection::{project_session_event_range, project_session_history};
 
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
@@ -29,6 +26,7 @@ use xharness_session::{
 use crate::{
     control::SessionMutationResponse,
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
+    event_gateway::EventGateway,
     runtime::{AgentRuntimeError, ModelRoute},
     state::{iso_now, now_ms, DriverCommand, ModelSelection, PendingResponse, SessionRecord},
     BasicHost,
@@ -151,7 +149,7 @@ impl ApiBackend for BasicHost {
     }
 
     fn mux_events(&self) -> EventStream {
-        let mut receiver = self.mux_tx.subscribe();
+        let mut receiver = self.event_gateway.subscribe_mux();
         let mut question_receiver = self.questions.subscribe();
         let state = Arc::clone(&self.state);
         let next_id = Arc::clone(&self.next_id);
@@ -256,7 +254,7 @@ impl ApiBackend for BasicHost {
     }
 
     fn host_events(&self) -> EventStream {
-        let mut receiver = self.host_tx.subscribe();
+        let mut receiver = self.event_gateway.subscribe_host();
         Box::pin(async_stream::stream! {
             loop {
                 match receiver.recv().await {
@@ -876,16 +874,9 @@ impl BasicHost {
                                 .ok()
                                 .and_then(|index| durable.events().get(index))
                         })
-                        .and_then(|source| project_session_event_view(&durable, source))
-                        .or_else(|| project_web_event_view(&event, &[]));
-                    let mut envelope = json!({"event": event});
-                    if let Some(view) = view {
-                        envelope
-                            .as_object_mut()
-                            .expect("history event envelope is an object")
-                            .insert("view".to_owned(), view);
-                    }
-                    envelope
+                        .and_then(|source| EventGateway::durable_view(&durable, source))
+                        .or_else(|| EventGateway::live_view(&event, &[]));
+                    EventGateway::history_event(event, view)
                 })
                 .collect::<Vec<_>>();
             let mut value = json!({"events": events, "hasMore": page.has_more});
@@ -926,14 +917,10 @@ impl BasicHost {
         let events = session.events[start..end]
             .iter()
             .map(|event| {
-                let mut envelope = json!({"event": event});
-                if let Some(view) = project_web_event_view(event, &session.events) {
-                    envelope
-                        .as_object_mut()
-                        .expect("history event envelope is an object")
-                        .insert("view".to_owned(), view);
-                }
-                envelope
+                EventGateway::history_event(
+                    event.clone(),
+                    EventGateway::live_view(event, &session.events),
+                )
             })
             .collect::<Vec<_>>();
         let mut value = json!({
