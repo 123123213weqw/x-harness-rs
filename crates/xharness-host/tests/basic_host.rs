@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
+    protocol::{TypedRpcParams, TypedRpcResponse},
     ApiBackend, ClientResponse, ClientResponseKind, RpcId, RpcMethod, RpcReceipt, RpcResult,
 };
 use xharness_core::{
@@ -289,12 +290,23 @@ impl Fixture {
         self.invoked.insert(method);
         let rpc_id = RpcId::new(format!("rpc-{}", self.next_rpc));
         self.next_rpc += 1;
-        self.host
+        let result = self
+            .host
             .call(rpc_id, method, payload, CancellationToken::new())
-            .await
+            .await;
+        if let RpcResult::Success { value: Some(value) } = &result {
+            let typed = TypedRpcResponse::decode(method, value).unwrap_or_else(|error| {
+                panic!("{method} baseline response violates protocol: {error}; value={value}")
+            });
+            assert_eq!(typed.method(), method);
+        }
+        result
     }
 
     async fn value(&mut self, method: RpcMethod, payload: Value) -> Value {
+        let typed = TypedRpcParams::decode(method, &payload)
+            .unwrap_or_else(|error| panic!("{method} request fixture violates protocol: {error}"));
+        assert_eq!(typed.method(), method);
         match self.call(method, payload).await {
             RpcResult::Success { value: Some(value) } => value,
             other => panic!("{method} did not return a value: {other:?}"),

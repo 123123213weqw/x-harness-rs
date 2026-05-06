@@ -1018,7 +1018,7 @@ mod tests {
         use xharness_api::{ApiBackend, RpcId, RpcMethod, RpcResult};
         let fake = Fake::new("自动总结新任务", false);
         let h = host(seeded("你好").await, fake.clone()).await;
-        let mut mux = h.mux_tx.subscribe();
+        let mut mux = h.event_gateway.subscribe_mux();
         h.start_auto_titles().await;
         let created = h
             .call(
@@ -1055,7 +1055,7 @@ mod tests {
             Some(TitleGenerationPhase::Completed)
         );
         assert_eq!(fake.calls(), 2, "one main request plus one title request");
-        let projected = crate::restore::project_session_event_range(
+        let projected = xharness_projection::project_session_event_range(
             &session,
             &ModelRoute::new("test", "model"),
             0,

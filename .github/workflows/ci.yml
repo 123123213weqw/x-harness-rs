@@ -165,6 +165,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Regression harness and architecture contract
+        run: |
+          python3 -B scripts/regression/check-architecture.py
+          python3 -B scripts/regression/summarize.py --help >/dev/null
+          bash -n scripts/regression/remote-regression.sh
+          bash -n scripts/regression/run-suite.sh
       - name: Token calibration historical backfill regression
         run: python3 -B scripts/test-token-calibration-backfill.py
       - name: Test optional Windows release contract without secrets

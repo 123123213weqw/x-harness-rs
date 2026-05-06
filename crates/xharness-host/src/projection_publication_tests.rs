@@ -200,7 +200,7 @@ fn prepared_tool_views_keep_durable_sequence_and_original_arguments() {
         let seq = event["seq"].as_u64().unwrap() as usize;
         assert_eq!(
             *view,
-            project_session_event_view(&session, &session.events()[seq])
+            EventGateway::durable_view(&session, &session.events()[seq])
         );
     }
     // The test exercises a real call-view projection, not only None values.
@@ -216,7 +216,7 @@ async fn concurrent_projection_sync_publishes_each_new_event_once() {
         .append(ID, prior.revision(), vec![title("new")])
         .await
         .unwrap();
-    let mut receiver = host.mux_tx.subscribe();
+    let mut receiver = host.event_gateway.subscribe_mux();
     let mut tasks = tokio::task::JoinSet::new();
     for _ in 0..16 {
         let host = host.clone();

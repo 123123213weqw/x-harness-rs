@@ -3456,6 +3456,7 @@ dependencies = [
  "xharness-debug",
  "xharness-interaction",
  "xharness-process",
+ "xharness-projection",
  "xharness-prompt",
  "xharness-schedule",
  "xharness-session",
@@ -3547,6 +3548,16 @@ dependencies = [
  "tokio",
  "xharness-debug",
  "xharness-win32",
+]
+
+[[package]]
+name = "xharness-projection"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "xharness-core",
+ "xharness-session",
 ]
 
 [[package]]
