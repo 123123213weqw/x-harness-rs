@@ -65,6 +65,28 @@ class ChecksumTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
+    def test_remote_release_tag_is_resolved_without_checkout_local_ref(self):
+        annotated = 'b' * 40
+        with patch.object(contract, 'gh_json', side_effect=[
+                {'object': {'type': 'tag', 'sha': annotated}},
+                {'object': {'type': 'commit', 'sha': SHA}},
+        ]) as github:
+            self.assertEqual(contract.remote_tag_commit(REPOSITORY, 'desktop-v0.2.6'), SHA)
+        self.assertEqual(github.call_args_list, [
+            unittest.mock.call('api', f'repos/{REPOSITORY}/git/ref/tags/desktop-v0.2.6'),
+            unittest.mock.call('api', f'repos/{REPOSITORY}/git/tags/{annotated}'),
+        ])
+
+    def test_remote_release_tag_rejects_malformed_or_non_commit_targets(self):
+        bad = [
+            {},
+            {'object': {'type': 'blob', 'sha': SHA}},
+            {'object': {'type': 'commit', 'sha': 'not-a-sha'}},
+        ]
+        for response in bad:
+            with self.subTest(response=response), patch.object(contract, 'gh_json', return_value=response), self.assertRaises(ValueError):
+                contract.remote_tag_commit(REPOSITORY, 'desktop-v0.2.6')
+
     def test_preview_scope_selects_all_without_weakening_default_apple_checks(self):
         preview = plan(release_scope='all-macos-preview')
         self.assertEqual(set(contract.release_platforms(preview)), set(contract.PLATFORMS))
