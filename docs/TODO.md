@@ -45,7 +45,9 @@
     `session_lifecycle` 适配器；调用方不再绕回 `BasicHost` 领域方法。
   - [x] `RPC-ARCH-05c` 迁移 Prompt、附件、队列、取消和 Turn 控制到 `rpc/turn.rs`；
     Question、Subagent、Delegation 与运行时测试都通过同一 Admission/Control 入口。
-- [ ] `RPC-ARCH-06` 删除旧 `BasicHost` handler 与双重投影；动态上游端点保留在明确的兼容适配器中。
+- [x] `RPC-ARCH-06` 删除旧 `BasicHost` handler 与双重投影：Commands、Host/Filesystem、Interaction、
+  Export 分别进入独立适配器，动态上游端点只保留在 `rpc/dynamic.rs`；源码门禁禁止总 Dispatcher
+  重新新增 `impl BasicHost` 领域方法。
 - [ ] `RPC-ARCH-07` 每阶段独立提交、可回滚；合并前跑跨平台 CI 和 WZU_Server full，部署另设门禁。
 
 ## 模型路由对账与原因可见（2026-09-19）
