@@ -49,6 +49,9 @@
   Export 分别进入独立适配器，动态上游端点只保留在 `rpc/dynamic.rs`；源码门禁禁止总 Dispatcher
   重新新增 `impl BasicHost` 领域方法。
 - [ ] `RPC-ARCH-07` 每阶段独立提交、可回滚；合并前跑跨平台 CI 和 WZU_Server full，部署另设门禁。
+  - [x] `RPC-ARCH-07a` 协议、Processor、EventGateway、Session/Turn 与 Dispatcher 收口均为独立提交，
+    WZU_Server quick/full 与 Clippy `-D warnings` 全绿；wire 校验另置 `rpc/wire.rs`。
+  - [ ] `RPC-ARCH-07b` 推送分支并通过 GitHub 跨平台 CI 后再合并；本地完成不冒充远端 CI 已通过。
 
 ## 模型路由对账与原因可见（2026-09-19）
 
