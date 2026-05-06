@@ -143,6 +143,19 @@ Projection 与 Queue 四类兼容帧的唯一构造入口。实时 Driver 与历
 最后迁移耦合最高的 Session、Prompt、队列、模型调用和 Turn 生命周期。先引入 facade，再把状态机从
 `BasicHost` 中抽出；不得在这一阶段顺便改变 compaction、预算或调度语义。
 
+第一步先切只读面：Session 列表、搜索、历史与模型视图由 `rpc/session.rs` 统一适配；纯
+`SessionProcessor` 只负责排序、查询校验、命中上限和本地历史窗口。Authoritative Session I/O、取消检查、
+投影和模型能力刷新仍留在适配器。随后再分别迁移生命周期与 Prompt/Turn，避免一次改动同时触碰读取、
+持久化和运行调度三条链路。
+
+生命周期写入随后进入 `rpc/session_lifecycle.rs`：创建、模型选择、改名与 Fork 共享同一 Admission、Receipt、
+Session Journal 和 Host/EventGateway 边界。Delegation 和测试夹具直接调用该适配器，不再依赖留在
+`BasicHost` 上的兼容领域方法；这一迁移只改变代码所有权，不改变事件或响应格式。
+
+最后，Prompt Admission、附件物化/读取、Queue 编辑、Cancel 与 Driver Control 收口到 `rpc/turn.rs`。
+Question 延迟回答、Subagent Prompt/Interrupt 与 Delegation Send/Stop 都调用同一入口；附件授权仍从真实
+Session 历史推导，取消仍与 Admission Fence 排序。至此 Session/Turn 业务不再留在总 Dispatcher 内。
+
 ### 阶段 6：删除兼容实现
 
 删除旧 `BasicHost` 领域 handler、大 `match` 中的业务分支和双重投影。动态上游命名空间仍保留在
