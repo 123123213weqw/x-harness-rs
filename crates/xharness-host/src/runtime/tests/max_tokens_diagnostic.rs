@@ -52,7 +52,7 @@ async fn diagnostic_max_tokens_notice_survives_next_turn_start() {
         config.provider_id = "test".into();
         config.model_id = "test-model".into();
         let host = crate::BasicHost::with_agent_runtime(config, runtime.clone());
-        host.session_create(&json!({"sessionId":"notice-test"}))
+        crate::rpc::session_lifecycle::create(&host, &json!({"sessionId":"notice-test"}))
             .await
             .unwrap();
         let admission = |id: &str| crate::driver::PromptAdmission {

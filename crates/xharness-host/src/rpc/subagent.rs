@@ -44,7 +44,7 @@ async fn history(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
         "sessionId".to_owned(),
         json!(required_string(payload, "childSessionId")?),
     );
-    host.session_history(&ordinary).await
+    super::session::history(host, &ordinary).await
 }
 
 async fn prompt(host: &BasicHost, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
@@ -60,10 +60,7 @@ async fn prompt(host: &BasicHost, rpc_id: RpcId, payload: &Value) -> Result<Valu
     let content = required_array(payload, "content")?.clone();
     let fingerprint = prompt_fingerprint("continuable", &content, None);
     let _admission_guard = host.lock_admission(&child).await;
-    if host
-        .is_duplicate_admission(&child, rpc_id.as_str(), &fingerprint)
-        .await?
-    {
+    if super::turn::duplicate_admission(host, &child, rpc_id.as_str(), &fingerprint).await? {
         return Ok(json!({"messageId": rpc_id.as_str()}));
     }
     let text = visible_text(&content);
@@ -82,7 +79,8 @@ async fn prompt(host: &BasicHost, rpc_id: RpcId, payload: &Value) -> Result<Valu
 
 async fn interrupt(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
     authorize_child(host, payload).await?;
-    host.send_control(
+    super::turn::send_control(
+        host,
         &required_string(payload, "childSessionId")?,
         LoopCommand::Cancel,
     )
