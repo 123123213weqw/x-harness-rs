@@ -1,6 +1,6 @@
 use std::sync::{atomic::Ordering, Arc};
 use xharness_projection::metrics::web_token_usage_from_core;
-use xharness_projection::{project_session_event_range, project_session_event_tail};
+use xharness_projection::{project_session_event_range, project_session_event_tail_from};
 
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, OwnedMutexGuard};
@@ -39,6 +39,7 @@ pub(crate) struct PromptAdmission {
 /// admission path, so the global write lock still needs this validation.
 struct ProjectionInputs {
     cursor: Option<u64>,
+    cache_base_seq: u64,
     created_at: u64,
     route: ModelRoute,
 }
@@ -47,6 +48,7 @@ impl ProjectionInputs {
     fn capture(record: &crate::state::SessionRecord) -> Self {
         Self {
             cursor: record.authoritative_seq,
+            cache_base_seq: record.event_base_seq,
             created_at: record.created_at,
             route: ModelRoute {
                 provider: record.model.provider.clone(),
@@ -59,6 +61,7 @@ impl ProjectionInputs {
 
     fn matches(&self, record: &crate::state::SessionRecord) -> bool {
         self.cursor == record.authoritative_seq
+            && self.cache_base_seq == record.event_base_seq
             && self.created_at == record.created_at
             && self.route.provider == record.model.provider
             && self.route.model == record.model.model
@@ -385,9 +388,10 @@ impl BasicHost {
                 ))
             })?;
             let projected_queue = restored_queue(&inbox);
-            let tail = project_session_event_tail(
+            let tail = project_session_event_tail_from(
                 &session,
                 route,
+                inputs.cache_base_seq,
                 self.config.session_event_cache_capacity,
                 self.config.session_event_cache_bytes,
             );
