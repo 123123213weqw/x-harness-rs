@@ -10,6 +10,7 @@ mod control;
 mod credential_processor;
 mod delegation;
 mod delegation_concurrency;
+mod goal_processor;
 mod goal_tool;
 mod goals;
 mod history_tool;
