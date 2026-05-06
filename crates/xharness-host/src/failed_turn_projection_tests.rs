@@ -87,8 +87,8 @@ async fn a_prompt_after_a_failed_turn_is_still_projected_to_the_browser() {
     config.provider_id = "test".into();
     config.model_id = "test-model".into();
     let host = BasicHost::with_agent_runtime(config, runtime.clone());
-    let mut frames = host.mux_tx.subscribe();
-    host.session_create(&json!({"sessionId": ID}))
+    let mut frames = host.event_gateway.subscribe_mux();
+    crate::rpc::session_lifecycle::create(&host, &json!({"sessionId": ID}))
         .await
         .unwrap();
 
@@ -258,8 +258,8 @@ async fn a_prompt_queued_during_a_failing_turn_is_still_projected_to_the_browser
     config.provider_id = "test".into();
     config.model_id = "test-model".into();
     let host = BasicHost::with_agent_runtime(config, runtime.clone());
-    let mut frames = host.mux_tx.subscribe();
-    host.session_create(&json!({"sessionId": ID}))
+    let mut frames = host.event_gateway.subscribe_mux();
+    crate::rpc::session_lifecycle::create(&host, &json!({"sessionId": ID}))
         .await
         .unwrap();
 

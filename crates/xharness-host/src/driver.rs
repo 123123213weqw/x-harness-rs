@@ -1,4 +1,6 @@
 use std::sync::{atomic::Ordering, Arc};
+use xharness_projection::metrics::web_token_usage_from_core;
+use xharness_projection::{project_session_event_range, project_session_event_tail_from};
 
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, OwnedMutexGuard};
@@ -8,11 +10,10 @@ use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopSta
 use xharness_session::SessionEvent;
 
 use crate::{
-    metrics::web_token_usage_from_core,
+    event_gateway::EventGateway,
     restore::{
-        project_session_event_range, project_session_event_tail_from, project_session_event_view,
-        project_web_event_view, restored_agent_preset, restored_goal, restored_permission,
-        restored_plan_mode, restored_queue, restored_session_mutation_receipts, restored_title,
+        restored_agent_preset, restored_goal, restored_permission, restored_plan_mode,
+        restored_queue, restored_session_mutation_receipts, restored_title,
     },
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute, RunningTurn},
     state::{now_ms, DriverCommand, PendingResponse, QueuePlacement, QueuedPrompt},
@@ -94,7 +95,7 @@ fn prepare_projection_events(
                     .and_then(Value::as_u64)
                     .and_then(|seq| usize::try_from(seq).ok())
                     .and_then(|index| session.events().get(index))
-                    .and_then(|event| project_session_event_view(session, event));
+                    .and_then(|event| EventGateway::durable_view(session, event));
                 (event, view)
             })
             .collect(),
@@ -456,26 +457,14 @@ impl BasicHost {
             };
             for (event, updates, view) in new_events {
                 let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
-                let mut frame = json!({
-                    "type": "session/event",
-                    "sessionId": session_id,
-                    "event": event,
-                });
-                if let Some(view) = view {
-                    frame
-                        .as_object_mut()
-                        .expect("session event frame is an object")
-                        .insert("view".to_owned(), view);
-                }
-                self.push_mux(frame);
+                self.push_mux(EventGateway::session_event(session_id, event, view));
                 for update in updates {
-                    self.push_mux(json!({
-                        "type": "session/projection",
-                        "sessionId": session_id,
-                        "key": update.key,
-                        "value": update.value,
-                        "seq": seq,
-                    }));
+                    self.push_mux(EventGateway::projection(
+                        session_id,
+                        update.key,
+                        update.value,
+                        seq,
+                    ));
                 }
             }
             if queue_changed {
@@ -537,30 +526,18 @@ impl BasicHost {
                 .saturating_add(serde_json::to_vec(&event).map_or(0, |encoded| encoded.len()));
             session.events.push(event.clone());
             let metric_updates = session.metrics.apply(&event);
-            let view = project_web_event_view(&event, &session.events);
+            let view = EventGateway::live_view(&event, &session.events);
             (event, metric_updates, view)
         };
         let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
-        let mut frame = json!({
-            "type": "session/event",
-            "sessionId": session_id,
-            "event": event,
-        });
-        if let Some(view) = view {
-            frame
-                .as_object_mut()
-                .expect("session event frame is an object")
-                .insert("view".to_owned(), view);
-        }
-        self.push_mux(frame);
+        self.push_mux(EventGateway::session_event(session_id, event.clone(), view));
         for update in metric_updates {
-            self.push_mux(json!({
-                "type": "session/projection",
-                "sessionId": session_id,
-                "key": update.key,
-                "value": update.value,
-                "seq": seq,
-            }));
+            self.push_mux(EventGateway::projection(
+                session_id,
+                update.key,
+                update.value,
+                seq,
+            ));
         }
         Ok(event)
     }
@@ -572,15 +549,9 @@ impl BasicHost {
             .await
             .sessions
             .get(session_id)
-            .map_or(-1, |session| session.last_event_seq_i64());
-        if seq >= 0 {
-            self.push_mux(json!({
-                "type": "session/projection",
-                "sessionId": session_id,
-                "key": key,
-                "value": value,
-                "seq": seq,
-            }));
+            .and_then(|session| session.last_event_seq());
+        if let Some(seq) = seq {
+            self.push_mux(EventGateway::projection(session_id, key, value, seq));
         }
     }
 
@@ -592,11 +563,7 @@ impl BasicHost {
             .sessions
             .get(session_id)
             .map_or_else(Vec::new, |session| session.queue_view());
-        self.push_mux(json!({
-            "type": "session/queue",
-            "sessionId": session_id,
-            "items": items,
-        }));
+        self.push_mux(EventGateway::queue(session_id, items));
     }
 
     pub(crate) async fn enqueue_prompt(&self, admission: PromptAdmission) -> Result<(), RpcError> {
@@ -1358,7 +1325,7 @@ impl BasicHost {
                 self.append_session_event(
                     session_id,
                     "run/checkpoint",
-                    crate::restore::web_execution_notice(turn, Some(&notice)),
+                    xharness_projection::web_execution_notice(turn, Some(&notice)),
                     None,
                 )
                 .await?;
@@ -1370,7 +1337,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::assistant_projection::text_delta(&text),
+                        "chunk": xharness_projection::text_delta(&text),
                     }),
                     None,
                 )
@@ -1383,7 +1350,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::assistant_projection::reasoning_delta(&text),
+                        "chunk": xharness_projection::reasoning_delta(&text),
                     }),
                     None,
                 )
@@ -1401,7 +1368,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::assistant_projection::tool_delta(index, &id, &name, &arguments_delta),
+                        "chunk": xharness_projection::tool_delta(index, &id, &name, &arguments_delta),
                     }),
                     None,
                 )
@@ -1435,7 +1402,7 @@ impl BasicHost {
                             "content": [{
                                 "type": "tool-result",
                                 "toolCallId": call.id,
-                                "content": crate::restore::web_tool_content(if result.ok {&result.content} else {&result.error}, result.metadata.as_ref()),
+                                "content": xharness_projection::web_tool_content(if result.ok {&result.content} else {&result.error}, result.metadata.as_ref()),
                                 "isError": !result.ok,
                             }],
                             "source": {"kind": "tool", "callId": call.id},
@@ -1633,7 +1600,7 @@ fn web_assistant_message(
     json!({
         "id": id,
         "role": "assistant",
-        "content": crate::assistant_projection::content(text, reasoning),
+        "content": xharness_projection::assistant_content(text, reasoning),
         "source": {"kind": "model", "provider": provider, "model": model},
     })
 }

@@ -537,6 +537,19 @@ scripts/remote-build-deb.sh WZU_Server
 scripts/remote-rust-test.sh WZU_Server
 ```
 
+解耦、缺陷修复和发布使用分层回归入口；它会隔离远程源码快照、复用 Cargo 缓存并下载
+逐项证据，真实模型凭据只从服务器的 `0600` 文件读取：
+
+```bash
+scripts/regression/remote-regression.sh --suite quick
+scripts/regression/remote-regression.sh --suite full
+scripts/regression/remote-regression.sh --suite live-smoke
+scripts/regression/remote-regression.sh --suite full-live
+```
+
+完整套件、凭据配置、报告结构和 Bug 门禁见
+[`docs/runbooks/regression.md`](docs/runbooks/regression.md)。
+
 源码会同步到 `WZU_Server:~/codex-build/x-harness-rs/`，然后远程运行：
 
 ```text
