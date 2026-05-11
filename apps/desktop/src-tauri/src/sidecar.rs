@@ -28,6 +28,7 @@ const HOST_STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct DesktopState {
     pub(crate) diagnostics: crate::diagnostics::Diagnostics,
+    pub(crate) startup: crate::startup::StartupTimeline,
     stop_requested: AtomicBool,
     #[cfg(windows)]
     host_job: xharness_win32::Job,
@@ -92,6 +93,7 @@ impl DesktopState {
                 app_cache.join("diagnostics"),
                 app_config.join("diagnostics.json"),
             ),
+            startup: crate::startup::StartupTimeline::new(),
             stop_requested: AtomicBool::new(false),
             #[cfg(windows)]
             host_job: xharness_win32::Job::new_kill_on_close()?,
@@ -129,6 +131,7 @@ pub struct DesktopStatus {
     host_endpoint: Option<String>,
     updater_configured: bool,
     startup_error: Option<String>,
+    startup: crate::startup::StartupSnapshot,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -155,6 +158,7 @@ pub fn desktop_status(state: State<'_, DesktopState>) -> DesktopStatus {
             .lock()
             .expect("startup error mutex poisoned")
             .clone(),
+        startup: state.startup.snapshot(),
     }
 }
 
@@ -411,7 +415,7 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|error| format!("无法释放 Host 启动门禁：{error}"))?;
     let endpoint = wait_until_ready(app, &state.ready_file).await?;
-    state.diagnostics.record(Record::new(Phase::HostReady));
+    state.startup.host_ready(&state.diagnostics);
     *state.endpoint.lock().expect("endpoint mutex poisoned") = Some(endpoint.clone());
 
     let mut bootstrap = Url::parse(&format!("{endpoint}/desktop/bootstrap"))
