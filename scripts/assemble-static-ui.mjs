@@ -217,8 +217,13 @@ const desktopUpdaterBytes = portableBytes(readFileSync(desktopUpdaterSource))
 const desktopUpdaterRev = revision(desktopUpdaterBytes)
 writeFileSync(join(dist, 'desktop-updater.js'), desktopUpdaterBytes)
 const desktopUpdaterTag = `<script defer src="/desktop-updater.js?rev=${desktopUpdaterRev}"></script>`
+const desktopStartupSource = join(repoRoot, 'ui/desktop/startup.js')
+const desktopStartupBytes = portableBytes(readFileSync(desktopStartupSource))
+const desktopStartupRev = revision(desktopStartupBytes)
+writeFileSync(join(dist, 'desktop-startup.js'), desktopStartupBytes)
+const desktopStartupTag = `<script defer src="/desktop-startup.js?rev=${desktopStartupRev}"></script>`
 if (!index.includes('</head>')) throw new Error('index.html does not contain </head>')
-index = index.replace('</head>', `    ${desktopUpdaterTag}\n  </head>`)
+index = index.replace('</head>', `    ${desktopUpdaterTag}\n    ${desktopStartupTag}\n  </head>`)
 writeFileSync(indexPath, clientModules.injectBootManifest(index, graph))
 writeFileSync(join(dist, 'client-graph.json'), `${JSON.stringify(graph, null, 2)}\n`)
 // Ship the graph on our own scope: directories, ids, bundler-derived identifiers
