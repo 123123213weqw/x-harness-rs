@@ -187,7 +187,7 @@ pub(super) fn expand(root: &Path, header: RequestHeader) -> Result<RequestHeader
         .ok_or_else(|| backend_message("missing audit digest"))?;
     let dir = directory(root)?;
     let mut manifest: Manifest =
-        serde_json::from_slice(&read(&dir, key)?).map_err(|e| backend_message(e.to_string()))?;
+        crate::decode_owned_json(&read(&dir, key)?).map_err(|e| backend_message(e.to_string()))?;
     if manifest.version != 1 {
         return Err(backend_message("unsupported audit manifest version"));
     }
@@ -199,13 +199,13 @@ pub(super) fn expand(root: &Path, header: RequestHeader) -> Result<RequestHeader
             return Err(backend_message("audit request exceeds 128 MiB"));
         }
         manifest.header.input.push(
-            serde_json::from_slice::<Message>(&bytes)
+            crate::decode_owned_json::<Message>(&bytes)
                 .map_err(|e| backend_message(e.to_string()))?,
         );
     }
-    manifest.header.tools = serde_json::from_slice(&read(&dir, &manifest.tools)?)
+    manifest.header.tools = crate::decode_owned_json(&read(&dir, &manifest.tools)?)
         .map_err(|e| backend_message(e.to_string()))?;
-    manifest.header.system = serde_json::from_slice(&read(&dir, &manifest.system)?)
+    manifest.header.system = crate::decode_owned_json(&read(&dir, &manifest.system)?)
         .map_err(|e| backend_message(e.to_string()))?;
     Ok(manifest.header)
 }
