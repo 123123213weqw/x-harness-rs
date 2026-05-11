@@ -46,15 +46,20 @@ type LockTable = StdMutex<HashMap<PathBuf, Weak<SessionLock>>>;
 
 static PROCESS_LOCKS: OnceLock<LockTable> = OnceLock::new();
 
-/// Decode persisted JSON through serde_json's owned reader path.
+/// Decode persisted JSON while containing the Windows `SliceRead` crash path.
 ///
-/// Session records only contain owned types, so the borrowed `SliceRead` fast
-/// path buys us nothing here. Keeping persistence on `IoRead` also isolates
-/// journal recovery from failures in the slice string scanner: a malformed
-/// record remains an ordinary `serde_json::Error` instead of entering that
-/// optimized borrowed-string path.
+/// Windows crash dumps from released builds point at serde_json's borrowed
+/// slice string scanner, even though every persisted target here is owned. Use
+/// the independent `IoRead` scanner there. Other platforms retain the faster
+/// slice decoder until evidence shows that they need the containment too.
+#[cfg(windows)]
 pub(crate) fn decode_owned_json<T: DeserializeOwned>(bytes: &[u8]) -> serde_json::Result<T> {
     serde_json::from_reader(bytes)
+}
+
+#[cfg(not(windows))]
+pub(crate) fn decode_owned_json<T: DeserializeOwned>(bytes: &[u8]) -> serde_json::Result<T> {
+    serde_json::from_slice(bytes)
 }
 
 /// A filesystem-backed [`Store`] with one append-only JSONL file per session.
