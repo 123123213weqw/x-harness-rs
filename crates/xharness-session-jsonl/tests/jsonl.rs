@@ -973,9 +973,10 @@ async fn cache_eviction_disabled_oversized_and_old_snapshot_cas_remain_correct()
 }
 
 /// Regression for the Windows release crash in serde_json's borrowed
-/// `SliceRead` string scanner. Real journals can contain multi-megabyte,
-/// escape-heavy request records; recovery must keep those records owned and
-/// remain stable across repeated cold opens.
+/// `SliceRead` string scanner. Windows exercises the owned `IoRead` containment
+/// path; the other targets preserve the same recovery contract on `SliceRead`.
+/// Real journals can contain multi-megabyte, escape-heavy request records and
+/// must remain stable across repeated cold opens.
 #[tokio::test]
 async fn escape_heavy_large_record_survives_repeated_cold_recovery() {
     let dir = TestDir::new();
