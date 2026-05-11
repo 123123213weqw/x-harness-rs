@@ -971,6 +971,38 @@ async fn cache_eviction_disabled_oversized_and_old_snapshot_cas_remain_correct()
     disabled.flush("a").await.unwrap();
     assert_eq!(disabled.cache_stats().entries, 0);
 }
+
+/// Regression for the Windows release crash in serde_json's borrowed
+/// `SliceRead` string scanner. Real journals can contain multi-megabyte,
+/// escape-heavy request records; recovery must keep those records owned and
+/// remain stable across repeated cold opens.
+#[tokio::test]
+async fn escape_heavy_large_record_survives_repeated_cold_recovery() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("large-owned-json")).await.unwrap();
+    let fragment = r#"{"path":"C:\\deep\\folder","quote":"\"","line":"\n"}"#;
+    let content = fragment.repeat(32 * 1024);
+    assert!(content.len() > 1024 * 1024);
+    store
+        .append(
+            "large-owned-json",
+            Revision::ZERO,
+            vec![turn_start(1), user_message(&content)],
+        )
+        .await
+        .unwrap();
+    drop(store);
+
+    for _ in 0..16 {
+        let cold = JsonlSessionStore::new(dir.path())
+            .unwrap()
+            .with_cache_limits(0, 0);
+        let restored = cold.load("large-owned-json").await.unwrap().unwrap();
+        assert_eq!(restored.derive_messages()[0].content, content);
+    }
+}
+
 #[tokio::test]
 async fn missing_or_corrupt_audit_is_explicit_error_but_does_not_break_conversation() {
     let dir = TestDir::new();
