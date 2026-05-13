@@ -22,6 +22,7 @@ sha2.workspace = true
 xharness-api = { path = "../xharness-api" }
 xharness-coding-tools = { path = "../xharness-coding-tools" }
 xharness-compaction = { path = "../xharness-compaction" }
+xharness-computer = { path = "../xharness-computer" }
 xharness-core = { path = "../xharness-core" }
 xharness-control = { path = "../xharness-control" }
 xharness-debug = { path = "../xharness-debug" }
@@ -51,6 +52,7 @@ keyring = { version = "3.6.3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6.3", features = ["apple-native"] }
+xharness-computer-macos = { path = "../xharness-computer-macos" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
