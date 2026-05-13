@@ -20,6 +20,12 @@
   "xharness-compaction": [
     "xharness-session"
   ],
+  "xharness-computer": [
+    "xharness-tools"
+  ],
+  "xharness-computer-macos": [
+    "xharness-computer"
+  ],
   "xharness-context": [
     "xharness-compaction",
     "xharness-session"
@@ -68,6 +74,8 @@
     "xharness-attachments",
     "xharness-coding-tools",
     "xharness-compaction",
+    "xharness-computer",
+    "xharness-computer-macos",
     "xharness-control",
     "xharness-core",
     "xharness-debug",
