@@ -123,6 +123,23 @@ ui/plugins/@xlang/xharness-client-ui-schedule/client.js
 现有 `schedule/change` 会话事件，并把活动提醒入口注册到会话头部。创建、
 删除和提醒交付仍由 Rust Schedule 工具与持久化运行时负责。
 
+## Computer Use 隐私状态
+
+`@xlang/xharness-client-ui-computer` 为 macOS `computer` 工具提供 Web/Tauri 共用的
+专用工具卡。系统级操作运行时，页面顶端显示“正在查看屏幕 / 读取界面结构 / 控制
+鼠标和键盘”等不可静默隐藏的状态；工具完成后自动清理。切换会话不会提前隐藏仍在
+运行的控制状态，并有略长于工具执行上限的 watchdog 防止异常残留。
+
+工具卡只挂载动作、目标、frame 和结果计数，不把完整 AX 树再次渲染进聊天 DOM；
+原始输入输出继续通过统一 Inspect 面板查看。刷新产品插件及验证：
+
+```bash
+node scripts/sync-computer-ui.mjs
+node scripts/test-computer-ui.mjs
+UI_TEST_BROWSER=chromium node scripts/test-computer-ui-browser.mjs
+UI_TEST_BROWSER=webkit node scripts/test-computer-ui-browser.mjs
+```
+
 ## 会话模型控制（Web / Tauri 共用）
 
 `ui/overrides/model-controls.js` 将上下文表单接入上游模型菜单的二级页面；思考档位
