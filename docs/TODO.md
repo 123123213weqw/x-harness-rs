@@ -1309,7 +1309,7 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] `COMPUTER-04` 仅在 macOS `danger-full-access` 注册；Accessibility/Screen Recording 运行时 fail-closed，workspace-write 不暴露不可沙箱化能力。
 - [x] `COMPUTER-05` logical point / Retina / 多屏元数据、frame/node 过期保护，以及拖动异常时强制 mouse-up。
 - [ ] `COMPUTER-06` macOS CI 编译真实 FFI 分支；本机完成九动作、权限撤销、取消、Retina 多屏和用户接管验收。
-- [ ] `COMPUTER-07` 扩展受限且分页的 AX 元素树、稳定 node identity 与敏感输入遮蔽；不得改变现有 action 协议。
+- [x] `COMPUTER-07` 扩展有节点/深度/访问量硬上限的 AX 元素树、frame-scoped node identity、AXPress/聚焦语义动作与敏感输入遮蔽；不得改变现有 action 协议。跨 frame 稳定身份留待真实应用兼容矩阵证明后再引入，避免误命中旧控件。
 - [ ] `COMPUTER-08` 独立 Computer Control 权限预设和设置页授权入口；在此之前继续使用明确的 full access 门禁。
 - [ ] `COMPUTER-09` 工具稳定后再接 Skill Hub；Skill 仅注入操作策略，不复制或绕过 `computer` 权限实现。
 
