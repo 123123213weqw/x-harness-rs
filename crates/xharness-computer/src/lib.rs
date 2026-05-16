@@ -393,7 +393,11 @@ impl ComputerTool {
                             "current model does not declare image input; use detail=semantic or switch to a vision model",
                         ));
                     }
-                    None => request.include_screenshot = Some(supports_images),
+                    None => {
+                        request.include_screenshot = Some(
+                            supports_images && request.detail.as_deref() != Some("semantic"),
+                        )
+                    }
                     _ => {}
                 }
                 let output = driver
@@ -442,8 +446,16 @@ fn validate_argument_shape(value: &Value) -> Result<(), ToolHandlerError> {
             "modifiers",
         ],
         "drag" => &["frame_id", "path", "button", "duration_ms", "modifiers"],
-        "scroll" => &["frame_id", "x", "y", "delta_x", "delta_y", "modifiers"],
-        "type" => &["text"],
+        "scroll" => &[
+            "frame_id",
+            "node_id",
+            "x",
+            "y",
+            "delta_x",
+            "delta_y",
+            "modifiers",
+        ],
+        "type" => &["text", "node_id", "frame_id"],
         "keypress" => &["keys", "modifiers"],
         "wait" => &["duration_ms"],
         "window" => &["surface_id", "operation", "x", "y", "width", "height"],
@@ -469,7 +481,7 @@ fn validate_argument_shape(value: &Value) -> Result<(), ToolHandlerError> {
 pub fn definition() -> ToolDefinition {
     ToolDefinition::new(
         COMPUTER_TOOL_NAME,
-        "Observe and operate the local macOS desktop. Use observe before coordinate or node actions and reuse its frame_id. Coordinates are logical desktop points. Prefer node_id when available. Actions are serialized; do not issue overlapping computer calls. Screenshots are returned as image content only for vision-capable models.",
+        "Observe and operate the local macOS desktop. Use observe before coordinate or node actions and reuse its frame_id. Coordinates are logical desktop points. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
         json!({
             "type": "object",
             "additionalProperties": false,
@@ -578,7 +590,9 @@ mod tests {
             r#"{"action":"click","frame_id":"f","x":1,"y":2,"button":"right","count":2}"#,
             r#"{"action":"drag","frame_id":"f","path":[{"x":1,"y":2},{"x":3,"y":4}]}"#,
             r#"{"action":"scroll","delta_y":120}"#,
+            r#"{"action":"scroll","frame_id":"f","node_id":"n","delta_y":120}"#,
             r#"{"action":"type","text":"hello 世界"}"#,
+            r#"{"action":"type","frame_id":"f","node_id":"n","text":"semantic input"}"#,
             r#"{"action":"keypress","keys":["CMD","L"]}"#,
             r#"{"action":"wait","duration_ms":1}"#,
             r#"{"action":"window","operation":"list"}"#,
@@ -597,5 +611,12 @@ mod tests {
         let result = execute(r#"{"action":"type","text":"safe","x":1,"y":2}"#).await;
         assert!(!result.is_ok());
         assert!(result.failure.unwrap().message.contains("not valid"));
+    }
+
+    #[tokio::test]
+    async fn semantic_type_still_requires_the_observation_frame() {
+        let result = execute(r#"{"action":"type","node_id":"n","text":"safe"}"#).await;
+        assert!(!result.is_ok());
+        assert!(result.failure.unwrap().message.contains("frame_id"));
     }
 }
