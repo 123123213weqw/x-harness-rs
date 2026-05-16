@@ -31,6 +31,14 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 - macOS Accessibility / Screen Recording 权限由适配器在每次操作前探测，缺失时返回 `permission_required`，不在后台自动弹授权窗口。
 - 全部 Computer 调用使用 `ToolConcurrency::Exclusive`。键盘、鼠标和前台窗口是全局资源，不允许同批并行。
 
+## 用户可见状态
+
+- Web 与 Tauri 共用 `@xlang/xharness-client-ui-computer`，为 `computer` 注册专用工具卡，而不是退回通用 Tool call。
+- Computer 调用运行期间，页面顶端持续显示不可手动隐藏的隐私状态条：区分“查看屏幕/读取界面结构”和“控制鼠标键盘/窗口”。完成、失败或中止后立即消失。
+- 切换会话导致工具卡卸载时，不得立即隐藏仍可能运行的系统级操作；状态条保留到结果到达，并以 70 秒 watchdog 兜底。它比工具的 60 秒执行上限略长，不会永久残留。
+- 历史工具卡只展示动作、目标、frame 和观察结果计数。完整 AX 树不直接挂载到对话 DOM，仍可通过统一 Inspect 面板查看，避免为了安全提示重新引入长会话内存峰值。
+- 状态条使用 `role=status` 和 assertive live region；减少动态效果时停用脉冲动画。
+
 ## 动作
 
 | action | 作用 | 关键字段 |
@@ -78,5 +86,6 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 
 1. Linux 远程：全工作区 fmt/check/test/clippy，验证跨平台桩和协议测试。
 2. macOS CI：编译真实 FFI 分支，执行无副作用的参数、键码、surface ID、AX 快照反序列化和预算档位测试。
-3. 本机人工验收：分别撤销/开启 Accessibility 和 Screen Recording，验证 fail-closed；随后覆盖九类动作、Retina、多屏、取消拖动和用户接管。
-4. 视觉模型真实验收：`observe → click/type → observe`，确认截图以附件块传输而不是写入文本历史。
+3. Chromium/WebKit：验证查看/控制文案、运行态状态条、完成后清理、会话切换保留、工具卡摘要和 Inspect 入口。
+4. 本机人工验收：分别撤销/开启 Accessibility 和 Screen Recording，验证 fail-closed；随后覆盖九类动作、Retina、多屏、取消拖动和用户接管。
+5. 视觉模型真实验收：`observe → click/type → observe`，确认截图以附件块传输而不是写入文本历史。

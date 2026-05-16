@@ -1312,5 +1312,6 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] `COMPUTER-07` 扩展有节点/深度/访问量硬上限的 AX 元素树、frame-scoped node identity、AXPress/聚焦语义动作与敏感输入遮蔽；不得改变现有 action 协议。跨 frame 稳定身份留待真实应用兼容矩阵证明后再引入，避免误命中旧控件。
 - [ ] `COMPUTER-08` 独立 Computer Control 权限预设和设置页授权入口；在此之前继续使用明确的 full access 门禁。
 - [ ] `COMPUTER-09` 工具稳定后再接 Skill Hub；Skill 仅注入操作策略，不复制或绕过 `computer` 权限实现。
+- [x] `COMPUTER-10` Web/Tauri 共用专用 Computer 工具卡和全局隐私状态条；运行时明确区分屏幕观察与输入控制，切换会话不误隐藏，结束后清理且不挂载完整 AX 树。
 
 实现与失败语义见 [Computer Use 工具规范](specs/computer-use.md)。
