@@ -429,6 +429,7 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
     };
     assert_eq!(listed[0]["name"], "permission");
     assert_eq!(listed[1]["name"], "plan");
+    assert_eq!(listed[2]["name"], "compact");
 
     let switched = fx
         .host
@@ -531,6 +532,63 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
         second_history["projections"]["values"]["permissions"]["currentValue"],
         "danger-full-access"
     );
+}
+
+#[tokio::test]
+async fn compact_command_rejects_arguments_and_settles_its_durable_lifecycle() {
+    let mut fx = Fixture::new();
+    let created = fx
+        .value(
+            RpcMethod::SessionCreate,
+            json!({"cwd": fx.root.to_string_lossy()}),
+        )
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap();
+    let response = fx
+        .host
+        .call_dynamic(
+            RpcId::new("commands-compact-arguments"),
+            "commands/execute",
+            json!({
+                "args": {
+                    "agentId": session_id,
+                    "line": "/compact unexpected",
+                    "images": []
+                }
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("compact command is mounted");
+    let RpcResult::Success {
+        value: Some(response),
+    } = response
+    else {
+        panic!("compact argument validation failed: {response:?}");
+    };
+    assert_eq!(response["result"]["kind"], "error");
+    assert_eq!(
+        response["result"]["text"],
+        "/compact does not accept arguments"
+    );
+
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId": session_id}))
+        .await;
+    let command_events = history["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry["event"]["type"].as_str(),
+                Some("command/run" | "command/done")
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(command_events.len(), 2);
+    assert_eq!(command_events[0]["event"]["data"]["name"], "compact");
+    assert_eq!(command_events[1]["event"]["data"]["kind"], "error");
 }
 
 #[tokio::test]
