@@ -131,8 +131,9 @@ Admission 锁：撤回先完成则不恢复；Runtime 先领取则撤回返回�
 每个 Step 无压力时通过默认 `IdentityContextPolicy` 完整重放当前 Session Surface。Host 已按
 平台能力投影工具，并从选中 Registry Route 读取真实 Context Window、输出预留和安全余量；正式
 Durable Runtime 默认安装 `CompactionConfig`，在 80% Pressure、Hard Overflow 或无 Delta 的
-Provider Context Overflow 时提交持久 Checkpoint Replace、重新计量后再继续。手动 `/compact`、
-Provider Purpose Router、按模型精确本地 Tokenizer 和 Capability 进一步裁剪仍未实现。
+Provider Context Overflow 时提交持久 Checkpoint Replace、重新计量后再继续。手动 `/compact`
+已通过空闲维护轮次接入；Provider Purpose Router、按模型精确本地 Tokenizer 和 Capability
+进一步裁剪仍未实现。
 
 ## 审批与事件流
 
@@ -256,8 +257,8 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 - 最小 Prompt 和 Hard Token Guard 已真实注入；完整 Section Registry 与用户 Preset 持久化尚未完成。
 - Plan Mode 目前只完成 Idle 状态持久化；完整 Pre-step Steering、Prompt Section 和退出工具待补。
 - 正式 Durable Host 已安装自动 Compaction，可处理 80% Pressure、请求前 Hard Overflow
-  和 Provider 无 Delta Context 400；手动 `/compact`、生产 Tool-result Pruner/Spill 和独立
-  Summary Purpose 路由仍待完成。
+  和 Provider 无 Delta Context 400；手动 `/compact` 已作为可恢复的空闲维护轮次接入，生产
+  Tool-result Pruner/Spill 和独立 Summary Purpose 路由仍待完成。
 - Full access 会关闭逐工具审批；正式 Host 已按 Sandbox/Search Readiness 动态裁剪
   模型工具，但 Web UI 尚未显示同一能力报告。
 

@@ -218,8 +218,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - Compaction 已实现 Provider-neutral 压力规划、80% 触发阈值、16% 最近尾部保留、Tool Pair
   安全切点、Unicode Pruner、Checkpoint Frame 和 Summary Trait；正式 Durable Host 已启用请求前
   Pressure、Hard Overflow、Provider 400 Context Overflow、摘要重计量和持久 Surface Replace
-- `compaction/start|summary|end|prune` 已进入 Session/Web 事件词汇；手动 `/compact` 与生产
-  Tool Result Pruner 仍是下一切片
+- `compaction/start|summary|end|prune` 已进入 Session/Web 事件词汇；手动 `/compact` 已作为
+  空闲 Session 的持久 Maintenance Turn 接入，生产 Tool Result Pruner 仍是下一切片
 - Debug 默认 Noop 零 I/O；显式 Full 模式将 Host/Core/Provider/Tool/Process/PTY/Sandbox/Web/
   Server 事件写入 Secret-safe JSONL，并把大 Payload 放入内容寻址 Blob
 - Full Debug 是可删除诊断旁路，不替代权威 Session；Rotation/Retention、指标聚合和 Diagnostic
@@ -577,7 +577,7 @@ Loop 运行事件使用按数量与 Byte 双预算的非阻塞 Journal，测试�
 1. 完成强类型配置与 Credential Reference Store，再补 Web Host 认证/Origin 策略
 2. WebSocket 持久 Cursor Resume、完整 Mutation Receipt 和 Web Readiness 投影
 3. macOS Live Provider/安装验证、Developer ID 签名与公证
-4. 大工具结果持久 Spill/Pruner、手动 `/compact`、完整 Prompt Registry 和 Purpose Router
+4. 大工具结果持久 Spill/Pruner、完整 Prompt Registry 和 Purpose Router
 5. Job 完成通知/Wake、Skills、MCP、LSP、附件与 Subagent/Workflow 调度
 
 完整任务、优先级和验收条件见 [`docs/TODO.md`](docs/TODO.md)；架构边界与

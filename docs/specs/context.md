@@ -178,8 +178,8 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
   Coordinator 按 0.8 阈值、0.16 尾部、8,192 摘要上限自动改写当前 Session Surface，并在每次
   成功后重新计量。
 - `compaction/start|summary|end|prune`、Checkpoint Replace、Web 投影和未闭合 Start 恢复已
-  落地；请求侧 Pruner 与大工具结果 Spill 已接入，手动 `/compact`、Pruner 的持久 Replace 与全 SIGKILL
-  切点矩阵尚未完成。
+  落地；请求侧 Pruner、大工具结果 Spill 与可恢复的手动 `/compact` 已接入，Pruner 的持久
+  Replace 与全 SIGKILL 切点矩阵尚未完成。
 - Provider 原生完整请求计数已接入；不支持计数端点的模型使用保守 Byte Meter。按模型注册本地
   Tokenizer 与统一 Capability Catalog 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。
