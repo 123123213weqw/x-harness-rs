@@ -1820,6 +1820,87 @@ async fn pressure_compaction_is_durable_then_recounted_before_the_main_request()
 }
 
 #[tokio::test]
+async fn manual_compaction_runs_without_a_normal_model_turn_and_correlates_command_events() {
+    let provider = Arc::new(SequencedCountingProvider::new(
+        [500, 500, 300],
+        [vec![
+            Ok(ProviderEvent::TextDelta(
+                "## Current Work\n- compacted on demand".to_owned(),
+            )),
+            Ok(completed()),
+        ]],
+    ));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), "manual-compact").await;
+    let before = journal.load("manual-compact").await.unwrap().unwrap();
+    journal
+        .append(
+            "manual-compact",
+            before.revision(),
+            vec![SessionEventData::CommandRun {
+                command_id: "command-manual".to_owned(),
+                name: "compact".to_owned(),
+                args: None,
+                source: CommandSource::User,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+
+    let guard = TokenGuard::conservative(TokenBudget {
+        context_window_tokens: 1_000,
+        reserved_output_tokens: 40,
+        minimum_output_tokens: 40,
+        safety_margin_tokens: 10,
+    })
+    .unwrap();
+    let mut request = LoopRequest::new(provider.clone(), Vec::new());
+    request.session_id = Some("manual-compact".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(guard);
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+    request.manual_compaction_command_id = Some("command-manual".to_owned());
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(
+        provider.inner.attempts(),
+        1,
+        "summary only; no agent response"
+    );
+
+    let session = journal.load("manual-compact").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CompactionStart { source_command_id: Some(id), .. }
+            if id == "command-manual"
+    )));
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CompactionEnd { source_command_id: Some(id), error: None, .. }
+            if id == "command-manual"
+    )));
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CommandDone {
+            command_id,
+            kind: CommandResultKind::Success,
+            ..
+        } if command_id == "command-manual"
+    )));
+    assert!(!session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::AssistantMessage { turn: 2, .. }
+    )));
+}
+
+#[tokio::test]
 async fn hard_overflow_compacts_and_recounts_instead_of_failing_immediately() {
     let provider = Arc::new(SequencedCountingProvider::new(
         [980, 500, 300, 300],
