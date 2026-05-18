@@ -200,17 +200,13 @@ mod macos {
                 NSPoint::new(0.0, 0.0),
                 NSSize::new(PANEL_WIDTH, PANEL_HEIGHT),
             );
-            // SAFETY: AppKit construction runs on Tauri's main thread and the
-            // returned panel is retained for the lifetime of this thread-local.
-            let panel = unsafe {
-                NSPanel::initWithContentRect_styleMask_backing_defer(
-                    NSPanel::alloc(mtm),
-                    frame,
-                    NSWindowStyleMask::Borderless,
-                    NSBackingStoreType::Buffered,
-                    false,
-                )
-            };
+            let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
+                NSPanel::alloc(mtm),
+                frame,
+                NSWindowStyleMask::Borderless,
+                NSBackingStoreType::Buffered,
+                false,
+            );
             panel.setFloatingPanel(true);
             panel.setBecomesKeyOnlyIfNeeded(true);
             panel.setOpaque(false);
@@ -221,7 +217,9 @@ mod macos {
             panel.setHidesOnDeactivate(false);
             panel.setCanHide(false);
             panel.setMovable(false);
-            panel.setReleasedWhenClosed(false);
+            // SAFETY: this retained panel stays owned by the thread-local
+            // overlay, so AppKit must not release it independently on close.
+            unsafe { panel.setReleasedWhenClosed(false) };
             panel.setSharingType(NSWindowSharingType::None);
             panel.setCollectionBehavior(
                 NSWindowCollectionBehavior::CanJoinAllSpaces
