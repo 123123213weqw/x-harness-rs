@@ -56,6 +56,8 @@ plugin.apply(ctx)
 assert.equal(typeof row, 'function')
 assert.equal(localeRegistration.namespace, 'xharness-computer')
 assert.match(localeRegistration.dictionaries.zh.observeScreen, /查看屏幕/)
+assert.match(source, /desktop_set_computer_activity/)
+assert.match(source, /nativeTail/)
 
 const graph = JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json', import.meta.url), 'utf8'))
 const entry = graph.entries.find(candidate => candidate.id === registration.id)
