@@ -8,6 +8,7 @@ import { patchQuestionContinuation } from './patch-question-continuation.mjs'
 import { patchPermissionSelection } from './patch-permission-selection.mjs'
 import { patchGoalRuntime } from './patch-goal-runtime.mjs'
 import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
+import { patchCompactionRunningUi } from './patch-compaction-running-ui.mjs'
 import { rewriteUiNamespace } from './rewrite-ui-namespace.mjs'
 import { UI_NAMESPACE, UPSTREAM_SOURCE_LABEL } from './ui-namespace.mjs'
 
@@ -117,6 +118,7 @@ for (const entry of composed) {
   if (entry.name === "@deepseek-ai/dsh-client-ui-goal") bytes = patchGoalRuntime(bytes)
   bytes = patchQuestionContinuation(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)
+  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchCompactionRunningUi(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchMaxTokensNotice(bytes)
   bytes = patchWorkspaceCreatedAt(entry.name, bytes)
   bytes = patchSettingsSaveFeedback(entry.name, bytes)

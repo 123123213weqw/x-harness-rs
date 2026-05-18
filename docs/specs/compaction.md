@@ -1,8 +1,8 @@
 # 上下文压缩（Compact）规范
 
 **所属层：** `xharness-compaction`、`xharness-context`、`xharness-session`、`xharness-token`  
-**状态：** 自动 Pressure/Overflow、摘要、重计量、Session Replace 事务、Web 投影与崩溃恢复已
-接线到正式 Durable Host；手动 `/compact` 和生产 Tool Result Pruner Replace 尚待完成。
+**状态：** 自动 Pressure/Overflow、手动 `/compact`、摘要、重计量、Session Replace 事务、Web
+投影与崩溃恢复已接线到正式 Durable Host；生产 Tool Result Pruner Replace 尚待完成。
 
 ## 目的
 
@@ -133,6 +133,13 @@ Checkpoint Preamble
    摘要拒绝提交。成功 Replace 后重新构造完整请求，并再次走 Provider 原生计数/Token Guard。
 5. Web 投影公开全部 `compaction/*`，替换消息携带
    `surfaceOp={op:"replace",start,end}` 与 `sourceEventSeqs`。
+6. `/compact` 是空闲 Session 的无输入 Maintenance Turn：先持久写入 `command/run`，再以同一
+   `commandId` 关联 `compaction/start|summary|end`，完成后写 `command/done`。它不创建用户消息、
+   不调用普通 Agent 回复；运行中 Session、参数或附件会明确拒绝。Host/Agent 重启会从未闭合的
+   `command/run` 恢复，同一命令不会被当成普通消息重复执行。
+7. 自动压缩的 Web 节点从 `compaction/start` 起立即显示“正在压缩”动画；成功 Checkpoint 原位
+   替换为可展开摘要，失败或取消在 `compaction/end` 后移除临时节点。实时事件与分页历史使用同一
+   reducer，避免刷新前后表现不同。
 
 当前自动摘要复用活跃 Provider/Model，保留相同 System、被选消息和末尾 Compact Instruction，
 但不携带工具，并通过 `LoopRequest.compaction_reasoning_effort` 使用该模型最低成本档位；主请求仍
@@ -166,10 +173,9 @@ Session，通过正式 Web RPC 驱动两轮任务，并保存 History、Debug Tr
 1. 把 `ToolResultPruner` 接成 `compaction/prune + tool/result replace` 的生产事务；目前单次模型
    写回仍先经过 256 KiB Head/Tail Envelope，自动摘要可继续缩短历史，但 8,192 字符旧结果裁剪
    尚未主动运行。
-2. 增加手动 `/compact` 和空闲 Session Maintenance Turn；当前只有自动 Pressure/Overflow。
-3. Provider 优先消费结构化错误码；为 OpenAI-compatible 私有部署保留的 400 文本分类必须继续
+2. Provider 优先消费结构化错误码；为 OpenAI-compatible 私有部署保留的 400 文本分类必须继续
    限定为“无任何 Delta + 有上限恢复”，不能泛化成任意字符串重试。
-4. 增加 Purpose Provider Registry、独立摘要路由、真实 SIGKILL/Flush 全切点矩阵和按模型精确
+3. 增加 Purpose Provider Registry、独立摘要路由、真实 SIGKILL/Flush 全切点矩阵和按模型精确
    Tokenizer；当前 Range 节点价格是保守 JSON/UTF-8 价格，最终准入仍由请求级权威计数决定。
 
 ## 验收标准
