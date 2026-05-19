@@ -8,6 +8,21 @@ const implementation = readFileSync(new URL('../ui/overrides/session-history-cac
 export function patchSessionHistoryCache(bytes) {
   let s = bytes.toString();
   const block = start + '\n' + implementation + 'installSessionHistoryCache(Session, SessionManager);\n' + end;
+  const oldLoadOlderGuard = `\t\t\t\t\tconst tail = older[older.length - 1];
+\t\t\t\t\tif (tail === void 0 || tail.event.seq + 1 !== this.baseSeq) {
+\t\t\t\t\t\tconsole.error(\`[web-runtime] history page discontinuous: tail seq \${tail?.event.seq} vs baseSeq \${this.baseSeq}\`);
+\t\t\t\t\t\tthis.hasMore = false;
+\t\t\t\t\t\tthis.conversation.prepend([], false);
+\t\t\t\t\t\treturn;
+\t\t\t\t\t}`;
+  const newLoadOlderGuard = `\t\t\t\t\tif (!this.xhValidHistoryPage(older, this.baseSeq)) {
+\t\t\t\t\t\tconsole.error(\`[web-runtime] invalid projected history page before \${this.baseSeq}\`);
+\t\t\t\t\t\tthis.hasMore = false;
+\t\t\t\t\t\tthis.conversation.prepend([], false);
+\t\t\t\t\t\treturn;
+\t\t\t\t\t}`;
+  if (s.includes(oldLoadOlderGuard)) s = s.replace(oldLoadOlderGuard, newLoadOlderGuard);
+  else if (!s.includes(newLoadOlderGuard)) throw Error('History cache loadOlder guard anchor changed');
   if (s.includes(start)) {
     if (s.split(start).length !== 2 || s.split(end).length !== 2) throw Error('History cache implementation anchors changed');
     return Buffer.from(s.slice(0,s.indexOf(start)) + block + s.slice(s.indexOf(end) + end.length));
@@ -43,5 +58,8 @@ if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[
   graph.rev = hash(JSON.stringify(graph.entries));
   writeFileSync(resolve(dist,'client-graph.json'), JSON.stringify(graph,null,2)+'\n');
   const index = resolve(dist,'index.html');
-  writeFileSync(index,readFileSync(index,'utf8').replace(/window\.__DSH_BOOT__ = .*?<\/script>/,() => `window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`));
+  const tag = new RegExp(`/plugins/${entry.id.replaceAll('.','\\.')}/client\\.js\\?rev=[0-9a-f]+`,'g');
+  writeFileSync(index,readFileSync(index,'utf8')
+    .replace(tag,`/plugins/${entry.id}/client.js?rev=${entry.rev}`)
+    .replace(/window\.__DSH_BOOT__ = .*?<\/script>/,() => `window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`));
 }
