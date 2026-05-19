@@ -93,8 +93,8 @@ function installAtomicHistory(Assembler, Session) {
       if (generation !== this.openGeneration || this.openState !== 'open' || this.stitching) return;
       const value = responseValue(result), older = value.events;
       if (this.baseSeq !== beforeSeq) throw Error('History window changed during pagination; retry history loading');
-      if (older.length && (older.at(-1).event.seq + 1 !== beforeSeq || older[0].event.seq >= beforeSeq))
-        throw Error('History page discontinuous; retry history loading');
+      if (older.length && !this.xhValidHistoryPage(older, beforeSeq))
+        throw Error('History projected page is invalid; retry history loading');
       if (!older.length && value.hasMore) throw Error('History page made no progress; retry history loading');
       const entries = [...older, ...this.events.map((event, index) => ({ event, view: this.views[index] }))];
       this.installWindow(entries, value.hasMore);
