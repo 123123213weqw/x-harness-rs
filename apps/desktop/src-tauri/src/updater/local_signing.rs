@@ -54,7 +54,10 @@ impl LocalSigning {
                     .to_owned(),
             );
         }
-        let available = run_output("security", &["find-identity", "-v", "-p", "codesigning"])?;
+        let available = run_output(
+            "/usr/bin/security",
+            &["find-identity", "-v", "-p", "codesigning"],
+        )?;
         if !available.to_ascii_uppercase().contains(&identity) {
             return Err("登录钥匙串中找不到本机签名私钥；更新尚未开始".to_owned());
         }
@@ -74,7 +77,7 @@ impl LocalSigning {
         ));
         fs::create_dir(&rollback).map_err(|error| format!("无法创建更新备份：{error}"))?;
         if let Err(error) = run(
-            "ditto",
+            "/usr/bin/ditto",
             &[app.as_os_str(), rollback.join("XHarness.app").as_os_str()],
         ) {
             let _ = fs::remove_dir_all(&rollback);
@@ -93,7 +96,7 @@ impl LocalSigning {
         }
         sign(&self.app, &self.identity)?;
         run(
-            "codesign",
+            "/usr/bin/codesign",
             &[
                 "--verify".as_ref(),
                 "--deep".as_ref(),
@@ -115,9 +118,13 @@ impl LocalSigning {
         if !previous.is_dir() {
             return Err(format!("回滚副本丢失：{}", previous.display()));
         }
-        let quarantine = self
-            .app
-            .with_extension(format!("failed-update-{}", std::process::id()));
+        let quarantine = self.app.with_extension(format!(
+            "failed-update-{}",
+            self.rollback
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| "无效的更新备份路径".to_owned())?
+        ));
         if quarantine.exists() {
             return Err(format!("回滚暂存路径已存在：{}", quarantine.display()));
         }
@@ -125,7 +132,10 @@ impl LocalSigning {
             fs::rename(&self.app, &quarantine)
                 .map_err(|error| format!("无法隔离失败版本：{error}"))?;
         }
-        if let Err(error) = run("ditto", &[previous.as_os_str(), self.app.as_os_str()]) {
+        if let Err(error) = run(
+            "/usr/bin/ditto",
+            &[previous.as_os_str(), self.app.as_os_str()],
+        ) {
             let _ = fs::remove_dir_all(&self.app);
             let _ = fs::rename(&quarantine, &self.app);
             return Err(format!(
@@ -134,7 +144,7 @@ impl LocalSigning {
             ));
         }
         if let Err(error) = run(
-            "codesign",
+            "/usr/bin/codesign",
             &[
                 "--verify".as_ref(),
                 "--deep".as_ref(),
@@ -158,7 +168,7 @@ fn sign(path: &Path, identity: &str) -> Result<(), String> {
         return Err(format!("更新包缺少待签名文件：{}", path.display()));
     }
     run(
-        "codesign",
+        "/usr/bin/codesign",
         &[
             "--force".as_ref(),
             "--options".as_ref(),
@@ -173,7 +183,10 @@ fn sign(path: &Path, identity: &str) -> Result<(), String> {
 }
 
 fn same_designated_requirement(app: &Path, identity: &str) -> Result<bool, String> {
-    let output = run_output_os("codesign", &["-dr".as_ref(), "-".as_ref(), app.as_os_str()])?;
+    let output = run_output_os(
+        "/usr/bin/codesign",
+        &["-dr".as_ref(), "-".as_ref(), app.as_os_str()],
+    )?;
     let expected = format!(
         "designated => identifier \"com.xlang.xharness\" and certificate root = H\"{}\"",
         identity.to_ascii_lowercase()
@@ -225,11 +238,9 @@ mod tests {
 
     #[test]
     fn validates_exact_fingerprint() {
-        assert!(valid_identity("33990A6899D53B5D7CA37C1836136337E63055E8"));
+        assert!(valid_identity(&"A".repeat(40)));
         assert!(!valid_identity("-"));
-        assert!(!valid_identity(
-            "33990A6899D53B5D7CA37C1836136337E63055E8/evil"
-        ));
+        assert!(!valid_identity(&format!("{}/evil", "A".repeat(40))));
     }
 
     #[test]
