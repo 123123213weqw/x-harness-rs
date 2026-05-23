@@ -14,6 +14,90 @@ pub const DEEP_SECONDS: u64 = 15 * 60;
 /// Distinct protocol marker, not a wall-clock deadline.
 pub const PERSISTENT_DEEP: u64 = u64::MAX;
 
+/// Closed, non-sensitive startup failure categories shared by the Host and
+/// desktop shell. Do not put arbitrary error text, paths or credentials here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupFailureCode {
+    Arguments,
+    ProcessOwnership,
+    Diagnostics,
+    Workspace,
+    ProviderConfiguration,
+    StateStore,
+    RuntimeInitialization,
+    ModelSettings,
+    SessionRestore,
+    NetworkBind,
+    Readiness,
+    Other,
+}
+
+impl StartupFailureCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Arguments => "arguments",
+            Self::ProcessOwnership => "process_ownership",
+            Self::Diagnostics => "diagnostics",
+            Self::Workspace => "workspace",
+            Self::ProviderConfiguration => "provider_configuration",
+            Self::StateStore => "state_store",
+            Self::RuntimeInitialization => "runtime_initialization",
+            Self::ModelSettings => "model_settings",
+            Self::SessionRestore => "session_restore",
+            Self::NetworkBind => "network_bind",
+            Self::Readiness => "readiness",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct StartupFailureReceipt {
+    pub version: u8,
+    pub code: StartupFailureCode,
+}
+
+impl StartupFailureReceipt {
+    pub fn new(code: StartupFailureCode) -> Self {
+        Self { version: 1, code }
+    }
+
+    /// The desktop supplies a unique per-launch path. Atomic replacement
+    /// prevents a reader from observing a partial receipt after Host exit.
+    pub fn write(&self, path: &Path) -> io::Result<()> {
+        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+        let result = (|| {
+            let mut file = fs::File::create(&temporary)?;
+            file.write_all(&serde_json::to_vec(self)?)?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&temporary, path)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(temporary);
+        }
+        result
+    }
+
+    pub fn read(path: &Path) -> io::Result<Self> {
+        let file = fs::File::open(path)?;
+        let mut bytes = Vec::new();
+        file.take(257).read_to_end(&mut bytes)?;
+        if bytes.len() > 256 {
+            return Err(io::Error::other("startup failure receipt exceeds budget"));
+        }
+        let receipt: Self = serde_json::from_slice(&bytes)?;
+        if receipt.version != 1 {
+            return Err(io::Error::other(
+                "unsupported startup failure receipt version",
+            ));
+        }
+        Ok(receipt)
+    }
+}
+
 /// Explicit user preferences only; never infer consent from an old lease file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -77,6 +161,7 @@ pub enum Phase {
     FrontendHydrated,
     FirstFrame,
     HostExit,
+    HostStartupFailure,
     HostStderr,
     HostIoError,
     Sample,
@@ -121,6 +206,8 @@ pub struct Record {
     pub signal: Option<i32>,
     pub expected: Option<bool>,
     pub byte_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_failure: Option<StartupFailureCode>,
     pub resources: Option<Resources>,
 }
 
@@ -137,6 +224,7 @@ impl Record {
             signal: None,
             expected: None,
             byte_count: None,
+            startup_failure: None,
             resources: None,
         }
     }
@@ -317,6 +405,34 @@ impl DeepLease {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_failure_receipt_is_bounded_closed_and_exportable_without_raw_error() {
+        let dir = Temp::new();
+        fs::create_dir_all(&dir.0).unwrap();
+        let path = dir.0.join("startup-failure.json");
+        let receipt = StartupFailureReceipt::new(StartupFailureCode::ProviderConfiguration);
+        receipt.write(&path).unwrap();
+        assert_eq!(StartupFailureReceipt::read(&path).unwrap(), receipt);
+        let mut record = Record::new(Phase::HostStartupFailure);
+        record.startup_failure = Some(receipt.code);
+        let mut log = Recorder::open(&dir.0).unwrap();
+        log.append(&record).unwrap();
+        let exported = serde_json::to_string(&log.snapshot().unwrap()).unwrap();
+        assert!(exported.contains("provider_configuration"));
+        assert!(!exported.contains("apiKey"));
+
+        for invalid in [
+            br#"{"version":1,"code":"provider_configuration","apiKey":"SECRET"}"#.as_slice(),
+            br#"{"version":7,"code":"provider_configuration"}"#,
+            br#"{"version":1,"code":"SECRET"}"#,
+        ] {
+            fs::write(&path, invalid).unwrap();
+            assert!(StartupFailureReceipt::read(&path).is_err());
+        }
+        fs::write(&path, vec![b'x'; 257]).unwrap();
+        assert!(StartupFailureReceipt::read(&path).is_err());
+    }
     use std::sync::atomic::{AtomicU64, Ordering};
     static NONCE: AtomicU64 = AtomicU64::new(0);
     struct Temp(PathBuf);
