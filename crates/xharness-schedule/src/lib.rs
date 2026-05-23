@@ -133,7 +133,9 @@ struct ScheduleOwner {
     notify: Notify,
     stop: CancellationToken,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    faulted: AtomicBool,
+    /// A follow-up may already be durable when its dispatch marker cannot be
+    /// appended. Retry only the marker; never enqueue the same reminder again.
+    pending_dispatches: Mutex<Option<Vec<ScheduleChange>>>,
     deliveries: Arc<Mutex<HashMap<(String, String), PreparedScheduleDelivery>>>,
     delivery_tx: broadcast::Sender<ScheduleDeliveryNotice>,
 }
@@ -180,7 +182,7 @@ impl ScheduleManager {
                     notify: Notify::new(),
                     stop: CancellationToken::new(),
                     task: Mutex::new(None),
-                    faulted: AtomicBool::new(false),
+                    pending_dispatches: Mutex::new(None),
                     deliveries: Arc::clone(&self.deliveries),
                     delivery_tx: self.delivery_tx.clone(),
                 })
@@ -531,11 +533,7 @@ impl ScheduleOwner {
                     continue;
                 }
             }
-            let action = if self.faulted.load(Ordering::Acquire) {
-                DriveAction::Dormant
-            } else {
-                self.drive_once().await
-            };
+            let action = self.drive_once().await;
             match action {
                 DriveAction::Continue => continue,
                 DriveAction::Dormant => {
@@ -590,20 +588,28 @@ impl ScheduleOwner {
                 return DriveAction::Wait(Some(self.clock.now_ms().saturating_add(1000)), handle)
             }
         };
+        // End the guard's lifetime before entering the branch: the success
+        // path clears the same mutex after the durability barrier.
+        let pending = { self.pending_dispatches.lock().await.clone() };
+        if let Some(changes) = pending {
+            return match self.append_dispatches(changes).await {
+                Ok(()) => {
+                    *self.pending_dispatches.lock().await = None;
+                    DriveAction::Continue
+                }
+                Err(_) => DriveAction::Wait(Some(self.clock.now_ms().saturating_add(1000)), handle),
+            };
+        }
         let folded = match fold_schedule_events(&session) {
             Ok(folded) => folded,
-            Err(_) => {
-                self.faulted.store(true, Ordering::Release);
-                return DriveAction::Dormant;
-            }
+            // A malformed durable log is not a transient CAS failure. Park
+            // until an explicit notification instead of polling it forever.
+            Err(_) => return DriveAction::Dormant,
         };
         let now = self.clock.now_ms();
         let decision = match due_decision(&folded, now) {
             Ok(decision) => decision,
-            Err(_) => {
-                self.faulted.store(true, Ordering::Release);
-                return DriveAction::Dormant;
-            }
+            Err(_) => return DriveAction::Dormant,
         };
         let (message, changes) = match decision {
             DueDecision::Wait(target) => return DriveAction::Wait(target, handle),
@@ -632,6 +638,14 @@ impl ScheduleOwner {
                 (message, changes)
             }
         };
+
+        // A Host restart can lose the in-memory pending marker after the
+        // follow-up was durably admitted. Its deterministic ID proves delivery;
+        // reconcile the schedule marker without creating a second follow-up.
+        if message_seen(&session, &message.id) {
+            *self.pending_dispatches.lock().await = Some(changes);
+            return DriveAction::Continue;
+        }
 
         let delivery_key = (self.session_id.clone(), message.id.clone());
         self.deliveries.lock().await.insert(
@@ -671,19 +685,43 @@ impl ScheduleOwner {
             }
         }
 
-        if self.append_dispatches(changes).await.is_err() {
-            // The followup may already be durable. Stop private retries rather
-            // than risk a duplicate delivery; a later Host restart can
-            // reconcile the deterministic message identity.
-            self.faulted.store(true, Ordering::Release);
-            return DriveAction::Dormant;
+        // Once delivery is known, retain only the dispatch marker as pending.
+        // Retrying this marker is safe; repeating maintenance_followup is not.
+        *self.pending_dispatches.lock().await = Some(changes.clone());
+        match self.append_dispatches(changes).await {
+            Ok(()) => {
+                *self.pending_dispatches.lock().await = None;
+                DriveAction::Continue
+            }
+            Err(_) => DriveAction::Wait(Some(self.clock.now_ms().saturating_add(1000)), handle),
         }
-        DriveAction::Continue
     }
 
     async fn append_dispatches(&self, changes: Vec<ScheduleChange>) -> Result<(), ScheduleError> {
         for _ in 0..MAX_CAS_RETRIES {
             let session = load_session(&self.store, &self.session_id).await?;
+            let recorded = changes
+                .iter()
+                .filter(|change| {
+                    session.events().iter().any(|event| {
+                        matches!(event.data(), EventData::ScheduleChange { change: prior } if prior == *change)
+                    })
+                })
+                .count();
+            if recorded == changes.len() {
+                // An append may have succeeded while its flush failed. Prove
+                // durability instead of appending duplicate dispatches.
+                self.store
+                    .flush(&self.session_id)
+                    .await
+                    .map_err(store_error)?;
+                return Ok(());
+            }
+            if recorded != 0 {
+                return Err(ScheduleError::Corrupt(
+                    "partial schedule dispatch marker batch".to_owned(),
+                ));
+            }
             let events = changes
                 .iter()
                 .cloned()
@@ -1873,5 +1911,252 @@ mod tests {
 
         manager.shutdown().await.unwrap();
         handle.shutdown(Duration::from_secs(1)).await;
+    }
+    /// A store whose append barrier can be switched into permanent CAS failure.
+    struct ConflictAppendStore {
+        inner: Arc<dyn Store>,
+        conflicting: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait]
+    impl Store for ConflictAppendStore {
+        async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+            self.inner.list_headers().await
+        }
+        async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
+            self.inner.create(header).await
+        }
+        async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
+            self.inner.load(session_id).await
+        }
+        async fn append(
+            &self,
+            session_id: &str,
+            expected_revision: xharness_session::Revision,
+            events: Vec<SessionEvent>,
+        ) -> Result<xharness_session::AppendReceipt, StoreError> {
+            if self.conflicting.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(StoreError::RevisionConflict {
+                    session_id: session_id.to_owned(),
+                    expected: expected_revision,
+                    actual: expected_revision,
+                });
+            }
+            self.inner
+                .append(session_id, expected_revision, events)
+                .await
+        }
+        async fn flush(&self, session_id: &str) -> Result<xharness_session::Revision, StoreError> {
+            self.inner.flush(session_id).await
+        }
+        async fn inspect(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<xharness_session::SessionInspection>, StoreError> {
+            self.inner.inspect(session_id).await
+        }
+    }
+
+    /// A transient dispatch CAS conflict must retry the marker without
+    /// redelivering the original reminder or disabling later timers.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_transient_append_contention_does_not_disable_future_timers() {
+        let base = DateTime::parse_from_rfc3339("2026-09-02T00:00:30.000Z")
+            .unwrap()
+            .timestamp_millis();
+        let clock = FixedClock::new(base);
+        let inner: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let session = inner.create(SessionHeader::new("latch")).await.unwrap();
+        // Rule one (created at 00:00:00, +30s) is already due at `base`.
+        inner
+            .append(
+                "latch",
+                session.revision(),
+                vec![SessionEvent::new(EventData::ScheduleChange {
+                    change: ScheduleChange::Create {
+                        version: 1,
+                        schedule: ScheduleRecord {
+                            id: "schedule-1".to_owned(),
+                            kind: ScheduleKind::After,
+                            prompt: "first".to_owned(),
+                            after_seconds: Some(30),
+                            every_seconds: None,
+                            scheduled_at: "2026-09-02T00:00:00.000Z".to_owned(),
+                        },
+                    },
+                })],
+            )
+            .await
+            .unwrap();
+        inner.flush("latch").await.unwrap();
+
+        let conflicting = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let store: Arc<dyn Store> = Arc::new(ConflictAppendStore {
+            inner: Arc::clone(&inner),
+            conflicting: Arc::clone(&conflicting),
+        });
+        let registry =
+            AgentRegistry::new(Arc::clone(&inner), Arc::new(MemoryLeaseManager::default()));
+        let activation = registry
+            .activate(SessionHeader::new("latch"))
+            .await
+            .unwrap();
+        let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+            scripts: StdMutex::new(VecDeque::from([vec![
+                Ok(ProviderEvent::TextDelta("first".to_owned())),
+                Ok(ProviderEvent::Completed {
+                    finish_reason: Some(FinishReason::Stop),
+                    usage: None,
+                    provider_items: Vec::new(),
+                }),
+            ]])),
+        });
+        let handle = DurableAgentHandle::start(activation, Arc::new(Factory(provider)), 64);
+        let manager = ScheduleManager::with_clock(Arc::clone(&store), clock);
+        let mut deliveries = manager.subscribe_deliveries();
+        manager.attach(handle.clone()).await.unwrap();
+
+        // The contended dispatch leaves a marker pending for retry.
+        let first = tokio::time::timeout(Duration::from_secs(2), deliveries.recv()).await;
+        assert!(first.is_ok(), "the due rule never dispatched: {first:?}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Storage is healthy again and a second, already-due rule is added.
+        conflicting.store(false, std::sync::atomic::Ordering::Release);
+        let current = inner.load("latch").await.unwrap().unwrap();
+        inner
+            .append(
+                "latch",
+                current.revision(),
+                vec![SessionEvent::new(EventData::ScheduleChange {
+                    change: ScheduleChange::Create {
+                        version: 1,
+                        schedule: ScheduleRecord {
+                            id: "schedule-2".to_owned(),
+                            kind: ScheduleKind::After,
+                            prompt: "second".to_owned(),
+                            after_seconds: Some(30),
+                            every_seconds: None,
+                            scheduled_at: "2026-09-02T00:00:00.000Z".to_owned(),
+                        },
+                    },
+                })],
+            )
+            .await
+            .unwrap();
+        inner.flush("latch").await.unwrap();
+        manager.attach(handle.clone()).await.unwrap();
+
+        let second = tokio::time::timeout(Duration::from_secs(3), deliveries.recv()).await;
+        let settled = inner.load("latch").await.unwrap().unwrap();
+        let first_delivery_count = settled.events().iter().filter(|event| {
+            matches!(event.data(), EventData::AgentInboxSpliced { inserted, .. }
+                if inserted.iter().any(|message| message.id.starts_with("schedule:latch:schedule-1:")))
+        }).count();
+        manager.shutdown().await.unwrap();
+        handle.shutdown(Duration::from_secs(1)).await;
+
+        assert!(
+            second.is_ok(),
+            "the schedule owner stayed dormant: one transient append conflict \
+             permanently disabled every later timer for this session"
+        );
+        assert_eq!(
+            first_delivery_count, 1,
+            "retry duplicated the first reminder"
+        );
+    }
+
+    /// If append commits but its durability barrier reports failure, retrying
+    /// the marker must flush that same event rather than append a duplicate.
+    struct FailFirstFlushStore {
+        inner: Arc<dyn Store>,
+        fail_once: std::sync::atomic::AtomicBool,
+    }
+
+    #[async_trait]
+    impl Store for FailFirstFlushStore {
+        async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+            self.inner.list_headers().await
+        }
+        async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
+            self.inner.create(header).await
+        }
+        async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
+            self.inner.load(session_id).await
+        }
+        async fn append(
+            &self,
+            session_id: &str,
+            expected_revision: xharness_session::Revision,
+            events: Vec<SessionEvent>,
+        ) -> Result<xharness_session::AppendReceipt, StoreError> {
+            self.inner
+                .append(session_id, expected_revision, events)
+                .await
+        }
+        async fn flush(&self, session_id: &str) -> Result<xharness_session::Revision, StoreError> {
+            if self.fail_once.swap(false, Ordering::AcqRel) {
+                return Err(StoreError::Backend {
+                    message: "injected flush failure".into(),
+                });
+            }
+            self.inner.flush(session_id).await
+        }
+        async fn inspect(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<xharness_session::SessionInspection>, StoreError> {
+            self.inner.inspect(session_id).await
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_after_dispatch_flush_failure_does_not_duplicate_marker() {
+        let inner: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let session = inner
+            .create(SessionHeader::new("flush-retry"))
+            .await
+            .unwrap();
+        inner
+            .append(
+                "flush-retry",
+                session.revision(),
+                vec![SessionEvent::new(EventData::ScheduleChange {
+                    change: ScheduleChange::Create {
+                        version: 1,
+                        schedule: ScheduleRecord {
+                            id: "schedule-1".into(),
+                            kind: ScheduleKind::After,
+                            prompt: "once".into(),
+                            after_seconds: Some(1),
+                            every_seconds: None,
+                            scheduled_at: "2026-09-02T00:00:01.000Z".into(),
+                        },
+                    },
+                })],
+            )
+            .await
+            .unwrap();
+        inner.flush("flush-retry").await.unwrap();
+        let store: Arc<dyn Store> = Arc::new(FailFirstFlushStore {
+            inner: Arc::clone(&inner),
+            fail_once: std::sync::atomic::AtomicBool::new(true),
+        });
+        let manager = ScheduleManager::with_clock(store, FixedClock::new(0));
+        let owner = manager.owner("flush-retry").await.unwrap();
+        let marker = ScheduleChange::Dispatch {
+            version: 1,
+            id: "schedule-1".into(),
+            accepted_at: None,
+        };
+        assert!(owner.append_dispatches(vec![marker.clone()]).await.is_err());
+        owner.append_dispatches(vec![marker.clone()]).await.unwrap();
+        let session = inner.load("flush-retry").await.unwrap().unwrap();
+        let count = session.events().iter().filter(|event| {
+            matches!(event.data(), EventData::ScheduleChange { change } if change == &marker)
+        }).count();
+        assert_eq!(count, 1, "flush retry duplicated a durable dispatch marker");
+        manager.shutdown().await.unwrap();
     }
 }

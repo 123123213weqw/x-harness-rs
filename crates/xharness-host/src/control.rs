@@ -144,12 +144,22 @@ impl BasicHost {
                 .get_mut(&settings.namespace)
                 .expect("settings namespaces were validated before projection");
             namespace.user = settings.user.clone();
-            namespace.value = settings.value.clone();
             if settings.namespace == crate::MODEL_SETTINGS_NAMESPACE {
+                namespace.value =
+                    crate::settings_processor::merge_model_layers(&namespace.base, &namespace.user);
+                // Keep discovered capabilities for unchanged routes, but
+                // never let an old effective-provider snapshot hide new base
+                // providers delivered by an app upgrade.
+                crate::model_settings::inherit_model_capabilities(
+                    &mut namespace.value,
+                    &settings.value,
+                );
                 crate::model_settings::inherit_model_capabilities(
                     &mut namespace.value,
                     &namespace.base,
                 );
+            } else {
+                namespace.value = settings.value.clone();
             }
             namespace.revision = settings.revision;
         }
