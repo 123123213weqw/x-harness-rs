@@ -38,6 +38,19 @@ XHARNESS_DEBUG_DIR=~/.local/share/xharness/debug
 `off|full`，以后可以向同一个抽象增加 Metadata/OpenTelemetry Adapter，但不能改变 Full 的
 不丢提交事件语义。
 
+## 桌面 Host 启动失败回执
+
+桌面启动时为每次 Host 生成唯一的私有 `XHARNESS_STARTUP_FAILURE_FILE` 路径。Host 在
+Readiness 前失败时，退出前原子写入版本化回执；其中只有固定枚举的失败代码（例如
+`provider_configuration`、`session_restore`、`network_bind`），**不含原始 stderr、路径、
+配置正文或密钥**。成功进入服务阶段不写启动失败回执。桌面端读取后移除临时文件，将同一
+代码写入 `host_startup_failure` 诊断元数据，并将对应的固定中文说明和代码显示在启动屏。
+这样即使 Full Debug Trace 关闭，导出的默认诊断也能标明失败阶段。
+
+回执缺失、损坏或超过 256 字节时，桌面保持原有通用错误而不伪造具体原因；下次启动会先清理
+旧回执，禁止把旧进程的错误归因到新进程。进程被强杀、存储不可写等无法落盘的情况仍只能
+靠退出码和原有元数据诊断。此通道不是自由文本日志，也不改变 Full Trace 的隐私边界。
+
 ## 落盘布局
 
 每次 Host 启动创建独立 Trace：
@@ -141,4 +154,3 @@ Tool Call/Completed 事件关联。关闭 Debug 时所有 Recorder 都是 Noop�
 - Core、Provider、Tool、Process、Terminal、Sandbox、Web 和 Server 均有内存 Sink 或真实 Host 跨层测试。
 - Process/PTY/Web/Provider 的原始 Chunk 在上层截断前进入 Debug Sink。
 - 失败、取消、超时沿各层既有结果事件记录；超大 Payload 由 Blob 机制统一承载。
-

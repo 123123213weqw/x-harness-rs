@@ -7,6 +7,7 @@ use xharness_compaction::CompactionConfig;
 use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::ToolResultPruningContextPolicy;
 use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode};
+use xharness_diagnostics::{StartupFailureCode, StartupFailureReceipt};
 use xharness_host::{
     AgentRuntime, BasicHost, DelegationConcurrency, DurableLoopAgentRuntime, DurableQuestionHub,
     HostConfig,
@@ -22,7 +23,24 @@ use xharness_session_jsonl::JsonlSessionStore;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // The desktop passes a unique private path for this process generation.
+    // Only a closed failure code is written: never stderr, paths or secrets.
+    let receipt_path = env::var_os("XHARNESS_STARTUP_FAILURE_FILE").map(PathBuf::from);
+    let mut failure_code = Some(StartupFailureCode::Arguments);
+    let result = main_inner(&mut failure_code).await;
+    if result.is_err() {
+        if let (Some(path), Some(code)) = (receipt_path.as_deref(), failure_code) {
+            let _ = StartupFailureReceipt::new(code).write(path);
+        }
+    }
+    result
+}
+
+async fn main_inner(
+    failure_code: &mut Option<StartupFailureCode>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse()?;
+    *failure_code = Some(StartupFailureCode::ProcessOwnership);
     if let Some(permit) = &args.desktop_start_file {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         loop {
@@ -53,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("xharness crash signal unavailable");
         }
     }
+    *failure_code = Some(StartupFailureCode::Diagnostics);
     let (debug, trace) =
         DebugRecorder::open(DebugTraceConfig::new(args.debug_trace, &args.debug_dir)).await?;
     let debug = match (
@@ -65,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(trace) = trace {
         eprintln!("xharness full debug trace: {}", trace.directory.display());
     }
-    let result = run(args, debug.clone()).await;
+    let result = run(args, debug.clone(), failure_code).await;
     let outcome = match &result {
         Ok(()) => serde_json::json!({"outcome": "success"}),
         Err(error) => serde_json::json!({"outcome": "failed", "error": error.to_string()}),
@@ -77,7 +96,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     result
 }
 
-async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(
+    args: Args,
+    debug: DebugRecorder,
+    failure_code: &mut Option<StartupFailureCode>,
+) -> Result<(), Box<dyn std::error::Error>> {
     debug
         .record(DebugEvent::new(
             "host",
@@ -99,10 +122,13 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
             }),
         ))
         .await?;
+    *failure_code = Some(StartupFailureCode::Workspace);
     let workspace = std::fs::canonicalize(&args.workspace)?;
+    *failure_code = Some(StartupFailureCode::StateStore);
     let attachments: Arc<dyn xharness_attachments::AttachmentStore> = Arc::new(
         xharness_attachments::FileAttachmentStore::new(args.state_dir.join("attachments"))?,
     );
+    *failure_code = Some(StartupFailureCode::ProviderConfiguration);
     let deployment = match &args.providers_file {
         Some(path) => ModelDeployment::bootstrap_from_file(path)?,
         None => {
@@ -135,6 +161,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
     let control_dir = args.state_dir.join("control");
+    *failure_code = Some(StartupFailureCode::StateStore);
     let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?.for_runtime());
     let questions = DurableQuestionHub::new(store.clone(), ManagedAgentMarkdownSink::new());
     let schedules = ScheduleManager::new(Arc::clone(&store));
@@ -147,6 +174,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     );
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
+    *failure_code = Some(StartupFailureCode::RuntimeInitialization);
     let runtime = Arc::new(
         DurableLoopAgentRuntime::from_registry_with_delegation_concurrency(
             deployment.default_route,
@@ -170,6 +198,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         questions,
     );
     tools.bind_agent_host(&host)?;
+    *failure_code = Some(StartupFailureCode::ProviderConfiguration);
     let model_settings_base = match &args.providers_file {
         Some(path) => config::settings_from_file(path)?,
         None if args.model != "unconfigured" => serde_json::json!({"providers":{
@@ -184,6 +213,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         }}),
         None => serde_json::json!({"providers":{}}),
     };
+    *failure_code = Some(StartupFailureCode::ModelSettings);
     let credentials = Arc::new(NativeCredentialStore::new(&args.state_dir)?);
     let calibration_path = args.state_dir.join("token-calibration-v1.json");
     let calibration = tokio::task::spawn_blocking(move || {
@@ -200,6 +230,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         );
     host.install_model_settings(Arc::new(model_settings), model_settings_base)
         .await?;
+    *failure_code = Some(StartupFailureCode::SessionRestore);
     let restore = host.restore_from_store(store).await?;
     host.start_delegation_listener();
     if let Some(error) = &restore.model_settings_error {
@@ -243,8 +274,10 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         debug.clone(),
         args.desktop_token.clone(),
     );
+    *failure_code = Some(StartupFailureCode::NetworkBind);
     let listener = TcpListener::bind(args.bind).await?;
     let local_addr = listener.local_addr()?;
+    *failure_code = Some(StartupFailureCode::Readiness);
     publish_ready_file(args.ready_file.as_deref(), local_addr).await?;
     debug
         .record(DebugEvent::new(
@@ -259,6 +292,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let mut server_task = tokio::spawn(serve(listener, router, async move {
         let _ = server_stop_rx.await;
     }));
+    *failure_code = None;
     host.start_auto_titles().await;
     let mut signal_error = None;
     let early_server_result = tokio::select! {
