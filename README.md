@@ -322,7 +322,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
   再生成最多 8,000 字符的 `reader-extractive/v1` 摘要，并支持可选 `focus` 相关段落排名
 - DNS 校验地址与实际连接固定；Clash/Surge 的 `198.18/15` Fake-IP 先经加密公共 DNS 验证，
   不放宽直接私网/Reserved IP。Fetch 属于 Host 受控能力，在两种 Session 权限下行为一致
-- `web_search` 必须显式注入 Provider；当前包含可选的 Exa 实现，不伪造“本地搜索”
+- `web_search` 仅在配置非空 `EXA_API_KEY` 时投影；桌面端也可将密钥放在应用配置目录的
+  `secrets/EXA_API_KEY`（或 `secrets/exa_api_key`）。未配置时不伪造“本地搜索”
 
 ### `xharness-tools`
 

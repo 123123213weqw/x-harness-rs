@@ -12,6 +12,10 @@
 Host 已知没有 Search Provider 时，下一模型请求不应继续投影 `web_search`；`web_fetch` 是否
 可用独立判断。动态移除工具不改变 Registry 中的稳定定义，也不得把 Search 凭据写进 Prompt。
 
+生产 Host 从非空 `EXA_API_KEY` 环境变量显式安装内置 Exa Adapter；桌面 Sidecar 复用既有
+`secrets/` 私有文件约定加载 `EXA_API_KEY`，不要求模型 Provider 配置文件存在。空值/缺席时
+Search 保持不可用，工具不投影。密钥只传入 Host 进程，不写入设置回执、Prompt 或诊断日志。
+
 ## Fetch 契约
 
 Fetch 接收一个最长 2048 Byte 的匿名 HTTP(S) URL。禁止发送 Cookie、环境 Authorization

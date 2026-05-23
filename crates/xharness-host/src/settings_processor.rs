@@ -50,7 +50,11 @@ impl SettingsProcessor {
         let mut namespace = self.namespace(ns, expected_revision)?;
         merge_object(&mut namespace.user, &Value::Object(patch));
         crate::preference_settings::validate(&namespace)?;
-        merge_object(&mut namespace.value, &namespace.user);
+        if ns == crate::MODEL_SETTINGS_NAMESPACE {
+            namespace.value = merge_model_layers(&namespace.base, &namespace.user);
+        } else {
+            merge_object(&mut namespace.value, &namespace.user);
+        }
         namespace.revision = namespace.revision.saturating_add(1);
         Ok(SettingsMutation { namespace })
     }
@@ -69,8 +73,7 @@ impl SettingsProcessor {
         crate::preference_settings::validate(&namespace)?;
         namespace.value = Value::Object(section);
         if ns == crate::MODEL_SETTINGS_NAMESPACE {
-            namespace.value = namespace.base.clone();
-            merge_object(&mut namespace.value, &namespace.user);
+            namespace.value = merge_model_layers(&namespace.base, &namespace.user);
         }
         namespace.revision = namespace.revision.saturating_add(1);
         Ok(SettingsMutation { namespace })
@@ -123,8 +126,7 @@ impl SettingsProcessor {
         crate::preference_settings::validate(&namespace)?;
         namespace.value = namespace.user.clone();
         if ns == crate::MODEL_SETTINGS_NAMESPACE {
-            namespace.value = namespace.base.clone();
-            merge_object(&mut namespace.value, &namespace.user);
+            namespace.value = merge_model_layers(&namespace.base, &namespace.user);
         }
         namespace.revision = namespace.revision.saturating_add(1);
         Ok(SettingsMutation { namespace })
@@ -192,6 +194,14 @@ fn check_revision(namespace: &SettingsNamespace, expected: Option<u64>) -> Resul
         }
     }
     Ok(())
+}
+
+/// Model `value` is derived state, not a replayable snapshot. Rebase user
+/// overrides on each deployment's current provider defaults.
+pub(crate) fn merge_model_layers(base: &Value, user: &Value) -> Value {
+    let mut merged = base.clone();
+    merge_object(&mut merged, user);
+    merged
 }
 
 fn merge_object(target: &mut Value, patch: &Value) {

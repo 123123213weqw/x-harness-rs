@@ -34,7 +34,20 @@ use xharness_jobs::JobRegistry;
 use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
 use xharness_schedule::ScheduleManager;
 use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
-use xharness_web::WebRuntime;
+use xharness_web::{ExaSearchProvider, WebError, WebRuntime};
+
+/// Search remains opt-in: only a non-empty Exa key installs the provider and
+/// projects `web_search` to the model. The key is never put in tool metadata.
+pub fn configured_web_runtime(
+    exa_api_key: Option<String>,
+    debug: DebugRecorder,
+) -> Result<WebRuntime, WebError> {
+    let mut web = WebRuntime::default().with_debug(debug);
+    if let Some(key) = exa_api_key.filter(|key| !key.trim().is_empty()) {
+        web = web.with_search_provider(Arc::new(ExaSearchProvider::new(key)?));
+    }
+    Ok(web)
+}
 
 /// Native Linux/macOS/Windows implementation of the standard coding-tool factory.
 /// Platforms are cached per canonical workspace so filesystem observations
@@ -434,6 +447,27 @@ mod tests {
         r#"{"command":"Start-Sleep -Seconds 30","run_in_background":true}"#;
 
     struct TempWorkspace(std::path::PathBuf);
+
+    #[tokio::test]
+    async fn exa_search_is_projected_only_with_an_explicit_key() {
+        let workspace = TempWorkspace::new();
+        let cwd = workspace.0.to_string_lossy();
+        for (key, expected) in [
+            (None, false),
+            (Some(" ".to_owned()), false),
+            (Some("test-key".to_owned()), true),
+        ] {
+            let web = configured_web_runtime(key, DebugRecorder::disabled()).unwrap();
+            assert_eq!(web.has_search_provider(), expected);
+            let factory = NativeToolFactory::new(web);
+            let executor = factory
+                .executor("search-test", &cwd, PermissionPreset::DangerFullAccess)
+                .await
+                .unwrap();
+            let names = executor.registry().definitions().await;
+            assert_eq!(names.iter().any(|tool| tool.name == "web_search"), expected);
+        }
+    }
 
     impl TempWorkspace {
         fn new() -> Self {
