@@ -15,6 +15,7 @@ fn main() {
             "desktop_update_status",
             "desktop_download_update",
             "desktop_install_update",
+            "desktop_set_computer_activity",
         ]),
     ))
     .expect("failed to generate desktop IPC permissions")

@@ -1300,3 +1300,19 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 新增矩阵远程执行通过：源码 `4dac706` 在 CI 35324269598 的 Linux/macOS/Windows 全仓测试通过，Core 120 项通过；V100 SSH 超时，未本机编译。
 - [ ] 等待本批所有打包/更新演练 CI 完成后再决定合并发布；跨平台单元测试绿不等于整个工作流已完成。
 - [ ] 真实模型长会话质量、真实 Provider 计数误差、桌面热切模型端到端验收仍独立执行，不能用 Fixture 代替。
+
+## macOS Computer Use（2026-09-21）
+
+- [x] `COMPUTER-01` 单一 `computer` 工具协议：observe/move/click/drag/scroll/type/keypress/wait/window 九类动作，条件字段执行前严格校验。
+- [x] `COMPUTER-02` 平台职责分离：`xharness-computer` 只含协议和 ToolSpec，`xharness-computer-macos` 封装 CoreGraphics、Accessibility、窗口与截图实现。
+- [x] `COMPUTER-03` 复用 ToolRegistry、Exclusive 调度、CancellationToken、AttachmentStore 和多模态 ContentBlock；截图不进入文本或 Debug Base64。
+- [x] `COMPUTER-04` 仅在 macOS `danger-full-access` 注册；Accessibility/Screen Recording 运行时 fail-closed，workspace-write 不暴露不可沙箱化能力。
+- [x] `COMPUTER-05` logical point / Retina / 多屏元数据、frame/node 过期保护，以及拖动异常时强制 mouse-up。
+- [ ] `COMPUTER-06` macOS CI 编译真实 FFI 分支；本机完成九动作、权限撤销、取消、Retina 多屏和用户接管验收。
+- [x] `COMPUTER-07` 扩展有节点/深度/访问量硬上限的 AX 元素树、frame-scoped node identity、AXPress/聚焦语义动作与敏感输入遮蔽；不得改变现有 action 协议。跨 frame 稳定身份留待真实应用兼容矩阵证明后再引入，避免误命中旧控件。
+- [ ] `COMPUTER-08` 独立 Computer Control 权限预设和设置页授权入口；在此之前继续使用明确的 full access 门禁。
+- [ ] `COMPUTER-09` 工具稳定后再接 Skill Hub；Skill 仅注入操作策略，不复制或绕过 `computer` 权限实现。
+- [x] `COMPUTER-10` Web/Tauri 共用专用 Computer 工具卡和全局隐私状态条；运行时明确区分屏幕观察与输入控制，切换会话不误隐藏，结束后清理且不挂载完整 AX 树。
+- [x] `COMPUTER-11` macOS 桌面使用原生、跨 App、跨 Space、鼠标穿透且不新建 WebView 的隐私浮层；按 callId 聚合并发活动，前后端双 watchdog 清理，浏览器保留 DOM 状态条作为降级路径。
+
+实现与失败语义见 [Computer Use 工具规范](specs/computer-use.md)。

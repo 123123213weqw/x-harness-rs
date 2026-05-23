@@ -1,3 +1,4 @@
+mod computer_activity;
 mod diagnostics;
 mod sidecar;
 mod startup;
@@ -33,6 +34,7 @@ pub fn run() {
         .setup(|app| {
             let state = DesktopState::initialize(app.handle())?;
             app.manage(state);
+            app.manage(computer_activity::DesktopComputerActivityState::default());
             configure_linux_webview(app.handle());
             if app.state::<DesktopState>().diagnostics.incident() {
                 let _ = diagnostics::open(app.handle());
@@ -70,6 +72,7 @@ pub fn run() {
             updater::desktop_update_status,
             updater::desktop_download_update,
             updater::desktop_install_update,
+            computer_activity::desktop_set_computer_activity,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {
@@ -95,6 +98,7 @@ pub fn run() {
                 {
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 }
+                computer_activity::clear(&handle);
                 let _ = sidecar::graceful_stop(&handle).await;
                 handle.exit(0);
             });

@@ -5,6 +5,8 @@
 //! independent from Linux/macOS/Windows process, filesystem, sandbox, jobs and Web
 //! implementations.
 
+#[cfg(target_os = "macos")]
+mod computer_media;
 pub mod ownership;
 mod read_media;
 pub mod reasoning_discovery;
@@ -239,6 +241,23 @@ impl SessionToolFactory for NativeToolFactory {
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
             specs.push(xharness_host::AgentTool::for_host(&host, session_id));
+        }
+        // Native desktop control deliberately remains outside the workspace
+        // sandbox. It is registered as one provider-neutral tool only after
+        // the user selected the existing full-access preset. macOS permission
+        // probes still fail closed inside the adapter.
+        #[cfg(target_os = "macos")]
+        if permission == PermissionPreset::DangerFullAccess {
+            let mut tool = xharness_computer::ComputerTool::new(Arc::new(
+                xharness_computer_macos::MacComputer::new(),
+            ));
+            if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+                tool = tool.with_media_sink(Arc::new(computer_media::Sink {
+                    host: Arc::downgrade(&host),
+                    session: session_id.into(),
+                }));
+            }
+            specs.push(tool.spec());
         }
         if let Some(schedules) = &self.schedules {
             specs.extend(schedules.specs(session_id));
@@ -476,6 +495,17 @@ mod tests {
         assert!(full_definitions
             .iter()
             .any(|definition| definition.name == NATIVE_SHELL_TOOL));
+        assert!(guarded_names
+            .iter()
+            .all(|definition| definition.name != "computer"));
+        #[cfg(target_os = "macos")]
+        assert!(full_definitions
+            .iter()
+            .any(|definition| definition.name == "computer"));
+        #[cfg(not(target_os = "macos"))]
+        assert!(full_definitions
+            .iter()
+            .all(|definition| definition.name != "computer"));
     }
 
     #[tokio::test]
