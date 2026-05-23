@@ -21,7 +21,7 @@ use tokio::{
     time::{self, Instant},
 };
 use url::Url;
-use xharness_diagnostics::{Phase, Record};
+use xharness_diagnostics::{Phase, Record, StartupFailureCode, StartupFailureReceipt};
 
 const HOST_START_TIMEOUT: Duration = Duration::from_secs(30);
 const HOST_STOP_TIMEOUT: Duration = Duration::from_secs(15);
@@ -45,6 +45,7 @@ pub struct DesktopState {
     startup_error: Mutex<Option<String>>,
     pub(crate) shutdown_file: PathBuf,
     ready_file: PathBuf,
+    failure_file: PathBuf,
     token: String,
     workspace: PathBuf,
     state_dir: PathBuf,
@@ -76,6 +77,7 @@ impl DesktopState {
         let runtime_id = random_token()?;
         let shutdown_file = runtime_dir.join(format!("shutdown-{runtime_id}.request"));
         let ready_file = runtime_dir.join(format!("ready-{runtime_id}.address"));
+        let failure_file = runtime_dir.join(format!("startup-failure-{runtime_id}.json"));
         let static_dir = app.path().resolve("web", BaseDirectory::Resource)?;
         let providers_file = env::var_os("XHARNESS_PROVIDERS_FILE")
             .map(PathBuf::from)
@@ -127,6 +129,7 @@ impl DesktopState {
             startup_error: Mutex::new(None),
             shutdown_file,
             ready_file,
+            failure_file,
             token,
             workspace,
             state_dir,
@@ -189,15 +192,32 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         .startup_error
         .lock()
         .expect("startup error mutex poisoned") = None;
-    let result = start_claimed(app).await;
+    // Fail before launching, rather than letting a stale receipt be mistaken
+    // for the result of this attempt when cleanup itself is denied.
+    let result = match fs::remove_file(&state.failure_file) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("无法清理旧的 Host 启动失败回执".to_owned()),
+    };
+    let result = match result {
+        Ok(()) => start_claimed(app).await.map_err(|fallback| {
+            match consume_startup_failure(&state.failure_file) {
+                Some((record, message)) => {
+                    state.diagnostics.record(record);
+                    message
+                }
+                None => fallback,
+            }
+        }),
+        Err(error) => Err(error),
+    };
     if let Err(error) = &result {
         state.diagnostics.mark_incident();
         let _ = crate::diagnostics::open(app);
-        state
+        *state
             .startup_error
             .lock()
-            .expect("startup error mutex poisoned")
-            .get_or_insert_with(|| error.clone());
+            .expect("startup error mutex poisoned") = Some(error.clone());
         if state.child.lock().expect("child mutex poisoned").is_none() {
             state.running.store(false, Ordering::SeqCst);
         } else {
@@ -242,7 +262,8 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
             "XHARNESS_DIAGNOSTICS_DIR",
             state.diagnostics.root.join("host"),
         )
-        .env("XHARNESS_DIAGNOSTICS_CONTROL", &state.diagnostics.control);
+        .env("XHARNESS_DIAGNOSTICS_CONTROL", &state.diagnostics.control)
+        .env("XHARNESS_STARTUP_FAILURE_FILE", &state.failure_file);
     for (name, value) in &state.provider_env {
         command = command.env(name, value);
     }
@@ -512,6 +533,35 @@ async fn wait_for_stop(running: &AtomicBool, timeout: Duration) -> Result<(), St
     Ok(())
 }
 
+fn startup_failure_message(code: StartupFailureCode) -> String {
+    let cause = match code {
+        StartupFailureCode::Arguments => "启动参数无效",
+        StartupFailureCode::ProcessOwnership => "进程启动许可或数据目录所有权检查失败",
+        StartupFailureCode::Diagnostics => "诊断系统初始化失败",
+        StartupFailureCode::Workspace => "工作目录不可访问",
+        StartupFailureCode::ProviderConfiguration => "模型 Provider 配置无法加载",
+        StartupFailureCode::StateStore => "状态存储无法打开",
+        StartupFailureCode::RuntimeInitialization => "运行时初始化失败",
+        StartupFailureCode::ModelSettings => "模型设置无法加载",
+        StartupFailureCode::SessionRestore => "历史会话恢复失败",
+        StartupFailureCode::NetworkBind => "本地服务端口无法监听",
+        StartupFailureCode::Readiness => "服务就绪信号发布失败",
+        StartupFailureCode::Other => "未知的启动故障",
+    };
+    format!(
+        "XHarness Host 启动失败：{cause}（代码 {}）。请打开运行诊断导出报告。",
+        code.as_str()
+    )
+}
+
+fn consume_startup_failure(path: &Path) -> Option<(Record, String)> {
+    let receipt = StartupFailureReceipt::read(path).ok()?;
+    let mut record = Record::new(Phase::HostStartupFailure);
+    record.startup_failure = Some(receipt.code);
+    let _ = fs::remove_file(path);
+    Some((record, startup_failure_message(receipt.code)))
+}
+
 async fn wait_until_ready(app: &AppHandle, ready_file: &Path) -> Result<String, String> {
     let deadline = Instant::now() + HOST_START_TIMEOUT;
     loop {
@@ -665,6 +715,28 @@ fn read_nonempty_secret(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_failure_receipt_becomes_safe_screen_text_and_diagnostic_metadata() {
+        let path = std::env::temp_dir().join(format!(
+            "xharness-startup-receipt-{}-{}",
+            std::process::id(),
+            random_token().unwrap()
+        ));
+        StartupFailureReceipt::new(StartupFailureCode::ProviderConfiguration)
+            .write(&path)
+            .unwrap();
+        let (record, message) = consume_startup_failure(&path).unwrap();
+        assert!(matches!(record.phase, Phase::HostStartupFailure));
+        assert_eq!(
+            record.startup_failure,
+            Some(StartupFailureCode::ProviderConfiguration)
+        );
+        assert!(message.contains("Provider 配置"));
+        assert!(message.contains("provider_configuration"));
+        assert!(!path.exists());
+        assert!(consume_startup_failure(&path).is_none());
+    }
 
     #[test]
     fn stop_timeout_does_not_pretend_process_exited() {
