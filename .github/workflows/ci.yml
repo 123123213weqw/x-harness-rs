@@ -98,6 +98,7 @@ jobs:
       - run: node scripts/test-max-tokens-notice.mjs
       - run: node scripts/test-context-plugin.mjs
       - run: node scripts/test-compaction-ui.mjs
+      - run: node scripts/test-computer-ui.mjs
       - run: node scripts/test-brand-headline.mjs
       - run: node scripts/test-logo-gradient.mjs
       - run: node scripts/test-logo-motion.mjs
@@ -152,6 +153,8 @@ jobs:
           node scripts/test-ui-namespace.mjs
           UI_TEST_BROWSER=chromium node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-goal-runtime-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-computer-ui-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-computer-ui-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-request-audit-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-request-audit-browser.mjs
       - name: Upload workspace directory UI evidence
