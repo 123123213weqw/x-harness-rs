@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+mod local_signing;
 mod state;
 
 use std::{
@@ -177,6 +179,15 @@ pub async fn desktop_install_update(
         .lock()
         .expect("update session mutex poisoned")
         .install_payload(confirm_stop)?;
+    // A locally distributed, unnotarized macOS build may use a persistent
+    // self-signed identity. Tauri's downloaded archive is signature-verified,
+    // but CI cannot hold this machine's private key: prepare a rollback copy
+    // before replacing the app and re-sign the installed bundle before restart.
+    #[cfg(target_os = "macos")]
+    let local_signing = match local_signing::LocalSigning::prepare(&app) {
+        Ok(signing) => signing,
+        Err(error) => return fail(&app, &state, Action::Install, error).map(|_| ()),
+    };
     transition(
         &app,
         &state,
@@ -184,6 +195,10 @@ pub async fn desktop_install_update(
         Some("正在保存会话并停止 Agent、Tool 和 Job".to_owned()),
     );
     if let Err(error) = sidecar::graceful_stop(&app).await {
+        #[cfg(target_os = "macos")]
+        if let Some(local_signing) = &local_signing {
+            local_signing.discard();
+        }
         return fail(
             &app,
             &state,
@@ -196,6 +211,10 @@ pub async fn desktop_install_update(
     }
     transition(&app, &state, Phase::Installing, None);
     if let Err(error) = update.install(bytes.as_slice()) {
+        #[cfg(target_os = "macos")]
+        if let Some(local_signing) = &local_signing {
+            local_signing.discard();
+        }
         transition(
             &app,
             &state,
@@ -208,6 +227,25 @@ pub async fn desktop_install_update(
             Err(recovery) => format!("安装更新失败：{error}；Host 恢复也失败：{recovery}"),
         };
         return fail(&app, &state, Action::Install, message).map(|_| ());
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(local_signing) = local_signing {
+        if let Err(error) = local_signing.sign_installed() {
+            transition(
+                &app,
+                &state,
+                Phase::RecoveringHost,
+                Some("本机签名失败，正在恢复上一版本".to_owned()),
+            );
+            let restored = local_signing.restore();
+            let recovery = sidecar::start(&app).await;
+            let message = format!(
+                "安装后本机签名失败：{error}；回滚：{}；Host 恢复：{}",
+                restored.map(|_| "成功".to_owned()).unwrap_or_else(|e| e),
+                recovery.map(|_| "成功".to_owned()).unwrap_or_else(|e| e),
+            );
+            return fail(&app, &state, Action::Install, message).map(|_| ());
+        }
     }
     transition(&app, &state, Phase::Installed, None);
     app.restart();
