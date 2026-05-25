@@ -5,7 +5,15 @@
 //! use two downlink-only WebSockets. The server owns transport validation only;
 //! business behavior is supplied by [`xharness_api::ApiBackend`].
 
-use std::{future::Future, path::PathBuf, str::FromStr, sync::Arc};
+use std::{
+    future::Future,
+    path::PathBuf,
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use axum::{
     body::Bytes,
@@ -15,7 +23,7 @@ use axum::{
     },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -35,6 +43,30 @@ use xharness_debug::{DebugEvent, DebugRecorder};
 pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 160 * 1024 * 1024;
 const DESKTOP_COOKIE_NAME: &str = "xharness_desktop";
 
+/// Separates a bound, authenticated transport from a fully restored product
+/// state. Existing embedded/browser callers use an already-ready gate; native
+/// desktop startup creates a pending gate and opens it after durable replay.
+#[derive(Clone, Debug)]
+pub struct StartupReadiness(Arc<AtomicBool>);
+
+impl StartupReadiness {
+    pub fn pending() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
+    pub fn ready() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+
+    pub fn mark_ready(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
 #[derive(Clone)]
 struct ServerState {
     backend: Arc<dyn ApiBackend>,
@@ -47,6 +79,14 @@ pub fn api_router(backend: Arc<dyn ApiBackend>) -> Router {
 }
 
 pub fn api_router_with_debug(backend: Arc<dyn ApiBackend>, debug: DebugRecorder) -> Router {
+    api_router_with_debug_and_readiness(backend, debug, StartupReadiness::ready())
+}
+
+fn api_router_with_debug_and_readiness(
+    backend: Arc<dyn ApiBackend>,
+    debug: DebugRecorder,
+    readiness: StartupReadiness,
+) -> Router {
     let state = ServerState { backend, debug };
     Router::new()
         .route(RESPOND_PATH, post(respond))
@@ -59,6 +99,7 @@ pub fn api_router_with_debug(backend: Arc<dyn ApiBackend>, debug: DebugRecorder)
         .route("/api/{namespace}/{method}", post(dynamic_unary))
         .route("/api/{method}", post(unary))
         .layer(DefaultBodyLimit::max(DEFAULT_REQUEST_BODY_LIMIT_BYTES))
+        .route_layer(middleware::from_fn_with_state(readiness, require_ready))
         .with_state(state)
 }
 
@@ -187,7 +228,23 @@ pub fn web_router_with_debug_and_desktop_token(
     debug: DebugRecorder,
     desktop_token: Option<String>,
 ) -> Router {
-    let mut router = api_router_with_debug(backend, debug);
+    web_router_with_debug_desktop_token_and_readiness(
+        backend,
+        static_dir,
+        debug,
+        desktop_token,
+        StartupReadiness::ready(),
+    )
+}
+
+pub fn web_router_with_debug_desktop_token_and_readiness(
+    backend: Arc<dyn ApiBackend>,
+    static_dir: Option<PathBuf>,
+    debug: DebugRecorder,
+    desktop_token: Option<String>,
+    readiness: StartupReadiness,
+) -> Router {
+    let mut router = api_router_with_debug_and_readiness(backend, debug, readiness.clone());
     if let Some(token) = desktop_token {
         let auth = DesktopAuth::new(token);
         router = router
@@ -197,16 +254,42 @@ pub fn web_router_with_debug_and_desktop_token(
             ))
             .route(
                 "/desktop/bootstrap",
-                get(desktop_bootstrap).with_state(auth),
+                get(desktop_bootstrap).with_state(DesktopBootstrapState {
+                    auth,
+                    readiness: readiness.clone(),
+                }),
             );
     }
-    router = router.route("/health/ready", get(health_ready));
+    router = router
+        .route("/desktop/starting", get(desktop_starting))
+        .route("/health/live", get(health_live))
+        .route("/health/ready", get(health_ready).with_state(readiness));
     match static_dir {
         Some(root) => {
             let index = root.join("index.html");
             router.fallback_service(ServeDir::new(root).fallback(ServeFile::new(index)))
         }
         None => router,
+    }
+}
+
+async fn require_ready(
+    State(readiness): State<StartupReadiness>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if readiness.is_ready() {
+        next.run(request).await
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "service": "xharness-host",
+                "state": "restoring",
+            })),
+        )
+            .into_response()
     }
 }
 
@@ -246,11 +329,17 @@ struct DesktopBootstrapQuery {
     token: String,
 }
 
+#[derive(Clone)]
+struct DesktopBootstrapState {
+    auth: DesktopAuth,
+    readiness: StartupReadiness,
+}
+
 async fn desktop_bootstrap(
-    State(auth): State<DesktopAuth>,
+    State(state): State<DesktopBootstrapState>,
     Query(query): Query<DesktopBootstrapQuery>,
 ) -> Response {
-    if !auth.accepts(&query.token) {
+    if !state.auth.accepts(&query.token) {
         return (StatusCode::UNAUTHORIZED, "invalid desktop bootstrap token").into_response();
     }
     let cookie = format!(
@@ -260,8 +349,25 @@ async fn desktop_bootstrap(
     let Ok(cookie) = HeaderValue::from_str(&cookie) else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
-    let mut response = Redirect::to("/").into_response();
+    let target = if state.readiness.is_ready() {
+        "/"
+    } else {
+        "/desktop/starting"
+    };
+    let mut response = Redirect::to(target).into_response();
     response.headers_mut().insert(header::SET_COOKIE, cookie);
+    response
+}
+
+async fn desktop_starting() -> Response {
+    let mut response = Html(
+        r#"<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>XHarness 正在恢复</title><style>html,body{height:100%;margin:0;background:#111;color:#eee;font:14px system-ui,sans-serif}.wrap{height:100%;display:grid;place-items:center}.card{text-align:center}.spinner{width:28px;height:28px;margin:0 auto 18px;border:3px solid #444;border-top-color:#ddd;border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><main class="wrap"><div class="card"><div class="spinner"></div><div>正在恢复历史会话和模型配置…</div></div></main><script>const poll=()=>fetch('/health/ready',{cache:'no-store'}).then(r=>{if(r.ok)location.replace('/');else setTimeout(poll,500)}).catch(()=>setTimeout(poll,500));poll()</script></body></html>"#,
+    )
+    .into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, max-age=0"),
+    );
     response
 }
 
@@ -296,12 +402,34 @@ fn desktop_cookie(cookies: &str) -> Option<&str> {
     })
 }
 
-async fn health_ready() -> Json<Value> {
-    Json(json!({
+async fn health_live() -> Json<Value> {
+    Json(health_payload("live"))
+}
+
+async fn health_ready(State(readiness): State<StartupReadiness>) -> Response {
+    let status = if readiness.is_ready() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(health_payload(if readiness.is_ready() {
+            "ready"
+        } else {
+            "restoring"
+        })),
+    )
+        .into_response()
+}
+
+fn health_payload(state: &str) -> Value {
+    json!({
         "ok": true,
         "service": "xharness-host",
         "version": env!("CARGO_PKG_VERSION"),
-    }))
+        "state": state,
+    })
 }
 
 /// Serve a prebuilt Router on a caller-owned listener until shutdown resolves.

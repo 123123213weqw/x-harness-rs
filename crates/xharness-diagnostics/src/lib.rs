@@ -33,6 +33,79 @@ pub enum StartupFailureCode {
     Other,
 }
 
+/// Closed, non-sensitive Host startup stages. The receipt is intentionally
+/// small enough to poll frequently and must never carry paths, provider data,
+/// prompts, or error text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupStage {
+    BasicInitialization,
+    RuntimeInitialization,
+    NetworkBind,
+    Live,
+    HistoryRestore,
+    ModelReconciliation,
+    Ready,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct StartupProgressReceipt {
+    pub version: u8,
+    pub sequence: u64,
+    pub stage: StartupStage,
+}
+
+impl StartupProgressReceipt {
+    pub fn new(sequence: u64, stage: StartupStage) -> Self {
+        Self {
+            version: 1,
+            sequence,
+            stage,
+        }
+    }
+
+    /// The Host is the only writer for a per-launch path. Replacement uses a
+    /// temporary sibling so readers never accept a partially serialized JSON
+    /// value; a brief not-found window on Windows is harmless to polling.
+    pub fn write(&self, path: &Path) -> io::Result<()> {
+        let temporary = path.with_extension(format!("progress-{}", std::process::id()));
+        let result = (|| {
+            let mut file = fs::File::create(&temporary)?;
+            file.write_all(&serde_json::to_vec(self)?)?;
+            file.sync_all()?;
+            drop(file);
+            #[cfg(windows)]
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+            fs::rename(&temporary, path)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(temporary);
+        }
+        result
+    }
+
+    pub fn read(path: &Path) -> io::Result<Self> {
+        let file = fs::File::open(path)?;
+        let mut bytes = Vec::new();
+        file.take(257).read_to_end(&mut bytes)?;
+        if bytes.len() > 256 {
+            return Err(io::Error::other("startup progress receipt exceeds budget"));
+        }
+        let receipt: Self = serde_json::from_slice(&bytes)?;
+        if receipt.version != 1 {
+            return Err(io::Error::other(
+                "unsupported startup progress receipt version",
+            ));
+        }
+        Ok(receipt)
+    }
+}
+
 impl StartupFailureCode {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -432,6 +505,31 @@ mod tests {
         }
         fs::write(&path, vec![b'x'; 257]).unwrap();
         assert!(StartupFailureReceipt::read(&path).is_err());
+    }
+
+    #[test]
+    fn startup_progress_receipt_is_bounded_closed_and_replaceable() {
+        let dir = Temp::new();
+        fs::create_dir_all(&dir.0).unwrap();
+        let path = dir.0.join("startup-progress.json");
+        let first = StartupProgressReceipt::new(1, StartupStage::BasicInitialization);
+        first.write(&path).unwrap();
+        assert_eq!(StartupProgressReceipt::read(&path).unwrap(), first);
+
+        let second = StartupProgressReceipt::new(2, StartupStage::HistoryRestore);
+        second.write(&path).unwrap();
+        assert_eq!(StartupProgressReceipt::read(&path).unwrap(), second);
+
+        for invalid in [
+            br#"{"version":1,"sequence":3,"stage":"ready","path":"SECRET"}"#.as_slice(),
+            br#"{"version":2,"sequence":3,"stage":"ready"}"#,
+            br#"{"version":1,"sequence":3,"stage":"unknown"}"#,
+        ] {
+            fs::write(&path, invalid).unwrap();
+            assert!(StartupProgressReceipt::read(&path).is_err());
+        }
+        fs::write(&path, vec![b'x'; 257]).unwrap();
+        assert!(StartupProgressReceipt::read(&path).is_err());
     }
     use std::sync::atomic::{AtomicU64, Ordering};
     static NONCE: AtomicU64 = AtomicU64::new(0);
