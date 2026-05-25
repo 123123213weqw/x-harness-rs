@@ -146,3 +146,13 @@ Web 和 Tauri 共用 `ui/dist`，输入区只保留模型选择按钮。点击�
   未知端点仍不主动发起推理探测。
 - 回归：模型设置集成测试改为在部署里声明档位后验证 four-effort 选择、重启恢复与切换未知模型清空；
   `LlmModels` 投影、真实请求体断言与 UI 测试不变。
+
+## 2026-09-23：DeepSeek 显式思考配置
+
+- `config/providers.deepseek.example.json` 是官方 DeepSeek Chat 端点的可复制模板，
+  为 `deepseek-flash` / `deepseek-v4-flash` / `deepseek-v4-pro` 显式声明
+  `off / low / high / max`，默认 `high`。Host 仍然不按厂商名或端点猜测能力。
+- 旧 `providers.json` 不要整个覆盖；只需把模板里相应模型的
+  `reasoning` 对象合并到原来模型条目，保留现有 `base_url`、模型 ID、
+  上下文上限和密钥引用。迁移后已保存的 `high/max` 选择可直接恢复，
+  不再在每次启动时被兼容重映射为 `none`。
