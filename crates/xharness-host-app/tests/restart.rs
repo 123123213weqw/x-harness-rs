@@ -566,8 +566,10 @@ async fn full_debug_cli_writes_private_host_lifecycle_trace() {
         .collect();
     assert!(events.len() >= 5);
     assert_eq!(events[0]["event"], "start");
-    assert_eq!(events[1]["event"], "restore");
-    assert_eq!(events[2]["event"], "listening");
+    assert_eq!(events[1]["event"], "listening");
+    assert_eq!(events[1]["payload"]["state"], "live");
+    assert_eq!(events[2]["event"], "restore");
+    assert_eq!(events[3]["event"], "ready");
     assert!(events
         .iter()
         .any(|event| { event["layer"] == "server" && event["event"] == "rpc.request" }));
