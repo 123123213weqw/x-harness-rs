@@ -689,21 +689,27 @@ fn observe_startup_progress(
 }
 
 async fn health_ok(address: SocketAddr, path: &str) -> bool {
-    let Ok(mut stream) = TcpStream::connect(address).await else {
-        return false;
-    };
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
-        address.port()
-    );
-    if stream.write_all(request.as_bytes()).await.is_err() {
-        return false;
-    }
-    let mut response = [0_u8; 512];
-    stream
-        .read(&mut response)
-        .await
-        .is_ok_and(|read| response[..read].starts_with(b"HTTP/1.1 200"))
+    // A live TCP listener can still accept a socket without answering it.
+    // Bound the *whole* probe so it cannot bypass the startup deadline.
+    time::timeout(Duration::from_secs(2), async {
+        let Ok(mut stream) = TcpStream::connect(address).await else {
+            return false;
+        };
+        let request = format!(
+            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+            address.port()
+        );
+        if stream.write_all(request.as_bytes()).await.is_err() {
+            return false;
+        }
+        let mut response = [0_u8; 512];
+        stream
+            .read(&mut response)
+            .await
+            .is_ok_and(|read| response[..read].starts_with(b"HTTP/1.1 200"))
+    })
+    .await
+    .unwrap_or(false)
 }
 
 fn startup_stage_message(stage: StartupStage) -> &'static str {
@@ -899,6 +905,24 @@ mod tests {
         assert!(progressing.observe(4, start + Duration::from_secs(116)));
         assert!(!progressing.expired(start + Duration::from_secs(119)));
         assert!(progressing.expired(start + Duration::from_secs(120)));
+    }
+
+    #[test]
+    fn silent_health_endpoint_cannot_stall_the_startup_deadline() {
+        tauri::async_runtime::block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (_stream, _) = listener.accept().await.unwrap();
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            });
+            let started = Instant::now();
+            assert!(!health_ok(address, "/health/ready").await);
+            assert!(started.elapsed() < Duration::from_secs(4));
+            server.abort();
+        });
     }
 
     #[test]
