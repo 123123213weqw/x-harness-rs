@@ -198,11 +198,26 @@ impl BasicHost {
             // stranding it behind the admission gate. Internal receipts project
             // as context and keep the gate shut.
             let queued_user_prompt = queue.iter().any(|prompt| prompt.user_mutable());
-            let pending_approval_count = session.pending_tool_approvals().len();
-            let recoverable_question_count = session.recoverable_user_questions().len();
+            let pending_approvals = session.pending_tool_approvals();
+            let recoverable_questions = session.recoverable_user_questions();
+            let pending_approval_count = pending_approvals.len();
+            let recoverable_question_count = recoverable_questions.len();
+            // Undecided approvals have not crossed the execution boundary;
+            // durable questions use stable interaction identities. Their Web
+            // response channels must remain available after restart. Only
+            // calls without a safe interaction are outcome-unknown.
             let pause_incomplete_tools =
                 matches!(recovery_policy, RecoveryPolicy::PauseIncompleteTools)
-                    && !xharness_session::incomplete_tool_calls(session.events()).is_empty();
+                    && xharness_session::incomplete_tool_calls(session.events())
+                        .iter()
+                        .any(|pending| {
+                            !pending_approvals
+                                .iter()
+                                .any(|approval| approval.call_id == pending.call.id)
+                                && !recoverable_questions
+                                    .iter()
+                                    .any(|question| question.call.id == pending.call.id)
+                        });
             let runtime_background_work = match self.agent_runtime.needs_session_resume(&session) {
                 Ok(required) => required,
                 Err(error) => {
@@ -3021,13 +3036,6 @@ mod tests {
                         call: call.clone(),
                     }
                     .into(),
-                    EventData::ApprovalAsked {
-                        id: "approval-paused".to_owned(),
-                        tool_name: "guarded".to_owned(),
-                        call_id: Some(call.id),
-                        reason: Some("requires explicit approval".to_owned()),
-                    }
-                    .into(),
                 ],
             )
             .await
@@ -3157,8 +3165,15 @@ mod tests {
         ));
         let host = BasicHost::with_agent_runtime(config(&cwd), runtime);
         let mut mux = host.mux_events();
-        let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
+        let report = host
+            .restore_from_store_with_policy(
+                Arc::clone(&store),
+                RecoveryPolicy::PauseIncompleteTools,
+            )
+            .await
+            .unwrap();
         assert_eq!(report.resumed_pending_approvals, 1);
+        assert_eq!(report.paused_incomplete_tool_sessions, 0);
         assert_eq!(report.resumed_pending_turns, 0);
         assert!(report.issues.is_empty());
 
@@ -3335,8 +3350,15 @@ mod tests {
             questions,
         );
         let mut mux = host.mux_events();
-        let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
+        let report = host
+            .restore_from_store_with_policy(
+                Arc::clone(&store),
+                RecoveryPolicy::PauseIncompleteTools,
+            )
+            .await
+            .unwrap();
         assert_eq!(report.resumed_user_questions, 1);
+        assert_eq!(report.paused_incomplete_tool_sessions, 0);
         assert!(report.issues.is_empty());
 
         let question = tokio::time::timeout(Duration::from_secs(2), async {
