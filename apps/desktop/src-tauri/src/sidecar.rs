@@ -910,9 +910,7 @@ mod tests {
     #[test]
     fn silent_health_endpoint_cannot_stall_the_startup_deadline() {
         tauri::async_runtime::block_on(async {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-                .await
-                .unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
             let server = tokio::spawn(async move {
                 let (_stream, _) = listener.accept().await.unwrap();
