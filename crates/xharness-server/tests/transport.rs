@@ -21,6 +21,7 @@ use xharness_api::{
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_server::{
     api_router, api_router_with_debug, serve, web_router_with_debug_and_desktop_token,
+    web_router_with_debug_desktop_token_and_readiness, StartupReadiness,
 };
 
 struct FixtureBackend;
@@ -311,6 +312,92 @@ async fn desktop_token_bootstrap_protects_api_but_not_readiness() {
     drop(socket);
     let _ = stop_tx.send(());
     server.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn pending_restore_is_live_but_gates_product_routes_until_ready() {
+    let readiness = StartupReadiness::pending();
+    let router = web_router_with_debug_desktop_token_and_readiness(
+        Arc::new(FixtureBackend),
+        None,
+        DebugRecorder::disabled(),
+        Some("launch-secret".to_owned()),
+        readiness.clone(),
+    );
+
+    let live = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/health/live")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(live.status(), StatusCode::OK);
+    let restoring = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(restoring.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let bootstrap = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/desktop/bootstrap?token=launch-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.status(), StatusCode::SEE_OTHER);
+    assert_eq!(bootstrap.headers()[header::LOCATION], "/desktop/starting");
+
+    let mut request = post(
+        "/api/session.list",
+        json!({
+            "type":"client-request","rpcId":"during-restore",
+            "method":"session.list","payload":{}
+        }),
+    );
+    request
+        .headers_mut()
+        .insert("x-xharness-desktop-token", "launch-secret".parse().unwrap());
+    assert_eq!(
+        router.clone().oneshot(request).await.unwrap().status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+
+    readiness.mark_ready();
+    let ready = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ready.status(), StatusCode::OK);
+    let bootstrap = router
+        .oneshot(
+            Request::builder()
+                .uri("/desktop/bootstrap?token=launch-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.headers()[header::LOCATION], "/");
 }
 
 #[tokio::test]

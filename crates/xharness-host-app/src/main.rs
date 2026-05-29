@@ -7,17 +7,19 @@ use xharness_compaction::CompactionConfig;
 use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::ToolResultPruningContextPolicy;
 use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode};
-use xharness_diagnostics::{StartupFailureCode, StartupFailureReceipt};
+use xharness_diagnostics::{
+    StartupFailureCode, StartupFailureReceipt, StartupProgressReceipt, StartupStage,
+};
 use xharness_host::{
     AgentRuntime, BasicHost, DelegationConcurrency, DurableLoopAgentRuntime, DurableQuestionHub,
-    HostConfig,
+    HostConfig, RecoveryPolicy,
 };
 use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
 use xharness_host_app::{configured_web_runtime, ManagedAgentMarkdownSink, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
-use xharness_server::{serve, web_router_with_debug_and_desktop_token};
+use xharness_server::{serve, web_router_with_debug_desktop_token_and_readiness, StartupReadiness};
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
 
@@ -40,6 +42,8 @@ async fn main_inner(
     failure_code: &mut Option<StartupFailureCode>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse()?;
+    let startup_progress = StartupProgress::start(args.startup_progress_file.clone());
+    startup_progress.stage(StartupStage::BasicInitialization);
     *failure_code = Some(StartupFailureCode::ProcessOwnership);
     if let Some(permit) = &args.desktop_start_file {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
@@ -84,7 +88,7 @@ async fn main_inner(
     if let Some(trace) = trace {
         eprintln!("xharness full debug trace: {}", trace.directory.display());
     }
-    let result = run(args, debug.clone(), failure_code).await;
+    let result = run(args, debug.clone(), failure_code, &startup_progress).await;
     let outcome = match &result {
         Ok(()) => serde_json::json!({"outcome": "success"}),
         Err(error) => serde_json::json!({"outcome": "failed", "error": error.to_string()}),
@@ -100,6 +104,7 @@ async fn run(
     args: Args,
     debug: DebugRecorder,
     failure_code: &mut Option<StartupFailureCode>,
+    startup_progress: &StartupProgress,
 ) -> Result<(), Box<dyn std::error::Error>> {
     debug
         .record(DebugEvent::new(
@@ -175,6 +180,7 @@ async fn run(
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     *failure_code = Some(StartupFailureCode::RuntimeInitialization);
+    startup_progress.stage(StartupStage::RuntimeInitialization);
     let runtime = Arc::new(
         DurableLoopAgentRuntime::from_registry_with_delegation_concurrency(
             deployment.default_route,
@@ -230,8 +236,45 @@ async fn run(
         );
     host.install_model_settings(Arc::new(model_settings), model_settings_base)
         .await?;
+    let readiness = StartupReadiness::pending();
+    let backend: Arc<dyn ApiBackend> = host.clone();
+    let router = web_router_with_debug_desktop_token_and_readiness(
+        backend,
+        args.static_dir,
+        debug.clone(),
+        args.desktop_token.clone(),
+        readiness.clone(),
+    );
+    *failure_code = Some(StartupFailureCode::NetworkBind);
+    startup_progress.stage(StartupStage::NetworkBind);
+    let listener = TcpListener::bind(args.bind).await?;
+    let local_addr = listener.local_addr()?;
+    *failure_code = Some(StartupFailureCode::Readiness);
+    publish_ready_file(args.ready_file.as_deref(), local_addr).await?;
+    let (server_stop_tx, server_stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let mut server_task = tokio::spawn(serve(listener, router, async move {
+        let _ = server_stop_rx.await;
+    }));
+    startup_progress.stage(StartupStage::Live);
+    debug
+        .record(DebugEvent::new(
+            "host",
+            "listening",
+            serde_json::json!({"address": local_addr.to_string(), "state": "live"}),
+        ))
+        .await?;
+    debug.flush().await?;
+    eprintln!("xharness host live on http://{}", local_addr);
+
     *failure_code = Some(StartupFailureCode::SessionRestore);
-    let restore = host.restore_from_store(store).await?;
+    startup_progress.stage(StartupStage::HistoryRestore);
+    let restore = host
+        .restore_from_store_with_policy_and_progress(
+            store,
+            RecoveryPolicy::PauseIncompleteTools,
+            || startup_progress.stage(StartupStage::ModelReconciliation),
+        )
+        .await?;
     host.start_delegation_listener();
     if let Some(error) = &restore.model_settings_error {
         eprintln!("Model settings require attention: {error}");
@@ -246,6 +289,7 @@ async fn run(
                 "resumedPendingTurns": restore.resumed_pending_turns,
                 "resumedPendingApprovals": restore.resumed_pending_approvals,
                 "resumedUserQuestions": restore.resumed_user_questions,
+                "pausedIncompleteToolSessions": restore.paused_incomplete_tool_sessions,
                 "issues": restore.issues.iter().map(|issue| serde_json::json!({
                     "sessionId": &issue.session_id,
                     "message": &issue.message,
@@ -254,11 +298,12 @@ async fn run(
         ))
         .await?;
     eprintln!(
-        "xharness restored {} sessions, resumed {} pending turns, {} approvals, and {} user questions ({} issues)",
+        "xharness restored {} sessions, resumed {} pending turns, {} approvals, and {} user questions; paused {} interrupted tool session(s) ({} issues)",
         restore.restored_sessions,
         restore.resumed_pending_turns,
         restore.resumed_pending_approvals,
         restore.resumed_user_questions,
+        restore.paused_incomplete_tool_sessions,
         restore.issues.len(),
     );
     for issue in &restore.issues {
@@ -267,31 +312,17 @@ async fn run(
             issue.session_id, issue.message
         );
     }
-    let backend: Arc<dyn ApiBackend> = host.clone();
-    let router = web_router_with_debug_and_desktop_token(
-        backend,
-        args.static_dir,
-        debug.clone(),
-        args.desktop_token.clone(),
-    );
-    *failure_code = Some(StartupFailureCode::NetworkBind);
-    let listener = TcpListener::bind(args.bind).await?;
-    let local_addr = listener.local_addr()?;
-    *failure_code = Some(StartupFailureCode::Readiness);
-    publish_ready_file(args.ready_file.as_deref(), local_addr).await?;
+    readiness.mark_ready();
+    startup_progress.stage(StartupStage::Ready);
     debug
         .record(DebugEvent::new(
             "host",
-            "listening",
+            "ready",
             serde_json::json!({"address": local_addr.to_string()}),
         ))
         .await?;
     debug.flush().await?;
-    eprintln!("xharness host listening on http://{}", local_addr);
-    let (server_stop_tx, server_stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let mut server_task = tokio::spawn(serve(listener, router, async move {
-        let _ = server_stop_rx.await;
-    }));
+    eprintln!("xharness host ready on http://{}", local_addr);
     *failure_code = None;
     host.start_auto_titles().await;
     let mut signal_error = None;
@@ -448,6 +479,7 @@ struct Args {
     desktop_token: Option<String>,
     shutdown_file: Option<PathBuf>,
     ready_file: Option<PathBuf>,
+    startup_progress_file: Option<PathBuf>,
     desktop_start_file: Option<PathBuf>,
 }
 
@@ -492,6 +524,8 @@ impl Args {
         let mut desktop_token = env::var("XHARNESS_DESKTOP_TOKEN").ok();
         let mut shutdown_file = env::var_os("XHARNESS_SHUTDOWN_FILE").map(PathBuf::from);
         let mut ready_file = env::var_os("XHARNESS_READY_FILE").map(PathBuf::from);
+        let mut startup_progress_file =
+            env::var_os("XHARNESS_STARTUP_PROGRESS_FILE").map(PathBuf::from);
         let mut desktop_start_file = None;
 
         while let Some(argument) = arguments.next() {
@@ -536,6 +570,7 @@ impl Args {
                 "--desktop-token" => desktop_token = Some(value),
                 "--shutdown-file" => shutdown_file = Some(PathBuf::from(value)),
                 "--ready-file" => ready_file = Some(PathBuf::from(value)),
+                "--startup-progress-file" => startup_progress_file = Some(PathBuf::from(value)),
                 "--desktop-start-file" => desktop_start_file = Some(PathBuf::from(value)),
                 _ => return Err(format!("unknown argument {argument:?}")),
             }
@@ -575,8 +610,55 @@ impl Args {
             desktop_token,
             shutdown_file,
             ready_file,
+            startup_progress_file,
             desktop_start_file,
         })
+    }
+}
+
+#[derive(Clone, Default)]
+struct StartupProgress {
+    sender: Option<tokio::sync::mpsc::UnboundedSender<StartupStage>>,
+}
+
+impl StartupProgress {
+    fn start(path: Option<PathBuf>) -> Self {
+        let Some(path) = path else {
+            return Self::default();
+        };
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut sequence = 0_u64;
+            let mut stage = StartupStage::BasicInitialization;
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+            heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    Some(next) = receiver.recv() => {
+                        stage = next;
+                    }
+                    _ = heartbeat.tick() => {}
+                    else => break,
+                }
+                sequence = sequence.saturating_add(1);
+                let _ = StartupProgressReceipt::new(sequence, stage).write(&path);
+                // This receipt is a startup-only signal. Once ready, stop the
+                // heartbeat instead of syncing a tiny file every second for
+                // the entire lifetime of a desktop session.
+                if stage == StartupStage::Ready {
+                    break;
+                }
+            }
+        });
+        Self {
+            sender: Some(sender),
+        }
+    }
+
+    fn stage(&self, stage: StartupStage) {
+        if let Some(sender) = &self.sender {
+            let _ = sender.send(stage);
+        }
     }
 }
 

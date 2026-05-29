@@ -21,9 +21,12 @@ use tokio::{
     time::{self, Instant},
 };
 use url::Url;
-use xharness_diagnostics::{Phase, Record, StartupFailureCode, StartupFailureReceipt};
+use xharness_diagnostics::{
+    Phase, Record, StartupFailureCode, StartupFailureReceipt, StartupProgressReceipt, StartupStage,
+};
 
-const HOST_START_TIMEOUT: Duration = Duration::from_secs(30);
+const HOST_START_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+const HOST_START_MAX_TIMEOUT: Duration = Duration::from_secs(120);
 const HOST_STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct DesktopState {
@@ -45,6 +48,7 @@ pub struct DesktopState {
     startup_error: Mutex<Option<String>>,
     pub(crate) shutdown_file: PathBuf,
     ready_file: PathBuf,
+    progress_file: PathBuf,
     failure_file: PathBuf,
     token: String,
     workspace: PathBuf,
@@ -77,6 +81,7 @@ impl DesktopState {
         let runtime_id = random_token()?;
         let shutdown_file = runtime_dir.join(format!("shutdown-{runtime_id}.request"));
         let ready_file = runtime_dir.join(format!("ready-{runtime_id}.address"));
+        let progress_file = runtime_dir.join(format!("startup-progress-{runtime_id}.json"));
         let failure_file = runtime_dir.join(format!("startup-failure-{runtime_id}.json"));
         let static_dir = app.path().resolve("web", BaseDirectory::Resource)?;
         let providers_file = env::var_os("XHARNESS_PROVIDERS_FILE")
@@ -129,6 +134,7 @@ impl DesktopState {
             startup_error: Mutex::new(None),
             shutdown_file,
             ready_file,
+            progress_file,
             failure_file,
             token,
             workspace,
@@ -194,11 +200,13 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         .expect("startup error mutex poisoned") = None;
     // Fail before launching, rather than letting a stale receipt be mistaken
     // for the result of this attempt when cleanup itself is denied.
-    let result = match fs::remove_file(&state.failure_file) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err("无法清理旧的 Host 启动失败回执".to_owned()),
-    };
+    let result = [&state.failure_file, &state.progress_file]
+        .into_iter()
+        .try_for_each(|path| match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err("无法清理旧的 Host 启动回执".to_owned()),
+        });
     let result = match result {
         Ok(()) => start_claimed(app).await.map_err(|fallback| {
             match consume_startup_failure(&state.failure_file) {
@@ -242,6 +250,8 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         path_text(&state.shutdown_file),
         "--ready-file".to_owned(),
         path_text(&state.ready_file),
+        "--startup-progress-file".to_owned(),
+        path_text(&state.progress_file),
     ];
     if let Some(providers_file) = &state.providers_file {
         args.extend(["--providers-file".to_owned(), path_text(providers_file)]);
@@ -452,8 +462,7 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     tokio::fs::write(&state.start_file, b"owned")
         .await
         .map_err(|error| format!("无法释放 Host 启动门禁：{error}"))?;
-    let endpoint = wait_until_ready(app, &state.ready_file).await?;
-    state.startup.host_ready(&state.diagnostics);
+    let (endpoint, address, mut budget) = wait_until_live(app, &state.ready_file).await?;
     *state.endpoint.lock().expect("endpoint mutex poisoned") = Some(endpoint.clone());
 
     let mut bootstrap = Url::parse(&format!("{endpoint}/desktop/bootstrap"))
@@ -467,6 +476,8 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     window
         .navigate(bootstrap)
         .map_err(|error| format!("无法打开 XHarness Web UI：{error}"))?;
+    wait_until_product_ready(app, address, &mut budget).await?;
+    state.startup.host_ready(&state.diagnostics);
     let _ = app.emit(
         "xharness-bootstrap",
         HostEvent {
@@ -510,6 +521,7 @@ pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
     }
     let _ = tokio::fs::remove_file(&state.shutdown_file).await;
     let _ = tokio::fs::remove_file(&state.ready_file).await;
+    let _ = tokio::fs::remove_file(&state.progress_file).await;
     Ok(())
 }
 
@@ -562,20 +574,15 @@ fn consume_startup_failure(path: &Path) -> Option<(Record, String)> {
     Some((record, startup_failure_message(receipt.code)))
 }
 
-async fn wait_until_ready(app: &AppHandle, ready_file: &Path) -> Result<String, String> {
-    let deadline = Instant::now() + HOST_START_TIMEOUT;
+async fn wait_until_live(
+    app: &AppHandle,
+    ready_file: &Path,
+) -> Result<(String, SocketAddr, StartupWaitBudget), String> {
+    let mut budget = StartupWaitBudget::new(Instant::now());
+    let mut last_stage = None;
     loop {
-        if !app.state::<DesktopState>().running.load(Ordering::SeqCst) {
-            return Err(app
-                .state::<DesktopState>()
-                .startup_error
-                .lock()
-                .expect("startup error mutex poisoned")
-                .clone()
-                .unwrap_or_else(|| {
-                    "XHarness Host 在 Readiness 之前退出，请检查桌面日志".to_owned()
-                }));
-        }
+        ensure_host_running(app)?;
+        observe_startup_progress(app, &mut budget, &mut last_stage);
         let address = match tokio::fs::read_to_string(ready_file).await {
             Ok(value) => valid_ready_address(&value),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -584,24 +591,136 @@ async fn wait_until_ready(app: &AppHandle, ready_file: &Path) -> Result<String, 
         if let Some(address) = address {
             let port = address.port();
             let endpoint = format!("http://127.0.0.1:{port}");
-            if let Ok(mut stream) = TcpStream::connect(address).await {
-                let request = format!(
-                    "GET /health/ready HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-                );
-                if stream.write_all(request.as_bytes()).await.is_ok() {
-                    let mut response = [0_u8; 512];
-                    if let Ok(read) = stream.read(&mut response).await {
-                        if response[..read].starts_with(b"HTTP/1.1 200") {
-                            return Ok(endpoint);
-                        }
-                    }
-                }
+            if health_ok(address, "/health/live").await {
+                return Ok((endpoint, address, budget));
             }
         }
-        if Instant::now() >= deadline {
-            return Err("XHarness Host 启动超时，请检查桌面日志".to_owned());
+        if budget.expired(Instant::now()) {
+            return Err("XHarness Host 启动超时（最长 120 秒），请检查桌面日志".to_owned());
         }
         time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct StartupWaitBudget {
+    absolute_deadline: Instant,
+    idle_deadline: Instant,
+    last_sequence: Option<u64>,
+}
+
+impl StartupWaitBudget {
+    fn new(now: Instant) -> Self {
+        Self {
+            absolute_deadline: now + HOST_START_MAX_TIMEOUT,
+            idle_deadline: now + HOST_START_IDLE_TIMEOUT,
+            last_sequence: None,
+        }
+    }
+
+    fn observe(&mut self, sequence: u64, now: Instant) -> bool {
+        if self
+            .last_sequence
+            .is_some_and(|previous| sequence <= previous)
+        {
+            return false;
+        }
+        self.last_sequence = Some(sequence);
+        self.idle_deadline = (now + HOST_START_IDLE_TIMEOUT).min(self.absolute_deadline);
+        true
+    }
+
+    fn expired(&self, now: Instant) -> bool {
+        now >= self.idle_deadline || now >= self.absolute_deadline
+    }
+}
+
+async fn wait_until_product_ready(
+    app: &AppHandle,
+    address: SocketAddr,
+    budget: &mut StartupWaitBudget,
+) -> Result<(), String> {
+    let mut last_stage = None;
+    loop {
+        ensure_host_running(app)?;
+        observe_startup_progress(app, budget, &mut last_stage);
+        if health_ok(address, "/health/ready").await {
+            return Ok(());
+        }
+        if budget.expired(Instant::now()) {
+            return Err("XHarness Host 恢复超时（最长 120 秒），请检查运行诊断".to_owned());
+        }
+        time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+fn ensure_host_running(app: &AppHandle) -> Result<(), String> {
+    if app.state::<DesktopState>().running.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    Err(app
+        .state::<DesktopState>()
+        .startup_error
+        .lock()
+        .expect("startup error mutex poisoned")
+        .clone()
+        .unwrap_or_else(|| "XHarness Host 在就绪前退出，请检查桌面日志".to_owned()))
+}
+
+fn observe_startup_progress(
+    app: &AppHandle,
+    budget: &mut StartupWaitBudget,
+    last_stage: &mut Option<StartupStage>,
+) {
+    let Ok(receipt) = StartupProgressReceipt::read(&app.state::<DesktopState>().progress_file)
+    else {
+        return;
+    };
+    if budget.observe(receipt.sequence, Instant::now()) && *last_stage != Some(receipt.stage) {
+        *last_stage = Some(receipt.stage);
+        let _ = app.emit(
+            "xharness-bootstrap",
+            HostEvent {
+                phase: "progress",
+                message: startup_stage_message(receipt.stage).to_owned(),
+            },
+        );
+    }
+}
+
+async fn health_ok(address: SocketAddr, path: &str) -> bool {
+    // A live TCP listener can still accept a socket without answering it.
+    // Bound the *whole* probe so it cannot bypass the startup deadline.
+    time::timeout(Duration::from_secs(2), async {
+        let Ok(mut stream) = TcpStream::connect(address).await else {
+            return false;
+        };
+        let request = format!(
+            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+            address.port()
+        );
+        if stream.write_all(request.as_bytes()).await.is_err() {
+            return false;
+        }
+        let mut response = [0_u8; 512];
+        stream
+            .read(&mut response)
+            .await
+            .is_ok_and(|read| response[..read].starts_with(b"HTTP/1.1 200"))
+    })
+    .await
+    .unwrap_or(false)
+}
+
+fn startup_stage_message(stage: StartupStage) -> &'static str {
+    match stage {
+        StartupStage::BasicInitialization => "Host 正在完成基础初始化…",
+        StartupStage::RuntimeInitialization => "Host 正在初始化 Agent 运行时…",
+        StartupStage::NetworkBind => "Host 正在建立本地安全连接…",
+        StartupStage::Live => "Host 已启动，正在恢复数据…",
+        StartupStage::HistoryRestore => "正在恢复历史会话…",
+        StartupStage::ModelReconciliation => "正在校验模型配置…",
+        StartupStage::Ready => "Host 已就绪",
     }
 }
 
@@ -767,6 +886,58 @@ mod tests {
         assert!(valid_ready_address("0.0.0.0:3082").is_none());
         assert!(valid_ready_address("127.0.0.1:0").is_none());
         assert!(valid_ready_address("not-an-address").is_none());
+    }
+
+    #[test]
+    fn startup_wait_extends_only_for_new_progress_with_an_absolute_cap() {
+        let start = Instant::now();
+        let mut budget = StartupWaitBudget::new(start);
+        assert!(!budget.expired(start + Duration::from_secs(29)));
+        assert!(budget.observe(1, start + Duration::from_secs(29)));
+        assert!(!budget.expired(start + Duration::from_secs(58)));
+        assert!(!budget.observe(1, start + Duration::from_secs(58)));
+        assert!(budget.expired(start + Duration::from_secs(59)));
+
+        let mut progressing = StartupWaitBudget::new(start);
+        assert!(progressing.observe(1, start + Duration::from_secs(29)));
+        assert!(progressing.observe(2, start + Duration::from_secs(58)));
+        assert!(progressing.observe(3, start + Duration::from_secs(87)));
+        assert!(progressing.observe(4, start + Duration::from_secs(116)));
+        assert!(!progressing.expired(start + Duration::from_secs(119)));
+        assert!(progressing.expired(start + Duration::from_secs(120)));
+    }
+
+    #[test]
+    fn silent_health_endpoint_cannot_stall_the_startup_deadline() {
+        tauri::async_runtime::block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (_stream, _) = listener.accept().await.unwrap();
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            });
+            let started = Instant::now();
+            assert!(!health_ok(address, "/health/ready").await);
+            assert!(started.elapsed() < Duration::from_secs(4));
+            server.abort();
+        });
+    }
+
+    #[test]
+    fn startup_stage_messages_are_closed_and_non_sensitive() {
+        for stage in [
+            StartupStage::BasicInitialization,
+            StartupStage::RuntimeInitialization,
+            StartupStage::NetworkBind,
+            StartupStage::Live,
+            StartupStage::HistoryRestore,
+            StartupStage::ModelReconciliation,
+            StartupStage::Ready,
+        ] {
+            let message = startup_stage_message(stage);
+            assert!(!message.is_empty());
+            assert!(!message.contains(['/', '\\']));
+        }
     }
 
     #[test]
