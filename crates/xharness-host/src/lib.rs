@@ -69,7 +69,7 @@ pub use questions::{
     DurableQuestionProvider, NoopAgentMarkdownSink, QuestionHubError, AGENT_MEMORY_BEGIN,
     AGENT_MEMORY_END,
 };
-pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
+pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport, RecoveryPolicy};
 pub use runtime::{
     AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
     AuxiliaryModel, DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelReasoning,

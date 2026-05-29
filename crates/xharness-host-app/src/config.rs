@@ -663,6 +663,44 @@ mod tests {
                 })
         }));
     }
+
+    #[test]
+    fn checked_in_deepseek_example_declares_every_supported_effort() {
+        let config: ProviderFile = serde_json::from_str(include_str!(
+            "../../../config/providers.deepseek.example.json"
+        ))
+        .unwrap();
+        assert_eq!(config.default.provider, "deepseek");
+        assert_eq!(config.default.reasoning_effort.as_deref(), Some("high"));
+        let provider = &config.providers[0];
+        assert_eq!(provider.base_url, "https://api.deepseek.com");
+        assert_eq!(provider.api_key_env.as_deref(), Some("DEEPSEEK_API_KEY"));
+        for model in &provider.models {
+            let reasoning = model.reasoning.as_ref().expect("declared reasoning");
+            assert_eq!(reasoning.default_effort.as_deref(), Some("high"));
+            assert_eq!(
+                reasoning
+                    .efforts
+                    .iter()
+                    .map(|effort| effort.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["off", "low", "high", "max"]
+            );
+            assert_eq!(
+                reasoning.efforts[0].request_patch,
+                serde_json::json!({"thinking":{"type":"disabled"}})
+            );
+            for effort in &reasoning.efforts[1..] {
+                assert_eq!(
+                    effort.request_patch,
+                    serde_json::json!({
+                        "thinking":{"type":"enabled"},
+                        "reasoning_effort": effort.id,
+                    })
+                );
+            }
+        }
+    }
     use xharness_core::CapabilitySource;
 
     #[test]
