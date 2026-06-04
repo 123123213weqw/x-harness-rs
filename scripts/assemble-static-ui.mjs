@@ -9,6 +9,7 @@ import { patchPermissionSelection } from './patch-permission-selection.mjs'
 import { patchGoalRuntime } from './patch-goal-runtime.mjs'
 import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
 import { patchCompactionRunningUi } from './patch-compaction-running-ui.mjs'
+import { patchConversationScrollFollow } from './patch-conversation-scroll-follow.mjs'
 import { rewriteUiNamespace } from './rewrite-ui-namespace.mjs'
 import { UI_NAMESPACE, UPSTREAM_SOURCE_LABEL } from './ui-namespace.mjs'
 
@@ -123,6 +124,7 @@ for (const entry of composed) {
   bytes = patchWorkspaceCreatedAt(entry.name, bytes)
   bytes = patchSettingsSaveFeedback(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchTranscriptWindowing(bytes)
+  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchConversationScrollFollow(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchHistoryRetry(bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })

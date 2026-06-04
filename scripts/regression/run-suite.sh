@@ -109,6 +109,7 @@ run_ui_contracts() {
     scripts/test-assistant-projection.mjs
     scripts/test-atomic-history.mjs
     scripts/test-compaction-ui.mjs
+    scripts/test-conversation-scroll-follow.mjs
     scripts/test-context-accounting.mjs
     scripts/test-live-answer-recovery.mjs
     scripts/test-retry-turn-projection.mjs
