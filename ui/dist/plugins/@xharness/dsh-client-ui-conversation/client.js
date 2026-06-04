@@ -6009,6 +6009,15 @@ const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCa
 		* The chat view slot entry: pure component over the composed props; each
 		* ordered business Node crosses the keyed renderer seat.
 		*/
+// xh-conversation-scroll-follow/v1
+// A scroll event can be caused by native scroll anchoring or a transcript
+// replacement, not just by the reader. In particular, compaction can shrink
+// the document while the model is already preparing its next message.
+function xhScrollFollowAtBottom(currentAtBottom, scrollTop, floor, observedTop, readerInputRecent) {
+  const moved = Math.abs(scrollTop - Math.min(observedTop, floor)) > 0.5;
+  return moved && readerInputRecent ? floor - scrollTop <= 25 : currentAtBottom;
+}
+
 		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, editMessage, fileMentions, t }) {
 			const order = useSession((s) => s.chat.order);
 			const nodeStore = useSession((s) => s.chat.nodes);
@@ -6058,6 +6067,7 @@ const activeSuffix = running ? Math.max(0, order.findLastIndex(key => nodeStore.
 			const [atBottom, setAtBottom] = (0, react.useState)(true);
 			/** Last position delivered or written on the main thread. */
 			const observedTopRef = (0, react.useRef)(0);
+			const readerScrollUntilRef = (0, react.useRef)(0);
 			/** Paging anchor: semantic row/position at click, updated by reader scrolls
 			* while the request is pending and restored after the prepend lands. */
 			const anchorRef = (0, react.useRef)(null);
@@ -6139,8 +6149,9 @@ const activeSuffix = running ? Math.max(0, order.findLastIndex(key => nodeStore.
 				if (local === null) return;
 				const el = scrollerOf(local);
 				const floor = Math.max(0, el.scrollHeight - el.clientHeight);
-				const movedByReader = Math.abs(el.scrollTop - Math.min(observedTopRef.current, floor)) > .5;
-				const isAtBottom = movedByReader ? floor - el.scrollTop <= 25 : atBottomRef.current;
+				const readerInputRecent = Date.now() <= readerScrollUntilRef.current;
+				const movedByReader = readerInputRecent && Math.abs(el.scrollTop - Math.min(observedTopRef.current, floor)) > .5;
+				const isAtBottom = xhScrollFollowAtBottom(atBottomRef.current, el.scrollTop, floor, observedTopRef.current, readerInputRecent);
 				if (!movedByReader && isAtBottom) {
 					toBottom(el);
 					return;
@@ -6162,12 +6173,24 @@ const activeSuffix = running ? Math.max(0, order.findLastIndex(key => nodeStore.
 				/* v8 ignore next -- ref-null guard: effect runs after the list node commits. */
 				if (local === null) return;
 				const el = scrollerOf(local);
-				const onScroll = () => {
-					onScrollRef.current();
+				const onScroll = () => onScrollRef.current();
+				const readerInput = () => { readerScrollUntilRef.current = Date.now() + 1500; };
+				const readerKey = (event) => {
+					if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable=true]")) return;
+					if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) readerInput();
 				};
+				const readerPointer = (event) => { if (event.target === el) readerInput(); };
 				el.addEventListener("scroll", onScroll, { passive: true });
+				el.addEventListener("wheel", readerInput, { passive: true });
+				el.addEventListener("touchmove", readerInput, { passive: true });
+				el.addEventListener("keydown", readerKey);
+				el.addEventListener("pointerdown", readerPointer, { passive: true });
 				return () => {
 					el.removeEventListener("scroll", onScroll);
+					el.removeEventListener("wheel", readerInput);
+					el.removeEventListener("touchmove", readerInput);
+					el.removeEventListener("keydown", readerKey);
+					el.removeEventListener("pointerdown", readerPointer);
 				};
 			}, []);
 			const followRef = (0, react.useRef)(null);
