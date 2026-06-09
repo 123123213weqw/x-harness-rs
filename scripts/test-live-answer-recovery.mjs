@@ -83,6 +83,61 @@ assert.equal(session.openState, 'open');
 assert.equal(session.openError, null);
 assert.deepEqual(seqs(), [10, 11, 12], 'the buffered live answer must be published');
 
+// Compaction runs inside an already-running turn. No new prompt and no
+// running=true edge is guaranteed after the history failure. The next durable
+// frame must retry and reveal compaction/end plus the following answer.
+let compactHistoryCalls = 0;
+let compactReplies = [fail];
+const compact = new runtime.Session('compaction-fixture', { sessions: { history: async () => {
+  compactHistoryCalls++; return compactReplies.shift();
+} } }, {}, { conversation: { events, views } });
+compact.installWindow([row(40)], true); compact.openState = 'open';
+compact.handleRunning(true);
+await compact.loadOlder();
+assert.equal(compact.openState, 'error');
+compact.acceptLiveEvent(row(41).event, undefined); // already buffered while errored
+compactReplies = [ok([row(40), row(41), row(42)])];
+const compactCallsBeforeEvent = compactHistoryCalls;
+compact.handleMuxEnvelope('stream', { type: 'session/event', event: row(42).event, view: undefined });
+assert.equal(compactHistoryCalls, compactCallsBeforeEvent + 1,
+  'a durable event in the same running turn must retry history');
+for (let attempt = 0; attempt < 50 && compact.openState !== 'open'; attempt++)
+  await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(compact.openState, 'open');
+assert.deepEqual(Array.from(compact.events, event => event.seq), [40, 41, 42]);
+assert.equal(compact.liveBuffer.length, 0);
+
+// A broken endpoint cannot create one history request per streamed token.
+compactReplies = [fail]; compact.hasMore = true;
+await compact.loadOlder();
+assert.equal(compact.openState, 'error');
+const compactCallsAfterFailure = compactHistoryCalls;
+for (let seq = 43; seq < 63; seq++)
+  compact.handleMuxEnvelope('stream', { type: 'session/event', event: row(seq).event, view: undefined });
+assert.equal(compactHistoryCalls, compactCallsAfterFailure, 'burst of deltas must respect retry interval');
+assert.equal(compact.liveBuffer.length, 20, 'rate limiting must not drop live frames');
+
+// The same symptom also occurs when compaction/end was missed by the stream:
+// a later answer opens a sequence gap, gap repair fails once, and the next
+// answer chunk must restart history without requiring a new running edge.
+let gapReplies = [fail], gapCalls = 0;
+const gap = new runtime.Session('gap-fixture', { sessions: { history: async () => {
+  gapCalls++; return gapReplies.shift();
+} } }, {}, { conversation: { events, views } });
+gap.installWindow([row(70)], true); gap.openState = 'open'; gap.handleRunning(true);
+gap.handleMuxEnvelope('stream', { type: 'session/event', event: row(72).event, view: undefined });
+for (let attempt = 0; attempt < 50 && gap.openState !== 'error'; attempt++)
+  await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(gap.openState, 'error');
+assert.deepEqual(Array.from(gap.liveBuffer, item => item.event.seq), [72]);
+gapReplies = [ok([row(70), row(71), row(72), row(73)])];
+gap.handleMuxEnvelope('stream', { type: 'session/event', event: row(73).event, view: undefined });
+for (let attempt = 0; attempt < 50 && gap.openState !== 'open'; attempt++)
+  await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(gapCalls, 2);
+assert.equal(gap.openState, 'open');
+assert.deepEqual(Array.from(gap.events, event => event.seq), [70, 71, 72, 73]);
+
 // Queueing behind an already-running turn does not emit another running=true
 // edge from the Host. A successful local prompt admission must therefore be an
 // independent recovery trigger rather than relying exclusively on status.
@@ -153,8 +208,9 @@ background.acceptLiveEvent(row(11).event, undefined);
 const calls = historyCalls;
 background.handleRunning(true);
 background.handleRunning(true);
+background.handleMuxEnvelope('stream', { type: 'session/event', event: row(12).event, view: undefined });
 assert.equal(historyCalls, calls, 'a session the user is not looking at must not retry history');
-assert.deepEqual(Array.from(background.liveBuffer, item => item.event.seq), [11], 'a background session keeps its buffered answer');
+assert.deepEqual(Array.from(background.liveBuffer, item => item.event.seq), [11, 12], 'a background session keeps its buffered answer');
 
 // Nothing to recover while the window is healthy: status frames stay free.
 const before = historyCalls;
@@ -162,4 +218,4 @@ for (let index = 0; index < 20; index++) session.handleRunning(true);
 session.handleRunning(false);
 assert.equal(historyCalls, before, 'a healthy window must not refetch on status frames');
 
-console.log('live answer recovery: prompt/status triggers, buffered answer publication, rate limit and background isolation passed');
+console.log('live answer recovery: prompt/status/event triggers, compaction gap, buffered publication, rate limit and background isolation passed');
