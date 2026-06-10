@@ -171,6 +171,18 @@ const productPlugins = [
     },
   },
   {
+    id: '@xlang/xharness-client-ui-tasks',
+    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-tasks/client.js'),
+    declaration: {
+      platform: 'web',
+      inject: [
+        '@deepseek-ai/dsh-client-runtime',
+        '@deepseek-ai/dsh-client-locale',
+        '@deepseek-ai/dsh-client-ui-conversation',
+      ],
+    },
+  },
+  {
     id: '@xlang/xharness-client-ui-terminal',
     source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-terminal/client.js'),
     declaration: {

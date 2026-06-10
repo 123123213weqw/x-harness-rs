@@ -28,12 +28,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## ZCode terminal pane
+## ZCode terminal pane and task list
 
 The Web terminal dock's tab model, dock layout and CSS-token theme resolution
 in `ui/plugins/@xlang/xharness-client-ui-terminal/client.js` are adapted from
-the Apache-2.0 `zai-org/ZCode` terminal pane. The transport and the XHarness
-integration are original.
+the Apache-2.0 `zai-org/ZCode` terminal pane; the task panel's pinned section,
+timeline grouping, inline rename and action menu in
+`ui/plugins/@xlang/xharness-client-ui-tasks/client.js` are adapted from its
+task list. The transports and the XHarness integrations are original.
 
 - Source: https://github.com/zai-org/ZCode (packages/ui/src/Terminal.tsx,
   packages/ui/src/terminal/)
