@@ -120,7 +120,7 @@ impl TerminalSize {
     }
 
     const fn validate(&self) -> Result<(), TerminalError> {
-        if !(2..=1000).contains(&self.cols) || !(2..=1000).contains(&self.rows) {
+        if self.cols < 2 || self.cols > 1000 || self.rows < 2 || self.rows > 1000 {
             return Err(TerminalError::InvalidSize);
         }
         Ok(())
@@ -778,7 +778,7 @@ fn spawn_session(
         ws_xpixel: 0,
         ws_ypixel: 0,
     };
-    let pty = openpty(None, Some(winsize))
+    let pty = openpty(Some(winsize), None)
         .map_err(|error| terminal_io("allocate PTY", io::Error::from_raw_os_error(error as i32)))?;
     let reader_fd = dup(&pty.master).map_err(|error| {
         terminal_io(
