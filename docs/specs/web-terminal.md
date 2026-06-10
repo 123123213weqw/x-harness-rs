@@ -23,7 +23,7 @@ tab，`terminal.read` 从 cursor 0 重放滚动缓冲。
 | --- | --- | --- |
 | `/api/terminal/open` | `{name, cols?, rows?, program?, args?, cwd?, env?}` | `{ok, terminal}` |
 | `/api/terminal/send` | `{name, input}` | `{ok, written}` |
-| `/api/terminal/read` | `{name, cursor?}` | `{ok, read}` |
+| `/api/terminal/read` | `{name, cursor?}` | `{ok, read}`，其中 `read.content_base64` 是原始 PTY 字节 |
 | `/api/terminal/resize` | `{name, cols, rows}` | `{ok}` |
 | `/api/terminal/signal` | `{name, signal}` | `{ok}` |
 | `/api/terminal/close` | `{name}` | `{ok, read}` |
@@ -38,11 +38,12 @@ tab，`terminal.read` 从 cursor 0 重放滚动缓冲。
 
 ## 传输模型：游标轮询，不是推送
 
-`xharness-terminal` 的 `read` 是游标式（cursor → 增量内容 + 新 cursor +
-运行状态）。客户端自适应轮询：活跃 tab 输出活跃期 45ms、空闲 250ms，后台 tab
+`xharness-terminal` 的 `read_raw` 是字节游标式（cursor → Base64 编码的增量字节 + 新 cursor +
+运行状态）。前端把字节直接交给 xterm，避免网络分片切开 UTF-8 字符后出现乱码。客户端自适应轮询：活跃 tab 输出活跃期 45ms、空闲 250ms，后台 tab
 1.5s；断线退避 0.8s→6.4s 后从原 cursor 续读。选择不加 WS 推送通道的原因：复用
 现有 unary 鉴权与请求体上限、零改动冻结的 mux/host 事件流；如延迟不可接受，
-后续可在同名方法后加推送通道，客户端无感迁移。
+后续可在同名方法后加推送通道，客户端无感迁移。关闭 Dock 或卸载页面时停止轮询，
+重开后从保存的 cursor 续读。
 
 ## 所有权与关闭
 
