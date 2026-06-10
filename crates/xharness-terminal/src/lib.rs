@@ -30,7 +30,7 @@ use nix::{
     libc,
     pty::openpty,
     sys::signal::{killpg, Signal},
-    unistd::{dup, setsid, tcgetpgrp, Pid},
+    unistd::{dup, getpgrp, setsid, tcgetpgrp, Pid},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -663,6 +663,12 @@ impl TerminalSession {
 
     #[cfg(unix)]
     async fn signal(&self, signal: TerminalSignal) -> Result<(), TerminalError> {
+        self.refresh_status().await?;
+        if !self.state.lock().await.running {
+            return Err(TerminalError::Exited {
+                name: self.name.clone(),
+            });
+        }
         let group = tcgetpgrp(self.control_fd.as_ref()).or_else(|error| {
             if error == Errno::ENOTTY {
                 i32::try_from(self.pid)
@@ -678,6 +684,17 @@ impl TerminalSession {
                 io::Error::from_raw_os_error(error as i32),
             )
         })?;
+        // A child can exit between status inspection and TIOCGPGRP. Never let
+        // a stale PTY foreground group terminate the Host's own process group.
+        if group == getpgrp() {
+            return Err(terminal_io(
+                "signal PTY foreground process group",
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "refusing to signal the host process group",
+                ),
+            ));
+        }
         match killpg(group, signal.as_nix()) {
             Ok(()) | Err(Errno::ESRCH) => Ok(()),
             Err(error) => Err(terminal_io(
@@ -719,17 +736,26 @@ impl TerminalSession {
     #[cfg(unix)]
     async fn close(&self, grace: Duration) -> Result<(), TerminalError> {
         let _ = self.signal(TerminalSignal::Terminate).await;
-        let mut child = self.child.lock().await;
-        if time::timeout(grace, child.wait()).await.is_err() {
-            let _ = self.signal(TerminalSignal::Kill).await;
-            // The foreground command may have its own process group. Kill the
-            // session leader as a final fallback so `close` cannot wait forever.
-            let _ = child.start_kill();
-            child
-                .wait()
-                .await
-                .map_err(|source| terminal_io("wait after PTY kill", source))?;
+        let waited = {
+            let mut child = self.child.lock().await;
+            time::timeout(grace, child.wait()).await
+        };
+        match waited {
+            Ok(Ok(_)) => return Ok(()),
+            Ok(Err(source)) => return Err(terminal_io("wait for PTY child", source)),
+            Err(_) => {}
         }
+        // Do not hold the child lock while signaling: signal rechecks process
+        // status and must be able to acquire that same lock.
+        let _ = self.signal(TerminalSignal::Kill).await;
+        let mut child = self.child.lock().await;
+        // The foreground command may have its own process group. Kill the
+        // session leader as a final fallback so `close` cannot wait forever.
+        let _ = child.start_kill();
+        child
+            .wait()
+            .await
+            .map_err(|source| terminal_io("wait after PTY kill", source))?;
         Ok(())
     }
 
