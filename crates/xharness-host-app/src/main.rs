@@ -19,10 +19,9 @@ use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettin
 use xharness_host_app::{configured_web_runtime, ManagedAgentMarkdownSink, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
-use xharness_server::{
-    serve, terminal::TerminalRouterState, web_router_full, StartupReadiness,
-};
+use xharness_server::{serve, web_router_full, StartupReadiness};
 use xharness_terminal::TerminalRegistry;
+use xharness_web_terminal::terminal_routes;
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
 
@@ -248,7 +247,9 @@ async fn run(
         debug.clone(),
         args.desktop_token.clone(),
         readiness.clone(),
-        TerminalRouterState::new(Some(terminal_registry.clone())),
+        terminal_routes(xharness_web_terminal::TerminalRouterState::new(Some(
+            terminal_registry.clone(),
+        ))),
     );
     *failure_code = Some(StartupFailureCode::NetworkBind);
     startup_progress.stage(StartupStage::NetworkBind);
