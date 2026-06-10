@@ -778,7 +778,7 @@ fn spawn_session(
         ws_xpixel: 0,
         ws_ypixel: 0,
     };
-    let pty = openpty(None, Some(&winsize))
+    let pty = openpty(Some(&winsize), None)
         .map_err(|error| terminal_io("allocate PTY", io::Error::from_raw_os_error(error as i32)))?;
     let reader_fd = dup(&pty.master).map_err(|error| {
         terminal_io(
