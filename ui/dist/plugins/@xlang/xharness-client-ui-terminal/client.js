@@ -68,6 +68,15 @@ window.__ModuleLoader__.load({
       return payload
     }
 
+    function terminalBytes(read) {
+      const binary = atob(read.content_base64 || '')
+      const bytes = new Uint8Array(binary.length)
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index)
+      }
+      return bytes
+    }
+
     // ------------------------------------------------------------- xterm --
 
     let xtermPromise = null
@@ -223,7 +232,7 @@ window.__ModuleLoader__.load({
           if (read.truncated_before_cursor) {
             term.write('\x1b[90m[早于滚动缓冲的输出已截断]\x1b[0m\r\n')
           }
-          term.write(read.content)
+          term.write(terminalBytes(read))
           this.lastOutputAt = Date.now()
         } catch (error) {
           this.handleFailure(error, generation)
@@ -255,10 +264,14 @@ window.__ModuleLoader__.load({
             this.running = read.running
             this.exitCode = read.exit_code ?? null
             this.exitSignal = read.exit_signal ?? null
-            if (read.content.length > 0) {
-              this.cursor = read.cursor
+            this.cursor = read.cursor
+            if (read.truncated_before_cursor) {
+              this.term?.write('\r\n\x1b[90m[早于滚动缓冲的输出已截断]\x1b[0m\r\n')
+            }
+            const bytes = terminalBytes(read)
+            if (bytes.length > 0) {
               this.lastOutputAt = Date.now()
-              this.term?.write(read.content)
+              this.term?.write(bytes)
             }
             if (!read.running && this.running === false && !this.exitedNotified) {
               this.exitedNotified = true
@@ -305,8 +318,12 @@ window.__ModuleLoader__.load({
         }, 200)
       }
 
-      dispose() {
+      stopPolling() {
         this.generation += 1
+      }
+
+      dispose() {
+        this.stopPolling()
         window.clearTimeout(this.resizeTimer)
         try {
           this.term?.dispose()
@@ -498,6 +515,7 @@ window.__ModuleLoader__.load({
           })
         return () => {
           cancelled = true
+          tab.stopPolling()
           tab.container?.remove()
         }
       }, [tab])
@@ -667,6 +685,7 @@ window.__ModuleLoader__.load({
     exports.inject = inject
     exports.TerminalTab = TerminalTab
     exports.terminalCall = terminalCall
+    exports.terminalBytes = terminalBytes
     exports.terminalTheme = terminalTheme
     exports.exitNotice = exitNotice
     exports.dockStore = dockStore

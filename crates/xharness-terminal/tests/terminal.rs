@@ -143,8 +143,9 @@ async fn initial_size_reaches_the_child_pty() {
         }
     };
     registry.open(spec).await.unwrap();
-    let output = read_until(&registry, "size-owner", "sized", "120 35").await;
-    assert!(output.contains("120 35"), "unexpected output: {output:?}");
+    // `stty size` prints rows before columns.
+    let output = read_until(&registry, "size-owner", "sized", "35 120").await;
+    assert!(output.contains("35 120"), "unexpected output: {output:?}");
     registry.close("size-owner", "sized").await.unwrap();
 }
 
@@ -170,13 +171,68 @@ async fn resize_updates_the_child_pty_window() {
         .send("resize-owner", "resizable", b"stty size\n")
         .await
         .unwrap();
-    let output = read_until(&registry, "resize-owner", "resizable", "100 40").await;
-    assert!(output.contains("100 40"), "unexpected output: {output:?}");
+    let output = read_until(&registry, "resize-owner", "resizable", "40 100").await;
+    assert!(output.contains("40 100"), "unexpected output: {output:?}");
     assert!(registry
         .resize("resize-owner", "resizable", TerminalSize::new(0, 0))
         .await
         .is_err());
     registry.close("resize-owner", "resizable").await.unwrap();
+}
+
+#[tokio::test]
+async fn raw_read_preserves_utf8_bytes_split_across_pty_writes() {
+    let registry = TerminalRegistry::with_defaults();
+    let mut process = shell_spec();
+    process.program = "/bin/sh".into();
+    process.args = vec![
+        "-c".into(),
+        "stty -echo; printf '\\346'; IFS= read -r _; printf '\\261\\211'".into(),
+    ];
+    registry
+        .open(TerminalOpenSpec {
+            owner: "utf8-owner".into(),
+            name: "split".into(),
+            process,
+            size: TerminalSize::default(),
+        })
+        .await
+        .unwrap();
+
+    let mut first = None;
+    for _ in 0..50 {
+        let read = registry
+            .read_raw("utf8-owner", "split", Some(0))
+            .await
+            .unwrap();
+        if !read.content.is_empty() {
+            first = Some(read);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let first = first.expect("first UTF-8 byte must arrive");
+    assert_eq!(first.content, [0xe6]);
+    assert_eq!(first.cursor, 1);
+
+    registry.send("utf8-owner", "split", b"\n").await.unwrap();
+
+    let mut second = None;
+    for _ in 0..100 {
+        let read = registry
+            .read_raw("utf8-owner", "split", Some(first.cursor))
+            .await
+            .unwrap();
+        if read.content.len() == 2 {
+            second = Some(read);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let second = second.expect("remaining UTF-8 bytes must arrive");
+    assert_eq!(second.content, [0xb1, 0x89]);
+    assert_eq!(second.cursor, 3);
+    registry.close("utf8-owner", "split").await.unwrap();
 }
 
 /// Poll `read` until `expected` shows up or the deadline passes, then return

@@ -94,7 +94,15 @@ async fn unknown_extension_paths_stay_at_the_transport_404() {
         .method("POST")
         .uri("/api/extension/bogus")
         .header("content-type", "application/json")
-        .body(Body::from("{}"))
+        .body(Body::from(
+            json!({
+                "type": "client-request",
+                "rpcId": "missing-extension",
+                "method": "extension/bogus",
+                "payload": {},
+            })
+            .to_string(),
+        ))
         .unwrap();
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);

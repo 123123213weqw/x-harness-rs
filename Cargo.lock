@@ -3793,6 +3793,7 @@ name = "xharness-web-terminal"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "serde",
  "serde_json",
  "tokio",
