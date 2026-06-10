@@ -3,7 +3,8 @@ name = "xharness-web-terminal"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+description = "Web terminal extension routes (/api/terminal/*) for XHarness"
 
 [dependencies]
 axum.workspace = true
