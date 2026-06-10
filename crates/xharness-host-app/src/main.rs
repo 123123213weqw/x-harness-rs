@@ -20,10 +20,10 @@ use xharness_host_app::{configured_web_runtime, ManagedAgentMarkdownSink, Native
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
 use xharness_server::{serve, web_router_full, StartupReadiness};
-use xharness_terminal::TerminalRegistry;
-use xharness_web_terminal::terminal_routes;
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
+use xharness_terminal::TerminalRegistry;
+use xharness_web_terminal::terminal_routes;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

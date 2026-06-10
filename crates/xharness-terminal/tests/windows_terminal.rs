@@ -102,7 +102,7 @@ async fn conpty_registry_shutdown_reaps_all_powershell_sessions() {
                 owner: owner.into(),
                 name: name.into(),
                 process: pwsh_spec(),
-            size: TerminalSize::default(),
+                size: TerminalSize::default(),
             })
             .await
             .unwrap();
