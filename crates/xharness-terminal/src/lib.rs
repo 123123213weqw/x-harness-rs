@@ -19,7 +19,8 @@ use std::io::{Read, Write};
 #[cfg(unix)]
 use std::{
     fs::File,
-    os::{fd::OwnedFd, unix::process::ExitStatusExt},
+    os::fd::{AsRawFd, OwnedFd},
+    os::unix::process::ExitStatusExt,
     process::Stdio,
 };
 
@@ -49,6 +50,8 @@ const DEFAULT_SCROLLBACK_BYTES: usize = 1024 * 1024;
 const DEFAULT_SCROLLBACK_LINES: usize = 10_000;
 const DEFAULT_CLOSE_GRACE: Duration = Duration::from_secs(2);
 const MAX_NAME_BYTES: usize = 64;
+pub const DEFAULT_COLS: u16 = 80;
+pub const DEFAULT_ROWS: u16 = 24;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 type SessionKey = (String, String);
@@ -91,6 +94,37 @@ pub struct TerminalOpenSpec {
     pub owner: String,
     pub name: String,
     pub process: SpawnSpec,
+    pub size: TerminalSize,
+}
+
+/// PTY dimensions. The initial size is applied at open so programs observe
+/// correct `COLUMNS`/`LINES` from the first read; `resize` updates it later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl Default for TerminalSize {
+    fn default() -> Self {
+        Self {
+            cols: DEFAULT_COLS,
+            rows: DEFAULT_ROWS,
+        }
+    }
+}
+
+impl TerminalSize {
+    pub const fn new(cols: u16, rows: u16) -> Self {
+        Self { cols, rows }
+    }
+
+    const fn validate(&self) -> Result<(), TerminalError> {
+        if !(2..=1000).contains(&self.cols) || !(2..=1000).contains(&self.rows) {
+            return Err(TerminalError::InvalidSize);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,6 +175,10 @@ pub struct TerminalRead {
 pub enum TerminalError {
     #[error("terminal configuration limits must be non-zero")]
     InvalidConfig,
+    #[error("terminal size must be 2-1000 columns and rows")]
+    InvalidSize,
+    #[error("terminal {operation} is not supported on this platform")]
+    Unsupported { operation: &'static str },
     #[error("terminal owner must not be empty or contain NUL")]
     InvalidOwner,
     #[error("terminal name must use 1-64 ASCII letters, digits, '_', '-' or '.'")]
@@ -228,6 +266,7 @@ impl TerminalRegistry {
         if spec.process.program.is_empty() {
             return Err(TerminalError::EmptyProgram);
         }
+        spec.size.validate()?;
 
         let key = (spec.owner.clone(), spec.name.clone());
         let mut sessions = self.sessions.lock().await;
@@ -326,6 +365,27 @@ impl TerminalRegistry {
             owner,
             "signal",
             json!({"name": name, "signal": signal, "ok": result.is_ok()}),
+        )
+        .await;
+        result
+    }
+
+    /// Update the PTY window size. On Unix the kernel delivers `SIGWINCH` to
+    /// the session's foreground process group, so running programs observe the
+    /// change without further plumbing.
+    pub async fn resize(
+        &self,
+        owner: &str,
+        name: &str,
+        size: TerminalSize,
+    ) -> Result<(), TerminalError> {
+        size.validate()?;
+        let session = self.session(owner, name).await?;
+        let result = session.resize(size).await;
+        self.trace(
+            owner,
+            "resize",
+            json!({"name": name, "size": size, "ok": result.is_ok()}),
         )
         .await;
         result
@@ -499,6 +559,42 @@ impl TerminalSession {
             running: state.running,
             cursor: state.total_bytes,
         })
+    }
+
+    async fn resize(&self, size: TerminalSize) -> Result<(), TerminalError> {
+        #[cfg(unix)]
+        {
+            let winsize = nix::libc::winsize {
+                ws_col: size.cols,
+                ws_row: size.rows,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            };
+            // SAFETY: `control_fd` is an open PTY master and `winsize` is a
+            // plain, fully-initialised value type; TIOCSWINSZ neither reads
+            // nor writes beyond it.
+            let result = unsafe {
+                nix::libc::ioctl(
+                    self.control_fd.as_raw_fd(),
+                    nix::libc::TIOCSWINSZ,
+                    &winsize,
+                )
+            };
+            if result == -1 {
+                return Err(terminal_io(
+                    "resize PTY",
+                    io::Error::last_os_error(),
+                ));
+            }
+            Ok(())
+        }
+        #[cfg(windows)]
+        {
+            let _ = size;
+            Err(TerminalError::Unsupported {
+                operation: "resize",
+            })
+        }
     }
 
     #[cfg(unix)]
@@ -683,7 +779,13 @@ fn spawn_session(
     config: &TerminalConfig,
     debug: DebugRecorder,
 ) -> Result<TerminalSession, TerminalError> {
-    let pty = openpty(None, None)
+    let winsize = nix::libc::winsize {
+        ws_col: spec.size.cols,
+        ws_row: spec.size.rows,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let pty = openpty(None, Some(winsize))
         .map_err(|error| terminal_io("allocate PTY", io::Error::from_raw_os_error(error as i32)))?;
     let reader_fd = dup(&pty.master).map_err(|error| {
         terminal_io(
@@ -803,8 +905,8 @@ fn spawn_session(
         &spec.process.args,
         &spec.process.cwd,
         &spec.process.env,
-        30,
-        120,
+        spec.size.rows,
+        spec.size.cols,
     )
     .map_err(|source| terminal_io("spawn native ConPTY child", io::Error::other(source)))?;
     let pid = conpty.child.pid();
