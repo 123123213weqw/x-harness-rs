@@ -6,12 +6,14 @@ Dock，可在浏览器里直接使用宿主机 shell，与 agent 共享同一台
 ## 契约边界
 
 终端是 XHarness 自有扩展面，**不在** `xharness-api` 冻结的 52 个上游 RPC 方法
-目录内。它以独立静态路由挂在 `/api/terminal/*` 下（axum 静态路径优先于
-`/api/{namespace}/{method}` 通配），与其它 `/api` 路由共享同一层
-`require_ready` 与桌面 Token 鉴权中间件。上游契约测试（52 方法精确匹配）不受
+目录内。路由实现于独立 crate `xharness-web-terminal`（DTO + `xharness-terminal`
+调用 + 环境构造），经 `web_router_full` 的通用扩展插槽合入 `/api`，与其它
+`/api` 路由共享同一层 `require_ready`、请求体上限与桌面 Token 鉴权中间件——
+`xharness-server` 不因此获得任何新 crate 依赖（架构基线见
+`config/architecture-dependencies.json`）。上游契约测试（52 方法精确匹配）不受
 影响；`/api/terminal/bogus` 等未知名落到动态路由，返回传输层 404。
 
-所有 Web 终端归属固定 owner `web`（`xharness-server/src/terminal.rs`），与未来
+所有 Web 终端归属固定 owner `web`（`xharness-web-terminal/src/lib.rs`），与未来
 agent 自有终端隔离。会话存活于 Host 进程内：刷新页面后 `terminal.list` 恢复
 tab，`terminal.read` 从 cursor 0 重放滚动缓冲。
 
@@ -44,8 +46,9 @@ tab，`terminal.read` 从 cursor 0 重放滚动缓冲。
 
 ## 所有权与关闭
 
-`TerminalRegistry` 由 `xharness-host-app` 构造并注入 `web_router_full`（符合
-"原生 OS 组合在 host-app"的分层）。结构化关闭顺序：Agent 退出 →
+`TerminalRegistry` 由 `xharness-host-app` 构造：注册表本体与生命周期归组合根
+（符合"原生 OS 组合在 host-app"的分层），HTTP 面由 `xharness-web-terminal`
+提供、经 `web_router_full` 的扩展插槽注入。结构化关闭顺序：Agent 退出 →
 `runtime.shutdown` → `terminal_registry.shutdown()`，PTY 清理失败记入
 `cleanup_errors`。
 
