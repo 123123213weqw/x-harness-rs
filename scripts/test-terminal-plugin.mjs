@@ -78,6 +78,18 @@ assert.equal(registration.id, '@xlang/xharness-client-ui-terminal')
 // injected service list is compared via JSON instead.
 assert.equal(JSON.stringify(plugin.inject), '["slots","locale"]')
 assert.equal(typeof plugin.apply, 'function')
+assert.equal(
+  JSON.stringify(plugin.dockInsets(1200, { left: 300, right: 1050, width: 750 })),
+  JSON.stringify({ left: 300, right: 150 }),
+)
+assert.equal(
+  JSON.stringify(plugin.dockInsets(1200, null)),
+  JSON.stringify({ left: 200, right: 200 }),
+)
+assert.equal(
+  JSON.stringify(plugin.dockInsets(375, { left: 16, right: 359, width: 343 })),
+  JSON.stringify({ left: 16, right: 16 }),
+)
 
 // The exit notice follows the document language and carries exit details.
 documentState.lang = 'zh-CN'
