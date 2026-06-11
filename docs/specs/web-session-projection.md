@@ -102,6 +102,10 @@ Projection 暴露 `plan={active,pending}`；当前稳定日志只恢复 `active`
 
 ## 验收
 
+冷热差分回归使用同一份持久日志，比较运行中的实时事件、页面刷新后的 History、
+Host 进程重启后的 History，并在旧序列点 Fork 后确认子分支不会重新出现源分支的后续消息。
+测试只扩展现有投影与恢复路径，不建立第二份投影实现。
+
 - 同一个 Durable Turn 在进程运行中查询与新 Host 从同一 Store 恢复后查询，`events` 和
   `projections` 必须逐字相等。
 - 结构化 User Content 和 Timezone 在 Claim 消费 Inbox 后仍可从完整历史恢复。
