@@ -127,6 +127,7 @@ run_ui_contracts() {
 
 run_quick() {
   run_case architecture-boundaries python3 scripts/regression/check-architecture.py
+  run_case architecture-boundary-tests python3 -B -m unittest scripts/regression/test_check_architecture.py
   run_case rustfmt cargo fmt --check --all
   run_case rust-check cargo check --locked --workspace --all-targets
   run_case critical-state-machines cargo test --locked \
@@ -138,6 +139,7 @@ run_quick() {
 
 run_full() {
   run_case architecture-boundaries python3 scripts/regression/check-architecture.py
+  run_case architecture-boundary-tests python3 -B -m unittest scripts/regression/test_check_architecture.py
   run_case rustfmt cargo fmt --check --all
   run_case rust-check cargo check --locked --workspace --all-targets
   run_case rust-test cargo test --locked --workspace --all-targets
