@@ -40,8 +40,6 @@ const React = {
   useRef() { return { current: null } },
   useState(value) { return [value, () => {}] },
 }
-const ReactDOM = { createPortal() {} }
-
 let documentState = { lang: 'zh-CN' }
 sandbox.getComputedStyle = () => ({ getPropertyValue: () => '' })
 sandbox.document = {
@@ -69,7 +67,6 @@ sandbox.fetch = async () => {
 
 const plugin = registration.factory((id) => {
   if (id === 'react') return React
-  if (id === 'react-dom') return ReactDOM
   throw new Error(`unexpected module dependency: ${id}`)
 })
 
@@ -78,18 +75,22 @@ assert.equal(registration.id, '@xlang/xharness-client-ui-terminal')
 // injected service list is compared via JSON instead.
 assert.equal(JSON.stringify(plugin.inject), '["slots","locale"]')
 assert.equal(typeof plugin.apply, 'function')
+const slotRegistrations = []
+plugin.apply({
+  effect() {},
+  slots: {
+    inject(name, register) { slotRegistrations.push({ name, registration: register() }) },
+    register(options, component) { return { options, component } },
+  },
+})
 assert.equal(
-  JSON.stringify(plugin.dockInsets(1200, { left: 300, right: 1050, width: 750 })),
-  JSON.stringify({ left: 300, right: 150 }),
+  JSON.stringify(slotRegistrations.map(({ name }) => name)),
+  JSON.stringify(['conversation.session.header.actions', 'conversation.input.dock']),
 )
-assert.equal(
-  JSON.stringify(plugin.dockInsets(1200, null)),
-  JSON.stringify({ left: 200, right: 200 }),
-)
-assert.equal(
-  JSON.stringify(plugin.dockInsets(375, { left: 16, right: 359, width: 343 })),
-  JSON.stringify({ left: 16, right: 16 }),
-)
+assert.equal(slotRegistrations[1].registration.options.id, 'xharness-terminal-dock')
+assert.equal(slotRegistrations[1].registration.options.order, 20)
+assert.match(source, /\.xhterm-dock\{order:1;display:flex/)
+assert.doesNotMatch(source, /\.xhterm-dock\{position:fixed/)
 
 // The exit notice follows the document language and carries exit details.
 documentState.lang = 'zh-CN'
