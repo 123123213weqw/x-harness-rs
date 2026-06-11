@@ -523,13 +523,8 @@ window.__ModuleLoader__.load({
 
     function TerminalDock({ t }) {
       const store = useDockStore()
-      const [height, setHeight] = useState(store.height)
       const draggingRef = useRef(false)
       const activeTab = store.activeTab()
-
-      useEffect(() => {
-        if (!draggingRef.current) setHeight(store.height)
-      }, [store.height])
 
       useEffect(() => {
         const move = (event) => {
@@ -551,7 +546,7 @@ window.__ModuleLoader__.load({
 
       if (!store.open) return null
 
-      return h('div', { className: 'xhterm-dock', style: { height } },
+      return h('div', { className: 'xhterm-dock', style: { height: store.height } },
         h('div', {
           className: 'xhterm-resize-handle',
           title: t('resize.hint'),
