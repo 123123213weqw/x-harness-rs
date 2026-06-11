@@ -1371,6 +1371,23 @@ fn encode_compressed_batch(line: &[u8], path: &Path) -> Result<Option<Vec<u8>>, 
     Ok(Some(encoded))
 }
 
+fn logical_session_digest(session: &Session) -> Result<[u8; 32], StoreError> {
+    let mut digest = Sha256::new();
+    let header = serde_json::to_vec(session.header())
+        .map_err(|e| backend_message(format!("encode session header for verification: {e}")))?;
+    digest.update((header.len() as u64).to_le_bytes());
+    digest.update(header);
+    digest.update(session.revision().get().to_le_bytes());
+    digest.update((session.events().len() as u64).to_le_bytes());
+    for event in session.events() {
+        let bytes = serde_json::to_vec(event)
+            .map_err(|e| backend_message(format!("encode session event for verification: {e}")))?;
+        digest.update((bytes.len() as u64).to_le_bytes());
+        digest.update(bytes);
+    }
+    Ok(digest.finalize().into())
+}
+
 /// Stage and validate a complete single-file rewrite before atomic publish.
 /// Invalid, dirty, or non-beneficial inputs leave the original unchanged.
 /// A post-publish directory-sync error is outcome-unknown and must be checked
@@ -1388,6 +1405,10 @@ fn compress_cold_file(path: &Path, session_id: &str) -> Result<ColdCompressionRe
             "cold compression requires a complete newline-terminated journal",
         ));
     }
+    // Do not retain two full event vectors during validation. Large legacy
+    // journals are exactly why this maintenance operation must bound peak RSS.
+    let original_digest = logical_session_digest(&original.session)?;
+    drop(original);
     static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let tmp = path.with_file_name(format!(
         ".compact-{}-{}-{}",
@@ -1426,10 +1447,9 @@ fn compress_cold_file(path: &Path, session_id: &str) -> Result<ColdCompressionRe
             if read_record(&mut reader, &mut line, path)? == 0 {
                 break;
             }
-            // Full validation happened above, but the line must still be
-            // decoded before it can be rewritten in a different envelope.
-            let _batch = decode_batch_line(&line, source_version)
-                .map_err(|e| backend_message(format!("decode cold batch: {e}")))?;
+            // The source was fully validated under this session lock before
+            // staging. The final source fingerprint and complete staged replay
+            // guard against any non-cooperating mutation during the rewrite.
             let already_compressed = source_version == COMPRESSED_FILE_FORMAT_VERSION
                 && decode_owned_json::<RecordTag>(&line)
                     .map_err(|e| backend_message(format!("decode cold batch tag: {e}")))?
@@ -1469,7 +1489,9 @@ fn compress_cold_file(path: &Path, session_id: &str) -> Result<ColdCompressionRe
         }
         let staged = load_file_mode(&tmp, session_id, false)?
             .ok_or_else(|| backend_message("compacted journal disappeared before validation"))?;
-        if staged.session != original.session || staged.valid_len != after || staged.needs_separator
+        if logical_session_digest(&staged.session)? != original_digest
+            || staged.valid_len != after
+            || staged.needs_separator
         {
             return Err(backend_message(
                 "compacted journal failed complete logical replay validation",
