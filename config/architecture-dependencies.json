@@ -137,7 +137,8 @@
     "xharness-interaction"
   ],
   "xharness-session-jsonl": [
-    "xharness-session"
+    "xharness-session",
+    "xharness-win32"
   ],
   "xharness-terminal": [
     "xharness-debug",
