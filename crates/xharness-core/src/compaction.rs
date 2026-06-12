@@ -1,7 +1,8 @@
 //! Budgeted auxiliary summarization. Partial results never mutate the journal.
 use crate::{
-    AgentMessage, FinishReason, ModelProvider, ProviderError, ProviderEvent, ProviderRequest, Role,
-    TokenBudgetError, TokenBudgetReport, TokenEstimateRequest, TokenGuard, TokenUsage,
+    AgentMessage, ContextSurface, FinishReason, ModelProvider, ProviderError, ProviderEvent,
+    ProviderRequest, Role, TokenBudgetError, TokenBudgetReport, TokenEstimateRequest, TokenGuard,
+    TokenUsage, MAX_REQUEST_IMAGE_BYTES,
 };
 use futures::StreamExt;
 use serde_json::json;
@@ -141,6 +142,12 @@ impl SummaryRunner {
                 DEFAULT_COMPACTION_INSTRUCTION.to_owned()
             };
             request.messages.push(AgentMessage::user(instruction));
+            // Auxiliary compaction bypasses Runner::prepare_context. Apply the
+            // same disposable image projection before both admission and wire
+            // encoding, otherwise large visual history can deadlock compaction.
+            let mut surface = ContextSurface::identity(request.messages);
+            surface.defer_images_over_budget(MAX_REQUEST_IMAGE_BYTES);
+            request.messages = surface.messages;
             request.max_output_tokens = Some(output);
             let mut allocated_output = output;
             let result = match self.admit(&request).await {
@@ -382,6 +389,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Mutex,
     };
+    use xharness_session::{AttachmentRef, ContentBlock};
 
     #[derive(Default)]
     struct Fake {
@@ -491,6 +499,39 @@ mod tests {
             cancellation,
             1,
         )
+    }
+
+    #[tokio::test]
+    async fn auxiliary_compaction_defers_old_images_before_provider_io() {
+        let fake = Arc::new(Fake::default());
+        let history = ['a', 'b', 'c']
+            .into_iter()
+            .map(|id| {
+                AgentMessage::user("photo").with_content_blocks(vec![ContentBlock::Image {
+                    attachment: AttachmentRef {
+                        id: id.to_string().repeat(64),
+                        session_id: "s".into(),
+                        media_type: "image/png".into(),
+                        bytes: 20 * 1024 * 1024,
+                        width: 64,
+                        height: 64,
+                    },
+                }])
+            })
+            .collect::<Vec<_>>();
+        runner(fake.clone(), CancellationToken::new())
+            .run(history)
+            .await
+            .unwrap();
+        let requests = fake.requests.lock().unwrap();
+        let blocks = requests[0]
+            .messages
+            .iter()
+            .flat_map(|message| &message.content_blocks)
+            .collect::<Vec<_>>();
+        assert!(matches!(blocks[0], ContentBlock::Text { .. }));
+        assert!(matches!(blocks[1], ContentBlock::Image { .. }));
+        assert!(matches!(blocks[2], ContentBlock::Image { .. }));
     }
     #[tokio::test]
     async fn oversized_raw_history_is_counted_split_and_merged_without_sending_overflow() {

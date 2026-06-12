@@ -373,6 +373,21 @@ async fn resolve_attachment(
     Ok(attachment)
 }
 
+impl BasicHost {
+    /// Resolve within this session's attachment namespace, or use an ancestor
+    /// owner only when the reference is present in the fork's actual history.
+    /// Never trust a caller-supplied owner ID for on-demand model image reads.
+    pub async fn resolve_session_attachment(
+        &self,
+        session_id: &str,
+        attachment_id: &str,
+    ) -> Result<xharness_attachments::ResolvedAttachment, String> {
+        resolve_attachment(self, session_id, attachment_id)
+            .await
+            .map_err(|error| error.message)
+    }
+}
+
 pub(super) async fn update_queue(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
     let session_id = required_string(payload, "sessionId")?;
     let _session_guard = host.lock_admission(&session_id).await;
