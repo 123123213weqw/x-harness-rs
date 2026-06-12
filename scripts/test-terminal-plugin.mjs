@@ -33,11 +33,14 @@ const sandbox = {
   },
 }
 let reducedMotion = false
+let panelExitToken = ''
+let closeDelay = 0
 let nextCloseTimer = 0
 const closeTimers = new Map()
 sandbox.window.matchMedia = () => ({ matches: reducedMotion })
+sandbox.window.getComputedStyle = () => ({ getPropertyValue: () => panelExitToken })
 sandbox.window.setTimeout = (callback, delay) => {
-  assert.equal(delay, 1000, 'close timer is a watchdog, not the CSS animation duration')
+  closeDelay = delay
   const id = ++nextCloseTimer
   closeTimers.set(id, callback)
   return id
@@ -121,6 +124,7 @@ plugin.dockStore.open = false
 plugin.dockStore.open = true
 plugin.dockStore.setOpen(false)
 assert.equal(plugin.dockStore.closing, true)
+assert.equal(closeDelay, 1000, 'the default close watchdog keeps a one-second minimum')
 const closingDock = dockRoot.type(dockRoot.props)
 const ownTarget = {}
 closingDock.props.onAnimationEnd({ target: {}, currentTarget: ownTarget, animationName: 'xhterm-dock-out' })
@@ -150,6 +154,18 @@ plugin.dockStore.setOpen(true)
 plugin.dockStore.setOpen(false)
 closeTimers.get(plugin.dockStore.closeTimer)()
 assert.equal(plugin.dockStore.open, false, 'watchdog handles missing animationend')
+panelExitToken = '2s'
+plugin.dockStore.setOpen(true)
+plugin.dockStore.setOpen(false)
+assert.equal(closeDelay, 2500, 'the watchdog follows longer CSS motion tokens')
+closingDock.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhterm-dock-out' })
+assert.equal(closeTimers.size, 0, 'animation completion cancels the extended watchdog')
+panelExitToken = '1350ms'
+plugin.dockStore.setOpen(true)
+plugin.dockStore.setOpen(false)
+assert.equal(closeDelay, 1850, 'millisecond tokens also extend the watchdog')
+plugin.dockStore.finishClose()
+panelExitToken = ''
 plugin.dockStore.refresh = originalRefresh
 
 // The exit notice follows the document language and carries exit details.
