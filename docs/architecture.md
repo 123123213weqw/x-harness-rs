@@ -86,6 +86,12 @@ Host 控制面也已完成两层解耦：原生部署组合移动到 `xharness-h
 `DurableLoopAgentRuntime + JSONL Store + File Lease`；`LoopAgentRuntime` 只保留给内嵌测试和
 兼容调用，不再是生产 Host 路径。
 
+已抽取的 Host 纯决策模块受 `config/architecture-host-modules.json` 管理：每个模块声明
+唯一状态责任、集成入口、允许的直接消费者和内部 crate 依赖。CI 的
+`scripts/regression/check-architecture.py` 对这些声明执行增量边界检查；未完成抽取的
+Host 文件暂不假装已经由此策略覆盖。新增跨界引用必须先审查责任和策略，而不是在
+`rpc.rs` 或 `BasicHost` 里平行复制状态逻辑。
+
 `xharness-agent` 已交付 `agent/inbox/spliced` 可重放事件、Next-turn/Next-step 投影、Claim 与
 Turn 输入同 Revision 提交、进程内 Registry、AgentSupervisor、多 Turn Driver、持久 Steering，
 以及 macOS/Linux 文件 Lease。Web Queue 已从完整 Durable Inbox 历史折叠；BasicHost 的 FIFO

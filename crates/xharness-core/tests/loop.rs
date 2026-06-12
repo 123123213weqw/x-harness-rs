@@ -1347,6 +1347,119 @@ async fn retries_only_before_the_first_delta() {
 }
 
 #[tokio::test]
+async fn retries_discard_uncommitted_tool_fragments_without_executing_them() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "abandoned", "mutate", "{\"value\":")),
+            Err(ProviderError::retryable(
+                "connection lost during tool arguments",
+            )),
+        ],
+        vec![
+            Ok(tool_delta(0, "accepted", "mutate", "{\"value\":2}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = executions.clone();
+    let tool = TestToolSpec::new(
+        "mutate",
+        "mutate once",
+        json!({"type":"object"}),
+        move |arguments, _| {
+            let observed = observed.clone();
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                ToolResult::success(arguments.to_string())
+            }
+        },
+    );
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("retry-safe-tool-prefix".into());
+    request.journal_store = Some(journal.clone());
+    install_tool(&mut request, tool).await;
+
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.attempts(), 3);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        result.messages[1].tool_calls[0].arguments_json,
+        "{\"value\":2}"
+    );
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        LoopEventKind::ToolCallDelta { id, .. } if id == "accepted"
+    )));
+    assert!(!events.iter().any(|event| matches!(
+        &event.kind,
+        LoopEventKind::ToolCallDelta { id, .. } if id == "abandoned"
+    )));
+    let session = journal
+        .load("retry-safe-tool-prefix")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::AssistantChunk { chunk: AssistantChunk::ToolCallDelta { id, .. }, .. }
+            if id == "abandoned"
+    )));
+}
+
+#[tokio::test]
+async fn empty_visible_deltas_do_not_close_the_retry_window() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(ProviderEvent::ReasoningDelta(String::new())),
+            Ok(ProviderEvent::TextDelta(String::new())),
+            Err(ProviderError::retryable("empty prelude dropped")),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("answer".into())),
+            Ok(completed()),
+        ],
+    ]));
+    let (events, result) = collect(LoopEngine.start(LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user("run")],
+    )))
+    .await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.attempts(), 2);
+    assert_eq!(result.final_text, "answer");
+    assert!(!events.iter().any(|event| matches!(
+        &event.kind,
+        LoopEventKind::ReasoningDelta(text) | LoopEventKind::TextDelta(text) if text.is_empty()
+    )));
+}
+
+#[tokio::test]
+async fn tool_fragments_after_visible_output_are_published_without_waiting_for_completion() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("visible".into())),
+        Ok(tool_delta(0, "unfinished", "mutate", "{\"value\":")),
+        Err(ProviderError::retryable("stream interrupted")),
+    ]]));
+    let (events, result) = collect(LoopEngine.start(LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user("run")],
+    )))
+    .await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.attempts(), 1);
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        LoopEventKind::ToolCallDelta { id, .. } if id == "unfinished"
+    )));
+    assert!(!events
+        .iter()
+        .any(|event| matches!(&event.kind, LoopEventKind::ToolStarted { .. })));
+}
+
+#[tokio::test]
 async fn parallel_completion_is_live_but_history_order_is_stable() {
     let provider = Arc::new(ScriptProvider::new([
         vec![
@@ -4466,10 +4579,13 @@ async fn full_debug_records_correlated_loop_context_provider_and_terminal_events
 #[tokio::test]
 async fn network_cut_after_tool_arguments_never_executes_or_replays_the_tool() {
     for arguments in [r#"{"path":"#, r#"{"path":"file"}"#] {
-        let provider = Arc::new(ScriptProvider::new([vec![
-            Ok(tool_delta(0, "call", "side_effect", arguments)),
-            Err(ProviderError::retryable("network cut after arguments")),
-        ]]));
+        let attempt = || {
+            vec![
+                Ok(tool_delta(0, "call", "side_effect", arguments)),
+                Err(ProviderError::retryable("network cut after arguments")),
+            ]
+        };
+        let provider = Arc::new(ScriptProvider::new([attempt(), attempt(), attempt()]));
         let executions = Arc::new(AtomicUsize::new(0));
         let counter = executions.clone();
         let tool = TestToolSpec::new(
@@ -4485,11 +4601,14 @@ async fn network_cut_after_tool_arguments_never_executes_or_replays_the_tool() {
         install_tool(&mut request, tool).await;
         let (events, result) = collect(LoopEngine.start(request)).await;
         assert_eq!(result.status, LoopStatus::Failed);
-        assert_eq!(provider.attempts(), 1);
+        assert_eq!(provider.attempts(), 3);
         assert_eq!(executions.load(Ordering::SeqCst), 0);
         assert!(!events
             .iter()
             .any(|e| matches!(e.kind, LoopEventKind::ToolStarted(_))));
+        assert!(!events
+            .iter()
+            .any(|e| matches!(e.kind, LoopEventKind::ToolCallDelta { .. })));
     }
 }
 
