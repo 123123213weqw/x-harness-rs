@@ -3559,9 +3559,11 @@ dependencies = [
  "xharness-server",
  "xharness-session",
  "xharness-session-jsonl",
+ "xharness-terminal",
  "xharness-token",
  "xharness-tools",
  "xharness-web",
+ "xharness-web-terminal",
  "xharness-win32",
 ]
 
@@ -3787,6 +3789,20 @@ dependencies = [
  "tokio",
  "tokio-util",
  "xharness-debug",
+]
+
+[[package]]
+name = "xharness-web-terminal"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "xharness-process",
+ "xharness-terminal",
 ]
 
 [[package]]

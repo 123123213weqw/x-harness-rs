@@ -1,0 +1,19 @@
+[package]
+name = "xharness-web-terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Web terminal extension routes (/api/terminal/*) for XHarness"
+
+[dependencies]
+axum.workspace = true
+base64 = "0.22"
+serde.workspace = true
+serde_json.workspace = true
+xharness-process = { path = "../xharness-process" }
+xharness-terminal = { path = "../xharness-terminal" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower.workspace = true

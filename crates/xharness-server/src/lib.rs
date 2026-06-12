@@ -87,6 +87,19 @@ fn api_router_with_debug_and_readiness(
     debug: DebugRecorder,
     readiness: StartupReadiness,
 ) -> Router {
+    api_router_with_debug_and_extension(backend, debug, readiness, Router::new())
+}
+
+/// Merge an XHarness-owned extension surface (for example the Web terminal
+/// routes) into the `/api` transport. Extension routers already carry their
+/// own state; they share the request-body limit and the readiness gate, and
+/// desktop-token wrapping covers them like every other `/api` route.
+fn api_router_with_debug_and_extension(
+    backend: Arc<dyn ApiBackend>,
+    debug: DebugRecorder,
+    readiness: StartupReadiness,
+    extension: Router,
+) -> Router {
     let state = ServerState { backend, debug };
     Router::new()
         .route(RESPOND_PATH, post(respond))
@@ -98,9 +111,10 @@ fn api_router_with_debug_and_readiness(
         )
         .route("/api/{namespace}/{method}", post(dynamic_unary))
         .route("/api/{method}", post(unary))
+        .with_state(state)
+        .merge(extension)
         .layer(DefaultBodyLimit::max(DEFAULT_REQUEST_BODY_LIMIT_BYTES))
         .route_layer(middleware::from_fn_with_state(readiness, require_ready))
-        .with_state(state)
 }
 
 #[derive(Deserialize)]
@@ -244,7 +258,29 @@ pub fn web_router_with_debug_desktop_token_and_readiness(
     desktop_token: Option<String>,
     readiness: StartupReadiness,
 ) -> Router {
-    let mut router = api_router_with_debug_and_readiness(backend, debug, readiness.clone());
+    web_router_full(
+        backend,
+        static_dir,
+        debug,
+        desktop_token,
+        readiness,
+        Router::new(),
+    )
+}
+
+/// Complete Web carrier plus an XHarness extension router (see
+/// [`api_router_with_debug_and_extension`]) merged inside the readiness and
+/// desktop-token layers.
+pub fn web_router_full(
+    backend: Arc<dyn ApiBackend>,
+    static_dir: Option<PathBuf>,
+    debug: DebugRecorder,
+    desktop_token: Option<String>,
+    readiness: StartupReadiness,
+    extension: Router,
+) -> Router {
+    let mut router =
+        api_router_with_debug_and_extension(backend, debug, readiness.clone(), extension);
     if let Some(token) = desktop_token {
         let auth = DesktopAuth::new(token);
         router = router
