@@ -2,8 +2,9 @@
 //!
 //! A session occupies exactly one `<id>.jsonl` file. The first record is an
 //! immutable header and every later record contains one complete CAS append
-//! batch. A torn, unterminated final JSON record is ignored during recovery;
-//! corruption anywhere else is rejected.
+//! batch. Version 2 may gzip older batches inside that same file while fresh
+//! appends remain ordinary JSON. A torn, unterminated final JSON record is
+//! ignored during recovery; corruption anywhere else is rejected.
 
 use std::{
     collections::HashMap,
@@ -21,7 +22,10 @@ use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use xharness_session::{
     AppendReceipt, LoggedEvent, Revision, Session, SessionEvent, SessionHeader, SessionInspection,
@@ -33,8 +37,12 @@ mod results;
 
 const FILE_FORMAT: &str = "xharness.session.jsonl";
 const FILE_FORMAT_VERSION: u32 = 1;
+const COMPRESSED_FILE_FORMAT_VERSION: u32 = 2;
 const HEADER_RECORD: &str = "header";
 const BATCH_RECORD: &str = "batch";
+const COMPRESSED_BATCH_RECORD: &str = "batch_gzip";
+const MAX_RECORD_BYTES: u64 = 128 * 1024 * 1024;
+const MIN_COMPRESS_BYTES: usize = 4096;
 const FILE_SUFFIX: &str = ".jsonl";
 const MAX_SESSION_ID_BYTES: usize = 200;
 const FINGERPRINT_SAMPLE_BYTES: usize = 4 * 1_024;
@@ -97,9 +105,50 @@ struct BatchRecord {
     events: Vec<LoggedEvent>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompressedBatchRecord {
+    record: String,
+    uncompressed_len: u64,
+    sha256: String,
+    compressed_sha256: String,
+    data: String,
+}
+
+#[derive(Deserialize)]
+struct RecordTag {
+    record: String,
+}
+
+#[derive(Debug)]
+enum BatchDecodeError {
+    Json(serde_json::Error),
+    Invalid(String),
+}
+
+impl std::fmt::Display for BatchDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(error) => error.fmt(f),
+            Self::Invalid(message) => f.write_str(message),
+        }
+    }
+}
+
+/// An explicitly requested, single-session storage migration. A no-op never
+/// modifies the authoritative file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ColdCompressionReport {
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+    pub batches_compressed: u64,
+    pub changed: bool,
+}
+
 #[derive(Clone, Debug)]
 struct LoadedFile {
     session: Session,
+    format_version: u32,
     /// Prefix known to contain only accepted records.
     valid_len: u64,
     /// The accepted final record had no newline terminator.
@@ -231,6 +280,31 @@ impl JsonlSessionStore {
         self.root.as_ref().as_path()
     }
 
+    /// Losslessly compress old batches in one journal. This is deliberately
+    /// opt-in: the caller chooses a cold session, while the existing process
+    /// and cross-process locks serialize the rewrite with normal appends.
+    /// The original path is atomically replaced only after full replay of the
+    /// staged file equals the original logical session.
+    pub async fn compress_cold_session(
+        &self,
+        session_id: &str,
+    ) -> Result<ColdCompressionReport, StoreError> {
+        let owned_id = session_id.to_owned();
+        let (path, guard) = self.locked_path(session_id).await?;
+        let cache = Arc::clone(&self.cache);
+        run_blocking(move || {
+            let _guard = guard;
+            let _file_lock = acquire_file_lock(&path)?;
+            let result = compress_cold_file(&path, &owned_id);
+            // A directory-sync failure can occur after the atomic replace.
+            // Clear the cache on both success and error; the next load always
+            // observes the authoritative path rather than a prior inode.
+            cache_remove(&cache, &path)?;
+            result
+        })
+        .await
+    }
+
     fn session_path(&self, session_id: &str) -> Result<PathBuf, StoreError> {
         validate_session_id(session_id)?;
         Ok(self.root.join(format!("{session_id}{FILE_SUFFIX}")))
@@ -350,6 +424,42 @@ impl Store for JsonlSessionStore {
         Ok((headers, unreadable))
     }
 
+    async fn scan_startup_candidates(
+        &self,
+    ) -> Result<(Vec<SessionHeader>, Vec<UnreadableSession>), StoreError> {
+        let root = Arc::clone(&self.root);
+        let mut session_ids = run_blocking(move || discover_session_ids(root.as_path())).await?;
+        session_ids.sort();
+
+        let mut headers = Vec::with_capacity(session_ids.len());
+        let mut unreadable = Vec::new();
+        for session_id in session_ids {
+            let result = async {
+                let (path, guard) = self.locked_path(&session_id).await?;
+                let requested_id = session_id.clone();
+                run_blocking(move || {
+                    let _guard = guard;
+                    let _file_lock = acquire_file_lock(&path)?;
+                    read_header_file(&path, &requested_id)
+                })
+                .await
+            }
+            .await;
+            match result {
+                Ok(Some(header)) => headers.push(header),
+                Ok(None) => unreadable.push(UnreadableSession {
+                    session_id,
+                    reason: "session disappeared during startup enumeration".to_owned(),
+                }),
+                Err(error) => unreadable.push(UnreadableSession {
+                    session_id,
+                    reason: error.to_string(),
+                }),
+            }
+        }
+        Ok((headers, unreadable))
+    }
+
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
         let session_id = header.id.clone();
         let (path, guard) = self.locked_path(&session_id).await?;
@@ -422,6 +532,7 @@ impl Store for JsonlSessionStore {
                 fingerprint,
                 LoadedFile {
                     session: session.clone(),
+                    format_version: FILE_FORMAT_VERSION,
                     valid_len: fingerprint.len,
                     needs_separator: false,
                     estimated_bytes: 1024,
@@ -630,6 +741,7 @@ impl Store for JsonlSessionStore {
             let Some((offset, len)) = cut.audit_offsets.get(&seq).copied() else {
                 return Ok(None);
             };
+            let format_version = cut.format_version;
             drop(cut);
             if len > 128 * 1024 * 1024 {
                 return Err(backend_message("audit record exceeds 128 MiB"));
@@ -644,8 +756,8 @@ impl Store for JsonlSessionStore {
             let mut bytes = vec![0; len as usize];
             file.read_exact(&mut bytes)
                 .map_err(|e| backend_error("read request audit", &path, e))?;
-            let record: BatchRecord =
-                decode_owned_json(&bytes).map_err(|e| backend_message(e.to_string()))?;
+            let record = decode_batch_line(&bytes, format_version)
+                .map_err(|e| backend_message(e.to_string()))?;
             for event in record.events {
                 if event.seq == seq {
                     if let xharness_session::EventData::RequestHeader { header } = event.event.0 {
@@ -1059,6 +1171,38 @@ fn load_file_mode(
     parse_reader(path, session_id, BufReader::new(file), runtime_audit_view).map(Some)
 }
 
+/// Read only the immutable first record. The Host verifies the event tail on
+/// its single full `load` before the candidate becomes visible. Old JSONL
+/// files need no migration and no sidecar allocation for this fast path.
+fn read_header_file(path: &Path, session_id: &str) -> Result<Option<SessionHeader>, StoreError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(backend_error("inspect session path", path, error)),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(corrupt(path, 1, "session path must not be a symbolic link"));
+    }
+    if !metadata.is_file() {
+        return Err(corrupt(path, 1, "session path is not a regular file"));
+    }
+    let file = match secure_open_options().read(true).open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(backend_error("open session", path, error)),
+    };
+    ensure_regular_file(&file, path, "session log")?;
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    if read_record(&mut reader, &mut line, path)? == 0 {
+        return Err(corrupt(path, 1, "missing header record"));
+    }
+    let record: HeaderRecord = decode_owned_json(&line)
+        .map_err(|e| corrupt(path, 1, format!("invalid header JSON: {e}")))?;
+    validate_header_record(path, session_id, &record)?;
+    Ok(Some(record.header))
+}
+
 // Bound a single corrupt/hostile record, not the number of history records.
 fn read_record(
     reader: &mut impl BufRead,
@@ -1066,10 +1210,10 @@ fn read_record(
     path: &Path,
 ) -> Result<usize, StoreError> {
     let n = reader
-        .take(128 * 1024 * 1024 + 1)
+        .take(MAX_RECORD_BYTES + 1)
         .read_until(b'\n', line)
         .map_err(|e| backend_error("read session record", path, e))?;
-    if n > 128 * 1024 * 1024 {
+    if n as u64 > MAX_RECORD_BYTES {
         return Err(backend_message(
             "session record exceeds 128 MiB; file left unchanged",
         ));
@@ -1107,7 +1251,7 @@ fn parse_reader(
         }
         line_number += 1;
         let terminated = line.ends_with(b"\n");
-        match decode_owned_json::<BatchRecord>(&line) {
+        match decode_batch_line(&line, header_record.format_version) {
             Ok(mut record) => {
                 for event in &record.events {
                     if matches!(
@@ -1131,7 +1275,7 @@ fn parse_reader(
             }
             // Only syntactically truncated final JSON is recoverable. Complete
             // unknown versions/events must never be silently discarded.
-            Err(e) if !terminated && e.is_eof() => break,
+            Err(BatchDecodeError::Json(e)) if !terminated && e.is_eof() => break,
             Err(e) => {
                 return Err(corrupt(
                     path,
@@ -1145,11 +1289,241 @@ fn parse_reader(
         .map_err(|e| corrupt(path, line_number, format!("invalid event log: {e}")))?;
     Ok(LoadedFile {
         session,
+        format_version: header_record.format_version,
         valid_len,
         needs_separator,
         estimated_bytes,
         audit_offsets: Arc::new(audit_offsets),
     })
+}
+
+fn decode_batch_line(line: &[u8], format_version: u32) -> Result<BatchRecord, BatchDecodeError> {
+    if format_version == FILE_FORMAT_VERSION {
+        return decode_owned_json(line).map_err(BatchDecodeError::Json);
+    }
+    let tag: RecordTag = decode_owned_json(line).map_err(BatchDecodeError::Json)?;
+    if tag.record == BATCH_RECORD {
+        return decode_owned_json(line).map_err(BatchDecodeError::Json);
+    }
+    if tag.record != COMPRESSED_BATCH_RECORD {
+        return Err(BatchDecodeError::Invalid(format!(
+            "unsupported session record {:?}",
+            tag.record
+        )));
+    }
+    let record: CompressedBatchRecord = decode_owned_json(line).map_err(BatchDecodeError::Json)?;
+    if record.uncompressed_len > MAX_RECORD_BYTES {
+        return Err(BatchDecodeError::Invalid(
+            "compressed batch expands beyond 128 MiB".to_owned(),
+        ));
+    }
+    let compressed = BASE64
+        .decode(record.data.as_bytes())
+        .map_err(|e| BatchDecodeError::Invalid(format!("invalid compressed batch base64: {e}")))?;
+    if format!("{:x}", Sha256::digest(&compressed)) != record.compressed_sha256 {
+        return Err(BatchDecodeError::Invalid(
+            "compressed batch digest mismatch".to_owned(),
+        ));
+    }
+    let mut decoder = GzDecoder::new(compressed.as_slice());
+    let mut expanded = Vec::new();
+    decoder
+        .by_ref()
+        .take(record.uncompressed_len + 1)
+        .read_to_end(&mut expanded)
+        .map_err(|e| BatchDecodeError::Invalid(format!("decompress batch: {e}")))?;
+    if expanded.len() as u64 != record.uncompressed_len
+        || format!("{:x}", Sha256::digest(&expanded)) != record.sha256
+    {
+        return Err(BatchDecodeError::Invalid(
+            "uncompressed batch size or digest mismatch".to_owned(),
+        ));
+    }
+    decode_owned_json(&expanded)
+        .map_err(|e| BatchDecodeError::Invalid(format!("invalid expanded batch JSON: {e}")))
+}
+
+fn encode_compressed_batch(line: &[u8], path: &Path) -> Result<Option<Vec<u8>>, StoreError> {
+    if line.len() < MIN_COMPRESS_BYTES {
+        return Ok(None);
+    }
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(line)
+        .map_err(|e| backend_error("compress session batch", path, e))?;
+    let compressed = encoder
+        .finish()
+        .map_err(|e| backend_error("finish compressed batch", path, e))?;
+    let record = CompressedBatchRecord {
+        record: COMPRESSED_BATCH_RECORD.to_owned(),
+        uncompressed_len: line.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(line)),
+        compressed_sha256: format!("{:x}", Sha256::digest(&compressed)),
+        data: BASE64.encode(compressed),
+    };
+    let encoded = encode_line(&record, path)?;
+    // An incompressible record stays plain. Avoid format churn for a marginal
+    // saving and preserve the existing 128 MiB physical-record limit.
+    if encoded.len() as u64 > MAX_RECORD_BYTES || encoded.len().saturating_mul(10) >= line.len() * 9
+    {
+        return Ok(None);
+    }
+    Ok(Some(encoded))
+}
+
+fn logical_session_digest(session: &Session) -> Result<[u8; 32], StoreError> {
+    let mut digest = Sha256::new();
+    let header = serde_json::to_vec(session.header())
+        .map_err(|e| backend_message(format!("encode session header for verification: {e}")))?;
+    digest.update((header.len() as u64).to_le_bytes());
+    digest.update(header);
+    digest.update(session.revision().get().to_le_bytes());
+    digest.update((session.events().len() as u64).to_le_bytes());
+    for event in session.events() {
+        let bytes = serde_json::to_vec(event)
+            .map_err(|e| backend_message(format!("encode session event for verification: {e}")))?;
+        digest.update((bytes.len() as u64).to_le_bytes());
+        digest.update(bytes);
+    }
+    Ok(digest.finalize().into())
+}
+
+/// Stage and validate a complete single-file rewrite before atomic publish.
+/// Invalid, dirty, or non-beneficial inputs leave the original unchanged.
+/// A post-publish directory-sync error is outcome-unknown and must be checked
+/// by reloading the authoritative path. The caller holds both locks.
+fn compress_cold_file(path: &Path, session_id: &str) -> Result<ColdCompressionReport, StoreError> {
+    let before = file_fingerprint(path)?.ok_or_else(|| StoreError::NotFound {
+        session_id: session_id.to_owned(),
+    })?;
+    let original =
+        load_file_mode(path, session_id, false)?.ok_or_else(|| StoreError::NotFound {
+            session_id: session_id.to_owned(),
+        })?;
+    if original.valid_len != before.len || original.needs_separator {
+        return Err(backend_message(
+            "cold compression requires a complete newline-terminated journal",
+        ));
+    }
+    // Do not retain two full event vectors during validation. Large legacy
+    // journals are exactly why this maintenance operation must bound peak RSS.
+    let original_digest = logical_session_digest(&original.session)?;
+    drop(original);
+    static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = path.with_file_name(format!(
+        ".compact-{}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let result = (|| {
+        let source = secure_open_options()
+            .read(true)
+            .open(path)
+            .map_err(|e| backend_error("open cold journal", path, e))?;
+        ensure_regular_file(&source, path, "session log")?;
+        let mut reader = BufReader::new(source);
+        let mut target = secure_open_options()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|e| backend_error("create compacted journal", &tmp, e))?;
+        let mut line = Vec::new();
+        read_record(&mut reader, &mut line, path)?;
+        let mut header: HeaderRecord = decode_owned_json(&line)
+            .map_err(|e| corrupt(path, 1, format!("invalid header JSON: {e}")))?;
+        validate_header_record(path, session_id, &header)?;
+        let source_version = header.format_version;
+        header.format_version = COMPRESSED_FILE_FORMAT_VERSION;
+        target
+            .write_all(&encode_line(&header, &tmp)?)
+            .map_err(|e| backend_error("write compacted header", &tmp, e))?;
+        let mut batches_compressed = 0u64;
+        loop {
+            line.clear();
+            if read_record(&mut reader, &mut line, path)? == 0 {
+                break;
+            }
+            // The source was fully validated under this session lock before
+            // staging. The final source fingerprint and complete staged replay
+            // guard against any non-cooperating mutation during the rewrite.
+            let already_compressed = source_version == COMPRESSED_FILE_FORMAT_VERSION
+                && decode_owned_json::<RecordTag>(&line)
+                    .map_err(|e| backend_message(format!("decode cold batch tag: {e}")))?
+                    .record
+                    == COMPRESSED_BATCH_RECORD;
+            let encoded = if already_compressed {
+                None
+            } else {
+                encode_compressed_batch(&line, &tmp)?
+            };
+            if let Some(encoded) = encoded {
+                target
+                    .write_all(&encoded)
+                    .map_err(|e| backend_error("write compacted batch", &tmp, e))?;
+                batches_compressed += 1;
+            } else {
+                target
+                    .write_all(&line)
+                    .map_err(|e| backend_error("copy cold batch", &tmp, e))?;
+            }
+        }
+        target
+            .sync_all()
+            .map_err(|e| backend_error("sync compacted journal", &tmp, e))?;
+        drop(target);
+        drop(reader);
+        let after = fs::metadata(&tmp)
+            .map_err(|e| backend_error("inspect compacted journal", &tmp, e))?
+            .len();
+        if batches_compressed == 0 || after >= before.len {
+            return Ok(ColdCompressionReport {
+                bytes_before: before.len,
+                bytes_after: before.len,
+                batches_compressed: 0,
+                changed: false,
+            });
+        }
+        let staged = load_file_mode(&tmp, session_id, false)?
+            .ok_or_else(|| backend_message("compacted journal disappeared before validation"))?;
+        if logical_session_digest(&staged.session)? != original_digest
+            || staged.valid_len != after
+            || staged.needs_separator
+        {
+            return Err(backend_message(
+                "compacted journal failed complete logical replay validation",
+            ));
+        }
+        if file_fingerprint(path)? != Some(before) {
+            return Err(backend_message(
+                "journal changed during cold compression; original left unchanged",
+            ));
+        }
+        replace_compacted_file(path, &tmp)?;
+        sync_parent_directory(path)?;
+        Ok(ColdCompressionReport {
+            bytes_before: before.len,
+            bytes_after: after,
+            batches_compressed,
+            changed: true,
+        })
+    })();
+    let _ = fs::remove_file(&tmp);
+    result
+}
+
+#[cfg(unix)]
+fn replace_compacted_file(path: &Path, tmp: &Path) -> Result<(), StoreError> {
+    fs::rename(tmp, path).map_err(|e| backend_error("publish compacted journal", path, e))
+}
+
+#[cfg(windows)]
+fn replace_compacted_file(path: &Path, tmp: &Path) -> Result<(), StoreError> {
+    xharness_win32::replace_file(path, tmp)
+        .map_err(|e| backend_error("publish compacted journal", path, e))
 }
 
 fn validate_header_record(
@@ -1171,13 +1545,15 @@ fn validate_header_record(
             format!("unsupported file format {:?}", record.format),
         ));
     }
-    if record.format_version != FILE_FORMAT_VERSION {
+    if record.format_version != FILE_FORMAT_VERSION
+        && record.format_version != COMPRESSED_FILE_FORMAT_VERSION
+    {
         return Err(corrupt(
             path,
             1,
             format!(
-                "unsupported JSONL format version {}; expected {}",
-                record.format_version, FILE_FORMAT_VERSION
+                "unsupported JSONL format version {}; expected {} or {}",
+                record.format_version, FILE_FORMAT_VERSION, COMPRESSED_FILE_FORMAT_VERSION
             ),
         ));
     }
