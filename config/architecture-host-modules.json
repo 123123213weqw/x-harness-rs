@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "managedModules": [
+    {
+      "id": "credentials",
+      "stateOwner": "Host credential-reference policy",
+      "source": "credential_processor.rs",
+      "entrypoint": "rpc/credentials.rs",
+      "allowedConsumers": [],
+      "allowedCrates": ["xharness_api"]
+    },
+    {
+      "id": "goals",
+      "stateOwner": "Goal transition policy",
+      "source": "goal_processor.rs",
+      "entrypoint": "rpc/goal.rs",
+      "allowedConsumers": [],
+      "allowedCrates": ["xharness_session"]
+    },
+    {
+      "id": "models",
+      "stateOwner": "Model catalogue projection policy",
+      "source": "model_processor.rs",
+      "entrypoint": "rpc/model.rs",
+      "allowedConsumers": [],
+      "allowedCrates": []
+    },
+    {
+      "id": "presets",
+      "stateOwner": "Preset selection policy",
+      "source": "preset_processor.rs",
+      "entrypoint": "rpc/preset.rs",
+      "allowedConsumers": [],
+      "allowedCrates": ["xharness_api", "xharness_session"]
+    },
+    {
+      "id": "sessions",
+      "stateOwner": "Session catalogue and history-window policy",
+      "source": "session_processor.rs",
+      "entrypoint": "rpc/session.rs",
+      "allowedConsumers": [],
+      "allowedCrates": []
+    },
+    {
+      "id": "settings",
+      "stateOwner": "Settings namespace mutation policy",
+      "source": "settings_processor.rs",
+      "entrypoint": "rpc/settings.rs",
+      "allowedConsumers": ["control.rs"],
+      "allowedCrates": ["xharness_api"]
+    },
+    {
+      "id": "subagents",
+      "stateOwner": "Subagent authorization and navigation policy",
+      "source": "subagent_processor.rs",
+      "entrypoint": "rpc/subagent.rs",
+      "allowedConsumers": [],
+      "allowedCrates": []
+    },
+    {
+      "id": "workspaces",
+      "stateOwner": "Workspace catalogue mutation policy",
+      "source": "workspace_processor.rs",
+      "entrypoint": "rpc/workspace.rs",
+      "allowedConsumers": [],
+      "allowedCrates": ["xharness_api", "xharness_control"]
+    }
+  ]
+}
