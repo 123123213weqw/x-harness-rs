@@ -22,11 +22,9 @@ window.__ModuleLoader__.load({
     // React re-renders a growing block by replacing it; consecutive additions
     // into the same parent within this window are treated as that churn.
     const CHURN_WINDOW_MS = 300
-    const FADE_DURATION_MS = 900
-
     const CSS = `
 @keyframes xh-stream-in{from{opacity:0}to{opacity:1}}
-[data-xh-stream-animate="true"]{animation:xh-stream-in ${FADE_DURATION_MS}ms cubic-bezier(.16,1,.3,1) both;animation-delay:var(--xh-stream-delay,0ms);will-change:opacity}
+[data-xh-stream-animate="true"]{animation:xh-stream-in var(--xh-duration-stream-in,900ms) var(--xh-ease-stream,cubic-bezier(.16,1,.3,1)) both;animation-delay:var(--xh-stream-delay,0ms);will-change:opacity}
 @media (prefers-reduced-motion:reduce){[data-xh-stream-animate="true"]{animation:none}}
 `
 

@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
 const css=readFileSync(new URL('../ui/overrides/logo-motion.css',import.meta.url),'utf8')
 const js=readFileSync(new URL('../ui/overrides/logo-motion.js',import.meta.url),'utf8')
-assert.match(css,/5s ease-in-out infinite/)
+assert.match(css,/var\(--xh-duration-logo-cycle, 5s\) var\(--xh-ease-in-out, ease-in-out\) infinite/)
 assert.match(css,/prefers-reduced-motion: reduce/)
 assert.match(css,/animation: none; display: none/)
 assert.match(css,/animation-play-state: paused/)
