@@ -227,14 +227,14 @@ async fn configured_retry_limit_counts_retries_not_initial_attempt() {
 }
 
 #[tokio::test]
-async fn any_model_delta_prevents_replay_even_for_complete_tool_json() {
+async fn visible_output_prevents_replay_but_uncommitted_tool_fragments_can_retry() {
     let deltas = [
         json!({"content":"partial"}),
         json!({"reasoning_content":"thinking"}),
         json!({"tool_calls":[{"index":0,"id":"call","function":{"name":"write","arguments":"{\"path\":"}}]}),
         json!({"tool_calls":[{"index":0,"id":"call","function":{"name":"write","arguments":"{\"path\":\"x\"}"}}]}),
     ];
-    for delta in deltas {
+    for (index, delta) in deltas.into_iter().enumerate() {
         let server = FaultServer::start(vec![
             Reply::Body {
                 text: frame(json!({"choices":[{"delta":delta}]})),
@@ -244,9 +244,20 @@ async fn any_model_delta_prevents_replay_even_for_complete_tool_json() {
         ])
         .await;
         let (events, result) = run(&server, 2, Duration::from_secs(1)).await;
-        assert_eq!(result.status, LoopStatus::Failed);
-        assert_eq!(server.count(), 1);
-        assert_eq!(retry_count(&events), 0);
+        if index < 2 {
+            assert_eq!(result.status, LoopStatus::Failed);
+            assert_eq!(server.count(), 1);
+            assert_eq!(retry_count(&events), 0);
+        } else {
+            assert_eq!(result.status, LoopStatus::Completed);
+            assert_eq!(result.final_text, "recovered");
+            assert_eq!(server.count(), 2);
+            assert_eq!(retry_count(&events), 1);
+            assert!(!events.iter().any(|event| matches!(
+                &event.kind,
+                LoopEventKind::ToolCallDelta { .. } | LoopEventKind::ToolStarted { .. }
+            )));
+        }
     }
 }
 

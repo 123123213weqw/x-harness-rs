@@ -34,6 +34,9 @@ use xharness_session::{
 const STREAM_JOURNAL_BATCH_EVENTS: usize = 64;
 const STREAM_JOURNAL_BATCH_BYTES: usize = 4 * 1_024;
 const STREAM_JOURNAL_BATCH_INTERVAL: Duration = Duration::from_millis(250);
+// Tool argument fragments are not a usable model answer. Keep a bounded
+// retry-safe prefix private until the stream commits or finishes.
+const MAX_RETRY_SAFE_TOOL_PREFIX_BYTES: usize = 256 * 1024;
 use xharness_tools::{
     ApprovalDecision as RuntimeApprovalDecision, ApprovalProvider as RuntimeApprovalProvider,
     ApprovalRequest as RuntimeApprovalRequest, MiddlewareError as RuntimeMiddlewareError,
@@ -3189,6 +3192,8 @@ impl Runner {
             };
 
             let mut failure: Option<ProviderError> = None;
+            let mut pending_tool_deltas = Vec::new();
+            let mut pending_tool_bytes = 0usize;
             loop {
                 enum ModelInput {
                     Command(Option<CommandEnvelope>),
@@ -3224,6 +3229,11 @@ impl Runner {
                     }
                     ModelInput::Command(None) => self.command_open = false,
                     ModelInput::Provider(Some(Ok(ProviderEvent::TextDelta(delta)))) => {
+                        if delta.is_empty() {
+                            continue;
+                        }
+                        self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
+                            .await?;
                         round.saw_delta = true;
                         round.text.push_str(&delta);
                         let checkpoint = self
@@ -3235,6 +3245,11 @@ impl Runner {
                         }
                     }
                     ModelInput::Provider(Some(Ok(ProviderEvent::ReasoningDelta(delta)))) => {
+                        if delta.is_empty() {
+                            continue;
+                        }
+                        self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
+                            .await?;
                         round.saw_delta = true;
                         round.reasoning.push_str(&delta);
                         let checkpoint = self
@@ -3251,45 +3266,33 @@ impl Runner {
                         name,
                         arguments_delta,
                     }))) => {
-                        round.saw_delta = true;
-                        let checkpoint = self
-                            .journal_chunk(AssistantChunk::ToolCallDelta {
-                                index,
-                                id: id.clone(),
-                                name: name.clone(),
-                                arguments_delta: arguments_delta.clone(),
-                            })
-                            .await?;
-                        self.emit(LoopEventKind::ToolCallDelta {
+                        pending_tool_bytes = pending_tool_bytes
+                            .saturating_add(id.len())
+                            .saturating_add(name.len())
+                            .saturating_add(arguments_delta.len());
+                        pending_tool_deltas.push(PendingToolDelta {
                             index,
-                            id: id.clone(),
-                            name: name.clone(),
-                            arguments_delta: arguments_delta.clone(),
-                        })
-                        .await?;
-                        if checkpoint {
-                            self.emit(LoopEventKind::StreamCheckpoint).await?;
+                            id,
+                            name,
+                            arguments_delta,
+                        });
+                        if round.saw_delta || pending_tool_bytes >= MAX_RETRY_SAFE_TOOL_PREFIX_BYTES
+                        {
+                            // A provider can stream arbitrarily long arguments. Do not
+                            // retain an unbounded retry buffer just to preserve retries.
+                            // Once any output has been committed, keep later tool deltas live.
+                            self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
+                                .await?;
+                            pending_tool_bytes = 0;
                         }
-                        let call = round
-                            .calls_by_index
-                            .entry(index)
-                            .or_insert_with(|| ToolCall {
-                                index,
-                                ..ToolCall::default()
-                            });
-                        if !id.is_empty() {
-                            call.id = id;
-                        }
-                        if !name.is_empty() {
-                            call.name = name;
-                        }
-                        call.arguments_json.push_str(&arguments_delta);
                     }
                     ModelInput::Provider(Some(Ok(ProviderEvent::Completed {
                         finish_reason,
                         usage,
                         provider_items,
                     }))) => {
+                        self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
+                            .await?;
                         let effective_finish_reason = finish_reason.clone().unwrap_or({
                             if round.calls_by_index.is_empty() {
                                 FinishReason::Stop
@@ -3394,6 +3397,49 @@ impl Runner {
         Err(RunFailure::Failed(
             "provider retry limit reached".to_owned(),
         ))
+    }
+
+    async fn commit_tool_prefix(
+        &mut self,
+        round: &mut ModelRound,
+        pending: &mut Vec<PendingToolDelta>,
+    ) -> Result<(), RunFailure> {
+        for delta in pending.drain(..) {
+            round.saw_delta = true;
+            let checkpoint = self
+                .journal_chunk(AssistantChunk::ToolCallDelta {
+                    index: delta.index,
+                    id: delta.id.clone(),
+                    name: delta.name.clone(),
+                    arguments_delta: delta.arguments_delta.clone(),
+                })
+                .await?;
+            self.emit(LoopEventKind::ToolCallDelta {
+                index: delta.index,
+                id: delta.id.clone(),
+                name: delta.name.clone(),
+                arguments_delta: delta.arguments_delta.clone(),
+            })
+            .await?;
+            if checkpoint {
+                self.emit(LoopEventKind::StreamCheckpoint).await?;
+            }
+            let call = round
+                .calls_by_index
+                .entry(delta.index)
+                .or_insert_with(|| ToolCall {
+                    index: delta.index,
+                    ..ToolCall::default()
+                });
+            if !delta.id.is_empty() {
+                call.id = delta.id;
+            }
+            if !delta.name.is_empty() {
+                call.name = delta.name;
+            }
+            call.arguments_json.push_str(&delta.arguments_delta);
+        }
+        Ok(())
     }
 
     async fn tool_definitions(&self) -> Vec<crate::ToolDefinition> {
@@ -3983,6 +4029,13 @@ struct ModelRound {
     completed: bool,
     saw_delta: bool,
     interrupted: bool,
+}
+
+struct PendingToolDelta {
+    index: usize,
+    id: String,
+    name: String,
+    arguments_delta: String,
 }
 
 #[derive(Clone, Debug)]
