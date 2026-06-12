@@ -264,6 +264,36 @@ async fn scan_sessions_publishes_healthy_sessions_and_reports_the_rest() {
     );
 }
 
+#[tokio::test]
+async fn startup_candidates_read_only_headers_and_defer_tail_validation() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("healthy")).await.unwrap();
+    store.create(header("corrupt-tail")).await.unwrap();
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(dir.session_file("corrupt-tail"))
+        .unwrap();
+    file.write_all(b"not-json\n").unwrap();
+    fs::write(dir.session_file("bad-header"), b"not-json\n").unwrap();
+
+    let (candidates, unreadable) = store.scan_startup_candidates().await.unwrap();
+    assert_eq!(
+        candidates.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(),
+        ["corrupt-tail", "healthy"]
+    );
+    assert_eq!(unreadable.len(), 1);
+    assert_eq!(unreadable[0].session_id, "bad-header");
+    assert!(store.load("healthy").await.unwrap().is_some());
+    assert!(store.load("corrupt-tail").await.is_err());
+
+    // Public strict enumeration is unchanged: it still validates the tail.
+    assert!(store.list_headers().await.is_err());
+    let (validated, invalid) = store.scan_sessions().await.unwrap();
+    assert_eq!(validated.len(), 1);
+    assert_eq!(invalid.len(), 2);
+}
+
 /// The strict seam still fails closed on the same directory: tolerating an
 /// entry at startup must not weaken `list_headers` for its other callers.
 #[tokio::test]
@@ -863,6 +893,178 @@ fn large_request() -> xharness_session::RequestHeader {
         serde_json::json!({"edits":[{"reason":"visible surface"}],"visible_message_count":1}),
     );
     h
+}
+
+#[tokio::test]
+async fn cold_compression_preserves_legacy_audit_and_future_appends() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("cold")).await.unwrap();
+    let original_request = large_request();
+    let first = store
+        .append(
+            "cold",
+            Revision::ZERO,
+            audited_turn(1, original_request.clone()),
+        )
+        .await
+        .unwrap();
+    store.flush("cold").await.unwrap();
+    let original = store.inspect("cold").await.unwrap().unwrap();
+    let before = fs::metadata(dir.session_file("cold")).unwrap().len();
+
+    let report = store.compress_cold_session("cold").await.unwrap();
+    assert!(report.changed);
+    assert_eq!(report.bytes_before, before);
+    assert!(report.bytes_after < before / 2);
+    assert!(report.batches_compressed > 0);
+    let text = fs::read_to_string(dir.session_file("cold")).unwrap();
+    assert!(text.contains("\"format_version\":2"));
+    assert!(text.contains("\"record\":\"batch_gzip\""));
+    assert_eq!(store.inspect("cold").await.unwrap().unwrap(), original);
+    assert_eq!(
+        store.request_header("cold", 3).await.unwrap(),
+        Some(original_request)
+    );
+    assert_eq!(store.list_headers().await.unwrap(), vec![header("cold")]);
+    assert!(!store.compress_cold_session("cold").await.unwrap().changed);
+
+    let appended = store
+        .append(
+            "cold",
+            first.revision,
+            vec![turn_start(2), user_message(&"new content ".repeat(4096))],
+        )
+        .await
+        .unwrap();
+    store.flush("cold").await.unwrap();
+    let reopened = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    assert_eq!(
+        reopened.load("cold").await.unwrap().unwrap().revision(),
+        appended.revision
+    );
+    assert_eq!(
+        reopened
+            .inspect("cold")
+            .await
+            .unwrap()
+            .unwrap()
+            .events
+            .len(),
+        original.events.len() + 2
+    );
+    assert_eq!(
+        reopened.request_header("cold", 3).await.unwrap(),
+        store.request_header("cold", 3).await.unwrap()
+    );
+    // Version 2 may mix archived and newly appended ordinary batches. A
+    // second migration compresses only the new batch, not gzip-on-gzip.
+    let second = reopened.compress_cold_session("cold").await.unwrap();
+    assert!(second.changed);
+    assert_eq!(second.batches_compressed, 1);
+    assert_eq!(
+        reopened.load("cold").await.unwrap().unwrap().revision(),
+        appended.revision
+    );
+}
+
+#[tokio::test]
+async fn cold_compression_rejects_corrupt_and_torn_tails_without_rewriting() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    for id in ["corrupt", "torn"] {
+        store.create(header(id)).await.unwrap();
+        store
+            .append(id, Revision::ZERO, vec![turn_start(1)])
+            .await
+            .unwrap();
+    }
+    for (id, tail) in [
+        ("corrupt", &b"not-json\n"[..]),
+        ("torn", &b"{\"record\":"[..]),
+    ] {
+        let path = dir.session_file(id);
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(tail).unwrap();
+        let before = fs::read(&path).unwrap();
+        assert!(store.compress_cold_session(id).await.is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+}
+
+#[tokio::test]
+async fn compressed_batch_digest_failure_is_not_treated_as_a_torn_tail() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("digest")).await.unwrap();
+    store
+        .append(
+            "digest",
+            Revision::ZERO,
+            vec![turn_start(1), user_message(&"z".repeat(32768))],
+        )
+        .await
+        .unwrap();
+    assert!(store.compress_cold_session("digest").await.unwrap().changed);
+    let path = dir.session_file("digest");
+    let mut rows: Vec<Value> = fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    rows[1]["sha256"] = Value::String("0".repeat(64));
+    let mut bytes = rows
+        .iter()
+        .map(|v| serde_json::to_string(v).unwrap() + "\n")
+        .collect::<String>();
+    bytes.pop(); // A complete but unterminated bad record must fail closed.
+    fs::write(&path, bytes).unwrap();
+    assert!(store.load("digest").await.is_err());
+    assert!(store
+        .append("digest", Revision::ZERO, vec![])
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn cold_compression_serializes_with_append_and_keeps_cas() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("race")).await.unwrap();
+    let first = store
+        .append(
+            "race",
+            Revision::ZERO,
+            vec![turn_start(1), user_message(&"a".repeat(65536))],
+        )
+        .await
+        .unwrap();
+    let (compressed, appended) = tokio::join!(
+        store.compress_cold_session("race"),
+        store.append("race", first.revision, vec![user_message("next")])
+    );
+    assert!(compressed.unwrap().changed);
+    let appended = appended.unwrap();
+    let reopened = JsonlSessionStore::new(dir.path()).unwrap();
+    let final_session = reopened.load("race").await.unwrap().unwrap();
+    assert_eq!(final_session.revision(), appended.revision);
+    assert_eq!(final_session.events().len(), 3);
+}
+
+#[tokio::test]
+async fn cold_compression_no_saving_leaves_v1_bytes_unchanged() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("small")).await.unwrap();
+    store
+        .append("small", Revision::ZERO, vec![turn_start(1)])
+        .await
+        .unwrap();
+    let before = fs::read(dir.session_file("small")).unwrap();
+    let report = store.compress_cold_session("small").await.unwrap();
+    assert!(!report.changed);
+    assert_eq!(report.bytes_before, report.bytes_after);
+    assert_eq!(fs::read(dir.session_file("small")).unwrap(), before);
 }
 #[tokio::test]
 async fn audit_archive_is_lossless_deduplicated_and_not_in_hot_history() {
