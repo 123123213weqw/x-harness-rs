@@ -1,0 +1,18 @@
+/* Product motion tokens. Loaded once by the static shell, before plugins. */
+:root {
+  --xh-duration-fast: 120ms;
+  --xh-duration-control: 150ms;
+  --xh-duration-overlay-in: 200ms;
+  --xh-duration-overlay-out: 150ms;
+  --xh-duration-panel-in: 260ms;
+  --xh-duration-panel-out: 180ms;
+  --xh-duration-stream-in: 900ms;
+  --xh-duration-status-pulse: 1.5s;
+  --xh-duration-logo-cycle: 5s;
+  --xh-ease-panel: cubic-bezier(.23, 1, .32, 1);
+  --xh-ease-stream: cubic-bezier(.16, 1, .3, 1);
+  --xh-ease-in: ease-in;
+  --xh-ease-out: ease-out;
+  --xh-ease-in-out: ease-in-out;
+  --xh-ease-standard: ease;
+}
