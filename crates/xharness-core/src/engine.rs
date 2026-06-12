@@ -1161,6 +1161,10 @@ impl Runner {
             .validate()
             .map_err(|error| RunFailure::Failed(error.to_string()))?;
         self.validate_prompt_surface(&prepared)?;
+        // Account for exactly the image references that will be sent on the
+        // wire. In particular, a long conversation must not fail forever once
+        // its accumulated attachments exceed one request's resource budget.
+        prepared.defer_images_over_budget(crate::MAX_REQUEST_IMAGE_BYTES);
         // Runtime controls are transient, not new user history. Add AFTER
         // policy projection so compaction/custom policies cannot remove
         // an unconsumed notice, and BEFORE admission/counting/audit.
