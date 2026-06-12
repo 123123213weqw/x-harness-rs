@@ -15,6 +15,7 @@ pub use types::*;
 pub use xharness_context::{
     ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface,
     IdentityContextPolicy, SurfaceEdit, SurfaceEditKind, ToolResultPruningContextPolicy,
+    MAX_REQUEST_IMAGE_BYTES,
 };
 pub use xharness_token::{
     ConservativeByteMeter, ProviderInputTokenCount, TokenBreakdown, TokenBudget, TokenBudgetError,
