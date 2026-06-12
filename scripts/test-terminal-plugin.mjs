@@ -32,6 +32,17 @@ const sandbox = {
     },
   },
 }
+let reducedMotion = false
+let nextCloseTimer = 0
+const closeTimers = new Map()
+sandbox.window.matchMedia = () => ({ matches: reducedMotion })
+sandbox.window.setTimeout = (callback, delay) => {
+  assert.equal(delay, 1000, 'close timer is a watchdog, not the CSS animation duration')
+  const id = ++nextCloseTimer
+  closeTimers.set(id, callback)
+  return id
+}
+sandbox.window.clearTimeout = (id) => closeTimers.delete(id)
 const pendingSleeps = []
 sandbox.setTimeout = (callback) => { pendingSleeps.push(callback); return pendingSleeps.length }
 vm.createContext(sandbox)
@@ -105,6 +116,41 @@ assert.equal(dock.props.style.height, 320)
 plugin.dockStore.setHeight(90)
 assert.equal(dockRoot.type(dockRoot.props).props.style.height, 160)
 plugin.dockStore.open = false
+
+// CSS animation completion, not a parallel 190ms timer, owns unmount.
+plugin.dockStore.open = true
+plugin.dockStore.setOpen(false)
+assert.equal(plugin.dockStore.closing, true)
+const closingDock = dockRoot.type(dockRoot.props)
+const ownTarget = {}
+closingDock.props.onAnimationEnd({ target: {}, currentTarget: ownTarget, animationName: 'xhterm-dock-out' })
+assert.equal(plugin.dockStore.closing, true, 'child animations cannot close the dock')
+closingDock.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhterm-dock-in' })
+assert.equal(plugin.dockStore.closing, true, 'entry animation cannot close the dock')
+closingDock.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhterm-dock-out' })
+assert.equal(plugin.dockStore.open, false)
+assert.equal(plugin.dockStore.closing, false)
+assert.equal(closeTimers.size, 0)
+
+const originalRefresh = plugin.dockStore.refresh
+plugin.dockStore.refresh = async () => {}
+plugin.dockStore.setOpen(true)
+plugin.dockStore.setOpen(false)
+const staleClose = closeTimers.get(plugin.dockStore.closeTimer)
+plugin.dockStore.setOpen(true)
+staleClose()
+assert.equal(plugin.dockStore.open, true, 'stale completion after reopen is ignored')
+assert.equal(plugin.dockStore.closing, false)
+reducedMotion = true
+plugin.dockStore.setOpen(false)
+assert.equal(plugin.dockStore.open, false, 'reduced motion closes immediately')
+assert.equal(closeTimers.size, 0)
+reducedMotion = false
+plugin.dockStore.setOpen(true)
+plugin.dockStore.setOpen(false)
+closeTimers.get(plugin.dockStore.closeTimer)()
+assert.equal(plugin.dockStore.open, false, 'watchdog handles missing animationend')
+plugin.dockStore.refresh = originalRefresh
 
 // The exit notice follows the document language and carries exit details.
 documentState.lang = 'zh-CN'

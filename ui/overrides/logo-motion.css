@@ -1,7 +1,7 @@
 /* One short sweep followed by a rest; only the small SVG rectangle moves. */
 .xh-logo-sweep {
   transform: translateX(0);
-  animation: xh-logo-sweep 5s ease-in-out infinite;
+  animation: xh-logo-sweep var(--xh-duration-logo-cycle, 5s) var(--xh-ease-in-out, ease-in-out) infinite;
   pointer-events: none;
 }
 @keyframes xh-logo-sweep {

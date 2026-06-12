@@ -8,6 +8,17 @@ const sandbox = {
     __ModuleLoader__: { load(value) { registration = value } },
   },
 }
+let reducedMotion = false
+let nextCloseTimer = 0
+const closeTimers = new Map()
+sandbox.window.matchMedia = () => ({ matches: reducedMotion })
+sandbox.window.setTimeout = (callback, delay) => {
+  assert.equal(delay, 1000, 'close timer is only a watchdog')
+  const id = ++nextCloseTimer
+  closeTimers.set(id, callback)
+  return id
+}
+sandbox.window.clearTimeout = (id) => closeTimers.delete(id)
 vm.createContext(sandbox)
 vm.runInContext(
   await readFile(
@@ -18,13 +29,13 @@ vm.runInContext(
 )
 
 const React = {
-  createElement() {},
+  createElement(type, props, ...children) { return { type, props: props ?? {}, children } },
   Fragment: 'fragment',
   useEffect() {},
   useRef() { return { current: null } },
   useState(value) { return [value, () => {}] },
 }
-const ReactDOM = { createPortal() {} }
+const ReactDOM = { createPortal(element) { return element } }
 
 let requests = []
 let responses = new Map()
@@ -156,5 +167,66 @@ responses.set(
 await plugin.store.fork('x')
 assert.equal(plugin.store.actionError, 'fork denied')
 assert.equal(plugin.store.busyId, null)
+
+// Exit animation completion owns unmount; reopening invalidates stale timers.
+plugin.store.open = true
+plugin.store.setOpen(false)
+assert.equal(plugin.store.closing, true)
+const slotRegistrations = []
+plugin.apply({
+  effect() {},
+  locale: { register() {} },
+  slots: {
+    inject(_name, register) { register() },
+    register(_options, component) { slotRegistrations.push(component) },
+  },
+})
+function findClass(node, name) {
+  if (node === null || node === undefined || typeof node !== 'object') return null
+  const rendered = typeof node.type === 'function' ? node.type(node.props) : node
+  if (rendered !== node) return findClass(rendered, name)
+  if (String(node.props?.className ?? '').split(' ').includes(name)) return node
+  for (const child of node.children ?? []) {
+    if (Array.isArray(child)) {
+      for (const nested of child) {
+        const found = findClass(nested, name)
+        if (found) return found
+      }
+    } else {
+      const found = findClass(child, name)
+      if (found) return found
+    }
+  }
+  return null
+}
+const closingPanel = findClass(React.createElement(slotRegistrations[0]), 'xhtask-panel-wrap-closing')
+assert.ok(closingPanel)
+const ownTarget = {}
+closingPanel.props.onAnimationEnd({ target: {}, currentTarget: ownTarget, animationName: 'xhtask-panel-out' })
+assert.equal(plugin.store.closing, true, 'nested animation cannot unmount the panel')
+closingPanel.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhtask-panel-in' })
+assert.equal(plugin.store.closing, true, 'entry animation cannot unmount the panel')
+closingPanel.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhtask-panel-out' })
+assert.equal(plugin.store.open, false)
+assert.equal(closeTimers.size, 0)
+const originalRefresh = plugin.store.refresh
+plugin.store.refresh = async () => {}
+plugin.store.setOpen(true)
+plugin.store.setOpen(false)
+const staleClose = closeTimers.get(plugin.store.closeTimer)
+plugin.store.setOpen(true)
+staleClose()
+assert.equal(plugin.store.open, true)
+assert.equal(plugin.store.closing, false)
+reducedMotion = true
+plugin.store.setOpen(false)
+assert.equal(plugin.store.open, false, 'reduced motion closes immediately')
+assert.equal(closeTimers.size, 0)
+reducedMotion = false
+plugin.store.setOpen(true)
+plugin.store.setOpen(false)
+closeTimers.get(plugin.store.closeTimer)()
+assert.equal(plugin.store.open, false, 'watchdog prevents a stuck panel')
+plugin.store.refresh = originalRefresh
 
 console.log('tasks plugin: assertions passed')
