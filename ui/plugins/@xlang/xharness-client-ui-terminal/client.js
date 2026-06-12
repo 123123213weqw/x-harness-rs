@@ -6,7 +6,6 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const React = require('react')
-    const ReactDOM = require('react-dom')
     const { createElement: h, useEffect, useRef, useState } = React
 
     // The dock layout, tab model and CSS-token theme resolution are adapted
@@ -524,13 +523,8 @@ window.__ModuleLoader__.load({
 
     function TerminalDock({ t }) {
       const store = useDockStore()
-      const [height, setHeight] = useState(store.height)
       const draggingRef = useRef(false)
       const activeTab = store.activeTab()
-
-      useEffect(() => {
-        if (!draggingRef.current) setHeight(store.height)
-      }, [store.height])
 
       useEffect(() => {
         const move = (event) => {
@@ -552,7 +546,7 @@ window.__ModuleLoader__.load({
 
       if (!store.open) return null
 
-      return h('div', { className: 'xhterm-dock', style: { height } },
+      return h('div', { className: 'xhterm-dock', style: { height: store.height } },
         h('div', {
           className: 'xhterm-resize-handle',
           title: t('resize.hint'),
@@ -617,23 +611,24 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function translate(key) {
+      const dict = document.documentElement.lang.startsWith('zh') ? zh : en
+      return dict[key] ?? key
+    }
+
     function TerminalRoot() {
-      const t = (key) => {
-        const dict = document.documentElement.lang.startsWith('zh') ? zh : en
-        return dict[key] ?? key
-      }
-      const store = useDockStore()
-      return h(React.Fragment, null,
-        h(TerminalDockAction, { t }),
-        store.open ? ReactDOM.createPortal(h(TerminalDock, { t }), document.body) : null,
-      )
+      return h(TerminalDockAction, { t: translate })
+    }
+
+    function TerminalDockRoot() {
+      return h(TerminalDock, { t: translate })
     }
 
     // ---------------------------------------------------------------- CSS --
 
     const CSS = `
 .xhterm-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhterm-trigger:hover,.xhterm-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}
-.xhterm-dock{position:fixed;left:0;right:0;bottom:0;z-index:90;display:flex;flex-direction:column;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2);box-shadow:0 -8px 24px rgba(0,0,0,.18)}
+.xhterm-dock{order:1;display:flex;flex:none;flex-direction:column;box-sizing:border-box;width:100%;min-width:0;max-height:calc(100vh - 220px);background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2)}
 .xhterm-resize-handle{height:4px;flex:none;cursor:row-resize}
 .xhterm-dragging,.xhterm-dragging *{cursor:row-resize!important;user-select:none!important}
 .xhterm-tabbar{display:flex;align-items:center;gap:2px;flex:none;padding:2px 6px;border-bottom:1px solid var(--dsw-alias-border-l1)}
@@ -678,6 +673,15 @@ window.__ModuleLoader__.load({
           order: 20,
           locale: NS,
         }, TerminalRoot),
+      )
+      ctx.slots.inject(
+        'conversation.input.dock',
+        () => ctx.slots.register({
+          name: 'conversation.input.dock',
+          id: TARGET,
+          order: 20,
+          locale: NS,
+        }, TerminalDockRoot),
       )
     }
 

@@ -364,8 +364,8 @@ impl BasicHost {
             }
             (record.dispatch_paused, record.running)
         };
-        let content =
-            vec![json!({"type":"text","text":format!("Agent {sender} ({kind}):\n{text}")})];
+        let prompt_text = format!("Agent {sender} ({kind}):\n{text}");
+        let content = vec![json!({"type":"text","text":prompt_text})];
         self.enqueue_prompt(PromptAdmission {
             rpc_id: RpcId::new(id),
             session_id: target.into(),
@@ -375,7 +375,7 @@ impl BasicHost {
                 "queue"
             }
             .into(),
-            text: content[0]["text"].as_str().unwrap().into(),
+            text: prompt_text,
             content,
             source: json!({"kind":kind,"senderSessionId":sender}),
             fingerprint: Some(fingerprint),
