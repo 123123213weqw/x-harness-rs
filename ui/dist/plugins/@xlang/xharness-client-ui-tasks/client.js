@@ -19,6 +19,15 @@ window.__ModuleLoader__.load({
     const ARCHIVE_KEY = 'xharness.tasks.archive-snapshots.v1'
     const PANEL_WIDTH = 360
 
+    function panelExitWatchdogMs() {
+      const value = window.getComputedStyle?.(document.documentElement)
+        ?.getPropertyValue('--xh-duration-panel-out')?.trim() ?? ''
+      const match = /^(\d+(?:\.\d+)?|\.\d+)\s*(ms|s)$/.exec(value)
+      const durationMs = match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : 180
+      // Keep the watchdog beyond the CSS animation, including custom token values.
+      return Math.max(1000, Math.ceil(durationMs + 500))
+    }
+
     const zh = {
       'panel.open': '任务',
       'panel.close': '关闭任务面板',
@@ -217,24 +226,37 @@ window.__ModuleLoader__.load({
       emit() {
         for (const listener of this.listeners) listener()
       },
-      // A short exit-animation phase slides the panel out before unmount;
-      // timing pairs with the .18s panel-out animation.
+      // animationend owns unmount; the timer only prevents a stuck panel when
+      // the animation never fires (hidden tab, removed stylesheet, etc.).
       setOpen(open) {
         if (open) {
           window.clearTimeout(this.closeTimer)
+          this.closeTimer = 0
           this.closing = false
           this.open = true
           void this.refresh()
         } else if (this.open && !this.closing) {
-          this.closing = true
-          this.closeTimer = window.setTimeout(() => {
+          if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
             this.open = false
             this.closing = false
+            this.menuId = null
+            this.renameId = null
             this.emit()
-          }, 190)
+            return
+          }
+          this.closing = true
+          this.closeTimer = window.setTimeout(() => this.finishClose(), panelExitWatchdogMs())
         }
         this.menuId = null
         this.renameId = null
+        this.emit()
+      },
+      finishClose() {
+        if (!this.closing) return
+        window.clearTimeout(this.closeTimer)
+        this.closeTimer = 0
+        this.open = false
+        this.closing = false
         this.emit()
       },
       togglePinned(id) {
@@ -540,7 +562,7 @@ window.__ModuleLoader__.load({
           type: 'button',
           className: 'xhtask-trigger',
           title: state.open ? t('panel.close') : t('panel.open'),
-          onClick: () => state.setOpen(!state.open),
+          onClick: () => state.setOpen(state.closing || !state.open),
         },
           h('svg', {
             viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true,
@@ -562,6 +584,11 @@ window.__ModuleLoader__.load({
                     : 'xhtask-panel-wrap',
                   style: { width: PANEL_WIDTH },
                   onClick: (event) => event.stopPropagation(),
+                  onAnimationEnd: (event) => {
+                    if (event.target === event.currentTarget && event.animationName === 'xhtask-panel-out') {
+                      state.finishClose()
+                    }
+                  },
                 }, h(TasksPanel, { t })),
               ),
               document.body,
@@ -574,12 +601,12 @@ window.__ModuleLoader__.load({
 
     const CSS = `
 .xhtask-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhtask-trigger:hover,.xhtask-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}
-.xhtask-scrim{position:fixed;inset:0;z-index:95;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.32));animation:xhtask-scrim-in .2s ease-out}
-.xhtask-scrim-closing{animation:xhtask-scrim-out .15s ease-in forwards}
+.xhtask-scrim{position:fixed;inset:0;z-index:95;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.32));animation:xhtask-scrim-in var(--xh-duration-overlay-in,200ms) var(--xh-ease-out,ease-out)}
+.xhtask-scrim-closing{animation:xhtask-scrim-out var(--xh-duration-overlay-out,150ms) var(--xh-ease-in,ease-in) forwards}
 @keyframes xhtask-scrim-in{from{opacity:0}}
 @keyframes xhtask-scrim-out{to{opacity:0}}
-.xhtask-panel-wrap{position:absolute;top:0;right:0;bottom:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-8px 0 24px rgba(0,0,0,.18);animation:xhtask-panel-in .26s cubic-bezier(.23,1,.32,1)}
-.xhtask-panel-wrap-closing{animation:xhtask-panel-out .18s cubic-bezier(.23,1,.32,1) forwards}
+.xhtask-panel-wrap{position:absolute;top:0;right:0;bottom:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-8px 0 24px rgba(0,0,0,.18);animation:xhtask-panel-in var(--xh-duration-panel-in,260ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1))}
+.xhtask-panel-wrap-closing{animation:xhtask-panel-out var(--xh-duration-panel-out,180ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1)) forwards}
 @keyframes xhtask-panel-in{from{opacity:0;transform:translate3d(24px,0,0) scale(.98)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
 @keyframes xhtask-panel-out{to{opacity:0;transform:translate3d(24px,0,0) scale(.98)}}
 @media (prefers-reduced-motion:reduce){.xhtask-scrim,.xhtask-scrim-closing,.xhtask-panel-wrap,.xhtask-panel-wrap-closing{animation:none}}
@@ -601,7 +628,7 @@ window.__ModuleLoader__.load({
 .xhtask-menu-item{display:block;width:100%;padding:6px 10px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-size:12px;text-align:left;cursor:pointer}.xhtask-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .xhtask-rename{flex:1;min-width:0;padding:4px 8px;border:1px solid var(--dsw-alias-state-business-primary,#2f7cf6);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:13px;outline:none}
 .xhtask-archived-toggle{display:flex;align-items:center;gap:6px;flex:none;margin:0;padding:10px 14px;border:0;border-top:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}.xhtask-archived-toggle:hover{color:var(--dsw-alias-label-primary)}
-.xhtask-caret{transition:transform 120ms ease}.xhtask-caret-open{transform:rotate(90deg)}
+.xhtask-caret{transition:transform var(--xh-duration-fast,120ms) var(--xh-ease-out,ease-out)}.xhtask-caret-open{transform:rotate(90deg)}
 .xhtask-archived{flex:none;max-height:35%;overflow:auto;padding:0 6px 8px}
 .xhtask-archived-hint{padding:6px 8px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
 .xhtask-empty{padding:24px 16px;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center}
