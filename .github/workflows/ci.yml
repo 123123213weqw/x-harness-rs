@@ -97,6 +97,7 @@ jobs:
       - run: node scripts/test-internal-queue.mjs
       - run: node scripts/test-max-tokens-notice.mjs
       - run: node scripts/test-context-plugin.mjs
+      - run: node scripts/test-terminal-plugin.mjs
       - run: node scripts/test-compaction-ui.mjs
       - run: node scripts/test-conversation-scroll-follow.mjs
       - run: node scripts/test-computer-ui.mjs

@@ -19,7 +19,8 @@ use std::io::{Read, Write};
 #[cfg(unix)]
 use std::{
     fs::File,
-    os::{fd::OwnedFd, unix::process::ExitStatusExt},
+    os::fd::{AsRawFd, OwnedFd},
+    os::unix::process::ExitStatusExt,
     process::Stdio,
 };
 
@@ -29,7 +30,7 @@ use nix::{
     libc,
     pty::openpty,
     sys::signal::{killpg, Signal},
-    unistd::{dup, setsid, tcgetpgrp, Pid},
+    unistd::{dup, getpgrp, setsid, tcgetpgrp, Pid},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -49,6 +50,8 @@ const DEFAULT_SCROLLBACK_BYTES: usize = 1024 * 1024;
 const DEFAULT_SCROLLBACK_LINES: usize = 10_000;
 const DEFAULT_CLOSE_GRACE: Duration = Duration::from_secs(2);
 const MAX_NAME_BYTES: usize = 64;
+pub const DEFAULT_COLS: u16 = 80;
+pub const DEFAULT_ROWS: u16 = 24;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 type SessionKey = (String, String);
@@ -91,6 +94,37 @@ pub struct TerminalOpenSpec {
     pub owner: String,
     pub name: String,
     pub process: SpawnSpec,
+    pub size: TerminalSize,
+}
+
+/// PTY dimensions. The initial size is applied at open so programs observe
+/// correct `COLUMNS`/`LINES` from the first read; `resize` updates it later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl Default for TerminalSize {
+    fn default() -> Self {
+        Self {
+            cols: DEFAULT_COLS,
+            rows: DEFAULT_ROWS,
+        }
+    }
+}
+
+impl TerminalSize {
+    pub const fn new(cols: u16, rows: u16) -> Self {
+        Self { cols, rows }
+    }
+
+    const fn validate(&self) -> Result<(), TerminalError> {
+        if self.cols < 2 || self.cols > 1000 || self.rows < 2 || self.rows > 1000 {
+            return Err(TerminalError::InvalidSize);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,10 +171,29 @@ pub struct TerminalRead {
     pub exit_signal: Option<i32>,
 }
 
+/// Byte-preserving PTY output for transports that decode UTF-8 across reads.
+/// A read can end in the middle of a multibyte character, so converting each
+/// cursor slice to a String would irreversibly replace valid output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalRawRead {
+    pub id: String,
+    pub name: String,
+    pub content: Vec<u8>,
+    pub cursor: u64,
+    pub truncated_before_cursor: bool,
+    pub running: bool,
+    pub exit_code: Option<i32>,
+    pub exit_signal: Option<i32>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum TerminalError {
     #[error("terminal configuration limits must be non-zero")]
     InvalidConfig,
+    #[error("terminal size must be 2-1000 columns and rows")]
+    InvalidSize,
+    #[error("terminal {operation} is not supported on this platform")]
+    Unsupported { operation: &'static str },
     #[error("terminal owner must not be empty or contain NUL")]
     InvalidOwner,
     #[error("terminal name must use 1-64 ASCII letters, digits, '_', '-' or '.'")]
@@ -228,6 +281,7 @@ impl TerminalRegistry {
         if spec.process.program.is_empty() {
             return Err(TerminalError::EmptyProgram);
         }
+        spec.size.validate()?;
 
         let key = (spec.owner.clone(), spec.name.clone());
         let mut sessions = self.sessions.lock().await;
@@ -285,6 +339,25 @@ impl TerminalRegistry {
         name: &str,
         cursor: Option<u64>,
     ) -> Result<TerminalRead, TerminalError> {
+        let raw = self.read_raw(owner, name, cursor).await?;
+        Ok(TerminalRead {
+            id: raw.id,
+            name: raw.name,
+            content: String::from_utf8_lossy(&raw.content).into_owned(),
+            cursor: raw.cursor,
+            truncated_before_cursor: raw.truncated_before_cursor,
+            running: raw.running,
+            exit_code: raw.exit_code,
+            exit_signal: raw.exit_signal,
+        })
+    }
+
+    pub async fn read_raw(
+        &self,
+        owner: &str,
+        name: &str,
+        cursor: Option<u64>,
+    ) -> Result<TerminalRawRead, TerminalError> {
         let session = self.session(owner, name).await?;
         session.refresh_status().await?;
         let state = session.state.lock().await;
@@ -299,18 +372,31 @@ impl TerminalRegistry {
         let effective = requested.max(state.base_offset);
         let skip = usize::try_from(effective - state.base_offset).unwrap_or(usize::MAX);
         let content: Vec<u8> = state.buffer.iter().skip(skip).copied().collect();
-        let result = TerminalRead {
+        let result = TerminalRawRead {
             id: session.id.clone(),
             name: session.name.clone(),
-            content: String::from_utf8_lossy(&content).into_owned(),
+            content,
             cursor: state.total_bytes,
             truncated_before_cursor,
             running: state.running,
             exit_code: state.exit_code,
             exit_signal: state.exit_signal,
         };
-        self.trace(owner, "read.completed", json!({"read": &result}))
-            .await;
+        self.trace(
+            owner,
+            "read.completed",
+            json!({
+                "id": &result.id,
+                "name": &result.name,
+                "bytes": result.content.len(),
+                "cursor": result.cursor,
+                "truncated_before_cursor": result.truncated_before_cursor,
+                "running": result.running,
+                "exit_code": result.exit_code,
+                "exit_signal": result.exit_signal,
+            }),
+        )
+        .await;
         Ok(result)
     }
 
@@ -326,6 +412,27 @@ impl TerminalRegistry {
             owner,
             "signal",
             json!({"name": name, "signal": signal, "ok": result.is_ok()}),
+        )
+        .await;
+        result
+    }
+
+    /// Update the PTY window size. On Unix the kernel delivers `SIGWINCH` to
+    /// the session's foreground process group, so running programs observe the
+    /// change without further plumbing.
+    pub async fn resize(
+        &self,
+        owner: &str,
+        name: &str,
+        size: TerminalSize,
+    ) -> Result<(), TerminalError> {
+        size.validate()?;
+        let session = self.session(owner, name).await?;
+        let result = session.resize(size).await;
+        self.trace(
+            owner,
+            "resize",
+            json!({"name": name, "size": size, "ok": result.is_ok()}),
         )
         .await;
         result
@@ -501,6 +608,35 @@ impl TerminalSession {
         })
     }
 
+    async fn resize(&self, size: TerminalSize) -> Result<(), TerminalError> {
+        #[cfg(unix)]
+        {
+            let winsize = nix::libc::winsize {
+                ws_col: size.cols,
+                ws_row: size.rows,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            };
+            // SAFETY: `control_fd` is an open PTY master and `winsize` is a
+            // plain, fully-initialised value type; TIOCSWINSZ neither reads
+            // nor writes beyond it.
+            let result = unsafe {
+                nix::libc::ioctl(self.control_fd.as_raw_fd(), nix::libc::TIOCSWINSZ, &winsize)
+            };
+            if result == -1 {
+                return Err(terminal_io("resize PTY", io::Error::last_os_error()));
+            }
+            Ok(())
+        }
+        #[cfg(windows)]
+        {
+            let _ = size;
+            Err(TerminalError::Unsupported {
+                operation: "resize",
+            })
+        }
+    }
+
     #[cfg(unix)]
     async fn write_input(&self, input: &[u8]) -> Result<(), TerminalError> {
         let mut writer = self.writer.lock().await;
@@ -527,6 +663,12 @@ impl TerminalSession {
 
     #[cfg(unix)]
     async fn signal(&self, signal: TerminalSignal) -> Result<(), TerminalError> {
+        self.refresh_status().await?;
+        if !self.state.lock().await.running {
+            return Err(TerminalError::Exited {
+                name: self.name.clone(),
+            });
+        }
         let group = tcgetpgrp(self.control_fd.as_ref()).or_else(|error| {
             if error == Errno::ENOTTY {
                 i32::try_from(self.pid)
@@ -542,6 +684,17 @@ impl TerminalSession {
                 io::Error::from_raw_os_error(error as i32),
             )
         })?;
+        // A child can exit between status inspection and TIOCGPGRP. Never let
+        // a stale PTY foreground group terminate the Host's own process group.
+        if group == getpgrp() {
+            return Err(terminal_io(
+                "signal PTY foreground process group",
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "refusing to signal the host process group",
+                ),
+            ));
+        }
         match killpg(group, signal.as_nix()) {
             Ok(()) | Err(Errno::ESRCH) => Ok(()),
             Err(error) => Err(terminal_io(
@@ -583,17 +736,26 @@ impl TerminalSession {
     #[cfg(unix)]
     async fn close(&self, grace: Duration) -> Result<(), TerminalError> {
         let _ = self.signal(TerminalSignal::Terminate).await;
-        let mut child = self.child.lock().await;
-        if time::timeout(grace, child.wait()).await.is_err() {
-            let _ = self.signal(TerminalSignal::Kill).await;
-            // The foreground command may have its own process group. Kill the
-            // session leader as a final fallback so `close` cannot wait forever.
-            let _ = child.start_kill();
-            child
-                .wait()
-                .await
-                .map_err(|source| terminal_io("wait after PTY kill", source))?;
+        let waited = {
+            let mut child = self.child.lock().await;
+            time::timeout(grace, child.wait()).await
+        };
+        match waited {
+            Ok(Ok(_)) => return Ok(()),
+            Ok(Err(source)) => return Err(terminal_io("wait for PTY child", source)),
+            Err(_) => {}
         }
+        // Do not hold the child lock while signaling: signal rechecks process
+        // status and must be able to acquire that same lock.
+        let _ = self.signal(TerminalSignal::Kill).await;
+        let mut child = self.child.lock().await;
+        // The foreground command may have its own process group. Kill the
+        // session leader as a final fallback so `close` cannot wait forever.
+        let _ = child.start_kill();
+        child
+            .wait()
+            .await
+            .map_err(|source| terminal_io("wait after PTY kill", source))?;
         Ok(())
     }
 
@@ -683,7 +845,13 @@ fn spawn_session(
     config: &TerminalConfig,
     debug: DebugRecorder,
 ) -> Result<TerminalSession, TerminalError> {
-    let pty = openpty(None, None)
+    let winsize = nix::libc::winsize {
+        ws_col: spec.size.cols,
+        ws_row: spec.size.rows,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let pty = openpty(Some(&winsize), None)
         .map_err(|error| terminal_io("allocate PTY", io::Error::from_raw_os_error(error as i32)))?;
     let reader_fd = dup(&pty.master).map_err(|error| {
         terminal_io(
@@ -803,8 +971,8 @@ fn spawn_session(
         &spec.process.args,
         &spec.process.cwd,
         &spec.process.env,
-        30,
-        120,
+        spec.size.rows,
+        spec.size.cols,
     )
     .map_err(|source| terminal_io("spawn native ConPTY child", io::Error::other(source)))?;
     let pid = conpty.child.pid();
