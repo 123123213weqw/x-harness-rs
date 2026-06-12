@@ -109,7 +109,9 @@ window.__ModuleLoader__.load({
     function observeRoot(root) {
       if (roots.has(root)) return
       roots.add(root)
-      const recent = new Map()
+      // Weak keys avoid retaining every replaced markdown parent for the
+      // lifetime of a long-running conversation.
+      const recent = new WeakMap()
       let pending = []
       let flush = 0
       const drain = () => {
@@ -171,6 +173,14 @@ window.__ModuleLoader__.load({
         // The transcript mounts long after the plugin loads; follow the body
         // until every scroller has been claimed, then stop looking.
         rootFinder = new MutationObserver((records) => {
+          // Conversation scrollers are remounted on navigation. Release their
+          // observers rather than retaining detached transcript trees forever.
+          for (const root of roots) {
+            if (!root.isConnected) {
+              teardown.get(root)?.()
+              teardown.delete(root)
+            }
+          }
           for (const record of records) {
             for (const node of record.addedNodes) {
               if (!(node instanceof Element)) continue
