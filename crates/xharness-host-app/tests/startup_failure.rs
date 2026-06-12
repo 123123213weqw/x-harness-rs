@@ -108,9 +108,21 @@ fn corrupt_control_log_reports_session_restore_without_copying_its_contents() {
         .output()
         .unwrap();
     assert!(!output.status.success());
+    let receipt = StartupFailureReceipt::read(&receipt_file).unwrap_or_else(|error| {
+        panic!(
+            "corrupt control log failed without a receipt: {error}; status={}; stdout={}; stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
     assert_eq!(
-        StartupFailureReceipt::read(&receipt_file).unwrap().code,
-        StartupFailureCode::SessionRestore
+        receipt.code,
+        StartupFailureCode::SessionRestore,
+        "unexpected startup category; status={}; stdout={}; stderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
     assert!(!fs::read_to_string(receipt_file)
         .unwrap()
