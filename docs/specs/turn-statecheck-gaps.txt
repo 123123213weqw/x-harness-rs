@@ -1,0 +1,45 @@
+# Deliberately unresolved state/event combinations. A changed set requires review.
+# These are not assertions that production is broken. Their semantics need either
+# a more precise event, an observed Host trace, or a separately specified policy.
+# Compacting: user admission and crash recovery have not been modeled yet.
+unhandled/Compacting/None/empty/Open/ProcessRestart
+unhandled/Compacting/None/empty/Open/UserPrompt
+# Idle+paused: stopped/recovered admission is not the same as fresh idle.
+unhandled/Idle/None/empty/Paused/CompactRequested
+unhandled/Idle/None/empty/Paused/UserPrompt
+unhandled/Idle/None/queued/Paused/CompactRequested
+unhandled/Idle/None/queued/Paused/UserPrompt
+# Recovering: input arriving during restoration needs an observed ordering rule.
+unhandled/Recovering/Tool/empty/Paused/UserPrompt
+unhandled/Recovering/Tool/queued/Paused/UserPrompt
+# Running: compact intent and process restart need their own precise transitions.
+unhandled/Running/Model/empty/Open/CompactRequested
+unhandled/Running/Model/empty/Open/ProcessRestart
+unhandled/Running/Model/queued/Open/CompactRequested
+unhandled/Running/Model/queued/Open/ProcessRestart
+unhandled/Running/Question/empty/Open/CompactRequested
+unhandled/Running/Question/empty/Open/ProcessRestart
+# A plain TurnFinished while a question is pending is not a valid completion
+# without an explicit answer, timeout, cancellation, or crash outcome.
+unhandled/Running/Question/empty/Open/TurnFinished
+unhandled/Running/Question/queued/Open/CompactRequested
+unhandled/Running/Question/queued/Open/ProcessRestart
+unhandled/Running/Question/queued/Open/TurnFinished
+unhandled/Running/Tool/empty/Open/CompactRequested
+# Same for a tool: queue admission alone cannot finish its owning turn.
+unhandled/Running/Tool/empty/Open/TurnFinished
+unhandled/Running/Tool/queued/Open/CompactRequested
+unhandled/Running/Tool/queued/Open/TurnFinished
+# Stopping: new input and restart race with terminal settlement; not inferred.
+unhandled/Stopping/Model/empty/Paused/ProcessRestart
+unhandled/Stopping/Model/empty/Paused/UserPrompt
+unhandled/Stopping/Model/queued/Paused/ProcessRestart
+unhandled/Stopping/Model/queued/Paused/UserPrompt
+unhandled/Stopping/Question/empty/Paused/ProcessRestart
+unhandled/Stopping/Question/empty/Paused/UserPrompt
+unhandled/Stopping/Question/queued/Paused/ProcessRestart
+unhandled/Stopping/Question/queued/Paused/UserPrompt
+unhandled/Stopping/Tool/empty/Paused/ProcessRestart
+unhandled/Stopping/Tool/empty/Paused/UserPrompt
+unhandled/Stopping/Tool/queued/Paused/ProcessRestart
+unhandled/Stopping/Tool/queued/Paused/UserPrompt

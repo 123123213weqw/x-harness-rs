@@ -202,7 +202,17 @@ fn evaluate(state: State, event: Event) -> Decision {
         (_, _, _, QuestionAnswered) if state.activity != Question => {
             decision(Reject, "answer_has_no_pending_question", None)
         }
-        _ => decision(Undefined, format!("unhandled/{state:?}/{event:?}"), None),
+        _ => decision(
+            Undefined,
+            format!(
+                "unhandled/{:?}/{:?}/{}/{:?}/{event:?}",
+                state.phase,
+                state.activity,
+                if state.queued { "queued" } else { "empty" },
+                state.gate
+            ),
+            None,
+        ),
     }
 }
 
@@ -307,7 +317,10 @@ fn decision_table_in_spec_matches_the_executable_profiles() {
         .split_once("<!-- statecheck:end -->")
         .expect("spec must contain table end")
         .0;
-    assert_eq!(table.trim(), render_profile_table().trim());
+    assert_eq!(
+        table.replace("\r\n", "\n").trim(),
+        render_profile_table().trim()
+    );
 }
 
 #[test]
@@ -347,10 +360,6 @@ fn bounded_reachable_enumeration_reports_undefined_instead_of_guessing() {
     }
     assert!(rows >= PROFILES.len() * 2);
     assert!(rows < 2_000, "state space should remain reviewable");
-    assert!(
-        !undefined.is_empty(),
-        "unreviewed combinations must remain visible"
-    );
     undefined.sort();
     undefined.dedup();
     println!(
@@ -360,10 +369,20 @@ fn bounded_reachable_enumeration_reports_undefined_instead_of_guessing() {
         undefined.len()
     );
     if std::env::var_os("XHARNESS_STATECHECK_LIST").is_some() {
-        for gap in undefined {
+        for gap in &undefined {
             println!("{gap}");
         }
     }
+    let reviewed = include_str!("../../../docs/specs/turn-statecheck-gaps.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        undefined.iter().map(String::as_str).collect::<Vec<_>>(),
+        reviewed,
+        "new or retired undefined combinations require explicit review"
+    );
 }
 
 #[test]
@@ -381,4 +400,33 @@ fn an_in_flight_tool_cannot_be_finished_by_ordinary_queue_admission() {
         evaluate(settled, Event::TurnFinished).next.unwrap().phase,
         Phase::Running
     );
+}
+
+#[test]
+fn future_user_input_preserves_in_flight_work_until_its_own_resolution() {
+    for activity in [Activity::Model, Activity::Tool, Activity::Question] {
+        for already_queued in [false, true] {
+            let running = State::new(Phase::Running, activity, already_queued, Gate::Open);
+            let admitted = evaluate(running, Event::UserPrompt);
+            assert_eq!(admitted.kind, Kind::Enqueue);
+            let next = admitted.next.expect("admission keeps a running state");
+            assert_eq!(next.phase, Phase::Running);
+            assert_eq!(next.activity, activity);
+            assert_eq!(next.gate, Gate::Open);
+            assert!(next.queued);
+
+            if activity == Activity::Tool {
+                assert_eq!(evaluate(next, Event::TurnFinished).kind, Kind::Undefined);
+                let settled = evaluate(next, Event::ToolFinished).next.unwrap();
+                assert_eq!(settled.activity, Activity::Model);
+                assert!(settled.queued);
+            }
+            if activity == Activity::Question {
+                assert_eq!(evaluate(next, Event::TurnFinished).kind, Kind::Undefined);
+                let answered = evaluate(next, Event::QuestionAnswered).next.unwrap();
+                assert_eq!(answered.activity, Activity::Model);
+                assert!(answered.queued);
+            }
+        }
+    }
 }
