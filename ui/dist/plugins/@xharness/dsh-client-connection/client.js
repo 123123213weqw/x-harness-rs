@@ -5282,7 +5282,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		});
 		object({
 			sessionId: sessionIdSchema,
-			atSeq: number().int().nonnegative().optional()
+			atSeq: number().int().nonnegative().optional(),
+			beforeUserSeq: number().int().nonnegative().optional()
 		});
 		/** session.fork response value (the child session id). */
 		const sessionForkValueSchema = object({ sessionId: sessionIdSchema });
@@ -9252,7 +9253,8 @@ requireIdle: boolean().optional(),
 							});
 						},
 						fork: (request) => {
-							const { sessionId, atSeq } = request.payload;
+							// xharness-edit-fork-mock/v1
+							const { sessionId, atSeq, beforeUserSeq } = request.payload;
 							const source = summaryOf(sessionId);
 							if (source === void 0) return err(request, {
 								code: "session-not-found",
@@ -9261,20 +9263,23 @@ requireIdle: boolean().optional(),
 							});
 							const log = logs.get(sessionId) ?? [];
 							const lastSeq = log.at(-1)?.seq ?? -1;
-							const boundary = (atSeq === void 0 ? void 0 : log.find((e) => e.type === "turn/end" && e.seq >= atSeq)) ?? (atSeq === void 0 || atSeq > lastSeq ? log.findLast((e) => e.type === "turn/end") : void 0);
+							const targetIndex = beforeUserSeq === void 0 ? -1 : log.findIndex(e => e.seq === beforeUserSeq && e.type === "user/message" && e.data?.source?.kind === "user");
+							if (beforeUserSeq !== void 0 && targetIndex < 0) return err(request, {code:"fork-unavailable",message:"user message not found",details:{sessionId}});
+							const boundary = beforeUserSeq === void 0 ? ((atSeq === void 0 ? void 0 : log.find((e) => e.type === "turn/end" && e.seq >= atSeq)) ?? (atSeq === void 0 || atSeq > lastSeq ? log.findLast((e) => e.type === "turn/end") : void 0)) : {seq:log.slice(0,targetIndex).findLast(e=>e.type==="turn/end")?.seq ?? -1};
 							if (boundary === void 0) return err(request, {
 								code: "fork-unavailable",
 								message: atSeq !== void 0 && atSeq <= lastSeq ? `session ${sessionId} has not completed the turn containing event ${String(atSeq)}` : `session ${sessionId} has no completed turn`,
 								details: { sessionId }
 							});
 							let cut = boundary.seq + 1;
-							while (cut < log.length && log[cut]?.type !== "turn/start") cut++;
+							if (beforeUserSeq === void 0) while (cut < log.length && log[cut]?.type !== "turn/start") cut++;
 							const child = {
 								sessionId: sid(`fx-${nextSession++}`),
 								updatedAt: Date.now(),
 								running: false,
-								blank: false,
+								blank: cut === 0,
 								parentSessionId: sessionId,
+								origin: "fork",
 								...source.cwd === void 0 ? {} : { cwd: source.cwd }
 							};
 							logs.set(child.sessionId, log.slice(0, cut));
@@ -9282,8 +9287,9 @@ requireIdle: boolean().optional(),
 							emitHost({
 								type: "host/session-added",
 								sessionId: child.sessionId,
-								blank: false,
+								blank: cut === 0,
 								parentSessionId: sessionId,
+								origin: "fork",
 								...source.cwd === void 0 ? {} : { cwd: source.cwd }
 							});
 							const workspace = workspaces.find((w) => w.sessionIds.includes(sessionId));

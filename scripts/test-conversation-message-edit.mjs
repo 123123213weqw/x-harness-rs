@@ -6,7 +6,7 @@ import {patchConversationMessageEdit,patchMessageEditConnection,patchMessageEdit
 const root=new URL('../',import.meta.url);
 const source=readFileSync(new URL('ui/overrides/conversation-message-edit.js',root),'utf8');
 const sandbox={File,Blob,URL,Promise,console};
-vm.runInNewContext(source+'\nglobalThis.Editor=XHarnessMessageEditor;',sandbox);
+vm.runInNewContext(source+'\nglobalThis.Editor=XHarnessMessageEditor;globalThis.forkMessage=xhForkMessage;',sandbox);
 const Editor=sandbox.Editor;
 const records=new Map();
 const storage={load:async id=>records.get(id),save:async(id,r)=>{records.set(id,structuredClone(r));},remove:async id=>{records.delete(id);}};
@@ -26,6 +26,19 @@ function fixture(id='s'+next++) {
 const text=t=>[{type:'text',text:t}];const image={type:'image',attachment:{attachmentId:'old',mediaType:'image/png',name:'old.png'}};
 const tick=()=>new Promise(r=>setTimeout(r,0));
 let checks=0;
+{
+ const f=fixture('fork-child');let forkCalls=0,openCalls=0;
+ const sessions={binding:()=>({session:{readAttachment:async()=>({ok:true,value:{attachment:{mediaType:'image/png'},data:new Uint8Array([4,5,6])}})}}),
+  fork:async opts=>{forkCalls++;assert.equal(opts.beforeUserSeq,12);return 'fork-child';},open:id=>{openCalls++;assert.equal(id,'fork-child');}};
+ const inputHub={shell:id=>{assert.equal(id,'fork-child');return {...f.shell,xhEditor:f.editor,notify:()=>{}};}};
+ await sandbox.forkMessage(inputHub,sessions,'parent',12,[...text('edit me'),image]);
+ assert.equal(forkCalls,1);assert.equal(openCalls,1);assert.equal(f.shell.snapshot.draft,'edit me');
+ const attachment=f.conversation.draftImages(f.shell.snapshot.imageIds)[0];
+ assert.equal(await attachment.file.arrayBuffer().then(b=>new Uint8Array(b)[0]),4);
+ assert.equal(attachment.historyRef,undefined);assert.equal(f.editor.state.editing,true);checks+=6;
+ await assert.rejects(()=>sandbox.forkMessage(inputHub,sessions,'parent',13,[{type:'audio'}]));
+ assert.equal(forkCalls,1);checks++;
+}
 {
  const f=fixture();f.shell.setDraft('unsent');await f.editor.request(text('history'));
  assert.equal(f.editor.state.phase,'confirm');assert.equal(f.shell.snapshot.draft,'unsent');
@@ -97,6 +110,10 @@ let checks=0;
  assert.equal(g.conversation.draftImages(g.shell.snapshot.imageIds)[0].historyKind,'file');checks+=3;
 }
 const graph=JSON.parse(readFileSync(new URL('ui/dist/client-graph.json',root)));
+const conversationBundle=readFileSync(new URL('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',root),'utf8');
+assert.match(conversationBundle,/summary\.origin !== "subagent" && summary\.origin !== "fork"/);
+assert.match(conversationBundle,/forkMessage: \(seq, content\) => xhForkMessage/);
+assert.match(conversationBundle,/"message\.editFork": "编辑并 Fork 到新对话"/);
 for(const [id,patch] of [['dsh-client-ui-conversation',patchConversationMessageEdit],['dsh-client-connection',patchMessageEditConnection],['dsh-client-runtime',patchMessageEditRuntime]]){
  const bytes=readFileSync(new URL(`ui/dist/plugins/@xharness/${id}/client.js`,root));new vm.Script(bytes.toString());
  assert.equal(patch(bytes).toString(),bytes.toString());assert.equal(graph.entries.find(e=>e.id===`@xharness/${id}`).rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
