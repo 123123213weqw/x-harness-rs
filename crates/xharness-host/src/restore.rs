@@ -3057,6 +3057,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pause_policy_does_not_resume_an_incomplete_tool_call() {
+        crate::statecheck::assert_profile("crashed tool restored");
         let cwd = std::env::temp_dir();
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         let mut header = SessionHeader::new("paused-tool-restart");
@@ -3310,6 +3311,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn restore_reattaches_pending_question_and_reuses_the_web_composer_protocol() {
+        crate::statecheck::assert_profile("question answered");
         let cwd = std::env::temp_dir();
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         let mut header = SessionHeader::new("question-restart");
