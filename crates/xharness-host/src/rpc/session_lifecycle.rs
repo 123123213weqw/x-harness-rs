@@ -395,7 +395,13 @@ pub(super) async fn rename(
 pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
     let source_id = required_string(payload, "sessionId")?;
     let at_seq = optional_u64(payload, "atSeq")?;
-    let (cwd, agent_preset, title, model, permission_preset, plan_active, goal, next_turn) = {
+    let before_user_seq = optional_u64(payload, "beforeUserSeq")?;
+    if at_seq.is_some() && before_user_seq.is_some() {
+        return Err(bad_request(
+            "atSeq and beforeUserSeq are mutually exclusive",
+        ));
+    }
+    let (cwd, agent_preset, title, model, permission_preset, plan_active, goal) = {
         let state = host.state.read().await;
         let source = state
             .sessions
@@ -409,7 +415,6 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
             source.permission_preset,
             source.plan_active,
             source.goal.clone(),
-            source.next_turn,
         )
     };
     let route = ModelRoute {
@@ -426,40 +431,95 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
     } else {
         None
     };
-    let (child_events, child_messages, durable_events) = if let Some(source) = durable_source {
-        let end = at_seq
-            .and_then(|seq| usize::try_from(seq.saturating_add(1)).ok())
-            .map_or(source.events().len(), |end| end.min(source.events().len()));
-        (
-            project_session_event_range(&source, &route, 0, end),
-            xharness_session::derive_messages(&source.events()[..end]),
-            Some(
-                source.events()[..end]
+    let (child_events, child_messages, durable_events, next_turn) =
+        if let Some(source) = durable_source {
+            let end = if let Some(target) = before_user_seq {
+                let index = source
+                    .events()
                     .iter()
-                    .map(|event| event.event.clone())
-                    .collect::<Vec<_>>(),
-            ),
-        )
-    } else {
-        let state = host.state.read().await;
-        let source = state
-            .sessions
-            .get(&source_id)
-            .ok_or_else(|| session_not_found(&source_id))?;
-        let mut events = source.events.clone();
-        if let Some(at_seq) = at_seq {
-            let keep = usize::try_from(
+                    .position(|event| {
+                        event.seq == target
+                            && matches!(event.data(), SessionEventData::UserMessage { message, .. }
+                    if message.role == xharness_session::MessageRole::User)
+                    })
+                    .ok_or_else(|| bad_request("beforeUserSeq must identify a user message"))?;
+                source.events()[..index]
+                    .iter()
+                    .rposition(|event| matches!(event.data(), SessionEventData::TurnEnd { .. }))
+                    .map(|index| index + 1)
+                    .unwrap_or_else(|| {
+                        source.events()[..index]
+                            .iter()
+                            .position(|event| {
+                                matches!(event.data(), SessionEventData::TurnStart { .. })
+                            })
+                            .unwrap_or(index)
+                    })
+            } else {
                 at_seq
-                    .saturating_add(1)
-                    .saturating_sub(source.event_base_seq),
+                    .and_then(|seq| usize::try_from(seq.saturating_add(1)).ok())
+                    .map_or(source.events().len(), |end| end.min(source.events().len()))
+            };
+            let next_turn = source.events()[..end]
+                .iter()
+                .filter_map(|event| match event.data() {
+                    SessionEventData::TurnStart { turn } => Some(turn.saturating_add(1)),
+                    _ => None,
+                })
+                .max()
+                .unwrap_or_default();
+            (
+                project_session_event_range(&source, &route, 0, end),
+                xharness_session::derive_messages(&source.events()[..end]),
+                Some(
+                    source.events()[..end]
+                        .iter()
+                        .map(|event| event.event.clone())
+                        .collect::<Vec<_>>(),
+                ),
+                next_turn,
             )
-            .unwrap_or(usize::MAX)
-            .min(events.len());
-            events.truncate(keep);
-        }
-        (events, source.messages.clone(), None)
-    };
-    if child_events.is_empty() {
+        } else {
+            if before_user_seq.is_some() {
+                return Err(rpc_error(
+                    RpcErrorCode::ForkUnavailable,
+                    "editing a fork requires authoritative session history",
+                    json!({"sessionId": source_id}),
+                ));
+            }
+            let state = host.state.read().await;
+            let source = state
+                .sessions
+                .get(&source_id)
+                .ok_or_else(|| session_not_found(&source_id))?;
+            let mut events = source.events.clone();
+            if let Some(at_seq) = at_seq {
+                let keep = usize::try_from(
+                    at_seq
+                        .saturating_add(1)
+                        .saturating_sub(source.event_base_seq),
+                )
+                .unwrap_or(usize::MAX)
+                .min(events.len());
+                events.truncate(keep);
+            }
+            let next_turn = events
+                .iter()
+                .filter_map(|event| {
+                    (event["type"] == "turn/start")
+                        .then(|| {
+                            event["data"]["turn"]
+                                .as_u64()
+                                .and_then(|turn| u32::try_from(turn).ok())
+                                .map(|turn| turn.saturating_add(1))
+                        })
+                        .flatten()
+                })
+                .max()
+                .unwrap_or_default();
+            (events, source.messages.clone(), None, next_turn)
+        };
+    if child_events.is_empty() && before_user_seq.is_none() {
         return Err(rpc_error(
             RpcErrorCode::ForkUnavailable,
             "session has no completed history to fork",
@@ -476,6 +536,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
     } else {
         MetricsProjectionState::rebuild(child_events.iter())
     };
+    let child_blank = child_messages.is_empty();
     let child = SessionRecord {
         dispatch_paused: false,
         delegated: false,
@@ -483,9 +544,9 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         created_at: now,
         updated_at: now,
         running: false,
-        blank: false,
+        blank: child_blank,
         parent_session_id: Some(source_id.clone()),
-        origin: None,
+        origin: Some("fork".to_owned()),
         cwd: cwd.clone(),
         agent_preset,
         title,
@@ -519,17 +580,27 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         }
     }
     drop(state);
-    if let Some(events) = durable_events {
+    let marker: SessionEvent = SessionEventData::SessionForkOrigin {
+        parent_session_id: source_id.clone(),
+        before_user_seq,
+    }
+    .into();
+    if let Some(mut events) = durable_events {
+        events.push(marker);
         if let Err(error) = host.commit_session_events(&child_id, events).await {
             host.state.write().await.sessions.remove(&child_id);
             return Err(error);
         }
+    } else if let Err(error) = host.commit_session_events(&child_id, vec![marker]).await {
+        host.state.write().await.sessions.remove(&child_id);
+        return Err(error);
     }
     host.push_host(json!({
         "type": "host/session-added",
         "sessionId": child_id,
-        "blank": false,
+        "blank": child_blank,
         "parentSessionId": source_id,
+        "origin": "fork",
         "cwd": cwd,
     }));
     if let Some(workspace) = changed_workspace {

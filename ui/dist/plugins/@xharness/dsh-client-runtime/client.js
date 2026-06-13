@@ -8225,7 +8225,8 @@ async prompt(content, mode, signal, options = {}) {
 					const source = this.summaries.find((s) => s.sessionId === opts.sessionId);
 					const { result } = await this.api.sessions.fork({
 						sessionId: opts.sessionId,
-						...opts.atSeq === void 0 ? {} : { atSeq: opts.atSeq }
+						...opts.atSeq === void 0 ? {} : { atSeq: opts.atSeq },
+						...opts.beforeUserSeq === void 0 ? {} : { beforeUserSeq: opts.beforeUserSeq }
 					});
 					const childId = result.ok ? result.value.sessionId : workspaceAttachSessionId(result.error);
 					if (childId !== void 0) this.recordMutation({
@@ -8236,6 +8237,7 @@ async prompt(content, mode, signal, options = {}) {
 							running: false,
 							blank: false,
 							parentSessionId: opts.sessionId,
+							origin: "fork",
 							...source?.cwd !== void 0 ? { cwd: source.cwd } : {}
 						}
 					});
@@ -9522,7 +9524,8 @@ installSessionHistoryCache(Session, SessionManager);
 				const sourceTitle = opts.increaseTitle ? this.list.getSnapshot().byId[opts.sessionId]?.title : void 0;
 				const result = await this.manager.fork({
 					sessionId: opts.sessionId,
-					...opts.atSeq === void 0 ? {} : { atSeq: Math.floor(opts.atSeq) }
+					...opts.atSeq === void 0 ? {} : { atSeq: Math.floor(opts.atSeq) },
+					...opts.beforeUserSeq === void 0 ? {} : { beforeUserSeq: Math.floor(opts.beforeUserSeq) }
 				});
 				if (!result.ok) throw new SessionForkError(result.error, opts.sessionId);
 				this.projectList();

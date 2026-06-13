@@ -359,6 +359,8 @@ Commit、Issue、PR 应引用这些 ID。
 
 ## 历史消息重新编辑专项（PR #35）
 
+- [x] 在历史用户消息上补「编辑并 Fork」：新会话截于该消息之前，原文字和附件只预填子会话草稿，不自动发送；子会话来源重启后可追溯。规范见 [历史消息编辑并 Fork](specs/session-edit-fork.md)。
+
 规范见 [历史消息编辑后重新发送](specs/message-edit-resend.md)。
 
 - [x] `MSG-EDIT-01` 停止后的文字/图片消息恢复为新草稿，不修改历史；保留主分支最新 UI。
