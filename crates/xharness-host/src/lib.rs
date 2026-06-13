@@ -39,6 +39,8 @@ mod runtime;
 mod session_processor;
 mod settings_processor;
 mod state;
+#[cfg(test)]
+mod statecheck;
 mod subagent_processor;
 mod titles;
 mod workspace_processor;
