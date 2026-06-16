@@ -611,6 +611,9 @@ pub fn restored_web_event(
     if matches!(event.data(), EventData::SessionTitleGeneration { .. }) {
         return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"title-generation"}, "hidden":true});
     }
+    if matches!(event.data(), EventData::SessionForkOrigin { .. }) {
+        return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"fork-origin"}, "hidden":true});
+    }
     if matches!(
         event.data(),
         EventData::ExecutionCheckpoint { notice: None, .. }
@@ -624,6 +627,7 @@ pub fn restored_web_event(
             None,
         ),
         EventData::SessionTitleGeneration { .. }
+        | EventData::SessionForkOrigin { .. }
         | EventData::AgentDelegationFailure { .. }
         | EventData::AgentFailureDelivered { .. }
         | EventData::AgentDelegated { .. }
