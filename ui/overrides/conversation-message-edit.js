@@ -86,7 +86,7 @@ class XHarnessMessageEditor {
       return this.writes;
     } catch(e) { this.set({ error: String(e) }); return Promise.reject(e); }
   }
-  async request(content) {
+  async request(content, preparedImages) {
     await this.ready;
     if (this.disposed || this.busy() || this.d.running()) return;
     if (this.state.phase !== 'idle') { this.set({error:this.d.t('message.editFinish')}); return; }
@@ -94,8 +94,8 @@ class XHarnessMessageEditor {
       this.set({error:this.d.t('message.editUnsupported')}); return;
     }
     this.pending = { text: content.filter(b => b.type === 'text').map(b => b.text).join(''),
-      images: content.filter(b => b.type === 'image' || b.type === 'file').map(b => ({kind:b.type,ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
-    if (this.pending.images.some(a => !a.ref?.attachmentId)) { this.set({error:this.d.t('message.editMissing')}); return; }
+      images: preparedImages || content.filter(b => b.type === 'image' || b.type === 'file').map(b => ({kind:b.type,ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
+    if (this.pending.images.some(a => !a.file && !a.ref?.attachmentId)) { this.set({error:this.d.t('message.editMissing')}); return; }
     const before = this.capture();
     if (before.text || before.images.length) this.set({phase:'confirm',error:''});
     else await this.confirm();
@@ -223,6 +223,28 @@ function xhEditMessage(inputHub, sessionId, content) {
   const shell = inputHub.shell(sessionId);
   return shell.xhEditor.request(content).catch(e=>shell.notify('error',String(e)));
 }
+// Resolve source-owned attachments before creating the child. The selected
+// message is deliberately absent from child history, so image_ref cannot be
+// used there; the child draft owns fresh File bytes instead.
+async function xhForkMessage(inputHub, sessions, sessionId, seq, content) {
+  if (!Number.isSafeInteger(seq) || seq < 0 || !Array.isArray(content) ||
+      content.some(part => !['text','image','file'].includes(part.type))) throw Error('Unsupported fork message');
+  const source = sessions.binding(sessionId)?.session;
+  if (!source) throw Error('Source session is unavailable');
+  const images = await Promise.all(content.filter(part => part.type === 'image' || part.type === 'file').map(async part => {
+    const ref = part.attachment;
+    if (!ref?.attachmentId) throw Error('Attachment reference is missing');
+    const result = await source.readAttachment(ref.attachmentId);
+    if (!result.ok) throw Error(result.error?.message || 'Attachment could not be read');
+    return {file:new File([result.value.data], ref.name || 'attachment', {type:result.value.attachment.mediaType || ref.mediaType})};
+  }));
+  const childId = await sessions.fork({sessionId, beforeUserSeq:seq, increaseTitle:true});
+  const shell = inputHub.shell(childId);
+  await shell.xhEditor.request(content, images);
+  sessions.open(childId);
+  if (!shell.xhEditor.state.editing) shell.notify('error', shell.xhEditor.state.error || 'Could not prepare fork draft');
+  return childId;
+}
 function XHarnessEditableInputBar(props) {
   const editor = props.keyboard?.xhEditor;
   const state = react.useSyncExternalStore(editor?.subscribe || (()=>()=>{}), editor?.getSnapshot || (()=>null));
@@ -243,4 +265,8 @@ function XHarnessEditableInputBar(props) {
 function XHarnessEditAction({ content, editMessage, t }) {
   return react_jsx_runtime.jsx(_xharness_dsh_client_ui_primitives.Tooltip,{label:t('message.edit'),side:'bottom',children:
     react_jsx_runtime.jsx('button',{type:'button',className:MessageIconActions_module_css_default.action,'aria-label':t('message.edit'),'data-message-edit':'',onClick:()=>editMessage(content),children:'✎'})});
+}
+function XHarnessForkAction({ content, seq, forkMessage, t }) {
+  return react_jsx_runtime.jsx(_xharness_dsh_client_ui_primitives.Tooltip,{label:t('message.editFork'),side:'bottom',children:
+    react_jsx_runtime.jsx('button',{type:'button',className:MessageIconActions_module_css_default.action,'aria-label':t('message.editFork'),'data-message-edit-fork':'',onClick:()=>forkMessage(seq,content),children:'⑂'})});
 }
