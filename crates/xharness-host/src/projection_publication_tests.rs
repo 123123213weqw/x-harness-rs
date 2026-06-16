@@ -524,6 +524,119 @@ async fn edit_fork_cuts_before_selected_user_message_including_the_first_message
     assert!(matches!(invalid, RpcResult::Failure { .. }));
 }
 
+#[tokio::test]
+async fn edit_fork_restores_the_settings_at_the_historical_boundary() {
+    let (_, store) = fixture().await;
+    let source = store.load(ID).await.unwrap().unwrap();
+    let initial = store
+        .append(
+            ID,
+            source.revision(),
+            vec![
+                EventData::SessionModelSelected {
+                    provider: "historical".into(),
+                    model: "old-model".into(),
+                    reasoning_effort: Some("low".into()),
+                    context_window_tokens: Some(32_768),
+                }
+                .into(),
+                EventData::PermissionPreset {
+                    preset: "workspace-write".into(),
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    let header = store
+        .archive_request(RequestHeader::new("historical", "old-model"))
+        .await
+        .unwrap();
+    let first = store
+        .append(ID, initial.revision, completed_turn(1, "first", &header))
+        .await
+        .unwrap();
+    let second = store
+        .append(ID, first.revision, completed_turn(2, "second", &header))
+        .await
+        .unwrap();
+    store
+        .append(
+            ID,
+            second.revision,
+            vec![
+                EventData::SessionModelSelected {
+                    provider: "current".into(),
+                    model: "new-model".into(),
+                    reasoning_effort: Some("high".into()),
+                    context_window_tokens: Some(65_536),
+                }
+                .into(),
+                EventData::PermissionPreset {
+                    preset: "danger-full-access".into(),
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    let make_host = || {
+        BasicHost::with_agent_runtime(
+            HostConfig::new(std::env::temp_dir()),
+            Arc::new(SnapshotRuntime(store.clone())),
+        )
+    };
+    let host = make_host();
+    host.restore_from_store(store.clone()).await.unwrap();
+    assert_eq!(
+        host.state.read().await.sessions[ID].model.model,
+        "new-model"
+    );
+    let target = store
+        .load(ID)
+        .await
+        .unwrap()
+        .unwrap()
+        .events()
+        .iter()
+        .filter_map(|event| {
+            matches!(event.data(), EventData::UserMessage { .. }).then_some(event.seq)
+        })
+        .nth(1)
+        .unwrap();
+    let fork = rpc_value(
+        &host,
+        RpcMethod::SessionFork,
+        json!({"sessionId":ID,"beforeUserSeq":target}),
+    )
+    .await;
+    let child_id = fork["sessionId"].as_str().unwrap();
+    {
+        let state = host.state.read().await;
+        let child = &state.sessions[child_id];
+        assert_eq!(child.model.provider, "historical");
+        assert_eq!(child.model.model, "old-model");
+        assert_eq!(child.model.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(child.model.context_window_tokens, Some(32_768));
+        assert_eq!(
+            child.permission_preset,
+            crate::PermissionPreset::WorkspaceWrite
+        );
+    }
+    let restored = make_host();
+    restored.restore_from_store(store.clone()).await.unwrap();
+    let state = restored.state.read().await;
+    let child = &state.sessions[child_id];
+    assert_eq!(child.model.provider, "historical");
+    assert_eq!(child.model.model, "old-model");
+    assert_eq!(child.model.reasoning_effort.as_deref(), Some("low"));
+    assert_eq!(child.model.context_window_tokens, Some(32_768));
+    assert_eq!(
+        child.permission_preset,
+        crate::PermissionPreset::WorkspaceWrite
+    );
+}
+
 #[test]
 fn fork_of_subagent_does_not_restore_as_a_delegated_child() {
     let mut session = Session::new(SessionHeader::new("fork-of-child")).unwrap();

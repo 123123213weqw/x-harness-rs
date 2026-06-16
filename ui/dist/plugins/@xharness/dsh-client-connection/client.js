@@ -9277,7 +9277,7 @@ requireIdle: boolean().optional(),
 								sessionId: sid(`fx-${nextSession++}`),
 								updatedAt: Date.now(),
 								running: false,
-								blank: cut === 0,
+								blank: !log.slice(0,cut).some(e => e.type === "user/message"),
 								parentSessionId: sessionId,
 								origin: "fork",
 								...source.cwd === void 0 ? {} : { cwd: source.cwd }
@@ -9287,7 +9287,7 @@ requireIdle: boolean().optional(),
 							emitHost({
 								type: "host/session-added",
 								sessionId: child.sessionId,
-								blank: cut === 0,
+								blank: !log.slice(0,cut).some(e => e.type === "user/message"),
 								parentSessionId: sessionId,
 								origin: "fork",
 								...source.cwd === void 0 ? {} : { cwd: source.cwd }

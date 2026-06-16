@@ -431,7 +431,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
     } else {
         None
     };
-    let (child_events, child_messages, durable_events, next_turn) =
+    let (child_events, child_messages, durable_events, next_turn, historical_state) =
         if let Some(source) = durable_source {
             let end = if let Some(target) = before_user_seq {
                 let index = source
@@ -468,8 +468,29 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
                 })
                 .max()
                 .unwrap_or_default();
+            // An edit-fork is a historical snapshot. Derive its settings from
+            // the same durable prefix that is copied into the child; using the
+            // source's current settings would change the child after restart.
+            let historical_state = if before_user_seq.is_some() {
+                let prefix = source.events()[..end].to_vec();
+                let revision = prefix
+                    .last()
+                    .map_or(xharness_session::Revision::ZERO, |event| event.revision);
+                Some(
+                    xharness_session::Session::restore(source.header().clone(), revision, prefix)
+                        .map_err(|error| {
+                        RpcError::internal(format!("invalid edit-fork boundary: {error}"))
+                    })?,
+                )
+            } else {
+                None
+            };
+            let projection_route = historical_state.as_ref().map_or_else(
+                || route.clone(),
+                |snapshot| crate::restore::restored_route(snapshot, &host.config),
+            );
             (
-                project_session_event_range(&source, &route, 0, end),
+                project_session_event_range(&source, &projection_route, 0, end),
                 xharness_session::derive_messages(&source.events()[..end]),
                 Some(
                     source.events()[..end]
@@ -478,6 +499,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
                         .collect::<Vec<_>>(),
                 ),
                 next_turn,
+                historical_state,
             )
         } else {
             if before_user_seq.is_some() {
@@ -517,7 +539,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
                 })
                 .max()
                 .unwrap_or_default();
-            (events, source.messages.clone(), None, next_turn)
+            (events, source.messages.clone(), None, next_turn, None)
         };
     if child_events.is_empty() && before_user_seq.is_none() {
         return Err(rpc_error(
@@ -537,6 +559,32 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         MetricsProjectionState::rebuild(child_events.iter())
     };
     let child_blank = child_messages.is_empty();
+    let (agent_preset, title, model, permission_preset, plan_active, goal) =
+        if let Some(snapshot) = historical_state.as_ref() {
+            let boundary_route = crate::restore::restored_route(snapshot, &host.config);
+            (
+                crate::restore::restored_agent_preset(snapshot),
+                crate::restore::restored_title(snapshot),
+                ModelSelection {
+                    provider: boundary_route.provider,
+                    model: boundary_route.model,
+                    reasoning_effort: boundary_route.reasoning_effort,
+                    context_window_tokens: boundary_route.context_window_tokens,
+                },
+                crate::restore::restored_permission(snapshot),
+                crate::restore::restored_plan_mode(snapshot),
+                crate::restore::restored_goal(snapshot),
+            )
+        } else {
+            (
+                agent_preset,
+                title,
+                model,
+                permission_preset,
+                plan_active,
+                goal,
+            )
+        };
     let child = SessionRecord {
         dispatch_paused: false,
         delegated: false,
