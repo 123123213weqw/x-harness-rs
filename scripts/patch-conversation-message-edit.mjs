@@ -138,8 +138,9 @@ export function patchMessageEditConnection(bytes) {
     text=once(text, 'while (cut < log.length && log[cut]?.type !== "turn/start") cut++;', 'if (beforeUserSeq === void 0) while (cut < log.length && log[cut]?.type !== "turn/start") cut++;');
     const childFields='blank: false,\n\t\t\t\t\t\t\t\tparentSessionId: sessionId,';
     if (text.split(childFields).length !== 3) throw Error('upstream mock fork child fields changed');
-    text=text.replaceAll(childFields, 'blank: cut === 0,\n\t\t\t\t\t\t\t\tparentSessionId: sessionId,\n\t\t\t\t\t\t\t\torigin: "fork",');
+    text=text.replaceAll(childFields, 'blank: !log.slice(0,cut).some(e => e.type === "user/message"),\n\t\t\t\t\t\t\t\tparentSessionId: sessionId,\n\t\t\t\t\t\t\t\torigin: "fork",');
   }
+  text=text.replaceAll('blank: cut === 0,', 'blank: !log.slice(0,cut).some(e => e.type === "user/message"),');
   return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd()+'\n');
 }
 export function patchMessageEditRuntime(bytes) {
@@ -153,6 +154,11 @@ export function patchMessageEditRuntime(bytes) {
     text=once(text, '...opts.atSeq === void 0 ? {} : { atSeq: opts.atSeq }', '...opts.atSeq === void 0 ? {} : { atSeq: opts.atSeq },\n\t\t\t\t\t\t...opts.beforeUserSeq === void 0 ? {} : { beforeUserSeq: opts.beforeUserSeq }');
     text=once(text, '...opts.atSeq === void 0 ? {} : { atSeq: Math.floor(opts.atSeq) }', '...opts.atSeq === void 0 ? {} : { atSeq: Math.floor(opts.atSeq) },\n\t\t\t\t\t...opts.beforeUserSeq === void 0 ? {} : { beforeUserSeq: Math.floor(opts.beforeUserSeq) }');
     text=once(text, 'parentSessionId: opts.sessionId,', 'parentSessionId: opts.sessionId,\n\t\t\t\t\t\t\torigin: "fork",');
+  }
+  if (!text.includes('blank: opts.beforeUserSeq !== void 0,')) {
+    text=once(text,
+      'blank: false,\n\t\t\t\t\t\t\tparentSessionId: opts.sessionId,',
+      'blank: opts.beforeUserSeq !== void 0,\n\t\t\t\t\t\t\tparentSessionId: opts.sessionId,');
   }
   return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd()+'\n');
 }
@@ -180,7 +186,13 @@ export function refreshConversationMessageEdit(dist) {
   const html = readFileSync(indexPath, 'utf8')
   if (!/window\.__DSH_BOOT__ = .*?<\/script>/.test(html)) throw new Error('missing boot graph')
   writeFileSync(graphPath, `${JSON.stringify(graph, null, 2)}\n`)
-  writeFileSync(indexPath, html.replace(/window\.__DSH_BOOT__ = .*?<\/script>/, `window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`))
+  let updatedHtml = html
+  for (const id of ['@xharness/dsh-client-ui-conversation', '@xharness/dsh-client-connection', '@xharness/dsh-client-runtime']) {
+    const entry = graph.entries.find(candidate => candidate.id === id)
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    updatedHtml = updatedHtml.replace(new RegExp(`/plugins/${escaped}/client\\.js\\?rev=[0-9a-f]{16}`, 'g'), entry.url)
+  }
+  writeFileSync(indexPath, updatedHtml.replace(/window\.__DSH_BOOT__ = .*?<\/script>/, `window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`))
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

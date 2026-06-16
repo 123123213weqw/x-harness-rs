@@ -525,7 +525,7 @@ impl BasicHost {
     }
 }
 
-fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
+pub(crate) fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
     // `session/model-selected` is the durable user preference.  Request
     // headers are execution observations and older providers may omit the
     // optional reasoning effort from them.  Looking for both event kinds in a

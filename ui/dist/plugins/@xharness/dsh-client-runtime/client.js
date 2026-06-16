@@ -8235,7 +8235,7 @@ async prompt(content, mode, signal, options = {}) {
 							sessionId: childId,
 							updatedAt: Date.now(),
 							running: false,
-							blank: false,
+							blank: opts.beforeUserSeq !== void 0,
 							parentSessionId: opts.sessionId,
 							origin: "fork",
 							...source?.cwd !== void 0 ? { cwd: source.cwd } : {}
