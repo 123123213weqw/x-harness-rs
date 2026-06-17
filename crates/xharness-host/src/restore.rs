@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::Path,
     sync::Arc,
 };
@@ -12,7 +12,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use xharness_agent::InboxProjection;
-use xharness_session::{EventData, Session, Store, StoreError};
+use xharness_session::{EventData, Session, SessionCatalogEntry, Store, StoreError};
 
 #[cfg(test)]
 #[path = "dynamic_projection_tests.rs"]
@@ -76,6 +76,8 @@ pub enum HostRestoreError {
     Store(#[from] StoreError),
     #[error("session {session_id:?} disappeared during Host restoration")]
     SessionDisappeared { session_id: String },
+    #[error("session {session_id:?} could not finish recovery; retry after repairing the runtime")]
+    RecoveryIncomplete { session_id: String },
     #[error("session {session_id:?} has an invalid durable inbox: {message}")]
     InvalidInbox { session_id: String, message: String },
     #[error("session {session_id:?} prompt could not be restored: {message}")]
@@ -123,27 +125,62 @@ impl BasicHost {
     where
         F: FnOnce(),
     {
-        self.start_background_turn_listener();
-        self.restore_control_state().await?;
-        // Persisted model overrides and credentials must be activated before
-        // any recovered input is admitted. Bootstrap registries may be empty.
-        let model_settings_error = self.refresh_model_settings().await.err();
-        if model_settings_error.is_some() {
-            // Keep settings repair available, but never execute queued work
-            // against a stale bootstrap route when activation failed.
-            if let Some(backend) = self.model_settings.get() {
-                backend.activate(crate::ModelRegistry::new());
+        self.restore_filtered(
+            store,
+            recovery_policy,
+            None,
+            true,
+            model_reconciliation_started,
+        )
+        .await
+    }
+
+    async fn restore_filtered<F>(
+        self: &Arc<Self>,
+        store: Arc<dyn Store>,
+        recovery_policy: RecoveryPolicy,
+        selected: Option<&BTreeSet<String>>,
+        initialize: bool,
+        model_reconciliation_started: F,
+    ) -> Result<HostRestoreReport, HostRestoreError>
+    where
+        F: FnOnce(),
+    {
+        let model_settings_error = if initialize {
+            self.start_background_turn_listener();
+            self.restore_control_state().await?;
+            // Persisted model overrides and credentials must be activated before
+            // any recovered input is admitted. Bootstrap registries may be empty.
+            let model_settings_error = self.refresh_model_settings().await.err();
+            if model_settings_error.is_some() {
+                // Keep settings repair available, but never execute queued work
+                // against a stale bootstrap route when activation failed.
+                if let Some(backend) = self.model_settings.get() {
+                    backend.activate(crate::ModelRegistry::new());
+                }
             }
-        }
+            model_settings_error
+        } else {
+            self.state.read().await.model_settings_error.clone()
+        };
         // Tolerant scan: one unreadable entry must not make every healthy
         // session undiscoverable, and it must not be dropped silently either.
         // Whatever cannot be published is reported below as a startup issue.
-        let (headers, unreadable) = store.scan_startup_candidates().await?;
+        let (headers, unreadable) = if let Some(ids) = selected {
+            let known = self.lazy_headers.read().await;
+            (
+                ids.iter().filter_map(|id| known.get(id).cloned()).collect(),
+                Vec::new(),
+            )
+        } else {
+            store.scan_startup_candidates().await?
+        };
         let mut report = HostRestoreReport {
             discovered_sessions: headers.len() + unreadable.len(),
             model_settings_error,
             issues: unreadable
                 .into_iter()
+                .filter(|entry| selected.is_none_or(|ids| ids.contains(&entry.session_id)))
                 .map(|entry| HostRestoreIssue {
                     session_id: entry.session_id,
                     message: entry.reason,
@@ -152,8 +189,13 @@ impl BasicHost {
             ..HostRestoreReport::default()
         };
         let mut resumable = Vec::new();
+        let mut loaded_ids = BTreeSet::new();
+        let mut failed_resumes = BTreeSet::new();
 
         for header in headers {
+            if selected.is_some_and(|ids| !ids.contains(&header.id)) {
+                continue;
+            }
             let session_id = header.id.clone();
             // A candidate header is not proof that its event tail is valid.
             // Validate the complete journal exactly once here, and keep one
@@ -233,16 +275,17 @@ impl BasicHost {
                                     .iter()
                                     .any(|question| question.call.id == pending.call.id)
                         });
-            let runtime_background_work = match self.agent_runtime.needs_session_resume(&session) {
-                Ok(required) => required,
-                Err(error) => {
-                    report.issues.push(HostRestoreIssue {
-                        session_id: session_id.clone(),
-                        message: error.to_string(),
-                    });
-                    false
-                }
-            };
+            let (runtime_background_work, runtime_resume_unknown) =
+                match self.agent_runtime.needs_session_resume(&session) {
+                    Ok(required) => (required, false),
+                    Err(error) => {
+                        report.issues.push(HostRestoreIssue {
+                            session_id: session_id.clone(),
+                            message: error.to_string(),
+                        });
+                        (false, true)
+                    }
+                };
             let authoritative = self.agent_runtime.has_authoritative_sessions();
             // Rebuild counters from typed durable events without constructing
             // the complete Web projection during startup.
@@ -299,6 +342,7 @@ impl BasicHost {
                 dispatch_paused: crate::delegation::restored_dispatch_paused(&session)
                     || pause_incomplete_tools,
                 delegated: delegation_parent.is_some(),
+                restoring: selected.is_some(),
                 session_id: session_id.clone(),
                 created_at: header.created_at_ms,
                 updated_at,
@@ -343,6 +387,40 @@ impl BasicHost {
                 next_turn,
             };
 
+            let needs_recovery = projected_queue_len > 0
+                || pending_approval_count > 0
+                || recoverable_question_count > 0
+                || runtime_background_work
+                || runtime_resume_unknown
+                || !xharness_session::incomplete_tool_calls(session.events()).is_empty()
+                || !inbox.next_step().is_empty();
+            // The journal is authoritative; a failed rebuild only means next
+            // startup must treat this session as unknown and replay it.
+            if let Err(error) = store
+                .publish_catalog_entry(SessionCatalogEntry {
+                    header: header.clone(),
+                    updated_at_ms: updated_at,
+                    title: record.title.clone(),
+                    agent_preset: record.agent_preset.clone(),
+                    parent_session_id: record.parent_session_id.clone(),
+                    origin: record.origin.clone(),
+                    model_provider: route.provider.clone(),
+                    model: route.model.clone(),
+                    reasoning_effort: route.reasoning_effort.clone(),
+                    context_window_tokens: route.context_window_tokens,
+                    permission_preset: permission.as_str().to_owned(),
+                    plan_active,
+                    blank,
+                    next_seq: session.next_seq(),
+                    needs_recovery,
+                })
+                .await
+            {
+                report.issues.push(HostRestoreIssue {
+                    session_id: session_id.clone(),
+                    message: format!("catalog publication failed: {error}"),
+                });
+            }
             {
                 let mut state = self.state.write().await;
                 attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
@@ -351,6 +429,7 @@ impl BasicHost {
                     state.goals.insert(session_id.clone(), goal);
                 }
             }
+            loaded_ids.insert(session_id.clone());
             report.restored_sessions += 1;
             report.waiting_next_step_inputs += inbox.next_step().len();
             if pause_incomplete_tools {
@@ -427,6 +506,7 @@ impl BasicHost {
                     if runtime_report.recovered_approval_work_id.is_some() {
                         report.resumed_pending_approvals += projected_approvals;
                     } else if projected_approvals > 0 {
+                        failed_resumes.insert(session_id.clone());
                         report.issues.push(HostRestoreIssue {
                             session_id: session_id.clone(),
                             message: "runtime did not attach the durable pending approval"
@@ -437,6 +517,7 @@ impl BasicHost {
                     if runtime_report.recovered_question_work_id.is_some() {
                         report.resumed_user_questions += projected_questions;
                     } else if projected_questions > 0 {
+                        failed_resumes.insert(session_id.clone());
                         report.issues.push(HostRestoreIssue {
                             session_id: session_id.clone(),
                             message: "runtime did not attach the durable user question".to_owned(),
@@ -493,16 +574,21 @@ impl BasicHost {
                         );
                     }
                 }
-                Err(error) => report.issues.push(HostRestoreIssue {
-                    session_id,
-                    message: error.to_string(),
-                }),
+                Err(error) => {
+                    failed_resumes.insert(session_id.clone());
+                    report.issues.push(HostRestoreIssue {
+                        session_id,
+                        message: error.to_string(),
+                    });
+                }
             }
         }
 
         // Session discovery may attach newly restored ids to a Workspace.
         // Reapply durable custom ordering/tombstones after those ids exist.
-        self.reload_control_projection().await?;
+        if initialize {
+            self.reload_control_projection().await?;
+        }
 
         if let Err(error) = self.questions.deliver_restored_answers().await {
             report.issues.push(HostRestoreIssue {
@@ -515,13 +601,206 @@ impl BasicHost {
         // is still offered. Repair before publishing so a healthy provider is
         // not reported as an unavailable model.
         model_reconciliation_started();
-        report.issues.extend(self.reconcile_model_routes().await);
-        // Publishing the issues on the Host state is what makes them reachable
-        // from the product surface (`host.describe`) rather than only stderr.
+        if initialize {
+            report.issues.extend(self.reconcile_model_routes().await);
+        }
+        // A metadata-only session must not admit new user work until durable
+        // runtime reattachment and restored interactions have both settled.
         let mut state = self.state.write().await;
-        state.startup_issues = report.issues.clone();
+        if let Some(ids) = selected {
+            for id in ids {
+                if loaded_ids.contains(id) && !failed_resumes.contains(id) {
+                    if let Some(record) = state.sessions.get_mut(id) {
+                        record.restoring = false;
+                    }
+                }
+            }
+        }
+        // Publishing issues on Host state keeps them visible in host.describe.
+        if initialize {
+            state.startup_issues = report.issues.clone();
+        } else {
+            state.startup_issues.extend(report.issues.iter().cloned());
+        }
         state.model_settings_error = report.model_settings_error.clone();
         Ok(report)
+    }
+
+    /// Build a bounded, immediately listable projection before replaying old
+    /// journals. Unknown legacy entries remain paused until hydration.
+    pub async fn prepare_startup_catalog(
+        self: &Arc<Self>,
+        store: Arc<dyn Store>,
+    ) -> Result<(Vec<String>, Vec<String>), HostRestoreError> {
+        self.start_background_turn_listener();
+        self.restore_control_state().await?;
+        let model_settings_error = self.refresh_model_settings().await.err();
+        if model_settings_error.is_some() {
+            if let Some(backend) = self.model_settings.get() {
+                backend.activate(crate::ModelRegistry::new());
+            }
+        }
+        let (headers, unreadable) = store.scan_startup_candidates().await?;
+        let mut necessary = Vec::new();
+        let mut deferred = Vec::new();
+        for header in headers {
+            self.lazy_headers
+                .write()
+                .await
+                .insert(header.id.clone(), header.clone());
+            let index = match store.catalog_entry(&header.id).await {
+                Ok(entry) => entry,
+                Err(_) => None,
+            };
+            let indexed = index.as_ref();
+            let cwd = header
+                .cwd
+                .clone()
+                .unwrap_or_else(|| self.config.cwd.to_string_lossy().into_owned());
+            let model = ModelSelection {
+                provider: indexed.map_or_else(
+                    || self.config.provider_id.clone(),
+                    |e| e.model_provider.clone(),
+                ),
+                model: indexed.map_or_else(|| self.config.model_id.clone(), |e| e.model.clone()),
+                reasoning_effort: indexed.and_then(|e| e.reasoning_effort.clone()),
+                context_window_tokens: indexed.and_then(|e| e.context_window_tokens),
+            };
+            let record = SessionRecord {
+                dispatch_paused: true,
+                delegated: false,
+                restoring: true,
+                session_id: header.id.clone(),
+                created_at: header.created_at_ms,
+                updated_at: indexed.map_or(header.created_at_ms, |e| e.updated_at_ms),
+                running: false,
+                blank: indexed.is_none_or(|e| e.blank),
+                parent_session_id: indexed.and_then(|e| e.parent_session_id.clone()),
+                origin: indexed.and_then(|e| e.origin.clone()),
+                cwd: cwd.clone(),
+                agent_preset: indexed.and_then(|e| e.agent_preset.clone()),
+                title: indexed.and_then(|e| e.title.clone()),
+                model,
+                permission_preset: indexed
+                    .and_then(|e| PermissionPreset::parse(&e.permission_preset))
+                    .unwrap_or_default(),
+                active_permission: None,
+                plan_active: indexed.is_some_and(|e| e.plan_active),
+                goal: None,
+                events: Vec::new(),
+                event_base_seq: 0,
+                event_cache_bytes: 0,
+                metrics: MetricsProjectionState::default(),
+                messages: Vec::new(),
+                queue: VecDeque::new(),
+                projected_queue: Vec::new(),
+                admissions: BTreeMap::new(),
+                mutation_receipts: BTreeMap::new(),
+                authoritative_seq: indexed.map(|e| e.next_seq),
+                control: None,
+                next_turn: 0,
+            };
+            let mut state = self.state.write().await;
+            attach_workspace(&mut state, &header.id, &cwd, header.created_at_ms);
+            state.sessions.insert(header.id.clone(), record);
+            drop(state);
+            if indexed.is_some_and(|e| e.needs_recovery) {
+                necessary.push(header.id);
+            } else if indexed.is_none() {
+                deferred.push(header.id);
+            }
+        }
+        self.reload_control_projection().await?;
+        let route_issues = self.reconcile_model_routes().await;
+        {
+            let mut state = self.state.write().await;
+            state.model_settings_error = model_settings_error;
+            state.startup_issues = unreadable
+                .into_iter()
+                .map(|u| HostRestoreIssue {
+                    session_id: u.session_id,
+                    message: u.reason,
+                })
+                .collect();
+            state.startup_issues.extend(route_issues);
+        }
+        let _ = self.lazy_store.set(store);
+        Ok((necessary, deferred))
+    }
+
+    /// Deduplicated journal replay, used for selected startup work and when a
+    /// user opens a metadata-only conversation.
+    pub async fn hydrate_session(&self, session_id: &str) -> Result<(), HostRestoreError> {
+        let gate = {
+            let mut gates = self.lazy_restore_gates.lock().await;
+            gates.retain(|_, gate| gate.strong_count() > 0);
+            gates
+                .entry(session_id.to_owned())
+                .or_insert_with(std::sync::Weak::new)
+                .upgrade()
+                .unwrap_or_else(|| {
+                    let gate = Arc::new(tokio::sync::Mutex::new(()));
+                    gates.insert(session_id.to_owned(), Arc::downgrade(&gate));
+                    gate
+                })
+        };
+        let _guard = gate.lock().await;
+        if !self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .is_some_and(|s| s.restoring)
+        {
+            return Ok(());
+        }
+        let Some(store) = self.lazy_store.get().cloned() else {
+            return Ok(());
+        };
+        let mut selected = BTreeSet::new();
+        selected.insert(session_id.to_owned());
+        let host = Arc::new(self.clone());
+        let report = host
+            .restore_filtered(
+                store,
+                RecoveryPolicy::PauseIncompleteTools,
+                Some(&selected),
+                false,
+                || {},
+            )
+            .await?;
+        if report.restored_sessions == 0 {
+            return Err(HostRestoreError::SessionDisappeared {
+                session_id: session_id.to_owned(),
+            });
+        }
+        if self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .is_some_and(|record| record.restoring)
+        {
+            return Err(HostRestoreError::RecoveryIncomplete {
+                session_id: session_id.to_owned(),
+            });
+        }
+        let projections = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .map(|record| record.projection_values());
+        if let Some(serde_json::Value::Object(projections)) = projections {
+            for (key, value) in projections {
+                self.push_projection(session_id, &key, value).await;
+            }
+        }
+        self.queue_title(session_id);
+        Ok(())
     }
 }
 
@@ -1059,6 +1338,92 @@ mod tests {
                 .map_err(|error| error.to_string())?;
             Ok(ToolExecutor::new(registry))
         }
+    }
+
+    #[tokio::test]
+    async fn startup_catalog_lists_without_replaying_legacy_and_hydrates_on_open() {
+        use xharness_session_jsonl::JsonlSessionStore;
+        let dir = std::env::temp_dir().join(format!(
+            "xharness-catalog-startup-{}-{}",
+            std::process::id(),
+            crate::state::now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(&dir).unwrap());
+        let indexed = SessionHeader::new("indexed-idle");
+        store.create(indexed.clone()).await.unwrap();
+        store
+            .publish_catalog_entry(SessionCatalogEntry {
+                header: indexed.clone(),
+                updated_at_ms: indexed.created_at_ms,
+                title: Some("Indexed title".into()),
+                agent_preset: None,
+                parent_session_id: None,
+                origin: None,
+                model_provider: "test".into(),
+                model: "test-model".into(),
+                reasoning_effort: None,
+                context_window_tokens: None,
+                permission_preset: "workspace-write".into(),
+                plan_active: false,
+                blank: true,
+                next_seq: 0,
+                needs_recovery: false,
+            })
+            .await
+            .unwrap();
+        let pending = SessionHeader::new("indexed-pending");
+        store.create(pending.clone()).await.unwrap();
+        store
+            .publish_catalog_entry(SessionCatalogEntry {
+                header: pending.clone(),
+                updated_at_ms: pending.created_at_ms,
+                title: Some("Pending".into()),
+                agent_preset: None,
+                parent_session_id: None,
+                origin: None,
+                model_provider: "test".into(),
+                model: "test-model".into(),
+                reasoning_effort: None,
+                context_window_tokens: None,
+                permission_preset: "workspace-write".into(),
+                plan_active: false,
+                blank: true,
+                next_seq: 0,
+                needs_recovery: true,
+            })
+            .await
+            .unwrap();
+        store.create(SessionHeader::new("legacy")).await.unwrap();
+        store.create(SessionHeader::new("damaged")).await.unwrap();
+        std::io::Write::write_all(
+            &mut std::fs::OpenOptions::new()
+                .append(true)
+                .open(dir.join("damaged.jsonl"))
+                .unwrap(),
+            b"invalid tail\n",
+        )
+        .unwrap();
+        let host = BasicHost::without_provider(config(&dir));
+        let (necessary, deferred) = host.prepare_startup_catalog(store).await.unwrap();
+        assert_eq!(necessary, vec!["indexed-pending"]);
+        assert_eq!(deferred.len(), 2);
+        let state = host.state.read().await;
+        assert_eq!(state.sessions.len(), 4);
+        assert_eq!(
+            state.sessions["indexed-idle"].title.as_deref(),
+            Some("Indexed title")
+        );
+        assert!(state.sessions.values().all(|session| session.restoring));
+        drop(state);
+        host.hydrate_session("indexed-pending").await.unwrap();
+        assert!(!host.state.read().await.sessions["indexed-pending"].restoring);
+        host.hydrate_session("legacy").await.unwrap();
+        assert!(!host.state.read().await.sessions["legacy"].restoring);
+        assert!(host.hydrate_session("damaged").await.is_err());
+        assert!(host.state.read().await.sessions["damaged"].restoring);
+        host.hydrate_session("indexed-idle").await.unwrap();
+        assert!(!host.state.read().await.sessions["indexed-idle"].restoring);
     }
 
     /// One unreadable entry must not stop startup, and it must be reported on

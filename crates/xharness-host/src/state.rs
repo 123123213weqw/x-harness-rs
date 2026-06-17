@@ -259,6 +259,9 @@ pub struct SessionRecord {
     pub(crate) dispatch_paused: bool,
     #[serde(skip)]
     pub(crate) delegated: bool,
+    /// Metadata-only session awaiting authoritative journal replay.
+    #[serde(skip)]
+    pub(crate) restoring: bool,
     pub session_id: String,
     pub created_at: u64,
     pub updated_at: u64,
@@ -374,6 +377,7 @@ impl SessionRecord {
             "sessionId": self.session_id,
             "updatedAt": self.updated_at,
             "running": self.running,
+            "restoring": self.restoring,
             "blank": self.blank,
             "cwd": self.cwd,
             "projections": {
@@ -400,6 +404,7 @@ impl SessionRecord {
             "sessionListMetadata".to_owned(),
             json!({
                 "blank": self.blank,
+                "restoring": self.restoring,
                 "lastPromptAt": if self.blank { Value::Null } else { json!(self.updated_at) },
             }),
         );

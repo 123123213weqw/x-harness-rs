@@ -317,6 +317,74 @@ async fn wait_for_workspace(client: &Client, address: SocketAddr, expected: &Pat
 }
 
 #[tokio::test]
+async fn legacy_corrupt_tail_does_not_block_ready_or_hide_catalog_entry() {
+    let workspace = TempWorkspace::new();
+    let sessions = workspace.0.join(".xharness-state/sessions");
+    let store = JsonlSessionStore::new(&sessions).unwrap();
+    store
+        .create(SessionHeader::new("legacy-bad-tail"))
+        .await
+        .unwrap();
+    std::io::Write::write_all(
+        &mut std::fs::OpenOptions::new()
+            .append(true)
+            .open(sessions.join("legacy-bad-tail.jsonl"))
+            .unwrap(),
+        b"invalid tail\n",
+    )
+    .unwrap();
+    let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));
+    let client = Client::new();
+    let host = spawn_host(address, &workspace.0);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    let listed = rpc_call(&client, address, "session.list", json!({}))
+        .await
+        .unwrap();
+    let items = listed["result"]["value"]["items"].as_array().unwrap();
+    let old = items
+        .iter()
+        .find(|entry| entry["sessionId"] == "legacy-bad-tail")
+        .unwrap();
+    assert_eq!(
+        old["projections"]["values"]["sessionListMetadata"]["restoring"],
+        true
+    );
+    let opened = rpc_call(
+        &client,
+        address,
+        "session.history",
+        json!({"sessionId":"legacy-bad-tail"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        opened["result"]["ok"], false,
+        "corrupt history must fail on open"
+    );
+    let before = std::fs::metadata(sessions.join("legacy-bad-tail.jsonl"))
+        .unwrap()
+        .len();
+    let attempted = rpc_call(
+        &client,
+        address,
+        "session.prompt",
+        json!({
+            "sessionId": "legacy-bad-tail", "text": "must not run",
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(attempted["result"]["ok"], false);
+    assert_eq!(
+        std::fs::metadata(sessions.join("legacy-bad-tail.jsonl"))
+            .unwrap()
+            .len(),
+        before
+    );
+    host.stop().await;
+}
+
+#[tokio::test]
 async fn desktop_shutdown_file_uses_the_graceful_host_path() {
     let workspace = TempWorkspace::new();
     let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));

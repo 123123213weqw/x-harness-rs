@@ -28,8 +28,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use xharness_session::{
-    AppendReceipt, LoggedEvent, Revision, Session, SessionEvent, SessionHeader, SessionInspection,
-    Store, StoreError, UnreadableSession,
+    AppendReceipt, LoggedEvent, Revision, Session, SessionCatalogEntry, SessionEvent,
+    SessionHeader, SessionInspection, Store, StoreError, UnreadableSession,
 };
 
 mod audit;
@@ -44,6 +44,8 @@ const COMPRESSED_BATCH_RECORD: &str = "batch_gzip";
 const MAX_RECORD_BYTES: u64 = 128 * 1024 * 1024;
 const MIN_COMPRESS_BYTES: usize = 4096;
 const FILE_SUFFIX: &str = ".jsonl";
+const CATALOG_FORMAT_VERSION: u32 = 1;
+const MAX_CATALOG_BYTES: u64 = 32 * 1024;
 const MAX_SESSION_ID_BYTES: usize = 200;
 const FINGERPRINT_SAMPLE_BYTES: usize = 4 * 1_024;
 #[cfg(windows)]
@@ -208,7 +210,7 @@ fn event_weight(event: &LoggedEvent) -> usize {
     n.0.saturating_mul(3)
         .saturating_add(std::mem::size_of::<LoggedEvent>())
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct FileFingerprint {
     dev: u64,
     ino: u64,
@@ -218,6 +220,17 @@ struct FileFingerprint {
     changed_seconds: i64,
     changed_nanoseconds: i64,
     sample_hash: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CatalogRecord {
+    version: u32,
+    fingerprint: FileFingerprint,
+    entry: SessionCatalogEntry,
+}
+
+fn catalog_path(session_path: &Path) -> PathBuf {
+    session_path.with_extension("catalog")
 }
 
 impl JsonlSessionStore {
@@ -323,6 +336,105 @@ impl JsonlSessionStore {
 
 #[async_trait]
 impl Store for JsonlSessionStore {
+    async fn catalog_entry(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionCatalogEntry>, StoreError> {
+        let (path, guard) = self.locked_path(session_id).await?;
+        let requested_id = session_id.to_owned();
+        run_blocking(move || {
+            let _guard = guard;
+            let _file_lock = acquire_file_lock(&path)?;
+            let Some(fingerprint) = file_fingerprint(&path)? else {
+                return Ok(None);
+            };
+            let sidecar = catalog_path(&path);
+            let metadata = match fs::symlink_metadata(&sidecar) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+                Err(error) => {
+                    return Err(backend_error("inspect session catalogue", &sidecar, error))
+                }
+            };
+            if !metadata.is_file()
+                || metadata.file_type().is_symlink()
+                || metadata.len() > MAX_CATALOG_BYTES
+            {
+                return Ok(None);
+            }
+            let file = secure_open_options()
+                .read(true)
+                .open(&sidecar)
+                .map_err(|error| backend_error("open session catalogue", &sidecar, error))?;
+            ensure_regular_file(&file, &sidecar, "session catalogue")?;
+            let mut bytes = Vec::with_capacity(metadata.len() as usize);
+            file.take(MAX_CATALOG_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|error| backend_error("read session catalogue", &sidecar, error))?;
+            let Ok(record) = serde_json::from_slice::<CatalogRecord>(&bytes) else {
+                return Ok(None);
+            };
+            if record.version != CATALOG_FORMAT_VERSION
+                || record.fingerprint != fingerprint
+                || record.entry.header.id != requested_id
+                || record.entry.header.version != SessionHeader::FORMAT_VERSION
+            {
+                return Ok(None);
+            }
+            Ok(Some(record.entry))
+        })
+        .await
+    }
+
+    async fn publish_catalog_entry(&self, entry: SessionCatalogEntry) -> Result<(), StoreError> {
+        let (path, guard) = self.locked_path(&entry.header.id).await?;
+        run_blocking(move || {
+            let _guard = guard;
+            let _file_lock = acquire_file_lock(&path)?;
+            let fingerprint = file_fingerprint(&path)?.ok_or_else(|| StoreError::NotFound {
+                session_id: entry.header.id.clone(),
+            })?;
+            let sidecar = catalog_path(&path);
+            let record = CatalogRecord {
+                version: CATALOG_FORMAT_VERSION,
+                fingerprint,
+                entry,
+            };
+            let bytes = serde_json::to_vec(&record)
+                .map_err(|error| backend_message(format!("encode session catalogue: {error}")))?;
+            if bytes.len() as u64 > MAX_CATALOG_BYTES {
+                return Err(backend_message("session catalogue exceeds 32 KiB"));
+            }
+            static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let tmp = sidecar.with_file_name(format!(
+                ".catalog-{}-{}",
+                std::process::id(),
+                NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            ));
+            let result = (|| -> Result<(), StoreError> {
+                let mut file = secure_open_options()
+                    .write(true)
+                    .create_new(true)
+                    .open(&tmp)
+                    .map_err(|error| backend_error("stage session catalogue", &tmp, error))?;
+                file.write_all(&bytes)
+                    .and_then(|_| file.sync_all())
+                    .map_err(|error| backend_error("write session catalogue", &tmp, error))?;
+                if sidecar.exists() {
+                    replace_compacted_file(&sidecar, &tmp)?;
+                } else {
+                    fs::rename(&tmp, &sidecar).map_err(|error| {
+                        backend_error("publish session catalogue", &sidecar, error)
+                    })?;
+                }
+                sync_parent_directory(&sidecar)
+            })();
+            let _ = fs::remove_file(&tmp);
+            result
+        })
+        .await
+    }
+
     async fn archive_tool_result(
         &self,
         session_id: &str,
