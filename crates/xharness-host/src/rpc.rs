@@ -56,7 +56,7 @@ impl ApiBackend for BasicHost {
             if let Err(error) = self.hydrate_session(session_id).await {
                 return RpcResult::failure(rpc_error(
                     xharness_api::RpcErrorCode::Internal,
-                    &format!("session recovery failed: {error}"),
+                    format!("session recovery failed: {error}"),
                     json!({"sessionId": session_id}),
                 ));
             }
@@ -138,7 +138,7 @@ impl ApiBackend for BasicHost {
             if let Err(error) = self.hydrate_session(session_id).await {
                 return Some(RpcResult::failure(rpc_error(
                     xharness_api::RpcErrorCode::Internal,
-                    &format!("session recovery failed: {error}"),
+                    format!("session recovery failed: {error}"),
                     json!({"sessionId": session_id}),
                 )));
             }

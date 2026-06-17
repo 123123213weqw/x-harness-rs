@@ -648,10 +648,7 @@ impl BasicHost {
                 .write()
                 .await
                 .insert(header.id.clone(), header.clone());
-            let index = match store.catalog_entry(&header.id).await {
-                Ok(entry) => entry,
-                Err(_) => None,
-            };
+            let index = store.catalog_entry(&header.id).await.unwrap_or_default();
             let indexed = index.as_ref();
             let cwd = header
                 .cwd
