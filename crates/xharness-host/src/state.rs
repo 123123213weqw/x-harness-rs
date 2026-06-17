@@ -421,6 +421,10 @@ impl SessionRecord {
                 .map_or(Value::Null, GoalState::projection),
         );
         values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
+        values.insert(
+            "dailyTokenUsage".to_owned(),
+            self.metrics.daily_token_usage(),
+        );
         values.insert("sessionStats".to_owned(), self.metrics.session_stats());
         values.insert(
             "contextPressure".to_owned(),
