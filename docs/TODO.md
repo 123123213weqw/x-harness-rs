@@ -1,5 +1,12 @@
 # XHarness 总任务清单
 
+## 每日 Token 使用档案（2026-09-27）
+
+- [x] `PROFILE-01` 从持久 Session Usage 事件重建 UTC 每日四桶用量；同一步更新替换、Fork 复制前缀排除，实时/冷恢复一致。
+- [x] `PROFILE-02` 在设置内提供双语 Profile：26 周可翻页热力图、每周/累计视图、总量与四桶分解；不把旧会话累计量伪造为单日量。
+- [ ] `PROFILE-03` Node 与 Rust 回归、远程编译、PR CI 完成后合并 `master`；本次不发新版本。
+
+
 ## 轮次交互状态检查（Issue #152，2026-09-26）
 
 目标：先把跨 queue、停止、工具、问题、compact、恢复的关键决策变为可审查的测试期契约，再考虑逐域迁移生产判断；详见 [规范](specs/turn-statecheck.md)。
