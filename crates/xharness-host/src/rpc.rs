@@ -42,6 +42,25 @@ impl ApiBackend for BasicHost {
         payload: Value,
         cancellation: CancellationToken,
     ) -> RpcResult {
+        // A catalogue entry is not a recovered Agent. Hydrate exactly once
+        // before any session-scoped read or mutation can observe partial state.
+        let target = if matches!(
+            method,
+            RpcMethod::SubagentHistory | RpcMethod::SubagentPrompt | RpcMethod::SubagentInterrupt
+        ) {
+            payload.get("childSessionId").and_then(Value::as_str)
+        } else {
+            payload.get("sessionId").and_then(Value::as_str)
+        };
+        if let Some(session_id) = target {
+            if let Err(error) = self.hydrate_session(session_id).await {
+                return RpcResult::failure(rpc_error(
+                    xharness_api::RpcErrorCode::Internal,
+                    format!("session recovery failed: {error}"),
+                    json!({"sessionId": session_id}),
+                ));
+            }
+        }
         let result = match method {
             method @ (RpcMethod::SessionList
             | RpcMethod::SessionSearch
@@ -115,6 +134,15 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if let Some(session_id) = payload.get("sessionId").and_then(Value::as_str) {
+            if let Err(error) = self.hydrate_session(session_id).await {
+                return Some(RpcResult::failure(rpc_error(
+                    xharness_api::RpcErrorCode::Internal,
+                    format!("session recovery failed: {error}"),
+                    json!({"sessionId": session_id}),
+                )));
+            }
+        }
         let result = dynamic::call(self, rpc_id, endpoint, &payload).await?;
         Some(match result {
             Ok(Some(value)) => RpcResult::success(value),

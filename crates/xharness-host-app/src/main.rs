@@ -12,7 +12,7 @@ use xharness_diagnostics::{
 };
 use xharness_host::{
     AgentRuntime, BasicHost, DelegationConcurrency, DurableLoopAgentRuntime, DurableQuestionHub,
-    HostConfig, RecoveryPolicy,
+    HostConfig,
 };
 use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
@@ -274,50 +274,30 @@ async fn run(
 
     *failure_code = Some(StartupFailureCode::SessionRestore);
     startup_progress.stage(StartupStage::HistoryRestore);
-    let restore = host
-        .restore_from_store_with_policy_and_progress(
-            store,
-            RecoveryPolicy::PauseIncompleteTools,
-            || startup_progress.stage(StartupStage::ModelReconciliation),
-        )
-        .await?;
-    host.start_delegation_listener();
-    if let Some(error) = &restore.model_settings_error {
-        eprintln!("Model settings require attention: {error}");
+    let (necessary, deferred) = host.prepare_startup_catalog(store).await?;
+    startup_progress.stage(StartupStage::ModelReconciliation);
+    // Only indexed sessions known to carry durable work can hold up Ready.
+    // Legacy/mismatched journals remain visible but paused until hydration.
+    let mut resumed = 0usize;
+    for session_id in &necessary {
+        match host.hydrate_session(session_id).await {
+            Ok(()) => resumed += 1,
+            Err(error) => eprintln!("xharness recovery issue for {session_id}: {error}"),
+        }
     }
+    host.start_delegation_listener();
     debug
         .record(DebugEvent::new(
             "host",
             "restore",
             serde_json::json!({
-                "modelSettingsError": &restore.model_settings_error,
-                "restoredSessions": restore.restored_sessions,
-                "resumedPendingTurns": restore.resumed_pending_turns,
-                "resumedPendingApprovals": restore.resumed_pending_approvals,
-                "resumedUserQuestions": restore.resumed_user_questions,
-                "pausedIncompleteToolSessions": restore.paused_incomplete_tool_sessions,
-                "issues": restore.issues.iter().map(|issue| serde_json::json!({
-                    "sessionId": &issue.session_id,
-                    "message": &issue.message,
-                })).collect::<Vec<_>>(),
+                "indexedRecovery": necessary.len(), "resumedSessions": resumed,
+                "deferredLegacySessions": deferred.len(),
             }),
         ))
         .await?;
-    eprintln!(
-        "xharness restored {} sessions, resumed {} pending turns, {} approvals, and {} user questions; paused {} interrupted tool session(s) ({} issues)",
-        restore.restored_sessions,
-        restore.resumed_pending_turns,
-        restore.resumed_pending_approvals,
-        restore.resumed_user_questions,
-        restore.paused_incomplete_tool_sessions,
-        restore.issues.len(),
-    );
-    for issue in &restore.issues {
-        eprintln!(
-            "xharness restore issue for session {}: {}",
-            issue.session_id, issue.message
-        );
-    }
+    debug.flush().await?;
+    eprintln!("xharness catalog ready; recovered {resumed}/{} indexed active sessions; {} legacy sessions deferred", necessary.len(), deferred.len());
     readiness.mark_ready();
     startup_progress.stage(StartupStage::Ready);
     debug
@@ -331,6 +311,31 @@ async fn run(
     eprintln!("xharness host ready on http://{}", local_addr);
     *failure_code = None;
     host.start_auto_titles().await;
+    let hydration_host = host.clone();
+    let mut hydration_task = tokio::spawn(async move {
+        let mut workers = tokio::task::JoinSet::new();
+        // Candidate ids are discovered in ascending order. Minted ids contain
+        // timestamps, so reverse order usually repairs recent history first;
+        // other id schemes remain correct regardless of repair order.
+        for session_id in deferred.into_iter().rev() {
+            let one_host = hydration_host.clone();
+            let one_id = session_id.clone();
+            // Dropping the JoinSet aborts in-flight async work on shutdown;
+            // one panicked repair does not suppress the remaining sessions.
+            workers.spawn(async move { one_host.hydrate_session(&one_id).await });
+            match workers.join_next().await {
+                Some(Ok(Ok(()))) => {}
+                Some(Ok(Err(error))) => {
+                    eprintln!("xharness background recovery issue for {session_id}: {error}")
+                }
+                Some(Err(error)) => eprintln!(
+                    "xharness background recovery worker failed for {session_id}: {error}"
+                ),
+                None => unreachable!("one recovery worker was just spawned"),
+            }
+            tokio::task::yield_now().await;
+        }
+    });
     let mut signal_error = None;
     let early_server_result = tokio::select! {
         result = &mut server_task => Some(result),
@@ -342,6 +347,8 @@ async fn run(
     // Resolve Axum's graceful-shutdown future first so its accept loop closes
     // while the backend stops new Agent admission and joins active work.
     let _ = server_stop_tx.send(());
+    hydration_task.abort();
+    let _ = (&mut hydration_task).await;
     host.shutdown_auto_titles().await;
     let mut shutdown = runtime.shutdown(Duration::from_secs(10)).await;
     host.stop_background_listeners();
