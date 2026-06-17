@@ -163,7 +163,7 @@ jobs:
           bundle="apps/desktop/src-tauri/target/$TARGET/release/bundle/macos"
           codesign --verify --deep --strict "$bundle/XHarness.app"
           python3 scripts/test-desktop-assets.py --app "$bundle/XHarness.app"
-          node scripts/verify-updater-package.mjs "$bundle/XHarness.app.tar.gz" "$bundle/XHarness.app.tar.gz.sig" dist/desktop-macos-preview/updater-preview.pub
+          node scripts/verify-updater-package.mjs "$bundle/XHarness.app.tar.gz" "$bundle/XHarness.app.tar.gz.sig" "$out/updater-preview.pub"
           cp "$bundle/XHarness.app.tar.gz" "$out/XHarness_${VERSION}_${ARCH}.app.tar.gz"
           cp "$bundle/XHarness.app.tar.gz.sig" "$out/XHarness_${VERSION}_${ARCH}.app.tar.gz.sig"
           ditto -c -k --keepParent "$bundle/XHarness.app" "$out/XHarness_${VERSION}_${ARCH}.zip"
