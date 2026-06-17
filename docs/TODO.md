@@ -4,7 +4,7 @@
 
 - [x] `PROFILE-01` 从持久 Session Usage 事件重建 UTC 每日四桶用量；同一步更新替换、Fork 复制前缀排除，实时/冷恢复一致。
 - [x] `PROFILE-02` 在设置内提供双语 Profile：26 周可翻页热力图、每周/累计视图、总量与四桶分解；不把旧会话累计量伪造为单日量。
-- [ ] `PROFILE-03` Node 与 Rust 回归、远程编译、PR CI 完成后合并 `master`；本次不发新版本。
+- [x] `PROFILE-03` Node 与 Rust 回归、WZU_Server 全工作区测试/Clippy、PR #157 跨平台 CI 通过并合并 `master`；本次未发新版本。
 
 
 ## 轮次交互状态检查（Issue #152，2026-09-26）
