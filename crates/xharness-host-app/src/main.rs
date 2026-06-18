@@ -274,30 +274,13 @@ async fn run(
 
     *failure_code = Some(StartupFailureCode::SessionRestore);
     startup_progress.stage(StartupStage::HistoryRestore);
-    let (necessary, deferred) = host.prepare_startup_catalog(store).await?;
+    // Only the bounded control/model bootstrap is a readiness dependency.
+    // A cold legacy directory may take minutes to index; it must not cause
+    // the desktop's 120-second startup watchdog to kill an otherwise healthy
+    // Host. Every undiscovered session is treated as paused until replay.
+    host.prepare_startup_basics(store.clone()).await?;
     startup_progress.stage(StartupStage::ModelReconciliation);
-    // Only indexed sessions known to carry durable work can hold up Ready.
-    // Legacy/mismatched journals remain visible but paused until hydration.
-    let mut resumed = 0usize;
-    for session_id in &necessary {
-        match host.hydrate_session(session_id).await {
-            Ok(()) => resumed += 1,
-            Err(error) => eprintln!("xharness recovery issue for {session_id}: {error}"),
-        }
-    }
     host.start_delegation_listener();
-    debug
-        .record(DebugEvent::new(
-            "host",
-            "restore",
-            serde_json::json!({
-                "indexedRecovery": necessary.len(), "resumedSessions": resumed,
-                "deferredLegacySessions": deferred.len(),
-            }),
-        ))
-        .await?;
-    debug.flush().await?;
-    eprintln!("xharness catalog ready; recovered {resumed}/{} indexed active sessions; {} legacy sessions deferred", necessary.len(), deferred.len());
     readiness.mark_ready();
     startup_progress.stage(StartupStage::Ready);
     debug
@@ -312,12 +295,39 @@ async fn run(
     *failure_code = None;
     host.start_auto_titles().await;
     let hydration_host = host.clone();
+    let hydration_debug = debug.clone();
     let mut hydration_task = tokio::spawn(async move {
+        let (necessary, deferred) = match hydration_host.populate_startup_catalog(store).await {
+            Ok(catalogue) => catalogue,
+            Err(error) => {
+                eprintln!("xharness background catalogue discovery failed: {error}");
+                hydration_host.report_startup_catalog_failure(&error).await;
+                return;
+            }
+        };
+        let mut resumed = 0usize;
+        for session_id in &necessary {
+            match hydration_host.hydrate_session(session_id).await {
+                Ok(()) => resumed += 1,
+                Err(error) => eprintln!("xharness recovery issue for {session_id}: {error}"),
+            }
+        }
+        let _ = hydration_debug
+            .record(DebugEvent::new(
+                "host",
+                "restore",
+                serde_json::json!({
+                    "indexedRecovery": necessary.len(), "resumedSessions": resumed,
+                    "deferredLegacySessions": deferred.len(),
+                }),
+            ))
+            .await;
+        let _ = hydration_debug.flush().await;
+        eprintln!("xharness catalog ready; recovered {resumed}/{} indexed active sessions; {} legacy sessions deferred", necessary.len(), deferred.len());
         let mut workers = tokio::task::JoinSet::new();
-        // Candidate ids are discovered in ascending order. Minted ids contain
-        // timestamps, so reverse order usually repairs recent history first;
-        // other id schemes remain correct regardless of repair order.
-        for session_id in deferred.into_iter().rev() {
+        // Streaming discovery already prioritizes recent ids. A user opening
+        // an old session can hydrate it concurrently through the per-id gate.
+        for session_id in deferred {
             let one_host = hydration_host.clone();
             let one_id = session_id.clone();
             // Dropping the JoinSet aborts in-flight async work on shutdown;

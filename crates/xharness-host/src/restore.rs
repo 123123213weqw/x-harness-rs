@@ -12,7 +12,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use xharness_agent::InboxProjection;
-use xharness_session::{EventData, Session, SessionCatalogEntry, Store, StoreError};
+use xharness_session::{
+    EventData, Session, SessionCatalogEntry, StartupCandidate, Store, StoreError,
+};
 
 #[cfg(test)]
 #[path = "dynamic_projection_tests.rs"]
@@ -74,6 +76,8 @@ pub enum HostRestoreError {
     Control(#[from] xharness_control::ControlError),
     #[error(transparent)]
     Store(#[from] StoreError),
+    #[error("startup catalogue worker failed: {0}")]
+    CatalogueWorker(String),
     #[error("session {session_id:?} disappeared during Host restoration")]
     SessionDisappeared { session_id: String },
     #[error("session {session_id:?} could not finish recovery; retry after repairing the runtime")]
@@ -626,12 +630,12 @@ impl BasicHost {
         Ok(report)
     }
 
-    /// Build a bounded, immediately listable projection before replaying old
-    /// journals. Unknown legacy entries remain paused until hydration.
-    pub async fn prepare_startup_catalog(
+    /// Restore the small control/model state and install the lazy Store before
+    /// the HTTP readiness gate opens. No session directory scan belongs here.
+    pub async fn prepare_startup_basics(
         self: &Arc<Self>,
         store: Arc<dyn Store>,
-    ) -> Result<(Vec<String>, Vec<String>), HostRestoreError> {
+    ) -> Result<(), HostRestoreError> {
         self.start_background_turn_listener();
         self.restore_control_state().await?;
         let model_settings_error = self.refresh_model_settings().await.err();
@@ -640,15 +644,88 @@ impl BasicHost {
                 backend.activate(crate::ModelRegistry::new());
             }
         }
-        let (headers, unreadable) = store.scan_startup_candidates().await?;
+        self.reload_control_projection().await?;
+        self.state.write().await.model_settings_error = model_settings_error;
+        let _ = self.lazy_store.set(store);
+        Ok(())
+    }
+
+    /// Stream old headers into a paused, metadata-only projection. The caller
+    /// may run this after Ready: slow media, legacy logs, and bad entries then
+    /// affect individual histories instead of holding the whole product.
+    pub async fn populate_startup_catalog(
+        self: &Arc<Self>,
+        store: Arc<dyn Store>,
+    ) -> Result<(Vec<String>, Vec<String>), HostRestoreError> {
+        let (sender, mut receiver) = mpsc::channel(32);
+        let mut scan = tokio::task::JoinSet::new();
+        scan.spawn(async move { store.stream_startup_candidates(sender).await });
         let mut necessary = Vec::new();
         let mut deferred = Vec::new();
-        for header in headers {
+        let mut published = 0usize;
+        let mut last_notified = 0usize;
+        loop {
+            let candidate =
+                match tokio::time::timeout(std::time::Duration::from_millis(250), receiver.recv())
+                    .await
+                {
+                    Ok(Some(candidate)) => candidate,
+                    Ok(None) => break,
+                    Err(_) => {
+                        // A held lock must not hide the final partial batch from
+                        // the UI while another scanner worker remains blocked.
+                        if published > last_notified {
+                            self.push_host(serde_json::json!({
+                                "type": "host/remote-event",
+                                "event": "xharness/catalog-updated",
+                                "args": [],
+                            }));
+                            last_notified = published;
+                        }
+                        continue;
+                    }
+                };
+            let header = match candidate {
+                StartupCandidate::Header(header) => header,
+                StartupCandidate::Unreadable(entry) => {
+                    self.state
+                        .write()
+                        .await
+                        .startup_issues
+                        .push(HostRestoreIssue {
+                            session_id: entry.session_id,
+                            message: entry.reason,
+                        });
+                    continue;
+                }
+            };
+            let session_id = header.id.clone();
+            // A user can create a session while discovery is still running.
+            // The durable in-memory record already owns that identity.
+            if self.state.read().await.sessions.contains_key(&session_id) {
+                continue;
+            }
             self.lazy_headers
                 .write()
                 .await
                 .insert(header.id.clone(), header.clone());
-            let index = store.catalog_entry(&header.id).await.unwrap_or_default();
+            let index = match self.lazy_store.get() {
+                Some(store) => match store.catalog_entry(&header.id).await {
+                    Ok(index) => index,
+                    Err(error) => {
+                        self.state
+                            .write()
+                            .await
+                            .startup_issues
+                            .push(HostRestoreIssue {
+                                session_id: session_id.clone(),
+                                message: error.to_string(),
+                            });
+                        None
+                    }
+                },
+                None => None,
+            };
             let indexed = index.as_ref();
             let cwd = header
                 .cwd
@@ -698,31 +775,67 @@ impl BasicHost {
                 next_turn: 0,
             };
             let mut state = self.state.write().await;
-            attach_workspace(&mut state, &header.id, &cwd, header.created_at_ms);
-            state.sessions.insert(header.id.clone(), record);
+            if state.sessions.contains_key(&session_id) {
+                continue;
+            }
+            attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
+            state.sessions.insert(session_id.clone(), record);
             drop(state);
             if indexed.is_some_and(|e| e.needs_recovery) {
                 necessary.push(header.id);
             } else if indexed.is_none() {
                 deferred.push(header.id);
             }
+            published += 1;
+            if published - last_notified >= 16 {
+                self.push_host(serde_json::json!({
+                    "type": "host/remote-event",
+                    "event": "xharness/catalog-updated",
+                    "args": [],
+                }));
+                last_notified = published;
+            }
         }
-        self.reload_control_projection().await?;
+        scan.join_next()
+            .await
+            .ok_or_else(|| {
+                HostRestoreError::CatalogueWorker("scanner exited without a result".into())
+            })?
+            .map_err(|error| HostRestoreError::CatalogueWorker(error.to_string()))??;
+        if published > last_notified {
+            self.push_host(serde_json::json!({
+                "type": "host/remote-event",
+                "event": "xharness/catalog-updated",
+                "args": [],
+            }));
+        }
         let route_issues = self.reconcile_model_routes().await;
-        {
-            let mut state = self.state.write().await;
-            state.model_settings_error = model_settings_error;
-            state.startup_issues = unreadable
-                .into_iter()
-                .map(|u| HostRestoreIssue {
-                    session_id: u.session_id,
-                    message: u.reason,
-                })
-                .collect();
-            state.startup_issues.extend(route_issues);
-        }
-        let _ = self.lazy_store.set(store);
+        self.state.write().await.startup_issues.extend(route_issues);
         Ok((necessary, deferred))
+    }
+
+    /// Compatibility composition for callers that explicitly require a fully
+    /// discovered catalogue before returning.
+    pub async fn prepare_startup_catalog(
+        self: &Arc<Self>,
+        store: Arc<dyn Store>,
+    ) -> Result<(Vec<String>, Vec<String>), HostRestoreError> {
+        self.prepare_startup_basics(store.clone()).await?;
+        self.populate_startup_catalog(store).await
+    }
+
+    /// Background catalogue failures do not retract Ready, but remain
+    /// inspectable through host.describe instead of producing a blank list
+    /// with only a line in stderr.
+    pub async fn report_startup_catalog_failure(&self, error: &HostRestoreError) {
+        self.state
+            .write()
+            .await
+            .startup_issues
+            .push(HostRestoreIssue {
+                session_id: "<catalogue>".to_owned(),
+                message: error.to_string(),
+            });
     }
 
     /// Deduplicated journal replay, used for selected startup work and when a
