@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 use crate::{
     AppendReceipt, Revision, Session, SessionError, SessionEvent, SessionHeader, SessionInspection,
@@ -64,6 +64,14 @@ pub enum StoreError {
 pub struct UnreadableSession {
     pub session_id: String,
     pub reason: String,
+}
+
+/// A single startup discovery result. Streaming these lets the Host become
+/// usable before an arbitrarily large legacy directory has been inspected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartupCandidate {
+    Header(SessionHeader),
+    Unreadable(UnreadableSession),
 }
 
 /// Durable append-only storage seam.
@@ -149,6 +157,31 @@ pub trait Store: Send + Sync + 'static {
         &self,
     ) -> Result<(Vec<SessionHeader>, Vec<UnreadableSession>), StoreError> {
         self.scan_sessions().await
+    }
+
+    /// Incremental startup discovery. Disk stores should override this so a
+    /// slow or damaged journal cannot hide already discovered conversations.
+    /// The default retains compatibility with other Store implementations.
+    async fn stream_startup_candidates(
+        &self,
+        sender: mpsc::Sender<StartupCandidate>,
+    ) -> Result<(), StoreError> {
+        let (headers, unreadable) = self.scan_startup_candidates().await?;
+        for header in headers {
+            if sender.send(StartupCandidate::Header(header)).await.is_err() {
+                return Ok(());
+            }
+        }
+        for entry in unreadable {
+            if sender
+                .send(StartupCandidate::Unreadable(entry))
+                .await
+                .is_err()
+            {
+                return Ok(());
+            }
+        }
+        Ok(())
     }
 
     /// Atomically register an empty session. Existing ids are never replaced.

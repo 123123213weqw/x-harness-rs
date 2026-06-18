@@ -8390,6 +8390,25 @@ async prompt(content, mode, signal, options = {}) {
 			handleHostEnvelope(envelope) {
 				const frame = envelope.payload;
 				switch (frame.type) {
+					case "host/remote-event":
+						if (frame.event === "xharness/catalog-updated") {
+							this.xhCatalogRefreshRequested = true;
+							if (!this.xhCatalogRefreshRunning) {
+								this.xhCatalogRefreshRunning = true;
+								void (async () => {
+									try {
+										do {
+											if (this.listInflight !== null) await this.listInflight;
+											this.xhCatalogRefreshRequested = false;
+											await this.refreshList();
+										} while (this.xhCatalogRefreshRequested);
+									} finally {
+										this.xhCatalogRefreshRunning = false;
+								}
+								})();
+							}
+						}
+						return;
 					case "host/session-added":
 						this.mergeSummary({
 							sessionId: frame.sessionId,
