@@ -1,10 +1,12 @@
 use std::{
+    fs::OpenOptions,
     net::{SocketAddr, TcpListener as StdTcpListener},
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
 };
 
+use fs2::FileExt;
 use futures::StreamExt;
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -316,6 +318,121 @@ async fn wait_for_workspace(client: &Client, address: SocketAddr, expected: &Pat
     }
 }
 
+async fn wait_for_session(client: &Client, address: SocketAddr, id: &str) -> Value {
+    let deadline = time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(value) = rpc_call(client, address, "session.list", json!({})).await {
+            if value["result"]["value"]["items"]
+                .as_array()
+                .is_some_and(|items| items.iter().any(|item| item["sessionId"] == id))
+            {
+                return value;
+            }
+        }
+        assert!(
+            time::Instant::now() < deadline,
+            "session {id} was not indexed"
+        );
+        time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test]
+async fn locked_legacy_history_does_not_block_ready_or_new_sessions() {
+    let workspace = TempWorkspace::new();
+    let sessions = workspace.0.join(".xharness-state/sessions");
+    let store = JsonlSessionStore::new(&sessions).unwrap();
+    store
+        .create(SessionHeader::new("legacy-locked"))
+        .await
+        .unwrap();
+    store
+        .create(SessionHeader::new("legacy-free"))
+        .await
+        .unwrap();
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(sessions.join("legacy-locked.lock"))
+        .unwrap();
+    lock.lock_exclusive().unwrap();
+    let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));
+    let client = Client::new();
+    let host = spawn_host(address, &workspace.0);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    let created = rpc_call(
+        &client,
+        address,
+        "session.create",
+        json!({"sessionId":"new-while-indexing"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(created["result"]["ok"], true, "{created}");
+    let initially_listed = rpc_call(&client, address, "session.list", json!({}))
+        .await
+        .unwrap();
+    assert!(!initially_listed["result"]["value"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["sessionId"] == "legacy-locked"));
+    // The locked journal is first in recent-id order. Bounded concurrent
+    // discovery must still publish the independent legacy conversation.
+    wait_for_session(&client, address, "legacy-free").await;
+    FileExt::unlock(&lock).unwrap();
+    let listed = wait_for_session(&client, address, "legacy-locked").await;
+    assert!(listed["result"]["value"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["sessionId"] == "new-while-indexing"));
+    host.stop().await;
+}
+
+#[tokio::test]
+async fn stable_session_mutations_write_through_the_durable_catalogue() {
+    let workspace = TempWorkspace::new();
+    let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));
+    let client = Client::new();
+    let host = spawn_host(address, &workspace.0);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    let created = rpc_call(
+        &client,
+        address,
+        "session.create",
+        json!({"sessionId":"indexed-new"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(created["result"]["ok"], true, "{created}");
+    let renamed = rpc_call(
+        &client,
+        address,
+        "session.rename",
+        json!({"sessionId":"indexed-new","title":"Current title"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(renamed["result"]["ok"], true, "{renamed}");
+    let store = JsonlSessionStore::new(workspace.0.join(".xharness-state/sessions")).unwrap();
+    let indexed = store.catalog_entry("indexed-new").await.unwrap().unwrap();
+    assert_eq!(indexed.title.as_deref(), Some("Current title"));
+    assert!(!indexed.needs_recovery);
+    host.stop().await;
+    let restarted = spawn_host(address, &workspace.0);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    let listed = wait_for_session(&client, address, "indexed-new").await;
+    let entry = listed["result"]["value"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["sessionId"] == "indexed-new")
+        .unwrap();
+    assert_eq!(entry["projections"]["values"]["title"], "Current title");
+    restarted.stop().await;
+}
+
 #[tokio::test]
 async fn legacy_corrupt_tail_does_not_block_ready_or_hide_catalog_entry() {
     let workspace = TempWorkspace::new();
@@ -337,9 +454,7 @@ async fn legacy_corrupt_tail_does_not_block_ready_or_hide_catalog_entry() {
     let client = Client::new();
     let host = spawn_host(address, &workspace.0);
     wait_for_workspace(&client, address, &workspace.0).await;
-    let listed = rpc_call(&client, address, "session.list", json!({}))
-        .await
-        .unwrap();
+    let listed = wait_for_session(&client, address, "legacy-bad-tail").await;
     let items = listed["result"]["value"]["items"].as_array().unwrap();
     let old = items
         .iter()
@@ -489,9 +604,7 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
             .len(),
         1
     );
-    let first_sessions = rpc_call(&client, address, "session.list", json!({}))
-        .await
-        .expect("first Host lists restored sessions");
+    let first_sessions = wait_for_session(&client, address, "persisted-session").await;
     assert_eq!(
         first_sessions["result"]["value"]["items"][0]["sessionId"],
         "persisted-session"
@@ -568,9 +681,7 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
     assert!(second_workspaces.iter().any(|item| {
         item["workspaceId"] == custom_workspace_id && item["title"] == "Restart durable"
     }));
-    let second_sessions = rpc_call(&client, address, "session.list", json!({}))
-        .await
-        .expect("second Host lists restored sessions");
+    let second_sessions = wait_for_session(&client, address, "persisted-session").await;
     assert_eq!(
         second_sessions["result"]["value"]["items"][0]["sessionId"],
         "persisted-session"
@@ -632,12 +743,17 @@ async fn full_debug_cli_writes_private_host_lifecycle_trace() {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    assert!(events.len() >= 5);
+    assert!(events.len() >= 4);
     assert_eq!(events[0]["event"], "start");
     assert_eq!(events[1]["event"], "listening");
     assert_eq!(events[1]["payload"]["state"], "live");
-    assert_eq!(events[2]["event"], "restore");
-    assert_eq!(events[3]["event"], "ready");
+    let ready_at = events
+        .iter()
+        .position(|event| event["event"] == "ready")
+        .expect("Host must become ready before a legacy catalogue scan");
+    if let Some(restore_at) = events.iter().position(|event| event["event"] == "restore") {
+        assert!(ready_at < restore_at, "legacy indexing must not gate Ready");
+    }
     assert!(events
         .iter()
         .any(|event| { event["layer"] == "server" && event["event"] == "rpc.request" }));
