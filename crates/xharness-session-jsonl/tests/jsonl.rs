@@ -13,8 +13,8 @@ use std::{
 
 use serde_json::Value;
 use xharness_session::{
-    EventData, Message, Revision, SessionCatalogEntry, SessionEvent, SessionHeader, Store,
-    StoreError,
+    EventData, Message, Revision, SessionCatalogEntry, SessionEvent, SessionHeader,
+    StartupCandidate, Store, StoreError,
 };
 use xharness_session_jsonl::JsonlSessionStore;
 
@@ -296,6 +296,57 @@ async fn startup_candidates_read_only_headers_and_defer_tail_validation() {
 }
 
 #[tokio::test]
+async fn startup_stream_publishes_recent_headers_before_a_damaged_older_entry() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("session-001")).await.unwrap();
+    store.create(header("session-002")).await.unwrap();
+    fs::write(dir.session_file("bad-header"), b"not-json\n").unwrap();
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let producer = tokio::spawn(async move { store.stream_startup_candidates(sender).await });
+    let mut seen = Vec::new();
+    while let Some(candidate) = receiver.recv().await {
+        seen.push(candidate);
+    }
+    producer.await.unwrap().unwrap();
+    assert_eq!(seen.len(), 3);
+    assert!(seen
+        .iter()
+        .any(|c| matches!(c, StartupCandidate::Header(h) if h.id == "session-002")));
+    assert!(seen
+        .iter()
+        .any(|c| matches!(c, StartupCandidate::Header(h) if h.id == "session-001")));
+    assert!(seen
+        .iter()
+        .any(|c| matches!(c, StartupCandidate::Unreadable(e) if e.session_id == "bad-header")));
+}
+
+#[tokio::test]
+async fn one_locked_header_does_not_block_other_startup_candidates() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("session-001")).await.unwrap();
+    store.create(header("session-002")).await.unwrap();
+    let lock_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dir.path().join("session-002.lock"))
+        .unwrap();
+    fs2::FileExt::lock_exclusive(&lock_file).unwrap();
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
+    let producer = tokio::spawn(async move { store.stream_startup_candidates(sender).await });
+    let first = tokio::time::timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("other header should not wait for the lock")
+        .unwrap();
+    assert!(matches!(first, StartupCandidate::Header(h) if h.id == "session-001"));
+    fs2::FileExt::unlock(&lock_file).unwrap();
+    let second = receiver.recv().await.unwrap();
+    assert!(matches!(second, StartupCandidate::Header(h) if h.id == "session-002"));
+    producer.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn catalogue_is_rebuildable_and_never_trusts_a_stale_file() {
     let dir = TestDir::new();
     let store = JsonlSessionStore::new(dir.path()).unwrap();
@@ -333,6 +384,47 @@ async fn catalogue_is_rebuildable_and_never_trusts_a_stale_file() {
     fs::write(dir.path().join("catalogued.catalog"), b"broken").unwrap();
     assert_eq!(store.catalog_entry("catalogued").await.unwrap(), None);
     assert!(store.load("catalogued").await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn catalogue_publication_rejects_stale_snapshot_even_when_large_cache_is_disabled() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_cache_limits(0, 0);
+    store.create(header("catalogued")).await.unwrap();
+    let mut entry = SessionCatalogEntry {
+        header: header("catalogued"),
+        updated_at_ms: 123,
+        title: Some("before".into()),
+        agent_preset: None,
+        parent_session_id: None,
+        origin: None,
+        model_provider: "test".into(),
+        model: "model".into(),
+        reasoning_effort: None,
+        context_window_tokens: None,
+        permission_preset: "workspace-write".into(),
+        plan_active: false,
+        blank: true,
+        next_seq: 0,
+        needs_recovery: false,
+    };
+    store.publish_catalog_entry(entry.clone()).await.unwrap();
+    store
+        .append("catalogued", Revision::ZERO, vec![turn_start(1)])
+        .await
+        .unwrap();
+    assert!(store.publish_catalog_entry(entry.clone()).await.is_err());
+    assert_eq!(store.catalog_entry("catalogued").await.unwrap(), None);
+    let current = store.load("catalogued").await.unwrap().unwrap();
+    entry.next_seq = current.next_seq();
+    entry.needs_recovery = true;
+    store.publish_catalog_entry(entry.clone()).await.unwrap();
+    assert_eq!(
+        store.catalog_entry("catalogued").await.unwrap(),
+        Some(entry)
+    );
 }
 
 /// The strict seam still fails closed on the same directory: tolerating an
