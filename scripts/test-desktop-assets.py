@@ -32,7 +32,10 @@ def verify(app=None):
         assert asset.is_file() and asset.stat().st_size > 0, f'missing icon: {asset}'
     assert (desktop / 'icons/icon.icns').read_bytes()[:4] == b'icns'
     assert (desktop / 'icons/icon.ico').read_bytes()[:4] == b'\x00\x00\x01\x00'
-    assert (desktop / 'icons/128x128.png').read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
+    for name in ('32x32.png', '128x128.png', '128x128@2x.png'):
+        png = (desktop / 'icons' / name).read_bytes()
+        assert png[:8] == b'\x89PNG\r\n\x1a\n', f'invalid PNG: {name}'
+        assert png[25] == 6, f'Tauri requires RGBA PNG, got color type {png[25]}: {name}'
     assert (ROOT / 'ui/desktop/updater.js').read_bytes() == (ROOT / 'ui/dist/desktop-updater.js').read_bytes(), 'stale updater in ui/dist'
     assert (ROOT / 'ui/desktop/startup.js').read_bytes() == (ROOT / 'ui/dist/desktop-startup.js').read_bytes(), 'stale startup instrumentation in ui/dist'
     directory_plugin = 'plugins/@xlang/xharness-client-ui-directory/client.js'
