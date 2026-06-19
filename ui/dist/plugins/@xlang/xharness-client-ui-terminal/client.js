@@ -177,8 +177,9 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------ session state --
 
     class TerminalTab {
-      constructor(name, descriptor) {
+      constructor(name, descriptor, store) {
         this.name = name
+        this.store = store
         this.running = descriptor?.running !== false
         this.cursor = 0
         this.term = null
@@ -200,7 +201,9 @@ window.__ModuleLoader__.load({
 
       ensureTerm() {
         if (this.container !== null) return Promise.resolve(this.term)
+        const generation = this.generation
         return loadXterm().then((Terminal) => {
+          if (generation !== this.generation) return null
           if (this.container !== null) return this.term
           const container = document.createElement('div')
           container.className = 'xhterm-session'
@@ -231,6 +234,7 @@ window.__ModuleLoader__.load({
           // re-attaching after a tab switch resumes from the live cursor so
           // nothing is written twice.
           const { read } = await terminalCall('read', {
+            session_id: this.store.sessionId,
             name: this.name,
             cursor: this.cursor,
           })
@@ -252,7 +256,7 @@ window.__ModuleLoader__.load({
       async pollLoop(generation) {
         let backoff = RECONNECT_BASE_MS
         while (generation === this.generation) {
-          const active = this === dockStore.activeTab()
+          const active = this === this.store.activeTab()
           const busy = Date.now() - this.lastOutputAt < 500
           const delay = this.disconnected
             ? backoff
@@ -263,6 +267,7 @@ window.__ModuleLoader__.load({
           if (generation !== this.generation) return
           try {
             const { read } = await terminalCall('read', {
+              session_id: this.store.sessionId,
               name: this.name,
               cursor: this.cursor,
             })
@@ -311,7 +316,9 @@ window.__ModuleLoader__.load({
 
       send(data) {
         this.sendChain = this.sendChain
-          .then(() => terminalCall('send', { name: this.name, input: data }))
+          .then(() => terminalCall('send', {
+            session_id: this.store.sessionId, name: this.name, input: data,
+          }))
           .catch((error) => {
             this.term?.write(`\r\n\x1b[31m[发送失败: ${error.message}]\x1b[0m\r\n`)
           })
@@ -320,7 +327,9 @@ window.__ModuleLoader__.load({
       scheduleResize(cols, rows) {
         window.clearTimeout(this.resizeTimer)
         this.resizeTimer = window.setTimeout(() => {
-          terminalCall('resize', { name: this.name, cols, rows }).catch(() => {
+          terminalCall('resize', {
+            session_id: this.store.sessionId, name: this.name, cols, rows,
+          }).catch(() => {
             // Sizes resync on the next attach; a failed resize is not fatal.
           })
         }, 200)
@@ -339,6 +348,9 @@ window.__ModuleLoader__.load({
           // A disposed terminal during teardown is harmless.
         }
         this.term = null
+        this.container?.remove()
+        this.container = null
+        this.cursor = 0
       }
     }
 
@@ -360,7 +372,9 @@ window.__ModuleLoader__.load({
 
     // -------------------------------------------------------- dock store --
 
-    const dockStore = {
+    function createDockStore(sessionId) {
+      const store = {
+      sessionId,
       open: false,
       closing: false,
       closeTimer: 0,
@@ -428,11 +442,13 @@ window.__ModuleLoader__.load({
       },
       async refresh() {
         try {
-          const { terminals } = await terminalCall('list')
+          const { terminals } = await terminalCall('list', { session_id: this.sessionId })
           const known = new Set(this.tabs.map((tab) => tab.name))
           for (const descriptor of terminals) {
             if (!known.has(descriptor.name)) {
-              this.tabs.push(new TerminalTab(descriptor.name, descriptor))
+              const tab = new TerminalTab(descriptor.name, descriptor, this)
+              tab.onUpdate = () => this.emit()
+              this.tabs.push(tab)
             }
           }
           const live = new Set(terminals.map((descriptor) => descriptor.name))
@@ -463,8 +479,11 @@ window.__ModuleLoader__.load({
         const cols = this.activeTab()?.term?.cols ?? 80
         const rows = this.activeTab()?.term?.rows ?? 24
         try {
-          const { terminal } = await terminalCall('open', { name, cols, rows })
-          const tab = new TerminalTab(name, terminal)
+          const { terminal } = await terminalCall('open', {
+            session_id: this.sessionId, name, cols, rows,
+          })
+          const tab = new TerminalTab(name, terminal, this)
+          tab.onUpdate = () => this.emit()
           this.tabs.push(tab)
           this.active = name
           this.emit()
@@ -478,28 +497,49 @@ window.__ModuleLoader__.load({
         const tab = this.tabs.find((candidate) => candidate.name === name)
         if (tab === undefined) return
         tab.dispose()
+        tab.onUpdate = null
         this.tabs.splice(this.tabs.indexOf(tab), 1)
         if (this.active === name) this.active = this.tabs[0]?.name ?? null
         this.emit()
         try {
-          await terminalCall('close', { name })
+          await terminalCall('close', { session_id: this.sessionId, name })
         } catch {
           // Server-side teardown already happened on dispose for dead tabs.
         }
       },
+      suspend() {
+        // A hidden conversation keeps its server-side PTYs, not xterm canvases
+        // and polling loops. Returning replays the bounded server scrollback.
+        for (const tab of this.tabs) tab.dispose()
+      },
+      }
+      store.load()
+      return store
     }
-    dockStore.load()
+
+    const dockStores = new Map()
+    function getDockStore(sessionId) {
+      if (!sessionId) return null
+      let store = dockStores.get(sessionId)
+      if (store === undefined) {
+        store = createDockStore(sessionId)
+        dockStores.set(sessionId, store)
+      }
+      return store
+    }
 
     // ------------------------------------------------------- components --
 
-    function useDockStore() {
+    function useDockStore(sessionId) {
       const [, forceUpdate] = useState(0)
-      useEffect(() => dockStore.subscribe(() => forceUpdate((value) => value + 1)), [])
-      return dockStore
+      const store = getDockStore(sessionId)
+      useEffect(() => store?.subscribe(() => forceUpdate((value) => value + 1)), [store])
+      return store
     }
 
-    function TerminalDockAction({ t }) {
-      const store = useDockStore()
+    function TerminalDockAction({ t, sessionId }) {
+      const store = useDockStore(sessionId)
+      if (store === null) return null
       return h(
         'button',
         {
@@ -536,7 +576,7 @@ window.__ModuleLoader__.load({
         let cancelled = false
         tab.ensureTerm()
           .then(() => {
-            if (cancelled || host === null) return
+            if (cancelled || host === null || tab.container === null) return
             host.append(tab.container)
             tab.attach()
           })
@@ -557,10 +597,10 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'xhterm-viewport', ref: containerRef })
     }
 
-    function TerminalDock({ t }) {
-      const store = useDockStore()
+    function TerminalDock({ t, sessionId }) {
+      const store = useDockStore(sessionId)
       const draggingRef = useRef(false)
-      const activeTab = store.activeTab()
+      const activeTab = store?.activeTab() ?? null
 
       useEffect(() => {
         const move = (event) => {
@@ -577,10 +617,11 @@ window.__ModuleLoader__.load({
         return () => {
           window.removeEventListener('mousemove', move)
           window.removeEventListener('mouseup', stop)
+          document.body.classList.remove('xhterm-dragging')
         }
-      }, [])
+      }, [store])
 
-      if (!store.open && !store.closing) return null
+      if (store === null || (!store.open && !store.closing)) return null
 
       return h('div', {
         className: store.closing ? 'xhterm-dock xhterm-dock-closing' : 'xhterm-dock',
@@ -660,12 +701,27 @@ window.__ModuleLoader__.load({
       return dict[key] ?? key
     }
 
-    function TerminalRoot() {
-      return h(TerminalDockAction, { t: translate })
+    function TerminalRoot({ sessionId }) {
+      return h(TerminalDockAction, { t: translate, sessionId })
     }
 
-    function TerminalDockRoot() {
-      return h(TerminalDock, { t: translate })
+    function TerminalDockRoot({ sessionId }) {
+      const store = getDockStore(sessionId)
+      useEffect(() => {
+        if (store === null) return undefined
+        const shortcut = (event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === '`') {
+            event.preventDefault()
+            store.setOpen(store.closing || !store.open)
+          }
+        }
+        window.addEventListener('keydown', shortcut)
+        return () => {
+          window.removeEventListener('keydown', shortcut)
+          store.suspend()
+        }
+      }, [store])
+      return h(TerminalDock, { t: translate, sessionId })
     }
 
     // ---------------------------------------------------------------- CSS --
@@ -687,6 +743,7 @@ window.__ModuleLoader__.load({
 .xhterm-status{margin-left:auto;padding-right:6px;color:var(--dsw-alias-label-tertiary);font-size:11px}
 .xhterm-viewport{flex:1;min-height:0;padding:4px 8px 8px}.xhterm-session{height:100%}
 .xhterm-viewport .xterm{height:100%}
+.xhterm-viewport .xterm-viewport{overscroll-behavior-y:contain}
 .xhterm-empty{flex:1;display:grid;place-items:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
 `
 
@@ -703,16 +760,6 @@ window.__ModuleLoader__.load({
         document.head.append(style)
         return () => { style.remove() }
       }, 'xharness-ui-terminal: styles')
-      ctx.effect(() => {
-        const shortcut = (event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === '`') {
-            event.preventDefault()
-            dockStore.setOpen(dockStore.closing || !dockStore.open)
-          }
-        }
-        window.addEventListener('keydown', shortcut)
-        return () => window.removeEventListener('keydown', shortcut)
-      }, 'xharness-ui-terminal: shortcut')
       ctx.slots.inject(
         'conversation.session.header.actions',
         () => ctx.slots.register({
@@ -720,6 +767,7 @@ window.__ModuleLoader__.load({
           id: 'terminal-dock',
           order: 20,
           locale: NS,
+          inject: (sessionId) => ({ sessionId }),
         }, TerminalRoot),
       )
       ctx.slots.inject(
@@ -729,6 +777,7 @@ window.__ModuleLoader__.load({
           id: TARGET,
           order: 20,
           locale: NS,
+          inject: (sessionId) => ({ sessionId }),
         }, TerminalDockRoot),
       )
     }
@@ -740,7 +789,7 @@ window.__ModuleLoader__.load({
     exports.terminalBytes = terminalBytes
     exports.terminalTheme = terminalTheme
     exports.exitNotice = exitNotice
-    exports.dockStore = dockStore
+    exports.getDockStore = getDockStore
     return module.exports
   },
 })

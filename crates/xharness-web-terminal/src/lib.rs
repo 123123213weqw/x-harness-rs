@@ -24,10 +24,11 @@ use xharness_terminal::{
     TerminalOpenSpec, TerminalRegistry, TerminalSignal, TerminalSize, DEFAULT_COLS, DEFAULT_ROWS,
 };
 
-/// All Web terminals share one owner namespace. The desktop token in front of
-/// `/api` already identifies the single trusted user; the owner only separates
-/// Web terminals from any future agent-owned terminals.
+/// Legacy callers without a session id keep their original namespace. New
+/// clients scope PTYs to a conversation so switching chats cannot attach the
+/// previous chat's shell.
 pub const WEB_TERMINAL_OWNER: &str = "web";
+const MAX_SESSION_ID_BYTES: usize = 128;
 
 /// Terminal input is keystrokes, not file transfer. A single paste above this
 /// size is rejected instead of being split across many PTY writes.
@@ -69,6 +70,8 @@ pub fn terminal_routes(state: TerminalRouterState) -> Router {
 
 #[derive(Deserialize)]
 struct OpenRequest {
+    #[serde(default)]
+    session_id: Option<String>,
     name: String,
     #[serde(default)]
     cols: Option<u16>,
@@ -88,17 +91,23 @@ struct OpenRequest {
 
 #[derive(Deserialize)]
 struct NameRequest {
+    #[serde(default)]
+    session_id: Option<String>,
     name: String,
 }
 
 #[derive(Deserialize)]
 struct SendRequest {
+    #[serde(default)]
+    session_id: Option<String>,
     name: String,
     input: String,
 }
 
 #[derive(Deserialize)]
 struct ReadRequest {
+    #[serde(default)]
+    session_id: Option<String>,
     name: String,
     #[serde(default)]
     cursor: Option<u64>,
@@ -106,6 +115,8 @@ struct ReadRequest {
 
 #[derive(Deserialize)]
 struct ResizeRequest {
+    #[serde(default)]
+    session_id: Option<String>,
     name: String,
     cols: u16,
     rows: u16,
@@ -113,8 +124,34 @@ struct ResizeRequest {
 
 #[derive(Deserialize)]
 struct SignalRequest {
+    #[serde(default)]
+    session_id: Option<String>,
     name: String,
     signal: TerminalSignal,
+}
+
+#[derive(Default, Deserialize)]
+struct ListRequest {
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+fn terminal_owner(session_id: Option<&str>) -> Result<String, Response> {
+    match session_id {
+        None => Ok(WEB_TERMINAL_OWNER.to_owned()),
+        Some(id)
+            if !id.is_empty()
+                && id.len() <= MAX_SESSION_ID_BYTES
+                && !id.chars().any(char::is_control) =>
+        {
+            Ok(format!("{WEB_TERMINAL_OWNER}:session:{id}"))
+        }
+        Some(_) => Err(failure(
+            StatusCode::BAD_REQUEST,
+            "invalid_session_id",
+            format!("session_id must be 1-{MAX_SESSION_ID_BYTES} bytes without control characters"),
+        )),
+    }
 }
 
 fn ok(mut payload: Value) -> Response {
@@ -235,6 +272,10 @@ async fn terminal_open(State(state): State<TerminalRouterState>, body: Bytes) ->
         Ok(request) => request,
         Err(response) => return *response,
     };
+    let owner = match terminal_owner(request.session_id.as_deref()) {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     if request.args.len() > MAX_ARGS {
         return failure(
             StatusCode::BAD_REQUEST,
@@ -249,7 +290,7 @@ async fn terminal_open(State(state): State<TerminalRouterState>, body: Bytes) ->
     let mut process = xharness_process_spec(&request);
     process.env = terminal_env(&request.env);
     let spec = TerminalOpenSpec {
-        owner: WEB_TERMINAL_OWNER.to_owned(),
+        owner,
         name: request.name,
         process,
         size,
@@ -283,6 +324,10 @@ async fn terminal_send(State(state): State<TerminalRouterState>, body: Bytes) ->
         Ok(request) => request,
         Err(response) => return *response,
     };
+    let owner = match terminal_owner(request.session_id.as_deref()) {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     if request.input.len() > MAX_INPUT_BYTES {
         return failure(
             StatusCode::PAYLOAD_TOO_LARGE,
@@ -291,7 +336,7 @@ async fn terminal_send(State(state): State<TerminalRouterState>, body: Bytes) ->
         );
     }
     match registry
-        .send(WEB_TERMINAL_OWNER, &request.name, request.input.as_bytes())
+        .send(&owner, &request.name, request.input.as_bytes())
         .await
     {
         Ok(bytes) => ok(json!({"written": bytes})),
@@ -308,8 +353,12 @@ async fn terminal_read(State(state): State<TerminalRouterState>, body: Bytes) ->
         Ok(request) => request,
         Err(response) => return *response,
     };
+    let owner = match terminal_owner(request.session_id.as_deref()) {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     match registry
-        .read_raw(WEB_TERMINAL_OWNER, &request.name, request.cursor)
+        .read_raw(&owner, &request.name, request.cursor)
         .await
     {
         Ok(read) => ok(json!({"read": {
@@ -335,14 +384,15 @@ async fn terminal_resize(State(state): State<TerminalRouterState>, body: Bytes) 
         Ok(request) => request,
         Err(response) => return *response,
     };
+    let owner = match terminal_owner(request.session_id.as_deref()) {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     let size = TerminalSize {
         cols: request.cols,
         rows: request.rows,
     };
-    match registry
-        .resize(WEB_TERMINAL_OWNER, &request.name, size)
-        .await
-    {
+    match registry.resize(&owner, &request.name, size).await {
         Ok(()) => ok(json!({})),
         Err(error) => terminal_error(error),
     }
@@ -357,10 +407,11 @@ async fn terminal_signal(State(state): State<TerminalRouterState>, body: Bytes) 
         Ok(request) => request,
         Err(response) => return *response,
     };
-    match registry
-        .signal(WEB_TERMINAL_OWNER, &request.name, request.signal)
-        .await
-    {
+    let owner = match terminal_owner(request.session_id.as_deref()) {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
+    match registry.signal(&owner, &request.name, request.signal).await {
         Ok(()) => ok(json!({})),
         Err(error) => terminal_error(error),
     }
@@ -375,18 +426,30 @@ async fn terminal_close(State(state): State<TerminalRouterState>, body: Bytes) -
         Ok(request) => request,
         Err(response) => return *response,
     };
-    match registry.close(WEB_TERMINAL_OWNER, &request.name).await {
+    let owner = match terminal_owner(request.session_id.as_deref()) {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
+    match registry.close(&owner, &request.name).await {
         Ok(read) => ok(json!({"read": read})),
         Err(error) => terminal_error(error),
     }
 }
 
-async fn terminal_list(State(state): State<TerminalRouterState>, _body: Bytes) -> Response {
+async fn terminal_list(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
     let registry = match registry(&state) {
         Ok(registry) => registry,
         Err(response) => return *response,
     };
-    match registry.list(WEB_TERMINAL_OWNER).await {
+    let request = match parse_body::<ListRequest>(&body) {
+        Ok(request) => request,
+        Err(response) => return *response,
+    };
+    let owner = match terminal_owner(request.session_id.as_deref()) {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
+    match registry.list(&owner).await {
         Ok(terminals) => ok(json!({"terminals": terminals})),
         Err(error) => terminal_error(error),
     }
