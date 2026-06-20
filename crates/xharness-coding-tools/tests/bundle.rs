@@ -293,9 +293,10 @@ async fn bash_propagates_pipeline_failures_and_allows_explicit_recovery() {
             r#"{"command":"(echo 'fatal: push failed' >&2; false) 2>&1 | tail -n 4"}"#,
         ))
         .await;
-    assert!(
-        failed.is_ok(),
-        "the bash handler itself should settle: {failed:?}"
+    assert!(!failed.is_ok(), "nonzero exit must fail: {failed:?}");
+    assert_eq!(
+        failed.failure_kind(),
+        Some(xharness_tools::ToolFailureKind::CommandFailed)
     );
     let failed: Value = serde_json::from_str(&failed.output.unwrap().content).unwrap();
     assert_eq!(failed["success"], false);
@@ -329,7 +330,11 @@ async fn pwsh_propagates_errors_and_allows_explicit_recovery() {
             r#"{"command":"throw 'fatal: PowerShell failure'"}"#,
         ))
         .await;
-    assert!(failed.is_ok(), "the pwsh handler must settle: {failed:?}");
+    assert!(!failed.is_ok(), "nonzero exit must fail: {failed:?}");
+    assert_eq!(
+        failed.failure_kind(),
+        Some(xharness_tools::ToolFailureKind::CommandFailed)
+    );
     let failed: Value = serde_json::from_str(&failed.output.unwrap().content).unwrap();
     assert_eq!(failed["success"], false);
     assert_ne!(failed["exit_code"], 0);
@@ -410,17 +415,28 @@ async fn background_bash_streams_to_job_output_and_preserves_nonzero_exit_status
     let collected: Value = serde_json::from_str(&collected.output.unwrap().content).unwrap();
     assert_eq!(collected["stdout"], "firstlast");
     assert_eq!(collected["stderr"], "warn");
-    assert_eq!(collected["snapshot"]["status"], "completed");
+    assert_eq!(collected["snapshot"]["status"], "failed");
     assert_eq!(collected["snapshot"]["detail"], "exit code: 7");
     assert!(collected["snapshot"].get("owner").is_none());
     assert!(collected["snapshot"].get("reported").is_none());
     assert!(collected["snapshot"].get("output_limit_bytes").is_none());
     assert!(collected["snapshot"].get("pid").is_none());
 
-    let consumed = executor
+    let replayed = executor
         .execute(ToolRequest::new(
             "job_output",
             serde_json::json!({"job_id": job_id}).to_string(),
+        ))
+        .await;
+    assert!(replayed.is_ok(), "{replayed:?}");
+    let replayed: Value = serde_json::from_str(&replayed.output.unwrap().content).unwrap();
+    assert_eq!(replayed["stdout"], "firstlast");
+    assert_eq!(replayed["stderr"], "warn");
+
+    let consumed = executor
+        .execute(ToolRequest::new(
+            "job_output",
+            serde_json::json!({"job_id": job_id, "cursor": collected["next_cursor"]}).to_string(),
         ))
         .await;
     assert!(consumed.is_ok(), "{consumed:?}");
@@ -464,7 +480,7 @@ async fn background_pwsh_streams_output_and_preserves_nonzero_exit_status() {
     let collected: Value = serde_json::from_str(&collected.output.unwrap().content).unwrap();
     assert_eq!(collected["stdout"], "firstlast");
     assert_eq!(collected["stderr"], "warn");
-    assert_eq!(collected["snapshot"]["status"], "completed");
+    assert_eq!(collected["snapshot"]["status"], "failed");
     assert_eq!(collected["snapshot"]["detail"], "exit code: 7");
 }
 

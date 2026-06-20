@@ -325,10 +325,10 @@ async fn capture_is_bounded_and_never_splits_valid_unicode() {
         .unwrap();
 
     assert_eq!(output.stdout.bytes_read, 6);
-    assert_eq!(output.stdout.text, "éé");
+    assert_eq!(output.stdout.text, "é\n[2 bytes omitted]\né");
+    assert_eq!(output.stdout.omitted_bytes, 2);
     assert!(output.stdout.truncated);
     assert!(!output.stdout.text.contains('\u{fffd}'));
-    assert!(output.stdout.text.len() <= 5);
 
     // Bytes are: invalid 0xff, followed by UTF-8 `é` (0xc3 0xa9). The cap
     // keeps 0xff 0xc3: preserve one lossy replacement for the actual invalid
@@ -344,8 +344,31 @@ async fn capture_is_bounded_and_never_splits_valid_unicode() {
         .await
         .unwrap();
     assert_eq!(mixed.stdout.bytes_read, 3);
-    assert_eq!(mixed.stdout.text, "\u{fffd}");
+    assert_eq!(mixed.stdout.text, "\u{fffd}\n[2 bytes omitted]\n");
+    assert_eq!(mixed.stdout.omitted_bytes, 2);
     assert!(mixed.stdout.truncated);
+}
+
+#[tokio::test]
+async fn long_capture_keeps_the_failure_at_the_end_and_counts_omitted_bytes() {
+    let dir = TestDir::new();
+    let output = ProcessRuntime::new()
+        .spawn(
+            SpawnSpec::new("/bin/sh", dir.path())
+                .args([OsString::from("-c"), OsString::from("printf 'START'; printf '%0100d' 0; printf 'FATAL: end of build' >&2; printf 'FAIL_AT_END'")])
+                .output_limits(32, 32),
+        )
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert!(output.stdout.text.starts_with("START"));
+    assert!(output.stdout.text.ends_with("FAIL_AT_END"));
+    assert!(output.stdout.text.contains("bytes omitted"));
+    assert_eq!(output.stdout.bytes_read, 116);
+    assert_eq!(output.stdout.omitted_bytes, 84);
+    assert_eq!(output.stderr.text, "FATAL: end of build");
+    assert_eq!(output.stderr.omitted_bytes, 0);
 }
 
 #[tokio::test]
@@ -392,7 +415,8 @@ async fn live_output_observer_reports_evicted_bytes_and_keeps_the_tail() {
     assert_eq!(live.stdout.text, "3456");
     assert!(live.stdout.truncated);
     assert!(live.finished);
-    assert_eq!(output.stdout.text, "1234");
+    assert_eq!(output.stdout.text, "12\n[2 bytes omitted]\n56");
+    assert_eq!(output.stdout.omitted_bytes, 2);
     assert!(output.stdout.truncated);
 }
 
