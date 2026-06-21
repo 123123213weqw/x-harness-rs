@@ -84,6 +84,8 @@ pub enum HostRestoreError {
     RecoveryIncomplete { session_id: String },
     #[error("session {session_id:?} has an invalid durable inbox: {message}")]
     InvalidInbox { session_id: String, message: String },
+    #[error("session {session_id:?} has an invalid durable schedule: {message}")]
+    InvalidSchedule { session_id: String, message: String },
     #[error("session {session_id:?} prompt could not be restored: {message}")]
     Prompt { session_id: String, message: String },
     #[error(
@@ -331,6 +333,12 @@ impl BasicHost {
             let permission = restored_permission(&session);
             let plan_active = restored_plan_mode(&session);
             let goal = restored_goal(&session);
+            let schedules = xharness_schedule::active_schedules(&session).map_err(|message| {
+                HostRestoreError::InvalidSchedule {
+                    session_id: session_id.clone(),
+                    message,
+                }
+            })?;
             let delegation_parent = crate::delegation::restored_delegation(&session);
             let fork_parent = session
                 .events()
@@ -377,6 +385,8 @@ impl BasicHost {
                 active_permission: None,
                 plan_active,
                 goal: goal.clone(),
+                schedules,
+                schedules_hydrated: true,
                 events: tail.events,
                 event_base_seq: tail.base_seq,
                 event_cache_bytes: tail.bytes,
@@ -761,6 +771,8 @@ impl BasicHost {
                 active_permission: None,
                 plan_active: indexed.is_some_and(|e| e.plan_active),
                 goal: None,
+                schedules: Vec::new(),
+                schedules_hydrated: false,
                 events: Vec::new(),
                 event_base_seq: 0,
                 event_cache_bytes: 0,
