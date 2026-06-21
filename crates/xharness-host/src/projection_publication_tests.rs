@@ -4,8 +4,8 @@ use crate::{runtime::AgentRuntime, HostConfig};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use xharness_api::{ApiBackend, RpcId, RpcMethod, RpcResult};
 use xharness_session::{
-    EventData, MemorySessionStore, Message, RequestHeader, Revision, Session, SessionHeader,
-    SessionTitleSource, Store, TurnEndReason,
+    EventData, MemorySessionStore, Message, RequestHeader, Revision, ScheduleChange, ScheduleKind,
+    ScheduleRecord, Session, SessionHeader, SessionTitleSource, Store, TurnEndReason,
 };
 use xharness_session_jsonl::JsonlSessionStore;
 
@@ -107,20 +107,166 @@ async fn projection_inputs_reject_stale_cursor_identity_and_each_route_field() {
     let original = &state.sessions[ID];
     let inputs = ProjectionInputs::capture(original);
     assert!(inputs.matches(original));
-    for field in 0..8 {
+    for field in 0..9 {
         let mut changed = ProjectionInputs::capture(original);
         match field {
             0 => changed.cursor = Some(original.authoritative_seq.unwrap() + 1),
             1 => changed.cursor = None,
             2 => changed.cache_base_seq += 1,
             3 => changed.created_at += 1,
-            4 => changed.route.provider.push_str("-new"),
-            5 => changed.route.model.push_str("-new"),
-            6 => changed.route.reasoning_effort = Some("different".into()),
+            4 => changed.schedules_hydrated = !changed.schedules_hydrated,
+            5 => changed.route.provider.push_str("-new"),
+            6 => changed.route.model.push_str("-new"),
+            7 => changed.route.reasoning_effort = Some("different".into()),
             _ => changed.route.context_window_tokens = Some(123),
         }
         assert!(!changed.matches(original), "changed field {field}");
     }
+}
+
+fn scheduled_reminder() -> ScheduleRecord {
+    ScheduleRecord {
+        id: "reminder-old".into(),
+        kind: ScheduleKind::Every,
+        prompt: "check progress".into(),
+        after_seconds: None,
+        every_seconds: Some(300),
+        scheduled_at: "2099-01-01T00:00:00.000Z".into(),
+    }
+}
+
+#[tokio::test]
+async fn schedule_catalog_survives_paged_history_and_restart() {
+    let (host, store) = fixture().await;
+    let reminder = scheduled_reminder();
+    let initial = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            initial.revision(),
+            vec![EventData::ScheduleChange {
+                change: ScheduleChange::Create {
+                    version: 1,
+                    schedule: reminder.clone(),
+                },
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    // A reminder can outlive many ordinary messages. Its create event must not
+    // need to be present in the latest history page for the catalog to render.
+    let request_header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    for index in 0..60 {
+        let snapshot = store.load(ID).await.unwrap().unwrap();
+        store
+            .append(
+                ID,
+                snapshot.revision(),
+                completed_turn(index + 1, &format!("message {index}"), &request_header),
+            )
+            .await
+            .unwrap();
+    }
+    let history = rpc_value(&host, RpcMethod::SessionHistory, json!({"sessionId": ID})).await;
+    assert!(history["hasMore"].as_bool().unwrap());
+    assert!(!history["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["type"] == "schedule/change"));
+    assert_eq!(
+        history["projections"]["values"]["schedules"],
+        json!([reminder])
+    );
+
+    let restored = BasicHost::with_agent_runtime(
+        HostConfig::new(std::env::temp_dir()),
+        Arc::new(SnapshotRuntime(store.clone())),
+    );
+    restored.restore_from_store(store.clone()).await.unwrap();
+    let after_restart = rpc_value(
+        &restored,
+        RpcMethod::SessionHistory,
+        json!({"sessionId": ID}),
+    )
+    .await;
+    assert_eq!(
+        after_restart["projections"]["values"]["schedules"],
+        history["projections"]["values"]["schedules"]
+    );
+}
+
+#[tokio::test]
+async fn schedule_catalog_hydrates_without_new_events_and_updates_live() {
+    let (host, store) = fixture().await;
+    let reminder = scheduled_reminder();
+    let initial = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            initial.revision(),
+            vec![EventData::ScheduleChange {
+                change: ScheduleChange::Create {
+                    version: 1,
+                    schedule: reminder.clone(),
+                },
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    {
+        let mut state = host.state.write().await;
+        let record = state.sessions.get_mut(ID).unwrap();
+        record.schedules.clear();
+        record.schedules_hydrated = false;
+        assert!(record.projection_values().get("schedules").is_none());
+    }
+    let mut receiver = host.event_gateway.subscribe_mux();
+    // Metadata-only startup can hold the latest seq without having folded the
+    // full log. Hydration must not depend on seeing a new schedule/change.
+    host.sync_authoritative_session(ID).await.unwrap();
+    let state = host.state.read().await;
+    assert!(state.sessions[ID].schedules_hydrated);
+    assert_eq!(
+        state.sessions[ID].projection_values()["schedules"],
+        json!([reminder])
+    );
+    drop(state);
+    let mut saw_catalog = false;
+    while let Ok(frame) = receiver.try_recv() {
+        if frame.payload["type"] == "session/projection" && frame.payload["key"] == "schedules" {
+            assert_eq!(frame.payload["value"], json!([reminder]));
+            saw_catalog = true;
+        }
+    }
+    assert!(saw_catalog);
+
+    let current = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            current.revision(),
+            vec![EventData::ScheduleChange {
+                change: ScheduleChange::Delete {
+                    version: 1,
+                    id: reminder.id,
+                },
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    assert_eq!(
+        host.state.read().await.sessions[ID].projection_values()["schedules"],
+        json!([])
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
