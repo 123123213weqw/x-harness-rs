@@ -7,8 +7,8 @@ use std::{
 };
 
 use xharness_jobs::{
-    JobCancel, JobConfigError, JobError, JobEventKind, JobOutcome, JobRegistry, JobRegistryConfig,
-    JobStatus, KillResult,
+    JobCancel, JobConfigError, JobError, JobEventKind, JobOutcome, JobOutputCursor, JobRegistry,
+    JobRegistryConfig, JobStatus, KillResult,
 };
 
 fn noop_cancel() -> JobCancel {
@@ -157,6 +157,64 @@ fn stream_reads_are_consuming_bounded_and_preserve_split_unicode() {
             .snapshot
             .reported
     );
+}
+
+#[test]
+fn independent_cursors_replay_output_and_report_eviction() {
+    let registry = JobRegistry::default();
+    let reservation = registry
+        .reserve("owner", "bash", "cursor", Some(5))
+        .unwrap();
+    let (id, lease) = reservation.commit(None, noop_cancel()).unwrap();
+    let id = id.to_string();
+    let beginning = JobOutputCursor::start(&id);
+
+    lease.publish_stdout([0xc3]);
+    let partial = registry.read_since("owner", &id, &beginning).unwrap();
+    assert_eq!(partial.stdout, "");
+    assert_eq!(partial.next_cursor.stdout, 0);
+
+    lease.publish_stdout([0xa9]);
+    lease.publish_stderr("abcdef");
+    let first = registry.read_since("owner", &id, &beginning).unwrap();
+    let second_reader = registry.read_since("owner", &id, &beginning).unwrap();
+    assert_eq!(first.stdout, "é");
+    assert_eq!(second_reader.stdout, first.stdout);
+    assert_eq!(first.stderr, "bcdef");
+    assert!(first.stderr_truncated);
+    assert_eq!(first.next_cursor.stdout, 2);
+    assert_eq!(first.next_cursor.stderr, 6);
+    let caught_up = registry
+        .read_since("owner", &id, &first.next_cursor)
+        .unwrap();
+    assert_eq!(caught_up.stdout, "");
+    assert_eq!(caught_up.stderr, "");
+
+    lease.publish_stdout("123456");
+    let evicted = registry.read_since("owner", &id, &beginning).unwrap();
+    assert_eq!(evicted.stdout, "23456");
+    assert!(evicted.stdout_truncated);
+    assert_eq!(evicted.next_cursor.stdout, 8);
+
+    let wrong_job = JobOutputCursor::start("bash-999");
+    assert!(matches!(
+        registry.read_since("owner", &id, &wrong_job),
+        Err(JobError::InvalidCursor { .. })
+    ));
+    let future = JobOutputCursor {
+        job_id: id.clone(),
+        stdout: 9,
+        stderr: 0,
+    };
+    assert!(matches!(
+        registry.read_since("owner", &id, &future),
+        Err(JobError::InvalidCursor { .. })
+    ));
+    assert!(matches!(
+        registry.read_since("other", &id, &beginning),
+        Err(JobError::NotFound { .. })
+    ));
+    lease.finish(JobOutcome::completed("exit code: 0"));
 }
 
 #[test]
