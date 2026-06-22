@@ -117,6 +117,7 @@ impl MetricsProjectionState {
 struct ContextPressureProjectionState {
     pressure_tokens: Option<u64>,
     projected_tokens: Option<u64>,
+    composition: Option<Value>,
     context_window: Option<u64>,
     request_context_seen: bool,
     active: Option<(u32, u32)>,
@@ -140,6 +141,7 @@ impl ContextPressureProjectionState {
             "request/header" => self.request_started(
                 data.pointer("/header/options/tokenBudget"),
                 data.pointer("/header/options/measurement"),
+                data.pointer("/header/options/contextComposition"),
             ),
             "request/context" => self.request_context(
                 data.get("contextWindow")
@@ -167,6 +169,7 @@ impl ContextPressureProjectionState {
             EventData::RequestHeader { header } => self.request_started(
                 header.options.get("tokenBudget"),
                 header.options.get("measurement"),
+                header.options.get("contextComposition"),
             ),
             EventData::RequestContext { context_window, .. } => {
                 self.request_context(*context_window)
@@ -198,11 +201,18 @@ impl ContextPressureProjectionState {
         self.active = active;
         self.pressure_tokens = None;
         self.projected_tokens = None;
+        self.composition = None;
         self.phase = "preparing".into();
     }
 
-    fn request_started(&mut self, budget: Option<&Value>, measurement: Option<&Value>) {
+    fn request_started(
+        &mut self,
+        budget: Option<&Value>,
+        measurement: Option<&Value>,
+        composition: Option<&Value>,
+    ) {
         self.awaiting_request = false;
+        self.composition = composition.cloned();
         self.projected_tokens = budget
             .and_then(|value| {
                 value
@@ -242,6 +252,7 @@ impl ContextPressureProjectionState {
     fn model_selected(&mut self) {
         self.pressure_tokens = None;
         self.projected_tokens = None;
+        self.composition = None;
         self.active = None;
         self.awaiting_request = true;
         self.measurement = Value::Null;
@@ -289,6 +300,9 @@ impl ContextPressureProjectionState {
         }
         if let Some(n) = self.context_window {
             v.insert("contextWindow".into(), json!(n));
+        }
+        if let Some(composition) = &self.composition {
+            v.insert("composition".into(), composition.clone());
         }
         if !v.is_empty() {
             v.insert("measurement".into(), self.measurement.clone());
@@ -1227,6 +1241,40 @@ mod tests {
             assert_eq!(rebuilt["projectedTokens"], 600);
             assert_eq!(rebuilt["phase"], "history_changed");
         }
+    }
+
+    #[test]
+    fn composition_follows_only_the_active_request_and_survives_replay() {
+        let composition = json!({
+            "systemTokens": 10, "userTokens": 20, "assistantTokens": 30,
+            "toolResultTokens": 5, "toolDefinitionTokens": 10,
+            "protocolTokens": 2, "totalInputTokens": 77, "accuracy": "estimated"
+        });
+        let events = [
+            event(0, 0, "step/start", json!({"turn": 1, "step": 1})),
+            event(
+                1,
+                1,
+                "request/header",
+                json!({"header":{"options":{
+                    "tokenBudget":{"contextWindowTokens":1000,"estimate":{"totalInputTokens":77}},
+                    "contextComposition":composition
+                }}}),
+            ),
+        ];
+        let mut live = MetricsProjectionState::default();
+        for event in &events {
+            live.apply(event);
+        }
+        assert_eq!(live.context_pressure()["composition"], composition);
+        assert_eq!(
+            live.context_pressure(),
+            MetricsProjectionState::rebuild(events.iter()).context_pressure()
+        );
+        live.apply(&event(2, 2, "step/start", json!({"turn": 1, "step": 2})));
+        assert!(live.context_pressure().get("composition").is_none());
+        live.apply(&event(3, 3, "session/model-selected", json!({})));
+        assert!(live.context_pressure().get("composition").is_none());
     }
 
     #[test]
