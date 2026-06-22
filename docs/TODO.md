@@ -1356,3 +1356,11 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] `COMPUTER-11` macOS 桌面使用原生、跨 App、跨 Space、鼠标穿透且不新建 WebView 的隐私浮层；按 callId 聚合并发活动，前后端双 watchdog 清理，浏览器保留 DOM 状态条作为降级路径。
 
 实现与失败语义见 [Computer Use 工具规范](specs/computer-use.md)。
+
+## 请求诊断轻量化（2026-09-27）
+
+- [x] 默认只持久化请求路由、预算、计数与指纹等元数据，不再为每步生成完整 `request-audit` 对象；模型实际输入不裁剪。
+- [x] 显式 Full Debug 仍可按需捕获完整请求；归档失败标记为诊断不可用而不阻断模型请求。
+- [x] Context / Harness 区分“未开启捕获”和“捕获失败”，旧快照保持可读；补 JSONL、Core、Chromium 与 WebKit 回归。
+- [ ] 旧 `request-audit` 对象的安全引用扫描与垃圾回收，独立备份、迁移和崩溃恢复验收；不得按文件年龄直接删除。
+- [ ] 如需产品级按会话诊断开关、保存配额和保留期限，另设配置及隐私交互；目前只复用全局 Full Debug。
