@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto'
 import { patchAttachments } from './patch-attachments.mjs'
 import { patchConversationMessageEdit, patchMessageEditConnection, patchMessageEditRuntime } from './patch-conversation-message-edit.mjs'
 import { patchContextAccounting, patchContextConnection, patchContextMeterStability } from './patch-context-accounting.mjs'
+import { patchContextComposition, patchContextCompositionConnection } from './patch-context-composition.mjs'
 import { patchModelControls, patchModelConnection, patchReasoningSettings } from './patch-model-controls.mjs'
 import { patchWorkspaceCreatedAt } from './patch-workspace-created-at.mjs'
 import { patchSettingsSaveFeedback } from './patch-settings-save-feedback.mjs'
@@ -109,10 +110,10 @@ for (const entry of composed) {
   const source = resolve(dirname(packagePath), relative)
   let bytes = portableBytes(readFileSync(source))
   if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') {
-    bytes = patchConversationMessageEdit(patchContextMeterStability(patchContextAccounting(patchConversationClient(bytes))))
+    bytes = patchConversationMessageEdit(patchContextComposition(patchContextMeterStability(patchContextAccounting(patchConversationClient(bytes)))))
   }
   if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextConnection(patchModelConnection(bytes))
+  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextCompositionConnection(patchContextConnection(patchModelConnection(bytes)))
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchMessageEditConnection(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchStartupCatalogRefresh(patchLiveAnswerRecovery(patchAtomicHistory(patchSessionHistoryCache(patchMessageEditRuntime(bytes)))))
   bytes = patchAttachments(entry.name, bytes)
