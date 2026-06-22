@@ -5,14 +5,14 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 brand_dir="$repo_root/assets/brand"
 tauri_icons="$repo_root/apps/desktop/src-tauri/icons"
 work_dir="${TMPDIR:-/tmp}/xharness-brand-iconset"
-master_svg="$brand_dir/xharness-app-icon.svg"
 master_png="$brand_dir/xharness-app-icon.png"
+favicon_png="$repo_root/ui/overrides/favicon.png"
+manifest_png="$repo_root/ui/overrides/app-icon-512.png"
 
 command -v sips >/dev/null
 command -v iconutil >/dev/null
 mkdir -p "$brand_dir" "$tauri_icons" "$work_dir/XHarness.iconset"
-
-sips -s format png "$master_svg" --out "$master_png" >/dev/null
+[[ -f "$master_png" ]] || { echo "missing icon master: $master_png" >&2; exit 1; }
 
 resize() {
   local pixels="$1"
@@ -34,17 +34,28 @@ resize 1024 "$work_dir/XHarness.iconset/icon_512x512@2x.png"
 resize 32 "$tauri_icons/32x32.png"
 resize 128 "$tauri_icons/128x128.png"
 resize 256 "$tauri_icons/128x128@2x.png"
+resize 64 "$favicon_png"
+resize 512 "$manifest_png"
 iconutil -c icns "$work_dir/XHarness.iconset" -o "$tauri_icons/icon.icns"
 
-python3 - "$master_png" "$tauri_icons/icon.ico" <<'PY'
+python3 - "$master_png" "$tauri_icons" <<'PY'
 from pathlib import Path
 import sys
 
 from PIL import Image
 
-source, output = map(Path, sys.argv[1:])
+source, icon_dir = map(Path, sys.argv[1:])
+# Tauri's generate_context! requires RGBA PNGs, even when every pixel is opaque.
+for name in ('32x32.png', '128x128.png', '128x128@2x.png'):
+    output = icon_dir / name
+    with Image.open(output) as image:
+        image.convert('RGBA').save(output)
 with Image.open(source) as image:
-    image.save(output, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    image.save(icon_dir / 'icon.ico', format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 PY
 
-echo "Generated XHarness brand exports from $master_svg"
+if [[ -f "$repo_root/ui/dist/index.html" ]]; then
+  node "$repo_root/scripts/patch-favicon.mjs" "$repo_root/ui/dist"
+fi
+
+echo "Generated XHarness brand exports from $master_png"
