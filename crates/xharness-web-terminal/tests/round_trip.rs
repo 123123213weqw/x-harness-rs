@@ -104,6 +104,64 @@ async fn open_send_read_resize_close_round_trip() {
     assert!(report.is_graceful(), "{report:?}");
 }
 
+#[tokio::test]
+async fn terminal_sessions_are_isolated_across_conversations() {
+    let registry = Arc::new(TerminalRegistry::with_defaults());
+    let router = app(Some(TerminalRouterState::new(Some(registry.clone()))));
+    for session_id in ["chat-a", "chat-b"] {
+        let (status, body) = post_json(
+            &router,
+            "/api/terminal/open",
+            json!({
+                "session_id": session_id,
+                "name": "t1",
+                "program": "/bin/sh",
+                "args": ["-c", "sleep 10"],
+                "cwd": "/tmp",
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    for session_id in ["chat-a", "chat-b"] {
+        let (status, body) = post_json(
+            &router,
+            "/api/terminal/list",
+            json!({"session_id": session_id}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["terminals"].as_array().unwrap().len(), 1);
+        assert_eq!(body["terminals"][0]["name"], "t1");
+    }
+    let (status, body) = post_json(&router, "/api/terminal/list", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["terminals"].as_array().unwrap().len(), 0);
+
+    let (status, body) = post_json(
+        &router,
+        "/api/terminal/close",
+        json!({"session_id": "chat-a", "name": "t1"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = post_json(
+        &router,
+        "/api/terminal/read",
+        json!({"session_id": "chat-b", "name": "t1"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["read"]["running"].as_bool().unwrap());
+
+    let (status, body) = post_json(&router, "/api/terminal/list", json!({"session_id": ""})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["code"], "invalid_session_id");
+    let report = registry.shutdown().await;
+    assert!(report.is_graceful(), "{report:?}");
+}
+
 async fn poll_read(router: &axum::Router, name: &str, expected: &str) -> String {
     let mut cursor = None;
     let mut seen = String::new();
