@@ -47,11 +47,11 @@ use xharness_tools::{
 };
 
 use crate::{
-    tool_result_for_model, AgentMessage, ContextRequest, ContextSurface, FinishReason,
-    InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind, LoopRequest,
-    LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role, SessionSnapshot,
-    StepUsage, TokenBudgetError, TokenBudgetReport, TokenEstimateRequest, TokenUsage, ToolCall,
-    ToolResult,
+    tool_result_for_model, AgentMessage, ContextComposition, ContextRequest, ContextSurface,
+    FinishReason, InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind,
+    LoopRequest, LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role,
+    SessionSnapshot, StepUsage, TokenBudgetError, TokenBudgetReport, TokenEstimateRequest,
+    TokenUsage, ToolCall, ToolResult,
 };
 
 static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -2301,6 +2301,36 @@ impl Runner {
                     RunFailure::Failed(format!("could not serialize token budget report: {error}"))
                 })?,
             );
+            // The audit body may be disabled or archived separately. Persist a
+            // small, content-free request composition so live and restored UI
+            // describe the actual prepared request rather than the whole log.
+            let mut estimate_request = TokenEstimateRequest {
+                provider: header.provider.clone(),
+                model: Some(header.model.clone()),
+                tools: tools.to_vec(),
+                ..TokenEstimateRequest::default()
+            };
+            for message in &surface.messages {
+                if let Ok(encoded) = serde_json::to_value(message) {
+                    if message.role == Role::System {
+                        estimate_request.system_messages.push(encoded);
+                    } else {
+                        estimate_request.conversation_messages.push(encoded);
+                    }
+                }
+            }
+            if let Ok(composition) =
+                ContextComposition::estimate(&estimate_request, report.estimate.total_input_tokens)
+            {
+                header.options.insert(
+                    "contextComposition".to_owned(),
+                    serde_json::to_value(composition).map_err(|error| {
+                        RunFailure::Failed(format!(
+                            "could not serialize context composition: {error}"
+                        ))
+                    })?,
+                );
+            }
         }
         header
             .options
@@ -4003,7 +4033,7 @@ impl Runner {
             let mut content = result.content.clone();
             let mut ok = result.ok;
             let mut reliable = !result.truncated;
-            if result.ok {
+            if result.ok || !content.is_empty() {
                 if let Some(adapter) = spec.as_ref().and_then(|s| s.repetition_observation) {
                     match adapter(&content) {
                         Some((success, value)) => {
@@ -4138,6 +4168,13 @@ impl RuntimeToolLifecycle for CoreToolRuntimeBridge {
 
 fn runtime_tool_result(result: &xharness_tools::ToolResult) -> ToolResult {
     match (&result.output, &result.failure) {
+        (Some(output), Some(failure)) => ToolResult {
+            ok: false,
+            content: output.content.clone(),
+            error: failure.message.clone(),
+            truncated: false,
+            metadata: output.metadata.clone(),
+        },
         (Some(output), None) => ToolResult {
             ok: true,
             content: output.content.clone(),
@@ -4236,6 +4273,32 @@ fn retry_delay_ms(
 #[cfg(test)]
 mod retry_policy_tests {
     use super::*;
+    #[test]
+    fn failed_command_keeps_captured_output_in_core_projection() {
+        let runtime = xharness_tools::ToolResult {
+            execution_id: xharness_tools::ExecutionId::new("failed-command").unwrap(),
+            tool_name: "bash".to_owned(),
+            output: Some(xharness_tools::ToolOutput {
+                content: r#"{"success":false,"exit_code":7}"#.to_owned(),
+                metadata: Some(json!({"exit_code": 7})),
+                command_failure: Some("shell command exited with code 7".to_owned()),
+            }),
+            failure: Some(xharness_tools::ToolFailure::new(
+                xharness_tools::ToolFailureKind::CommandFailed,
+                "shell command exited with code 7",
+            )),
+            started_at_ms: 0,
+            completed_at_ms: 1,
+            duration_ms: 1,
+            observer_errors: Vec::new(),
+        };
+        let projected = runtime_tool_result(&runtime);
+        assert!(!projected.ok);
+        assert!(projected.content.contains("\"exit_code\":7"));
+        assert!(projected.error.contains("code 7"));
+        assert_eq!(projected.metadata.unwrap()["exit_code"], 7);
+    }
+
     #[test]
     fn exponential_delay_jitter_cap_and_server_minimum() {
         let mut config = crate::LoopConfig {

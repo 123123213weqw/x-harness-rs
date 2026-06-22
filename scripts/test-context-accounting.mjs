@@ -3,9 +3,11 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import {patchContextAccounting, patchContextMeterStability} from './patch-context-accounting.mjs';
+import {patchContextComposition, patchContextCompositionConnection} from './patch-context-composition.mjs';
 const bytes=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',import.meta.url));
 assert.equal(patchContextAccounting(bytes).toString(),bytes.toString());
 assert.equal(patchContextMeterStability(bytes).toString(),bytes.toString());
+assert.equal(patchContextComposition(bytes).toString(),bytes.toString());
 const source=bytes.toString().match(/function contextOccupancy\(pressure\) \{[\s\S]*?\n\t\t\}/)?.[0];assert.ok(source);
 const fn=vm.runInNewContext('('+source+')');
 let x=fn({pressureTokens:117446,projectedTokens:415395,contextWindow:1000000});assert.equal(x.usedTokens,117446);assert.equal(x.percent,12);assert.equal(x.exact,true);
@@ -15,6 +17,7 @@ for(const p of [{}, {projectedTokens:1,contextWindow:0},{projectedTokens:NaN,con
 assert.equal(fn({pressureTokens:0,contextWindow:100}).usedTokens,0);
 console.log('context accounting: actual/estimate/unknown/zero/capacity/idempotence passed');
 const connection=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-connection/client.js',import.meta.url),'utf8');
+assert.equal(patchContextCompositionConnection(Buffer.from(connection)).toString(),connection);
 const replaySource=connection.slice(connection.indexOf('function contextPressureOf(log) {'),connection.indexOf('\n\t\tfunction projectionValuesOf'));
 const replay=vm.runInNewContext('('+replaySource+')',{usageSampleOf:e=>e.type==='assistant/chunk'?{...e.data,usage:e.data.chunk.usage}:undefined});
 const event=(type,data)=>({type,data});
@@ -24,6 +27,10 @@ const history=[start(1),event('request/header',{header:{options:{tokenBudget:{co
 assert.equal(replay(history).pressureTokens,300);
 assert.equal(replay([...history,start(2),usage(1,900)]).pressureTokens,undefined);
 assert.equal(replay([...history,event('session/model-selected',{}),event('user/message',{}),usage(1,900)]).pressureTokens,undefined);
+const composition={systemTokens:10,userTokens:20,assistantTokens:30,toolResultTokens:5,toolDefinitionTokens:10,protocolTokens:2,totalInputTokens:77,accuracy:'estimated'};
+const composed=[start(1),event('request/header',{header:{options:{tokenBudget:{contextWindowTokens:1000,estimate:{totalInputTokens:77}},contextComposition:composition}}})];
+assert.equal(JSON.stringify(replay(composed).composition),JSON.stringify(composition));
+assert.equal(replay([...composed,start(2)]).composition,undefined);
 console.log('context replay: new request / stale usage / model switch passed');
 // Precision belongs to each reading. A provider usage must not promote an estimate.
 for(const accuracy of ['estimated','calibrated']) {
@@ -50,13 +57,14 @@ const meterStart=bundle.indexOf('function ContextMeter({ useProjection, t }) {')
 const meterEnd=bundle.indexOf('\n\t\t//#endregion',meterStart);
 assert.ok(meterStart>=0&&meterEnd>meterStart);
 const jsx=(type,props,key)=>({type,props,key});
+const createElement=(type,props,...children)=>({type,props:{...props,children:children.length===1?children[0]:children}});
 const meter=vm.runInNewContext('('+bundle.slice(meterStart,meterEnd)+')',{
   contextOccupancy:fn,
-  react:{useState:()=>[false,()=>{}],useRef:()=>({current:null}),useEffect:()=>{}},
+  react:{createElement,useState:()=>[false,()=>{}],useRef:()=>({current:null}),useEffect:()=>{}},
   react_jsx_runtime:{jsx,jsxs:jsx},
   _xharness_dsh_client_ui_primitives:{Tooltip:'Tooltip'},
   ContextMeter_module_css_default:{root:'root',trigger:'trigger',track:'track',fill:'fill'},
-  RADIUS:5.5,CIRCUMFERENCE:2*Math.PI*5.5,READING_SLOT:'\0',ROWS:[],
+  RADIUS:5.5,CIRCUMFERENCE:2*Math.PI*5.5,READING_SLOT:'\0',ROWS:[],formatTokens:n=>String(n),
 });
 const zh={
   'context.aria':'上下文已用 {percent}',
@@ -88,10 +96,25 @@ assert.doesNotMatch(nextStep.button.props['aria-label'],/40%/);
 const changedModel=renderMeter({});
 assert.equal(changedModel.button.props.disabled,true);
 assert.equal(changedModel.button.props['aria-label'],'暂无上下文读数');
+const missingCapacity=renderMeter({pressureTokens:500,composition:{systemTokens:50,totalInputTokens:50,accuracy:'estimated'}});
+assert.equal(missingCapacity.button.props.disabled,true,'composition alone cannot establish capacity');
+assert.match(missingCapacity.circle.props.strokeDasharray,/^0 /);
 const failed=renderMeter({contextWindow:1000,phase:'unmeasured'});
 assert.equal(failed.button.props.disabled,true);
 const measured=renderMeter({contextWindow:1000,pressureTokens:500,pressureAccuracy:'provider_reported'});
 assert.equal(measured.button.props['aria-label'],'上下文已用 50%');
+const split=renderMeter({contextWindow:1000,pressureTokens:500,pressureAccuracy:'provider_reported',composition:{
+  systemTokens:10,userTokens:20,assistantTokens:30,toolResultTokens:20,toolDefinitionTokens:15,protocolTokens:5,totalInputTokens:100,accuracy:'estimated'
+}});
+const arcs=split.button.props.children.props.children.slice(1);
+assert.equal(arcs.length,6);
+assert.equal(arcs[0].props.stroke,'#8290a5');
+assert.equal(arcs[1].props.stroke,'#3b82f6');
+assert.equal(arcs[2].props.stroke,'#20a887');
+assert.equal(arcs[3].props.stroke,'#e1a63b');
+assert.equal(arcs[4].props.stroke,'#a78bfa');
+assert.equal(arcs[5].props.stroke,'#9b9b9b');
+assert.equal(arcs.reduce((sum,arc)=>sum+Number(arc.props.strokeDasharray.split(' ')[0]),0),Math.PI*5.5);
 const en=renderMeter({}, {'context.aria':'{percent} of context used',
   'context.pending':'Calculating context usage','context.unavailable':'Context usage unavailable'});
 assert.equal(en.button.props['aria-label'],'Context usage unavailable');

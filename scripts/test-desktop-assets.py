@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SELECTED_ICON_SHA256 = '7d89974b3f7b9c784e3004fbf1a914219e1a58cbaf07c240fc042acd6afc0e1a'
 
 
 def digest(path):
@@ -17,13 +18,24 @@ def digest(path):
 
 def verify(app=None):
     desktop = ROOT / 'apps/desktop/src-tauri'
+    master = ROOT / 'assets/brand/xharness-app-icon.png'
+    assert digest(master) == SELECTED_ICON_SHA256, 'selected first icon master was modified or replaced'
+    assert master.read_bytes()[16:24] == (1254).to_bytes(4, 'big') * 2, 'unexpected icon master dimensions'
+    assert (ROOT / 'ui/overrides/favicon.png').read_bytes() == (ROOT / 'ui/dist/favicon.png').read_bytes(), 'web favicon export is stale'
+    assert (ROOT / 'ui/overrides/app-icon-512.png').read_bytes() == (ROOT / 'ui/dist/app-icon-512.png').read_bytes(), 'web app icon export is stale'
+    assert 'href="/favicon.png"' in (ROOT / 'ui/dist/index.html').read_text(), 'web shell does not load selected icon'
+    web_manifest = json.loads((ROOT / 'ui/dist/manifest.webmanifest').read_text())
+    assert web_manifest['icons'] == [{'src': '/app-icon-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'}], 'web manifest icon is stale'
     config = json.loads((desktop / 'tauri.conf.json').read_text())
     for name in config['bundle']['icon']:
         asset = desktop / name
         assert asset.is_file() and asset.stat().st_size > 0, f'missing icon: {asset}'
     assert (desktop / 'icons/icon.icns').read_bytes()[:4] == b'icns'
     assert (desktop / 'icons/icon.ico').read_bytes()[:4] == b'\x00\x00\x01\x00'
-    assert (desktop / 'icons/128x128.png').read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
+    for name in ('32x32.png', '128x128.png', '128x128@2x.png'):
+        png = (desktop / 'icons' / name).read_bytes()
+        assert png[:8] == b'\x89PNG\r\n\x1a\n', f'invalid PNG: {name}'
+        assert png[25] == 6, f'Tauri requires RGBA PNG, got color type {png[25]}: {name}'
     assert (ROOT / 'ui/desktop/updater.js').read_bytes() == (ROOT / 'ui/dist/desktop-updater.js').read_bytes(), 'stale updater in ui/dist'
     assert (ROOT / 'ui/desktop/startup.js').read_bytes() == (ROOT / 'ui/dist/desktop-startup.js').read_bytes(), 'stale startup instrumentation in ui/dist'
     directory_plugin = 'plugins/@xlang/xharness-client-ui-directory/client.js'
@@ -51,7 +63,7 @@ def verify(app=None):
         assert (app / 'Contents/Resources/web/desktop-updater.js').read_bytes() == (ROOT / 'ui/desktop/updater.js').read_bytes(), 'packaged updater is stale'
         assert (app / 'Contents/Resources/web/desktop-startup.js').read_bytes() == (ROOT / 'ui/desktop/startup.js').read_bytes(), 'packaged startup instrumentation is stale'
         web = app / 'Contents/Resources/web'
-        for relative in ['index.html', 'client-graph.json',
+        for relative in ['index.html', 'client-graph.json', 'favicon.png', 'app-icon-512.png', 'manifest.webmanifest',
                          directory_plugin,
                          computer_plugin,
                          'plugins/@xharness/dsh-client-connection/client.js',
