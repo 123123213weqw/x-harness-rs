@@ -3075,133 +3075,88 @@ window.__ModuleLoader__.load({
 			}
 		];
 		function ContextMeter({ useProjection, t }) {
-			const pressure = useProjection("contextPressure");
-			const breakdown = useProjection("contextBreakdown");
-			const [open, setOpen] = (0, react.useState)(false);
-			const rootRef = (0, react.useRef)(null);
-			const context = contextOccupancy(pressure);
-			// xharness-context-meter-stable/v1
-			const available = context !== null;
-			(0, react.useEffect)(() => {
-				if (!available && open) setOpen(false);
-			}, [available, open]);
-			(0, react.useEffect)(() => {
-				if (!open || !available) return;
-				const onPointerDown = (e) => {
-					if (e.target instanceof Node && rootRef.current?.contains(e.target) === true) return;
-					setOpen(false);
-				};
-				const onKeyDown = (e) => {
-					if (e.key === "Escape") setOpen(false);
-				};
-				document.addEventListener("pointerdown", onPointerDown);
-				document.addEventListener("keydown", onKeyDown);
-				return () => {
-					document.removeEventListener("pointerdown", onPointerDown);
-					document.removeEventListener("keydown", onKeyDown);
-				};
-			}, [available, open]);
-			const percent = context?.percent ?? 0;
-            const reading = available ? `${context.exact ? "" : "≈"}${percent}%` : null;
-            const label = available ? t("context.aria", { percent: reading })
-                : t(["preparing", "in_flight", "model_changed"].includes(pressure?.phase)
-                    ? "context.pending" : "context.unavailable");
-			const [headBefore = "", headAfter = ""] = t("context.aria", { percent: READING_SLOT }).split(READING_SLOT).map((part) => part.trim());
-			const breakdownTotal = breakdown === void 0 ? 0 : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens;
-			const segments = (breakdown === void 0 || breakdownTotal === 0 ? [{
-				key: "total",
-				color: void 0,
-				width: percent
-			}] : ROWS.map((row) => ({
-				key: row.key,
-				color: row.color,
-				width: percent * breakdown[row.key] / breakdownTotal
-			}))).filter((part) => part.width > 0);
-			return (0, react_jsx_runtime.jsxs)("span", {
-				ref: rootRef,
-				className: ContextMeter_module_css_default.root,
-				children: [(0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.Tooltip, {
-					label,
-					side: "top",
-					delayMs: 200,
-					disabled: open,
-					children: (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: ContextMeter_module_css_default.trigger,
-						"aria-label": label,
-						"aria-haspopup": available ? "dialog" : void 0,
-						"aria-expanded": available ? open : void 0,
-						disabled: !available,
-						onClick: () => {
-							setOpen(!open);
-						},
-						children: (0, react_jsx_runtime.jsxs)("svg", {
-							viewBox: "0 0 14 14",
-							width: "14",
-							height: "14",
-							"aria-hidden": true,
-							children: [(0, react_jsx_runtime.jsx)("circle", {
-								className: ContextMeter_module_css_default.track,
-								cx: "7",
-								cy: "7",
-								r: RADIUS
-							}), (0, react_jsx_runtime.jsx)("circle", {
-								className: ContextMeter_module_css_default.fill,
-								cx: "7",
-								cy: "7",
-								r: RADIUS,
-								strokeDasharray: `${CIRCUMFERENCE * percent / 100} ${CIRCUMFERENCE}`,
-								transform: "rotate(-90 7 7)"
-							})]
-						})
-					})
-				}), open && available && (0, react_jsx_runtime.jsxs)("div", {
-					className: ContextMeter_module_css_default.panel,
-					role: "dialog",
-					"aria-label": t("context.used"),
-					children: [
-						(0, react_jsx_runtime.jsxs)("div", {
-							className: ContextMeter_module_css_default.header,
-							children: [
-								(0, react_jsx_runtime.jsx)("span", {
-									className: ContextMeter_module_css_default.headline,
-									children: context.label
-								}),
-								(0, react_jsx_runtime.jsx)("span", {
-									className: ContextMeter_module_css_default.percent,
-									children: reading
-								}),
-								(0, react_jsx_runtime.jsx)("span", {
-									className: ContextMeter_module_css_default.headline,
-									children: headAfter
-								}),
-								(0, react_jsx_runtime.jsx)("span", {
-									className: ContextMeter_module_css_default.figures,
-									children: `${context.exact ? "" : "≈"}${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`
-								})
-							]
-						}),
-						(0, react_jsx_runtime.jsx)("div", {
-							className: ContextMeter_module_css_default.bar,
-							children: segments.map((segment) => (0, react_jsx_runtime.jsx)("div", {
-								className: segment.color === void 0 ? ContextMeter_module_css_default.segment : `${ContextMeter_module_css_default.segment} ${segment.color}`,
-								style: { width: `${segment.width}%` }
-							}, segment.key))
-						}),
-						breakdown !== void 0 && (0, react_jsx_runtime.jsx)("dl", {
-							className: ContextMeter_module_css_default.rows,
-							children: ROWS.map((row) => (0, react_jsx_runtime.jsxs)("div", {
-								className: ContextMeter_module_css_default.row,
-								children: [(0, react_jsx_runtime.jsxs)("dt", { children: [(0, react_jsx_runtime.jsx)("span", {
-									className: `${ContextMeter_module_css_default.swatch} ${row.color}`,
-									"aria-hidden": true
-								}), t(row.label)] }), (0, react_jsx_runtime.jsx)("dd", { children: `~${formatTokens(breakdown[row.key])}` })]
-							}, row.key))
-						})
-					]
-				})]
-			});
-		}
+            // xharness-context-composition/v1; xharness-context-meter-stable/v1
+            const h = react.createElement;
+            const pressure = useProjection("contextPressure");
+            const composition = pressure?.composition;
+            const [open, setOpen] = react.useState(false);
+            const rootRef = react.useRef(null);
+            const context = contextOccupancy(pressure);
+            const available = context !== null;
+            react.useEffect(() => { if (!available && open) setOpen(false); }, [available, open]);
+            react.useEffect(() => {
+                if (!open || !available) return;
+                const pointer = event => {
+                    if (event.target instanceof Node && rootRef.current?.contains(event.target)) return;
+                    setOpen(false);
+                };
+                const escape = event => { if (event.key === "Escape") setOpen(false); };
+                document.addEventListener("pointerdown", pointer);
+                document.addEventListener("keydown", escape);
+                return () => {
+                    document.removeEventListener("pointerdown", pointer);
+                    document.removeEventListener("keydown", escape);
+                };
+            }, [available, open]);
+            const rows = [
+                {key:"systemTokens",label:"context.system",tint:"#8290a5"},
+                {key:"userTokens",label:"context.user",tint:"#3b82f6"},
+                {key:"assistantTokens",label:"context.assistant",tint:"#20a887"},
+                {key:"toolResultTokens",label:"context.toolResults",tint:"#e1a63b"},
+                {key:"toolDefinitionTokens",label:"context.tools",tint:"#a78bfa"},
+                {key:"mcpToolDefinitionTokens",label:"context.mcp",tint:"#c770ca"},
+                {key:"protocolTokens",label:"context.protocol",tint:"#9b9b9b"}
+            ];
+            const weight = available && composition ? rows.reduce((n, row) => n + (Number.isSafeInteger(composition[row.key]) && composition[row.key] > 0 ? composition[row.key] : 0), 0) : 0;
+            const percent = context?.percent ?? 0;
+            const reading = available ? (context.exact ? "" : "≈") + percent + "%" : null;
+            const label = available ? t("context.aria", {percent:reading}) : t(["preparing","in_flight","model_changed"].includes(pressure?.phase) ? "context.pending" : "context.unavailable");
+            const segments = weight > 0 ? rows.filter(row => composition[row.key] > 0).map(row => ({...row, ratio:composition[row.key] / weight})) : [{key:"total",tint:"currentColor",ratio:1}];
+            let offset = 0;
+            const ring = segments.map(segment => {
+                const length = CIRCUMFERENCE * percent / 100 * segment.ratio;
+                const circle = h("circle", {key:segment.key,className:ContextMeter_module_css_default.fill,
+                    cx:"7",cy:"7",r:RADIUS,stroke:segment.tint,
+                    strokeDasharray:length + " " + CIRCUMFERENCE,
+                    strokeDashoffset:-offset,transform:"rotate(-90 7 7)"});
+                offset += length;
+                return circle;
+            });
+            const swatch = row => h("span", {className:ContextMeter_module_css_default.swatch,
+                style:{"--meter-tint":row.tint},"aria-hidden":true});
+            const legend = weight > 0 ? h("dl", {className:ContextMeter_module_css_default.rows},
+                h("div", {className:ContextMeter_module_css_default.headline}, t("context.distributionEstimate")),
+                ...segments.map(row => h("div", {key:row.key,className:ContextMeter_module_css_default.row},
+                    h("dt", null, swatch(row), t(row.label)),
+                    h("dd", null, "≈" + formatTokens(Math.round(context.usedTokens * row.ratio)))
+                ))) : null;
+            return h("span", {ref:rootRef,className:ContextMeter_module_css_default.root},
+                h(_xharness_dsh_client_ui_primitives.Tooltip, {label,side:"top",delayMs:200,disabled:open},
+                    h("button", {type:"button",className:ContextMeter_module_css_default.trigger,
+                        "aria-label":label,"aria-haspopup":available ? "dialog" : void 0,
+                        "aria-expanded":available ? open : void 0,disabled:!available,
+                        onClick:() => setOpen(!open)},
+                        h("svg", {viewBox:"0 0 14 14",width:"14",height:"14","aria-hidden":true},
+                            h("circle", {className:ContextMeter_module_css_default.track,cx:"7",cy:"7",r:RADIUS}),
+                            ...ring
+                        )
+                    )
+                ),
+                open && available && h("div", {className:ContextMeter_module_css_default.panel,
+                    role:"dialog","aria-label":t("context.used")},
+                    h("div", {className:ContextMeter_module_css_default.header},
+                        h("span", {className:ContextMeter_module_css_default.headline}, context.label),
+                        h("span", {className:ContextMeter_module_css_default.percent}, reading),
+                        h("span", {className:ContextMeter_module_css_default.figures},
+                            (context.exact ? "" : "≈") + formatTokens(context.usedTokens) + " / " + formatTokens(context.contextWindow))
+                    ),
+                    h("div", {className:ContextMeter_module_css_default.bar}, ...segments.map(row =>
+                        h("div", {key:row.key,className:ContextMeter_module_css_default.segment,
+                            style:{width:(percent * row.ratio) + "%","--meter-tint":row.tint}}))),
+                    legend
+                )
+            );
+        }
 		//#endregion
 		//#region \0dsh-css:deepseek-harness/packages/client/ui-conversation/src/client/skeleton/PermissionSelect.module.css.mjs
 		const css$18 = ".Qgao_G_trigger{min-width:0;max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:inline-flex}.Qgao_G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.Qgao_G_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.Qgao_G_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.Qgao_G_triggerIcon{flex:none;display:inline-flex}.Qgao_G_triggerIcon svg{width:14px;height:14px}.Qgao_G_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.Qgao_G_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}@container (width<=460px){.Qgao_G_trigger:has(.Qgao_G_triggerIcon) .Qgao_G_triggerLabel{display:none}}.Qgao_G_chevronOpen{transform:rotate(180deg)}";
@@ -6620,7 +6575,7 @@ keepMounted: index >= activeSuffix,
 			"context.used": "上下文已用",
 			"context.system": "系统提示词",
 			"context.tools": "工具",
-			"context.messages": "对话消息",
+			"context.messages": "对话消息", "context.user": "用户", "context.assistant": "助手", "context.toolResults": "工具结果", "context.mcp": "MCP 工具", "context.protocol": "协议开销", "context.distributionEstimate": "颜色分布为估算",
 			"stats.counts": "{turns} 轮 · {steps} 步",
 			"stats.llm": "LLM {duration}",
 			"stats.toolCall": "工具调用 {duration}",
@@ -6815,7 +6770,7 @@ keepMounted: index >= activeSuffix,
 			"context.used": "of context used",
 			"context.system": "System prompt",
 			"context.tools": "Tools",
-			"context.messages": "Messages",
+			"context.messages": "Messages", "context.user": "User", "context.assistant": "Assistant", "context.toolResults": "Tool results", "context.mcp": "MCP tools", "context.protocol": "Protocol overhead", "context.distributionEstimate": "Category shares are estimated",
 			"stats.counts": "{turns} turns · {steps} steps",
 			"stats.llm": "LLM {duration}",
 			"stats.toolCall": "Tool call {duration}",

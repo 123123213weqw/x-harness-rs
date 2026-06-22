@@ -86,6 +86,7 @@ pub enum ToolFailureKind {
     Concurrency,
     Lifecycle,
     Handler,
+    CommandFailed,
     TimedOut,
     /// Cancellation/timeout was signalled but the owned handler future did
     /// not settle within the executor cleanup grace. The caller must not
@@ -688,7 +689,13 @@ impl ToolExecutor {
                     format!("tool handler panicked: {}", panic_message(panic)),
                 )),
                 Ok(Err(error)) => ToolOutcome::failure(handler_failure(error)),
-                Ok(Ok(output)) => ToolOutcome::success(output),
+                Ok(Ok(output)) => match output.command_failure.clone() {
+                    Some(message) => ToolOutcome {
+                        output: Some(output),
+                        failure: Some(ToolFailure::new(ToolFailureKind::CommandFailed, message)),
+                    },
+                    None => ToolOutcome::success(output),
+                },
             }
         };
         self.trace(
