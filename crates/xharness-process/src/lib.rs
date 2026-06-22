@@ -13,7 +13,7 @@
 //! quiescence and final output can be drained.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     ffi::{OsStr, OsString},
     future::pending,
     io,
@@ -207,6 +207,9 @@ pub struct CapturedOutput {
     pub truncated: bool,
     /// Total bytes drained from the pipe, including discarded bytes.
     pub bytes_read: u64,
+    /// Bytes omitted from the bounded display (including incomplete UTF-8
+    /// scalars at its boundaries). The beginning and end are both retained.
+    pub omitted_bytes: u64,
 }
 
 /// Completed process result, including cancellation and timeout exits.
@@ -1029,8 +1032,7 @@ async fn capture<R>(
 where
     R: AsyncRead + Unpin,
 {
-    let mut kept = Vec::with_capacity(limit.min(8192));
-    let mut bytes_read = 0u64;
+    let mut kept = CaptureWindow::new(limit);
     let mut buffer = [0u8; 8192];
     loop {
         let count = reader.read(&mut buffer).await?;
@@ -1050,18 +1052,87 @@ where
                 }),
             ))
             .await;
-        bytes_read = bytes_read.saturating_add(count as u64);
-        let remaining = limit.saturating_sub(kept.len());
-        kept.extend_from_slice(&buffer[..count.min(remaining)]);
+        kept.append(&buffer[..count]);
+    }
+    Ok(kept.finish())
+}
+
+/// Preserve both the start and the end of a long command output. Compiler and
+/// test failures commonly arrive at the end; keeping only a prefix hides them.
+struct CaptureWindow {
+    head: Vec<u8>,
+    tail: VecDeque<u8>,
+    head_limit: usize,
+    tail_limit: usize,
+    limit: usize,
+    bytes_read: u64,
+}
+
+impl CaptureWindow {
+    fn new(limit: usize) -> Self {
+        let head_limit = limit / 2;
+        Self {
+            head: Vec::with_capacity(head_limit.min(8192)),
+            tail: VecDeque::with_capacity((limit - head_limit).min(8192)),
+            head_limit,
+            tail_limit: limit - head_limit,
+            limit,
+            bytes_read: 0,
+        }
     }
 
-    let capped = bytes_read > kept.len() as u64;
-    let (text, incomplete_scalar) = utf8_safe_lossy(kept);
-    Ok(CapturedOutput {
-        text,
-        truncated: capped || incomplete_scalar,
-        bytes_read,
-    })
+    fn append(&mut self, chunk: &[u8]) {
+        self.bytes_read = self.bytes_read.saturating_add(chunk.len() as u64);
+        let head_count = chunk
+            .len()
+            .min(self.head_limit.saturating_sub(self.head.len()));
+        self.head.extend_from_slice(&chunk[..head_count]);
+        self.tail.extend(chunk[head_count..].iter().copied());
+        if self.tail.len() > self.tail_limit {
+            self.tail.drain(..self.tail.len() - self.tail_limit);
+        }
+    }
+
+    fn finish(self) -> CapturedOutput {
+        let capped = self.bytes_read > self.limit as u64;
+        let tail = self.tail.into_iter().collect::<Vec<_>>();
+        if !capped {
+            let mut bytes = self.head;
+            bytes.extend_from_slice(&tail);
+            let retained = incomplete_utf8_tail_start(&bytes).unwrap_or(bytes.len());
+            let omitted_bytes = bytes.len().saturating_sub(retained) as u64;
+            bytes.truncate(retained);
+            let mut text = String::from_utf8_lossy(&bytes).into_owned();
+            if omitted_bytes > 0 {
+                text.push_str(&format!("\n[{omitted_bytes} bytes omitted]\n"));
+            }
+            return CapturedOutput {
+                text,
+                truncated: omitted_bytes > 0,
+                bytes_read: self.bytes_read,
+                omitted_bytes,
+            };
+        }
+
+        let head_end = incomplete_utf8_tail_start(&self.head).unwrap_or(self.head.len());
+        let tail_start = tail
+            .iter()
+            .take_while(|byte| is_utf8_continuation(**byte))
+            .count();
+        let tail_end = incomplete_utf8_tail_start(&tail[tail_start..])
+            .map(|end| tail_start + end)
+            .unwrap_or(tail.len());
+        let retained = head_end.saturating_add(tail_end.saturating_sub(tail_start));
+        let omitted_bytes = self.bytes_read.saturating_sub(retained as u64);
+        let head = String::from_utf8_lossy(&self.head[..head_end]);
+        let tail = String::from_utf8_lossy(&tail[tail_start..tail_end]);
+        CapturedOutput {
+            text: format!("{head}\n[{omitted_bytes} bytes omitted]\n{tail}"),
+            truncated: true,
+            bytes_read: self.bytes_read,
+            omitted_bytes,
+        }
+    }
 }
 
 fn spawn_spec_payload(spec: &SpawnSpec) -> Value {
@@ -1110,17 +1181,6 @@ fn process_output_payload(output: &ProcessOutput) -> Value {
             "bytesRead": output.stderr.bytes_read,
         },
     })
-}
-
-fn utf8_safe_lossy(mut bytes: Vec<u8>) -> (String, bool) {
-    let incomplete_tail = incomplete_utf8_tail_start(&bytes);
-    if let Some(start) = incomplete_tail {
-        bytes.truncate(start);
-    }
-    (
-        String::from_utf8_lossy(&bytes).into_owned(),
-        incomplete_tail.is_some(),
-    )
 }
 
 /// Locate a terminal byte sequence that is still a possible prefix of a valid
