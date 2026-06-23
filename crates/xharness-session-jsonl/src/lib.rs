@@ -81,12 +81,23 @@ pub(crate) fn decode_owned_json<T: DeserializeOwned>(bytes: &[u8]) -> serde_json
 #[derive(Clone, Debug)]
 pub struct JsonlSessionStore {
     root: Arc<PathBuf>,
+    request_audit_mode: RequestAuditMode,
     audit_reads: Arc<tokio::sync::Semaphore>,
     /// Detached logical snapshots keyed by the exact on-disk identity.  The
     /// advisory file lock still owns cross-process CAS correctness; this cache
     /// only removes the previous O(file-size) replay from every in-process
     /// append/load/checkpoint.
     cache: Arc<StdMutex<SnapshotCache>>,
+}
+
+/// Request diagnostics are independent of the authoritative conversation
+/// journal. Ordinary operation keeps only small metadata; exact payload
+/// capture must be opted into explicitly for a debugging session.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RequestAuditMode {
+    #[default]
+    MetadataOnly,
+    Full,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -259,9 +270,15 @@ impl JsonlSessionStore {
         }
         Ok(Self {
             root: Arc::new(root),
+            request_audit_mode: RequestAuditMode::MetadataOnly,
             audit_reads: Arc::new(tokio::sync::Semaphore::new(2)),
             cache: Arc::new(StdMutex::new(SnapshotCache::default())),
         })
+    }
+
+    pub fn with_request_audit_mode(mut self, mode: RequestAuditMode) -> Self {
+        self.request_audit_mode = mode;
+        self
     }
 
     /// Runtime replay omits only redundant legacy request audit bodies. On-disk
@@ -895,10 +912,19 @@ impl Store for JsonlSessionStore {
         .await
     }
 
+    fn captures_full_request_audit(&self) -> bool {
+        self.request_audit_mode == RequestAuditMode::Full
+    }
+
     async fn archive_request(
         &self,
         header: xharness_session::RequestHeader,
     ) -> Result<xharness_session::RequestHeader, StoreError> {
+        if self.request_audit_mode == RequestAuditMode::MetadataOnly {
+            return Ok(header.metadata_only(serde_json::json!({
+                "kind": "omitted", "reason": "capture_disabled",
+            })));
+        }
         let root = self.root.clone();
         run_blocking(move || audit::archive(&root, header)).await
     }

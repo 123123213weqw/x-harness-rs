@@ -287,6 +287,11 @@ fn terminal_result_view(metadata: &Value) -> Option<Value> {
         .get("stdout_truncated")
         .and_then(Value::as_bool)
         .unwrap_or(false)
+        && metadata
+            .get("stdout_omitted_bytes")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            == 0
     {
         append_terminal_notice(&mut output, "[stdout truncated]");
     }
@@ -294,6 +299,11 @@ fn terminal_result_view(metadata: &Value) -> Option<Value> {
         .get("stderr_truncated")
         .and_then(Value::as_bool)
         .unwrap_or(false)
+        && metadata
+            .get("stderr_omitted_bytes")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            == 0
     {
         append_terminal_notice(&mut output, "[stderr truncated]");
     }

@@ -114,23 +114,7 @@ fn put<T: Serialize>(dir: &Path, value: &T) -> Result<String, StoreError> {
     result
 }
 pub(super) fn compact(header: &mut RequestHeader, reference: Value) {
-    let input_count = header.input.len();
-    let tool_count = header.tools.len();
-    header.input.clear();
-    header.input.shrink_to_fit();
-    header.tools.clear();
-    header.tools.shrink_to_fit();
-    header.system = None;
-    if let Some(Value::Object(context)) = header.options.get_mut("context") {
-        if let Some(Value::Array(edits)) = context.remove("edits") {
-            context.insert("edit_count".into(), json!(edits.len()));
-        }
-    }
-    header.options.insert("auditSnapshot".into(), reference);
-    header
-        .options
-        .insert("inputMessageCount".into(), json!(input_count));
-    header.options.insert("toolCount".into(), json!(tool_count));
+    *header = header.metadata_only(reference);
 }
 pub(super) fn archive(root: &Path, header: RequestHeader) -> Result<RequestHeader, StoreError> {
     struct SizeGuard(u64);

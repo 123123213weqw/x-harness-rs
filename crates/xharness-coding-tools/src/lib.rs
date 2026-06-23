@@ -18,7 +18,8 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use xharness_fs::{ReadCursor, ReadLimits, ReadOutcome, ReadStart};
 use xharness_jobs::{
-    JobCancel, JobLease, JobOutcome, JobRegistry, JobSnapshot, JobStatus, KillResult,
+    JobCancel, JobLease, JobOutcome, JobOutputCursor, JobRegistry, JobSnapshot, JobStatus,
+    KillResult,
 };
 use xharness_platform::NativePlatform;
 use xharness_process::{
@@ -218,9 +219,28 @@ impl CodingToolBundle {
                         })));
                     }
                     let output = run_process(platform, spec, &context.cancellation).await?;
+                    let command_failure = if output.termination == TerminationReason::Exited
+                        && output.status.success
+                    {
+                        None
+                    } else {
+                        Some(match output.termination {
+                            TerminationReason::TimedOut => "shell command timed out".to_owned(),
+                            TerminationReason::Cancelled => "shell command was cancelled".to_owned(),
+                            TerminationReason::Exited => match output.status.code {
+                                Some(code) => format!("shell command exited with code {code}"),
+                                None => format!(
+                                    "shell command exited by signal {}",
+                                    output.status.signal.unwrap_or_default()
+                                ),
+                            },
+                        })
+                    };
                     let mut value = process_output_value(output);
                     value["kind"] = Value::String("foreground".to_owned());
-                    Ok(json_output(value))
+                    let mut result = json_output(value);
+                    result.command_failure = command_failure;
+                    Ok(result)
                 }
             },
         )
@@ -235,11 +255,21 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "job_output",
-                "Consume output produced by one managed background job since the previous read and return its current status. Set wait=true only when blocked on this job; a wait timeout returns the still-running status and is not an error. Track every job id and collect relevant jobs before the final answer; do not busy-poll or duplicate their work.",
+                "Read bounded output from one managed background job without consuming it. Pass the returned next_cursor on the next read; omitting it replays the retained window. Set wait=true only when blocked on this job; a wait timeout returns the still-running status and is not an error. Track every job id and collect relevant jobs before the final answer; do not busy-poll or duplicate their work.",
                 json!({
                     "type": "object",
                     "properties": {
                         "job_id": {"type": "string"},
+                        "cursor": {
+                            "type": "object",
+                            "properties": {
+                                "job_id": {"type": "string"},
+                                "stdout": {"type": "integer", "minimum": 0},
+                                "stderr": {"type": "integer", "minimum": 0}
+                            },
+                            "required": ["job_id", "stdout", "stderr"],
+                            "additionalProperties": false
+                        },
                         "wait": {"type": "boolean"},
                         "timeout_ms": {
                             "type": "integer",
@@ -255,6 +285,11 @@ impl CodingToolBundle {
                 let owner = Arc::clone(&owner);
                 async move {
                     let job_id = required_string(&context, "job_id")?;
+                    let cursor = match context.arguments.get("cursor") {
+                        Some(value) => serde_json::from_value::<JobOutputCursor>(value.clone())
+                            .map_err(handler_error)?,
+                        None => JobOutputCursor::start(&job_id),
+                    };
                     let wait = optional_bool(&context, "wait").unwrap_or(false);
                     if !wait && context.arguments.get("timeout_ms").is_some() {
                         return Err(ToolHandlerError::new(
@@ -272,12 +307,15 @@ impl CodingToolBundle {
                             }
                         }
                     }
-                    let read = jobs.read(&owner, &job_id).map_err(handler_error)?;
+                    let read = jobs
+                        .read_since(&owner, &job_id, &cursor)
+                        .map_err(handler_error)?;
                     Ok(json_output(json!({
                         "stdout": read.stdout,
                         "stderr": read.stderr,
                         "stdout_truncated": read.stdout_truncated,
                         "stderr_truncated": read.stderr_truncated,
+                        "next_cursor": read.next_cursor,
                         "snapshot": PublicJobSnapshot::from(read.snapshot),
                     })))
                 }
@@ -794,7 +832,9 @@ fn process_output_value(output: ProcessOutput) -> Value {
         "stdout_truncated": output.stdout.truncated,
         "stderr_truncated": output.stderr.truncated,
         "stdout_bytes": output.stdout.bytes_read,
-        "stderr_bytes": output.stderr.bytes_read
+        "stderr_bytes": output.stderr.bytes_read,
+        "stdout_omitted_bytes": output.stdout.omitted_bytes,
+        "stderr_omitted_bytes": output.stderr.omitted_bytes
     })
 }
 
@@ -860,7 +900,8 @@ fn background_process_outcome(output: &ProcessOutput) -> JobOutcome {
         TerminationReason::Cancelled => JobOutcome::killed(detail),
         TerminationReason::TimedOut => JobOutcome::failed(format!("timed out; {detail}")),
         TerminationReason::Exited if output.status.signal.is_some() => JobOutcome::killed(detail),
-        TerminationReason::Exited => JobOutcome::completed(detail),
+        TerminationReason::Exited if output.status.success => JobOutcome::completed(detail),
+        TerminationReason::Exited => JobOutcome::failed(detail),
     }
 }
 
@@ -868,6 +909,7 @@ fn json_output(value: Value) -> ToolOutput {
     ToolOutput {
         content: serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
         metadata: Some(value),
+        command_failure: None,
     }
 }
 
@@ -1166,6 +1208,7 @@ mod tests {
                 text: "diagnostic fixture".into(),
                 truncated: false,
                 bytes_read: 18,
+                omitted_bytes: 0,
             };
             let result = search_process_output(ProcessOutput {
                 pid: 42,
