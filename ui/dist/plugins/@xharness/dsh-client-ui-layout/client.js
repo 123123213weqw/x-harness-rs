@@ -162,6 +162,16 @@ window.__ModuleLoader__.load({
 				return current !== void 0 && s.byId[current]?.blank === false ? current : void 0;
 			});
 			const frameRef = (0, react.useRef)(null);
+			const [pluginCenterOpen, setPluginCenterOpen] = (0, react.useState)(false);
+			const closePluginCenter = () => {
+				setPluginCenterOpen(false);
+				window.dispatchEvent(new Event("xharness:plugins:closed"));
+			};
+			(0, react.useEffect)(() => {
+				const open = () => setPluginCenterOpen(true);
+				window.addEventListener("xharness:plugins:open", open);
+				return () => window.removeEventListener("xharness:plugins:open", open);
+			}, []);
 			const [viewport, setViewport] = (0, react.useState)(() => window.innerWidth);
 			const lastSession = (0, react.useRef)(detailsSession);
 			(0, react.useLayoutEffect)(() => {
@@ -225,12 +235,24 @@ window.__ModuleLoader__.load({
 				children: [
 					(0, react_jsx_runtime.jsx)("div", {
 						className: AppFrame_module_css_default.sidebarCol,
+						onClickCapture: (event) => {
+							if (pluginCenterOpen && !event.target.closest?.("[data-xharness-plugin-nav]")) closePluginCenter();
+						},
 						children: renderSlot("sidebar", {
 							collapsed: sidebarCollapsed,
 							width: cols.sidebar
 						})
 					}),
-					(0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(CenterColumn, { children: renderSlot("conversation", {}) }), (0, react_jsx_runtime.jsx)(DetailsColumn, { children: renderSlot("details", {}) })] }),
+					(0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(CenterColumn, { children: pluginCenterOpen ? (0, react_jsx_runtime.jsxs)("main", {
+							style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "24px clamp(20px, 5vw, 56px)" },
+							children: [(0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								style: { cursor: "pointer", background: "none", border: 0, color: "var(--dsw-alias-label-secondary)", padding: "0 0 24px", font: "inherit" },
+								"aria-label": "Back to chat",
+								onClick: closePluginCenter,
+								children: "← " + (navigator.language.startsWith("zh") ? "返回对话" : "Back to chat")
+							}), renderSlot("plugins.center", {})]
+						}) : renderSlot("conversation", {}) }), (0, react_jsx_runtime.jsx)(DetailsColumn, { children: renderSlot("details", {}) })] }),
 					(0, react_jsx_runtime.jsx)("div", {
 						className: AppFrame_module_css_default.overlayLayer,
 						"data-shell-overlay": true,
@@ -412,6 +434,10 @@ window.__ModuleLoader__.load({
 						"conversation": {
 							kind: "single",
 							scope: "session-maybe"
+						},
+						"plugins.center": {
+							kind: "single",
+							scope: "root"
 						},
 						"details": {
 							kind: "single",

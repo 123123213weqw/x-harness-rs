@@ -3075,133 +3075,88 @@ window.__ModuleLoader__.load({
 			}
 		];
 		function ContextMeter({ useProjection, t }) {
-			const pressure = useProjection("contextPressure");
-			const breakdown = useProjection("contextBreakdown");
-			const [open, setOpen] = (0, react.useState)(false);
-			const rootRef = (0, react.useRef)(null);
-			const context = contextOccupancy(pressure);
-			// xharness-context-meter-stable/v1
-			const available = context !== null;
-			(0, react.useEffect)(() => {
-				if (!available && open) setOpen(false);
-			}, [available, open]);
-			(0, react.useEffect)(() => {
-				if (!open || !available) return;
-				const onPointerDown = (e) => {
-					if (e.target instanceof Node && rootRef.current?.contains(e.target) === true) return;
-					setOpen(false);
-				};
-				const onKeyDown = (e) => {
-					if (e.key === "Escape") setOpen(false);
-				};
-				document.addEventListener("pointerdown", onPointerDown);
-				document.addEventListener("keydown", onKeyDown);
-				return () => {
-					document.removeEventListener("pointerdown", onPointerDown);
-					document.removeEventListener("keydown", onKeyDown);
-				};
-			}, [available, open]);
-			const percent = context?.percent ?? 0;
-            const reading = available ? `${context.exact ? "" : "≈"}${percent}%` : null;
-            const label = available ? t("context.aria", { percent: reading })
-                : t(["preparing", "in_flight", "model_changed"].includes(pressure?.phase)
-                    ? "context.pending" : "context.unavailable");
-			const [headBefore = "", headAfter = ""] = t("context.aria", { percent: READING_SLOT }).split(READING_SLOT).map((part) => part.trim());
-			const breakdownTotal = breakdown === void 0 ? 0 : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens;
-			const segments = (breakdown === void 0 || breakdownTotal === 0 ? [{
-				key: "total",
-				color: void 0,
-				width: percent
-			}] : ROWS.map((row) => ({
-				key: row.key,
-				color: row.color,
-				width: percent * breakdown[row.key] / breakdownTotal
-			}))).filter((part) => part.width > 0);
-			return (0, react_jsx_runtime.jsxs)("span", {
-				ref: rootRef,
-				className: ContextMeter_module_css_default.root,
-				children: [(0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.Tooltip, {
-					label,
-					side: "top",
-					delayMs: 200,
-					disabled: open,
-					children: (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: ContextMeter_module_css_default.trigger,
-						"aria-label": label,
-						"aria-haspopup": available ? "dialog" : void 0,
-						"aria-expanded": available ? open : void 0,
-						disabled: !available,
-						onClick: () => {
-							setOpen(!open);
-						},
-						children: (0, react_jsx_runtime.jsxs)("svg", {
-							viewBox: "0 0 14 14",
-							width: "14",
-							height: "14",
-							"aria-hidden": true,
-							children: [(0, react_jsx_runtime.jsx)("circle", {
-								className: ContextMeter_module_css_default.track,
-								cx: "7",
-								cy: "7",
-								r: RADIUS
-							}), (0, react_jsx_runtime.jsx)("circle", {
-								className: ContextMeter_module_css_default.fill,
-								cx: "7",
-								cy: "7",
-								r: RADIUS,
-								strokeDasharray: `${CIRCUMFERENCE * percent / 100} ${CIRCUMFERENCE}`,
-								transform: "rotate(-90 7 7)"
-							})]
-						})
-					})
-				}), open && available && (0, react_jsx_runtime.jsxs)("div", {
-					className: ContextMeter_module_css_default.panel,
-					role: "dialog",
-					"aria-label": t("context.used"),
-					children: [
-						(0, react_jsx_runtime.jsxs)("div", {
-							className: ContextMeter_module_css_default.header,
-							children: [
-								(0, react_jsx_runtime.jsx)("span", {
-									className: ContextMeter_module_css_default.headline,
-									children: context.label
-								}),
-								(0, react_jsx_runtime.jsx)("span", {
-									className: ContextMeter_module_css_default.percent,
-									children: reading
-								}),
-								(0, react_jsx_runtime.jsx)("span", {
-									className: ContextMeter_module_css_default.headline,
-									children: headAfter
-								}),
-								(0, react_jsx_runtime.jsx)("span", {
-									className: ContextMeter_module_css_default.figures,
-									children: `${context.exact ? "" : "≈"}${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`
-								})
-							]
-						}),
-						(0, react_jsx_runtime.jsx)("div", {
-							className: ContextMeter_module_css_default.bar,
-							children: segments.map((segment) => (0, react_jsx_runtime.jsx)("div", {
-								className: segment.color === void 0 ? ContextMeter_module_css_default.segment : `${ContextMeter_module_css_default.segment} ${segment.color}`,
-								style: { width: `${segment.width}%` }
-							}, segment.key))
-						}),
-						breakdown !== void 0 && (0, react_jsx_runtime.jsx)("dl", {
-							className: ContextMeter_module_css_default.rows,
-							children: ROWS.map((row) => (0, react_jsx_runtime.jsxs)("div", {
-								className: ContextMeter_module_css_default.row,
-								children: [(0, react_jsx_runtime.jsxs)("dt", { children: [(0, react_jsx_runtime.jsx)("span", {
-									className: `${ContextMeter_module_css_default.swatch} ${row.color}`,
-									"aria-hidden": true
-								}), t(row.label)] }), (0, react_jsx_runtime.jsx)("dd", { children: `~${formatTokens(breakdown[row.key])}` })]
-							}, row.key))
-						})
-					]
-				})]
-			});
-		}
+            // xharness-context-composition/v1; xharness-context-meter-stable/v1
+            const h = react.createElement;
+            const pressure = useProjection("contextPressure");
+            const composition = pressure?.composition;
+            const [open, setOpen] = react.useState(false);
+            const rootRef = react.useRef(null);
+            const context = contextOccupancy(pressure);
+            const available = context !== null;
+            react.useEffect(() => { if (!available && open) setOpen(false); }, [available, open]);
+            react.useEffect(() => {
+                if (!open || !available) return;
+                const pointer = event => {
+                    if (event.target instanceof Node && rootRef.current?.contains(event.target)) return;
+                    setOpen(false);
+                };
+                const escape = event => { if (event.key === "Escape") setOpen(false); };
+                document.addEventListener("pointerdown", pointer);
+                document.addEventListener("keydown", escape);
+                return () => {
+                    document.removeEventListener("pointerdown", pointer);
+                    document.removeEventListener("keydown", escape);
+                };
+            }, [available, open]);
+            const rows = [
+                {key:"systemTokens",label:"context.system",tint:"#8290a5"},
+                {key:"userTokens",label:"context.user",tint:"#3b82f6"},
+                {key:"assistantTokens",label:"context.assistant",tint:"#20a887"},
+                {key:"toolResultTokens",label:"context.toolResults",tint:"#e1a63b"},
+                {key:"toolDefinitionTokens",label:"context.tools",tint:"#a78bfa"},
+                {key:"mcpToolDefinitionTokens",label:"context.mcp",tint:"#c770ca"},
+                {key:"protocolTokens",label:"context.protocol",tint:"#9b9b9b"}
+            ];
+            const weight = available && composition ? rows.reduce((n, row) => n + (Number.isSafeInteger(composition[row.key]) && composition[row.key] > 0 ? composition[row.key] : 0), 0) : 0;
+            const percent = context?.percent ?? 0;
+            const reading = available ? (context.exact ? "" : "≈") + percent + "%" : null;
+            const label = available ? t("context.aria", {percent:reading}) : t(["preparing","in_flight","model_changed"].includes(pressure?.phase) ? "context.pending" : "context.unavailable");
+            const segments = weight > 0 ? rows.filter(row => composition[row.key] > 0).map(row => ({...row, ratio:composition[row.key] / weight})) : [{key:"total",tint:"currentColor",ratio:1}];
+            let offset = 0;
+            const ring = segments.map(segment => {
+                const length = CIRCUMFERENCE * percent / 100 * segment.ratio;
+                const circle = h("circle", {key:segment.key,className:ContextMeter_module_css_default.fill,
+                    cx:"7",cy:"7",r:RADIUS,stroke:segment.tint,
+                    strokeDasharray:length + " " + CIRCUMFERENCE,
+                    strokeDashoffset:-offset,transform:"rotate(-90 7 7)"});
+                offset += length;
+                return circle;
+            });
+            const swatch = row => h("span", {className:ContextMeter_module_css_default.swatch,
+                style:{"--meter-tint":row.tint},"aria-hidden":true});
+            const legend = weight > 0 ? h("dl", {className:ContextMeter_module_css_default.rows},
+                h("div", {className:ContextMeter_module_css_default.headline}, t("context.distributionEstimate")),
+                ...segments.map(row => h("div", {key:row.key,className:ContextMeter_module_css_default.row},
+                    h("dt", null, swatch(row), t(row.label)),
+                    h("dd", null, "≈" + formatTokens(Math.round(context.usedTokens * row.ratio)))
+                ))) : null;
+            return h("span", {ref:rootRef,className:ContextMeter_module_css_default.root},
+                h(_xharness_dsh_client_ui_primitives.Tooltip, {label,side:"top",delayMs:200,disabled:open},
+                    h("button", {type:"button",className:ContextMeter_module_css_default.trigger,
+                        "aria-label":label,"aria-haspopup":available ? "dialog" : void 0,
+                        "aria-expanded":available ? open : void 0,disabled:!available,
+                        onClick:() => setOpen(!open)},
+                        h("svg", {viewBox:"0 0 14 14",width:"14",height:"14","aria-hidden":true},
+                            h("circle", {className:ContextMeter_module_css_default.track,cx:"7",cy:"7",r:RADIUS}),
+                            ...ring
+                        )
+                    )
+                ),
+                open && available && h("div", {className:ContextMeter_module_css_default.panel,
+                    role:"dialog","aria-label":t("context.used")},
+                    h("div", {className:ContextMeter_module_css_default.header},
+                        h("span", {className:ContextMeter_module_css_default.headline}, context.label),
+                        h("span", {className:ContextMeter_module_css_default.percent}, reading),
+                        h("span", {className:ContextMeter_module_css_default.figures},
+                            (context.exact ? "" : "≈") + formatTokens(context.usedTokens) + " / " + formatTokens(context.contextWindow))
+                    ),
+                    h("div", {className:ContextMeter_module_css_default.bar}, ...segments.map(row =>
+                        h("div", {key:row.key,className:ContextMeter_module_css_default.segment,
+                            style:{width:(percent * row.ratio) + "%","--meter-tint":row.tint}}))),
+                    legend
+                )
+            );
+        }
 		//#endregion
 		//#region \0dsh-css:deepseek-harness/packages/client/ui-conversation/src/client/skeleton/PermissionSelect.module.css.mjs
 		const css$18 = ".Qgao_G_trigger{min-width:0;max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:inline-flex}.Qgao_G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.Qgao_G_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.Qgao_G_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.Qgao_G_triggerIcon{flex:none;display:inline-flex}.Qgao_G_triggerIcon svg{width:14px;height:14px}.Qgao_G_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.Qgao_G_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s;display:inline-flex}@container (width<=460px){.Qgao_G_trigger:has(.Qgao_G_triggerIcon) .Qgao_G_triggerLabel{display:none}}.Qgao_G_chevronOpen{transform:rotate(180deg)}";
@@ -5741,7 +5696,7 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 		});
 		//#endregion
 		//#region \0dsh-css:deepseek-harness/packages/client/ui-conversation/src/client/chat/ChatView.module.css.mjs
-		const css$11 = ".IxU-fW_root{flex-direction:column;flex:auto;min-height:0;display:flex;position:relative}.IxU-fW_scroll{min-height:0;padding:16px calc(var(--dsh-composer-side-clearance) + 16px);flex:auto;overflow-y:auto}[data-conversation-scroll] .IxU-fW_root{flex:none;height:auto;min-height:auto}[data-conversation-scroll] .IxU-fW_scroll{flex:none;min-height:auto;overflow:visible}.IxU-fW_column{max-width:var(--dsh-chat-content-width);flex-direction:column;gap:16px;width:100%;margin:0 auto;display:flex}.IxU-fW_flowItem{min-width:0}.IxU-fW_flowItem:empty{display:none}.IxU-fW_callRow{border-radius:6px}.IxU-fW_turnStatus{height:26px;font:var(--dsw-font-s-strong-14);white-space:nowrap;background:linear-gradient(90deg, var(--dsw-static-deepseek-500) 0%, var(--dsw-static-deepseek-500) 40%, var(--dsw-static-deepseek-200) 50%, var(--dsw-static-deepseek-500) 60%, var(--dsw-static-deepseek-500) 100%);color:#0000;-webkit-text-fill-color:transparent;background-position:100% 0;background-size:250% 100%;-webkit-background-clip:text;background-clip:text;flex:none;align-self:flex-start;align-items:center;animation:1.8s linear infinite IxU-fW_dsh-turn-status-shimmer;display:inline-flex}.IxU-fW_turnStatusClock{font:var(--dsw-font-xs-13);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);margin-left:8px;font-weight:400}@keyframes IxU-fW_dsh-turn-status-shimmer{to{background-position:0 0}}@media (prefers-reduced-motion:reduce){.IxU-fW_turnStatus{background-position:0 0;background-size:100% 100%;animation:none}}.IxU-fW_hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.IxU-fW_openError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.IxU-fW_older{justify-content:center;display:flex}.IxU-fW_older button{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover-solid);cursor:pointer;border:none;border-radius:14px;padding:4px 12px;font-size:12px}.IxU-fW_older button:disabled{cursor:default;opacity:.6}.IxU-fW_toBottomSlot{z-index:8;height:0;padding-right:max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));pointer-events:none;justify-content:flex-end;display:flex;position:sticky;bottom:16px}[data-conversation-scroll] .IxU-fW_toBottomSlot{bottom:calc(var(--dsh-composer-height,152px) + 16px)}.IxU-fW_toBottom{border:1px solid var(--dsw-alias-border-l2);width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-shadow-lv2);cursor:pointer;pointer-events:auto;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex}.IxU-fW_toBottom:hover{background:var(--dsw-alias-button-floating-hover)}.IxU-fW_modalAction{min-width:72px}";
+		const css$11 = ".IxU-fW_root{flex-direction:column;flex:auto;min-height:0;display:flex;position:relative}.IxU-fW_scroll{min-height:0;padding:16px calc(var(--dsh-composer-side-clearance) + 16px);flex:auto;overflow-y:auto}[data-conversation-scroll] .IxU-fW_root{flex:none;height:auto;min-height:auto}[data-conversation-scroll] .IxU-fW_scroll{flex:none;min-height:auto;overflow:visible}.IxU-fW_column{max-width:var(--dsh-chat-content-width);flex-direction:column;gap:16px;width:100%;margin:0 auto;display:flex}.IxU-fW_flowItem{min-width:0}.IxU-fW_flowItem:empty{display:none}.IxU-fW_callRow{border-radius:6px}.IxU-fW_turnStatus{height:26px;font:var(--dsw-font-s-strong-14);white-space:nowrap;background:linear-gradient(90deg, var(--dsw-alias-label-secondary) 0%, var(--dsw-alias-label-secondary) 40%, var(--dsw-alias-label-tertiary) 50%, var(--dsw-alias-label-secondary) 60%, var(--dsw-alias-label-secondary) 100%);color:#0000;-webkit-text-fill-color:transparent;background-position:100% 0;background-size:250% 100%;-webkit-background-clip:text;background-clip:text;flex:none;align-self:flex-start;align-items:center;animation:1.8s linear infinite IxU-fW_dsh-turn-status-shimmer;display:inline-flex}.IxU-fW_turnStatusClock{font:var(--dsw-font-xs-13);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);margin-left:8px;font-weight:400}@keyframes IxU-fW_dsh-turn-status-shimmer{to{background-position:0 0}}@media (prefers-reduced-motion:reduce){.IxU-fW_turnStatus{background-position:0 0;background-size:100% 100%;animation:none}}.IxU-fW_hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.IxU-fW_openError{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.IxU-fW_older{justify-content:center;display:flex}.IxU-fW_older button{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover-solid);cursor:pointer;border:none;border-radius:14px;padding:4px 12px;font-size:12px}.IxU-fW_older button:disabled{cursor:default;opacity:.6}.IxU-fW_toBottomSlot{z-index:8;height:0;padding-right:max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));pointer-events:none;justify-content:flex-end;display:flex;position:sticky;bottom:16px}[data-conversation-scroll] .IxU-fW_toBottomSlot{bottom:calc(var(--dsh-composer-height,152px) + 16px)}.IxU-fW_toBottom{border:1px solid var(--dsw-alias-border-l2);width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-shadow-lv2);cursor:pointer;pointer-events:auto;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex}.IxU-fW_toBottom:hover{background:var(--dsw-alias-button-floating-hover)}.IxU-fW_modalAction{min-width:72px}";
 		const tagId$11 = "@xharness/dsh-client-ui-conversation/ChatView.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$11) + "]") === null) {
 			const tag = document.createElement("style");
@@ -6026,7 +5981,7 @@ const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCa
 				className: ChatView_module_css_default.turnStatus,
 				role: "status",
 				"aria-live": "polite",
-				children: ["Deep diving...", showClock && (0, react_jsx_runtime.jsx)("span", {
+				children: [t("xh.turn.working"), showClock && (0, react_jsx_runtime.jsx)("span", {
 					className: ChatView_module_css_default.turnStatusClock,
 					"aria-hidden": true,
 					children: formatRunDuration(elapsedMs, t)
@@ -6573,6 +6528,7 @@ keepMounted: index >= activeSuffix,
 		/** Simplified Chinese dictionary (the key-set source of truth). */
 		const zh = {
 			"view.chat": "对话",
+			"xh.turn.working": "正在处理…",
 			"hint.plan": PLAN_NEXT_ACTION_ZH,
 			"hint.goal": "输入目标，智能体将持续执行",
 			"hint.goal.active": "当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除",
@@ -6620,7 +6576,7 @@ keepMounted: index >= activeSuffix,
 			"context.used": "上下文已用",
 			"context.system": "系统提示词",
 			"context.tools": "工具",
-			"context.messages": "对话消息",
+			"context.messages": "对话消息", "context.user": "用户", "context.assistant": "助手", "context.toolResults": "工具结果", "context.mcp": "MCP 工具", "context.protocol": "协议开销", "context.distributionEstimate": "颜色分布为估算",
 			"stats.counts": "{turns} 轮 · {steps} 步",
 			"stats.llm": "LLM {duration}",
 			"stats.toolCall": "工具调用 {duration}",
@@ -6768,6 +6724,7 @@ keepMounted: index >= activeSuffix,
 		/** English dictionary, checked complete against the zh key set. */
 		const en = {
 			"view.chat": "Chat",
+			"xh.turn.working": "Working…",
 			"hint.plan": PLAN_NEXT_ACTION_EN,
 			"hint.goal": "describe the objective for a long-running task",
 			"hint.goal.active": "goal active — edit / pause / resume / clear",
@@ -6815,7 +6772,7 @@ keepMounted: index >= activeSuffix,
 			"context.used": "of context used",
 			"context.system": "System prompt",
 			"context.tools": "Tools",
-			"context.messages": "Messages",
+			"context.messages": "Messages", "context.user": "User", "context.assistant": "Assistant", "context.toolResults": "Tool results", "context.mcp": "MCP tools", "context.protocol": "Protocol overhead", "context.distributionEstimate": "Category shares are estimated",
 			"stats.counts": "{turns} turns · {steps} steps",
 			"stats.llm": "LLM {duration}",
 			"stats.toolCall": "Tool call {duration}",
@@ -7566,7 +7523,7 @@ keepMounted: index >= activeSuffix,
 		}
 		//#endregion
 		//#region \0dsh-css:deepseek-harness/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.module.css.mjs
-		const css$6 = ".lvQYKa_root{background:var(--dsw-alias-bg-base);--dsh-chat-content-width:748px;--dsh-composer-card-max-width:calc(var(--dsh-chat-content-width) + 32px);--dsh-composer-side-clearance:16px;--dsh-composer-dock-inset:8px;flex-direction:column;min-width:0;height:100%;display:flex}.lvQYKa_header{border-bottom:1px solid #0000;flex:none;padding:12px 28px 0 20px;position:relative}.lvQYKa_header:after{content:\"\";z-index:0;background:var(--dsw-alias-border-l2);pointer-events:none;height:1px;position:absolute;bottom:1px;left:0;right:0}.lvQYKa_headerHidden{display:none}.lvQYKa_titleRow{align-items:center;gap:0;min-height:32px;display:flex}.lvQYKa_titleCluster{flex:1;align-items:center;gap:10px;min-width:0;display:flex}.lvQYKa_crumbs{white-space:nowrap;align-items:center;gap:4px;min-width:0;display:flex;overflow:hidden}.lvQYKa_crumbSeg{align-items:center;gap:4px;min-width:0;display:inline-flex}.lvQYKa_crumbSep{color:var(--dsw-alias-label-caption);font-size:14px;line-height:20px}.lvQYKa_crumb{max-width:220px;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;cursor:pointer;background:0 0;border:none;border-radius:12px;padding:4px 8px;font-size:14px;line-height:20px;overflow:hidden}.lvQYKa_crumb:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.lvQYKa_crumbCurrent{color:var(--dsw-alias-label-primary);cursor:default;font-weight:500}.lvQYKa_headerActions{flex:none;align-items:center;gap:8px;display:flex}.lvQYKa_headerUtilities{flex:none;align-items:center;gap:8px;margin-left:20px;display:flex}.lvQYKa_headerUtilities:empty{display:none}.lvQYKa_tabs{z-index:1;gap:36px;margin-top:4px;padding-left:8px;display:flex;position:relative}.lvQYKa_tab{color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;padding:0 0 11px;font-size:13px;font-weight:500;line-height:16px;position:relative}.lvQYKa_tab:after{content:\"\";background:0 0;border-radius:2px;height:2px;position:absolute;bottom:1px;left:0;right:0}.lvQYKa_tabActive{color:var(--dsw-alias-state-business-primary)}.lvQYKa_tabActive:after{background:var(--dsw-alias-state-business-primary)}.lvQYKa_viewArea{flex-direction:column;flex:1;min-height:0;display:flex}.lvQYKa_composerStack{--dsh-composer-stack-gap:6px;gap:var(--dsh-composer-stack-gap);flex-direction:column;display:flex}.lvQYKa_composerSeat{--dsh-composer-text-max-height:336px;flex-direction:column;flex:none;display:flex}.lvQYKa_root[data-phase=active]{overflow:hidden}.lvQYKa_root[data-phase=active] .lvQYKa_header{flex:none}.lvQYKa_scrollBody{scrollbar-gutter:stable;flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.lvQYKa_root[data-phase=active] .lvQYKa_viewArea{flex:1 0 auto;min-height:auto}.lvQYKa_root[data-phase=active] .lvQYKa_composerSeat{z-index:7;background:linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px, var(--dsw-alias-bg-base) 36px);position:sticky;bottom:0}.lvQYKa_scrollBody:has([data-conversation-composer-overlay]){scrollbar-gutter:auto;position:relative;overflow:hidden auto}.lvQYKa_scrollBody:has([data-conversation-composer-overlay])>[data-slot=conversation\\.session]>.lvQYKa_viewArea{flex:1 1 0;min-height:0;overflow:hidden}.lvQYKa_scrollBody:has([data-conversation-composer-overlay])>.lvQYKa_composerSeat{right:var(--dsh-scrollbar-width);position:absolute;bottom:0;left:0}.lvQYKa_composerHero{width:min(calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance)), 100%);z-index:1;align-self:center;gap:8px;padding-bottom:32px;position:relative}.lvQYKa_heroGlow{z-index:-1;aspect-ratio:1051/468;pointer-events:none;width:135.438%;position:absolute;bottom:92px;left:50%;transform:translate(-50%,50%)}.lvQYKa_heroWorkspaceRow{align-items:center;gap:2px;min-width:0;margin-top:4px;padding-left:20px;display:flex}.lvQYKa_root[data-phase=hero] .lvQYKa_scrollBody{justify-content:center;overflow-y:auto}.lvQYKa_root[data-phase=settling] .lvQYKa_composerSeat{visibility:hidden}";
+		const css$6 = ".lvQYKa_root{background:var(--dsw-alias-bg-base);--dsh-chat-content-width:680px;--dsh-composer-card-max-width:calc(var(--dsh-chat-content-width) + 32px);--dsh-composer-side-clearance:16px;--dsh-composer-dock-inset:8px;flex-direction:column;min-width:0;height:100%;display:flex}.lvQYKa_header{border-bottom:1px solid #0000;flex:none;padding:12px 28px 0 20px;position:relative}.lvQYKa_header:after{content:\"\";z-index:0;background:var(--dsw-alias-border-l2);pointer-events:none;height:1px;position:absolute;bottom:1px;left:0;right:0}.lvQYKa_headerHidden{display:none}.lvQYKa_titleRow{align-items:center;gap:0;min-height:32px;display:flex}.lvQYKa_titleCluster{flex:1;align-items:center;gap:10px;min-width:0;display:flex}.lvQYKa_crumbs{white-space:nowrap;align-items:center;gap:4px;min-width:0;display:flex;overflow:hidden}.lvQYKa_crumbSeg{align-items:center;gap:4px;min-width:0;display:inline-flex}.lvQYKa_crumbSep{color:var(--dsw-alias-label-caption);font-size:14px;line-height:20px}.lvQYKa_crumb{max-width:220px;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;cursor:pointer;background:0 0;border:none;border-radius:12px;padding:4px 8px;font-size:14px;line-height:20px;overflow:hidden}.lvQYKa_crumb:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.lvQYKa_crumbCurrent{color:var(--dsw-alias-label-primary);cursor:default;font-weight:500}.lvQYKa_headerActions{flex:none;align-items:center;gap:8px;display:flex}.lvQYKa_headerUtilities{flex:none;align-items:center;gap:8px;margin-left:20px;display:flex}.lvQYKa_headerUtilities:empty{display:none}.lvQYKa_tabs{z-index:1;gap:36px;margin-top:4px;padding-left:8px;display:flex;position:relative}.lvQYKa_tab{color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;padding:0 0 11px;font-size:13px;font-weight:500;line-height:16px;position:relative}.lvQYKa_tab:after{content:\"\";background:0 0;border-radius:2px;height:2px;position:absolute;bottom:1px;left:0;right:0}.lvQYKa_tabActive{color:var(--dsw-alias-state-business-primary)}.lvQYKa_tabActive:after{background:var(--dsw-alias-state-business-primary)}.lvQYKa_viewArea{flex-direction:column;flex:1;min-height:0;display:flex}.lvQYKa_composerStack{--dsh-composer-stack-gap:6px;gap:var(--dsh-composer-stack-gap);flex-direction:column;display:flex}.lvQYKa_composerSeat{--dsh-composer-text-max-height:336px;flex-direction:column;flex:none;display:flex}.lvQYKa_root[data-phase=active]{overflow:hidden}.lvQYKa_root[data-phase=active] .lvQYKa_header{flex:none}.lvQYKa_scrollBody{scrollbar-gutter:stable;flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.lvQYKa_root[data-phase=active] .lvQYKa_viewArea{flex:1 0 auto;min-height:auto}.lvQYKa_root[data-phase=active] .lvQYKa_composerSeat{z-index:7;background:linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px, var(--dsw-alias-bg-base) 36px);position:sticky;bottom:0}.lvQYKa_scrollBody:has([data-conversation-composer-overlay]){scrollbar-gutter:auto;position:relative;overflow:hidden auto}.lvQYKa_scrollBody:has([data-conversation-composer-overlay])>[data-slot=conversation\\.session]>.lvQYKa_viewArea{flex:1 1 0;min-height:0;overflow:hidden}.lvQYKa_scrollBody:has([data-conversation-composer-overlay])>.lvQYKa_composerSeat{right:var(--dsh-scrollbar-width);position:absolute;bottom:0;left:0}.lvQYKa_composerHero{width:min(calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance)), 100%);z-index:1;align-self:center;gap:8px;padding-bottom:32px;position:relative}.lvQYKa_heroGlow{z-index:-1;aspect-ratio:1051/468;pointer-events:none;width:135.438%;position:absolute;bottom:92px;left:50%;transform:translate(-50%,50%)}.lvQYKa_heroWorkspaceRow{align-items:center;gap:2px;min-width:0;margin-top:4px;padding-left:20px;display:flex}.lvQYKa_root[data-phase=hero] .lvQYKa_scrollBody{justify-content:center;overflow-y:auto}.lvQYKa_root[data-phase=settling] .lvQYKa_composerSeat{visibility:hidden}";
 		const tagId$6 = "@xharness/dsh-client-ui-conversation/ConversationRoot.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$6) + "]") === null) {
 			const tag = document.createElement("style");

@@ -11,6 +11,10 @@ import { patchGoalRuntime } from './patch-goal-runtime.mjs'
 import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
 import { patchCompactionRunningUi } from './patch-compaction-running-ui.mjs'
 import { patchConversationScrollFollow } from './patch-conversation-scroll-follow.mjs'
+import { patchPluginCenter } from './patch-plugin-center.mjs'
+import { patchProductBrandCopy } from './patch-product-brand-copy.mjs'
+import { patchAgentPresetUi } from './patch-agent-preset-ui.mjs'
+import { patchChatReadingWidth } from './patch-chat-reading-width.mjs'
 import { rewriteUiNamespace } from './rewrite-ui-namespace.mjs'
 import { UI_NAMESPACE, UPSTREAM_SOURCE_LABEL } from './ui-namespace.mjs'
 
@@ -124,6 +128,10 @@ for (const entry of composed) {
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchMaxTokensNotice(bytes)
   bytes = patchWorkspaceCreatedAt(entry.name, bytes)
   bytes = patchSettingsSaveFeedback(entry.name, bytes)
+  bytes = patchPluginCenter(entry.name, bytes)
+  bytes = patchProductBrandCopy(entry.name, bytes)
+  bytes = patchAgentPresetUi(entry.name, bytes)
+  bytes = patchChatReadingWidth(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchTranscriptWindowing(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchConversationScrollFollow(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchHistoryRetry(bytes)
@@ -136,6 +144,19 @@ for (const entry of composed) {
 // and immutable revisioning as upstream client packages, so a rebuild cannot
 // silently drop XHarness-only UI capabilities.
 const productPlugins = [
+  {
+    id: '@xlang/xharness-client-ui-plugin-hub',
+    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-plugin-hub/client.js'),
+    declaration: {
+      platform: 'web',
+      inject: [
+        '@deepseek-ai/dsh-client-runtime',
+        '@deepseek-ai/dsh-client-locale',
+        '@deepseek-ai/dsh-client-ui-layout',
+        '@deepseek-ai/dsh-client-ui-settings-plugins',
+      ],
+    },
+  },
   {
     id: '@xlang/xharness-client-ui-profile',
     source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-profile/client.js'),

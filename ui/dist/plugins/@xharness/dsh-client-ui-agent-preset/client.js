@@ -1645,26 +1645,15 @@ window.__ModuleLoader__.load({
 						seat.stage("cordis", true);
 						scope.workspaces.startSession();
 					};
-					const chip = scope.slots.register({
-						name: "conversation.hero.agentPreset",
-						locale: "settings.agentPreset",
-						inject: seatInjected
-					}, AgentPresetSeat);
-					const label = scope.slots.register({
-						name: "conversation.session.header.actions",
-						id: "agent-preset",
-						order: -10,
-						locale: "settings.agentPreset",
-						inject: labelInjected
-					}, AgentPresetLabel);
+					// The default agent is selected by the Host; no hero mode chooser.
+					// Agent preset is runtime state, not a persistent header control.
 					return () => {
 						stop();
 						settingsMoved();
 						presetSelected();
 						rosterReaders.delete(readRoster);
 						creatorDraft = void 0;
-						chip();
-						label();
+						// No agent-preset UI slots to dispose.
 					};
 				}, "ui-agent-preset: new-session chip and header label");
 			});
@@ -1696,21 +1685,8 @@ window.__ModuleLoader__.load({
 				remove: () => section.remove(),
 				makeDefault: (id) => section.makeDefault(id)
 			});
-			ctx.slots.inject("settings.general.item", () => ctx.slots.register({
-				name: "settings.general.item",
-				id: "agent-preset",
-				order: -25,
-				locale: "settings.agentPreset",
-				inject: injected
-			}, AgentPresetRow));
-			ctx.slots.inject("settings.section", () => ctx.slots.register({
-				name: "settings.section",
-				id: "agent-presets",
-				order: 20,
-				label: () => ctx.locale.bind("settings.agentPreset")("nav"),
-				locale: "settings.agentPreset",
-				inject: sectionInjected
-			}, AgentPresetSection));
+			// No agent-preset row in General settings.
+			// No dedicated Agent presets settings page.
 		}
 		//#endregion
 		exports.AGENT_PRESET_SETTINGS_NS = AGENT_PRESET_SETTINGS_NS;
