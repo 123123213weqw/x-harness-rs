@@ -21,6 +21,7 @@ members = [
     "crates/xharness-process",
     "crates/xharness-platform",
     "crates/xharness-plugins",
+    "crates/xharness-mcp",
     "crates/xharness-prompt",
     "crates/xharness-projection",
     "crates/xharness-sandbox",

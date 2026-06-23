@@ -15,6 +15,9 @@ use std::{
 };
 use tokio::sync::Mutex;
 
+mod mcp_config;
+pub use mcp_config::{McpServerPreview, McpServerSpec};
+
 const MAX_CATALOG: usize = 2 * 1024 * 1024;
 const MAX_ARCHIVE: usize = 64 * 1024 * 1024;
 const MAX_EXTRACTED: u64 = 128 * 1024 * 1024;
@@ -85,6 +88,10 @@ pub struct InstalledPlugin {
     pub description: String,
     pub digest: String,
     pub enabled: bool,
+    #[serde(default)]
+    pub mcp_enabled: bool,
+    #[serde(default)]
+    pub mcp_config_sha256: Option<String>,
     pub capabilities: Vec<String>,
     pub skills: Vec<SkillRecord>,
 }
@@ -292,6 +299,14 @@ impl PluginManager {
             extract_zip(bytes, &staging)?;
             let package_root = find_package_root(&staging)?;
             let capabilities = inspect_capabilities(&package_root, name)?;
+            let mcp_config_sha256 = if package_root.join(".mcp.json").is_file() {
+                Some(format!(
+                    "{:x}",
+                    Sha256::digest(fs::read(package_root.join(".mcp.json"))?)
+                ))
+            } else {
+                None
+            };
             let skills = discover_skills(&package_root)?;
             let published = self.root.join("packages").join(name).join(&digest);
             fs::create_dir_all(published.parent().unwrap())?;
@@ -304,6 +319,8 @@ impl PluginManager {
                 description: entry.description.clone(),
                 digest,
                 enabled: false,
+                mcp_enabled: false,
+                mcp_config_sha256,
                 capabilities,
                 skills,
             };
@@ -339,6 +356,96 @@ impl PluginManager {
         save_state(&self.root, &next)?;
         *state = next;
         Ok(result)
+    }
+    /// MCP authorization is separate from Skill enablement. This only persists
+    /// the user's explicit opt-in; no process is started until an agent needs it.
+    pub async fn set_mcp_enabled(
+        &self,
+        name: &str,
+        enabled: bool,
+    ) -> Result<InstalledPlugin, PluginError> {
+        valid_id(name)?;
+        let _mutation = self.mutation.lock().await;
+        let mut state = self.state.lock().await;
+        let mut next = state.clone();
+        let item = next
+            .installed
+            .get_mut(name)
+            .ok_or_else(|| PluginError::NotFound(name.into()))?;
+        if enabled {
+            self.parse_mcp_servers(item)?;
+        }
+        item.mcp_enabled = enabled;
+        let result = item.clone();
+        save_state(&self.root, &next)?;
+        *state = next;
+        Ok(result)
+    }
+    pub async fn mcp_preview(&self, name: &str) -> Result<Vec<McpServerPreview>, PluginError> {
+        valid_id(name)?;
+        let state = self.state.lock().await;
+        let item = state
+            .installed
+            .get(name)
+            .ok_or_else(|| PluginError::NotFound(name.into()))?;
+        self.parse_mcp_servers(item)
+            .map(|items| items.into_iter().map(|item| item.preview()).collect())
+    }
+    pub async fn enabled_mcp_plugins(&self) -> Vec<String> {
+        self.state
+            .lock()
+            .await
+            .installed
+            .values()
+            .filter(|item| item.mcp_enabled)
+            .map(|item| item.name.clone())
+            .collect()
+    }
+    pub async fn mcp_server(
+        &self,
+        plugin: &str,
+        server: &str,
+    ) -> Result<McpServerSpec, PluginError> {
+        valid_id(plugin)?;
+        if !mcp_config::valid_server_id(server) {
+            return Err(PluginError::Invalid("unsafe MCP server name".into()));
+        }
+        let state = self.state.lock().await;
+        let item = state
+            .installed
+            .get(plugin)
+            .filter(|item| item.mcp_enabled)
+            .ok_or_else(|| PluginError::NotFound(format!("MCP permission for {plugin}")))?;
+        self.parse_mcp_servers(item)?
+            .into_iter()
+            .find(|item| item.server == server)
+            .ok_or_else(|| PluginError::NotFound(format!("MCP server {server}")))
+    }
+    fn parse_mcp_servers(&self, item: &InstalledPlugin) -> Result<Vec<McpServerSpec>, PluginError> {
+        let expected = item.mcp_config_sha256.as_ref().ok_or_else(|| {
+            PluginError::Invalid(
+                "this installation has no verified .mcp.json; reinstall to enable MCP".into(),
+            )
+        })?;
+        let root = self
+            .root
+            .join("packages")
+            .join(&item.name)
+            .join(&item.digest);
+        let file = root.join(".mcp.json");
+        let metadata = fs::symlink_metadata(&file)?;
+        if !metadata.file_type().is_file() || metadata.len() > MAX_SKILL {
+            return Err(PluginError::Invalid(
+                "MCP config must be a bounded regular file".into(),
+            ));
+        }
+        let bytes = fs::read(&file)?;
+        if format!("{:x}", Sha256::digest(&bytes)) != *expected {
+            return Err(PluginError::Invalid(
+                "installed MCP config changed after verification".into(),
+            ));
+        }
+        mcp_config::parse(&item.name, &item.digest, &root, &bytes)
     }
     pub async fn uninstall(&self, name: &str) -> Result<(), PluginError> {
         valid_id(name)?;
@@ -803,6 +910,16 @@ fn validate_state(state: &State) -> Result<(), PluginError> {
                 "invalid installed plugin identity".into(),
             ));
         }
+        if item
+            .mcp_config_sha256
+            .as_ref()
+            .is_some_and(|hash| hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_hexdigit()))
+            || (item.mcp_enabled && item.mcp_config_sha256.is_none())
+        {
+            return Err(PluginError::Invalid(
+                "invalid installed MCP configuration identity".into(),
+            ));
+        }
         for skill in &item.skills {
             valid_id(&skill.name)?;
             if skill.sha256.len() != 64
@@ -910,6 +1027,8 @@ mod tests {
             zip.start_file("demo/references/checklist.md", options)
                 .unwrap();
             zip.write_all(b"Check CI before release.").unwrap();
+            zip.start_file("demo/.mcp.json", options).unwrap();
+            zip.write_all(br#"{"mcpServers":{"local":{"command":"node","args":["${CLAUDE_PLUGIN_ROOT}/server.js"]}}}"#).unwrap();
             zip.finish().unwrap();
         }
         let bytes = output.into_inner();
@@ -955,6 +1074,16 @@ mod tests {
             .unwrap();
         drop(state);
         assert!(!manager.installed().await[0].enabled);
+        assert!(!manager.installed().await[0].mcp_enabled);
+        assert_eq!(
+            manager.mcp_preview("demo").await.unwrap()[0].server,
+            "local"
+        );
+        manager.set_mcp_enabled("demo", true).await.unwrap();
+        assert_eq!(
+            manager.mcp_server("demo", "local").await.unwrap().command,
+            "node"
+        );
         assert!(manager.read_skill("demo", "ship").await.is_err());
         manager.set_enabled("demo", true).await.unwrap();
         assert!(manager
@@ -980,6 +1109,12 @@ mod tests {
         fs::write(skill_path, skill_text).unwrap();
         let restarted = PluginManager::open(root.clone()).unwrap();
         assert_eq!(restarted.enabled_skills().await.len(), 1);
+        assert_eq!(restarted.enabled_mcp_plugins().await, vec!["demo"]);
+        let mcp_path = root.join("packages/demo").join(&digest).join(".mcp.json");
+        let mcp_text = fs::read(&mcp_path).unwrap();
+        fs::write(&mcp_path, b"{}").unwrap();
+        assert!(restarted.mcp_server("demo", "local").await.is_err());
+        fs::write(mcp_path, mcp_text).unwrap();
         assert!(restarted
             .import_catalog_scoped(
                 &serde_json::json!({"plugins":[entry.clone()]}).to_string(),
@@ -1013,6 +1148,7 @@ mod tests {
             .unwrap();
         assert_eq!(restarted.updates().await[0].available_version, "2.0");
         restarted.set_enabled("demo", false).await.unwrap();
+        restarted.set_mcp_enabled("demo", false).await.unwrap();
         assert!(restarted.read_skill("demo", "ship").await.is_err());
         restarted.uninstall("demo").await.unwrap();
         assert!(PluginManager::open(root.clone())

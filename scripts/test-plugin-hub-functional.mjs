@@ -47,13 +47,18 @@ try {
           } else if (endpoint === 'plugins/install') {
             const source = store.catalog.find(item => item.name === args.name);
             store.installed = [{ name: source.name, version: source.version, description: source.description,
-              digest: source.source.sha256, enabled: false, capabilities: ['skills'], skills: [{ name: 'demo', description: 'Demo Skill' }] }];
+              digest: source.source.sha256, enabled: false, mcpEnabled: false, capabilities: ['skills', 'mcp'], skills: [{ name: 'demo', description: 'Demo Skill' }] }];
             value = { plugin: store.installed[0] };
           } else if (endpoint === 'plugins/enable' || endpoint === 'plugins/disable') {
             store.installed[0].enabled = endpoint === 'plugins/enable';
             value = { plugin: store.installed[0] };
           } else if (endpoint === 'plugins/uninstall') {
             store.installed = []; value = { ok: true };
+          } else if (endpoint === 'plugins/mcpPreview') {
+            value = { servers: [{ server: 'local', command: 'node', args: ['server.js'], envKeys: ['TOKEN'] }] };
+          } else if (endpoint === 'plugins/mcpEnable' || endpoint === 'plugins/mcpDisable') {
+            store.installed[0].mcpEnabled = endpoint === 'plugins/mcpEnable';
+            value = { plugin: store.installed[0] };
           } else throw Error('unexpected endpoint ' + endpoint);
           return { ok: true, value };
         }
@@ -74,9 +79,13 @@ try {
   await hub.getByRole('button', { name: 'Enable', exact: true }).first().click()
   await hub.getByRole('button', { name: 'Disable', exact: true }).first().waitFor()
   assert.equal(await page.evaluate(() => window.__fixture.installed[0].enabled), true)
+  await hub.getByText('demo', { exact: true }).first().click()
+  await hub.getByRole('button', { name: 'Allow MCP', exact: true }).click()
+  await hub.getByRole('button', { name: 'Disable MCP', exact: true }).waitFor()
+  assert.equal(await page.evaluate(() => window.__fixture.installed[0].mcpEnabled), true)
   assert.ok((await page.evaluate(() => window.__fixture.calls)).includes('plugins/enable'))
   assert.deepEqual(errors, [])
-  console.log('plugin hub functional: import, catalog scope, install, enable and refresh passed')
+  console.log('plugin hub functional: import, install, Skill enable, MCP consent and refresh passed')
 } finally {
   await browser.close()
 }
