@@ -21,7 +21,7 @@ use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
 use xharness_server::{serve, web_router_full, StartupReadiness};
 use xharness_session::Store;
-use xharness_session_jsonl::JsonlSessionStore;
+use xharness_session_jsonl::{JsonlSessionStore, RequestAuditMode};
 use xharness_terminal::TerminalRegistry;
 use xharness_web_terminal::terminal_routes;
 
@@ -169,7 +169,16 @@ async fn run(
     let leases_dir = args.state_dir.join("leases");
     let control_dir = args.state_dir.join("control");
     *failure_code = Some(StartupFailureCode::StateStore);
-    let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?.for_runtime());
+    let audit_mode = if args.debug_trace == DebugTraceMode::Full {
+        RequestAuditMode::Full
+    } else {
+        RequestAuditMode::MetadataOnly
+    };
+    let store: Arc<dyn Store> = Arc::new(
+        JsonlSessionStore::new(sessions_dir)?
+            .with_request_audit_mode(audit_mode)
+            .for_runtime(),
+    );
     let questions = DurableQuestionHub::new(store.clone(), ManagedAgentMarkdownSink::new());
     let schedules = ScheduleManager::new(Arc::clone(&store));
     let web = configured_web_runtime(env::var("EXA_API_KEY").ok(), debug.clone())?;
