@@ -172,7 +172,7 @@ window.__ModuleLoader__.load({
 									className: SidebarRoot_module_css_default.brandName,
 									children: renderSlot("sidebar.brand.name", {}, { fallback: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)("span", {
 										className: SidebarRoot_module_css_default.fallbackBrandName,
-										children: "DSH Local Build"
+										children: "XHarness"
 									}), (0, react_jsx_runtime.jsx)("span", {
 										className: SidebarRoot_module_css_default.buildRevision,
 										children: "141eb6f"
