@@ -346,6 +346,20 @@ async fn install_tool(request: &mut LoopRequest, tool: TestToolSpec) {
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
 
+fn transport_error(kind: &str) -> ProviderError {
+    let mut error = ProviderError::retryable("connection interrupted");
+    error.diagnostics = Some(Box::new(ProviderNetworkDiagnostics {
+        route: "https://model.example".into(),
+        kind: kind.into(),
+        elapsed_ms: 100,
+        received_chunks: 2,
+        received_bytes: 80,
+        last_chunk_ago_ms: Some(1),
+        protocol_completed: false,
+    }));
+    error
+}
+
 #[derive(Clone)]
 struct ScriptProvider {
     scripts: Arc<Mutex<VecDeque<Result<Script, ProviderError>>>>,
@@ -1410,6 +1424,246 @@ async fn retries_only_before_the_first_delta() {
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Failed);
     assert_eq!(provider.attempts(), 1);
+}
+
+#[tokio::test]
+async fn transport_cut_after_text_continues_in_the_same_turn_without_duplicate_text() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(ProviderEvent::TextDelta("first ".into())),
+            Err(transport_error("response_body")),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("second".into())),
+            Ok(completed()),
+        ],
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("network-auto-continue".into());
+    request.journal_store = Some(journal.clone());
+    request.config.provider_retry_base_delay_ms = 1;
+    request.config.provider_retry_jitter_percent = 0;
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(result.final_text, "first second");
+    assert_eq!(provider.attempts(), 2);
+    let requests = provider.requests();
+    assert!(requests[1]
+        .messages
+        .iter()
+        .any(|message| message.interrupted && message.content == "first "));
+    assert!(requests[1]
+        .messages
+        .iter()
+        .any(|message| message.role == Role::User
+            && message.content.contains("network transport failure")));
+    assert_eq!(
+        result
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::User)
+            .count(),
+        1
+    );
+    assert_eq!(
+        result
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::Assistant)
+            .count(),
+        2
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e.kind, LoopEventKind::ModelRetry { .. }))
+            .count(),
+        1
+    );
+    let session = journal
+        .load("network-auto-continue")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::AssistantMessage { message, .. }
+            if message.interrupted && message.content == "first "
+    )));
+}
+
+#[tokio::test]
+async fn transport_cut_after_reasoning_and_tool_fragment_never_replays_partial_tool() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(ProviderEvent::ReasoningDelta("thinking".into())),
+            Ok(tool_delta(0, "broken", "mutate", "{\"value\":")),
+            Err(transport_error("idle_timeout")),
+        ],
+        vec![
+            Ok(tool_delta(0, "fresh", "mutate", "{\"value\":2}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = executions.clone();
+    let tool = TestToolSpec::new("mutate", "test", json!({"type":"object"}), move |_, _| {
+        observed.fetch_add(1, Ordering::SeqCst);
+        async { ToolResult::success("ok") }
+    });
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.config.provider_retry_base_delay_ms = 1;
+    request.config.provider_retry_jitter_percent = 0;
+    install_tool(&mut request, tool).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.attempts(), 3);
+    assert_eq!(
+        result
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::Tool)
+            .count(),
+        1
+    );
+    assert!(result
+        .messages
+        .iter()
+        .any(|m| m.interrupted && m.reasoning == "thinking"));
+    assert!(!result
+        .messages
+        .iter()
+        .any(|m| m.tool_calls.iter().any(|c| c.provider_id() == "broken")));
+}
+
+#[tokio::test]
+async fn automatic_transport_continuation_is_bounded_and_http_is_not_continued() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(ProviderEvent::TextDelta("a".into())),
+            Err(transport_error("body")),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("b".into())),
+            Err(transport_error("body")),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("c".into())),
+            Err(transport_error("body")),
+        ],
+    ]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.config.provider_retry_base_delay_ms = 1;
+    request.config.provider_retry_jitter_percent = 0;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.attempts(), 3);
+    assert!(result.error.as_deref().unwrap().contains("请发送新消息"));
+    assert_eq!(result.final_text, "abc");
+
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("partial".into())),
+        Err(ProviderError::http(503, "unavailable")),
+    ]]));
+    let (_, result) = collect(LoopEngine.start(LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user("run")],
+    )))
+    .await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.attempts(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn partial_transport_backoff_is_cancellable_without_starting_a_new_request() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(ProviderEvent::TextDelta("partial".into())),
+            Err(transport_error("response_body")),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("not sent".into())),
+            Ok(completed()),
+        ],
+    ]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.config.provider_retry_jitter_percent = 0;
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::ModelRetry { .. }) {
+            break;
+        }
+    }
+    run.cancel();
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Cancelled);
+    assert_eq!(provider.attempts(), 1);
+    assert_eq!(result.final_text, "partial");
+    assert!(result
+        .messages
+        .iter()
+        .any(|m| m.interrupted && m.content == "partial"));
+}
+
+#[tokio::test]
+async fn partial_transport_budget_exhaustion_keeps_the_committed_answer() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("saved".into())),
+        Err(transport_error("response_body")),
+    ]]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.config.provider_retry_base_delay_ms = 100;
+    request.config.provider_retry_budget_ms = 10;
+    request.config.provider_retry_jitter_percent = 0;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert!(result.error.unwrap().contains("budget exhausted"));
+    assert_eq!(provider.attempts(), 1);
+    assert_eq!(result.final_text, "saved");
+    assert!(result
+        .messages
+        .iter()
+        .any(|m| m.interrupted && m.content == "saved"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn steering_during_partial_transport_backoff_discards_stale_continuation() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(ProviderEvent::TextDelta("partial".into())),
+            Err(transport_error("response_body")),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("new task".into())),
+            Ok(completed()),
+        ],
+    ]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.config.provider_retry_jitter_percent = 0;
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if matches!(event.kind, LoopEventKind::ModelRetry { .. }) {
+            break;
+        }
+    }
+    run.send(LoopCommand::Steer(AgentMessage::user("change direction")))
+        .await
+        .unwrap();
+    let (_, result) = collect(run).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.attempts(), 2);
+    let requests = provider.requests();
+    assert!(requests[1]
+        .messages
+        .iter()
+        .any(|m| m.content == "change direction"));
+    assert!(!requests[1]
+        .messages
+        .iter()
+        .any(|m| m.content.contains("network transport failure")));
 }
 
 #[tokio::test]
