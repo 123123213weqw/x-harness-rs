@@ -40,11 +40,14 @@ def verify(app=None):
     assert (ROOT / 'ui/desktop/startup.js').read_bytes() == (ROOT / 'ui/dist/desktop-startup.js').read_bytes(), 'stale startup instrumentation in ui/dist'
     directory_plugin = 'plugins/@xlang/xharness-client-ui-directory/client.js'
     computer_plugin = 'plugins/@xlang/xharness-client-ui-computer/client.js'
+    browser_plugin = 'plugins/@xlang/xharness-client-ui-browser/client.js'
     assert (ROOT / 'ui' / directory_plugin).read_bytes() == (ROOT / 'ui/dist' / directory_plugin).read_bytes(), 'stale directory flow in ui/dist'
     assert (ROOT / 'ui' / computer_plugin).read_bytes() == (ROOT / 'ui/dist' / computer_plugin).read_bytes(), 'stale computer privacy UI in ui/dist'
+    assert (ROOT / 'ui' / browser_plugin).read_bytes() == (ROOT / 'ui/dist' / browser_plugin).read_bytes(), 'stale browser UI in ui/dist'
     graph = json.loads((ROOT / 'ui/dist/client-graph.json').read_text(encoding='utf-8'))
     assert any(entry['id'] == '@xlang/xharness-client-ui-directory' for entry in graph['entries']), 'missing directory flow in boot graph'
     assert any(entry['id'] == '@xlang/xharness-client-ui-computer' for entry in graph['entries']), 'missing computer privacy UI in boot graph'
+    assert any(entry['id'] == '@xlang/xharness-client-ui-browser' for entry in graph['entries']), 'missing embedded browser in boot graph'
     manifest = (desktop / 'build.rs').read_text(encoding='utf-8')
     capability = json.loads((desktop / 'capabilities/desktop-main.json').read_text(encoding='utf-8'))
     assert 'desktop_set_computer_activity' in manifest, 'native computer activity command missing from desktop manifest'
@@ -66,6 +69,7 @@ def verify(app=None):
         for relative in ['index.html', 'client-graph.json', 'favicon.png', 'app-icon-512.png', 'manifest.webmanifest',
                          directory_plugin,
                          computer_plugin,
+                         browser_plugin,
                          'plugins/@xharness/dsh-client-connection/client.js',
                          'plugins/@xharness/dsh-client-ui-model-selection/client.js']:
             assert digest(web / relative) == digest(ROOT / 'ui/dist' / relative), f'packaged UI is stale: {relative}'
