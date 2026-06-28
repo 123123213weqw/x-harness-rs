@@ -7,8 +7,11 @@
 ## 插件中心（2026-09-27）
 
 - [x] `PLUGIN-HUB-01` Web 一级导航与内页落地：顶部搜索、已安装区域、公开／个人分类及真实空状态；不显示未接入的更新或安装入口，也不将静态 Client Loader 条目伪装为用户安装的插件。宽窄屏、标签切换、对齐与设置入口移除由 Node／浏览器回归覆盖。
-- [ ] `PLUGIN-HUB-02` Host 提供用户插件清单、安装包校验、来源和权限审查、启停与卸载的权威接口，Web 再解除安装入口和筛选禁用态。
-- [ ] `PLUGIN-HUB-03` 接入可信插件目录和更新检查；在清单接口完成前，公开／个人分类保持明确的未接入或空状态。
+- [x] `PLUGIN-HUB-02a` Host 提供用户插件目录、已安装清单、固定 SHA-256 ZIP 校验、能力元数据、Skill 启停与卸载；Web 使用真实 RPC 显示和操作，不把静态 Client Loader 当成用户插件。
+- [x] `PLUGIN-HUB-02b-stdio` 本地 MCP stdio：独立预览与显式启用、按会话惰性连接、按需发现 Tool、调用限额与取消、Host 退出清理；不随 Skill 启用隐式启动。
+- [ ] `PLUGIN-HUB-02b-remote` MCP HTTP/OAuth、Resources/Prompts，以及命令、Hook、Agent 的独立权限和运行时。
+- [x] `PLUGIN-HUB-03a` 可导入用户仓库 `marketplace.json`，目录重新导入后按摘要检查更新；私有 GitHub 凭据不进入安装包。
+- [ ] `PLUGIN-HUB-03b` 目录签名/授权发布、后台刷新及个人目录多来源管理。
 
 ## 每日 Token 使用档案（2026-09-27）
 
@@ -1094,8 +1097,9 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 
 ## P2 — 生态能力
 
-- [ ] `P2-07` **MCP Client。** Stdio/HTTP Transport、Lifecycle、Capability/Schema Import、
-  Cancellation、Approval/Policy Mapping、Namespace 和 Credential Isolation。
+- [ ] `P2-07` **MCP Client。** 本地 stdio Transport、生命周期、Tool Schema 按需导入、
+  Cancellation、Approval/Policy Mapping、Session Namespace 与显式环境变量隔离已完成；
+  剩余 HTTP/OAuth、Resources/Prompts、远端凭据和版本升级兼容验证。
 
 - [ ] `P2-08` **Skills。** 发现/加载有版本的 Instruction Package，显式 Scope 和 Token
   Budget；在 Request Header 中记录选中的 Skill Version。

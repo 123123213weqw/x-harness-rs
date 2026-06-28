@@ -1,0 +1,16 @@
+[package]
+name = "xharness-plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Durable, capability-scoped user plugin catalog and skill store"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+reqwest = { workspace = true, features = ["rustls-tls"] }
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
