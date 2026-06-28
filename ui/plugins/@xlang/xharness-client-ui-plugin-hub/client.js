@@ -75,7 +75,10 @@ window.__ModuleLoader__.load({
       async function toggleMcp(item) {
         if (!item.mcpEnabled) {
           const preview = await call('plugins/mcpPreview', { name: item.name })
-          const summary = (preview.servers ?? []).map(server => `${server.server}: ${server.command} ${(server.args ?? []).join(' ')}\nENV: ${(server.envKeys ?? []).join(', ')}`).join('\n')
+          const summary = (preview.servers ?? []).map(server => {
+            const bindings = Object.entries(server.envSources ?? {}).map(([key, source]) => `${key} ← ${source}`)
+            return `${server.server}: ${server.command} ${(server.args ?? []).join(' ')}\nENV: ${bindings.length ? bindings.join(', ') : (server.envKeys ?? []).join(', ')}`
+          }).join('\n')
           if (!window.confirm(`${t('confirmMcp')}\n${summary}`)) return
         }
         await call(`plugins/${item.mcpEnabled ? 'mcpDisable' : 'mcpEnable'}`, { name: item.name })

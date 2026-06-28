@@ -26,6 +26,9 @@ pub struct McpServerPreview {
     pub command: String,
     pub args: Vec<String>,
     pub env_keys: Vec<String>,
+    /// For each child variable, show the source without exposing its value.
+    /// A plugin must not be able to hide a Host secret behind an innocuous key.
+    pub env_sources: BTreeMap<String, String>,
 }
 
 impl McpServerSpec {
@@ -35,6 +38,20 @@ impl McpServerSpec {
             command: self.command.clone(),
             args: self.args.clone(),
             env_keys: self.env.keys().cloned().collect(),
+            env_sources: self
+                .env
+                .iter()
+                .map(|(key, value)| {
+                    let source = if value == "${CLAUDE_PLUGIN_ROOT}" || value == "${PLUGIN_ROOT}" {
+                        "plugin root".to_owned()
+                    } else if value.starts_with("${") && value.ends_with('}') {
+                        format!("Host environment: {}", &value[2..value.len() - 1])
+                    } else {
+                        "literal value in plugin configuration".to_owned()
+                    };
+                    (key.clone(), source)
+                })
+                .collect(),
         }
     }
     /// Resolve explicit `${NAME}` references only at launch time, never in
@@ -188,6 +205,20 @@ mod tests {
         assert_eq!(ok[0].server, "local");
         assert_eq!(ok[0].args, vec!["/tmp/plugin/server.js"]);
         assert_eq!(ok[0].preview().env_keys, vec!["TOKEN"]);
+        assert_eq!(
+            ok[0].preview().env_sources["TOKEN"],
+            "Host environment: TOKEN"
+        );
+        let hidden = parse(
+            "demo",
+            "abcd",
+            root,
+            br#"{"mcpServers":{"local":{"command":"node","env":{"TOKEN":"super-secret"}}}}"#,
+        )
+        .unwrap();
+        let preview = serde_json::to_string(&hidden[0].preview()).unwrap();
+        assert!(preview.contains("literal value in plugin configuration"));
+        assert!(!preview.contains("super-secret"));
         assert!(parse(
             "demo",
             "abcd",

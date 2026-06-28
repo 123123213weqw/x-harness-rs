@@ -4,8 +4,8 @@
 
 1. **导入目录**：插件中心“添加目录”选择 `marketplace.json`；当前“公开／个人”标签决定导入目录归属，两个目录分别保存。Host 校验条目名称、`https` ZIP 来源、固定 SHA-256 和重复项，再以版本化状态快照保存。目录 JSON 是索引，不是可执行代码；私有 GitHub 仓库的访问凭据不进入软件和前端。
 2. **安装**：用户选条目并确认来源和摘要。Host 检查 DNS 公网地址、禁用重定向、限制压缩包 64 MiB / 解压 128 MiB / 2048 项、防路径穿越与符号链接，下载后核对 SHA-256；检查 `.zcode-plugin/plugin.json` 或 `.claude-plugin/plugin.json` 的名称匹配，再暂存并发布。安装后默认**停用**。
-3. **启用与使用**：`skills/<name>/SKILL.md` 由 `plugin_skill` 按需列出、读取；每个文本文件不超过 64 KiB，插件脚本只作为文本返回、不由 Skill 运行时执行。`.mcp.json` 的本地 stdio 服务需**另行预览命令、参数、环境变量名并确认启用**；随后新一轮 Tool Registry 才注册 `plugin_mcp`。模型用 `list` 逐级列出插件、服务和简短 Tool 索引，再以 `describe` 读取单个 Tool Schema、`call` 调用；不把全部 Schema 塞入一个 Tool Result 或每个请求。旧轮次的 Tool 快照不被中途改写；执行前仍复核当前启用状态。
-4. **禁用、卸载、更新**：Skill 与 MCP 独立启停。禁用／卸载 MCP 会取消在途调用并关闭子进程；Host 退出也关闭全部 MCP 子进程。目录重新导入后按 SHA-256 比较产生更新提示。更新重新安装且默认停用，需再次检查、启用。
+3. **启用与使用**：`skills/<name>/SKILL.md` 由 `plugin_skill` 按需列出、读取；每个文本文件不超过 64 KiB，插件脚本只作为文本返回、不由 Skill 运行时执行。`.mcp.json` 的本地 stdio 服务需**另行预览命令、参数、环境变量目标名及来源名（不显示值）并确认启用**；随后新一轮 Tool Registry 才注册 `plugin_mcp`。模型用 `list` 逐级列出插件、服务和简短 Tool 索引，再以 `describe` 读取单个 Tool Schema、`call` 调用；不把全部 Schema 塞入一个 Tool Result 或每个请求。旧轮次的 Tool 快照不被中途改写；执行前复核当前启用状态，并使用可撤销租约阻止禁用与进程启动之间的竞态。
+4. **禁用、卸载、更新**：Skill 与 MCP 独立启停。禁用／卸载 MCP 会取消在途调用并关闭子进程；调用超时也会关闭对应子进程，空闲十分钟的会话连接自动回收，后续使用按需重连；Host 退出关闭全部 MCP 子进程。目录重新导入后按 SHA-256 比较产生更新提示。更新重新安装且默认停用，需再次检查、启用。
 5. **恢复**：状态写入不可变快照，启动读取最后一个有效版本；单个最新文件损坏可回退。插件状态若完全不可读，只让插件后端不可用，不阻断 Agent Host 启动。
 
 ### 私有 `xharness-plugins` 仓库导入
@@ -30,7 +30,7 @@ gh api -H 'Accept: application/vnd.github.raw+json' \
 
 ## 回归门槛
 
-- Rust：目录校验、非法 URL/IP、ZIP 路径穿越、SHA-256 失败、安装/启停/读取/重启/卸载、动态 Host RPC、真实 CDN 固定包测试；MCP 的 stdio 握手、发现、调用、跨会话隔离、配置篡改、在途取消和 Host 关闭。
+- Rust：目录校验、非法 URL/IP、ZIP 路径穿越、SHA-256 失败、安装/启停/读取/重启/卸载、动态 Host RPC、真实 CDN 固定包测试；MCP 的 stdio 握手、发现、调用、跨会话隔离、配置篡改、在途取消、禁用竞态、超时关闭、空闲回收和 Host 关闭。
 - Web：插件页源码与出厂 Bundle 同步、boot graph 校验、分类/搜索/操作入口测试。
 - **Rust 只在 WZU_Server 等远端运行 `cargo` 测试和检查**；本机只执行 `cargo fmt` 与 Node 测试。
 
