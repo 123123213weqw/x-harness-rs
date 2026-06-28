@@ -34,6 +34,14 @@ try {
     const CenterColumn=props=>React.createElement('div',{className:'center'},props.children);
     const DetailsColumn=props=>React.createElement('div',{className:'details'},props.children);
     const DragHandle=()=>null;
+    const xhWorkspaceWindow={set:async()=>0};
+    const xhWorkspaceEmpty={items:[],activeId:null};
+    const xhLoadBrowserSpaces=()=>({});
+    const xhSaveBrowserSpaces=()=>{};
+    const xhNextWorkspaceId=()=>0;
+    const xhWorkspaceOpen=(space,item)=>({items:[...space.items,item],activeId:item.id});
+    const xhWorkspaceClose=(space,id)=>({items:space.items.filter(item=>item.id!==id),activeId:null});
+    const XhWorkspacePane=()=>null;
     ${appFrame}
     const sessions={current:undefined,byId:{}};
     const panels={sidebar:0,details:0,narrow:false,narrowExpanded:false};
