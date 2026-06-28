@@ -147,6 +147,19 @@ fn tab_snapshot_path(app: &AppHandle) -> Result<PathBuf, String> {
         .join("browser-tabs.json"))
 }
 
+fn validate_tab_snapshot(snapshot: &str) -> Result<(), String> {
+    if snapshot.len() > MAX_TAB_SNAPSHOT_BYTES {
+        return Err("browser tab snapshot is too large".into());
+    }
+    if !serde_json::from_str::<serde_json::Value>(snapshot)
+        .map_err(|error| error.to_string())?
+        .is_object()
+    {
+        return Err("browser tab snapshot must be a JSON object".into());
+    }
+    Ok(())
+}
+
 /// Restore tab metadata from the app's stable config path, not origin-scoped
 /// localStorage (the authenticated Host selects a fresh loopback port).
 #[tauri::command]
@@ -156,14 +169,20 @@ pub async fn desktop_browser_restore(
 ) -> Result<Option<String>, String> {
     ensure_main(&caller)?;
     let path = tab_snapshot_path(&app)?;
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.len() > MAX_TAB_SNAPSHOT_BYTES as u64 => {
+            return Err("browser tab snapshot is too large".into())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+        _ => {}
+    }
     let snapshot = match std::fs::read_to_string(path) {
         Ok(snapshot) => snapshot,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.to_string()),
     };
-    if snapshot.len() > MAX_TAB_SNAPSHOT_BYTES {
-        return Err("browser tab snapshot is too large".into());
-    }
+    validate_tab_snapshot(&snapshot)?;
     Ok(Some(snapshot))
 }
 
@@ -174,15 +193,7 @@ pub async fn desktop_browser_persist(
     snapshot: String,
 ) -> Result<(), String> {
     ensure_main(&caller)?;
-    if snapshot.len() > MAX_TAB_SNAPSHOT_BYTES {
-        return Err("browser tab snapshot is too large".into());
-    }
-    if !serde_json::from_str::<serde_json::Value>(&snapshot)
-        .map_err(|error| error.to_string())?
-        .is_object()
-    {
-        return Err("browser tab snapshot must be a JSON object".into());
-    }
+    validate_tab_snapshot(&snapshot)?;
     let path = tab_snapshot_path(&app)?;
     let parent = path.parent().ok_or("invalid browser tab snapshot path")?;
     std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -453,7 +464,7 @@ pub fn close_all(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{safe_download_name, valid_tab_id, web_url, BrowserBounds};
+    use super::{safe_download_name, valid_tab_id, validate_tab_snapshot, web_url, BrowserBounds};
 
     #[test]
     fn only_web_pages_and_safe_tab_ids() {
@@ -500,5 +511,14 @@ mod tests {
     fn download_filename_cannot_escape_download_directory() {
         let url = url::Url::parse("https://example.com/path/evil%2Fname.zip").unwrap();
         assert!(!safe_download_name(&url).contains('/'));
+    }
+
+    #[test]
+    fn persisted_tabs_require_a_bounded_json_object() {
+        assert!(validate_tab_snapshot(r#"{"session":{"items":[]}}"#).is_ok());
+        for bad in ["[]", "null", "not json"] {
+            assert!(validate_tab_snapshot(bad).is_err());
+        }
+        assert!(validate_tab_snapshot(&"x".repeat(super::MAX_TAB_SNAPSHOT_BYTES + 1)).is_err());
     }
 }
