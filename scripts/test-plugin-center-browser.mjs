@@ -109,7 +109,7 @@ try {
       assert.equal(await hub.getByRole('button', { name: /Install from file|从文件安装/ }).count(), 0)
       assert.doesNotMatch(await hub.innerText(), /Extend what XHarness can do|扩展 XHarness 的能力/)
       await hub.getByRole('tab', { name: /Public|公开/ }).click()
-      await hub.getByText(/Plugin catalog is not connected yet|插件目录尚未接入/).waitFor()
+      await hub.getByText(/No plugin catalog imported|尚未导入插件目录/).waitFor()
       const tabAlignment = await hub.evaluate(element => {
         const tab = element.querySelector('#xhph-tab-public')
         const text = document.createRange()
@@ -124,7 +124,7 @@ try {
       assert.equal(await hub.locator('.xhph-symbol svg path').getAttribute('d'), pluginIconPath)
       const search = hub.getByRole('searchbox', { name: /Search plugins|搜索插件/ })
       await search.fill('nonexistent')
-      await hub.getByText(/No matching plugins|没有匹配的插件/).waitFor()
+      await hub.getByText(/No matching plugins|没有匹配的插件/).first().waitFor()
       await search.fill('')
       await hub.getByText(/No user plugins installed|还没有安装用户插件/).waitFor()
       assert.equal(await hub.locator('.xhph-detail, .xhph-left').count(), 0, 'no split-pane layout')
