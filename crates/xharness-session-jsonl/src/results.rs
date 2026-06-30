@@ -55,6 +55,14 @@ fn directory(root: &Path, session: &str, create: bool) -> Result<Option<PathBuf>
     Ok(Some(dir))
 }
 
+pub(super) fn delete(root: &Path, session: &str) -> Result<(), StoreError> {
+    let Some(dir) = directory(root, session, false)? else {
+        return Ok(());
+    };
+    fs::remove_dir_all(&dir).map_err(|e| backend_error("delete tool archives", &dir, e))?;
+    sync_parent_directory(&dir)
+}
+
 fn read_file(path: &Path, key: &str) -> Result<Option<String>, StoreError> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(m) => m,
