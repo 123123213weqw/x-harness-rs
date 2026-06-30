@@ -1,3 +1,4 @@
+mod browser;
 mod computer_activity;
 mod diagnostics;
 mod sidecar;
@@ -31,10 +32,20 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
+            {
+                // A full UI reload cannot run React unmount cleanup. Drop guest
+                // views now; persisted tab URLs are restored by the new page.
+                browser::close_all(webview.app_handle());
+            }
+        })
         .setup(|app| {
             let state = DesktopState::initialize(app.handle())?;
             app.manage(state);
             app.manage(computer_activity::DesktopComputerActivityState::default());
+            app.manage(browser::BrowserState::default());
             configure_linux_webview(app.handle());
             if app.state::<DesktopState>().diagnostics.incident() {
                 let _ = diagnostics::open(app.handle());
@@ -73,6 +84,13 @@ pub fn run() {
             updater::desktop_download_update,
             updater::desktop_install_update,
             computer_activity::desktop_set_computer_activity,
+            browser::desktop_browser_navigate,
+            browser::desktop_browser_activate,
+            browser::desktop_browser_bounds,
+            browser::desktop_browser_action,
+            browser::desktop_browser_close,
+            browser::desktop_browser_restore,
+            browser::desktop_browser_persist,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {
@@ -99,6 +117,7 @@ pub fn run() {
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 }
                 computer_activity::clear(&handle);
+                browser::close_all(&handle);
                 let _ = sidecar::graceful_stop(&handle).await;
                 handle.exit(0);
             });

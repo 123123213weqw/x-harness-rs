@@ -21,6 +21,9 @@ clone does not need the historical sibling `x-harness` checkout.
 - `desktop/updater.js`: Tauri-only updater bridge with separate download and confirmed restart/install. It is injected
   directly into product HTML and intentionally does not join the upstream
   client-module graph.
+- `plugins/@xlang/xharness-client-ui-browser/`: right-hand workspace browser
+  tabs. In the desktop app they control native child WebViews; in an ordinary
+  Web deployment they explicitly fall back to an external-browser link.
 
 The compiled bundle ships on the `@xharness/` scope: package ids, plugin
 directories, the boot manifest and the bundler-derived identifiers inside each
@@ -87,6 +90,27 @@ blocked. This is not cross-device or durable across desktop port changes.
 An unavailable remembered path falls back to the overview; hosts without the
 overview extension fall back to Home. Typed paths, including UNC paths, remain
 available. Clicking Drives and locations refreshes attached drive letters.
+
+## Embedded desktop browser
+
+`apps/desktop/src-tauri/src/browser.rs` owns independent Tauri child WebViews
+for HTTP(S) pages. `workspace-pane.js` owns placement and tabs; the browser
+plugin only controls URL/navigation and reports page events. The desktop
+capability is scoped to the `main` **WebView**, not the whole window, so visited
+pages cannot invoke Host/updater IPC. Native browser storage uses a dedicated
+`browser-webviews` directory; tab URLs/titles are persisted per conversation in
+the app config directory (not the Host's changing loopback origin), but page
+bodies are not saved. At most 16 native views stay live; older hidden views are
+suspended and recreated from their URL when selected. Downloads go to the OS Downloads directory with
+unique filenames. Popups become workspace browser tabs. Closing a tab closes
+its native WebView; switching chats hides it without losing page state.
+
+`scripts/sync-browser-ui.mjs` refreshes the checked-in layout and plugin for a
+preview; `scripts/assemble-static-ui.mjs` applies the same patch on a fresh UI
+build. Both require the source, generated plugin, graph, and HTML to be committed
+together. Run `node scripts/test-browser-ui.mjs` plus both Chromium and WebKit
+`test-browser-*-browser.mjs` / `test-browser-native-bridge.mjs`. Rust checks and
+tests run on the configured remote build server per `AGENTS.md`.
 
 ## Context Inspector
 
