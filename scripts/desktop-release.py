@@ -51,7 +51,7 @@ RECEIPT_FIELDS = (PLAN_FIELDS - {'endpoint'}) | {
     'public_key_sha256', 'binary_sha256', 'embedded_endpoint', 'identifier'}
 UNIX_CHECKS = {'signatureVerified', 'unavailableFeedRejected', 'concurrentCheckRejected',
                'tamperedPackageRejected', 'unconfirmedInstallRejected', 'exactCandidateInstalled',
-               'restartVerified', 'dataPreserved', 'persistedSessionRestored', 'nativeLaunchVerified'}
+               'restartVerified', 'dataPreserved', 'persistedSessionCatalogued', 'nativeLaunchVerified'}
 PLATFORM_CHECKS = {
     'windows-x86_64': {'signature', 'install', 'launch', 'update', 'state-preservation',
                        'embedded-channel', 'corrupt-package-rejected', 'confirmation-required'},

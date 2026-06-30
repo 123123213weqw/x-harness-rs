@@ -440,7 +440,7 @@ def validated_snapshot_inventory(before):
     return inventory
 
 
-def restored_candidate(root, ready, before):
+def catalogued_candidate(root, ready, before):
     inventory = validated_snapshot_inventory(before)
     require(session_inventory(root) == inventory, 'Session inventory changed across update')
     for trace in (root / 'trace').glob('*/events.jsonl'):
@@ -449,14 +449,20 @@ def restored_candidate(root, ready, before):
         if not any(event['payload'].get('readyFile') == str(ready) and
                    event['payload'].get('stateDir') == str(root / 'state') for event in starts):
             continue
-        restores = [event['payload'] for event in events if event.get('layer') == 'host' and event.get('event') == 'restore']
-        # Host restore enumerates every persisted journal before readiness.
-        # An untouched UI may also create a default session in the BASE; bind
-        # the count to the stopped Host's exact inventory, never a fixed 1 or >=1.
-        if any(type(event.get('restoredSessions')) is int and event['restoredSessions'] == len(inventory) and
-               event.get('issues') == [] for event in restores):
+        catalogues = [event['payload'] for event in events if event.get('layer') == 'host' and event.get('event') == 'restore']
+        # Ready now precedes the complete background catalogue. Idle histories
+        # are intentionally loaded on demand, so the old restoredSessions
+        # counter cannot prove update success. Match the completed catalogue
+        # against the exact stopped journal inventory instead.
+        if any(event.get('catalogueComplete') is True and
+               type(event.get('cataloguedSessions')) is int and event['cataloguedSessions'] == len(inventory) and
+               type(event.get('catalogueIssues')) is int and event['catalogueIssues'] == 0 and
+               type(event.get('indexedRecovery')) is int and
+               type(event.get('resumedSessions')) is int and
+               0 <= event['resumedSessions'] <= event['indexedRecovery'] <= len(inventory)
+               for event in catalogues):
             return {'trace': str(trace.relative_to(root)), 'sha256': digest(trace),
-                    'restoredSessions': len(inventory), 'issues': [],
+                    'cataloguedSessions': len(inventory), 'catalogueIssues': 0,
                     'sessionInventory': inventory, 'knownSession': SESSION}
     return None
 
@@ -512,15 +518,14 @@ def update_diagnostics(root, process, config, receipt):
             if event.get('layer') != 'host':
                 continue
             fields = {'start': ('readyFile', 'stateDir', 'workspace', 'desktopMode'),
-                      'restore': ('restoredSessions', 'issues'), 'exit': ('outcome',)}.get(event.get('event'))
+                      'restore': ('catalogueComplete', 'cataloguedSessions', 'catalogueIssues',
+                                  'indexedRecovery', 'resumedSessions', 'deferredLegacySessions'),
+                      'exit': ('outcome',)}.get(event.get('event'))
             if fields:
                 payload = {key: event['payload'].get(key) for key in fields}
                 for key in ('readyFile', 'stateDir', 'workspace'):
                     if key in payload:
                         payload[key] = safe_path(payload[key])
-                if 'issues' in payload:
-                    issues = payload.pop('issues')
-                    payload['issueCount'] = len(issues) if isinstance(issues, list) else None
                 lifecycle.append({'event': event['event'], 'payload': payload})
         result['hostLifecycle'].append({'trace': str(path.relative_to(root)), 'events': lifecycle})
     if sys.platform == 'linux' and process is not None:
@@ -822,14 +827,14 @@ def candidate_update(args):
                     before = confirmed[-1]
                     ready = healthy_ready(root, before['readyFiles'])
                     if ready and exact():
-                        replay = restored_candidate(root, ready[0], before)
+                        replay = catalogued_candidate(root, ready[0], before)
                         if replay:
                             break
                 code = process.poll()
                 require(code is None or (code == 0 and confirmed), 'Base exited before confirmed installation')
                 time.sleep(.25)
             else:
-                raise TimeoutError('Updater failed to install/restart/replay the exact candidate within deadline')
+                raise TimeoutError('Updater failed to install/restart/catalogue the exact candidate within deadline')
         require(before is not None and replay is not None, 'Missing restart evidence')
         journal = root / 'state/sessions' / (SESSION + '.jsonl')
         require(journal.read_bytes() == base64.b64decode(before['journalBase64']), 'Session journal changed across update')
@@ -848,7 +853,7 @@ def candidate_update(args):
         checks.update(unavailableFeedRejected=True, concurrentCheckRejected=True,
             tamperedPackageRejected=True, unconfirmedInstallRejected=True,
             exactCandidateInstalled=True, restartVerified=True, dataPreserved=True,
-            persistedSessionRestored=True, nativeLaunchVerified=True)
+            persistedSessionCatalogued=True, nativeLaunchVerified=True)
         if args.platform.startswith('darwin-'):
             checks.update(native_signature(installed, receipt['version'], root,
                           preview=args.rehearsal or _release.macos_preview(receipt)))
