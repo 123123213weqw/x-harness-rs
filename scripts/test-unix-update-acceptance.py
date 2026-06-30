@@ -229,7 +229,7 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
                        env={**os.environ, 'XHARNESS_REHEARSAL_ROOT': str(root)})
         return json.loads(output.stdout)
 
-    def test_replay_requires_new_host_exact_inventory_and_successful_restore(self):
+    def test_replay_requires_new_host_exact_inventory_and_complete_catalogue(self):
         root = self.root()
         m.create_data(root)
         journals = root / 'state/sessions'
@@ -240,33 +240,41 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         events = trace / 'events.jsonl'
         ready = root / 'cache/new.address'
         start = {'layer': 'host', 'event': 'start', 'payload': {'readyFile': str(ready), 'stateDir': str(root / 'state')}}
-        restore = {'layer': 'host', 'event': 'restore', 'payload': {'restoredSessions': 1, 'issues': []}}
+        restore = {'layer': 'host', 'event': 'restore', 'payload': {
+            'catalogueComplete': True, 'cataloguedSessions': 1, 'catalogueIssues': 0,
+            'indexedRecovery': 0, 'resumedSessions': 0}}
         before = self.stopped_session_snapshot(root)
         events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
-        self.assertEqual(m.restored_candidate(root, ready, before)['restoredSessions'], 1)
-        self.assertIsNone(m.restored_candidate(root, root / 'old.address', before))
+        self.assertEqual(m.catalogued_candidate(root, ready, before)['cataloguedSessions'], 1)
+        self.assertIsNone(m.catalogued_candidate(root, root / 'old.address', before))
         start['payload']['stateDir'] = str(root / 'wrong-state')
         events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
-        self.assertIsNone(m.restored_candidate(root, ready, before))
+        self.assertIsNone(m.catalogued_candidate(root, ready, before))
         start['payload']['stateDir'] = str(root / 'state')
 
         # CI reproduced an untouched UI-created second session. Require all
         # journals, not count == 1 and not the too-permissive count >= 1.
         (journals / 'ui-created-session.jsonl').write_text('synthetic UI journal\n')
         before = self.stopped_session_snapshot(root)
-        restore['payload']['restoredSessions'] = 2
+        restore['payload']['cataloguedSessions'] = 2
         events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
-        replay = m.restored_candidate(root, ready, before)
-        self.assertEqual(replay['restoredSessions'], 2)
+        replay = m.catalogued_candidate(root, ready, before)
+        self.assertEqual(replay['cataloguedSessions'], 2)
         self.assertEqual(replay['knownSession'], m.SESSION)
         self.assertEqual(replay['sessionInventory'], before['sessionInventory'])
         for incorrect in (0, 1, 3, True, None):
-            restore['payload']['restoredSessions'] = incorrect
+            restore['payload']['cataloguedSessions'] = incorrect
             events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
-            self.assertIsNone(m.restored_candidate(root, ready, before))
-        restore['payload'].update(restoredSessions=2, issues=['corrupt journal'])
+            self.assertIsNone(m.catalogued_candidate(root, ready, before))
+        restore['payload'].update(cataloguedSessions=2, catalogueIssues=1)
         events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
-        self.assertIsNone(m.restored_candidate(root, ready, before))
+        self.assertIsNone(m.catalogued_candidate(root, ready, before))
+        restore['payload'].update(catalogueIssues=0, catalogueComplete=False)
+        events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
+        self.assertIsNone(m.catalogued_candidate(root, ready, before))
+        restore['payload'].update(catalogueComplete=True, indexedRecovery=1, resumedSessions=2)
+        events.write_text(json.dumps(start) + '\n' + json.dumps(restore) + '\n')
+        self.assertIsNone(m.catalogued_candidate(root, ready, before))
 
     def test_snapshot_inventory_rejects_lost_changed_or_unbound_known_session(self):
         root = self.root()
@@ -292,10 +300,10 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
                 m.validated_snapshot_inventory(invalid)
         known.write_text('changed bytes\n')
         with self.assertRaisesRegex(ValueError, 'inventory changed'):
-            m.restored_candidate(root, root / 'ready.address', before)
+            m.catalogued_candidate(root, root / 'ready.address', before)
         known.unlink()
         with self.assertRaisesRegex(ValueError, 'inventory changed'):
-            m.restored_candidate(root, root / 'ready.address', before)
+            m.catalogued_candidate(root, root / 'ready.address', before)
         known.symlink_to(root / 'state/preserved.txt')
         with self.assertRaisesRegex(ValueError, 'non-regular journal'):
             m.session_inventory(root)
@@ -392,7 +400,9 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
             {'layer': 'host', 'event': 'start', 'payload': {'stateDir': str(root / 'state'),
                 'readyFile': str(root / 'cache/ready-new.address'), 'workspace': str(root / 'workspace'),
                 'desktopMode': True, 'token': 'DO-NOT-EXPORT'}},
-            {'layer': 'host', 'event': 'restore', 'payload': {'restoredSessions': 1, 'issues': []}},
+            {'layer': 'host', 'event': 'restore', 'payload': {'catalogueComplete': True,
+                'cataloguedSessions': 1, 'catalogueIssues': 0,
+                'indexedRecovery': 0, 'resumedSessions': 0}},
             {'layer': 'provider', 'event': 'credential', 'payload': {'apiKey': 'DO-NOT-EXPORT'}},
         ]
         (trace / 'events.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in records))
@@ -404,7 +414,7 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         self.assertEqual(len(result['hostLifecycle'][0]['events']), 2)
         self.assertNotIn('DO-NOT-EXPORT', json.dumps(result))
         self.assertNotIn(str(root), json.dumps(result))
-        self.assertEqual(result['hostLifecycle'][0]['events'][1]['payload']['issueCount'], 0)
+        self.assertEqual(result['hostLifecycle'][0]['events'][1]['payload']['catalogueIssues'], 0)
         self.assertIsNone(result['healthyReady'])
         self.assertIsNone(result['launcherExitCode'])
 

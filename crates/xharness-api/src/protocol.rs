@@ -576,6 +576,16 @@ pub struct WorkspaceView {
 pub struct WorkspaceListResponse {
     pub items: Vec<WorkspaceView>,
     pub archived_session_ids: Vec<String>,
+    #[serde(default)]
+    pub archived_sessions: Vec<ArchivedSessionSummary>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivedSessionSummary {
+    pub session_id: String,
+    pub title: Option<String>,
+    pub updated_at: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -834,6 +844,8 @@ typed_rpc_catalog! {
     WorkspaceInsertBefore => (WorkspaceInsertBeforeParams, WorkspaceOrderResponse),
     WorkspaceInsertSessionBefore => (WorkspaceInsertSessionBeforeParams, WorkspaceResponse),
     WorkspaceArchiveSession => (SessionIdParams, ArchivedSessionsResponse),
+    WorkspaceUnarchiveSession => (SessionIdParams, ArchivedSessionsResponse),
+    SessionDelete => (SessionIdParams, DeletedResponse),
     SkillList => (SessionIdParams, SkillListResponse),
     AgentPresetList => (EmptyParams, AgentPresetListResponse),
     AgentPresetSelect => (AgentPresetSelectParams, AgentPresetResponse),

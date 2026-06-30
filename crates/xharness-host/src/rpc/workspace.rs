@@ -7,6 +7,7 @@
 use std::collections::BTreeSet;
 
 use serde_json::{json, Value};
+use xharness_api::protocol::ArchivedSessionSummary;
 use xharness_api::{RpcError, RpcErrorCode, RpcId, RpcMethod};
 
 use crate::{
@@ -35,6 +36,7 @@ pub(super) async fn call(
             insert_session_before(host, rpc_id, payload).await
         }
         RpcMethod::WorkspaceArchiveSession => archive_session(host, rpc_id, payload).await,
+        RpcMethod::WorkspaceUnarchiveSession => unarchive_session(host, rpc_id, payload).await,
         _ => unreachable!("workspace adapter received non-workspace method {method}"),
     }
 }
@@ -177,12 +179,46 @@ async fn archive_session(
     .await
 }
 
+async fn unarchive_session(
+    host: &BasicHost,
+    rpc_id: RpcId,
+    payload: &Value,
+) -> Result<Value, RpcError> {
+    let _control_guard = host.control_gate.lock().await;
+    if let Some(response) = host
+        .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceUnarchiveSession, payload)
+        .await?
+    {
+        return Ok(response);
+    }
+    let session_id = required_string(payload, "sessionId")?;
+    let mutation = WorkspaceProcessor::new(snapshot(host).await).unarchive_session(&session_id)?;
+    commit(
+        host,
+        rpc_id,
+        RpcMethod::WorkspaceUnarchiveSession,
+        payload,
+        mutation,
+    )
+    .await
+}
+
 async fn snapshot(host: &BasicHost) -> WorkspaceStateView {
     let state = host.state.read().await;
     WorkspaceStateView {
         workspaces: state.workspaces.clone(),
         workspace_order: state.workspace_order.clone(),
         archived_sessions: state.archived_sessions.clone(),
+        archived_summaries: state
+            .archived_sessions
+            .iter()
+            .filter_map(|id| state.sessions.get(id))
+            .map(|session| ArchivedSessionSummary {
+                session_id: session.session_id.clone(),
+                title: session.title.clone(),
+                updated_at: session.updated_at,
+            })
+            .collect(),
         session_ids: state.sessions.keys().cloned().collect::<BTreeSet<_>>(),
     }
 }

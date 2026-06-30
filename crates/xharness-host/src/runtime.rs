@@ -549,6 +549,11 @@ pub trait AgentRuntime: Send + Sync + 'static {
         false
     }
 
+    /// Called only after a durable Host tombstone fences new admissions.
+    async fn delete_session_data(&self, _session_id: &str) -> Result<(), AgentRuntimeError> {
+        Ok(())
+    }
+
     /// Load one immutable authoritative cut. Ephemeral runtimes return `None`;
     /// durable runtimes return the current Session when it has been created.
     async fn authoritative_session(
@@ -1276,6 +1281,14 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
+    async fn delete_session_data(&self, session_id: &str) -> Result<(), AgentRuntimeError> {
+        self.store
+            .delete_session_data(session_id)
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: format!("could not delete durable session {session_id:?}: {error}"),
+            })
+    }
     fn bind_host(&self, host: std::sync::Weak<crate::BasicHost>) {
         let _ = self.goals.host.set(host);
     }

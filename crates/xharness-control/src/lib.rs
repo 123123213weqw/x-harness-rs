@@ -89,6 +89,7 @@ pub enum ControlEvent {
     WorkspaceRemoved { workspace_id: String },
     WorkspaceOrderSet { workspace_ids: Vec<String> },
     ArchivedSessionsSet { session_ids: Vec<String> },
+    SessionDeleted { session_id: String },
     SettingsSet { settings: SettingsSnapshot },
     MutationCommitted { receipt: MutationReceipt },
 }
@@ -123,6 +124,7 @@ pub struct ControlProjection {
     pub removed_workspaces: BTreeSet<String>,
     pub workspace_order: Option<Vec<String>>,
     pub archived_sessions: Option<Vec<String>>,
+    pub deleted_sessions: BTreeSet<String>,
     pub settings: BTreeMap<String, SettingsSnapshot>,
     pub receipts: BTreeMap<String, MutationReceipt>,
 }
@@ -278,6 +280,10 @@ impl ControlProjection {
                 ControlEvent::ArchivedSessionsSet { session_ids } => {
                     require_unique_nonempty(session_ids, "archived session list")?;
                     projection.archived_sessions = Some(session_ids.clone());
+                }
+                ControlEvent::SessionDeleted { session_id } => {
+                    require_nonempty(session_id, "deleted session id")?;
+                    projection.deleted_sessions.insert(session_id.clone());
                 }
                 ControlEvent::SettingsSet { settings } => {
                     require_nonempty(&settings.namespace, "settings namespace")?;
