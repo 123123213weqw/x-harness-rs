@@ -155,6 +155,7 @@ impl BasicHost {
         let model_settings_error = if initialize {
             self.start_background_turn_listener();
             self.restore_control_state().await?;
+            self.finish_deleted_session_cleanup(&store).await?;
             // Persisted model overrides and credentials must be activated before
             // any recovered input is admitted. Bootstrap registries may be empty.
             let model_settings_error = self.refresh_model_settings().await.err();
@@ -199,6 +200,15 @@ impl BasicHost {
         let mut failed_resumes = BTreeSet::new();
 
         for header in headers {
+            if self
+                .state
+                .read()
+                .await
+                .deleted_sessions
+                .contains(&header.id)
+            {
+                continue;
+            }
             if selected.is_some_and(|ids| !ids.contains(&header.id)) {
                 continue;
             }
@@ -648,6 +658,7 @@ impl BasicHost {
     ) -> Result<(), HostRestoreError> {
         self.start_background_turn_listener();
         self.restore_control_state().await?;
+        self.finish_deleted_session_cleanup(&store).await?;
         let model_settings_error = self.refresh_model_settings().await.err();
         if model_settings_error.is_some() {
             if let Some(backend) = self.model_settings.get() {
@@ -657,6 +668,29 @@ impl BasicHost {
         self.reload_control_projection().await?;
         self.state.write().await.model_settings_error = model_settings_error;
         let _ = self.lazy_store.set(store);
+        Ok(())
+    }
+
+    async fn finish_deleted_session_cleanup(
+        &self,
+        store: &Arc<dyn Store>,
+    ) -> Result<(), HostRestoreError> {
+        let deleted = self
+            .state
+            .read()
+            .await
+            .deleted_sessions
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in deleted {
+            store.delete_session_data(&id).await?;
+            self.config
+                .attachment_store
+                .delete_session_data(&id)
+                .await
+                .map_err(|error| HostRestoreError::CatalogueWorker(error.to_string()))?;
+        }
         Ok(())
     }
 
@@ -710,6 +744,15 @@ impl BasicHost {
                 }
             };
             let session_id = header.id.clone();
+            if self
+                .state
+                .read()
+                .await
+                .deleted_sessions
+                .contains(&session_id)
+            {
+                continue;
+            }
             // A user can create a session while discovery is still running.
             // The durable in-memory record already owns that identity.
             if self.state.read().await.sessions.contains_key(&session_id) {

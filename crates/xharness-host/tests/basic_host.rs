@@ -252,6 +252,76 @@ struct Fixture {
     next_rpc: u64,
 }
 
+#[tokio::test]
+async fn archived_session_restores_same_identity_and_delete_rejects_live_or_parent() {
+    let mut fx = Fixture::new();
+    let parent = fx.value(RpcMethod::SessionCreate, json!({})).await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fx.value(
+        RpcMethod::SessionRename,
+        json!({"sessionId": parent, "title": "Archive test"}),
+    )
+    .await;
+    let live_delete = fx
+        .call(RpcMethod::SessionDelete, json!({"sessionId": parent}))
+        .await;
+    assert!(matches!(live_delete, RpcResult::Failure { .. }));
+    fx.value(
+        RpcMethod::WorkspaceArchiveSession,
+        json!({"sessionId": parent}),
+    )
+    .await;
+    let workspaces = fx.value(RpcMethod::WorkspaceList, json!({})).await;
+    assert!(workspaces["archivedSessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| { item["sessionId"] == parent && item["title"] == "Archive test" }));
+    fx.value(
+        RpcMethod::WorkspaceUnarchiveSession,
+        json!({"sessionId": parent}),
+    )
+    .await;
+    let listed = fx.value(RpcMethod::SessionList, json!({})).await;
+    assert!(listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["sessionId"] == parent));
+    let child = fx
+        .value(RpcMethod::SessionFork, json!({"sessionId": parent}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fx.value(
+        RpcMethod::WorkspaceArchiveSession,
+        json!({"sessionId": parent}),
+    )
+    .await;
+    let parent_delete = fx
+        .call(RpcMethod::SessionDelete, json!({"sessionId": parent}))
+        .await;
+    assert!(matches!(parent_delete, RpcResult::Failure { .. }));
+    fx.value(
+        RpcMethod::WorkspaceArchiveSession,
+        json!({"sessionId": child}),
+    )
+    .await;
+    fx.value(RpcMethod::SessionDelete, json!({"sessionId": child}))
+        .await;
+    fx.value(RpcMethod::SessionDelete, json!({"sessionId": parent}))
+        .await;
+    let listed = fx.value(RpcMethod::SessionList, json!({})).await;
+    assert!(!listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["sessionId"] == parent));
+}
+
 impl Fixture {
     fn new() -> Self {
         Self::new_at(
@@ -1647,6 +1717,11 @@ async fn every_upstream_rpc_has_baseline_behavior() {
     )
     .await;
     fx.value(
+        RpcMethod::WorkspaceUnarchiveSession,
+        json!({"sessionId": child_id}),
+    )
+    .await;
+    fx.value(
         RpcMethod::AgentPresetRemove,
         json!({"agentPreset": "fixture"}),
     )
@@ -1672,6 +1747,18 @@ async fn every_upstream_rpc_has_baseline_behavior() {
         .await
         .unwrap();
     assert!(export.bytes.starts_with(b"{"));
+
+    let delete_id = fx.value(RpcMethod::SessionCreate, json!({})).await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fx.value(
+        RpcMethod::WorkspaceArchiveSession,
+        json!({"sessionId": delete_id}),
+    )
+    .await;
+    fx.value(RpcMethod::SessionDelete, json!({"sessionId": delete_id}))
+        .await;
 
     assert_eq!(fx.invoked.len(), RpcMethod::ALL.len());
     assert!(RpcMethod::ALL
