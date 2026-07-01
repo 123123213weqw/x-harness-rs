@@ -291,6 +291,7 @@ window.__ModuleLoader__.load({
 		* @returns the trigger and, while open, the two-level menu.
 		*/
 		// XHARNESS NESTED CONTEXT MENU
+		// XHARNESS UPSTREAM UI EXPERIENCE 0.1.7-rc.2
 		function ModelSelect({ locked, available, directory, load, select, t }) {
 			const state = (0, react.useSyncExternalStore)((fn) => directory.subscribe(fn), () => directory.getSnapshot());
 			const [open, setOpen] = (0, react.useState)(false);
@@ -453,6 +454,7 @@ window.__ModuleLoader__.load({
 						"aria-expanded": open,
 						"aria-controls": open ? `${id}-menu` : void 0,
 						title: triggerLabel,
+						"aria-busy": busy || void 0,
 						disabled: locked,
 						onClick: () => {
 							if (open) close();
@@ -463,7 +465,7 @@ window.__ModuleLoader__.load({
 								className: ModelSelect_module_css_default.triggerLabel,
 								children: modelLabel
 							}),
-							null,
+							busy ? (0, react_jsx_runtime.jsx)("span", { role: "status", "aria-live": "polite", className: "xh-model-switching", children: (document.documentElement.lang || "").startsWith("zh") ? "切换中…" : "Switching…" }) : null,
 							(0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconChevronDownOutline14, { className: clsx(ModelSelect_module_css_default.chevron, open && ModelSelect_module_css_default.chevronOpen) })
 						]
 					}),
@@ -474,6 +476,7 @@ window.__ModuleLoader__.load({
 						"aria-label": pane === "context" ? "调整上下文容量" : t("menu.aria"),
 						"aria-busy": state.status === "loading" || busy,
 						children: [
+							busy && (0, react_jsx_runtime.jsx)("div", { role: "status", "aria-live": "polite", className: ModelSelect_module_css_default.status, children: (document.documentElement.lang || "").startsWith("zh") ? "正在切换模型…" : "Switching model…" }),
 							pane === "root" && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsxs)("button", {
 								ref: itemRef(),
 								type: "button",

@@ -1,5 +1,5 @@
 {
-  "rev": "7a7dc329edd6607b",
+  "rev": "b2b45e12ab2bf021",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -145,6 +145,15 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-experience",
+      "url": "/plugins/@xlang/xharness-client-ui-experience/client.js?rev=e01442f6f9130e0d",
+      "rev": "e01442f6f9130e0d",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-settings"
+      ]
+    },
+    {
       "id": "@xharness/dsh-client-ui-settings-general",
       "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=2cd700027f3368fb",
       "rev": "2cd700027f3368fb",
@@ -181,8 +190,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-conversation",
-      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=80d5c0e25a690ccd",
-      "rev": "80d5c0e25a690ccd",
+      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=840c1cf37601b5a2",
+      "rev": "840c1cf37601b5a2",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -222,8 +231,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-tool",
-      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=5eb28f3cc42e2ac9",
-      "rev": "5eb28f3cc42e2ac9",
+      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=495d519367889fd8",
+      "rev": "495d519367889fd8",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-runtime",
@@ -379,8 +388,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-model-selection",
-      "url": "/plugins/@xharness/dsh-client-ui-model-selection/client.js?rev=f4ec6c6402d1fe48",
-      "rev": "f4ec6c6402d1fe48",
+      "url": "/plugins/@xharness/dsh-client-ui-model-selection/client.js?rev=88c25ccba6af9d7a",
+      "rev": "88c25ccba6af9d7a",
       "inject": [
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-runtime",
