@@ -50,6 +50,7 @@ jobs:
       - run: node scripts/test-install-ownership-contract.mjs
       - run: node scripts/test-desktop-bootstrap.mjs
       - run: node scripts/test-desktop-startup.mjs
+      - run: node scripts/test-desktop-titlebar.mjs
       - run: python -B scripts/test-linux-appimage-compat.py
       - run: node scripts/test-runtime-diagnostics.mjs
       - run: python -B scripts/test-desktop-symbols.py
@@ -107,6 +108,7 @@ jobs:
       - run: node scripts/test-conversation-scroll-follow.mjs
       - run: node scripts/test-computer-ui.mjs
       - run: node scripts/test-brand-headline.mjs
+      - run: node scripts/test-brand-identity.mjs
       - run: node scripts/test-logo-gradient.mjs
       - run: node scripts/test-logo-motion.mjs
       - run: node scripts/test-monochrome-theme.mjs
@@ -120,6 +122,7 @@ jobs:
       - run: node scripts/test-permission-selection.mjs
       - run: node --check scripts/assemble-static-ui.mjs
       - run: node scripts/test-model-controls.mjs
+      - run: node scripts/test-upstream-ui-experience.mjs
       - run: node scripts/test-workspace-directory.mjs
       - run: node scripts/test-browser-ui.mjs
       - run: node scripts/test-browser-window-controller.mjs
@@ -144,6 +147,8 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-desktop-updater-layer.mjs
           UI_TEST_BROWSER=chromium node scripts/test-model-controls-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-model-controls-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-upstream-ui-experience-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-upstream-ui-experience-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-subagent-navigation.mjs
           UI_TEST_BROWSER=webkit node scripts/test-subagent-navigation.mjs
           UI_TEST_BROWSER=chromium node scripts/test-workspace-directory-browser.mjs

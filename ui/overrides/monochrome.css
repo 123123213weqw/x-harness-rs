@@ -99,3 +99,38 @@ body[data-ds-dark-theme] [data-xh-silver-input]:focus-within {
   body [data-xh-silver-glow] { display: none; }
   body [data-xh-silver-input] { border: 1px solid ButtonText; background: Canvas; box-shadow: none; }
 }
+
+/* The rc.2 interaction backport uses the same neutral focus and progress
+   language across settings, model selection, tool rows, and diff review. */
+body :is(button, a, input, textarea, [role="button"]):focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary);
+  outline-offset: 2px;
+}
+body .xh-model-switching {
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  animation: xh-switch-pulse 1.2s ease-in-out infinite;
+}
+body [data-tool][data-state="preparing"] [data-disclosure-row] {
+  color: var(--dsw-alias-label-secondary);
+  animation: xh-switch-pulse 1.2s ease-in-out infinite;
+}
+body .xh-tool-preparing {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-base);
+  font-size: 12px;
+  animation: xh-switch-pulse 1.2s ease-in-out infinite;
+}
+@keyframes xh-switch-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) {
+  body .xh-model-switching,
+  body [data-tool][data-state="preparing"] [data-disclosure-row],
+  body .xh-tool-preparing { animation: none; }
+}

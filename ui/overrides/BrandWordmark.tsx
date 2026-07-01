@@ -7,16 +7,16 @@ export interface BrandWordmarkProps extends IconProps {
   includeMark?: boolean | undefined
 }
 
-/** Responsive xLang wordmark derived from the project brand artwork. */
+/** Responsive XHarness wordmark derived from the project brand artwork. */
 export function BrandWordmark({ size = 24, className, includeMark = true }: BrandWordmarkProps) {
   const gradientId = useId()
-  const width = includeMark ? 300 : 192
+  const width = includeMark ? 340 : 232
   return (
     <svg
       width={(size * width) / 64}
       height={size}
       className={className}
-      viewBox={includeMark ? '0 0 300 64' : '108 0 192 64'}
+      viewBox={includeMark ? '0 0 340 64' : '108 0 232 64'}
       fill="none"
       aria-hidden="true"
     >
@@ -53,7 +53,7 @@ export function BrandWordmark({ size = 24, className, includeMark = true }: Bran
         fontWeight="600"
         letterSpacing="2.2"
       >
-        xLang
+        XHarness
       </text>
     </svg>
   )
