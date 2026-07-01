@@ -75,8 +75,9 @@ Registry 的内部 `JobSnapshot` 含 Owner、PID、Output Limit 和 `reported`�
   不得把 Event Queue 当权威状态。
 
 Host 的版本化 System Prompt 与 `bash` Tool Description 都注入同一选择规则：长时间非交互命令
-使用 `run_in_background=true`，保存 Job ID，继续独立工作，最后用 `job_output` 收集；不得自己拼
-`&/nohup/disown/screen/tmux/PTY`。这段跨 Step 规则不是只依赖模型“猜”工具 Schema。
+优先使用 `run_in_background=true`，保存 Job ID，继续独立工作，最后用 `job_output` 收集。
+确需交互式或已有外部会话时可选择合适的系统工具，但必须能观察状态、取日志并停止；不要假定
+脱离当前 Shell 的进程能绕过 Host 的取消或关闭清理。这段跨 Step 规则不是只依赖模型“猜”工具 Schema。
 
 ## 持久化边界
 
