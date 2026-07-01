@@ -999,12 +999,12 @@ const fn native_shell_name() -> &'static str {
 
 #[cfg(unix)]
 const fn native_shell_description() -> &'static str {
-    "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work that begins now set run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use schedule_create, not bash or sleep, for future reminders and delayed requests. Do not use shell &, nohup, disown, screen, tmux or a PTY to emulate managed background work. No shell state persists between calls."
+    "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use schedule_create for future reminders and delayed requests. Native session tools may suit genuinely interactive or existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls."
 }
 
 #[cfg(windows)]
 const fn native_shell_description() -> &'static str {
-    "Run one fresh PowerShell 7 command under the active session permission policy. Use native Windows paths and $env:NAME environment variables. Native-command and PowerShell errors fail the command. For long-running non-interactive work that begins now set run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. No shell state persists between calls."
+    "Run one fresh PowerShell 7 command under the active session permission policy. Use native Windows paths and $env:NAME environment variables. Native-command and PowerShell errors fail the command. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use schedule_create for future reminders and delayed requests. Native process or session tools may suit existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls."
 }
 
 #[cfg(unix)]
@@ -1170,6 +1170,19 @@ fn process_repetition_observation(content: &str) -> Option<(bool, Value)> {
 mod tests {
     use super::{managed_environment, managed_path, search_process_output};
     use xharness_process::is_secret_env_name;
+
+    #[test]
+    fn shell_description_prefers_managed_jobs_without_banning_native_sessions() {
+        let description = super::native_shell_description();
+        assert!(description.contains("prefer run_in_background=true"));
+        assert!(description.contains("job_output"));
+        assert!(description.contains("job_kill"));
+        assert!(description.contains("schedule_create"));
+        assert!(description.contains("Native "));
+        assert!(description.contains("status, logs, and stop method"));
+        assert!(!description.contains("Never emulate"));
+        assert!(!description.contains("Do not use shell"));
+    }
 
     #[test]
     fn repetition_process_observation_ignores_pid_not_failure_or_truncation() {
