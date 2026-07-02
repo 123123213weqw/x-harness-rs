@@ -382,8 +382,8 @@ function computeColumns(viewport, sidebar, details, minCenter = 640) {
 			const sidebarWidth = sidebarCollapsed ? 56 : panels.sidebar === 0 ? 280 : clampWidth(panels.sidebar, 264, 420);
 			const workspaceOpen = space.items.length > 0;
 			const workspaceAvailable = viewport - sidebarWidth - 480;
-			const workspaceDrawer = workspaceOpen && (nativeWorkspaceWidth < 360 || workspaceAvailable < 360);
-			const workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, nativeWorkspaceWidth, workspaceAvailable) : 0;
+			const workspaceDrawer = workspaceOpen && workspaceAvailable < 360;
+			const workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, nativeWorkspaceWidth >= 360 ? nativeWorkspaceWidth : workspaceAvailable, workspaceAvailable) : 0;
 			const cols = computeColumns(viewport - workspaceDockWidth, sidebarCollapsed ? 0 : panels.sidebar === 0 ? 280 : panels.sidebar, 0, workspaceDockWidth > 0 ? 480 : 640);
 			const colsRef = (0, react.useRef)(cols);
 			colsRef.current = cols;
