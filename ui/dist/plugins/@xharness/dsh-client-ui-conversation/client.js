@@ -8814,6 +8814,8 @@ keepMounted: index >= activeSuffix,
 		* @returns adopted State, preserving reference identity when the Match adds no evidence.
 		*/
 		function updateCompactionState(state, match) {
+			const presentation = projectedCompactionView(match.view);
+			if (presentation !== void 0) return { ...state, presentation };
 			if (match.event.type === "compaction/start") return {
 				...state,
 				start: match,
@@ -8821,6 +8823,7 @@ keepMounted: index >= activeSuffix,
 			};
 			if (match.event.type === "compaction/end") return {
 				...state,
+				presentation: void 0,
 				end: match
 			};
 			if (match.event.type === "compaction/summary") return {
@@ -8888,12 +8891,23 @@ keepMounted: index >= activeSuffix,
 		}
 		//#endregion
 		//#region lib/types/client/conversation-nodes/compaction.js
+// xh-compaction-view-model/v1
+		function projectedCompactionView(envelope) {
+			if (envelope?.for !== "compaction" || envelope.view?.schemaVersion !== 1) return void 0;
+			const view = envelope.view;
+			if (typeof view.id !== "string" || view.id === "" || !Number.isSafeInteger(view.anchorSeq) || view.anchorSeq < 0 || !Number.isFinite(view.time)) return void 0;
+			if (!["running", "succeeded", "failed"].includes(view.phase)) return void 0;
+			if (view.phase === "succeeded" && (typeof view.summary !== "string" || !Number.isSafeInteger(view.summaryEventSeq) || !Number.isSafeInteger(view.shadowedItemCount) || !Number.isSafeInteger(view.shadowedTokenCount))) return void 0;
+			return view;
+		}
 		function fallbackState$2(context) {
 			const start = context.matches.find((match) => match.event.type === "compaction/start");
 			const summary = context.matches.find((match) => match.event.type === "compaction/summary");
 			const checkpoint = context.matches.find((match) => compactSource(match.event) !== void 0);
 			const end = context.matches.find((match) => match.event.type === "compaction/end");
+			const presentation = context.matches.map((match) => projectedCompactionView(match.view)).filter(Boolean).at(-1);
 			return {
+				...presentation === void 0 ? {} : { presentation },
 				...start === void 0 ? {} : { start },
 				...summary === void 0 ? {} : { summary },
 				...checkpoint === void 0 ? {} : { checkpoint },
@@ -8904,7 +8918,14 @@ keepMounted: index >= activeSuffix,
 		const compactionDefinition = {
 			kind: "compaction",
 			target: "chat",
-			match: (event) => {
+			match: (event, view) => {
+				if (view?.for === "compaction") {
+					const presentation = projectedCompactionView(view);
+					return presentation === void 0 ? null : {
+						id: presentation.id,
+						role: presentation.phase === "running" ? "start" : "update"
+					};
+				}
 				const checkpoint = compactSource(event);
 				if (checkpoint !== void 0 && checkpoint.sourceCommandId === void 0) return {
 					id: checkpoint.compactionId,
@@ -8921,10 +8942,30 @@ keepMounted: index >= activeSuffix,
 				}
 				return null;
 			},
-			start: (_context, match) => match === void 0 ? {} : { start: match },
+			start: (_context, match) => match === void 0 ? {} : updateCompactionState({}, match),
 			update: (context, match) => updateCompactionState(context.state, match),
 			buildViewNode: (context) => {
 				const state = context.state ?? fallbackState$2(context);
+				if (state.presentation !== void 0) {
+					const view = state.presentation;
+					const data = view.phase === "succeeded" ? {
+						kind: "compaction",
+						seq: view.anchorSeq,
+						time: view.time,
+						summary: view.summary,
+						summaryEventSeq: view.summaryEventSeq,
+						shadowedItemCount: view.shadowedItemCount,
+						shadowedTokenCount: view.shadowedTokenCount
+					} : {
+						kind: "compaction",
+						status: view.phase === "running" ? "running" : "ended",
+						seq: view.anchorSeq,
+						time: view.time
+					};
+					return chatNode(context, "compaction", data.seq, data, {
+						visibility: view.phase === "failed" ? "hidden" : "visible"
+					});
+				}
 				if (state.checkpoint !== void 0) {
 					const marker = compactSummary(state.summary, state.checkpoint);
 					return chatNode(context, "compaction", marker.seq, marker);
