@@ -172,6 +172,9 @@ pub fn project_session_event_range(
 /// Keeping this derivation beside the durable projector makes live delivery,
 /// paged history and restart replay use exactly the same data.
 pub fn project_session_event_view(session: &Session, event: &LoggedEvent) -> Option<Value> {
+    if let Some(view) = automatic_compaction_view(session, event) {
+        return Some(view);
+    }
     match event.data() {
         EventData::ToolCall { call, .. } => terminal_call_view(&call.name, &call.arguments_json),
         EventData::ToolResult { result, .. } => {
@@ -201,12 +204,103 @@ pub fn project_session_event_view(session: &Session, event: &LoggedEvent) -> Opt
     }
 }
 
+/// A self-contained presentation update for automatic compaction. The end
+/// update repeats the committed summary so a paged history window does not
+/// need to load the start, summary and replacement events to render it.
+fn automatic_compaction_view(session: &Session, event: &LoggedEvent) -> Option<Value> {
+    match event.data() {
+        EventData::CompactionStart {
+            compaction_id,
+            source_command_id: None,
+            ..
+        } => Some(json!({
+            "for": "compaction",
+            "view": {
+                "schemaVersion": 1,
+                "id": compaction_id,
+                "phase": "running",
+                "anchorSeq": event.seq,
+                "time": event.timestamp_ms,
+            }
+        })),
+        EventData::CompactionEnd {
+            compaction_id,
+            source_command_id: None,
+            error,
+            ..
+        } => {
+            let mut start = None;
+            let mut summary = None;
+            let mut replacement = None;
+            for candidate in session.events().iter().rev().filter(|e| e.seq < event.seq) {
+                match candidate.data() {
+                    EventData::CompactionStart {
+                        compaction_id: id, ..
+                    } if id == compaction_id => {
+                        start = Some(candidate);
+                        break;
+                    }
+                    EventData::CompactionSummary {
+                        compaction_id: id,
+                        summary: text,
+                        shadowed_seqs,
+                        shadowed_token_count,
+                        ..
+                    } if id == compaction_id => {
+                        summary = Some((candidate.seq, text, shadowed_seqs, shadowed_token_count));
+                    }
+                    EventData::UserMessage {
+                        surface_replace: Some(replace),
+                        ..
+                    } if replace.compaction_id == *compaction_id => {
+                        replacement = Some(candidate);
+                    }
+                    _ => {}
+                }
+            }
+            let start = start?;
+            if error.is_some() {
+                return Some(json!({
+                    "for": "compaction",
+                    "view": {
+                        "schemaVersion": 1,
+                        "id": compaction_id,
+                        "phase": "failed",
+                        "anchorSeq": start.seq,
+                        "time": start.timestamp_ms,
+                    }
+                }));
+            }
+            let (summary_seq, text, shadowed_seqs, shadowed_token_count) = summary?;
+            let replacement = replacement?;
+            Some(json!({
+                "for": "compaction",
+                "view": {
+                    "schemaVersion": 1,
+                    "id": compaction_id,
+                    "phase": "succeeded",
+                    "anchorSeq": replacement.seq,
+                    "time": replacement.timestamp_ms,
+                    "summary": text,
+                    "summaryEventSeq": summary_seq,
+                    "shadowedItemCount": shadowed_seqs.len(),
+                    "shadowedTokenCount": shadowed_token_count,
+                }
+            }))
+        }
+        _ => None,
+    }
+}
+
 /// Recover the same optional presentation from an already projected Web
 /// event. This keeps the legacy in-memory adapter and bounded tail cache
 /// compatible with the authoritative durable path. It intentionally accepts
 /// only the distinctive native-shell foreground-result shape, so arbitrary JSON tool
 /// output cannot accidentally become executable-looking terminal chrome.
 pub fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value> {
+    if let Some(view) = automatic_compaction_web_view(event, history) {
+        return Some(view);
+    }
     match event.get("type").and_then(Value::as_str)? {
         "tool/call" => {
             let data = event.get("data")?;
@@ -239,6 +333,93 @@ pub fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value>
         }
         _ => None,
     }
+}
+
+/// Compatibility path for an embedded, non-durable Host. Production live and
+/// history use `automatic_compaction_view` on the authoritative Session.
+fn automatic_compaction_web_view(event: &Value, history: &[Value]) -> Option<Value> {
+    let kind = event.get("type")?.as_str()?;
+    if kind != "compaction/start" && kind != "compaction/end" {
+        return None;
+    }
+    let data = event.get("data")?;
+    if data.get("sourceCommandId").is_some() {
+        return None;
+    }
+    let id = data.get("compactionId")?.as_str()?;
+    let seq = event.get("seq")?.as_u64()?;
+    let time = event.get("time")?.as_u64()?;
+    if kind == "compaction/start" {
+        return Some(json!({"for":"compaction", "view": {
+            "schemaVersion":1, "id":id, "phase":"running",
+            "anchorSeq":seq, "time":time,
+        }}));
+    }
+    let mut start = None;
+    let mut summary = None;
+    let mut replacement = None;
+    for prior in history.iter().rev() {
+        if prior.get("seq").and_then(Value::as_u64) >= Some(seq) {
+            continue;
+        }
+        let prior_data = prior.get("data");
+        if prior.get("type").and_then(Value::as_str) == Some("compaction/start")
+            && prior_data
+                .and_then(|data| data.get("compactionId"))
+                .and_then(Value::as_str)
+                == Some(id)
+        {
+            start = Some(prior);
+            break;
+        }
+        if prior.get("type").and_then(Value::as_str) == Some("compaction/summary")
+            && prior_data
+                .and_then(|data| data.get("compactionId"))
+                .and_then(Value::as_str)
+                == Some(id)
+        {
+            summary = Some(prior);
+        }
+        if prior.get("type").and_then(Value::as_str) == Some("user/message")
+            && prior
+                .pointer("/data/source/compactionId")
+                .and_then(Value::as_str)
+                == Some(id)
+            && prior.pointer("/surfaceOp/op").and_then(Value::as_str) == Some("replace")
+        {
+            replacement = Some(prior);
+        }
+    }
+    let start = start?;
+    if data.get("error").is_some_and(|error| !error.is_null()) {
+        return Some(json!({"for":"compaction", "view": {
+            "schemaVersion":1, "id":id, "phase":"failed",
+            "anchorSeq":start.get("seq")?.as_u64()?,
+            "time":start.get("time")?.as_u64()?,
+        }}));
+    }
+    let summary = summary?;
+    let replacement = replacement?;
+    let summary_data = summary.get("data")?;
+    let summary_text = summary_data
+        .get("summary")?
+        .as_array()?
+        .iter()
+        .filter_map(|block| {
+            (block.get("type").and_then(Value::as_str) == Some("text"))
+                .then(|| block.get("text").and_then(Value::as_str))
+                .flatten()
+        })
+        .collect::<String>();
+    Some(json!({"for":"compaction", "view": {
+        "schemaVersion":1, "id":id, "phase":"succeeded",
+        "anchorSeq":replacement.get("seq")?.as_u64()?,
+        "time":replacement.get("time")?.as_u64()?,
+        "summary":summary_text,
+        "summaryEventSeq":summary.get("seq")?.as_u64()?,
+        "shadowedItemCount":summary_data.get("shadowedSeqs")?.as_array()?.len(),
+        "shadowedTokenCount":summary_data.get("shadowedTokenCount")?.as_u64()?,
+    }}))
 }
 
 fn terminal_call_view(name: &str, arguments_json: &str) -> Option<Value> {
@@ -1085,5 +1266,134 @@ mod projection_encoding_tests {
                 assert_eq!(tail.base_seq, 0);
             }
         }
+    }
+
+    #[test]
+    fn compaction_presentation_is_identical_live_and_in_paged_history() {
+        use xharness_session::{Revision, SequenceRange, SessionHeader, SurfaceReplace};
+
+        let mut session = Session::new(SessionHeader::new("compact-view")).unwrap();
+        session
+            .append_batch_at(
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("large history"),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::CompactionStart {
+                        compaction_id: "compact-1".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                    }
+                    .into(),
+                ],
+                1,
+            )
+            .unwrap();
+        let range = SequenceRange { start: 1, end: 1 };
+        session
+            .append_batch_at(
+                Revision(1),
+                vec![
+                    EventData::CompactionSummary {
+                        compaction_id: "compact-1".into(),
+                        source_command_id: None,
+                        summary: "摘要 🧪".into(),
+                        shadowed_range: range,
+                        shadowed_seqs: vec![1],
+                        shadowed_token_count: 128,
+                        provider: "test".into(),
+                        model: "test".into(),
+                        max_tokens: Some(64),
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::UserMessage {
+                        message: Message::user("checkpoint"),
+                        surface_replace: Some(SurfaceReplace {
+                            compaction_id: "compact-1".into(),
+                            shadowed_range: range,
+                            shadowed_seqs: vec![1],
+                        }),
+                    }
+                    .into(),
+                    EventData::CompactionEnd {
+                        compaction_id: "compact-1".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                        error: None,
+                    }
+                    .into(),
+                ],
+                2,
+            )
+            .unwrap();
+        let projected =
+            project_session_event_range(&session, &TestRoute, 0, session.events().len());
+        let start_view = project_session_event_view(&session, &session.events()[3]).unwrap();
+        let end_view = project_session_event_view(&session, &session.events()[6]).unwrap();
+        assert_eq!(start_view["view"]["phase"], "running");
+        assert_eq!(end_view["view"]["phase"], "succeeded");
+        assert_eq!(end_view["view"]["summary"], "摘要 🧪");
+        assert_eq!(end_view["view"]["shadowedItemCount"], 1);
+        assert_eq!(end_view["view"]["anchorSeq"], 5);
+        assert_eq!(
+            project_web_event_view(&projected[3], &projected),
+            Some(start_view)
+        );
+        assert_eq!(
+            project_web_event_view(&projected[6], &projected),
+            Some(end_view)
+        );
+        // A history page containing only the terminal event still has a
+        // complete summary because it is projected from the durable Session.
+        assert_eq!(
+            project_session_event_view(&session, &session.events()[6]).unwrap()["view"]["summary"],
+            "摘要 🧪"
+        );
+    }
+
+    #[test]
+    fn failed_compaction_projects_terminal_state_without_a_checkpoint() {
+        use xharness_session::{Revision, SessionHeader};
+
+        let mut session = Session::new(SessionHeader::new("compact-failed-view")).unwrap();
+        session
+            .append_batch_at(
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("large history"),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    EventData::CompactionStart {
+                        compaction_id: "failed".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                    }
+                    .into(),
+                    EventData::CompactionEnd {
+                        compaction_id: "failed".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                        error: Some("network closed".into()),
+                    }
+                    .into(),
+                ],
+                1,
+            )
+            .unwrap();
+        let events = project_session_event_range(&session, &TestRoute, 0, session.events().len());
+        let terminal = project_session_event_view(&session, &session.events()[3]).unwrap();
+        assert_eq!(terminal["view"]["phase"], "failed");
+        assert_eq!(terminal["view"]["anchorSeq"], 2);
+        assert!(terminal["view"].get("summary").is_none());
+        assert_eq!(project_web_event_view(&events[3], &events), Some(terminal));
     }
 }
