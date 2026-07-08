@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { patchMaxTokensNotice } from './patch-max-tokens-notice.mjs'
 import { patchSessionHistoryCache } from './patch-session-history-cache.mjs'
+import { patchConversationLifecycle } from './patch-conversation-lifecycle.mjs'
 import { patchAtomicHistory, patchHistoryRetry } from './patch-atomic-history.mjs'
 import { patchLiveAnswerRecovery } from './patch-live-answer-recovery.mjs'
 import { patchStartupCatalogRefresh } from './patch-startup-catalog-refresh.mjs'
@@ -130,7 +131,7 @@ for (const entry of composed) {
   bytes = patchQuestionContinuation(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchCompactionRunningUi(bytes)
-  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchCompactionViewModel(bytes)
+  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchConversationLifecycle(patchCompactionViewModel(bytes))
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchMaxTokensNotice(bytes)
   bytes = patchWorkspaceCreatedAt(entry.name, bytes)
   bytes = patchSettingsSaveFeedback(entry.name, bytes)
