@@ -36,15 +36,18 @@ try {
     <div id="dock" class="xhterm-dock xhterm-dock-closing"></div>
     <div id="task" class="xhtask-panel-wrap xhtask-panel-wrap-closing"></div>
     <p id="stream" data-xh-stream-animate="true">stream</p>
-    <svg><rect id="logo" class="xh-logo-sweep" width="10" height="10"></rect></svg>`)
+    <img id="logo" class="xh-logo-sweep" src="/app-icon-512.png" width="10" height="10">
+    <div class="U910La_root"><span class="U910La_brandIdentity"><span id="brand-mark" class="U910La_brandMark"><span>X</span></span><span id="brand-name" class="U910La_brandName">XHarness</span></span></div>`)
   const properties = () => page.evaluate(() => Object.fromEntries(
-    ['dock', 'task', 'stream', 'logo'].map(id => {
+    ['dock', 'task', 'stream', 'logo', 'brand-mark', 'brand-name'].map(id => {
       const style = getComputedStyle(document.getElementById(id))
       return [id, {
         name: style.animationName,
         duration: style.animationDuration,
         easing: style.animationTimingFunction,
         display: style.display,
+        opacity: style.opacity,
+        width: style.width,
       }]
     }),
   ))
@@ -55,6 +58,9 @@ try {
   assert.equal(value.task.duration, '0.18s')
   assert.equal(value.stream.duration, '0.9s')
   assert.equal(value.logo.duration, '5s')
+  assert.equal(value['brand-mark'].name, 'xh-sidebar-mark-out')
+  assert.equal(value['brand-name'].name, 'xh-sidebar-name-in')
+  assert.equal(value['brand-mark'].duration, '0.26s')
   assert.match(value.dock.easing, /cubic-bezier\(0\.23, 1, 0\.32, 1\)/)
 
   // A single token override changes both independently loaded panels.
@@ -68,7 +74,13 @@ try {
   assert.equal(value.dock.name, 'none')
   assert.equal(value.task.name, 'none')
   assert.equal(value.stream.name, 'none')
-  assert.equal(value.logo.display, 'none')
+  assert.equal(value.logo.name, 'none')
+  assert.equal(value['brand-mark'].name, 'none')
+  assert.equal(value['brand-name'].name, 'none')
+  assert.equal(value['brand-mark'].width, '0px')
+  assert.equal(value['brand-mark'].opacity, '0')
+  assert.equal(value['brand-name'].opacity, '1')
+  assert.notEqual(value.logo.display, 'none', 'reduced motion keeps the mark visible')
   console.log(`${engine}: shared motion tokens and reduced-motion styles verified`)
 } finally {
   await browser.close()
