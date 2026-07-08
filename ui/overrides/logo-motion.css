@@ -1,14 +1,35 @@
-/* One short sweep followed by a rest; only the small SVG rectangle moves. */
+/* A restrained highlight on the transparent X, followed by a long rest. */
 .xh-logo-sweep {
-  transform: translateX(0);
   animation: xh-logo-sweep var(--xh-duration-logo-cycle, 5s) var(--xh-ease-in-out, ease-in-out) infinite;
   pointer-events: none;
 }
 @keyframes xh-logo-sweep {
-  0% { transform: translateX(0); }
-  28%, 100% { transform: translateX(92px); }
+  0%, 28%, 100% { opacity: 1; }
+  12% { opacity: .76; }
 }
+
+/* The rail's X occupies the same left edge as the expanded brand. On opening,
+   trade that mark for the wordmark instead of displaying both side by side. */
+.U910La_root .U910La_brandIdentity { gap: 0; }
+.U910La_root .U910La_brandMark {
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  animation: xh-sidebar-mark-out var(--xh-duration-panel-in, 260ms) var(--xh-ease-panel, cubic-bezier(.23, 1, .32, 1)) both;
+}
+.U910La_root .U910La_brandName {
+  animation: xh-sidebar-name-in var(--xh-duration-panel-in, 260ms) var(--xh-ease-panel, cubic-bezier(.23, 1, .32, 1)) both;
+}
+@keyframes xh-sidebar-mark-out {
+  0% { width: 24px; opacity: 1; transform: scale(1); }
+  55%, 100% { width: 0; opacity: 0; transform: scale(.72); }
+}
+@keyframes xh-sidebar-name-in {
+  0%, 35% { opacity: 0; transform: translateX(-6px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
 html[data-xh-page-hidden] .xh-logo-sweep { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  .xh-logo-sweep { animation: none; display: none; }
+  .xh-logo-sweep, .U910La_root .U910La_brandMark, .U910La_root .U910La_brandName { animation: none; }
 }

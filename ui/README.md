@@ -105,7 +105,16 @@ suspended and recreated from their URL when selected. Downloads go to the OS Dow
 unique filenames. Popups become workspace browser tabs. Closing a tab closes
 its native WebView; switching chats hides it without losing page state.
 
-`scripts/sync-browser-ui.mjs` refreshes the checked-in layout and plugin for a
+The browser plugin uses one serialized visibility coordinator for bounds,
+activation, and navigation. Pane popovers and shell modals both suppress native
+views; visibility is rechecked after every native await so stale resize/tab
+operations cannot resurface a page over an overlay. Blank tabs stay native-hidden.
+Chat shortcuts target the existing `data-composer-seat` / `data-composer-card`
+textarea contracts. Terminal shortcuts use `data-xh-terminal-trigger` and
+`data-xh-terminal-open`, not localized labels, and never close an already-open
+dock. An unavailable target reports an error without closing the browser.
+
+`scripts/sync-browser-ui.mjs` refreshes the checked-in layout, browser and terminal plugins for a
 preview; `scripts/assemble-static-ui.mjs` applies the same patch on a fresh UI
 build. Both require the source, generated plugin, graph, and HTML to be committed
 together. Run `node scripts/test-browser-ui.mjs` plus both Chromium and WebKit
@@ -226,16 +235,16 @@ UI_TEST_BROWSER=webkit node scripts/test-upstream-ui-experience-browser.mjs
 执行 `node scripts/test-monochrome-theme.mjs` 检查幂等注入、资源一致性和主色对比度。
 Web 与 Tauri 使用同一资源；已安装的软件须重新打包更新后才能使用新配色。
 
-X 标志使用五段中性色 SVG 渐变，沿用 `currentColor`，自动适配浅/深主题，
-通过 React `useId` 避免侧栏与首页标志的渐变 ID 冲突。文字保持实色，仅 X 有下述扫光动画。
-源码为 `overrides/FishLogo.tsx` 和 `BrandWordmark.tsx`；现有打包产物可用
-`node scripts/patch-logo-gradient.mjs` 更新（上游编译结构变化会拒绝应用）；
-完整重建直接编译 TSX 源码。验证：`node scripts/test-logo-gradient.mjs`。
+侧栏和欢迎页使用透明的折叠 X，与桌面图标同一造型但不带图标的黑色方框，
+通过 `currentColor` 在浅/深主题下自动反色。源码为 `overrides/FishLogo.tsx` 和 `BrandWordmark.tsx`；现有打包产物
+用 `node scripts/patch-brand-mark.mjs` 更新，完整重建直接编译 TSX 源码。
+验证：`node scripts/test-logo-gradient.mjs`（沿用 CI 中的历史测试名）。
 
-Logo 扫光：`overrides/logo-motion.css/js`，每 5 秒一次、前 1.4 秒扫过，
-其余时间静止。只对 X 内裁剪的高光矩形做 transform；不驱动 React 更新，
-不使用 JS 帧循环或定时器。页面隐藏暂停，减少动态效果时隐藏高光。
-完整重建自动注入相同资源；测试 `node scripts/test-logo-motion.mjs`。
+Logo 透明度高光由 `overrides/logo-motion.css/js` 控制，每 5 秒短暂变化一次，
+其余时间静止；不驱动 React 更新，也不使用 JS 帧循环或定时器。页面隐藏时暂停，
+减少动态效果时停止动画但保持标志可见。测试 `node scripts/test-logo-motion.mjs`。
+侧栏收起时显示 X；展开时 X 缩入、名称接位，不在展开状态并排显示两者。
+该过渡复用设计令牌，减少动态效果时直接显示最终状态。
 
 首页光场使用 `overrides/hero-glow.js` 的静态装饰节点和黑白主题中的 radial-gradient，
 不再渲染上游蓝色 SVG 模糊光晕。输入框仅增加渐变边缘，保留工作区选择器的虚线状态，

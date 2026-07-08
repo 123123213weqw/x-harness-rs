@@ -1,24 +1,41 @@
+// Historical test name retained for CI; the in-page mark is transparent and
+// follows the host theme instead of carrying the app icon's opaque tile.
 import assert from 'node:assert/strict'
-import {readFileSync} from 'node:fs'
-const html=readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8')
-const entry=html.match(/src="(\/assets\/index-[^"]+\.js)"/)[1]
-const source=readFileSync(new URL('../ui/dist'+entry,import.meta.url),'utf8')
-let seq=0
-const R={useId:()=>':logo-'+(++seq)+':'}
-const d={jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'fragment'}
-for(const name of ['of','lf']){
- const block=source.match(new RegExp(`function ${name}\\([^]*?(?=function )`))[0]
- const render=Function('R','d',block+`;return ${name}`)(R,d)
- const collect=(node,type)=>!node||typeof node!=='object'?[]:[...(node.type===type?[node]:[]),...[node.props?.children].flat().flatMap(c=>collect(c,type))]
- const a=render({}), b=render({})
- const id=collect(a,'linearGradient')[0].props.id
- assert.equal(collect(a,'rect')[0].props.className,'xh-logo-sweep')
- assert.equal(collect(a,'rect')[0].props.fill,`url(#${id}-shine)`)
- assert.equal(collect(a,'clipPath')[0].props.id,`${id}-clip`)
- assert.notEqual(id,collect(b,'linearGradient')[0].props.id)
- assert.equal(collect(a,'stop').length,8)
- assert.equal(collect(a,'path').filter(p=>p.props.fill).length,2)
- for(const path of collect(a,'path').filter(p=>p.props.fill))assert.equal(path.props.fill,`url(#${id})`)
- if(name==='lf') {assert.equal(collect(render({includeMark:false}),'path').filter(p=>p.props.fill).length,0);assert.equal(collect(a,'text')[0].props.fill,'currentColor')}
+import { readFileSync } from 'node:fs'
+
+const html = readFileSync(new URL('../ui/dist/index.html', import.meta.url), 'utf8')
+const entry = html.match(/src="(\/assets\/index-[^"]+\.js)"/)?.[1]
+assert.ok(entry)
+const source = readFileSync(new URL(`../ui/dist${entry}`, import.meta.url), 'utf8')
+const d = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }
+const collect = (node, type) => !node || typeof node !== 'object' ? []
+  : [...(node.type === type ? [node] : []), ...[node.props?.children].flat().flatMap(child => collect(child, type))]
+const component = name => {
+  const block = source.match(new RegExp(`function ${name}\\([^]*?(?=function )`))?.[0]
+  assert.ok(block, `${name} is present in the packaged UI`)
+  return Function('d', `${block};return ${name}`)(d)
 }
-console.log('PASS: two X variants, unique IDs, metallic gradient and sweep, both path fills, wordmark unchanged')
+const compact = component('of')({ size: 32 })
+assert.equal(compact.type, 'svg')
+assert.equal(compact.props.width, 32)
+assert.equal(compact.props.fill, 'currentColor')
+assert.equal(collect(compact, 'path').length, 2)
+assert.deepEqual(collect(compact, 'path').map(path => path.props.fillOpacity), ['0.42', '0.9'],
+  'the crossing ribbons retain separate tones instead of becoming a solid black X')
+assert.deepEqual(collect(compact, 'path').map(path => path.props.d), [
+  'M57.01 5.59H44.27L6.99 49.86V58.41H19.73L57.01 14.14V5.59Z',
+  'M6.99 5.59H19.73L57.01 49.86V58.41H44.27L6.99 14.14V5.59Z',
+], 'transparent silhouette is centered from the original app-icon geometry')
+const wordmark = component('lf')({ includeMark: true })
+assert.equal(collect(wordmark, 'g')[0].props.fill, 'currentColor')
+assert.deepEqual(collect(wordmark, 'path').map(path => path.props.d), collect(compact, 'path').map(path => path.props.d))
+assert.equal(collect(wordmark, 'text')[0].props.children, 'XHarness')
+assert.equal(collect(component('lf')({ includeMark: false }), 'path').length, 0)
+assert.equal(collect(wordmark, 'image').length, 0, 'opaque app icon is not used inside the page')
+assert.equal(collect(wordmark, 'rect').length, 0, 'mark has no background tile')
+for (const file of ['FishLogo.tsx', 'BrandWordmark.tsx']) {
+  const original = readFileSync(new URL(`../ui/overrides/${file}`, import.meta.url), 'utf8')
+  assert.match(original, /currentColor/)
+  assert.doesNotMatch(original, /app-icon-512\.png/)
+}
+console.log('Web sidebar and hero use the same transparent, theme-aware X')
