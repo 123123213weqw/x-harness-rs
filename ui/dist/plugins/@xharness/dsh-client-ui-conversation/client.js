@@ -5391,8 +5391,8 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 		}
 		function ModelRetryItem({ node, active, t }) {
 			const deadline = (0, react.useMemo)(() => Date.now() + node.delayMs, [node.delayMs, node.seq]);
-			const scheduledSeconds = retrySeconds(node.delayMs);
-			const maximum = node.mode === "normal" ? node.maxRetries : "∞";
+			const scheduledSeconds = node.delayMs === undefined ? "—" : retrySeconds(node.delayMs);
+			const maximum = node.partial ? "—" : node.mode === "normal" ? node.maxRetries : "∞";
 			const [countdown, setCountdown] = (0, react.useState)(() => ({
 				deadline,
 				seconds: retrySeconds(deadline - Date.now())
@@ -5440,12 +5440,12 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 							className: MessageItem_module_css_default.retryDetailLabel,
 							children: t("message.retry.delay")
 						}),
-						Math.round(node.delayMs),
+						node.delayMs === undefined ? "—" : Math.round(node.delayMs),
 						"ms"
 					] }), (0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("span", {
 						className: MessageItem_module_css_default.retryDetailLabel,
 						children: t("message.retry.failure")
-					}), node.failure.message] })]
+					}), node.failure?.message ?? "—"] })]
 				})]
 			});
 		}
@@ -8182,6 +8182,7 @@ keepMounted: index >= activeSuffix,
 		}
 		/** Per-step Assistant streaming/final/interruption Definition. */
 		const assistantDefinition = {
+            historyReuse: "local",
 			kind: "assistant-step",
 			target: "chat",
 			match: (event) => {
@@ -8834,6 +8835,7 @@ keepMounted: index >= activeSuffix,
 		}
 		/** Slash-command lifecycle, including integrated manual compaction, Definition. */
 		const commandDefinition = {
+            historyReuse: "local",
 			kind: "command",
 			target: "chat",
 			match: (event) => {
@@ -8901,6 +8903,7 @@ keepMounted: index >= activeSuffix,
 		}
 		/** Automatic compaction lifecycle and landed checkpoint Definition. */
 		const compactionDefinition = {
+            historyReuse: "local",
 			kind: "compaction",
 			target: "chat",
 			match: (event, view) => {
@@ -9051,6 +9054,7 @@ keepMounted: index >= activeSuffix,
 		}
 		/** User, steering, and injected-context message classification Definition. */
 		const messageDefinition = {
+            historyReuse: "local",
 			kind: "input-message",
 			target: "chat",
 			match: (event) => event.type === "user/message" && (0, _xharness_dsh_client_runtime_client.isAppendSurfaceEvent)(event) && !isCompactionCheckpoint(event) ? {
@@ -9114,7 +9118,32 @@ keepMounted: index >= activeSuffix,
 			return location.kind === "step" && location.step.status === "closed" || (location.kind === "step" || location.kind === "turn") && location.turn.status === "closed";
 		}
 		/** Producer-correlated model retry chain Definition. */
-		const retryDefinition = {
+		// xh-conversation-lifecycle/v1
+// One fold for incremental and history-only retry evidence. Started-only pages
+// retain the observed attempt without inventing its failure, delay or policy.
+function updateRetryState(state, match) {
+  const event = match.event;
+  if (event.type !== 'llm/retry' && event.type !== 'llm/retry-started') return state;
+  const attempts = state?.attempts ?? [];
+  const index = attempts.findIndex(attempt => attempt.retry === event.data.retry);
+  if (event.type === 'llm/retry') {
+    const node = scheduledNode(match);
+    const next = index < 0 ? [...attempts, node] : attempts.map((old, at) => at === index ? { ...node, retryState: old.retryState } : old);
+    return { turn: event.data.turn, step: event.data.step, attempts: next };
+  }
+  const started = index < 0 ? {
+    kind: 'model-retry', seq: event.seq, time: event.time,
+    ...event.data, retryState: 'started', partial: true,
+  } : { ...attempts[index], retryState: 'started' };
+  return { turn: event.data.turn, step: event.data.step,
+    attempts: index < 0 ? [...attempts, started] : attempts.map((old, at) => at === index ? started : old) };
+}
+function fallbackRetryState(context) {
+  return context.matches.reduce(updateRetryState, undefined);
+}
+
+const retryDefinition = {
+            historyReuse: "local",
 			kind: "model-retry",
 			target: "chat",
 			match: (event) => {
@@ -9135,37 +9164,13 @@ keepMounted: index >= activeSuffix,
 				}
 				return null;
 			},
-			start: (_context, match) => {
-				const node = scheduledNode(match);
-				if (node === void 0) throw new Error("model-retry start requires a valid llm/retry event");
-				return {
-					turn: node.turn,
-					step: node.step,
-					attempts: [node]
-				};
-			},
-			update: (context, match) => {
-				if (match.event.type === "llm/retry") {
-					const node = scheduledNode(match);
-					return node === void 0 ? context.state : {
-						...context.state,
-						attempts: [...context.state.attempts, node]
-					};
-				}
-				if (match.event.type !== "llm/retry-started") return context.state;
-				const retry = match.event.data.retry;
-				return {
-					...context.state,
-					attempts: context.state.attempts.map((attempt) => attempt.retry === retry ? {
-						...attempt,
-						retryState: "started"
-					} : attempt)
-				};
-			},
-			buildViewNode: (context) => {
-				if (context.state === void 0 || context.state.attempts.length === 0) return null;
+			start: (_context, match) => updateRetryState(undefined, match),
+            update: (context, match) => updateRetryState(context.state, match),
+            buildViewNode: (context) => {
+				const state = context.state ?? fallbackRetryState(context);
+            if (state === undefined || state.attempts.length === 0) return null;
 				const location = context.start?.location ?? context.matches[0]?.location ?? { kind: "unresolved" };
-				const stateAttempts = context.state.attempts;
+				const stateAttempts = state.attempts;
 				const attempts = stateAttempts.map((attempt, index) => index === stateAttempts.length - 1 && attempt.retryState === "scheduled" && isClosed(location) ? {
 					...attempt,
 					retryState: "cancelled"
@@ -9389,6 +9394,7 @@ keepMounted: index >= activeSuffix,
 		}
 		/** Root Tool lifecycle and nested Code Dispatch Definition. */
 		const toolDefinition = {
+            historyReuse: "local",
 			kind: "tool-call",
 			target: "chat",
 			match: (event) => {
