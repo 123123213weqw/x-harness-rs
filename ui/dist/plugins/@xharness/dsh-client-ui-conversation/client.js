@@ -8815,26 +8815,22 @@ keepMounted: index >= activeSuffix,
 		*/
 		function updateCompactionState(state, match) {
 			const presentation = projectedCompactionView(match.view);
-			if (presentation !== void 0) return { ...state, presentation };
-			if (match.event.type === "compaction/start") return {
-				...state,
-				start: match,
-				end: void 0
+			let next = state;
+			if (match.event.type === "compaction/start") next = {
+				...state, start: match, end: void 0
 			};
-			if (match.event.type === "compaction/end") return {
-				...state,
-				presentation: void 0,
-				end: match
+			else if (match.event.type === "compaction/end") next = {
+				...state, presentation: void 0, end: match
 			};
-			if (match.event.type === "compaction/summary") return {
-				...state,
-				summary: match
+			else if (match.event.type === "compaction/summary") next = {
+				...state, summary: match
 			};
-			if (compactSource(match.event) !== void 0) return {
-				...state,
-				checkpoint: match
+			else if (compactSource(match.event) !== void 0) next = {
+				...state, checkpoint: match
 			};
-			return state;
+			// Retain lifecycle evidence even when a wire view is available. A
+			// reconnect to a legacy carrier must still be able to end this node.
+			return presentation === void 0 ? next : { ...next, presentation };
 		}
 		/** Slash-command lifecycle, including integrated manual compaction, Definition. */
 		const commandDefinition = {
@@ -8891,28 +8887,17 @@ keepMounted: index >= activeSuffix,
 		}
 		//#endregion
 		//#region lib/types/client/conversation-nodes/compaction.js
-// xh-compaction-view-model/v1
+// xh-compaction-view-model/v2
 		function projectedCompactionView(envelope) {
 			if (envelope?.for !== "compaction" || envelope.view?.schemaVersion !== 1) return void 0;
 			const view = envelope.view;
 			if (typeof view.id !== "string" || view.id === "" || !Number.isSafeInteger(view.anchorSeq) || view.anchorSeq < 0 || !Number.isFinite(view.time)) return void 0;
 			if (!["running", "succeeded", "failed"].includes(view.phase)) return void 0;
-			if (view.phase === "succeeded" && (typeof view.summary !== "string" || !Number.isSafeInteger(view.summaryEventSeq) || !Number.isSafeInteger(view.shadowedItemCount) || !Number.isSafeInteger(view.shadowedTokenCount))) return void 0;
+			if (view.phase === "succeeded" && (typeof view.summary !== "string" || !Number.isSafeInteger(view.summaryEventSeq) || view.summaryEventSeq < 0 || !Number.isSafeInteger(view.shadowedItemCount) || view.shadowedItemCount < 0 || !Number.isSafeInteger(view.shadowedTokenCount) || view.shadowedTokenCount < 0)) return void 0;
 			return view;
 		}
 		function fallbackState$2(context) {
-			const start = context.matches.find((match) => match.event.type === "compaction/start");
-			const summary = context.matches.find((match) => match.event.type === "compaction/summary");
-			const checkpoint = context.matches.find((match) => compactSource(match.event) !== void 0);
-			const end = context.matches.find((match) => match.event.type === "compaction/end");
-			const presentation = context.matches.map((match) => projectedCompactionView(match.view)).filter(Boolean).at(-1);
-			return {
-				...presentation === void 0 ? {} : { presentation },
-				...start === void 0 ? {} : { start },
-				...summary === void 0 ? {} : { summary },
-				...checkpoint === void 0 ? {} : { checkpoint },
-				...end === void 0 ? {} : { end }
-			};
+			return context.matches.reduce(updateCompactionState, {});
 		}
 		/** Automatic compaction lifecycle and landed checkpoint Definition. */
 		const compactionDefinition = {
@@ -8921,7 +8906,7 @@ keepMounted: index >= activeSuffix,
 			match: (event, view) => {
 				if (view?.for === "compaction") {
 					const presentation = projectedCompactionView(view);
-					return presentation === void 0 ? null : {
+					if (presentation !== void 0) return {
 						id: presentation.id,
 						role: presentation.phase === "running" ? "start" : "update"
 					};
