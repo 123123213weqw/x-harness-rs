@@ -128,35 +128,108 @@ fn validates_identity_and_hides_foreign_predictable_ids() {
 }
 
 #[test]
-fn stream_reads_are_consuming_bounded_and_preserve_split_unicode() {
+fn stream_cursor_reads_are_incremental_bounded_and_preserve_split_unicode() {
     let registry = JobRegistry::default();
     let reservation = registry
         .reserve("owner", "bash", "stream", Some(5))
         .unwrap();
     let (id, lease) = reservation.commit(None, noop_cancel()).unwrap();
+    let beginning = JobOutputCursor::start(id.as_str());
 
     lease.publish_stdout([0xc3]);
-    let partial = registry.read("owner", id.as_str()).unwrap();
+    let partial = registry
+        .read_since("owner", id.as_str(), &beginning)
+        .unwrap();
     assert_eq!(partial.stdout, "");
     assert!(!partial.stdout_truncated);
+    assert_eq!(partial.next_cursor.stdout, 0);
+    assert!(!partial.snapshot.reported);
     lease.publish_stdout([0xa9]);
     lease.publish_stderr("abcdef");
-    let complete = registry.read("owner", id.as_str()).unwrap();
+    let complete = registry
+        .read_since("owner", id.as_str(), &partial.next_cursor)
+        .unwrap();
     assert_eq!(complete.stdout, "é");
     assert_eq!(complete.stderr, "bcdef");
     assert!(complete.stderr_truncated);
-    let consumed = registry.read("owner", id.as_str()).unwrap();
-    assert_eq!(consumed.stdout, "");
-    assert_eq!(consumed.stderr, "");
-    assert!(!consumed.stderr_truncated);
+    assert_eq!(complete.next_cursor.stdout, 2);
+    assert_eq!(complete.next_cursor.stderr, 6);
+    let caught_up = registry
+        .read_since("owner", id.as_str(), &complete.next_cursor)
+        .unwrap();
+    assert_eq!(caught_up.stdout, "");
+    assert_eq!(caught_up.stderr, "");
+    assert!(!caught_up.stderr_truncated);
+    assert_eq!(caught_up.next_cursor, complete.next_cursor);
+    // Advancing one reader does not consume the retained bytes for another.
+    let replay = registry
+        .read_since("owner", id.as_str(), &beginning)
+        .unwrap();
+    assert_eq!(replay.stdout, complete.stdout);
+    assert_eq!(replay.stderr, complete.stderr);
     lease.finish(JobOutcome::completed("exit code: 0"));
     assert!(
         registry
-            .read("owner", id.as_str())
+            .read_since("owner", id.as_str(), &caught_up.next_cursor)
             .unwrap()
             .snapshot
             .reported
     );
+}
+
+#[test]
+fn terminal_cursor_reads_validate_before_reporting_and_remain_replayable() {
+    for outcome in [
+        JobOutcome::completed("exit code: 0"),
+        JobOutcome::killed("cancelled"),
+        JobOutcome::failed("capture failed"),
+    ] {
+        let registry = JobRegistry::default();
+        let (id, lease) = start(&registry, "owner", "bash", "settled output");
+        let beginning = JobOutputCursor::start(&id);
+        lease.publish_stdout("é");
+        lease.publish_stderr("error");
+        lease.finish(outcome);
+        assert!(!registry.get("owner", &id).unwrap().reported);
+        assert!(matches!(
+            registry.read_since("other", &id, &beginning),
+            Err(JobError::NotFound { .. })
+        ));
+        for invalid in [
+            JobOutputCursor::start("other-job"),
+            JobOutputCursor {
+                job_id: id.clone(),
+                stdout: 3,
+                stderr: 0,
+            },
+            JobOutputCursor {
+                job_id: id.clone(),
+                stdout: 0,
+                stderr: 6,
+            },
+        ] {
+            assert!(matches!(
+                registry.read_since("owner", &id, &invalid),
+                Err(JobError::InvalidCursor { .. })
+            ));
+            assert!(!registry.get("owner", &id).unwrap().reported);
+        }
+        let first = registry.read_since("owner", &id, &beginning).unwrap();
+        assert!(first.snapshot.reported);
+        assert_eq!(first.stdout, "é");
+        assert_eq!(first.stderr, "error");
+        let replay = registry.read_since("owner", &id, &beginning).unwrap();
+        assert_eq!(replay.stdout, first.stdout);
+        assert_eq!(replay.stderr, first.stderr);
+        assert_eq!(replay.next_cursor, first.next_cursor);
+        assert!(replay.snapshot.reported);
+        let caught_up = registry
+            .read_since("owner", &id, &first.next_cursor)
+            .unwrap();
+        assert_eq!(caught_up.stdout, "");
+        assert_eq!(caught_up.stderr, "");
+        assert!(caught_up.snapshot.reported);
+    }
 }
 
 #[test]

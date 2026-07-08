@@ -51,12 +51,18 @@ running -> stopping -> completed|killed|failed
 
 ## 访问与输出
 
-ID 可预测，因此边界是 Owner 授权而不是 ID 保密。`get/read/kill/wait/list` 只允许相同 Owner；
+ID 可预测，因此边界是 Owner 授权而不是 ID 保密。`get/read_since/kill/wait/list` 只允许相同 Owner；
 未知 ID 和外部 Owner 返回同一个 `unknown job`，防止标签和存在性泄露。
 
-每条 stdout/stderr 默认保留 256 KiB 未读 Tail。Producer 追加原始 bytes，读取按 UTF-8 完整标量
-消费；若容量淘汰了旧字节，则下一次读取设置 `truncated`。`read()` 是模型侧单消费 Cursor；
-Process 的 `ProcessOutputObserver` 另有非消费绝对 Cursor，二者不能混为一个 UI 观察面。
+每条 stdout/stderr 默认保留 256 KiB Tail。Producer 追加原始 bytes，`read_since()` 根据调用方持有的
+`JobOutputCursor` 非消费式读取；返回 `next_cursor`，不完整 UTF-8 尾部留待后续读取。若容量淘汰了旧字节，
+则设置 `truncated`；不同读者可以重放同一保留窗口，互不消费输出。跨 Job 或超前游标返回类型化错误。
+有效终态读取仍标记 `reported`，无效游标和错误 Owner 不改变该状态。
+Process 的 `ProcessOutputObserver` 也使用非消费绝对 Cursor，但其 Cursor 类型与 Job Cursor 不可互换。
+
+旧的消费式 `JobRegistry::read()` 与注册表内部共享 Cursor 已删除。嵌入方应保存 `read_since()` 返回的
+`next_cursor`；从头重放使用 `JobOutputCursor::start(job_id)`。这是 Rust 源码 API 清理，不改变模型的
+`job_output` Schema、返回字段或 Session 持久格式。
 
 Registry 的内部 `JobSnapshot` 含 Owner、PID、Output Limit 和 `reported`，但三个模型工具只返回
 `PublicJobSnapshot`：`id/kind/label/status/detail/started_at_ms/finished_at_ms`。这样模型能够控制任务，

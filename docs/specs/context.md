@@ -44,6 +44,9 @@ v2 的参数占位会被模型照抄成新调用：新增私有字段遭 Schema 
 成为可执行写入。v3 因此取消参数裁剪；写入密集历史可能更早触发完整压缩，旧 5x 参数压缩测量
 不再代表当前策略。结果/旧 reasoning 裁剪、硬预算和独立摘要仍保留，不改原日志或旧请求快照。
 
+已移除无调用的旧公开常量 `DEFAULT_TOOL_ARGUMENT_PRUNE_THRESHOLD_CHARS`。它不是可用的运行配置；
+嵌入方不应再引用参数裁剪阈值。序列化审计兼容字段 `tool_argument_chars_removed` 仍保留。
+
 兼容保护在 `xharness-tools` 的执行边界、Schema/审批/Handler 之前执行：`write/edit` 根参数带
 `_xharness_history_projection`，或整个 `content/old/new` 字符串符合旧省略标记格式时，返回
 不可自动重试的 `InvalidArguments`，明确要求 `read` 后重新生成真实参数。不剥离字段、不自动
