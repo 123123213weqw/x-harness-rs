@@ -67,6 +67,24 @@ try {
   assert.equal(wide.drawer, false, 'a wide window docks the browser even without native outward expansion')
   assert.equal(wide.center, centerBefore - 440, 'internal dock shares width with the conversation')
   assert.equal(wide.browser, 440, JSON.stringify(wide))
+  const dragHandle = page.locator('._84hhiq_handle[data-side="details"]')
+  const drag = async delta => {
+    const box = await dragHandle.boundingBox()
+    const x = box.x + box.width / 2
+    const y = box.y + 120
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + delta, y, { steps: 4 })
+    await page.mouse.up()
+  }
+  await drag(60)
+  assert.equal(await page.locator('._84hhiq_detailsCol').evaluate(element => element.getBoundingClientRect().width), 440,
+    'dragging right cannot shrink the browser dock')
+  await drag(-60)
+  await page.waitForFunction(() => document.querySelector('._84hhiq_detailsCol').getBoundingClientRect().width === 500)
+  await drag(40)
+  assert.equal(await page.locator('._84hhiq_detailsCol').evaluate(element => element.getBoundingClientRect().width), 500,
+    'an expanded dock cannot be collapsed rightward by dragging')
   await page.getByRole('textbox', { name: '网址' }).fill('example.com')
   await page.getByRole('textbox', { name: '网址' }).press('Enter')
   await page.evaluate(() => { layoutService.attachPanels(layoutActions); layoutService.openDetails() })
