@@ -4,6 +4,10 @@ from pathlib import Path
 p = Path(__file__).with_name('mirror-public-plugin-registry.py')
 spec = importlib.util.spec_from_file_location('mirror', p); mirror = importlib.util.module_from_spec(spec); spec.loader.exec_module(mirror)
 class MirrorTests(unittest.TestCase):
+    def test_validation_message_does_not_expose_credentials_or_raw_html(self):
+        self.assertNotIn('secret-token', mirror.safe_api_reason(b'{"message":"secret-token"}', 'secret-token'))
+        self.assertEqual(mirror.safe_api_reason(b'<html>secret</html>', 'token'), '')
+        self.assertEqual(mirror.safe_api_reason(b'["secret"]', 'token'), '')
     def test_creates_only_authorized_public_repository(self):
         calls=[]
         def api(path,data=None,method=None):
