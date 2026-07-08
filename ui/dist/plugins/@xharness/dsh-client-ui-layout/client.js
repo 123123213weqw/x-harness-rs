@@ -32,8 +32,10 @@ window.__ModuleLoader__.load({
 		* @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
 		*/
 		// xh-browser-window-controller/v1
-// Keep native window sizing separate from React/layout. No bridge in an
-// ordinary web tab: it returns 0 and AppFrame uses the non-resizing drawer.
+// Prefer a full rightward native expansion when the monitor has room. If it
+// does not, AppFrame borrows the same width from the conversation on the left.
+// Never partially grow the native window: a partial lease makes the layout
+// jump between two directions and is hard to restore safely.
 function xhCreateBrowserWindowController(tauri) {
   const api = tauri?.window;
   const LogicalSize = api?.LogicalSize ?? tauri?.dpi?.LogicalSize;
@@ -46,40 +48,41 @@ function xhCreateBrowserWindowController(tauri) {
     const size = await nativeWindow.innerSize();
     const scale = await nativeWindow.scaleFactor();
     if (!Number.isFinite(scale) || scale <= 0) return 0;
+    const logicalWidth = size.width / scale;
+    const logicalHeight = size.height / scale;
+    const unchanged = lease !== null && Math.abs(logicalWidth - lease.baseWidth - lease.addedWidth) <= 8;
+    if (!unchanged) lease = null; // A manual resize belongs to the user.
     if (!open) {
-      if (lease !== null) {
-        const expected = Math.round((lease.baseWidth + lease.addedWidth) * scale);
-        const unchanged = Math.abs(size.width - expected) <= Math.max(8, Math.ceil(8 * scale));
-        if (unchanged) await nativeWindow.setSize(new LogicalSize(lease.baseWidth, size.height / scale));
-        lease = null;
-      }
+      if (lease !== null) await nativeWindow.setSize(new LogicalSize(lease.baseWidth, logicalHeight));
+      lease = null;
       return 0;
     }
-    if (await nativeWindow.isMaximized() || await nativeWindow.isFullscreen()) { lease = null; return 0; }
+    if (await nativeWindow.isMaximized() || await nativeWindow.isFullscreen()) {
+      // The OS owns maximized/fullscreen geometry. Retain a valid lease so a
+      // later close can undo our earlier growth if the window is restored.
+      return lease?.addedWidth ?? 0;
+    }
     const monitor = await api.currentMonitor();
-    if (!monitor?.workArea?.position || !monitor?.workArea?.size) return 0;
+    if (!monitor?.workArea?.position || !monitor?.workArea?.size) return lease?.addedWidth ?? 0;
     const position = await nativeWindow.outerPosition();
     const outer = await nativeWindow.outerSize();
-    const expected = lease === null ? 0 : Math.round((lease.baseWidth + lease.addedWidth) * scale);
-    if (lease !== null && Math.abs(size.width - expected) > Math.max(8, Math.ceil(8 * scale))) lease = null;
-    const baseWidth = lease?.baseWidth ?? size.width / scale;
-    const priorAdded = lease?.addedWidth ?? 0;
-    const rightEdge = monitor.workArea.position.x + monitor.workArea.size.width;
-    const available = Math.max(0, (rightEdge - position.x - outer.width) / scale - 8);
-    const maxAdded = priorAdded + available;
     const wanted = Math.max(360, Math.min(900, Math.round(preferredWidth)));
-    const granted = Math.min(wanted, maxAdded);
-    if (granted < 360) return 0;
-    if (Math.abs(granted - priorAdded) > 1) {
-      await nativeWindow.setSize(new LogicalSize(baseWidth + granted, size.height / scale));
+    const rightEdge = monitor.workArea.position.x + monitor.workArea.size.width;
+    const spare = Math.max(0, (rightEdge - position.x - outer.width) / scale - 8);
+    const priorAdded = lease?.addedWidth ?? 0;
+    if (spare + priorAdded < wanted) {
+      if (lease !== null) await nativeWindow.setSize(new LogicalSize(lease.baseWidth, logicalHeight));
+      lease = null;
+      return 0;
     }
-    lease = { baseWidth, addedWidth: granted };
-    return granted;
+    const baseWidth = lease?.baseWidth ?? logicalWidth;
+    if (Math.abs(wanted - priorAdded) > 1) await nativeWindow.setSize(new LogicalSize(baseWidth + wanted, logicalHeight));
+    lease = { baseWidth, addedWidth: wanted };
+    return wanted;
   };
   return {
     set(open, preferredWidth = 440) {
-      // Open, resize, and close can be triggered by separate render cycles.
-      // Serialize them so a late resize cannot undo a later close.
+      // React can request open, drag, and close on successive render cycles.
       queue = queue.catch(() => 0).then(() => resize(open, preferredWidth));
       return queue.catch(() => 0);
     },
@@ -200,7 +203,7 @@ function computeColumns(viewport, sidebar, details, minCenter = 640) {
 		}
 		//#endregion
 		//#region \0dsh-css:deepseek-harness/packages/client/ui-layout/src/client/AppFrame.module.css.mjs
-		const css = "._84hhiq_frame{background:var(--dsw-alias-bg-base);height:100%;transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);grid-template-rows:100%;display:grid;position:relative;overflow:hidden}._84hhiq_frame[data-dragging]{transition:none}@media (prefers-reduced-motion:reduce){._84hhiq_frame{transition:none}}._84hhiq_sidebarCol{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1);min-width:0;overflow:hidden}._84hhiq_centerCol{flex-direction:column;min-width:0;display:flex;overflow:hidden}._84hhiq_detailsCol{border-left:1px solid var(--dsw-alias-border-l2);min-width:0;overflow:hidden}._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol{border-left:none}._84hhiq_handle{cursor:col-resize;z-index:2;touch-action:none;width:8px;transition:left var(--ds-transition-duration-slow) var(--ds-ease-in-out);margin-left:-4px;position:absolute;top:0;bottom:0}._84hhiq_frame[data-dragging] ._84hhiq_handle{transition:none}@media (prefers-reduced-motion:reduce){._84hhiq_handle{transition:none}}._84hhiq_handle[data-side=details]:after{content:\"\";box-sizing:border-box;background:var(--dsw-alias-button-floating-fill);border:1px solid var(--dsw-alias-border-l2-darkmode-thin);opacity:0;width:12px;height:32px;transition:opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out), background var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:10px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._84hhiq_detailsCol:hover~._84hhiq_handle[data-side=details]:after,._84hhiq_handle[data-side=details]:hover:after,._84hhiq_handle[data-side=details][data-dragging=true]:after{opacity:1}._84hhiq_handle[data-side=details]:hover:after,._84hhiq_handle[data-side=details][data-dragging=true]:after{background:var(--dsw-alias-button-floating-hover);border-color:var(--dsw-alias-border-l3)}._84hhiq_overlayLayer{z-index:20;pointer-events:none;position:absolute;inset:0}._84hhiq_overlayLayer>*{pointer-events:auto}.xhworkspace{height:100%;min-width:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base)}.xhworkspace-tabs{display:flex;align-items:center;flex:none;min-height:40px;gap:2px;padding:4px 8px 0;border-bottom:1px solid var(--dsw-alias-border-l2);overflow-x:auto;scrollbar-width:thin}.xhworkspace-tab{display:flex;align-items:center;flex:none;max-width:180px;min-width:90px;height:35px;border-radius:7px 7px 0 0;color:var(--dsw-alias-label-tertiary)}.xhworkspace-tab[data-active]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.xhworkspace-tab>button[role=tab]{display:flex;align-items:center;gap:6px;min-width:0;flex:1;padding:0 8px;border:0;background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer}.xhworkspace-kind{flex:none}.xhworkspace-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xhworkspace-tab-close,.xhworkspace-new{flex:none;width:25px;height:25px;border:0;border-radius:5px;background:none;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}.xhworkspace-tab-close:hover,.xhworkspace-new:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.xhworkspace-body,.xhworkspace-item{flex:1;min-height:0;min-width:0;overflow:hidden}.xhworkspace-item[hidden]{display:none}.xhworkspace-tool>div>div:first-child{display:none}._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol{position:absolute;right:0;top:0;bottom:0;width:min(560px,calc(100% - 44px));z-index:25;box-shadow:-14px 0 40px #0004}._84hhiq_workspaceScrim{position:absolute;inset:0;z-index:24;border:0;background:#0008}";
+		const css = "._84hhiq_frame{background:var(--dsw-alias-bg-base);height:100%;transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);grid-template-rows:100%;display:grid;position:relative;overflow:hidden}._84hhiq_frame[data-dragging]{transition:none}@media (prefers-reduced-motion:reduce){._84hhiq_frame{transition:none}}._84hhiq_sidebarCol{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1);min-width:0;overflow:hidden}._84hhiq_centerCol{flex-direction:column;min-width:0;display:flex;overflow:hidden}._84hhiq_detailsCol{border-left:1px solid var(--dsw-alias-border-l2);min-width:0;overflow:hidden}._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol{border-left:none}._84hhiq_handle{cursor:col-resize;z-index:2;touch-action:none;width:8px;transition:left var(--ds-transition-duration-slow) var(--ds-ease-in-out);margin-left:-4px;position:absolute;top:0;bottom:0}._84hhiq_frame[data-dragging] ._84hhiq_handle{transition:none}@media (prefers-reduced-motion:reduce){._84hhiq_handle{transition:none}}._84hhiq_handle[data-side=details]:after{content:\"\";box-sizing:border-box;background:var(--dsw-alias-button-floating-fill);border:1px solid var(--dsw-alias-border-l2-darkmode-thin);opacity:0;width:12px;height:32px;transition:opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out), background var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:10px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._84hhiq_detailsCol:hover~._84hhiq_handle[data-side=details]:after,._84hhiq_handle[data-side=details]:hover:after,._84hhiq_handle[data-side=details][data-dragging=true]:after{opacity:1}._84hhiq_handle[data-side=details]:hover:after,._84hhiq_handle[data-side=details][data-dragging=true]:after{background:var(--dsw-alias-button-floating-hover);border-color:var(--dsw-alias-border-l3)}._84hhiq_overlayLayer{z-index:20;pointer-events:none;position:absolute;inset:0}._84hhiq_overlayLayer>*{pointer-events:auto}._84hhiq_frame:not([data-xhworkspace-open]){transition:none}._84hhiq_handle[data-side=details]{cursor:w-resize}.xhworkspace{height:100%;min-width:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base)}.xhworkspace-tabs{display:flex;align-items:center;flex:none;min-height:40px;gap:2px;padding:4px 8px 0;border-bottom:1px solid var(--dsw-alias-border-l2);overflow-x:auto;scrollbar-width:thin}.xhworkspace-tab{display:flex;align-items:center;flex:none;max-width:180px;min-width:90px;height:35px;border-radius:7px 7px 0 0;color:var(--dsw-alias-label-tertiary)}.xhworkspace-tab[data-active]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.xhworkspace-tab>button[role=tab]{display:flex;align-items:center;gap:6px;min-width:0;flex:1;padding:0 8px;border:0;background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer}.xhworkspace-kind{flex:none}.xhworkspace-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xhworkspace-tab-close,.xhworkspace-new{flex:none;width:25px;height:25px;border:0;border-radius:5px;background:none;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}.xhworkspace-tab-close:hover,.xhworkspace-new:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.xhworkspace-body{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden}.xhworkspace-item{flex:1;min-height:0;min-width:0;overflow:hidden}.xhworkspace-item[hidden]{display:none}.xhworkspace-tool>div>div:first-child{display:none}._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol{position:absolute;right:0;top:0;bottom:0;width:min(560px,calc(100% - 44px));z-index:25;box-shadow:-14px 0 40px #0004}._84hhiq_workspaceScrim{position:absolute;inset:0;z-index:24;border:0;background:#0008}";
 		const tagId = "@xharness/dsh-client-ui-layout/AppFrame.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -331,7 +334,6 @@ function computeColumns(viewport, sidebar, details, minCenter = 640) {
 			(0, react.useEffect)(() => { if (browserRestored) xhSaveBrowserSpaces(spaces); nextWorkspaceId.current = Math.max(nextWorkspaceId.current, xhNextWorkspaceId(spaces)); }, [spaces, browserRestored]);
 			(0, react.useEffect)(() => { if (!window.__TAURI__?.core?.invoke) return; let alive = true; window.__TAURI__.core.invoke("desktop_browser_restore").then(snapshot => { if (alive && snapshot) setSpaces(xhLoadBrowserSpaces(snapshot)); }).catch(() => {}).finally(() => { if (alive) setBrowserRestored(true); }); return () => { alive = false; }; }, []);
 			const [workspaceWidth, setWorkspaceWidth] = (0, react.useState)(440);
-			const [nativeWorkspaceWidth, setNativeWorkspaceWidth] = (0, react.useState)(0);
 			const updateSpace = fn => setSpaces(all => { const key = spaceKeyRef.current; return { ...all, [key]: fn(all[key] ?? xhWorkspaceEmpty) }; });
 			const openWorkspace = (kind, fresh = false, detail = {}) => {
 				const id = kind === "tool" ? "tool" : `${kind}:${++nextWorkspaceId.current}`;
@@ -348,7 +350,7 @@ function computeColumns(viewport, sidebar, details, minCenter = 640) {
 				return () => { window.removeEventListener("xharness:workspace-open", onOpen); window.removeEventListener("xharness:workspace-close-tool", onCloseTool); };
 			}, []);
 			(0, react.useEffect)(() => { setSpaces(all => { let changed = false; const next = { ...all }; for (const key of Object.keys(next)) if (key !== spaceKey && next[key].items.some(item => item.kind === "tool")) { next[key] = xhWorkspaceClose(next[key], "tool"); changed = true; } return changed ? next : all; }); }, [spaceKey]);
-			(0, react.useEffect)(() => { let active = true; xhWorkspaceWindow.set(space.items.length > 0, workspaceWidth).then(width => { if (active) setNativeWorkspaceWidth(width); }); return () => { active = false; }; }, [space.items.length > 0, workspaceWidth]);
+			(0, react.useEffect)(() => { void xhWorkspaceWindow.set(space.items.length > 0, 440); }, [space.items.length > 0]);
 			(0, react.useEffect)(() => () => { void xhWorkspaceWindow.set(false); }, []);
 			const lastSession = (0, react.useRef)(detailsSession);
 			(0, react.useLayoutEffect)(() => {
@@ -383,7 +385,7 @@ function computeColumns(viewport, sidebar, details, minCenter = 640) {
 			const workspaceOpen = space.items.length > 0;
 			const workspaceAvailable = viewport - sidebarWidth - 480;
 			const workspaceDrawer = workspaceOpen && workspaceAvailable < 360;
-			const workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, nativeWorkspaceWidth >= 360 ? nativeWorkspaceWidth : workspaceAvailable, workspaceAvailable) : 0;
+			const workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, workspaceAvailable) : 0;
 			const cols = computeColumns(viewport - workspaceDockWidth, sidebarCollapsed ? 0 : panels.sidebar === 0 ? 280 : panels.sidebar, 0, workspaceDockWidth > 0 ? 480 : 640);
 			const colsRef = (0, react.useRef)(cols);
 			colsRef.current = cols;
@@ -409,7 +411,7 @@ function computeColumns(viewport, sidebar, details, minCenter = 640) {
 				actions.setDetails(detailsBase.current - dx);
 			}, [actions]);
 			const onWorkspaceStart = () => { workspaceBase.current = workspaceDockWidth; setDragging(true); };
-			const onWorkspaceDrag = dx => setWorkspaceWidth(clampWidth(workspaceBase.current - dx, 360, 900));
+			const onWorkspaceDrag = dx => { if (dx < 0) setWorkspaceWidth(Math.max(workspaceBase.current, Math.min(900, workspaceAvailable, workspaceBase.current - dx))); };
 			return (0, react_jsx_runtime.jsxs)("div", {
 				ref: frameRef,
 				className: AppFrame_module_css_default.frame,
