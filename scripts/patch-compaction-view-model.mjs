@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const marker = '// xh-compaction-view-model/v1'
+const legacyMarker = '// xh-compaction-view-model/v1'
+const marker = '// xh-compaction-view-model/v2'
 
 export function patchCompactionViewModel(bytes) {
   let source = bytes.toString()
@@ -12,7 +13,8 @@ export function patchCompactionViewModel(bytes) {
     if (source.split(before).length !== 2) throw Error('compaction view-model anchor changed: ' + before.slice(0, 100))
     source = source.replace(before, after)
   }
-  once('\t\tfunction fallbackState$2(context) {', `${marker}
+  if (!source.includes(legacyMarker)) {
+    once('\t\tfunction fallbackState$2(context) {', `${legacyMarker}
 		function projectedCompactionView(envelope) {
 			if (envelope?.for !== "compaction" || envelope.view?.schemaVersion !== 1) return void 0;
 			const view = envelope.view;
@@ -22,17 +24,17 @@ export function patchCompactionViewModel(bytes) {
 			return view;
 		}
 		function fallbackState$2(context) {`)
-  once(`			const end = context.matches.find((match) => match.event.type === "compaction/end");
+    once(`			const end = context.matches.find((match) => match.event.type === "compaction/end");
 			return {`, `			const end = context.matches.find((match) => match.event.type === "compaction/end");
 			const presentation = context.matches.map((match) => projectedCompactionView(match.view)).filter(Boolean).at(-1);
 			return {
 				...presentation === void 0 ? {} : { presentation },`)
-  once(`		function updateCompactionState(state, match) {
+    once(`		function updateCompactionState(state, match) {
 			if (match.event.type === "compaction/start") return {`, `		function updateCompactionState(state, match) {
 			const presentation = projectedCompactionView(match.view);
 			if (presentation !== void 0) return { ...state, presentation };
 			if (match.event.type === "compaction/start") return {`)
-  once(`			if (match.event.type === "compaction/end") return {
+    once(`			if (match.event.type === "compaction/end") return {
 				...state,
 				end: match
 			};`, `			if (match.event.type === "compaction/end") return {
@@ -40,7 +42,7 @@ export function patchCompactionViewModel(bytes) {
 				presentation: void 0,
 				end: match
 			};`)
-  once(`		const compactionDefinition = {
+    once(`		const compactionDefinition = {
 			kind: "compaction",
 			target: "chat",
 			match: (event) => {`, `		const compactionDefinition = {
@@ -54,7 +56,7 @@ export function patchCompactionViewModel(bytes) {
 						role: presentation.phase === "running" ? "start" : "update"
 					};
 				}`)
-  once(`			start: (_context, match) => match === void 0 ? {} : { start: match },
+    once(`			start: (_context, match) => match === void 0 ? {} : { start: match },
 			update: (context, match) => updateCompactionState(context.state, match),
 			buildViewNode: (context) => {
 				const state = context.state ?? fallbackState$2(context);`, `			start: (_context, match) => match === void 0 ? {} : updateCompactionState({}, match),
@@ -81,6 +83,69 @@ export function patchCompactionViewModel(bytes) {
 						visibility: view.phase === "failed" ? "hidden" : "visible"
 					});
 				}`)
+  }
+  once(legacyMarker, marker)
+  // History reconstruction is a replay of the same reducer as live updates.
+  once(`		function fallbackState$2(context) {
+			const start = context.matches.find((match) => match.event.type === "compaction/start");
+			const summary = context.matches.find((match) => match.event.type === "compaction/summary");
+			const checkpoint = context.matches.find((match) => compactSource(match.event) !== void 0);
+			const end = context.matches.find((match) => match.event.type === "compaction/end");
+			const presentation = context.matches.map((match) => projectedCompactionView(match.view)).filter(Boolean).at(-1);
+			return {
+				...presentation === void 0 ? {} : { presentation },
+				...start === void 0 ? {} : { start },
+				...summary === void 0 ? {} : { summary },
+				...checkpoint === void 0 ? {} : { checkpoint },
+				...end === void 0 ? {} : { end }
+			};
+		}`, `		function fallbackState$2(context) {
+			return context.matches.reduce(updateCompactionState, {});
+		}`)
+  once(`		function updateCompactionState(state, match) {
+			const presentation = projectedCompactionView(match.view);
+			if (presentation !== void 0) return { ...state, presentation };
+			if (match.event.type === "compaction/start") return {
+				...state,
+				start: match,
+				end: void 0
+			};
+			if (match.event.type === "compaction/end") return {
+				...state,
+				presentation: void 0,
+				end: match
+			};
+			if (match.event.type === "compaction/summary") return {
+				...state,
+				summary: match
+			};
+			if (compactSource(match.event) !== void 0) return {
+				...state,
+				checkpoint: match
+			};
+			return state;
+		}`, `		function updateCompactionState(state, match) {
+			const presentation = projectedCompactionView(match.view);
+			let next = state;
+			if (match.event.type === "compaction/start") next = {
+				...state, start: match, end: void 0
+			};
+			else if (match.event.type === "compaction/end") next = {
+				...state, presentation: void 0, end: match
+			};
+			else if (match.event.type === "compaction/summary") next = {
+				...state, summary: match
+			};
+			else if (compactSource(match.event) !== void 0) next = {
+				...state, checkpoint: match
+			};
+			// Retain lifecycle evidence even when a wire view is available. A
+			// reconnect to a legacy carrier must still be able to end this node.
+			return presentation === void 0 ? next : { ...next, presentation };
+		}`)
+  // Unsupported/malformed views never suppress valid legacy lifecycle facts.
+  once(`					return presentation === void 0 ? null : {`, `					if (presentation !== void 0) return {`)
+  once(`!Number.isSafeInteger(view.summaryEventSeq) || !Number.isSafeInteger(view.shadowedItemCount) || !Number.isSafeInteger(view.shadowedTokenCount)`, `!Number.isSafeInteger(view.summaryEventSeq) || view.summaryEventSeq < 0 || !Number.isSafeInteger(view.shadowedItemCount) || view.shadowedItemCount < 0 || !Number.isSafeInteger(view.shadowedTokenCount) || view.shadowedTokenCount < 0`)
   return Buffer.from(source)
 }
 

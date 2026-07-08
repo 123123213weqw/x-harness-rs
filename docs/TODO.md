@@ -308,6 +308,12 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `ISSUE-59` 实际/请求前读数独立精度、历史变化提示、前后端 replay 与文档统一。见 [计量规范](specs/context-accounting.md)。
 - [ ] `ISSUE-57-61-RELEASE` 推送、GitHub 跨平台 CI、合并与软件安装更新；源代码验收不代表已安装版本已生效。
 
+## 自动 Compact 页面状态一致性（2026-09-30）
+
+- [x] `UI-COMPACT-PROJECTION-01` 后端实时与历史统一版本化 `view`；前端实时更新与历史 fallback 使用同一 reducer，保留稳定 key 和失败/取消隐藏语义。见 [规范](specs/compaction-view-v1.md)。
+- [x] `UI-COMPACT-PROJECTION-02` 实际打包 Assembler 回归：逐条/批量、刷新、分页、重复、重连、新旧投影混合、终态页及连续压缩；接入 CI。Host live/history/restart 四类终态回归。
+- [ ] `UI-COMPACT-PROJECTION-03` 推送、GitHub CI、合并与软件安装验证；本批不替换正在运行的软件。
+
 ## 前端闲置会话历史缓存（2026-09-13）
 
 - [x] `UI-CACHE-01` 保留 Session/scope 的历史 LRU，默认 6 个闲置会话 / 64 MiB 估算历史容量；保护当前/运行/待处理任务。见 [规范](specs/session-history-cache.md)。
