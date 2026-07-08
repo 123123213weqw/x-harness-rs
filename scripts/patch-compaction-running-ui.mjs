@@ -3,12 +3,34 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const MARKER='// xh-compaction-running/v1';
+const MARKER='// xh-compaction-running/v2';
+const LEGACY_MARKER='// xh-compaction-running/v1';
 
 export function patchCompactionRunningUi(bytes) {
  let s=bytes.toString();
  if(s.includes(MARKER))return Buffer.from(s);
  const once=(a,b)=>{if(s.split(a).length!==2)throw Error('compaction running UI anchor changed: '+a.slice(0,120));s=s.replace(a,b)};
+ if(s.includes(LEGACY_MARKER)) {
+  once(LEGACY_MARKER,MARKER);
+  once(`				if (state.end !== void 0 || state.start === void 0) return null;
+				const marker = {
+					kind: "compaction",
+					status: "running",
+					seq: state.start.event.seq,
+					time: state.start.event.time
+				};
+				return chatNode(context, "compaction", marker.seq, marker);`, `				if (state.start === void 0) return null;
+				const marker = {
+					kind: "compaction",
+					status: state.end === void 0 ? "running" : "ended",
+					seq: state.start.event.seq,
+					time: state.start.event.time
+				};
+				return chatNode(context, "compaction", marker.seq, marker, {
+					visibility: state.end === void 0 ? "visible" : "hidden"
+				});`);
+  return Buffer.from(s);
+ }
  once('/** Automatic compaction keyed Chat renderer. */',`${MARKER}
 		/** Automatic compaction keyed Chat renderer. */`);
  once(`		const CompactionNodeView = (0, react.memo)(function CompactionNodeView({ node, t }) {
@@ -82,14 +104,16 @@ export function patchCompactionRunningUi(bytes) {
 					const marker = compactSummary(state.summary, state.checkpoint);
 					return chatNode(context, "compaction", marker.seq, marker);
 				}
-				if (state.end !== void 0 || state.start === void 0) return null;
+				if (state.start === void 0) return null;
 				const marker = {
 					kind: "compaction",
-					status: "running",
+					status: state.end === void 0 ? "running" : "ended",
 					seq: state.start.event.seq,
 					time: state.start.event.time
 				};
-				return chatNode(context, "compaction", marker.seq, marker);
+				return chatNode(context, "compaction", marker.seq, marker, {
+					visibility: state.end === void 0 ? "visible" : "hidden"
+				});
 			}`);
  return Buffer.from(s);
 }
