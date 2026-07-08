@@ -545,6 +545,8 @@ window.__ModuleLoader__.load({
         {
           type: 'button',
           className: 'xhterm-trigger',
+          'data-xh-terminal-trigger': '',
+          'data-xh-terminal-open': store.open && !store.closing ? 'true' : 'false',
           onClick: () => store.setOpen(store.closing || !store.open),
           title: store.open ? t('dock.close') : t('dock.open'),
         },

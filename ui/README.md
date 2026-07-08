@@ -105,7 +105,16 @@ suspended and recreated from their URL when selected. Downloads go to the OS Dow
 unique filenames. Popups become workspace browser tabs. Closing a tab closes
 its native WebView; switching chats hides it without losing page state.
 
-`scripts/sync-browser-ui.mjs` refreshes the checked-in layout and plugin for a
+The browser plugin uses one serialized visibility coordinator for bounds,
+activation, and navigation. Pane popovers and shell modals both suppress native
+views; visibility is rechecked after every native await so stale resize/tab
+operations cannot resurface a page over an overlay. Blank tabs stay native-hidden.
+Chat shortcuts target the existing `data-composer-seat` / `data-composer-card`
+textarea contracts. Terminal shortcuts use `data-xh-terminal-trigger` and
+`data-xh-terminal-open`, not localized labels, and never close an already-open
+dock. An unavailable target reports an error without closing the browser.
+
+`scripts/sync-browser-ui.mjs` refreshes the checked-in layout, browser and terminal plugins for a
 preview; `scripts/assemble-static-ui.mjs` applies the same patch on a fresh UI
 build. Both require the source, generated plugin, graph, and HTML to be committed
 together. Run `node scripts/test-browser-ui.mjs` plus both Chromium and WebKit
