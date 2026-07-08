@@ -22,6 +22,15 @@ const layout = patchBrowserDock(readFileSync(layoutPath))
 writeFileSync(layoutPath, layout)
 layoutEntry.rev = hash(layout)
 layoutEntry.url = `/plugins/${layoutId}/client.js?rev=${layoutEntry.rev}`
+// Browser shortcuts use terminal-owned stable markers, so ship both contracts together.
+const terminalId = '@xlang/xharness-client-ui-terminal'
+const terminalEntry = graph.entries.find(entry => entry.id === terminalId)
+if (terminalEntry) {
+  const terminal = readFileSync(resolve(root, `ui/plugins/${terminalId}/client.js`))
+  writeFileSync(resolve(dist, `plugins/${terminalId}/client.js`), terminal)
+  terminalEntry.rev = hash(terminal)
+  terminalEntry.url = `/plugins/${terminalId}/client.js?rev=${terminalEntry.rev}`
+}
 const inject = [`${UI_NAMESPACE}/dsh-client-runtime`, layoutId, `${UI_NAMESPACE}/dsh-client-ui-conversation`]
 const rev = hash(source)
 graph.entries = graph.entries.filter(entry => entry.id !== id)

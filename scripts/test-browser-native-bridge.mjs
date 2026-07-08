@@ -13,13 +13,29 @@ try {
   const page = await browser.newPage({ viewport: { width: 960, height: 700 } })
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
-  await page.setContent('<html><body style="margin:0"><div id="root" style="width:600px;height:500px"></div><div data-shell-overlay="true"></div></body></html>')
+  await page.setContent(`<html><body style="margin:0"><div id="root" style="width:600px;height:500px"></div>
+    <div data-shell-overlay="true"></div>
+    <div data-composer-seat style="display:none"><textarea placeholder="Message the agent"></textarea></div>
+    <div data-composer-card><textarea id="composer" placeholder="给智能体发消息"></textarea></div>
+    <button data-xh-terminal-trigger data-xh-terminal-open="false" title="终端">终端</button>
+  </body></html>`)
   for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js']) {
     await page.addScriptTag({ path: resolve(deps, 'node_modules', file) })
   }
   await page.addScriptTag({ content: `
-    window.commands=[];window.listeners=[];
-    window.__TAURI__={core:{invoke:async(command,args)=>{commands.push({command,args})}},event:{listen:async(_name,fn)=>{listeners.push(fn);return()=>{listeners=listeners.filter(x=>x!==fn)}}}};
+    window.commands=[];window.listeners=[];window.closeRequests=0;window.terminalClicks=0;
+    window.activeTab=null;window.nativeTabs=new Set();window.hold=null;
+    document.querySelector('[data-xh-terminal-trigger]').onclick=()=>{
+      terminalClicks++;document.querySelector('[data-xh-terminal-trigger]').dataset.xhTerminalOpen='true';
+    };
+    window.__TAURI__={core:{invoke:async(command,args)=>{
+      commands.push({command,args});
+      if(hold?.command===command){const gate=hold;hold=null;window.gateStarted=true;
+        await new Promise((resolve,reject)=>{window.releaseGate=()=>gate.fail?reject(Error('native failed')):resolve()});}
+      if(command==='desktop_browser_activate'){activeTab=args.tabId;return nativeTabs.has(args.tabId)}
+      if(command==='desktop_browser_navigate'){nativeTabs.add(args.tabId);activeTab=args.tabId}
+      if(command==='desktop_browser_close'){nativeTabs.delete(args.tabId);if(activeTab===args.tabId)activeTab=null}
+    }},event:{listen:async(_name,fn)=>{listeners.push(fn);return()=>{listeners=listeners.filter(x=>x!==fn)}}}};
     window.__ModuleLoader__={load:x=>window.registration=x};
   ` })
   await page.addScriptTag({ content: readFileSync(new URL('../ui/dist/plugins/@xlang/xharness-client-ui-browser/client.js', import.meta.url), 'utf8') })
@@ -33,35 +49,143 @@ try {
     window.root = ReactDOM.createRoot(document.getElementById('root'))
     function App() {
       const [item, setItem] = React.useState({ id: 'browser:1', kind: 'browser', entries: [], position: -1, title: '新标签页' })
-      return React.createElement(components['browser-pane'], { item, open: true, onUpdate: patch => setItem(value => ({ ...value, ...patch })), onClose: () => {}, onNewBrowser: () => {} })
+      const [open, setOpen] = React.useState(true)
+      window.setBrowserOpen = setOpen; window.setBrowserItem = setItem
+      return React.createElement(components['browser-pane'], { item, open, onUpdate: patch => setItem(value => ({ ...value, ...patch })), onClose: () => { window.closeRequests++ }, onNewBrowser: () => {} })
     }
     root.render(React.createElement(App))
   })
-  await page.getByRole('textbox', { name: '网址' }).fill('example.com')
-  await page.getByRole('textbox', { name: '网址' }).press('Enter')
+  // Localization, steer placeholders, hidden inputs and already-open terminals.
+  for (const placeholder of ['给智能体发消息', 'Cmd/Ctrl+Enter 插话发送全部排队消息', 'Message the agent', 'Cmd/Ctrl+Enter steers all queued messages']) {
+    await page.evaluate(value => { document.getElementById('composer').placeholder = value }, placeholder)
+    await page.getByRole('button', { name: '回到聊天', exact: true }).first().click()
+    await page.waitForFunction(() => document.activeElement?.id === 'composer')
+    assert.equal(await page.evaluate(() => window.closeRequests), 0)
+  }
+  for (const title of ['终端', 'Terminal']) {
+    await page.evaluate(value => { const trigger = document.querySelector('[data-xh-terminal-trigger]'); trigger.title = value; trigger.dataset.xhTerminalOpen = 'false' }, title)
+    const before = await page.evaluate(() => window.terminalClicks)
+    await page.getByRole('button', { name: '打开终端', exact: true }).click()
+    await page.getByRole('button', { name: '打开终端', exact: true }).click()
+    assert.equal(await page.evaluate(() => window.terminalClicks), before + 1, 'open terminal must not toggle an existing dock closed')
+  }
+  await page.evaluate(() => { document.getElementById('composer').disabled = true; document.getElementById('root').dataset.xhworkspaceDrawer = '' })
+  await page.getByRole('button', { name: '回到聊天', exact: true }).first().click()
+  await page.getByRole('alert').getByText('当前页面没有可用的聊天输入框').waitFor()
+  assert.equal(await page.evaluate(() => window.closeRequests), 0, 'missing composer must not close the browser')
+  await page.evaluate(() => { document.getElementById('composer').disabled = false })
+  await page.getByRole('button', { name: '回到聊天', exact: true }).first().click()
+  await page.waitForFunction(() => document.activeElement?.id === 'composer')
+  assert.equal(await page.evaluate(() => window.closeRequests), 1, 'drawer closes only when chat can receive focus')
+  await page.evaluate(() => { delete document.getElementById('root').dataset.xhworkspaceDrawer; document.querySelector('[data-xh-terminal-trigger]').disabled = true })
+  await page.getByRole('button', { name: '打开终端', exact: true }).click()
+  await page.getByRole('alert').getByText('当前页面没有可用的终端').waitFor()
+  assert.equal(await page.evaluate(() => commands.some(call => call.args?.tabId === 'browser:1')), false, 'blank home must not activate a native page')
+
+  const address = page.getByRole('textbox', { name: '网址' })
+  await address.fill('example.com'); await address.press('Enter')
   await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_navigate'))
-  const commands = await page.evaluate(() => window.commands)
-  const bounds = commands.find(call => call.command === 'desktop_browser_bounds')
+  const calls = await page.evaluate(() => window.commands)
+  const bounds = calls.find(call => call.command === 'desktop_browser_bounds')
   assert.ok(bounds.args.bounds.width > 100 && bounds.args.bounds.height > 100)
-  assert.equal(commands.find(call => call.command === 'desktop_browser_navigate').args.url, 'https://example.com/')
-  assert.equal(await page.getByText('网页版不能嵌入 example.com').count(), 0, 'desktop mode must not show Web-only fallback')
+  assert.equal(calls.find(call => call.command === 'desktop_browser_navigate').args.url, 'https://example.com/')
+  assert.equal(await page.getByText('网页版不能嵌入 example.com').count(), 0)
+  // A queued reload acts as a barrier after React/layout observers and native work.
+  const flush = async () => {
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    const count = await page.evaluate(() => commands.filter(call => call.command === 'desktop_browser_action' && call.args.action === 'reload').length)
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await page.waitForFunction(count => commands.filter(call => call.command === 'desktop_browser_action' && call.args.action === 'reload').length > count, count)
+  }
+  const resize = async () => page.evaluate(() => {
+    const root = document.getElementById('root'); root.style.height = `${parseInt(root.style.height) + 3}px`; window.dispatchEvent(new Event('resize'))
+  })
+  const assertHidden = async () => { await flush(); assert.equal(await page.evaluate(() => window.activeTab), null) }
+  const assertNoShow = async start => {
+    await assertHidden()
+    const calls = await page.evaluate(start => commands.slice(start), start)
+    assert.equal(calls.some(call => call.command === 'desktop_browser_navigate' || (call.command === 'desktop_browser_activate' && call.args.tabId !== null)), false,
+      'resize while blocked must not activate or navigate a child WebView')
+  }
+  await flush()
   await page.evaluate(() => listeners.forEach(fn => fn({ payload: { tabId: 'browser:1', kind: 'url', value: 'https://example.com/next' } })))
   await page.waitForFunction(() => document.querySelector('input[aria-label="网址"]')?.value === 'https://example.com/next')
   await page.evaluate(() => listeners.forEach(fn => fn({ payload: { tabId: 'browser:1', kind: 'download-complete', value: '/Users/test/Downloads/example.pdf' } })))
-  await page.getByRole('button', { name: '下载记录' }).click()
-  await page.getByRole('region', { name: '下载记录' }).getByText('example.pdf').waitFor()
-  assert.equal(await page.getByRole('region', { name: '下载记录' }).getByText('/Users/test/Downloads/').count(), 0,
-    'download popover should not display a local absolute path')
-  await page.getByRole('button', { name: '下载记录' }).click()
-  await page.getByRole('button', { name: '后退' }).click()
-  await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_action' && call.args.action === 'back'))
+  for (const label of ['下载记录', '更多浏览器操作']) {
+    await page.getByRole('button', { name: label, exact: true }).click()
+    await assertHidden()
+    if (label === '下载记录') {
+      await page.getByRole('region', { name: '下载记录' }).getByText('example.pdf').waitFor()
+      assert.equal(await page.getByRole('region', { name: '下载记录' }).getByText('/Users/test/Downloads/').count(), 0)
+    }
+    const start = await page.evaluate(() => commands.length)
+    await resize(); await page.setViewportSize({ width: 970, height: 710 }); await assertNoShow(start)
+    await page.getByRole('button', { name: label, exact: true }).click()
+    await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  }
+  // Each native await is a cancellation/visibility boundary, not just queue entry.
+  for (const command of ['desktop_browser_bounds', 'desktop_browser_activate', 'desktop_browser_navigate']) {
+    await page.evaluate(command => { window.hold = { command }; window.gateStarted = false }, command)
+    if (command === 'desktop_browser_navigate') { await address.fill('example.org'); await address.press('Enter') }
+    else await resize()
+    await page.waitForFunction(() => window.gateStarted)
+    await page.getByRole('button', { name: '下载记录', exact: true }).click()
+    const start = await page.evaluate(() => commands.length)
+    await page.evaluate(() => window.releaseGate())
+    await assertNoShow(start)
+    await resize(); await assertNoShow(start)
+    await page.getByRole('button', { name: '下载记录', exact: true }).click()
+    await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  }
+  // Navigation requested while blocked is retained, but executed only once visible.
+  await page.getByRole('button', { name: '下载记录', exact: true }).click()
+  await assertHidden()
+  const blockedStart = await page.evaluate(() => commands.length)
+  await address.fill('example.net'); await address.press('Enter')
+  await assertNoShow(blockedStart)
+  await page.getByRole('button', { name: '下载记录', exact: true }).click()
+  await flush()
+  assert.equal(await page.evaluate(start => commands.slice(start).filter(call => call.command === 'desktop_browser_navigate' && call.args.url === 'https://example.net/').length, blockedStart), 1)
+  // Global modal composition: dismissing a pane popover must not expose a modal.
   await page.evaluate(() => {
-    const dialog = document.createElement('div'); dialog.role = 'dialog'; dialog.textContent = 'A modal'; document.querySelector('[data-shell-overlay]').append(dialog)
+    const dialog = document.createElement('div'); dialog.role = 'alertdialog'; dialog.textContent = 'A modal'; document.querySelector('[data-shell-overlay]').append(dialog)
   })
-  await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_activate' && call.args.tabId === null))
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('xharness:browser-close', { detail: { id: 'browser:1' } })))
+  await assertHidden()
+  await page.getByRole('button', { name: '下载记录', exact: true }).click()
+  await page.getByRole('button', { name: '下载记录', exact: true }).click()
+  await resize(); await assertHidden()
+  await page.evaluate(() => document.querySelector('[role="alertdialog"]').setAttribute('aria-hidden', 'true'))
+  await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  await page.evaluate(() => document.querySelector('[role="alertdialog"]').remove())
+  // A rejected native call must not poison subsequent synchronization.
+  await page.evaluate(() => { window.hold = { command: 'desktop_browser_bounds', fail: true }; window.gateStarted = false })
+  await resize(); await page.waitForFunction(() => window.gateStarted); await page.evaluate(() => window.releaseGate())
+  await page.getByRole('alert').getByText('native failed', { exact: false }).waitFor()
+  await resize(); await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  // Pending old-tab work cannot show again after close/reopen or a blank new tab.
+  await page.evaluate(() => { window.hold = { command: 'desktop_browser_bounds' }; window.gateStarted = false })
+  await resize(); await page.waitForFunction(() => window.gateStarted)
+  await page.evaluate(() => window.setBrowserOpen(false))
+  await page.waitForFunction(() => window.listeners.length === 1)
+  const start = await page.evaluate(() => commands.length)
+  await page.evaluate(() => window.releaseGate()); await assertNoShow(start)
+  await page.evaluate(() => window.setBrowserOpen(true)); await flush()
+  assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  await page.evaluate(() => { window.hold = { command: 'desktop_browser_activate' }; window.gateStarted = false })
+  await resize(); await page.waitForFunction(() => window.gateStarted)
+  await page.evaluate(() => window.setBrowserItem({ id: 'browser:2', kind: 'browser', entries: ['https://example.edu/'], position: 0, title: 'example.edu' }))
+  await page.waitForFunction(() => document.querySelector('input[aria-label="网址"]')?.value === 'https://example.edu/')
+  const switchedStart = await page.evaluate(() => commands.length)
+  await page.evaluate(() => window.releaseGate())
+  await flush()
+  assert.equal(await page.evaluate(() => window.activeTab), 'browser:2')
+  assert.equal(await page.evaluate(start => commands.slice(start).some(call => call.args?.tabId === 'browser:1'), switchedStart), false, 'old-tab work cannot reactivate or navigate after a switch')
+  await page.evaluate(() => window.setBrowserItem({ id: 'browser:2', kind: 'browser', entries: [], position: -1, title: '新标签页' }))
+  await page.getByRole('button', { name: '打开终端', exact: true }).waitFor()
+  await page.waitForFunction(() => window.activeTab === null)
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('xharness:browser-close', { detail: { id: 'browser:2' } })))
   await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_close'))
   await page.evaluate(() => root.unmount())
   assert.deepEqual(errors, [])
-  console.log(`${engine}: native browser bridge passed`)
+  console.log(`${engine}: native browser visibility, async races and localized shortcuts passed`)
 } finally { await browser.close() }
