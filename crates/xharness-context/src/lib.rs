@@ -15,11 +15,6 @@ use xharness_session::{ContentBlock, Message, MessageRole};
 /// request resource budget, never a lifetime/session attachment limit.
 pub const MAX_REQUEST_IMAGE_BYTES: u64 = 40 * 1024 * 1024;
 
-/// Legacy threshold retained for source compatibility. Tool arguments are no
-/// longer pruned: historical calls must not teach executable placeholder text.
-#[deprecated(note = "tool arguments are preserved exactly; use whole-history compaction")]
-pub const DEFAULT_TOOL_ARGUMENT_PRUNE_THRESHOLD_CHARS: usize = 1_024;
-
 /// Everything the context layer can inspect before a provider request is
 /// prepared.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
