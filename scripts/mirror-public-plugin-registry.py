@@ -9,6 +9,18 @@ class Absent(Exception): pass
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args): return None
 
+def safe_api_reason(body, token):
+    # Only structured validation messages, never raw HTML, headers or requests.
+    try: value = json.loads(body)
+    except (ValueError, UnicodeError): return ''
+    if not isinstance(value, dict): return ''
+    fields = {key: value[key] for key in ('message', 'error', 'errors') if key in value}
+    if not fields: return ''
+    text = json.dumps(fields, ensure_ascii=False).replace(token, '[redacted]')
+    text = re.sub(r'(?:https?://)[^\s"<>]+', '[url]', text)
+    text = re.sub(r'(?i)(access_token|password|authorization)(\s*[=:]\s*)[^,;\s"}]+', r'\1\2[redacted]', text)
+    return text[:512]
+
 def api(path, data=None, method=None):
     token = os.environ.get('GITEE_TOKEN')
     if not token: raise RuntimeError('GITEE_TOKEN is not configured')
@@ -24,7 +36,8 @@ def api(path, data=None, method=None):
             return json.loads(body)
     except urllib.error.HTTPError as e:
         if e.code == 404: raise Absent() from None
-        raise RuntimeError(f'Gitee API returned HTTP {e.code}') from None
+        reason = safe_api_reason(e.read(4096), token)
+        raise RuntimeError(f'Gitee API returned HTTP {e.code}' + (': '+reason if reason else '')) from None
 
 def ensure_target(call=api):
     user = call('/user')
