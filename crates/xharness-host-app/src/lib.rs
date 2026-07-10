@@ -11,6 +11,7 @@ pub mod ownership;
 mod plugin_mcp;
 mod plugin_service;
 mod read_media;
+pub mod tool_allowlist;
 pub use plugin_service::NativePluginBackend;
 pub mod reasoning_discovery;
 
@@ -66,6 +67,7 @@ pub struct NativeToolFactory {
     agent_host: std::sync::OnceLock<std::sync::Weak<xharness_host::BasicHost>>,
     plugins: std::sync::OnceLock<Arc<xharness_plugins::PluginManager>>,
     mcp: std::sync::OnceLock<Arc<xharness_mcp::McpRuntime>>,
+    tool_allowlist: std::sync::OnceLock<tool_allowlist::ToolAllowlist>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,6 +92,7 @@ impl NativeToolFactory {
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
+            tool_allowlist: std::sync::OnceLock::new(),
         })
     }
 
@@ -108,6 +111,7 @@ impl NativeToolFactory {
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
+            tool_allowlist: std::sync::OnceLock::new(),
         })
     }
 
@@ -127,6 +131,7 @@ impl NativeToolFactory {
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
+            tool_allowlist: std::sync::OnceLock::new(),
         })
     }
 
@@ -134,6 +139,13 @@ impl NativeToolFactory {
         self.agent_host
             .set(Arc::downgrade(host))
             .map_err(|_| "agent host already bound".into())
+    }
+
+    /// Configure once during deployment startup, before creating executors.
+    pub fn restrict_tools(&self, allowlist: tool_allowlist::ToolAllowlist) -> Result<(), String> {
+        self.tool_allowlist
+            .set(allowlist)
+            .map_err(|_| "tool allowlist already configured".into())
     }
 
     pub fn bind_plugins(
@@ -353,6 +365,19 @@ impl SessionToolFactory for NativeToolFactory {
                 }
             }
         }
+        if let Some(questions) = &self.questions {
+            specs.push(
+                AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
+                    Arc::clone(questions),
+                    session_id,
+                    cwd,
+                )))
+                .spec(),
+            );
+        }
+        if let Some(allowlist) = self.tool_allowlist.get() {
+            allowlist.apply(&mut specs)?;
+        }
         if permission == PermissionPreset::DangerFullAccess {
             for spec in &mut specs {
                 spec.requires_approval = false;
@@ -364,16 +389,6 @@ impl SessionToolFactory for NativeToolFactory {
                 .register(spec)
                 .await
                 .map_err(|error| error.to_string())?;
-        }
-        if let Some(questions) = &self.questions {
-            AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
-                Arc::clone(questions),
-                session_id,
-                cwd,
-            )))
-            .register(&registry)
-            .await
-            .map_err(|error| error.to_string())?;
         }
         // Questions collect information; they do not change tool permissions.
         // Existing platform policy and approval requirements remain authoritative.
@@ -511,6 +526,70 @@ fn sync_workspace_directory(path: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn deployment_allowlist_removes_execution_not_just_definitions() {
+        let workspace = TempWorkspace::new();
+        let factory = NativeToolFactory::new(WebRuntime::default());
+        factory
+            .restrict_tools(tool_allowlist::ToolAllowlist::parse("read").unwrap())
+            .unwrap();
+        assert!(factory
+            .restrict_tools(tool_allowlist::ToolAllowlist::parse("").unwrap())
+            .is_err());
+        let executor = factory
+            .executor(
+                "gui",
+                &workspace.0.to_string_lossy(),
+                PermissionPreset::DangerFullAccess,
+            )
+            .await
+            .unwrap();
+        let definitions = executor.registry().definitions().await;
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].name, "read");
+        let result = executor
+            .execute(xharness_tools::ToolRequest::new(
+                NATIVE_SHELL_TOOL,
+                r#"{"command":"exit 0"}"#,
+            ))
+            .await;
+        assert!(!result.is_ok());
+        let empty = NativeToolFactory::new(WebRuntime::default());
+        empty
+            .restrict_tools(tool_allowlist::ToolAllowlist::parse("").unwrap())
+            .unwrap();
+        assert!(
+            empty
+                .executor(
+                    "gui",
+                    &workspace.0.to_string_lossy(),
+                    PermissionPreset::DangerFullAccess
+                )
+                .await
+                .unwrap()
+                .registry()
+                .is_empty()
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn deployment_allowlist_does_not_grant_missing_capabilities() {
+        let workspace = TempWorkspace::new();
+        let factory = NativeToolFactory::new(WebRuntime::default());
+        factory
+            .restrict_tools(tool_allowlist::ToolAllowlist::parse("computer").unwrap())
+            .unwrap();
+        assert!(factory
+            .executor(
+                "gui",
+                &workspace.0.to_string_lossy(),
+                PermissionPreset::WorkspaceWrite
+            )
+            .await
+            .is_err());
+    }
+
     use std::sync::atomic::{AtomicU64, Ordering};
     use xharness_platform::CapabilityState;
 
