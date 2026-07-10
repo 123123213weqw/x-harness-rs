@@ -121,7 +121,8 @@ def normalize(body, protocol=None):
 
 
 class Broker:
-    def __init__(self, api_key, bind, unix_path=None, upstream_factory=None):
+    def __init__(self, api_key, bind, unix_path=None, upstream_factory=None,
+                 request_normalizer=normalize, max_body=MAX_BODY):
         if unix_path is not None:
             from socketserver import UnixStreamServer
         self.api_key = api_key
@@ -159,12 +160,12 @@ class Broker:
                 self.connection.settimeout(120)
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
-                    if not 0 < length <= MAX_BODY or self.headers.get("Transfer-Encoding"):
+                    if not 0 < length <= max_body or self.headers.get("Transfer-Encoding"):
                         raise ValueError("invalid request size")
                     raw = self.rfile.read(length)
                     if len(raw) != length:
                         raise ValueError("incomplete body")
-                    body = normalize(json.loads(raw), ledger.protocol)
+                    body = request_normalizer(json.loads(raw), ledger.protocol)
                     encoded = json.dumps(body, ensure_ascii=False).encode()
                     token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                     reserved = ledger.reserve(token, len(encoded))
