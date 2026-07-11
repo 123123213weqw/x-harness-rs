@@ -37,11 +37,11 @@ Freeze tasks/seeds before baseline. Repeat tasks; keep AX-only, screenshot-only 
 - [x] Inspect the existing Computer contract, macOS adapter and embedded browser boundary.
 - [x] Run existing Computer UI tests in Chromium and WebKit; these mock the native boundary.
 - [x] Check local credential availability, free model listing and balance API without printing credentials.
-- [ ] Add a reusable, fail-closed tool allowlist at native composition for isolated GUI evaluation.
-- [ ] Add crash-resumable CNY budget admission and tests; reuse the credential broker's transport.
-- [ ] Build the exact candidate on remote/CI and download only the needed macOS artifact.
+- [x] Add a reusable, fail-closed tool allowlist at native composition for isolated GUI evaluation.
+- [x] Add crash-resumable CNY budget admission and tests; reuse the credential broker's transport.
+- [x] Build the exact candidate on remote/CI and download only the needed macOS artifact.
 - [ ] Establish native permission/observation baseline in an isolated test surface.
-- [ ] Run fixed real-model task repetitions; investigate and fix measured failures.
+- [x] Run fixed real-model task repetitions; investigate and fix measured failures.
 - [ ] Re-run regression and baseline after each fix, including remote Rust tests.
 - [ ] Report verified results, limits, costs, optional features and outstanding work at 08:00.
 
@@ -51,4 +51,21 @@ The current Computer surface is one tool with nine actions and a macOS adapter. 
 
 The current frame guard identifies the most recent observation, not arbitrary UI mutations occurring afterwards. Whether this causes stale-target actions must be established with a regression/real fixture before claiming a fix. AX traversal budget/depth may omit deep browser controls; measure before changing defaults.
 
-No paid model capability results or SOTA claim exist at this checkpoint.
+## Overnight checkpoint (07:20 CST)
+
+- First CI candidate and every required general CI job passed. Exact binary/source hashes and private artifacts are recorded per trial; all Rust compilation/tests ran remotely or in CI.
+- Four fixed local GUI families ran three times each through **real XHarness Host → real DeepSeek Flash → existing plugin_mcp → isolated Chromium**, with actual field/game state grading: 12/12 passed. This is a small semantic browser suite, not a public benchmark.
+- The signed-out real GitHub task searched closed Issues, opened #143 and retrieved its priority risk areas. Full archived tool evidence and all text pages must be combined by the grader; original erroneous scores remain in the private artifacts rather than being overwritten.
+- Native macOS trial: three Accessibility observations timed out; the independent desktop surface reported that the Mac was locked. This is **infrastructure-blocked**, not a model failure. No permissions were changed and no unlock was attempted. Await manual unlock.
+- Measured production corrections: preserve MCP `isError=true` as an outer executor failure (with full bounded evidence); apply deployment composition policy to Host-injected history/goal tools as well as native factory tools. Default production registration remains unchanged.
+- Browser candidate improvements: explicit action field descriptions, latest-frame/element identity validation, no blind replay of uncertain/applied effects, and bounded/paged semantic observations. Long JSON results previously forced many `history` reads; node and text paging preserve access without injecting the entire page.
+- Optional adapter lives under `plugins/browser-use`. It has **not** been installed in the user's application, merged, or released. It adds an isolated Playwright runtime only when opted in; it is not part of the zero-extra-runtime core application.
+- Spending uses the one original CNY ledger; missing provider usage retains the entire reservation. Conservative upper-bound estimates are not claimed to be exact billed fees.
+
+## Outstanding acceptance gates
+
+1. Final candidate CI and post-fix real-model repetitions, costs and failure categories.
+2. Actual unlocked macOS AX/vision/hybrid tasks, permission/cancel/timeout behavior.
+3. Embedded Tauri WebView observation/action bridge. Keep visited pages unprivileged: a trusted desktop broker must own scoped commands/results, never grant remote pages Host/updater IPC.
+4. Screenshot-driven browser tests, authenticated PR draft UX (only with explicit account scope), cross-frame and download/upload integration.
+5. Pinned public OSWorld/BrowserGym evaluation before any SOTA/comparability claim. The overnight suite is an engineering baseline, not sufficient evidence of SOTA.

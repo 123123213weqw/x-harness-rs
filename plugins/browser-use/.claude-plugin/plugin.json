@@ -1,0 +1,5 @@
+{
+  "name": "browser-use",
+  "version": "0.1.0",
+  "description": "Opt-in isolated semantic browser via the existing MCP boundary; not the embedded WebView."
+}
