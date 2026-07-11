@@ -1,10 +1,11 @@
-//! Trusted, read-only native evaluation seam. Only the main application UI can
-//! request it; guest pages receive no Host, updater or observation IPC grant.
-//! The model-facing broker/actions are a subsequent integration, not implicit.
+//! Trusted native observation seam. Only the main UI may request observations;
+//! guest pages receive no Host, updater or observation IPC grant. Observation
+//! does not change page inputs; its bounded refs can arm one separate DOM action.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{collections::HashSet, sync::Mutex as StdMutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -13,10 +14,10 @@ use tokio::sync::{oneshot, Mutex};
 
 use crate::browser::{ensure_main, BrowserState};
 
-const SCRIPT: &str = include_str!("browser_observe.js");
-const MAX_CALLBACK_BYTES: usize = 32 * 1024;
+pub(super) const SCRIPT: &str = include_str!("browser_observe.js");
+pub(super) const MAX_CALLBACK_BYTES: usize = 32 * 1024;
 const MAX_OBSERVATION_BYTES: usize = 8 * 1024;
-const TIMEOUT: Duration = Duration::from_secs(6);
+pub(super) const TIMEOUT: Duration = Duration::from_secs(6);
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -54,13 +55,64 @@ impl InspectRequest {
 
 #[derive(Default)]
 pub(super) struct Inspector {
-    gate: Mutex<()>,
-    navigation_epoch: AtomicU64,
+    pub(super) gate: Mutex<()>,
+    pub(super) navigation_epoch: AtomicU64,
+    latest: StdMutex<Option<Frame>>,
+}
+
+struct Frame {
+    id: String,
+    epoch: u64,
+    refs: HashSet<String>,
 }
 
 impl Inspector {
     pub(super) fn invalidate(&self) {
         self.navigation_epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn remember(&self, snapshot: &Value, epoch: u64) -> Result<(), String> {
+        let frame = Frame {
+            id: snapshot["frame_id"].as_str().ok_or("missing frame")?.into(),
+            epoch,
+            refs: snapshot["nodes"]
+                .as_array()
+                .ok_or("missing nodes")?
+                .iter()
+                .filter_map(|node| node["ref"].as_str().map(str::to_owned))
+                .collect(),
+        };
+        *self
+            .latest
+            .lock()
+            .map_err(|_| "browser frame unavailable")? = Some(frame);
+        Ok(())
+    }
+
+    fn forget(&self) -> Result<(), String> {
+        *self
+            .latest
+            .lock()
+            .map_err(|_| "browser frame unavailable")? = None;
+        Ok(())
+    }
+
+    /// Consume before scheduling an effect. Even a lost/late callback cannot
+    /// authorize the same action again; a new observation is required.
+    pub(super) fn claim(&self, id: &str, reference: Option<&str>) -> Result<(), String> {
+        let mut latest = self
+            .latest
+            .lock()
+            .map_err(|_| "browser frame unavailable")?;
+        let frame = latest.as_ref().ok_or("stale_frame: observe again")?;
+        if frame.id != id || frame.epoch != self.navigation_epoch.load(Ordering::SeqCst) {
+            return Err("stale_frame: observe again".into());
+        }
+        if reference.is_some_and(|reference| !frame.refs.contains(reference)) {
+            return Err("stale_ref: observe again".into());
+        }
+        *latest = None;
+        Ok(())
     }
 }
 
@@ -77,7 +129,7 @@ fn script(request: &InspectRequest, frame: &str) -> Result<String, String> {
     Ok(format!("({SCRIPT})({arguments})"))
 }
 
-fn decode(raw: &str, frame: &str) -> Result<Value, String> {
+pub(super) fn decode_callback(raw: &str) -> Result<Value, String> {
     if raw.len() > MAX_CALLBACK_BYTES {
         return Err("native observation callback is too large".into());
     }
@@ -88,8 +140,11 @@ fn decode(raw: &str, frame: &str) -> Result<Value, String> {
     if serialized.len() > MAX_OBSERVATION_BYTES {
         return Err("native observation is too large".into());
     }
-    let snapshot: Value =
-        serde_json::from_str(&serialized).map_err(|_| "invalid guest-page evidence".to_owned())?;
+    serde_json::from_str(&serialized).map_err(|_| "invalid guest-page evidence".to_owned())
+}
+
+fn decode(raw: &str, frame: &str) -> Result<Value, String> {
+    let snapshot = decode_callback(raw)?;
     if snapshot.get("error").is_some() {
         return Err("guest-page observation unavailable; re-observe page scope".into());
     }
@@ -100,6 +155,30 @@ fn decode(raw: &str, frame: &str) -> Result<Value, String> {
         return Err("invalid guest-page observation contract".into());
     }
     Ok(snapshot)
+}
+
+pub(super) async fn evaluate(target: &Webview, script: String) -> Result<String, String> {
+    let (sender, receiver) = oneshot::channel();
+    let sender = StdMutex::new(Some(sender));
+    target
+        .eval_with_callback(script, move |raw| {
+            if let Ok(mut slot) = sender.lock() {
+                if let Some(sender) = slot.take() {
+                    let reply = if raw.len() <= MAX_CALLBACK_BYTES {
+                        Ok(raw)
+                    } else {
+                        Err("native callback is too large".to_owned())
+                    };
+                    // Late callbacks cannot resolve another operation.
+                    let _ = sender.send(reply);
+                }
+            }
+        })
+        .map_err(|_| "native evaluation could not be scheduled")?;
+    tokio::time::timeout(TIMEOUT, receiver)
+        .await
+        .map_err(|_| "native evaluation timed out")?
+        .map_err(|_| "native callback unavailable")?
 }
 
 #[tauri::command]
@@ -121,29 +200,9 @@ pub async fn desktop_browser_inspect(
         return Err("browser tab changed before inspection".into());
     }
     let frame = frame_id()?;
+    inspector.forget()?;
     let navigation_epoch = inspector.navigation_epoch.load(Ordering::SeqCst);
-    let (sender, receiver) = oneshot::channel();
-    let sender = std::sync::Mutex::new(Some(sender));
-    target
-        .eval_with_callback(script(&request, &frame)?, move |raw| {
-            if let Ok(mut slot) = sender.lock() {
-                if let Some(sender) = slot.take() {
-                    // Bound before allocating/parsing further; a late callback
-                    // simply finds that its receiver was dropped on timeout.
-                    let reply = if raw.len() <= MAX_CALLBACK_BYTES {
-                        Ok(raw)
-                    } else {
-                        Err("native observation callback is too large".to_owned())
-                    };
-                    let _ = sender.send(reply);
-                }
-            }
-        })
-        .map_err(|_| "native observation could not be scheduled")?;
-    let raw = tokio::time::timeout(TIMEOUT, receiver)
-        .await
-        .map_err(|_| "native observation timed out; no action was executed")?
-        .map_err(|_| "native observation callback unavailable")??;
+    let raw = evaluate(&target, script(&request, &frame)?).await?;
     let (current, current_inspector) = state.inspection_target(&tab_id)?;
     if current.label() != target.label() || !Arc::ptr_eq(&inspector, &current_inspector) {
         return Err("browser tab changed during inspection".into());
@@ -156,7 +215,8 @@ pub async fn desktop_browser_inspect(
         "engine": "tauri-webview", "untrusted": true,
         "tab_id": tab_id,
         "native_origin": target.url().map_err(|_| "browser URL unavailable")?.origin().ascii_serialization(),
-        "capabilities": ["observe"],
+        "capabilities": ["observe", "click", "fill", "select", "scroll"],
+        "interaction": "dom-script; not native pointer/keyboard input",
     });
     if serde_json::to_vec(&snapshot)
         .map_err(|_| "invalid observation")?
@@ -165,6 +225,7 @@ pub async fn desktop_browser_inspect(
     {
         return Err("native observation exceeds output budget".into());
     }
+    inspector.remember(&snapshot, navigation_epoch)?;
     Ok(snapshot)
 }
 
@@ -208,5 +269,19 @@ mod tests {
         let epoch = inspector.navigation_epoch.load(Ordering::SeqCst);
         inspector.invalidate();
         assert_ne!(inspector.navigation_epoch.load(Ordering::SeqCst), epoch);
+    }
+
+    #[test]
+    fn a_frame_authorizes_at_most_one_effect_and_only_observed_refs() {
+        let inspector = Inspector::default();
+        let snapshot = json!({"frame_id":"frame", "nodes":[{"ref":"n0"}]});
+        inspector.remember(&snapshot, 0).unwrap();
+        assert!(inspector.claim("other", Some("n0")).is_err());
+        assert!(inspector.claim("frame", Some("n1")).is_err());
+        assert!(inspector.claim("frame", Some("n0")).is_ok());
+        assert!(inspector.claim("frame", Some("n0")).is_err());
+        inspector.remember(&snapshot, 0).unwrap();
+        inspector.invalidate();
+        assert!(inspector.claim("frame", None).is_err());
     }
 }

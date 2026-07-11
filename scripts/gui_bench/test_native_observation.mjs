@@ -10,6 +10,7 @@ const script = readFileSync(new URL("../../apps/desktop/src-tauri/src/browser_ob
 const capability = JSON.parse(readFileSync(new URL("../../apps/desktop/src-tauri/capabilities/desktop-main.json", import.meta.url)));
 assert.deepEqual(capability.webviews, ["main"]);
 assert.ok(capability.permissions.includes("allow-desktop-browser-inspect"));
+assert.ok(capability.permissions.includes("allow-desktop-browser-perform"));
 assert.equal(capability.windows, undefined);
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   const browser = await engine.launch({ headless: true });
@@ -17,6 +18,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
   try {
     const page = await browser.newPage();
     const observe = async (extra = {}) => JSON.parse(await page.evaluate(`(${script})(${JSON.stringify({ frame_id: "native-frame", scope: "page", text_offset: 0, node_offset: 0, option_offset: 0, ...extra })})`));
+    const act = async (extra) => JSON.parse(await page.evaluate(`(${script})(${JSON.stringify({ frame_id: "native-frame", deadline_epoch_ms: Date.now() + 5000, ...extra })})`));
     const check = (condition) => { assert.ok(condition); checks++; };
     await page.setContent('<main><label for="answer">Answer</label><input id="answer" value="existing"><input type="password" value="private-secret"><button disabled>Unavailable</button><button style="display:none">Hidden</button></main>');
     let snapshot = await observe();
@@ -64,7 +66,67 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     check(await page.evaluate(() => typeof window.__TAURI__ === "undefined"), "the evaluation function installs no IPC bridge");
     await page.setContent("<main><input aria-label=\"quote'\\\"<script>\" value=\"literal\"></main>");
     check((await observe()).frame_id === "native-frame");
-    console.log(`${name}: native DOM observation contract passed (${checks} checks; not a native callback test)`);
+    await page.setContent('<main><label for="edit">Editable</label><textarea id="edit">old</textarea><input aria-label="Password" type="password" value="secret"><input aria-label="File" type="file"><input aria-label="Read only" readonly value="keep"><select aria-label="Choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="apply">Apply</button><p id="status">0</p></main>');
+    await page.evaluate(() => {
+      document.querySelector('#apply').onclick = () => document.querySelector('#status').textContent = String(Number(document.querySelector('#status').textContent) + 1);
+      document.querySelector('#edit').addEventListener('input', () => document.body.dataset.input = 'seen');
+    });
+    const reference = async label => (await observe()).nodes.find(node => node.label === label).ref;
+    let ref = await reference('Editable');
+    const literal = "'); window.escape=true; // \n中文";
+    let receipt = await act({ action: 'fill', ref, text: literal });
+    check(receipt.ok && receipt.effect === 'applied');
+    check(await page.locator('#edit').inputValue() === literal);
+    check(await page.evaluate(() => window.escape !== true && document.body.dataset.input === 'seen'));
+    check((await act({ action: 'fill', ref, text: 'duplicate' })).effect === 'not_started');
+    check(await page.locator('#edit').inputValue() === literal);
+    for (const label of ['Password', 'File', 'Read only']) {
+      receipt = await act({ action: 'fill', ref: await reference(label), text: 'denied' });
+      check(!receipt.ok && receipt.effect === 'not_started');
+    }
+    check(await page.locator('input[type=password]').inputValue() === 'secret');
+    receipt = await act({ action: 'select', ref: await reference('Choice'), value: 'b' });
+    check(receipt.ok && await page.locator('select').inputValue() === 'b');
+    ref = await reference('Choice');
+    await page.evaluate(() => document.querySelector('option[value=a]').replaceWith(document.querySelector('option[value=a]').cloneNode(true)));
+    check((await act({ action: 'select', ref, value: 'a' })).effect === 'not_started');
+    ref = await reference('Apply');
+    receipt = await act({ action: 'click', ref });
+    check(receipt.ok && await page.locator('#status').innerText() === '1');
+    check((await act({ action: 'click', ref })).effect === 'not_started');
+    check(await page.locator('#status').innerText() === '1');
+    ref = await reference('Apply');
+    await page.evaluate(() => document.querySelector('#apply').replaceWith(document.querySelector('#apply').cloneNode(true)));
+    check((await act({ action: 'click', ref })).effect === 'not_started');
+    ref = await reference('Editable');
+    await page.locator('#edit').fill('manual change');
+    check((await act({ action: 'fill', ref, text: 'overwrite' })).effect === 'not_started');
+    check(await page.locator('#edit').inputValue() === 'manual change');
+    ref = await reference('Editable');
+    check((await act({ action: 'fill', ref, text: 'expired', deadline_epoch_ms: Date.now() - 100 })).effect === 'not_started');
+    check(await page.locator('#edit').inputValue() === 'manual change');
+    ref = await reference('Editable');
+    await observe({ frame_id: 'new-frame' });
+    check((await act({ action: 'fill', ref, text: 'old frame' })).effect === 'not_started');
+    ref = await reference('Editable');
+    await page.evaluate(() => { document.querySelector('#edit').dispatchEvent = () => { throw Error('after-effect failure'); }; });
+    receipt = await act({ action: 'fill', ref, text: 'effect happened' });
+    check(!receipt.ok && receipt.effect === 'unknown');
+    check(await page.locator('#edit').inputValue() === 'effect happened');
+    check((await act({ action: 'fill', ref, text: 'blind replay' })).effect === 'not_started');
+    await page.setContent('<main style="height:4000px"><button>Top</button></main>');
+    await observe();
+    check((await act({ action: 'scroll', delta_y: 500 })).effect === 'applied');
+    check(await page.evaluate(() => window.scrollY > 0));
+    await observe();
+    check((await act({ action: 'scroll', delta_y: 5001 })).effect === 'not_started');
+    await page.setContent('<main><fieldset disabled><input aria-label="Inherited disabled" value="keep"></fieldset><div inert><button>Inert</button></div></main>');
+    snapshot = await observe();
+    check(snapshot.nodes.every(node => node.disabled));
+    check((await act({ action: 'fill', ref: await reference('Inherited disabled'), text: 'changed' })).effect === 'not_started');
+    check((await act({ action: 'click', ref: await reference('Inert') })).effect === 'not_started');
+    check(await page.evaluate(() => typeof window.__TAURI__ === 'undefined'));
+    console.log(`${name}: native DOM observation/action contract passed (${checks} checks; not a native callback test)`);
   } finally {
     await browser.close();
   }
