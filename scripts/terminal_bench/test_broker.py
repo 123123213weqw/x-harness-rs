@@ -53,7 +53,10 @@ class BrokerTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as error:
                     urllib.request.urlopen(request, timeout=3)
                 self.assertEqual(error.exception.code, status)
-                self.assertNotIn("never-send", error.exception.read().decode())
+                with error.exception as response:
+                    payload = response.read()
+                    self.assertEqual(int(response.headers["Content-Length"]), len(payload))
+                    self.assertNotIn("never-send", payload.decode())
             self.assertEqual(broker.ledger.calls, 0)
         finally:
             broker.stop()

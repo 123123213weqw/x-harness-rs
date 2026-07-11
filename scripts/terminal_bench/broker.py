@@ -135,10 +135,15 @@ class Broker:
                 pass  # Never log bearer headers or request content.
 
             def error(self, code, message):
+                payload = json.dumps({"error": {"message": message, "type": "benchmark_broker"}}).encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
+                # An early denial can leave the request body unread. A TCP
+                # reset at close must not make clients read past the complete
+                # error payload while waiting for EOF (notably on macOS).
+                self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
-                self.wfile.write(json.dumps({"error": {"message": message, "type": "benchmark_broker"}}).encode())
+                self.wfile.write(payload)
 
             def do_POST(self):
                 if self.path in ('/trial/start', '/v1/trial/start'):
@@ -149,6 +154,7 @@ class Broker:
                     except PermissionError:
                         return self.error(403, 'invalid trial capability')
                     self.send_response(200)
+                    self.send_header("Content-Length", "2")
                     self.end_headers()
                     self.wfile.write(b'{}')
                     return
