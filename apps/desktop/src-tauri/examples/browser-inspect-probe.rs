@@ -6,6 +6,8 @@
 mod browser;
 #[path = "../src/browser_inspect.rs"]
 mod browser_inspect;
+#[path = "../src/browser_perform.rs"]
+mod browser_perform;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -14,7 +16,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-const HTML: &str = r#"<!doctype html><main><h1>Native observation probe</h1><label for="answer">Answer</label><input id="answer" value="unchanged"><input type="password" value="private-native-secret"><button disabled>Unavailable</button><p id="ipc">IPC pending</p></main>"#;
+const HTML: &str = r#"<!doctype html><main><h1>Native observation probe</h1><label for="answer">Answer</label><input id="answer" value="unchanged"><input type="password" value="private-native-secret"><button disabled>Unavailable</button><select aria-label="Choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="apply" onclick="document.querySelector('#status').textContent='Applied '+document.querySelector('#answer').value">Apply</button><p id="status">Not applied</p><p id="ipc">IPC pending</p></main>"#;
 
 fn fixture() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("fixture bind");
@@ -29,6 +31,41 @@ fn fixture() -> String {
         }
     });
     format!("http://{address}/")
+}
+
+async fn observe(app: &tauri::AppHandle, main: &tauri::Webview) -> Result<Value, String> {
+    browser_inspect::desktop_browser_inspect(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        Default::default(),
+    )
+    .await
+}
+
+fn action(
+    snapshot: &Value,
+    label: &str,
+    mut arguments: Value,
+) -> Result<browser_perform::PerformRequest, String> {
+    arguments["frame_id"] = snapshot["frame_id"].clone();
+    arguments["ref"] = snapshot["nodes"]
+        .as_array()
+        .ok_or("missing nodes")?
+        .iter()
+        .find(|node| node["label"] == label)
+        .ok_or("missing action target")?["ref"]
+        .clone();
+    serde_json::from_value(arguments).map_err(|error| error.to_string())
+}
+
+async fn perform(
+    app: &tauri::AppHandle,
+    main: &tauri::Webview,
+    request: browser_perform::PerformRequest,
+) -> Result<browser_perform::PerformResult, String> {
+    browser_perform::desktop_browser_perform(main.clone(), app.state(), "probe".into(), request)
+        .await
 }
 
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
@@ -119,6 +156,200 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     if !denied {
         return Err("guest IPC check did not settle".into());
     }
+    let snapshot = observe(app, &main).await?;
+    let fill = json!({"action":"fill","text":"native action"});
+    if browser_perform::desktop_browser_perform(
+        guest.clone(),
+        app.state(),
+        "probe".into(),
+        action(&snapshot, "Answer", fill.clone())?,
+    )
+    .await
+    .is_ok()
+    {
+        return Err("guest action caller was incorrectly authorized".into());
+    }
+    if !perform(app, &main, action(&snapshot, "Answer", fill.clone())?)
+        .await?
+        .ok
+    {
+        return Err("native fill was not applied".into());
+    }
+    if perform(app, &main, action(&snapshot, "Answer", fill)?)
+        .await
+        .is_ok()
+    {
+        return Err("consumed native frame allowed duplicate action".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    if !snapshot["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|node| node["label"] == "Answer" && node["value"] == "native action")
+    {
+        return Err("native fill did not change the actual page input".into());
+    }
+    if !perform(
+        app,
+        &main,
+        action(&snapshot, "Choice", json!({"action":"select","value":"b"}))?,
+    )
+    .await?
+    .ok
+    {
+        return Err("native select was not applied".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    if !snapshot["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|node| node["label"] == "Choice" && node["value"] == "b")
+    {
+        return Err("native select did not change actual selection".into());
+    }
+    if !perform(
+        app,
+        &main,
+        action(&snapshot, "Apply", json!({"action":"click"}))?,
+    )
+    .await?
+    .ok || !observe(app, &main).await?["text"]
+        .as_str()
+        .unwrap_or("")
+        .contains("Applied native action")
+    {
+        return Err("native click did not update the actual page".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    guest.eval("document.querySelector('#apply').replaceWith(document.querySelector('#apply').cloneNode(true))").map_err(|error| error.to_string())?;
+    if perform(
+        app,
+        &main,
+        action(&snapshot, "Apply", json!({"action":"click"}))?,
+    )
+    .await?
+    .effect
+        != browser_perform::Effect::NotStarted
+    {
+        return Err("identical replacement DOM node incorrectly accepted an action".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    guest
+        .eval("document.querySelector('#answer').value='user edit'")
+        .map_err(|error| error.to_string())?;
+    if perform(
+        app,
+        &main,
+        action(
+            &snapshot,
+            "Answer",
+            json!({"action":"fill","text":"overwrite"}),
+        )?,
+    )
+    .await?
+    .effect
+        != browser_perform::Effect::NotStarted
+    {
+        return Err("native action overwrote an intervening user edit".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    guest
+        .eval("document.querySelector('#answer').dispatchEvent=()=>{throw Error('after-effect failure')}")
+        .map_err(|error| error.to_string())?;
+    if perform(
+        app,
+        &main,
+        action(
+            &snapshot,
+            "Answer",
+            json!({"action":"fill","text":"partial effect"}),
+        )?,
+    )
+    .await?
+    .effect
+        != browser_perform::Effect::Unknown
+    {
+        return Err("after-effect native failure was incorrectly classified".into());
+    }
+    if perform(
+        app,
+        &main,
+        action(
+            &snapshot,
+            "Answer",
+            json!({"action":"fill","text":"blind replay"}),
+        )?,
+    )
+    .await
+    .is_ok()
+    {
+        return Err("after-effect native failure allowed blind replay".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    if !snapshot["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|node| node["label"] == "Answer" && node["value"] == "partial effect")
+    {
+        return Err("after-effect failure did not preserve actual page-state evidence".into());
+    }
+    guest
+        .eval("delete document.querySelector('#answer').dispatchEvent")
+        .map_err(|error| error.to_string())?;
+    if !perform(
+        app,
+        &main,
+        action(
+            &snapshot,
+            "Answer",
+            json!({"action":"fill","text":"user edit"}),
+        )?,
+    )
+    .await?
+    .ok
+    {
+        return Err("native action did not recover after re-observation".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    // A seven-second blocked renderer exceeds the six-second callback wait.
+    // The queued action expires at five seconds and must not execute later.
+    guest
+        .eval("{ const end=performance.now()+7000; while(performance.now()<end){} }")
+        .map_err(|error| error.to_string())?;
+    let delayed = action(
+        &snapshot,
+        "Answer",
+        json!({"action":"fill","text":"forgotten effect"}),
+    )?;
+    if perform(app, &main, delayed).await?.effect != browser_perform::Effect::Unknown {
+        return Err("missing native callback was not reported as uncertain".into());
+    }
+    if perform(
+        app,
+        &main,
+        action(
+            &snapshot,
+            "Answer",
+            json!({"action":"fill","text":"blind retry"}),
+        )?,
+    )
+    .await
+    .is_ok()
+    {
+        return Err("uncertain action frame could be blindly replayed".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    if !snapshot["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|node| node["label"] == "Answer" && node["value"] == "user edit")
+    {
+        return Err("expired queued action executed after callback timeout".into());
+    }
     // Hold the guest JS thread briefly, then change selection while the native
     // callback is pending. A completed read must not leak a stale hidden page.
     guest
@@ -137,11 +368,21 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
+    browser::desktop_browser_activate(main.clone(), app.state(), Some("probe".into())).await?;
     if pending.await.map_err(|e| e.to_string())?.is_ok() {
-        return Err(
-            "selection changed while inspection was pending but stale evidence escaped".into(),
-        );
+        return Err("hide/reselect revived a pending observation".into());
     }
+    if perform(
+        app,
+        &main,
+        action(&snapshot, "Apply", json!({"action":"click"}))?,
+    )
+    .await
+    .is_ok()
+    {
+        return Err("hide/reselect revived an old action frame".into());
+    }
+    browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     if browser_inspect::desktop_browser_inspect(
         main,
         app.state(),
@@ -153,19 +394,23 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("hidden tab was incorrectly inspected".into());
     }
-    println!("Native Tauri observation probe passed: real callback, redaction, unchanged input, guest denial, hidden-tab denial, pending-selection race");
+    println!("Native Tauri DOM probe passed: observation, fill/select/click actual state, guest denial, duplicate/replacement/user-edit guards, callback timeout/expired action, hidden/hide-reselect races (no model/OS input)");
     Ok(())
 }
 
 fn main() {
     let url = fixture();
     let mut context = tauri::generate_context!();
-    context.config_mut().identifier = "com.xlang.xharness.browser-inspect-probe".into();
+    let mut nonce = [0; 8];
+    getrandom::fill(&mut nonce).expect("native probe entropy");
+    let nonce: String = nonce.iter().map(|byte| format!("{byte:02x}")).collect();
+    context.config_mut().identifier = format!("com.xlang.xharness.browser-inspect-probe.r{nonce}");
     context.config_mut().app.windows.clear();
     let app = tauri::Builder::default()
         .manage(browser::BrowserState::default())
         .invoke_handler(tauri::generate_handler![
-            browser_inspect::desktop_browser_inspect
+            browser_inspect::desktop_browser_inspect,
+            browser_perform::desktop_browser_perform
         ])
         .setup(move |app| {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))

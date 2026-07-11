@@ -397,6 +397,18 @@ pub async fn desktop_browser_activate(
         return Err("invalid browser tab".into());
     }
     let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+    if inner.active != tab_id {
+        // Hiding and then returning to the same tab must not revive a pending
+        // observation or an old action frame.
+        for id in [inner.active.as_ref(), tab_id.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            if let Some(tab) = inner.tabs.get(id) {
+                tab.inspector.invalidate();
+            }
+        }
+    }
     inner.clock += 1;
     let clock = inner.clock;
     inner.active = tab_id;
