@@ -14,7 +14,26 @@ const { chromium } = require("playwright");
 const origins = new Set(
   JSON.parse(process.env.XHARNESS_BROWSER_ALLOWED_ORIGINS ?? "[]"),
 );
-const browser = await chromium.launch({ headless: true });
+// Optional operator-owned proxy for the dedicated browser only. Never read
+// ambient proxy credentials or change the OS network configuration.
+const proxyServer = process.env.XHARNESS_BROWSER_PROXY;
+if (proxyServer) {
+  const url = new URL(proxyServer);
+  if (
+    !["http:", "https:", "socks5:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw Error("invalid browser proxy URL");
+}
+const browser = await chromium.launch({
+  headless: true,
+  ...(proxyServer
+    ? { proxy: { server: proxyServer, bypass: "127.0.0.1,localhost" } }
+    : {}),
+});
 const context = await browser.newContext({
   viewport: { width: 1060, height: 690 },
 });
