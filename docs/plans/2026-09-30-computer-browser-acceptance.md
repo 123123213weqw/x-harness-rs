@@ -42,8 +42,8 @@ Freeze tasks/seeds before baseline. Repeat tasks; keep AX-only, screenshot-only 
 - [x] Build the exact candidate on remote/CI and download only the needed macOS artifact.
 - [ ] Establish native permission/observation baseline in an isolated test surface.
 - [x] Run fixed real-model task repetitions; investigate and fix measured failures.
-- [ ] Re-run regression and baseline after each fix, including remote Rust tests.
-- [ ] Report verified results, limits, costs, optional features and outstanding work at 08:00.
+- [x] Re-run overnight regression and baseline after each fix, including remote Rust tests.
+- [x] Report verified overnight results, limits, costs, optional features and outstanding work at 08:00.
 
 ## Initial findings
 
@@ -69,3 +69,18 @@ The current frame guard identifies the most recent observation, not arbitrary UI
 3. Embedded Tauri WebView observation/action bridge. Keep visited pages unprivileged: a trusted desktop broker must own scoped commands/results, never grant remote pages Host/updater IPC.
 4. Screenshot-driven browser tests, authenticated PR draft UX (only with explicit account scope), cross-frame and download/upload integration.
 5. Pinned public OSWorld/BrowserGym evaluation before any SOTA/comparability claim. The overnight suite is an engineering baseline, not sufficient evidence of SOTA.
+
+## Native WebView observation checkpoint after acceptance
+
+The 08:00 report does not end the Goal. Paid admission has been closed with no pending requests; the original ledger is retained and must not be replaced to obtain a fresh budget. Subsequent work in this checkpoint uses no model/API calls and does not replace the user's application.
+
+The pinned Tauri 2.11.5 dependency has `Webview::eval_with_callback`, confirmed in both its actual remote dependency source and [API documentation](https://docs.rs/tauri/latest/tauri/webview/struct.Webview.html). A fixed read-only evaluation function can return native page evidence directly; there is no need to expose Host/updater IPC or a credential-bearing callback endpoint to visited pages.
+
+- `browser_inspect` owns the typed, bounded observation boundary; browser tab lifecycle stays in the existing `browser` module. Only `main` is granted the new command. Guest callers are rejected again by label.
+- Each live tab owns a serial observation gate and navigation epoch. Selection, close/recreation or even a same-URL document reload invalidates a pending result. Callback waits are bounded; late callbacks cannot resolve another request.
+- Fixed page/main/dialog scopes, text/node/option paging, password redaction and byte limits are implemented. No caller-supplied JavaScript/selector, action or network callback is accepted. Page data stays explicitly untrusted.
+- Chromium and WebKit execute the exact evaluation function: 196 assertions per engine, including 180 long multilingual controls and recovery of all 100 select options. This is a DOM contract, not by itself proof of Tauri integration.
+- V100 compiled and ran the **real Tauri/WebKitGTK callback** on a disposable Xvfb display/profile. Native redaction, unchanged input, guest IPC denial, hidden-tab denial and selection changes during a pending callback passed. Portal/FUSE warnings remain in the complete log; the probe exited successfully without changing server permissions.
+- Remote desktop unit tests passed (31 library tests; the example additionally repeats 7 existing module tests), and `clippy --all-targets -- -D warnings` passed. The native probe and dual-engine contract are now CI gates; this checkpoint still requires that CI to finish.
+
+This is **only the native observation seam**, not a completed model-facing Browser Use implementation. No new model tool is registered and the production UI does not invoke it yet. The next integration must add scoped tab/session delegation and action identity/side-effect rules, reuse the existing executor/cancellation path, and then test actual Host → model → native browser actions. macOS AX/vision, real authenticated form interactions and public benchmark comparison remain unverified.
