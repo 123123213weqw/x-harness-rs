@@ -23,6 +23,7 @@ fn main() {
             "desktop_browser_close",
             "desktop_browser_restore",
             "desktop_browser_persist",
+            "desktop_browser_inspect",
         ]),
     ))
     .expect("failed to generate desktop IPC permissions")

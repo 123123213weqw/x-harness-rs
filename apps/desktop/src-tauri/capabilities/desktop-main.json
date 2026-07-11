@@ -25,6 +25,7 @@
     "allow-desktop-browser-action",
     "allow-desktop-browser-close",
     "allow-desktop-browser-restore",
-    "allow-desktop-browser-persist"
+    "allow-desktop-browser-persist",
+    "allow-desktop-browser-inspect"
   ]
 }
