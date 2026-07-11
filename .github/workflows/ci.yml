@@ -355,15 +355,11 @@ jobs:
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
           if ($LASTEXITCODE) { throw 'Windows native DOM probe build failed' }
+          ./scripts/gui_bench/windows_imports.ps1 -Binary apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe -EvidenceDir dist/native-browser-evidence/windows
           python scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe --runtime-dir apps/desktop/src-tauri/target/debug --runtime-dir apps/desktop/src-tauri/target/debug/deps --evidence-dir dist/native-browser-evidence/windows
           if ($LASTEXITCODE) {
             # Preserve loader evidence rather than treating pre-main failure as
             # a DOM/model failure or silently skipping the native contract.
-            $vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property installationPath
-            $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
-            if ($dumpbin) {
-              & $dumpbin.FullName /imports apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe > dist/native-browser-evidence/windows/imports.txt
-            }
             Get-ChildItem apps/desktop/src-tauri/target/debug -Filter '*.dll' -Recurse | Select-Object FullName,Length | ConvertTo-Json > dist/native-browser-evidence/windows/build-dlls.json
             throw 'Windows native DOM probe failed'
           }
