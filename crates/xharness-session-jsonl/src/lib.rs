@@ -33,6 +33,8 @@ use xharness_session::{
 };
 
 mod audit;
+mod history_index;
+mod recovery_checkpoint;
 mod results;
 
 const FILE_FORMAT: &str = "xharness.session.jsonl";
@@ -167,6 +169,7 @@ struct LoadedFile {
     /// The accepted final record had no newline terminator.
     needs_separator: bool,
     estimated_bytes: usize,
+    journal_hash: Sha256,
     audit_offsets: Arc<HashMap<u64, (u64, u64)>>,
 }
 
@@ -177,6 +180,28 @@ struct CachedFile {
     touched: u64,
 }
 
+#[derive(Clone, Debug)]
+struct ValidatedStamp {
+    fingerprint: FileFingerprint,
+    next_seq: u64,
+    revision: Revision,
+    valid_len: u64,
+    needs_separator: bool,
+    sha256: String,
+}
+impl ValidatedStamp {
+    fn new(fingerprint: FileFingerprint, loaded: &LoadedFile) -> Self {
+        Self {
+            fingerprint,
+            next_seq: loaded.session.next_seq(),
+            revision: loaded.session.revision(),
+            valid_len: loaded.valid_len,
+            needs_separator: loaded.needs_separator,
+            sha256: format!("{:x}", loaded.journal_hash.clone().finalize()),
+        }
+    }
+}
+
 /// Cache limits are accounted logical bytes, not a promise about allocator RSS.
 #[derive(Debug)]
 struct SnapshotCache {
@@ -184,7 +209,7 @@ struct SnapshotCache {
     /// A bounded-size logical cursor independent of the heavyweight Session
     /// cache. Large journals can be evicted while catalogue publication still
     /// verifies it describes the exact file version the Host loaded.
-    catalog_stamps: HashMap<PathBuf, (FileFingerprint, u64)>,
+    catalog_stamps: HashMap<PathBuf, ValidatedStamp>,
     max_bytes: usize,
     max_entries: usize,
     clock: u64,
@@ -369,6 +394,93 @@ impl JsonlSessionStore {
 
 #[async_trait]
 impl Store for JsonlSessionStore {
+    async fn history_window(
+        &self,
+        session_id: &str,
+        expected_next_seq: u64,
+        before_seq: Option<u64>,
+        max_messages: usize,
+    ) -> Result<Option<xharness_session::SessionHistoryWindow>, StoreError> {
+        let permit = self
+            .audit_reads
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| backend_message(e.to_string()))?;
+        let (path, guard) = self.locked_path(session_id).await?;
+        let id = session_id.to_owned();
+        let cache = self.cache.clone();
+        run_blocking(move || {
+            let _permit = permit;
+            let _guard = guard;
+            let _file_lock = acquire_file_lock(&path)?;
+            // Warm authoritative snapshots are cheaper than re-reading disk
+            // batches. Keep that existing path rather than regressing small
+            // or recently used sessions in the name of cold paging speed.
+            if let Some(fingerprint) = file_fingerprint(&path)? {
+                let c = cache
+                    .lock()
+                    .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
+                if c.entries.get(&path).is_some_and(|entry| {
+                    entry.fingerprint == fingerprint
+                        && entry.loaded.session.next_seq() == expected_next_seq
+                }) {
+                    return Ok(None);
+                }
+            }
+            // A damaged acceleration file must never replace normal errors or
+            // make the browser think that authoritative history disappeared.
+            Ok(
+                history_index::read(&path, &id, expected_next_seq, before_seq, max_messages)
+                    .unwrap_or(None),
+            )
+        })
+        .await
+    }
+
+    async fn recovery_tail(
+        &self,
+        session_id: &str,
+        schema: &str,
+    ) -> Result<Option<xharness_session::SessionRecoveryTail>, StoreError> {
+        let permit = self
+            .audit_reads
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| backend_message("recovery read limiter closed"))?;
+        let (path, guard) = self.locked_path(session_id).await?;
+        let id = session_id.to_owned();
+        let schema = schema.to_owned();
+        run_blocking(move || {
+            let (_permit, _guard) = (permit, guard);
+            let _file_lock = acquire_file_lock(&path)?;
+            Ok(recovery_checkpoint::read(&path, &id, &schema).unwrap_or(None))
+        })
+        .await
+    }
+
+    async fn publish_recovery_checkpoint(
+        &self,
+        checkpoint: xharness_session::SessionRecoveryCheckpoint,
+    ) -> Result<(), StoreError> {
+        let (path, guard) = self.locked_path(&checkpoint.header.id).await?;
+        let cache = Arc::clone(&self.cache);
+        run_blocking(move || {
+            let _guard = guard;
+            let _file_lock = acquire_file_lock(&path)?;
+            let stamp = cache
+                .lock()
+                .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+                .catalog_stamps
+                .get(&path)
+                .cloned();
+            let Some(stamp) = stamp else { return Ok(()) };
+            recovery_checkpoint::publish(&path, checkpoint, stamp)
+        })
+        .await
+    }
+
     async fn catalog_entry(
         &self,
         session_id: &str,
@@ -439,7 +551,9 @@ impl Store for JsonlSessionStore {
                 .map_err(|_| backend_message("session snapshot cache is poisoned"))?
                 .catalog_stamps
                 .get(&path)
-                .is_some_and(|(observed, seq)| *observed == fingerprint && *seq == entry.next_seq);
+                .is_some_and(|stamp| {
+                    stamp.fingerprint == fingerprint && stamp.next_seq == entry.next_seq
+                });
             if !matching_source {
                 return Err(backend_message(format!(
                     "session catalogue source changed while publishing {}",
@@ -739,6 +853,7 @@ impl Store for JsonlSessionStore {
                     valid_len: fingerprint.len,
                     needs_separator: false,
                     estimated_bytes: 1024,
+                    journal_hash: Sha256::new_with_prefix(&bytes),
                     audit_offsets: Arc::new(HashMap::new()),
                 },
             )?;
@@ -774,6 +889,14 @@ impl Store for JsonlSessionStore {
                     Err(error) if error.kind() == ErrorKind::NotFound => {}
                     Err(error) => return Err(backend_error("delete session data", file, error)),
                 }
+            }
+            // An optional acceleration sidecar must not block authoritative
+            // deletion or leave tool archives behind if it is unremovable.
+            if fs::remove_file(history_index::path(&path)).is_ok() {
+                let _ = sync_parent_directory(&path);
+            }
+            if fs::remove_file(recovery_checkpoint::path(&path)).is_ok() {
+                let _ = sync_parent_directory(&path);
             }
             results::delete(&root, &session_id)?;
             cache_remove(&cache, &path)
@@ -889,6 +1012,10 @@ impl Store for JsonlSessionStore {
                     loaded.estimated_bytes = loaded.estimated_bytes.saturating_add(64);
                 }
             }
+            if loaded.needs_separator {
+                loaded.journal_hash.update(b"\n");
+            }
+            loaded.journal_hash.update(&bytes);
             loaded.valid_len = fingerprint.len;
             loaded.needs_separator = false;
             cache_store(&cache, &path, fingerprint, loaded)?;
@@ -1164,6 +1291,7 @@ fn load_file_cached(
         cache_remove(cache, path)?;
         return Ok(None);
     };
+    let source_fingerprint = fingerprint;
     let runtime_audit_view;
     {
         let mut c = cache
@@ -1180,7 +1308,7 @@ fn load_file_cached(
             entry.touched = touched;
             let loaded = entry.loaded.clone();
             c.catalog_stamps
-                .insert(path.to_owned(), (fingerprint, loaded.session.next_seq()));
+                .insert(path.to_owned(), ValidatedStamp::new(fingerprint, &loaded));
             return Ok(Some(loaded));
         }
     }
@@ -1198,6 +1326,11 @@ fn load_file_cached(
             path.display()
         ))
     })?;
+    if fingerprint != source_fingerprint {
+        return Err(backend_message(
+            "session changed during authoritative replay",
+        ));
+    }
     cache_store(cache, path, fingerprint, loaded.clone())?;
     Ok(Some(loaded))
 }
@@ -1243,7 +1376,7 @@ fn cache_store(
         c.catalog_stamps.clear();
     }
     c.catalog_stamps
-        .insert(path.to_owned(), (fingerprint, loaded.session.next_seq()));
+        .insert(path.to_owned(), ValidatedStamp::new(fingerprint, &loaded));
     if loaded.estimated_bytes > c.max_bytes || c.max_entries == 0 {
         return Ok(());
     }
@@ -1471,6 +1604,8 @@ fn parse_reader(
     mut reader: impl BufRead,
     runtime_audit_view: bool,
 ) -> Result<LoadedFile, StoreError> {
+    let original_fingerprint = file_fingerprint(path).ok().flatten();
+    let mut history_index = history_index::Builder::default();
     let mut line = Vec::new();
     let read = read_record(&mut reader, &mut line, path)?;
     if read == 0 {
@@ -1481,6 +1616,8 @@ fn parse_reader(
     validate_header_record(path, session_id, &header_record)?;
     let header = header_record.header;
     let mut valid_len = read as u64;
+    let header_len = valid_len;
+    let mut journal_hash = Sha256::new_with_prefix(&line);
     let mut needs_separator = !line.ends_with(b"\n");
     let mut revision = Revision::ZERO;
     let mut events = Vec::new();
@@ -1497,6 +1634,7 @@ fn parse_reader(
         let terminated = line.ends_with(b"\n");
         match decode_batch_line(&line, header_record.format_version) {
             Ok(mut record) => {
+                history_index.record(valid_len, &line, &record);
                 for event in &record.events {
                     if matches!(
                         event.data(),
@@ -1514,6 +1652,7 @@ fn parse_reader(
                 estimated_bytes = estimated_bytes
                     .saturating_add(record.events.iter().map(event_weight).sum::<usize>());
                 extend_batch_record(path, line_number, &mut revision, &mut events, record)?;
+                journal_hash.update(&line);
                 valid_len += count as u64;
                 needs_separator = !terminated;
             }
@@ -1529,14 +1668,31 @@ fn parse_reader(
             }
         }
     }
+    if let Some(original) = original_fingerprint {
+        if file_fingerprint(path)? != Some(original) {
+            return Err(backend_message("session changed while parsing the journal"));
+        }
+    }
     let session = Session::restore(header, revision, events)
         .map_err(|e| corrupt(path, line_number, format!("invalid event log: {e}")))?;
+    history_index.publish(
+        path,
+        &session,
+        history_index::ReplayedSource {
+            format_version: header_record.format_version,
+            header_len,
+            fingerprint: original_fingerprint,
+            valid_len,
+            needs_separator,
+        },
+    );
     Ok(LoadedFile {
         session,
         format_version: header_record.format_version,
         valid_len,
         needs_separator,
         estimated_bytes,
+        journal_hash,
         audit_offsets: Arc::new(audit_offsets),
     })
 }
