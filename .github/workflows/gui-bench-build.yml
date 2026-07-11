@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'scripts/gui_bench/**'
+      - 'plugins/browser-use/**'
       - 'scripts/terminal_bench/broker.py'
       - 'crates/xharness-computer*/**'
       - 'crates/xharness-host-app/**'
@@ -26,7 +27,24 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -B -m unittest discover -s scripts/terminal_bench -p test_broker.py -v
-      - run: python3 -B -m unittest scripts.gui_bench.test_budget -v
+      - run: python3 -B -m unittest scripts.gui_bench.test_budget scripts.gui_bench.test_runner -v
+
+  browser-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install isolated browser dependency
+        run: |
+          npm install --prefix "$RUNNER_TEMP/gui-tests" --no-save --package-lock=false playwright@1.62.1
+          node "$RUNNER_TEMP/gui-tests/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Real Chromium MCP regression (no API spending)
+        env:
+          UI_TEST_DEPS: ${{ runner.temp }}/gui-tests
+        run: node scripts/gui_bench/test_browser.mjs
 
   macos-host:
     runs-on: macos-15
@@ -38,6 +56,9 @@ jobs:
       - run: cargo test --locked -p xharness-computer -p xharness-computer-macos
       - run: cargo test --locked -p xharness-host-app deployment_allowlist
       - run: cargo test --locked -p xharness-host-app tool_allowlist
+      - run: cargo test --locked -p xharness-host-app plugin_mcp
+      - run: cargo test --locked -p xharness-host deployment_policy_fences
+      - run: cargo test --locked -p xharness-mcp
       - run: cargo build --locked --release -p xharness-host-app
       - name: Record exact candidate source
         run: |
