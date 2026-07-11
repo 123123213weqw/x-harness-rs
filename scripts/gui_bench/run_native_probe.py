@@ -10,6 +10,8 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -40,6 +42,39 @@ def environment(root: Path, runtime_dirs: list[Path] | None = None) -> dict[str,
     return env
 
 
+def cleanup(root: Path) -> bool:
+    # WebKit/cache writers can outlive the app by a short interval. Bound the
+    # retry and report cleanup failure; do not lose the probe receipt on ENOTEMPTY.
+    for attempt in range(10):
+        try:
+            shutil.rmtree(root)
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            time.sleep(0.1 * (attempt + 1))
+    return False
+
+
+def run_probe(binary: Path, env: dict[str, str], log) -> int:
+    process = subprocess.Popen(command(binary, sys.platform), env=env, stdout=log, stderr=subprocess.STDOUT,
+                               start_new_session=os.name == "posix")
+    try:
+        return process.wait(timeout=90)
+    except subprocess.TimeoutExpired:
+        return 124
+    finally:
+        if os.name == "posix":
+            # Only our new session/group, never the user's display or apps.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
@@ -56,20 +91,21 @@ def main() -> int:
                "model_calls": 0, "os_input": False,
                "binary_sha256": digest.hexdigest()}
     start = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="xh-native-dom-") as directory:
+    directory = Path(tempfile.mkdtemp(prefix="xh-native-dom-"))
+    code = 127
+    try:
         with (args.evidence_dir / "native-probe.log").open("wb") as log:
             try:
-                result = subprocess.run(command(binary, sys.platform), env=environment(Path(directory), args.runtime_dir),
-                                        stdout=log, stderr=subprocess.STDOUT, timeout=90, check=False)
-                code = result.returncode
-            except subprocess.TimeoutExpired:
-                code = 124
+                code = run_probe(binary, environment(directory, args.runtime_dir), log)
             except OSError:
                 code = 127
-    receipt.update(exit_code=code, seconds=round(time.monotonic() - start, 3), passed=code == 0)
+    finally:
+        cleaned = cleanup(directory)
+    receipt["cleanup_passed"] = cleaned
+    receipt.update(exit_code=code, seconds=round(time.monotonic() - start, 3), passed=code == 0 and cleaned)
     (args.evidence_dir / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt))
-    return 0 if code == 0 else 1
+    return 0 if code == 0 and cleaned else 1
 
 
 if __name__ == "__main__":

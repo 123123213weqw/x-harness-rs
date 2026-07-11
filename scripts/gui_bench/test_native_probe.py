@@ -1,10 +1,11 @@
 import os
+import errno
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts.gui_bench.run_native_probe import command, environment
+from scripts.gui_bench.run_native_probe import command, environment, cleanup
 
 
 class NativeProbeTests(unittest.TestCase):
@@ -39,6 +40,13 @@ class NativeProbeTests(unittest.TestCase):
             self.assertNotIn("DEEPSEEK_API_KEY", env)
             with self.assertRaises(FileNotFoundError):
                 environment(Path(root), [Path(root) / "missing"])
+
+    def test_cleanup_retries_transient_writers_but_never_hides_failure(self):
+        with patch("scripts.gui_bench.run_native_probe.shutil.rmtree", side_effect=[OSError(errno.ENOTEMPTY, "writer"), None]) as remove, patch("scripts.gui_bench.run_native_probe.time.sleep"):
+            self.assertTrue(cleanup(Path("/owned-probe")))
+            self.assertEqual(remove.call_count, 2)
+        with patch("scripts.gui_bench.run_native_probe.shutil.rmtree", side_effect=PermissionError()), patch("scripts.gui_bench.run_native_probe.time.sleep"):
+            self.assertFalse(cleanup(Path("/owned-probe")))
 
 
 if __name__ == "__main__":
