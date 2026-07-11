@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{json, Value};
 use xharness_session::{
     AssistantChunk, EventData, InboxMessage, LoggedEvent, Message, MessageRole, RequestHeader,
-    Session, ToolOutcome, TurnEndReason,
+    Session, SessionHistoryWindow, ToolOutcome, TurnEndReason,
 };
 
 pub mod metrics;
@@ -172,10 +172,25 @@ pub fn project_session_event_range(
 /// Keeping this derivation beside the durable projector makes live delivery,
 /// paged history and restart replay use exactly the same data.
 pub fn project_session_event_view(session: &Session, event: &LoggedEvent) -> Option<Value> {
+    event_view_from_sources(session.events(), &[], event)
+}
+
+pub fn project_history_window_view(
+    window: &SessionHistoryWindow,
+    event: &LoggedEvent,
+) -> Option<Value> {
+    event_view_from_sources(&window.events, &window.context, event)
+}
+
+fn event_view_from_sources(
+    events: &[LoggedEvent],
+    context: &[LoggedEvent],
+    event: &LoggedEvent,
+) -> Option<Value> {
     match event.data() {
         EventData::ToolCall { call, .. } => terminal_call_view(&call.name, &call.arguments_json),
         EventData::ToolResult { result, .. } => {
-            let is_shell = session.events().iter().rev().any(|candidate| {
+            let is_shell = events.iter().chain(context).any(|candidate| {
                 candidate.seq < event.seq
                     && matches!(
                         candidate.data(),
@@ -448,12 +463,28 @@ pub fn project_session_history_range(
     let prompts = prompt_views_for_range(session, start, end);
     let initial_request_header_seq = initial_request_header_seq(session);
     let completed_steps = completed_assistant_steps(session);
+    project_history_events(
+        &session.events()[start..end],
+        route,
+        &prompts,
+        initial_request_header_seq,
+        &completed_steps,
+    )
+}
+
+fn project_history_events(
+    events: &[LoggedEvent],
+    route: &dyn ProjectionRoute,
+    prompts: &ProjectionSources,
+    initial_request_header_seq: Option<u64>,
+    completed_steps: &BTreeSet<(u32, u32)>,
+) -> Vec<Value> {
     let mut projected = Vec::new();
-    for event in &session.events()[start..end] {
-        if is_folded_assistant_chunk(event, &completed_steps) {
+    for event in events {
+        if is_folded_assistant_chunk(event, completed_steps) {
             continue;
         }
-        let next = restored_web_event(event, route, &prompts, initial_request_header_seq, None);
+        let next = restored_web_event(event, route, prompts, initial_request_header_seq, None);
         if projected
             .last_mut()
             .is_some_and(|prior| merge_projected_history_chunk(prior, &next))
@@ -463,6 +494,29 @@ pub fn project_session_history_range(
         projected.push(next);
     }
     projected
+}
+
+/// Same history reducer over a bounded storage cut. No partial `Session` is
+/// constructed: this view is deliberately unable to drive recovery or tools.
+pub fn project_history_window(
+    window: &SessionHistoryWindow,
+    route: &dyn ProjectionRoute,
+) -> Vec<Value> {
+    let mut sources = window
+        .context
+        .iter()
+        .chain(&window.events)
+        .collect::<Vec<_>>();
+    sources.sort_unstable_by_key(|e| e.seq);
+    let prompts = prompt_views_for_events(&window.events, sources.into_iter());
+    let completed = window.completed_steps.iter().copied().collect();
+    project_history_events(
+        &window.events,
+        route,
+        &prompts,
+        window.initial_request_header_seq,
+        &completed,
+    )
 }
 
 /// History does not need one browser event per provider token. Preserve the
@@ -547,9 +601,16 @@ pub fn prompt_views(session: &Session) -> ProjectionSources {
 fn prompt_views_for_range(session: &Session, start: usize, end: usize) -> ProjectionSources {
     let end = end.min(session.events().len());
     let start = start.min(end);
+    prompt_views_for_events(&session.events()[start..end], session.events().iter())
+}
+
+fn prompt_views_for_events<'a>(
+    events: &[LoggedEvent],
+    sources: impl Iterator<Item = &'a LoggedEvent>,
+) -> ProjectionSources {
     let mut wanted_prompts = BTreeSet::new();
     let mut wanted_compactions = BTreeSet::new();
-    for event in &session.events()[start..end] {
+    for event in events {
         match event.data() {
             EventData::UserMessage {
                 message,
@@ -574,7 +635,7 @@ fn prompt_views_for_range(session: &Session, start: usize, end: usize) -> Projec
     }
 
     let mut prompts = ProjectionSources::default();
-    for event in session.events() {
+    for event in sources {
         if let EventData::CompactionStart {
             compaction_id,
             source_command_id,
