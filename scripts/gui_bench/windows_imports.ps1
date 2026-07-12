@@ -7,38 +7,13 @@ if (-not $dumpbin) { throw 'dumpbin unavailable for native loader diagnostics' }
 $imports = & $dumpbin.FullName /imports $Binary
 if ($LASTEXITCODE) { throw 'native import inspection failed' }
 $imports | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'imports.txt')
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public static class XhNativeLoader {
-  [DllImport("kernel32", CharSet=CharSet.Unicode, SetLastError=true)] public static extern IntPtr LoadLibraryW(string name);
-  [DllImport("kernel32", CharSet=CharSet.Ansi, SetLastError=true)] public static extern IntPtr GetProcAddress(IntPtr module, string name);
-  [DllImport("kernel32", CharSet=CharSet.Unicode)] public static extern uint GetModuleFileNameW(IntPtr module, StringBuilder path, uint size);
-  [DllImport("kernel32")] public static extern bool FreeLibrary(IntPtr module);
-}
-'@
-$rows = [System.Collections.Generic.List[object]]::new()
-$handle = [IntPtr]::Zero
-$dll = ''
-try {
-  foreach ($line in $imports) {
-    if ($line -match '^\s+([a-zA-Z0-9._-]+\.dll)\s*$') {
-      if ($handle -ne [IntPtr]::Zero) { [XhNativeLoader]::FreeLibrary($handle) | Out-Null }
-      $dll = $Matches[1]
-      $handle = [XhNativeLoader]::LoadLibraryW($dll)
-      $path = [System.Text.StringBuilder]::new(4096)
-      if ($handle -ne [IntPtr]::Zero) { [XhNativeLoader]::GetModuleFileNameW($handle, $path, 4096) | Out-Null }
-      $rows.Add(@{dll=$dll; loaded=($handle -ne [IntPtr]::Zero); path=$path.ToString()})
-    } elseif ($dll -and $line -match '^\s+[0-9a-fA-F]+\s+(\S+)\s*$') {
-      $symbol = $Matches[1]
-      $found = $handle -ne [IntPtr]::Zero -and [XhNativeLoader]::GetProcAddress($handle, $symbol) -ne [IntPtr]::Zero
-      if (-not $found) { $rows.Add(@{dll=$dll; missing_symbol=$symbol}) }
-    }
-  }
-} finally {
-  if ($handle -ne [IntPtr]::Zero) { [XhNativeLoader]::FreeLibrary($handle) | Out-Null }
-}
-$rows | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $EvidenceDir 'loader-imports.json')
-# Diagnostic only: the actual probe exit code remains the acceptance gate.
-$rows | Where-Object { $_.missing_symbol -or $_.loaded -eq $false } | ConvertTo-Json -Depth 4
+# Inspect the executable's own activation manifest, not the PowerShell
+# process's ComCtl32 export table (PowerShell can legitimately use v5).
+$mt = Get-ChildItem "${env:ProgramFiles(x86)}/Windows Kits/10/bin/*/x64/mt.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+if (-not $mt) { throw 'manifest inspection tool unavailable' }
+$output = Join-Path $EvidenceDir 'embedded-manifest.xml'
+& $mt.FullName "-inputresource:$Binary;#1" "-out:$output"
+if ($LASTEXITCODE) { throw 'Windows probe has no embedded activation manifest' }
+[xml]$manifest = Get-Content -Raw $output
+$common = $manifest.SelectSingleNode("//*[local-name()='dependentAssembly']/*[local-name()='assemblyIdentity'][@name='Microsoft.Windows.Common-Controls']")
+if (-not $common -or $common.version -ne '6.0.0.0') { throw 'Windows native probe requires Common Controls v6' }

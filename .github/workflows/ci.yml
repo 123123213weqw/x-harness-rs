@@ -356,7 +356,7 @@ jobs:
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
           if ($LASTEXITCODE) { throw 'Windows native DOM probe build failed' }
           ./scripts/gui_bench/windows_imports.ps1 -Binary apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe -EvidenceDir dist/native-browser-evidence/windows
-          python scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe --runtime-dir apps/desktop/src-tauri/target/debug --runtime-dir apps/desktop/src-tauri/target/debug/deps --evidence-dir dist/native-browser-evidence/windows
+          python scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe --evidence-dir dist/native-browser-evidence/windows
           if ($LASTEXITCODE) {
             # Preserve loader evidence rather than treating pre-main failure as
             # a DOM/model failure or silently skipping the native contract.

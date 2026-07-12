@@ -148,15 +148,25 @@ pub async fn desktop_browser_perform(
     request: PerformRequest,
 ) -> Result<PerformResult, String> {
     ensure_main(&caller)?;
+    perform(&state, &tab_id, request, None).await
+}
+
+pub(super) async fn perform(
+    state: &BrowserState,
+    tab_id: &str,
+    request: PerformRequest,
+    owner: Option<&str>,
+) -> Result<PerformResult, String> {
     request.validate()?;
-    let (target, inspector) = state.inspection_target(&tab_id)?;
+    let (target, inspector) = state.inspection_target(tab_id)?;
     let _gate = tokio::time::timeout(TIMEOUT, inspector.gate.lock())
         .await
         .map_err(|_| "native browser is busy; no action was scheduled")?;
-    let (current, current_inspector) = state.inspection_target(&tab_id)?;
+    let (current, current_inspector) = state.inspection_target(tab_id)?;
     if current.label() != target.label() || !Arc::ptr_eq(&inspector, &current_inspector) {
         return Err("browser tab changed before action; no action was scheduled".into());
     }
+    crate::browser_inspect::authorize(&target, &inspector, owner, true)?;
     let script = request.script()?;
     let epoch = inspector.navigation_epoch.load(Ordering::SeqCst);
     inspector.claim(request.frame(), request.reference())?;
@@ -168,13 +178,15 @@ pub async fn desktop_browser_perform(
     };
     let still_current =
         state
-            .inspection_target(&tab_id)
+            .inspection_target(tab_id)
             .is_ok_and(|(current, current_inspector)| {
                 current.label() == target.label()
                     && Arc::ptr_eq(&inspector, &current_inspector)
                     && inspector.navigation_epoch.load(Ordering::SeqCst) == epoch
             });
-    if !still_current {
+    if !still_current
+        || crate::browser_inspect::authorize(&target, &inspector, owner, true).is_err()
+    {
         return Ok(PerformResult::unknown(
             request.frame(),
             "browser changed during action; effect may have occurred; observe again",
