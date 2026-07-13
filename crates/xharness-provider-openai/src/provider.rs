@@ -1212,11 +1212,33 @@ fn permanent_transport_source(error: &(dyn std::error::Error + 'static)) -> bool
                     | rustls::Error::NoCertificatesPresented
                     | rustls::Error::UnsupportedNameType
                     | rustls::Error::PeerIncompatible(_)
+                    | rustls::Error::AlertReceived(
+                        rustls::AlertDescription::ProtocolVersion
+                            | rustls::AlertDescription::HandshakeFailure
+                            | rustls::AlertDescription::InsufficientSecurity
+                            | rustls::AlertDescription::UnsupportedExtension
+                            | rustls::AlertDescription::MissingExtension
+                            | rustls::AlertDescription::NoApplicationProtocol
+                            | rustls::AlertDescription::BadCertificate
+                            | rustls::AlertDescription::UnsupportedCertificate
+                            | rustls::AlertDescription::CertificateRevoked
+                            | rustls::AlertDescription::CertificateExpired
+                            | rustls::AlertDescription::CertificateUnknown
+                            | rustls::AlertDescription::UnknownCA
+                            | rustls::AlertDescription::AccessDenied
+                            | rustls::AlertDescription::CertificateRequired
+                    )
             )
         }) {
             return true;
         }
-        source = error.source();
+        // io::Error::source can skip the wrapped error and expose only its
+        // source. rustls errors are leaves, so inspect get_ref explicitly.
+        source = error
+            .downcast_ref::<std::io::Error>()
+            .and_then(|error| error.get_ref())
+            .map(|inner| inner as &(dyn std::error::Error + 'static))
+            .or_else(|| error.source());
     }
     false
 }
@@ -2027,6 +2049,40 @@ mod multimodal_tests {
 #[cfg(test)]
 mod network_wait_certificate_tests {
     use super::*;
+    #[test]
+    fn permanent_peer_alerts_stop_network_wait_but_temporary_alerts_do_not() {
+        use rustls::AlertDescription::*;
+        for alert in [
+            ProtocolVersion,
+            HandshakeFailure,
+            InsufficientSecurity,
+            UnsupportedExtension,
+            MissingExtension,
+            NoApplicationProtocol,
+            BadCertificate,
+            UnsupportedCertificate,
+            CertificateRevoked,
+            CertificateExpired,
+            CertificateUnknown,
+            UnknownCA,
+            AccessDenied,
+            CertificateRequired,
+        ] {
+            let error = rustls::Error::AlertReceived(alert);
+            assert!(permanent_transport_source(&error), "{alert:?}");
+            let nested = std::io::Error::other(error);
+            assert!(permanent_transport_source(&nested), "nested {alert:?}");
+        }
+        for alert in [InternalError, CloseNotify, UserCanceled, Unknown(255)] {
+            assert!(
+                !permanent_transport_source(&rustls::Error::AlertReceived(alert)),
+                "{alert:?}"
+            );
+        }
+        assert!(!permanent_transport_source(&rustls::Error::General(
+            "EOF".into()
+        )));
+    }
     #[test]
     fn permanent_tls_failures_are_not_treated_as_a_network_outage() {
         assert!(permanent_transport_source(

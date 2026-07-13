@@ -10,6 +10,24 @@ pub(crate) struct RetryPlan {
     pub delay_ms: u64,
 }
 
+/// Run-scoped delay exponent, independent of journal-chain attempt numbering.
+/// Partial output and pause/resume do not prove that the connection recovered.
+#[derive(Default)]
+pub(crate) struct NetworkBackoff {
+    failures: usize,
+}
+
+impl NetworkBackoff {
+    pub fn reset(&mut self) {
+        self.failures = 0;
+    }
+
+    fn next(&mut self) -> usize {
+        self.failures = self.failures.saturating_add(1);
+        self.failures
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct RetryState {
     bounded_attempts: usize,
@@ -30,6 +48,7 @@ impl RetryState {
         config: &LoopConfig,
         error: &ProviderError,
         entropy: u64,
+        network_backoff: &mut NetworkBackoff,
     ) -> Result<Option<RetryPlan>, String> {
         if config.network_wait_enabled && error.is_transient_transport() {
             // Never let a previous short-retry deadline kill a long network wait.
@@ -44,7 +63,7 @@ impl RetryState {
                 max_retries: None,
                 delay_ms: retry_delay(
                     config,
-                    self.network_attempts,
+                    network_backoff.next(),
                     error.retry_after_ms,
                     entropy,
                     config.network_wait_max_delay_ms,
@@ -120,9 +139,13 @@ mod tests {
             provider_retry_jitter_percent: 0,
             ..LoopConfig::default()
         };
+        let mut backoff = NetworkBackoff::default();
         let mut state = RetryState::with_deadline(Some(Instant::now()));
         for n in 1..=30 {
-            let p = state.next(&config, &transport(), 0).unwrap().unwrap();
+            let p = state
+                .next(&config, &transport(), 0, &mut backoff)
+                .unwrap()
+                .unwrap();
             assert_eq!(p.attempt, n);
             assert_eq!(p.max_retries, None);
             assert_eq!(
@@ -140,28 +163,60 @@ mod tests {
             ProviderError::http(503, "busy"),
             ProviderError::retryable("no transport evidence"),
         ] {
+            let mut backoff = NetworkBackoff::default();
             let mut state = RetryState::default();
             let config = LoopConfig::default();
             for _ in 0..4 {
-                state.next(&config, &transport(), 0).unwrap();
+                state.next(&config, &transport(), 0, &mut backoff).unwrap();
             }
             for n in 1..=2 {
-                let p = state.next(&config, &error, 0).unwrap().unwrap();
+                let p = state
+                    .next(&config, &error, 0, &mut backoff)
+                    .unwrap()
+                    .unwrap();
                 assert_eq!(p.attempt, n);
                 assert_eq!(p.max_retries, Some(2));
             }
-            assert!(state.next(&config, &error, 0).unwrap().is_none());
+            assert!(state
+                .next(&config, &error, 0, &mut backoff)
+                .unwrap()
+                .is_none());
         }
         for status in [400, 401, 403, 404] {
             assert!(RetryState::default()
                 .next(
                     &LoopConfig::default(),
                     &ProviderError::http(status, "bad"),
-                    0
+                    0,
+                    &mut NetworkBackoff::default()
                 )
                 .unwrap()
                 .is_none());
         }
+    }
+    #[test]
+    fn chain_attempts_remain_independent_and_long_lived_backoff_saturates() {
+        let config = LoopConfig {
+            provider_retry_jitter_percent: 0,
+            ..LoopConfig::default()
+        };
+        let mut backoff = NetworkBackoff {
+            failures: usize::MAX,
+        };
+        for _ in 0..3 {
+            let plan = RetryState::default()
+                .next(&config, &transport(), 0, &mut backoff)
+                .unwrap()
+                .unwrap();
+            assert_eq!(plan.attempt, 1);
+            assert_eq!(plan.delay_ms, config.network_wait_max_delay_ms);
+        }
+        backoff.reset();
+        let plan = RetryState::default()
+            .next(&config, &transport(), 0, &mut backoff)
+            .unwrap()
+            .unwrap();
+        assert_eq!(plan.delay_ms, 500);
     }
     #[tokio::test(start_paused = true)]
     async fn transport_opt_out_and_retry_after_keep_legacy_bounds() {
@@ -169,21 +224,38 @@ mod tests {
             network_wait_enabled: false,
             ..LoopConfig::default()
         };
+        let mut backoff = NetworkBackoff::default();
         let mut state = RetryState::default();
         for _ in 0..2 {
-            assert!(state.next(&config, &transport(), 0).unwrap().is_some());
+            assert!(state
+                .next(&config, &transport(), 0, &mut backoff)
+                .unwrap()
+                .is_some());
         }
-        assert!(state.next(&config, &transport(), 0).unwrap().is_none());
+        assert!(state
+            .next(&config, &transport(), 0, &mut backoff)
+            .unwrap()
+            .is_none());
         let mut e = ProviderError::http(429, "busy");
         e.retry_after_ms = Some(120_000);
         assert!(RetryState::default()
-            .next(&LoopConfig::default(), &e, 0)
+            .next(
+                &LoopConfig::default(),
+                &e,
+                0,
+                &mut NetworkBackoff::default()
+            )
             .is_err());
         let mut e = transport();
         e.retry_after_ms = Some(120_000);
         assert_eq!(
             RetryState::default()
-                .next(&LoopConfig::default(), &e, 0)
+                .next(
+                    &LoopConfig::default(),
+                    &e,
+                    0,
+                    &mut NetworkBackoff::default()
+                )
                 .unwrap()
                 .unwrap()
                 .delay_ms,
