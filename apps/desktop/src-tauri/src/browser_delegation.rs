@@ -17,6 +17,21 @@ struct Grant {
     expires: Instant,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessStatus {
+    origin: String,
+    grant: Option<GrantStatus>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrantStatus {
+    owner: String,
+    allow_actions: bool,
+    remaining_ms: u64,
+}
+
 impl Delegation {
     pub(super) fn grant(&self, owner: String, url: &Url, actions: bool) -> Result<(), String> {
         if owner.is_empty() || owner.len() > 128 || owner.chars().any(char::is_control) {
@@ -67,6 +82,44 @@ impl Delegation {
             }
         }
     }
+
+    fn status(&self, owner: &str, url: &Url) -> Result<AccessStatus, String> {
+        let slot = self
+            .0
+            .lock()
+            .map_err(|_| "browser delegation unavailable")?;
+        let origin = url.origin().ascii_serialization();
+        let grant = slot
+            .as_ref()
+            .filter(|grant| {
+                grant.owner == owner && grant.origin == origin && Instant::now() < grant.expires
+            })
+            .map(|grant| GrantStatus {
+                owner: grant.owner.clone(),
+                allow_actions: grant.actions,
+                remaining_ms: grant
+                    .expires
+                    .saturating_duration_since(Instant::now())
+                    .as_millis() as u64,
+            });
+        Ok(AccessStatus { origin, grant })
+    }
+}
+
+/// UI status is native-authoritative and never includes another session's lease.
+#[tauri::command]
+pub async fn desktop_browser_access(
+    caller: Webview,
+    state: State<'_, BrowserState>,
+    tab_id: String,
+    owner: String,
+) -> Result<AccessStatus, String> {
+    ensure_main(&caller)?;
+    let (target, inspector) = state.inspection_target(&tab_id)?;
+    inspector.delegation.status(
+        &owner,
+        &target.url().map_err(|_| "browser URL unavailable")?,
+    )
 }
 
 /// Trusted UI must explicitly grant the CURRENT tab to its current session.
@@ -79,18 +132,23 @@ pub async fn desktop_browser_delegate(
     tab_id: String,
     owner: Option<String>,
     allow_actions: bool,
-) -> Result<(), String> {
+    expected_origin: Option<String>,
+) -> Result<AccessStatus, String> {
     ensure_main(&caller)?;
     let (target, inspector) = state.inspection_target(&tab_id)?;
     inspector.revoke();
+    let url = target.url().map_err(|_| "browser URL unavailable")?;
+    let requested_owner = owner.clone().unwrap_or_default();
     if let Some(owner) = owner {
-        inspector.delegation.grant(
-            owner,
-            &target.url().map_err(|_| "browser URL unavailable")?,
-            allow_actions,
-        )?;
+        // A delayed confirmation must not authorize a redirected/new origin.
+        if expected_origin.as_deref() != Some(url.origin().ascii_serialization().as_str()) {
+            return Err("browser origin changed; review access again".into());
+        }
+        inspector.delegation.grant(owner, &url, allow_actions)?;
     }
-    Ok(())
+    let current = target.url().map_err(|_| "browser URL unavailable")?;
+    inspector.delegation.navigate(&current);
+    inspector.delegation.status(&requested_owner, &current)
 }
 
 #[cfg(test)]
@@ -102,6 +160,12 @@ mod tests {
         let url = Url::parse("https://example.com/path?q=untrusted").unwrap();
         assert!(!grants.permits("parent", &url, false));
         grants.grant("parent".into(), &url, false).unwrap();
+        let status = grants.status("parent", &url).unwrap();
+        assert_eq!(status.origin, "https://example.com");
+        let lease = status.grant.unwrap();
+        assert!(!lease.allow_actions);
+        assert!(lease.remaining_ms <= 600_000);
+        assert!(grants.status("child", &url).unwrap().grant.is_none());
         assert!(grants.permits("parent", &url, false));
         assert!(!grants.permits("child", &url, false));
         assert!(!grants.permits("parent", &url, true));
@@ -120,6 +184,7 @@ mod tests {
         grants.grant("child".into(), &url, true).unwrap();
         assert!(!grants.permits("parent", &url, true));
         grants.0.lock().unwrap().as_mut().unwrap().expires = Instant::now();
+        assert!(grants.status("child", &url).unwrap().grant.is_none());
         assert!(!grants.permits("child", &url, false));
         grants.grant("child".into(), &url, true).unwrap();
         grants.revoke();
