@@ -401,6 +401,7 @@ impl BasicHost {
                 event_base_seq: tail.base_seq,
                 event_cache_bytes: tail.bytes,
                 metrics,
+                catalog_metrics: None,
                 messages,
                 queue,
                 projected_queue,
@@ -437,6 +438,7 @@ impl BasicHost {
                     blank,
                     next_seq: session.next_seq(),
                     needs_recovery,
+                    metric_snapshot: Some(record.metrics.catalog_snapshot()),
                 })
                 .await
             {
@@ -820,6 +822,12 @@ impl BasicHost {
                 event_base_seq: 0,
                 event_cache_bytes: 0,
                 metrics: MetricsProjectionState::default(),
+                catalog_metrics: indexed.and_then(|e| {
+                    xharness_projection::metrics::catalog_metric_values(
+                        e.metric_snapshot.as_ref(),
+                    )?;
+                    e.metric_snapshot.clone()
+                }),
                 messages: Vec::new(),
                 queue: VecDeque::new(),
                 projected_queue: Vec::new(),
@@ -900,22 +908,97 @@ impl BasicHost {
         (state.sessions.len(), state.startup_issues.len())
     }
 
+    /// One-time repair of pre-metrics sidecars, after Ready and work recovery.
+    /// Only counters are retained: this does not open histories, derive model
+    /// messages, attach agents, or execute tools. One journal is read at a time.
+    pub async fn backfill_startup_metrics(&self) {
+        let ids: Vec<_> = self
+            .state
+            .read()
+            .await
+            .sessions
+            .values()
+            .filter(|record| record.restoring && record.catalog_metrics.is_none())
+            .map(|record| record.session_id.clone())
+            .collect();
+        for id in ids {
+            if let Err(error) = self.backfill_session_metrics(&id).await {
+                self.state
+                    .write()
+                    .await
+                    .startup_issues
+                    .push(HostRestoreIssue {
+                        session_id: id,
+                        message: format!("usage catalogue repair failed: {error}"),
+                    });
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+
+    async fn backfill_session_metrics(&self, session_id: &str) -> Result<(), HostRestoreError> {
+        let gate = self.session_restore_gate(session_id).await;
+        let _guard = gate.lock().await;
+        if !self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .is_some_and(|record| record.restoring && record.catalog_metrics.is_none())
+        {
+            return Ok(());
+        }
+        let Some(store) = self.lazy_store.get() else {
+            return Ok(());
+        };
+        // Missing/stale catalogues use the existing full legacy recovery path;
+        // metric repair must not manufacture needs_recovery=false for them.
+        let Some(mut entry) = store.catalog_entry(session_id).await? else {
+            return Ok(());
+        };
+        let Some(session) = store.load(session_id).await? else {
+            return Ok(());
+        };
+        if entry.next_seq != session.next_seq() {
+            return Ok(());
+        }
+        let snapshot = MetricsProjectionState::rebuild_logged(session.events()).catalog_snapshot();
+        entry.metric_snapshot = Some(snapshot.clone());
+        // The disk store rechecks its source fingerprint under the writer lock.
+        // Failed/racing publication never replaces the authoritative journal.
+        store.publish_catalog_entry(entry).await?;
+        let mut state = self.state.write().await;
+        if let Some(record) = state.sessions.get_mut(session_id) {
+            if record.restoring && record.next_event_seq() == session.next_seq() {
+                record.catalog_metrics = Some(snapshot);
+            }
+        }
+        drop(state);
+        self.push_host(serde_json::json!({
+            "type": "host/remote-event", "event": "xharness/catalog-updated", "args": [],
+        }));
+        Ok(())
+    }
+
+    async fn session_restore_gate(&self, session_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut gates = self.lazy_restore_gates.lock().await;
+        gates.retain(|_, gate| gate.strong_count() > 0);
+        gates
+            .entry(session_id.to_owned())
+            .or_insert_with(std::sync::Weak::new)
+            .upgrade()
+            .unwrap_or_else(|| {
+                let gate = Arc::new(tokio::sync::Mutex::new(()));
+                gates.insert(session_id.to_owned(), Arc::downgrade(&gate));
+                gate
+            })
+    }
+
     /// Deduplicated journal replay, used for selected startup work and when a
     /// user opens a metadata-only conversation.
     pub async fn hydrate_session(&self, session_id: &str) -> Result<(), HostRestoreError> {
-        let gate = {
-            let mut gates = self.lazy_restore_gates.lock().await;
-            gates.retain(|_, gate| gate.strong_count() > 0);
-            gates
-                .entry(session_id.to_owned())
-                .or_insert_with(std::sync::Weak::new)
-                .upgrade()
-                .unwrap_or_else(|| {
-                    let gate = Arc::new(tokio::sync::Mutex::new(()));
-                    gates.insert(session_id.to_owned(), Arc::downgrade(&gate));
-                    gate
-                })
-        };
+        let gate = self.session_restore_gate(session_id).await;
         let _guard = gate.lock().await;
         if !self
             .state
@@ -1541,6 +1624,7 @@ mod tests {
                 blank: true,
                 next_seq: 0,
                 needs_recovery: false,
+                metric_snapshot: None,
             })
             .await
             .unwrap();
@@ -1563,6 +1647,7 @@ mod tests {
                 blank: true,
                 next_seq: 0,
                 needs_recovery: true,
+                metric_snapshot: None,
             })
             .await
             .unwrap();
@@ -1679,6 +1764,125 @@ mod tests {
         config.provider_display_name = "Test".to_owned();
         config.model_id = "test-model".to_owned();
         config
+    }
+
+    #[tokio::test]
+    async fn profile_metrics_survive_cold_restart_and_legacy_catalogue_migration() {
+        use xharness_session_jsonl::JsonlSessionStore;
+        let dir = std::env::temp_dir().join(format!(
+            "xharness-profile-restart-{}-{}",
+            std::process::id(),
+            crate::state::now_ms()
+        ));
+        let disk = Arc::new(JsonlSessionStore::new(&dir).unwrap().for_runtime());
+        disk.create(SessionHeader::new("usage-history"))
+            .await
+            .unwrap();
+        let mut events = closed_text_turn(1, "private prompt", "private answer");
+        for event in &mut events {
+            if let EventData::AssistantMessage { usage, .. } = event.data_mut() {
+                *usage = Some(json!({"inputTokens":10,"cacheReadTokens":90,"outputTokens":5}));
+            }
+        }
+        disk.append("usage-history", xharness_session::Revision::ZERO, events)
+            .await
+            .unwrap();
+        let live = BasicHost::without_provider(config(&dir));
+        live.restore_from_store(disk.clone()).await.unwrap();
+        let expected = live.state.read().await.sessions["usage-history"].projection_values();
+        assert_eq!(expected["dailyTokenUsage"][0]["uncachedInputTokens"], 10);
+        let catalogue = disk.catalog_entry("usage-history").await.unwrap().unwrap();
+        let snapshot = catalogue.metric_snapshot.as_ref().unwrap();
+        assert!(!snapshot.to_string().contains("private prompt"));
+        assert!(!snapshot.to_string().contains("private answer"));
+
+        // A fresh Store has no loaded journals. Reading the catalogue must
+        // publish usage for unopened conversations without filling that cache.
+        let cold_disk = Arc::new(JsonlSessionStore::new(&dir).unwrap().for_runtime());
+        let cold = BasicHost::without_provider(config(&dir));
+        let (necessary, deferred) = cold
+            .prepare_startup_catalog(cold_disk.clone())
+            .await
+            .unwrap();
+        assert!(necessary.is_empty() && deferred.is_empty());
+        assert_eq!(cold_disk.cache_stats().entries, 0);
+        {
+            let state = cold.state.read().await;
+            let record = &state.sessions["usage-history"];
+            assert!(record.restoring && record.events.is_empty() && record.messages.is_empty());
+            let views = record.projection_values();
+            assert_eq!(views["dailyTokenUsage"], expected["dailyTokenUsage"]);
+            assert_eq!(views["tokenUsage"], expected["tokenUsage"]);
+            assert_eq!(views["sessionStats"], expected["sessionStats"]);
+            assert_eq!(views["sessionListMetadata"]["metricsPending"], false);
+        }
+        cold.hydrate_session("usage-history").await.unwrap();
+        assert_eq!(
+            cold.state.read().await.sessions["usage-history"].projection_values()
+                ["dailyTokenUsage"],
+            expected["dailyTokenUsage"]
+        );
+
+        // Older application versions wrote valid metadata but no metrics.
+        // Repair those without opening the chat or attaching an Agent.
+        let path = dir.join("usage-history.catalog");
+        let mut legacy: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        legacy["entry"]
+            .as_object_mut()
+            .unwrap()
+            .remove("metricSnapshot");
+        std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let legacy_disk = Arc::new(JsonlSessionStore::new(&dir).unwrap().for_runtime());
+        let upgrading = BasicHost::without_provider(config(&dir));
+        upgrading
+            .prepare_startup_catalog(legacy_disk.clone())
+            .await
+            .unwrap();
+        {
+            let state = upgrading.state.read().await;
+            let views = state.sessions["usage-history"].projection_values();
+            assert_eq!(views["sessionListMetadata"]["metricsPending"], true);
+            assert!(
+                views.get("dailyTokenUsage").is_none(),
+                "unknown usage must not become an empty array"
+            );
+        }
+        upgrading.backfill_startup_metrics().await;
+        {
+            let state = upgrading.state.read().await;
+            let record = &state.sessions["usage-history"];
+            assert!(record.restoring && record.events.is_empty() && record.messages.is_empty());
+            assert!(record.control.is_none());
+            assert!(state.startup_issues.is_empty());
+            assert_eq!(
+                record.projection_values()["dailyTokenUsage"],
+                expected["dailyTokenUsage"]
+            );
+            assert_eq!(
+                record.projection_values()["sessionListMetadata"]["metricsPending"],
+                false
+            );
+        }
+        assert!(legacy_disk
+            .catalog_entry("usage-history")
+            .await
+            .unwrap()
+            .unwrap()
+            .metric_snapshot
+            .is_some());
+        let again_disk = Arc::new(JsonlSessionStore::new(&dir).unwrap().for_runtime());
+        let again = BasicHost::without_provider(config(&dir));
+        again
+            .prepare_startup_catalog(again_disk.clone())
+            .await
+            .unwrap();
+        assert_eq!(again_disk.cache_stats().entries, 0);
+        assert_eq!(
+            again.state.read().await.sessions["usage-history"].projection_values()
+                ["dailyTokenUsage"],
+            expected["dailyTokenUsage"]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn closed_text_turn(turn: u32, user: &str, assistant: &str) -> Vec<SessionEvent> {
