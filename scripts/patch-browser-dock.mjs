@@ -17,6 +17,7 @@ export function patchBrowserDock(bytes) {
     const end = source.indexOf('function computeColumns(', start)
     if (start < 0 || end < 0) throw Error('browser layout helper markers missing')
     source = source.slice(0, start) + controller + '\n' + workspace + '\n' + source.slice(end)
+    source = source.replace('XhWorkspacePane, { space, renderSlot,', 'XhWorkspacePane, { space, sessionId: spaceKey === "__global__" ? null : spaceKey, renderSlot,')
     // Rebuilds usually start from the checked-in, already-patched bundle.
     // Refresh the column policy as well as the embedded helper sources.
     source = source.replace(
@@ -118,7 +119,7 @@ export function patchBrowserDock(bytes) {
   once('"data-details-collapsed": cols.details === 0 || void 0,', '"data-details-collapsed": !workspaceOpen || void 0,')
   once('(0, react_jsx_runtime.jsx)(DetailsColumn, { children: renderSlot("details", {}) })',
     'workspaceDrawer && (0, react_jsx_runtime.jsx)("button", { type: "button", className: AppFrame_module_css_default.workspaceScrim, "aria-label": "关闭工作区", onClick: () => closeWorkspace(space.activeId) }),\n'
-    + '\t\t\t\t\t(0, react_jsx_runtime.jsx)(DetailsColumn, { children: (0, react_jsx_runtime.jsx)(XhWorkspacePane, { space, renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: (id, patch) => updateSpace(value => ({ ...value, items: value.items.map(item => item.id === id ? { ...item, ...patch } : item) })), onNewBrowser: () => openWorkspace("browser", true) }) })')
+    + '\t\t\t\t\t(0, react_jsx_runtime.jsx)(DetailsColumn, { children: (0, react_jsx_runtime.jsx)(XhWorkspacePane, { space, sessionId: spaceKey === "__global__" ? null : spaceKey, renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: (id, patch) => updateSpace(value => ({ ...value, items: value.items.map(item => item.id === id ? { ...item, ...patch } : item) })), onNewBrowser: () => openWorkspace("browser", true) }) })')
   once('cols.details > 0 && (0, react_jsx_runtime.jsx)(DragHandle, {\n\t\t\t\t\t\tside: "details",\n\t\t\t\t\t\tleft: viewport - cols.details,\n\t\t\t\t\t\tonStart: onDetailsStart,\n\t\t\t\t\t\tonDrag: onDetailsDrag,',
     'workspaceDockWidth > 0 && (0, react_jsx_runtime.jsx)(DragHandle, {\n\t\t\t\t\t\tside: "details",\n\t\t\t\t\t\tleft: viewport - workspaceDockWidth,\n\t\t\t\t\t\tonStart: onWorkspaceStart,\n\t\t\t\t\t\tonDrag: onWorkspaceDrag,')
   once('this.#require().openDetails();', 'this.#require().openDetails();\n\t\t\t\twindow.dispatchEvent(new CustomEvent("xharness:workspace-open", { detail: { kind: "tool" } }));')
