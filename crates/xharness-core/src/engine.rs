@@ -1,3 +1,4 @@
+use crate::retry::{RetryPlan, RetryState};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     pin::Pin,
@@ -999,11 +1000,15 @@ impl Runner {
                     // model request can start. A failed wait retains it in the
                     // journal without creating a synthetic user turn.
                     self.network_continuations = self.network_continuations.saturating_add(1);
-                    let mut deadline = self.network_recovery_deadline;
+                    let mut recovery = RetryState::with_deadline(self.network_recovery_deadline);
+                    let plan = recovery
+                        .next(&self.request.config, &error, self.retry_entropy())
+                        .map_err(RunFailure::Failed)?
+                        .ok_or_else(|| RunFailure::Failed(error.diagnostic_message()))?;
                     let steered = self
-                        .wait_model_retry(self.network_continuations, &error, &mut deadline)
+                        .wait_model_retry(plan, &error, recovery.deadline, true)
                         .await?;
-                    self.network_recovery_deadline = deadline;
+                    self.network_recovery_deadline = recovery.deadline;
                     self.journal_step_end().await?;
                     if steered {
                         self.network_continuations = 0;
@@ -2679,7 +2684,8 @@ impl Runner {
         &mut self,
         retry_id: &str,
         retry: usize,
-        max_retries: usize,
+        max_retries: Option<usize>,
+        policy_key: String,
         error: &ProviderError,
         delay_ms: u64,
     ) -> Result<(), RunFailure> {
@@ -2691,7 +2697,9 @@ impl Runner {
             .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
         let retry = u32::try_from(retry)
             .map_err(|_| RunFailure::Failed("provider retry counter overflow".to_owned()))?;
-        let max_retries = u32::try_from(max_retries)
+        let max_retries = max_retries
+            .map(u32::try_from)
+            .transpose()
             .map_err(|_| RunFailure::Failed("provider retry limit overflow".to_owned()))?;
         let provider = self.request.provider.provider_name().to_owned();
         let failure = LlmFailure {
@@ -2709,10 +2717,14 @@ impl Runner {
                 turn,
                 step,
                 provider,
-                mode: LlmRetryMode::Normal,
-                policy_key: format!("xharness:normal:{max_retries}"),
+                mode: if max_retries.is_some() {
+                    LlmRetryMode::Normal
+                } else {
+                    LlmRetryMode::Always
+                },
+                policy_key,
                 retry,
-                max_retries: Some(max_retries),
+                max_retries,
                 delay_ms,
                 failure,
             }],
@@ -3161,37 +3173,53 @@ impl Runner {
         visible
     }
 
+    fn retry_entropy(&self) -> u64 {
+        let digest = Sha256::digest(format!("{}:{}:{}", self.run_id, self.step, self.seq));
+        u64::from_le_bytes(digest[..8].try_into().expect("hash prefix"))
+    }
+
     async fn wait_model_retry(
         &mut self,
-        attempt: usize,
+        plan: RetryPlan,
         error: &ProviderError,
-        recovery_deadline: &mut Option<tokio::time::Instant>,
+        recovery_deadline: Option<tokio::time::Instant>,
+        continuation: bool,
     ) -> Result<bool, RunFailure> {
         self.ensure_running()?;
-        let deadline = *recovery_deadline.get_or_insert_with(|| {
-            tokio::time::Instant::now()
-                + Duration::from_millis(self.request.config.provider_retry_budget_ms)
-        });
-        let digest = Sha256::digest(format!("{}:{}:{}", self.run_id, self.step, attempt));
-        let entropy = u64::from_le_bytes(digest[..8].try_into().expect("hash prefix"));
-        let delay_ms = retry_delay_ms(&self.request.config, attempt, error.retry_after_ms, entropy);
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if Duration::from_millis(delay_ms) >= remaining {
-            return Err(RunFailure::Failed(format!("provider recovery budget exhausted; required wait {delay_ms} ms exceeds remaining budget; {}", error.diagnostic_message())));
+        let RetryPlan {
+            attempt,
+            max_retries,
+            delay_ms,
+        } = plan;
+        // Each policy/phase owns a separate chain. Transport followed by HTTP,
+        // or pre-output retries followed by a partial continuation, cannot
+        // reuse an id with a different owner or restart its attempt sequence.
+        let mut retry_id = self.model_retry_id();
+        if max_retries.is_none() {
+            retry_id.push_str("-network");
         }
-        let retry_id = self.model_retry_id();
+        let mut policy_key = max_retries.map_or_else(
+            || "xharness:network-wait".into(),
+            |n| format!("xharness:normal:{n}"),
+        );
+        if continuation {
+            retry_id.push_str("-continuation");
+            policy_key.push_str(":continuation");
+        }
         self.journal_model_retry_scheduled(
             &retry_id,
             attempt,
-            self.request.config.provider_retries,
+            max_retries,
+            policy_key.clone(),
             error,
             delay_ms,
         )
         .await?;
         self.emit(LoopEventKind::ModelRetry {
             retry_id: retry_id.clone(),
+            policy_key,
             attempt,
-            max_retries: self.request.config.provider_retries,
+            max_retries,
             error: error.diagnostic_message(),
             delay_ms,
         })
@@ -3202,7 +3230,7 @@ impl Runner {
             if self.paused && self.wait_while_paused(true).await? {
                 return Ok(true);
             }
-            if tokio::time::Instant::now() >= deadline {
+            if recovery_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
                 return Err(RunFailure::Failed(
                     "provider recovery deadline exceeded while waiting".into(),
                 ));
@@ -3226,11 +3254,10 @@ impl Runner {
     }
 
     async fn model_round(&mut self, request: ProviderRequest) -> Result<ModelRound, RunFailure> {
-        let max_attempts = self.request.config.provider_retries.saturating_add(1);
         let mut round = ModelRound::default();
-        let mut recovery_deadline = self.network_recovery_deadline;
+        let mut recovery = RetryState::with_deadline(self.network_recovery_deadline);
 
-        for attempt in 1..=max_attempts {
+        loop {
             self.ensure_running()?;
             let provider_cancellation = self.cancellation.child_token();
             let provider = self.request.provider.clone();
@@ -3243,7 +3270,7 @@ impl Runner {
                 }
                 let next = tokio::select! {
                     _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
-                    _ = recovery_timeout(recovery_deadline), if !round.saw_delta => {
+                    _ = recovery_timeout(recovery.deadline), if !round.saw_delta => {
                         provider_cancellation.cancel();
                         return Err(RunFailure::Failed("provider recovery deadline exceeded before model output".into()));
                     },
@@ -3281,17 +3308,22 @@ impl Runner {
                     if error.is_context_overflow() && !round.saw_delta {
                         return Err(RunFailure::ContextOverflow(error.message));
                     }
-                    if error.retryable && !round.saw_delta && attempt < max_attempts {
-                        provider_cancellation.cancel();
-                        if self
-                            .wait_model_retry(attempt, &error, &mut recovery_deadline)
-                            .await?
+                    if !round.saw_delta {
+                        if let Some(plan) = recovery
+                            .next(&self.request.config, &error, self.retry_entropy())
+                            .map_err(RunFailure::Failed)?
                         {
-                            round.interrupted = true;
-                            self.emit(LoopEventKind::ModelInterrupted).await?;
-                            return Ok(round);
+                            provider_cancellation.cancel();
+                            if self
+                                .wait_model_retry(plan, &error, recovery.deadline, false)
+                                .await?
+                            {
+                                round.interrupted = true;
+                                self.emit(LoopEventKind::ModelInterrupted).await?;
+                                return Ok(round);
+                            }
+                            continue;
                         }
-                        continue;
                     }
                     return Err(RunFailure::Failed(error.diagnostic_message()));
                 }
@@ -3307,7 +3339,7 @@ impl Runner {
                 }
                 let next = tokio::select! {
                     _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
-                    _ = recovery_timeout(recovery_deadline), if !round.saw_delta => {
+                    _ = recovery_timeout(recovery.deadline), if !round.saw_delta => {
                         provider_cancellation.cancel();
                         return Err(RunFailure::Failed("provider recovery deadline exceeded before model output".into()));
                     },
@@ -3462,24 +3494,31 @@ impl Runner {
             if error.is_context_overflow() && !round.saw_delta {
                 return Err(RunFailure::ContextOverflow(error.message));
             }
-            if error.retryable && !round.saw_delta && attempt < max_attempts {
-                provider_cancellation.cancel();
-                if self
-                    .wait_model_retry(attempt, &error, &mut recovery_deadline)
-                    .await?
+            if !round.saw_delta {
+                if let Some(plan) = recovery
+                    .next(&self.request.config, &error, self.retry_entropy())
+                    .map_err(RunFailure::Failed)?
                 {
-                    round.interrupted = true;
-                    self.emit(LoopEventKind::ModelInterrupted).await?;
-                    return Ok(round);
+                    provider_cancellation.cancel();
+                    if self
+                        .wait_model_retry(plan, &error, recovery.deadline, false)
+                        .await?
+                    {
+                        round.interrupted = true;
+                        self.emit(LoopEventKind::ModelInterrupted).await?;
+                        return Ok(round);
+                    }
+                    continue;
                 }
-                continue;
             }
             if round.saw_delta {
                 if error.is_transient_transport()
-                    && self.network_continuations < self.request.config.provider_retries
+                    && (self.request.config.network_wait_enabled
+                        || (self.network_continuations < self.request.config.provider_retries
+                            && recovery
+                                .deadline
+                                .is_none_or(|deadline| tokio::time::Instant::now() < deadline)))
                     && self.step < self.request.config.max_steps
-                    && recovery_deadline
-                        .is_none_or(|deadline| tokio::time::Instant::now() < deadline)
                 {
                     // Never replay a committed stream. Close this attempt and
                     // ask for a fresh continuation after the partial assistant
@@ -3490,7 +3529,11 @@ impl Runner {
                     round.provider_items.clear();
                     round.interrupted = true;
                     round.recoverable_transport_error = Some(error);
-                    self.network_recovery_deadline = recovery_deadline;
+                    self.network_recovery_deadline = if self.request.config.network_wait_enabled {
+                        None
+                    } else {
+                        recovery.deadline
+                    };
                     self.emit(LoopEventKind::ModelInterrupted).await?;
                     return Ok(round);
                 }
@@ -3520,9 +3563,6 @@ impl Runner {
             }
             return Err(RunFailure::Failed(error.diagnostic_message()));
         }
-        Err(RunFailure::Failed(
-            "provider retry limit reached".to_owned(),
-        ))
     }
 
     async fn commit_tool_prefix(
@@ -4317,24 +4357,20 @@ async fn recovery_timeout(deadline: Option<tokio::time::Instant>) {
     }
 }
 
+#[cfg(test)]
 fn retry_delay_ms(
     config: &crate::LoopConfig,
     retry: usize,
     retry_after: Option<u64>,
     entropy: u64,
 ) -> u64 {
-    let exponent = retry.saturating_sub(1).min(63) as u32;
-    let base = config
-        .provider_retry_base_delay_ms
-        .saturating_mul(1u64 << exponent)
-        .min(config.provider_retry_max_delay_ms);
-    let spread = base.saturating_mul(u64::from(config.provider_retry_jitter_percent)) / 100;
-    let jittered = base
-        .saturating_sub(spread)
-        .saturating_add(entropy % (spread.saturating_mul(2).saturating_add(1)))
-        .min(config.provider_retry_max_delay_ms);
-    // Retry-After is a minimum. Never cap it and retry earlier than instructed.
-    jittered.max(retry_after.unwrap_or(0))
+    crate::retry::retry_delay(
+        config,
+        retry,
+        retry_after,
+        entropy,
+        config.provider_retry_max_delay_ms,
+    )
 }
 
 #[cfg(test)]

@@ -157,6 +157,7 @@ async fn run(server: &FaultServer, retries: usize, idle: Duration) -> (Vec<LoopE
         server.provider(OpenAiProtocol::ChatCompletions, idle),
         vec![AgentMessage::user("fixture")],
     );
+    request.config.network_wait_enabled = false;
     request.config.provider_retries = retries;
     request.config.provider_retry_base_delay_ms = 10;
     request.config.provider_retry_max_delay_ms = 100;
@@ -496,6 +497,7 @@ async fn recovered_stream_is_not_cut_off_by_the_pre_output_recovery_deadline() {
         server.provider(OpenAiProtocol::ChatCompletions, Duration::from_millis(500)),
         vec![AgentMessage::user("go")],
     );
+    req.config.network_wait_enabled = false;
     req.config.provider_retry_base_delay_ms = 10;
     req.config.provider_retry_budget_ms = 200;
     let mut run = LoopEngine.start(req);
@@ -561,4 +563,125 @@ async fn real_http_retry_replays_identical_image_payload_not_attachment_placehol
         .as_str()
         .unwrap()
         .starts_with("data:image/png;base64,"));
+}
+
+#[tokio::test]
+async fn sustained_network_wait_recovers_real_http_disconnects_after_short_limits() {
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let mut replies = vec![Reply::Disconnect; 5];
+        let text = match protocol {
+            OpenAiProtocol::ChatCompletions => {
+                frame(json!({"choices":[{"delta":{"content":"online"},"finish_reason":"stop"}]}))
+                    + "data: [DONE]\n\n"
+            }
+            OpenAiProtocol::Responses => {
+                frame(json!({"type":"response.output_text.delta","delta":"online"}))
+                    + &frame(
+                        json!({"type":"response.completed","response":{"status":"completed","output":[]}}),
+                    )
+            }
+        };
+        replies.push(Reply::Body {
+            text,
+            truncated: false,
+        });
+        let server = FaultServer::start(replies).await;
+        let mut req = LoopRequest::new(
+            server.provider(protocol, Duration::from_millis(100)),
+            vec![AgentMessage::user("go")],
+        );
+        req.config.provider_retries = 0;
+        req.config.provider_retry_budget_ms = 1;
+        req.config.provider_retry_base_delay_ms = 1;
+        req.config.network_wait_max_delay_ms = 5;
+        req.config.provider_retry_jitter_percent = 0;
+        let (events, result) = tokio::time::timeout(Duration::from_secs(8), async {
+            let mut run = LoopEngine.start(req);
+            let mut events = Vec::new();
+            while let Some(e) = run.next().await {
+                events.push(e);
+            }
+            (events, run.result().await)
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+        assert_eq!(result.final_text, "online");
+        assert_eq!(server.count(), 6);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(
+                    e.kind,
+                    LoopEventKind::ModelRetry {
+                        max_retries: None,
+                        ..
+                    }
+                ))
+                .count(),
+            5
+        );
+    }
+}
+
+#[tokio::test]
+async fn sustained_network_wait_stalled_transport_is_cancellable() {
+    let server = FaultServer::start(vec![Reply::Stall {
+        headers: false,
+        prefix: String::new(),
+    }])
+    .await;
+    let req = LoopRequest::new(
+        server.provider(OpenAiProtocol::ChatCompletions, Duration::from_millis(20)),
+        vec![AgentMessage::user("go")],
+    );
+    let mut run = LoopEngine.start(req);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(e) = run.next().await {
+            if matches!(
+                e.kind,
+                LoopEventKind::ModelRetry {
+                    max_retries: None,
+                    ..
+                }
+            ) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    run.cancel();
+    assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+    assert_eq!(server.count(), 1);
+    until(|| server.closed.load(Ordering::SeqCst) >= 1).await;
+}
+
+#[tokio::test]
+async fn sustained_network_wait_continues_after_partial_idle_timeout_past_short_deadline() {
+    let server = FaultServer::start(vec![
+        Reply::Status(503),
+        Reply::Stall {
+            headers: true,
+            prefix: text_delta(),
+        },
+        success(),
+    ])
+    .await;
+    let mut req = LoopRequest::new(
+        server.provider(OpenAiProtocol::ChatCompletions, Duration::from_millis(100)),
+        vec![AgentMessage::user("go")],
+    );
+    req.config.provider_retry_base_delay_ms = 1;
+    req.config.provider_retry_budget_ms = 30;
+    let result = tokio::time::timeout(Duration::from_secs(3), async {
+        let mut run = LoopEngine.start(req);
+        while run.next().await.is_some() {}
+        run.result().await
+    })
+    .await
+    .unwrap();
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(result.final_text, "partialrecovered");
+    assert_eq!(server.count(), 3);
 }
