@@ -250,7 +250,12 @@ impl ProviderError {
             && self.diagnostics.as_ref().is_some_and(|diagnostics| {
                 matches!(
                     diagnostics.kind.as_str(),
-                    "connection" | "idle_timeout" | "response_body" | "body" | "transport"
+                    "connection"
+                        | "connect_or_headers"
+                        | "idle_timeout"
+                        | "response_body"
+                        | "body"
+                        | "transport"
                 )
             })
     }
@@ -577,8 +582,10 @@ pub enum LoopEventKind {
     ModelInterrupted,
     ModelRetry {
         retry_id: String,
+        policy_key: String,
         attempt: usize,
-        max_retries: usize,
+        /// None for sustained network recovery; HTTP retries remain bounded.
+        max_retries: Option<usize>,
         error: String,
         delay_ms: u64,
     },
@@ -675,6 +682,10 @@ pub struct LoopConfig {
     /// applying once model output begins. Healthy generation is not capped.
     pub provider_retry_budget_ms: u64,
     pub provider_retry_jitter_percent: u8,
+    /// Keep a transient transport failure waiting until cancelled or recovered.
+    /// HTTP/protocol/auth failures do not qualify.
+    pub network_wait_enabled: bool,
+    pub network_wait_max_delay_ms: u64,
     /// Fresh model calls allowed after a provider reports an output-token
     /// ceiling. A value of zero exposes max-tokens immediately.
     pub max_output_continuations: usize,
@@ -716,6 +727,8 @@ impl Default for LoopConfig {
             provider_retry_max_delay_ms: 8_000,
             provider_retry_budget_ms: 60_000,
             provider_retry_jitter_percent: 20,
+            network_wait_enabled: true,
+            network_wait_max_delay_ms: 30_000,
             max_output_continuations: 2,
             max_turn_output_tokens: 131_072,
             event_buffer: 128,
@@ -736,6 +749,8 @@ impl LoopConfig {
             || self.provider_retry_budget_ms > 86_400_000
             || self.provider_retry_max_delay_ms > 86_400_000
             || self.provider_retry_jitter_percent > 100
+            || self.network_wait_max_delay_ms < self.provider_retry_base_delay_ms
+            || self.network_wait_max_delay_ms > 86_400_000
         {
             return Err(LoopValidationError::new(
                 "invalid provider retry delay, deadline or jitter",
