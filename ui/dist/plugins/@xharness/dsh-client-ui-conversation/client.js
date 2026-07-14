@@ -5416,7 +5416,7 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 					window.clearInterval(timer);
 				};
 			}, [active, deadline]);
-			const label = active ? t("message.retry.active") : node.retryState === "cancelled" ? t("message.retry.cancelled") : node.retryState === "started" ? t("message.retry.started") : t("message.retry.scheduled");
+			const label = active ? t(node.mode === "always" && (node.policyKey === "xharness:network-wait" || node.policyKey === "xharness:network-wait:continuation") ? "message.retry.networkWaiting" : "message.retry.active") : node.retryState === "cancelled" ? t("message.retry.cancelled") : node.retryState === "started" ? t("message.retry.started") : t("message.retry.scheduled");
 			const seconds = active ? remainingSeconds : scheduledSeconds;
 			return (0, react_jsx_runtime.jsxs)("details", {
 				className: MessageItem_module_css_default.retryRow,
@@ -6666,6 +6666,7 @@ keepMounted: index >= activeSuffix,
 			"message.retry.started": "已重试模型请求",
 			"message.retry.scheduled": "等待重试模型请求",
 			"message.retry.status": "{label}（{retry}/{maximum}） · {seconds}s",
+			"message.retry.networkWaiting": "连接中断，等待恢复",
 			"message.retry.delay": "重试延迟：",
 			"message.retry.failure": "失败原因：",
 			"message.turnError": "本轮运行失败",
@@ -6862,6 +6863,7 @@ keepMounted: index >= activeSuffix,
 			"message.retry.started": "Retried model request",
 			"message.retry.scheduled": "Waiting to retry model request",
 			"message.retry.status": "{label} ({retry}/{maximum}) · {seconds}s",
+			"message.retry.networkWaiting": "Connection interrupted; waiting to reconnect",
 			"message.retry.delay": "Retry delay: ",
 			"message.retry.failure": "Failure reason: ",
 			"message.turnError": "This turn failed",
