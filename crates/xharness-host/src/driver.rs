@@ -543,7 +543,7 @@ impl BasicHost {
             return;
         };
         let route = restored_route(session, &self.config);
-        let (parent_session_id, origin, updated_at, blank) = {
+        let (parent_session_id, origin, updated_at, blank, metric_snapshot) = {
             let state = self.state.read().await;
             let Some(record) = state.sessions.get(&session.header().id) else {
                 return;
@@ -553,6 +553,8 @@ impl BasicHost {
                 record.origin.clone(),
                 record.updated_at,
                 record.blank,
+                (!record.restoring && record.next_event_seq() == session.next_seq())
+                    .then(|| record.metrics.catalog_snapshot()),
             )
         };
         let needs_recovery = self
@@ -581,6 +583,7 @@ impl BasicHost {
             blank,
             next_seq: session.next_seq(),
             needs_recovery,
+            metric_snapshot,
         };
         let checkpoint = {
             let state = self.state.read().await;

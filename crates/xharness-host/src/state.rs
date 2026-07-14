@@ -304,6 +304,10 @@ pub struct SessionRecord {
     /// projection frames.
     #[serde(skip)]
     pub(crate) metrics: MetricsProjectionState,
+    /// Read-only views for cold records. Never use a catalogue snapshot as
+    /// incremental fold state; full hydration replaces it with journal metrics.
+    #[serde(skip)]
+    pub(crate) catalog_metrics: Option<Value>,
     pub messages: Vec<AgentMessage>,
     #[serde(skip)]
     pub(crate) queue: VecDeque<QueuedPrompt>,
@@ -412,6 +416,7 @@ impl SessionRecord {
             json!({
                 "blank": self.blank,
                 "restoring": self.restoring,
+                "metricsPending": self.restoring && self.catalog_metrics.is_none(),
                 "lastPromptAt": if self.blank { Value::Null } else { json!(self.updated_at) },
             }),
         );
@@ -435,16 +440,32 @@ impl SessionRecord {
         if self.schedules_hydrated {
             values.insert("schedules".to_owned(), json!(self.schedules));
         }
-        values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
-        values.insert(
-            "dailyTokenUsage".to_owned(),
-            self.metrics.daily_token_usage(),
-        );
-        values.insert("sessionStats".to_owned(), self.metrics.session_stats());
-        values.insert(
-            "contextPressure".to_owned(),
-            self.metrics.context_pressure(),
-        );
+        let metrics = if self.restoring {
+            self.catalog_metrics.as_ref()
+        } else {
+            None
+        };
+        if let Some(cold) = xharness_projection::metrics::catalog_metric_values(metrics) {
+            for key in [
+                "tokenUsage",
+                "dailyTokenUsage",
+                "sessionStats",
+                "contextPressure",
+            ] {
+                values.insert(key.to_owned(), cold[key].clone());
+            }
+        } else if !self.restoring {
+            values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
+            values.insert(
+                "dailyTokenUsage".to_owned(),
+                self.metrics.daily_token_usage(),
+            );
+            values.insert("sessionStats".to_owned(), self.metrics.session_stats());
+            values.insert(
+                "contextPressure".to_owned(),
+                self.metrics.context_pressure(),
+            );
+        }
         Value::Object(values)
     }
 
