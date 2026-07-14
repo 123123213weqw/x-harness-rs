@@ -389,6 +389,13 @@ async fn catalogue_is_rebuildable_and_never_trusts_a_stale_file() {
         blank: true,
         next_seq: 0,
         needs_recovery: false,
+        metric_snapshot: Some(serde_json::json!({"version":1,"values":{
+            "dailyTokenUsage": (0..400).map(|day| serde_json::json!({
+                "dayStartMs": day * 86_400_000_u64, "uncachedInputTokens":100,
+                "cacheReadTokens":200, "cacheWriteTokens":0, "outputTokens":10,
+            })).collect::<Vec<_>>(),
+            "tokenUsage":{}, "sessionStats":{}, "contextPressure":{},
+        }})),
     };
     assert_eq!(store.catalog_entry("catalogued").await.unwrap(), None);
     store.publish_catalog_entry(entry.clone()).await.unwrap();
@@ -431,6 +438,7 @@ async fn catalogue_publication_rejects_stale_snapshot_even_when_large_cache_is_d
         blank: true,
         next_seq: 0,
         needs_recovery: false,
+        metric_snapshot: None,
     };
     store.publish_catalog_entry(entry.clone()).await.unwrap();
     store
@@ -1050,6 +1058,415 @@ fn large_request() -> xharness_session::RequestHeader {
     h
 }
 
+async fn indexed_fixture(dir: &TestDir, id: &str, turns: u32) -> JsonlSessionStore {
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_cache_limits(0, 0)
+        .for_runtime();
+    store.create(header(id)).await.unwrap();
+    let mut revision = Revision::ZERO;
+    for turn in 1..=turns {
+        revision = store
+            .append(
+                id,
+                revision,
+                audited_turn(turn, xharness_session::RequestHeader::new("test", "model")),
+            )
+            .await
+            .unwrap()
+            .revision;
+    }
+    store.load(id).await.unwrap().unwrap();
+    store
+}
+
+#[tokio::test]
+async fn history_index_matches_every_cursor_and_survives_restart_without_full_load() {
+    let dir = TestDir::new();
+    let store = indexed_fixture(&dir, "indexed", 8).await;
+    let session = store.load("indexed").await.unwrap().unwrap();
+    let original = fs::read(dir.session_file("indexed")).unwrap();
+    assert!(dir
+        .session_file("indexed")
+        .with_extension("history-index")
+        .is_file());
+    let reopened = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_cache_limits(0, 0);
+    for before in (0..=session.next_seq() + 2)
+        .map(Some)
+        .chain([None, Some(u64::MAX)])
+    {
+        for max in [0, 1, 2, 3, 7, 50, usize::MAX] {
+            let end = before.unwrap_or(session.next_seq()).min(session.next_seq()) as usize;
+            let mut start = end;
+            let mut count = 0;
+            while start > 0 && count < max.max(1) {
+                start -= 1;
+                if matches!(
+                    session.events()[start].data(),
+                    EventData::UserMessage { .. }
+                        | EventData::AssistantMessage { .. }
+                        | EventData::ToolResult { .. }
+                ) {
+                    count += 1;
+                }
+            }
+            let page = reopened
+                .history_window("indexed", session.next_seq(), before, max)
+                .await
+                .unwrap()
+                .expect("valid indexed page");
+            assert_eq!(page.has_more, start > 0);
+            assert_eq!(page.next_seq, session.next_seq());
+            assert_eq!(page.events, session.events()[start..end]);
+            assert_eq!(page.initial_request_header_seq, Some(3));
+            assert_eq!(page.completed_steps.len(), 8);
+        }
+    }
+    assert_eq!(reopened.cache_stats().entries, 0);
+    assert_eq!(fs::read(dir.session_file("indexed")).unwrap(), original);
+}
+
+#[tokio::test]
+async fn history_index_stale_append_and_compression_fall_back_then_rebuild_losslessly() {
+    let dir = TestDir::new();
+    let store = indexed_fixture(&dir, "changed", 2).await;
+    let old = store.load("changed").await.unwrap().unwrap();
+    store
+        .append("changed", old.revision(), audited_turn(3, large_request()))
+        .await
+        .unwrap();
+    assert!(store
+        .history_window("changed", old.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .is_none());
+    let updated = store.load("changed").await.unwrap().unwrap();
+    let page = store
+        .history_window("changed", updated.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.events, updated.events());
+    assert!(
+        store
+            .compress_cold_session("changed")
+            .await
+            .unwrap()
+            .changed
+    );
+    assert!(store
+        .history_window("changed", updated.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .is_none());
+    let compressed = store.load("changed").await.unwrap().unwrap();
+    let page = store
+        .history_window("changed", compressed.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.events, compressed.events());
+    assert_eq!(compressed.events(), updated.events());
+    store.delete_session_data("changed").await.unwrap();
+    assert!(!dir
+        .session_file("changed")
+        .with_extension("history-index")
+        .exists());
+}
+
+#[tokio::test]
+async fn history_index_missing_corrupt_oversized_or_unpublishable_never_loses_history() {
+    let dir = TestDir::new();
+    let store = indexed_fixture(&dir, "fallback", 2).await;
+    let session = store.load("fallback").await.unwrap().unwrap();
+    let journal = dir.session_file("fallback");
+    let original = fs::read(&journal).unwrap();
+    let index = journal.with_extension("history-index");
+    let bytes = fs::read(&index).unwrap();
+    for bad in [
+        b"".to_vec(),
+        b"{}".to_vec(),
+        bytes[..bytes.len() / 2].to_vec(),
+        vec![b' '; 8 * 1024 * 1024 + 1],
+    ] {
+        fs::write(&index, bad).unwrap();
+        assert!(store
+            .history_window("fallback", session.next_seq(), None, 50)
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            store.load("fallback").await.unwrap().unwrap().events(),
+            session.events()
+        );
+        assert_eq!(fs::read(&journal).unwrap(), original);
+    }
+    fs::remove_file(&index).unwrap();
+    assert!(store
+        .history_window("fallback", session.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .is_none());
+    // A blocked publication must not turn an otherwise valid full read into an error.
+    fs::create_dir(&index).unwrap();
+    assert_eq!(
+        store.load("fallback").await.unwrap().unwrap().events(),
+        session.events()
+    );
+    assert!(store
+        .history_window("fallback", session.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .is_none());
+    fs::remove_dir(&index).unwrap();
+    fs::write(
+        index.with_extension("history-index.tmp"),
+        b"interrupted publish",
+    )
+    .unwrap();
+    assert_eq!(
+        store.load("fallback").await.unwrap().unwrap().events(),
+        session.events()
+    );
+    assert_eq!(fs::read(&journal).unwrap(), original);
+    store.load("fallback").await.unwrap().unwrap();
+    assert!(store
+        .history_window("fallback", session.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .is_some());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn history_index_symlink_is_not_read_and_external_target_is_never_modified() {
+    let dir = TestDir::new();
+    let external = TestDir::new();
+    let store = indexed_fixture(&dir, "symlink-index", 1).await;
+    let index = dir
+        .session_file("symlink-index")
+        .with_extension("history-index");
+    let bytes = fs::read(&index).unwrap();
+    let target = external.path().join("external");
+    fs::write(&target, &bytes).unwrap();
+    fs::remove_file(&index).unwrap();
+    std::os::unix::fs::symlink(&target, &index).unwrap();
+    assert!(store
+        .history_window("symlink-index", 7, None, 50)
+        .await
+        .unwrap()
+        .is_none());
+    store.load("symlink-index").await.unwrap().unwrap();
+    assert_eq!(fs::read(target).unwrap(), bytes);
+}
+
+#[tokio::test]
+async fn history_index_unremovable_sidecar_does_not_block_authoritative_deletion() {
+    let dir = TestDir::new();
+    let store = indexed_fixture(&dir, "delete-index", 1).await;
+    let index = dir
+        .session_file("delete-index")
+        .with_extension("history-index");
+    fs::remove_file(&index).unwrap();
+    fs::create_dir(&index).unwrap();
+    store.delete_session_data("delete-index").await.unwrap();
+    assert!(store.load("delete-index").await.unwrap().is_none());
+    assert!(store
+        .history_window("delete-index", 7, None, 50)
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
+async fn history_index_keeps_existing_warm_snapshot_path_instead_of_rereading_batches() {
+    let dir = TestDir::new();
+    indexed_fixture(&dir, "warm-index", 2).await;
+    let warm = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    let snapshot = warm.load("warm-index").await.unwrap().unwrap();
+    assert_eq!(warm.cache_stats().entries, 1);
+    assert!(warm
+        .history_window("warm-index", snapshot.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        warm.load("warm-index").await.unwrap().unwrap().events(),
+        snapshot.events()
+    );
+    assert_eq!(warm.cache_stats().entries, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_index_concurrent_append_never_returns_a_mixed_revision() {
+    let dir = TestDir::new();
+    let store = indexed_fixture(&dir, "concurrent-index", 2).await;
+    let prior = store.load("concurrent-index").await.unwrap().unwrap();
+    let (page, append) = tokio::join!(
+        store.history_window("concurrent-index", prior.next_seq(), None, 50),
+        store.append(
+            "concurrent-index",
+            prior.revision(),
+            audited_turn(3, large_request())
+        )
+    );
+    append.unwrap();
+    if let Some(page) = page.unwrap() {
+        assert_eq!(page.events, prior.events());
+        assert_eq!(page.next_seq, prior.next_seq());
+    }
+    assert!(store
+        .history_window("concurrent-index", prior.next_seq(), None, 50)
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
+async fn history_index_torn_tail_and_semantic_corruption_do_not_publish_valid_index() {
+    let dir = TestDir::new();
+    let store = indexed_fixture(&dir, "torn-index", 1).await;
+    let journal = dir.session_file("torn-index");
+    let original = fs::read(&journal).unwrap();
+    OpenOptions::new()
+        .append(true)
+        .open(&journal)
+        .unwrap()
+        .write_all(b"{\"record\":")
+        .unwrap();
+    assert!(store
+        .history_window("torn-index", 7, None, 50)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        store.load("torn-index").await.unwrap().unwrap().next_seq(),
+        7
+    );
+    assert!(store
+        .history_window("torn-index", 7, None, 50)
+        .await
+        .unwrap()
+        .is_none());
+    let mut bad = String::from_utf8(original).unwrap();
+    bad = bad.replace("\"turn\":1", "\"turn\":99");
+    bad = bad.replacen("\"turn\":99", "\"turn\":1", 1);
+    fs::write(&journal, bad).unwrap();
+    assert!(store.load("torn-index").await.is_err());
+    assert!(store
+        .history_window("torn-index", 7, None, 50)
+        .await
+        .unwrap()
+        .is_none());
+}
+
+/// Synthetic legacy-audit fixture only. Run fixture/full/indexed in separate
+/// remote processes with /usr/bin/time -v; never point this at real chat data.
+#[tokio::test]
+#[ignore = "explicit remote history paging performance acceptance"]
+async fn history_index_performance_acceptance() {
+    use sha2::{Digest, Sha256};
+    use xharness_session::LoggedEvent;
+    let mode =
+        std::env::var("XHARNESS_HISTORY_BENCH_MODE").expect("fixture/full/indexed mode required");
+    let root = PathBuf::from(
+        std::env::var_os("XHARNESS_HISTORY_BENCH_ROOT").expect("isolated temporary root required"),
+    );
+    assert!(root.is_absolute() && root.starts_with(std::env::temp_dir()));
+    let id = "synthetic-history-offset-benchmark";
+    const TURNS: u32 = 512;
+    let store = JsonlSessionStore::new(&root).unwrap().for_runtime();
+    let store = if mode == "cached" {
+        store
+    } else {
+        store.with_cache_limits(0, 0)
+    };
+    if mode == "fixture" {
+        store.create(header(id)).await.unwrap();
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(root.join(format!("{id}.jsonl")))
+            .unwrap();
+        let mut seq = 0;
+        for turn in 1..=TURNS {
+            let mut request = xharness_session::RequestHeader::new("test", "model");
+            request.input = vec![Message::user("x".repeat(256 * 1024))];
+            let mut events = audited_turn(turn, request);
+            if let EventData::AssistantMessage { message, .. } = events[4].data_mut() {
+                message.content = "answer".repeat(5461);
+            }
+            let events = events
+                .into_iter()
+                .map(|event| {
+                    let logged = LoggedEvent {
+                        seq,
+                        revision: Revision(u64::from(turn)),
+                        timestamp_ms: 123,
+                        event,
+                    };
+                    seq += 1;
+                    logged
+                })
+                .collect::<Vec<_>>();
+            serde_json::to_writer(&mut file, &serde_json::json!({"record":"batch", "previous_revision":turn-1, "revision":turn, "events":events})).unwrap();
+            file.write_all(b"\n").unwrap();
+        }
+        file.sync_all().unwrap();
+        drop(file);
+        assert_eq!(store.load(id).await.unwrap().unwrap().next_seq(), seq);
+        println!(
+            "HISTORY_BENCH fixture_bytes={} index_bytes={}",
+            fs::metadata(root.join(format!("{id}.jsonl")))
+                .unwrap()
+                .len(),
+            fs::metadata(root.join(format!("{id}.history-index")))
+                .unwrap()
+                .len()
+        );
+        return;
+    }
+    assert!(matches!(mode.as_str(), "full" | "indexed" | "cached"));
+    if mode == "cached" {
+        store.load(id).await.unwrap().unwrap();
+        assert!(store
+            .history_window(id, u64::from(TURNS) * 7, None, 50)
+            .await
+            .unwrap()
+            .is_none());
+    }
+    for repetition in 0..3 {
+        let start_time = std::time::Instant::now();
+        let events = if mode == "indexed" {
+            store
+                .history_window(id, u64::from(TURNS) * 7, None, 50)
+                .await
+                .unwrap()
+                .expect("synthetic page should fit index budget")
+                .events
+        } else {
+            let session = store.load(id).await.unwrap().unwrap();
+            let mut start = session.events().len();
+            let mut messages = 0;
+            while start > 0 && messages < 50 {
+                start -= 1;
+                if matches!(
+                    session.events()[start].data(),
+                    EventData::UserMessage { .. }
+                        | EventData::AssistantMessage { .. }
+                        | EventData::ToolResult { .. }
+                ) {
+                    messages += 1;
+                }
+            }
+            session.events()[start..].to_vec()
+        };
+        let bytes = serde_json::to_vec(&events).unwrap();
+        println!("HISTORY_BENCH mode={mode} repetition={repetition} elapsed_us={} page_events={} digest={:x}", start_time.elapsed().as_micros(), events.len(), Sha256::digest(bytes));
+    }
+}
+
 #[tokio::test]
 async fn cold_compression_preserves_legacy_audit_and_future_appends() {
     let dir = TestDir::new();
@@ -1577,4 +1994,107 @@ async fn audit_preserves_multimodal_opaque_reasoning_and_crlf_legacy_history() {
         2
     );
     assert_eq!(fs::read_to_string(path).unwrap(), text);
+}
+
+#[tokio::test]
+async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_and_compression() {
+    use xharness_session::{SequenceRange, SurfaceReplace};
+    let dir = TestDir::new();
+    let id = "compact-context";
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_cache_limits(0, 0);
+    store.create(header(id)).await.unwrap();
+    store
+        .append(
+            id,
+            Revision::ZERO,
+            vec![
+                turn_start(1),
+                user_message(&"prior user history".repeat(4096)),
+                EventData::StepStart { turn: 1, step: 1 }.into(),
+                EventData::CompactionStart {
+                    compaction_id: "c1".into(),
+                    source_command_id: None,
+                    turn: Some(1),
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    let range = SequenceRange { start: 1, end: 1 };
+    store
+        .append(
+            id,
+            Revision(1),
+            vec![
+                EventData::CompactionSummary {
+                    compaction_id: "c1".into(),
+                    source_command_id: None,
+                    summary: "摘要 🧪".into(),
+                    shadowed_range: range,
+                    shadowed_seqs: vec![1],
+                    shadowed_token_count: 128,
+                    provider: "test".into(),
+                    model: "test".into(),
+                    max_tokens: Some(64),
+                    usage: None,
+                }
+                .into(),
+                EventData::UserMessage {
+                    message: Message::user("checkpoint"),
+                    surface_replace: Some(SurfaceReplace {
+                        compaction_id: "c1".into(),
+                        shadowed_range: range,
+                        shadowed_seqs: vec![1],
+                    }),
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            id,
+            Revision(2),
+            vec![
+                EventData::CompactionEnd {
+                    compaction_id: "c1".into(),
+                    source_command_id: None,
+                    turn: Some(1),
+                    error: None,
+                }
+                .into(),
+                EventData::StepEnd { turn: 1, step: 1 }.into(),
+                EventData::TurnEnd {
+                    turn: 1,
+                    reason: xharness_session::TurnEndReason::Completed,
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    for compressed in [false, true] {
+        if compressed {
+            assert!(store.compress_cold_session(id).await.unwrap().changed);
+        }
+        let session = store.load(id).await.unwrap().unwrap();
+        let reopened = JsonlSessionStore::new(dir.path())
+            .unwrap()
+            .with_cache_limits(0, 0);
+        let page = reopened
+            .history_window(id, session.next_seq(), None, 1)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(page.events, session.events()[5..]);
+        assert_eq!(
+            page.context.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+        assert_eq!(reopened.cache_stats().entries, 0);
+    }
 }

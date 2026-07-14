@@ -35,6 +35,7 @@ mod preference_settings;
 mod preset_processor;
 mod questions;
 mod restore;
+mod restore_checkpoint;
 mod rpc;
 mod runtime;
 mod session_processor;
