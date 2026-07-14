@@ -2011,7 +2011,7 @@ async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_
             Revision::ZERO,
             vec![
                 turn_start(1),
-                user_message("prior user history"),
+                user_message(&"prior user history".repeat(4096)),
                 EventData::StepStart { turn: 1, step: 1 }.into(),
                 EventData::CompactionStart {
                     compaction_id: "c1".into(),
