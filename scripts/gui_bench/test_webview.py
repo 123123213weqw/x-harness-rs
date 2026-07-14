@@ -11,10 +11,63 @@ import urllib.request
 from scripts.gui_bench.budget import BudgetLedger
 from scripts.gui_bench.native_fixture import Fixture
 from scripts.gui_bench.run_webview import budget_receipt, tuple_address, cleanup_profile, settle_quiet, pin_binary
+from scripts.gui_bench.webview_contract import Contract
 from scripts.terminal_bench.broker import Broker
 
 
 class WebviewTests(unittest.TestCase):
+    def test_contract_unknown_effect_is_never_replayed(self):
+        calls = []
+        def call(op, arguments):
+            calls.append((op,arguments))
+            if op == 'observe':
+                return {'source':{'engine':'tauri-webview'},'frame_id':'fresh',
+                    'nodes':[{'label':'Target','ref':'n9','disabled':False}]}
+            return {'ok':False,'effect':'unknown'}
+        with self.assertRaisesRegex(AssertionError,'did not settle'):
+            Contract(call).act('click','Target')
+        self.assertEqual([op for op,_ in calls],['observe','perform'])
+        self.assertEqual(calls[1][1]['ref'],'n9')
+
+    def test_contract_replay_check_requires_unstarted_effect(self):
+        for effect in ('applied','unknown','not_started'):
+            calls = []
+            def call(op, arguments):
+                calls.append(op)
+                if op == 'observe':
+                    return {'source':{'engine':'tauri-webview'},'frame_id':'fresh',
+                        'nodes':[{'label':'Target','ref':'n2','disabled':False}]}
+                return {'ok':calls.count('perform') == 1,
+                    'effect':'applied' if calls.count('perform') == 1 else effect}
+            contract = Contract(call)
+            if effect == 'not_started':
+                contract.act('click','Target')
+                self.assertEqual(contract.denials,['consumed_frame'])
+            else:
+                with self.assertRaisesRegex(AssertionError,'no scheduled effect'):
+                    contract.act('click','Target')
+
+    def test_contract_pages_observed_controls_and_rejects_ambiguous_targets(self):
+        def call(op, arguments):
+            return {'source':{'engine':'tauri-webview'},'frame_id':'page-'+str(arguments['node_offset']),
+                'next_node_offset':60 if arguments['node_offset'] == 0 else None,
+                'nodes':[] if arguments['node_offset'] == 0 else [{'label':'Target','ref':'n61','disabled':False}]}
+        snapshot, node = Contract(call).target('Target')
+        self.assertEqual((snapshot['frame_id'],node['ref']),('page-60','n61'))
+        def ambiguous(*_):
+            return {'source':{'engine':'tauri-webview'},'frame_id':'fresh',
+                'nodes':[{'label':'Target'},{'label':'Target'}]}
+        with self.assertRaisesRegex(AssertionError,'ambiguous'):
+            Contract(ambiguous).target('Target')
+
+    def test_contract_cannot_count_simulated_native_or_disabled_target_as_success(self):
+        for engine, disabled in [('mock',False),('tauri-webview',True)]:
+            def call(op, arguments):
+                self.assertEqual(op,'observe')
+                return {'source':{'engine':engine},'frame_id':'fresh',
+                    'nodes':[{'label':'Target','ref':'n0','disabled':disabled}]}
+            with self.assertRaises(AssertionError): Contract(call).act('click','Target')
+
     def test_bridge_address_is_only_ipv4_loopback(self):
         self.assertEqual(tuple_address('127.0.0.1:123'), ('127.0.0.1',123))
         for value in ['example.com:123','127.0.0.1:0','127.0.0.1:65536','::1:123']:

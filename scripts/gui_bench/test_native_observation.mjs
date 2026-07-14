@@ -125,6 +125,27 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     check(snapshot.nodes.every(node => node.disabled));
     check((await act({ action: 'fill', ref: await reference('Inherited disabled'), text: 'changed' })).effect === 'not_started');
     check((await act({ action: 'click', ref: await reference('Inert') })).effect === 'not_started');
+    await page.setContent('<main><input aria-label="Background" value="keep"><button id="behind">Behind modal</button></main><dialog id="modal"><input aria-label="Modal field"><button>Inside modal</button></dialog>');
+    ref = await reference('Background');
+    await page.evaluate(() => document.querySelector('#modal').showModal());
+    check((await act({ action: 'fill', ref, text: 'overwrite behind modal' })).effect === 'not_started');
+    check(await page.locator('main input').inputValue() === 'keep');
+    snapshot = await observe();
+    check(snapshot.nodes.find(node => node.label === 'Background').disabled);
+    check(!snapshot.nodes.find(node => node.label === 'Modal field').disabled);
+    check((await act({ action: 'fill', ref: await reference('Modal field'), text: 'inside' })).effect === 'applied');
+    check(await page.locator('dialog input').inputValue() === 'inside');
+    await observe();
+    check((await act({ action: 'scroll', delta_y: 500 })).effect === 'not_started');
+    await page.evaluate(() => document.querySelector('#modal').close());
+    check((await act({ action: 'fill', ref: await reference('Background'), text: 'after close' })).effect === 'applied');
+    await page.evaluate(() => document.querySelector('#modal').show());
+    check(!(await observe()).nodes.find(node => node.label === 'Background').disabled, 'a non-modal dialog must not block the page');
+    await page.setContent('<main><input aria-label="Background" value="keep"></main><div role="dialog" aria-modal="true" style="display:none"><button>Hidden dialog</button></div>');
+    check(!(await observe()).nodes.find(node => node.label === 'Background').disabled);
+    await page.locator('[role=dialog]').evaluate(node => node.style.display = 'block');
+    check((await observe()).nodes.find(node => node.label === 'Background').disabled);
+    check((await act({ action: 'fill', ref: await reference('Background'), text: 'blocked' })).effect === 'not_started');
     check(await page.evaluate(() => typeof window.__TAURI__ === 'undefined'));
     console.log(`${name}: native DOM observation/action contract passed (${checks} checks; not a native callback test)`);
   } finally {

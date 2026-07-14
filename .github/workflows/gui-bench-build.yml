@@ -2,6 +2,11 @@ name: GUI Acceptance Candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      native_public_site:
+        description: 'Run isolated native signed-out GitHub observation (no model/API calls)'
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'scripts/gui_bench/**'
@@ -20,6 +25,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-public-site:
+    if: github.event_name == 'workflow_dispatch' && inputs.native_public_site
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install isolated native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep xvfb dbus-x11
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Build exact candidate and run observation-only contract
+        run: |
+          cargo build --locked -p xharness-host-app
+          TARGET="$(rustc -vV | sed -n 's/^host: //p')"
+          python3 scripts/stage-tauri-sidecar.py target/debug/xharness-host "$TARGET"
+          python3 scripts/stage-tauri-sidecar.py "$(command -v rg)" "$TARGET" --name rg
+          npm install --prefix "$RUNNER_TEMP/native-react" --no-save --package-lock=false react@18.3.1 react-dom@18.3.1
+          mkdir -p "$RUNNER_TEMP/native-assets" dist/native-public-site
+          cp "$RUNNER_TEMP/native-react/node_modules/react/umd/react.production.min.js" "$RUNNER_TEMP/native-assets/react.js"
+          cp "$RUNNER_TEMP/native-react/node_modules/react-dom/umd/react-dom.production.min.js" "$RUNNER_TEMP/native-assets/react-dom.js"
+          git rev-parse HEAD > dist/native-public-site/source-sha.txt
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example native-browser-bench
+          python3 -B -m scripts.gui_bench.run_webview --contract --tasks github --host-binary target/debug/xharness-host --native-binary apps/desktop/src-tauri/target/debug/examples/native-browser-bench --assets "$RUNNER_TEMP/native-assets" --evidence-dir dist/native-public-site
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-public-site-zero-api
+          path: dist/native-public-site/
+          if-no-files-found: warn
+          retention-days: 7
+
   budget-contract:
     runs-on: ubuntu-latest
     steps:
