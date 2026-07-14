@@ -95,7 +95,10 @@ try {
       shipped.on('pageerror', error => shippedErrors.push(error.message))
       await shipped.goto(url, { waitUntil: 'domcontentloaded' })
       const plugins = shipped.getByRole('button', { name: 'Plugins', exact: true })
-      await plugins.waitFor()
+      await plugins.waitFor().catch(async error => {
+        console.error(`Shipped page errors: ${JSON.stringify(shippedErrors)}\nBody: ${(await shipped.locator('body').innerText()).slice(0, 2000)}`)
+        throw error
+      })
       assert.equal(await plugins.count(), 1, `exactly one Plugins button at ${width}px`)
       const iconGeometry = await plugins.evaluate(button => {
         const outer = button.getBoundingClientRect()
