@@ -6548,7 +6548,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const matchedTargets = /* @__PURE__ */ new Set();
 				let publication = "none";
 				for (const definition of this.eventDefinitions.entries()) {
-					const result = definition.match(input.event);
+					// xh-conversation-view-match/v1
+					const result = definition.match(input.event, input.view);
 					if (result === null) continue;
 					if (definition.target !== void 0) matchedTargets.add(definition.target);
 					publication = maximumPublication(publication, accept(definition, result.id, result.role));
@@ -6556,7 +6557,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const fallback = this.eventDefinitions.fallbackEntry();
 				const target = fallback?.target;
 				if (fallback !== void 0 && target !== void 0 && !matchedTargets.has(target)) {
-					const result = fallback.match(input.event);
+					const result = fallback.match(input.event, input.view);
 					if (result !== null) publication = maximumPublication(publication, accept(fallback, result.id, result.role));
 				}
 				return publication;
