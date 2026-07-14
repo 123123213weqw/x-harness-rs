@@ -68,6 +68,10 @@ pub struct SessionCatalogEntry {
     /// Includes any pending input, approval, question, interrupted work, or
     /// runtime background work. False is safe only with a matching fingerprint.
     pub needs_recovery: bool,
+    /// Versioned public metric views only (no text, prompts, or per-step fold
+    /// state). Old catalogues omit this and are repaired after Host readiness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metric_snapshot: Option<serde_json::Value>,
 }
 
 /// Storage failures with stable ownership and CAS diagnostics.

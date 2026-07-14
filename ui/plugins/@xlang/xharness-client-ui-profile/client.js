@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
       total: '累计 Token', peak: '单日峰值', active: '活跃天数', chats: '会话数',
       activity: 'Token 活跃度', daily: '每日', weekly: '每周', cumulative: '累计',
       previousPeriod: '前半年', nextPeriod: '后半年', noData: '还没有可统计的 Token 用量。',
+      restoring: '正在后台恢复历史用量', partial: '当前为部分统计',
       breakdown: '用量构成', input: '未缓存输入', cacheRead: '缓存读取',
       cacheWrite: '缓存写入', output: '可见输出', measured: '已报告用量的会话',
     }
@@ -27,6 +28,7 @@ window.__ModuleLoader__.load({
       total: 'Total tokens', peak: 'Peak day', active: 'Active days', chats: 'Chats',
       activity: 'Token activity', daily: 'Daily', weekly: 'Weekly', cumulative: 'Cumulative',
       previousPeriod: 'Previous six months', nextPeriod: 'Next six months', noData: 'No reported token usage yet.',
+      restoring: 'Restoring historical usage in the background', partial: 'Partial totals',
       breakdown: 'Usage breakdown', input: 'Uncached input', cacheRead: 'Cache read',
       cacheWrite: 'Cache write', output: 'Visible output', measured: 'Chats with usage',
     }
@@ -46,10 +48,12 @@ window.__ModuleLoader__.load({
     function summarize(rows) {
       const daily = new Map()
       const buckets = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }
-      let chats = 0, measured = 0
+      let chats = 0, measured = 0, pending = 0
       for (const row of rows) {
         if (row?.blank || !(row?.id ?? row?.sessionId)) continue
         chats++
+        const metadata = row.projectionValues?.sessionListMetadata ?? row.projections?.values?.sessionListMetadata
+        if (metadata?.metricsPending === true) pending++
         const days = row.projectionValues?.dailyTokenUsage ?? row.projections?.values?.dailyTokenUsage
         if (!Array.isArray(days)) continue
         let chatMeasured = false
@@ -74,7 +78,7 @@ window.__ModuleLoader__.load({
       }
       const total = Object.values(buckets).reduce((sum, value) => sum + value, 0)
       const peak = [...daily.values()].reduce((max, value) => Math.max(max, value), 0)
-      return { daily, buckets, total, peak, activeDays: daily.size, chats, measured }
+      return { daily, buckets, total, peak, activeDays: daily.size, chats, measured, pending }
     }
     function calendar(today, page = 0) {
       const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
@@ -144,6 +148,8 @@ window.__ModuleLoader__.load({
           h('h2', { key: 'title' }, t('title')),
           h('p', { key: 'subtitle' }, t('subtitle')),
         ]),
+        data.pending > 0 ? h('p', { className: 'xhp-pending', role: 'status', key: 'pending' },
+          `${t('restoring')} · ${data.pending} ${t('chats')} · ${t('partial')}`) : null,
         h('div', { className: 'xhp-stats', key: 'stats' }, [
           stat(t('total'), data.measured ? fmt(data.total) : '—', 'total'),
           stat(t('peak'), data.activeDays ? fmt(data.peak) : '—', 'peak'),
@@ -167,7 +173,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', onClick: () => setPage(Math.max(0, visiblePage - 1)), disabled: visiblePage === 0,
               'aria-label': t('nextPeriod'), title: t('nextPeriod'), key: 'next' }, '›'),
           ]),
-          data.measured === 0 ? h('p', { className: 'xhp-empty', key: 'empty' }, t('noData')) :
+          data.measured === 0 ? h('p', { className: 'xhp-empty', key: 'empty' }, t(data.pending ? 'restoring' : 'noData')) :
             mode === 'daily' ? h('div', { className: 'xhp-calendar', key: 'calendar' }, [
               h('div', { className: 'xhp-weeks', key: 'weeks' }, weeks.map((week, index) => h('div', { className: 'xhp-week', key: index },
                 week.map(entry => h(Cell, { entry, value: data.daily.get(entry.key) ?? 0, peak: data.peak, locale, key: entry.key }))))),
@@ -189,7 +195,7 @@ window.__ModuleLoader__.load({
     }
 
     const CSS = `
-.xhp-root{display:grid;gap:24px;padding:5px 0 22px;color:var(--dsw-alias-label-primary,#24272c)}.xhp-heading{padding:0 2px}.xhp-kicker{margin:0 0 11px;color:var(--dsw-alias-label-tertiary,#999);font:700 10px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em}.xhp-heading h2{margin:0;font-size:23px;font-weight:600;letter-spacing:-.035em}.xhp-heading p:last-child{margin:7px 0 0;color:var(--dsw-alias-label-secondary,#777);font-size:12px}.xhp-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--dsw-alias-border-l2,#e8e8ea);border-radius:15px;padding:18px 4px}.xhp-stat{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;border-right:1px solid var(--dsw-alias-border-l2,#e8e8ea)}.xhp-stat:last-child{border-right:0}.xhp-stat strong{font-size:20px;font-weight:600;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.xhp-stat span{font-size:10px;color:var(--dsw-alias-label-secondary,#777)}.xhp-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}.xhp-section-head h3{font-size:14px;font-weight:600;margin:0}.xhp-section-head small{font-size:10px;color:var(--dsw-alias-label-tertiary,#999)}.xhp-modes{display:flex;gap:1px}.xhp-mode{border:0;background:none;color:var(--dsw-alias-label-tertiary,#999);font:inherit;font-size:11px;cursor:pointer;border-radius:6px;padding:4px 6px}.xhp-mode:hover{color:var(--dsw-alias-label-primary,#24272c)}.xhp-selected{background:var(--dsw-alias-interactive-bg-hover,#f3f3f4);color:var(--dsw-alias-label-primary,#24272c);font-weight:600}.xhp-weeks{display:grid;grid-template-columns:repeat(26,minmax(0,1fr));gap:4px}.xhp-week{display:grid;grid-template-rows:repeat(7,1fr);gap:4px;min-width:0}.xhp-cell{display:block;aspect-ratio:1;border-radius:4px;background:var(--dsw-alias-border-l2,#f0f0f2)}.xhp-future{opacity:.35}.xhp-level-1{background:#d7dce3}.xhp-level-2{background:#a9b2bf}.xhp-level-3{background:#626d7e}.xhp-level-4{background:#20252e}.xhp-months{display:grid;grid-template-columns:repeat(26,minmax(0,1fr));gap:4px;margin-top:7px;min-height:14px;color:var(--dsw-alias-label-tertiary,#999);font-size:9px}.xhp-months span{white-space:nowrap}.xhp-bars{height:132px;display:flex;align-items:flex-end;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2,#ddd)}.xhp-week-bar{flex:1;min-width:1px;background:#48515e;border-radius:2px 2px 0 0}.xhp-line{display:block;width:100%;height:132px;overflow:visible}.xhp-line line{stroke:var(--dsw-alias-border-l2,#ddd)}.xhp-line polyline{fill:none;stroke:#303846;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.xhp-buckets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px 20px}.xhp-bucket{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--dsw-alias-border-l2,#eee);padding:4px 0 9px;font-size:11px}.xhp-bucket span{color:var(--dsw-alias-label-secondary,#777)}.xhp-bucket strong{font-variant-numeric:tabular-nums;font-weight:600}.xhp-empty{padding:25px 0;color:var(--dsw-alias-label-secondary,#777);font-size:12px}@media(max-width:640px){.xhp-root{gap:19px}.xhp-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 0}.xhp-stat:nth-child(2){border-right:0}.xhp-stat strong{font-size:18px}.xhp-weeks,.xhp-months{gap:2px}.xhp-cell{border-radius:2px}.xhp-modes{gap:0}}
+.xhp-pending{margin:0;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-interactive-bg-hover,#f3f3f4);font-size:12px;color:var(--dsw-alias-label-secondary,#777)}.xhp-root{display:grid;gap:24px;padding:5px 0 22px;color:var(--dsw-alias-label-primary,#24272c)}.xhp-heading{padding:0 2px}.xhp-kicker{margin:0 0 11px;color:var(--dsw-alias-label-tertiary,#999);font:700 10px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em}.xhp-heading h2{margin:0;font-size:23px;font-weight:600;letter-spacing:-.035em}.xhp-heading p:last-child{margin:7px 0 0;color:var(--dsw-alias-label-secondary,#777);font-size:12px}.xhp-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--dsw-alias-border-l2,#e8e8ea);border-radius:15px;padding:18px 4px}.xhp-stat{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;border-right:1px solid var(--dsw-alias-border-l2,#e8e8ea)}.xhp-stat:last-child{border-right:0}.xhp-stat strong{font-size:20px;font-weight:600;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.xhp-stat span{font-size:10px;color:var(--dsw-alias-label-secondary,#777)}.xhp-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}.xhp-section-head h3{font-size:14px;font-weight:600;margin:0}.xhp-section-head small{font-size:10px;color:var(--dsw-alias-label-tertiary,#999)}.xhp-modes{display:flex;gap:1px}.xhp-mode{border:0;background:none;color:var(--dsw-alias-label-tertiary,#999);font:inherit;font-size:11px;cursor:pointer;border-radius:6px;padding:4px 6px}.xhp-mode:hover{color:var(--dsw-alias-label-primary,#24272c)}.xhp-selected{background:var(--dsw-alias-interactive-bg-hover,#f3f3f4);color:var(--dsw-alias-label-primary,#24272c);font-weight:600}.xhp-weeks{display:grid;grid-template-columns:repeat(26,minmax(0,1fr));gap:4px}.xhp-week{display:grid;grid-template-rows:repeat(7,1fr);gap:4px;min-width:0}.xhp-cell{display:block;aspect-ratio:1;border-radius:4px;background:var(--dsw-alias-border-l2,#f0f0f2)}.xhp-future{opacity:.35}.xhp-level-1{background:#d7dce3}.xhp-level-2{background:#a9b2bf}.xhp-level-3{background:#626d7e}.xhp-level-4{background:#20252e}.xhp-months{display:grid;grid-template-columns:repeat(26,minmax(0,1fr));gap:4px;margin-top:7px;min-height:14px;color:var(--dsw-alias-label-tertiary,#999);font-size:9px}.xhp-months span{white-space:nowrap}.xhp-bars{height:132px;display:flex;align-items:flex-end;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2,#ddd)}.xhp-week-bar{flex:1;min-width:1px;background:#48515e;border-radius:2px 2px 0 0}.xhp-line{display:block;width:100%;height:132px;overflow:visible}.xhp-line line{stroke:var(--dsw-alias-border-l2,#ddd)}.xhp-line polyline{fill:none;stroke:#303846;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.xhp-buckets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px 20px}.xhp-bucket{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--dsw-alias-border-l2,#eee);padding:4px 0 9px;font-size:11px}.xhp-bucket span{color:var(--dsw-alias-label-secondary,#777)}.xhp-bucket strong{font-variant-numeric:tabular-nums;font-weight:600}.xhp-empty{padding:25px 0;color:var(--dsw-alias-label-secondary,#777);font-size:12px}@media(max-width:640px){.xhp-root{gap:19px}.xhp-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 0}.xhp-stat:nth-child(2){border-right:0}.xhp-stat strong{font-size:18px}.xhp-weeks,.xhp-months{gap:2px}.xhp-cell{border-radius:2px}.xhp-modes{gap:0}}
 [role="dialog"]:has(.xhp-root){width:min(1040px,calc(100vw - 32px));max-width:calc(100vw - 32px)}
 .xhp-period{display:flex;align-items:center;justify-content:center;gap:14px;margin:-3px 0 13px;color:var(--dsw-alias-label-secondary,#777);font-size:11px;font-variant-numeric:tabular-nums}.xhp-period button{display:grid;place-items:center;width:24px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l2,#e8e8ea);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary,#24272c);font:18px/1 system-ui;cursor:pointer}.xhp-period button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,#f3f3f4)}.xhp-period button:disabled{opacity:.3;cursor:default}
 @media(max-width:640px){.xhp-weeks,.xhp-months,.xhp-week{gap:2px}.xhp-cell{border-radius:2px}}
