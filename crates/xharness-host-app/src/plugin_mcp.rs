@@ -45,7 +45,7 @@ pub fn spec(
     ToolSpec::new(
         ToolDefinition::new(
             "plugin_mcp",
-            "Use user-enabled local MCP servers and, when explicitly delegated by the desktop UI, its native browser. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
+            "Use user-enabled local MCP servers and, when visible in this chat, its native browser under the existing tool approval policy. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["list","describe","call"]},
                 "plugin":{"type":"string"},"server":{"type":"string"},"tool":{"type":"string"},
@@ -72,7 +72,7 @@ pub fn spec(
                 if plugin == crate::native_browser::PLUGIN {
                     let native = native.ok_or_else(|| error("native browser is unavailable"))?;
                     if action == "list" && args.get("server").is_none() {
-                        if !native.available(&owner, &context.cancellation).await { return Err(error("native browser is not delegated to this chat")); }
+                        if !native.available(&owner, &context.cancellation).await { return Err(error("no visible native browser is bound to this chat")); }
                         return Ok(ToolOutput::text(json!({"servers":[crate::native_browser::SERVER]}).to_string()));
                     }
                     if args.get("server").and_then(Value::as_str) != Some(crate::native_browser::SERVER) { return Err(error("unknown native browser server")); }
@@ -81,7 +81,7 @@ pub fn spec(
                         let parameters = match args.get("arguments") { None => Map::new(), Some(Value::Object(parameters)) => parameters.clone(), _ => return Err(error("native arguments must be an object")) };
                         return call_output(native.call(&owner, tool, parameters, &context.cancellation).await.map_err(error)?);
                     }
-                    if !native.available(&owner, &context.cancellation).await { return Err(error("native browser is not delegated to this chat")); }
+                    if !native.available(&owner, &context.cancellation).await { return Err(error("no visible native browser is bound to this chat")); }
                     let tools = crate::native_browser::tools();
                     if action == "describe" {
                         let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
@@ -144,6 +144,12 @@ pub fn spec(
 mod tests {
     use super::*;
     use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
+
+    #[test]
+    fn automatic_browser_binding_does_not_bypass_tool_approval() {
+        let tool = spec(None, Arc::new(McpRuntime::default()), None, "owner".into());
+        assert!(tool.requires_approval);
+    }
 
     #[test]
     fn mcp_call_output_obeys_protocol_error_flag() {
