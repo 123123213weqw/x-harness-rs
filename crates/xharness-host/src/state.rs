@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use xharness_control::{ControlRevision, MutationReceipt};
@@ -17,7 +17,7 @@ use xharness_projection::metrics::MetricsProjectionState;
 /// when a turn starts.  Full access is deliberately one preset instead of a
 /// loose pair of booleans so the UI can place one explicit risk gate in front
 /// of the transition.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionPreset {
     #[default]
@@ -95,7 +95,7 @@ pub(crate) fn iso_now() -> String {
     now_ms().to_string()
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelSelection {
     pub provider: String,
@@ -145,7 +145,7 @@ pub struct AgentPreset {
     pub content: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GoalState {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -185,7 +185,7 @@ impl GoalState {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum QueuePlacement {
     Queued,
     Steering,
@@ -202,7 +202,7 @@ impl QueuePlacement {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct QueuedPrompt {
     pub id: String,
     pub text: String,
@@ -227,7 +227,7 @@ impl QueuedPrompt {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ProjectedSessionMutationReceipt {
     pub receipt: SessionMutationReceipt,
     pub state_event_seq: u64,
@@ -304,6 +304,10 @@ pub struct SessionRecord {
     /// projection frames.
     #[serde(skip)]
     pub(crate) metrics: MetricsProjectionState,
+    /// Read-only views for cold records. Never use a catalogue snapshot as
+    /// incremental fold state; full hydration replaces it with journal metrics.
+    #[serde(skip)]
+    pub(crate) catalog_metrics: Option<Value>,
     pub messages: Vec<AgentMessage>,
     #[serde(skip)]
     pub(crate) queue: VecDeque<QueuedPrompt>,
@@ -412,6 +416,7 @@ impl SessionRecord {
             json!({
                 "blank": self.blank,
                 "restoring": self.restoring,
+                "metricsPending": self.restoring && self.catalog_metrics.is_none(),
                 "lastPromptAt": if self.blank { Value::Null } else { json!(self.updated_at) },
             }),
         );
@@ -435,16 +440,32 @@ impl SessionRecord {
         if self.schedules_hydrated {
             values.insert("schedules".to_owned(), json!(self.schedules));
         }
-        values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
-        values.insert(
-            "dailyTokenUsage".to_owned(),
-            self.metrics.daily_token_usage(),
-        );
-        values.insert("sessionStats".to_owned(), self.metrics.session_stats());
-        values.insert(
-            "contextPressure".to_owned(),
-            self.metrics.context_pressure(),
-        );
+        let metrics = if self.restoring {
+            self.catalog_metrics.as_ref()
+        } else {
+            None
+        };
+        if let Some(cold) = xharness_projection::metrics::catalog_metric_values(metrics) {
+            for key in [
+                "tokenUsage",
+                "dailyTokenUsage",
+                "sessionStats",
+                "contextPressure",
+            ] {
+                values.insert(key.to_owned(), cold[key].clone());
+            }
+        } else if !self.restoring {
+            values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
+            values.insert(
+                "dailyTokenUsage".to_owned(),
+                self.metrics.daily_token_usage(),
+            );
+            values.insert("sessionStats".to_owned(), self.metrics.session_stats());
+            values.insert(
+                "contextPressure".to_owned(),
+                self.metrics.context_pressure(),
+            );
+        }
         Value::Object(values)
     }
 

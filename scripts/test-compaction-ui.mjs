@@ -29,6 +29,8 @@ const find=(tree,predicate)=>{
 };
 assert.match(source,/data-compaction-running/);
 assert.match(source,/t\("message\.compaction\.running"\)/);
+assert.match(source,/xh-compaction-view-model\/v2/);
+assert.match(read('ui/dist/plugins/@xharness/dsh-client-runtime/client.js'),/definition\.match\(input\.event, input\.view\)/);
 for(const f of fixtures) {
  const matches=f.events.map(event=>({event}));
  const def=f.manual?api.commandDefinition:api.compactionDefinition;
@@ -82,6 +84,21 @@ for(const f of fixtures) {
  // A delayed summary, after checkpoint/history page recovery, enables expand.
  assert.equal(api.compactSummary(matches.find(m=>m.event.type==='compaction/summary'),matches.find(m=>m.event.surfaceOp?.op==='replace')).summary,node.summary);
 }
+// A product-owned view can rebuild a committed marker even when a history
+// page contains only compaction/end. Raw lifecycle fields are not read here.
+const projectedStart={event:{type:'xharness/internal',seq:20,time:100,data:{}},view:{for:'compaction',view:{schemaVersion:1,id:'from-view',phase:'running',anchorSeq:20,time:100}}};
+const projectedDone={event:{type:'xharness/internal',seq:23,time:104,data:{}},view:{for:'compaction',view:{schemaVersion:1,id:'from-view',phase:'succeeded',anchorSeq:22,time:103,summary:'摘要',summaryEventSeq:21,shadowedItemCount:1,shadowedTokenCount:128}}};
+const projectedFailure={event:{type:'xharness/internal',seq:23,time:104,data:{}},view:{for:'compaction',view:{schemaVersion:1,id:'from-view',phase:'failed',anchorSeq:20,time:100}}};
+for(const match of [projectedStart,projectedDone,projectedFailure])
+ assert.equal(api.compactionDefinition.match(match.event,match.view).id,'from-view');
+let projectedState=api.compactionDefinition.start({},projectedStart);
+assert.equal(api.compactionDefinition.buildViewNode({state:projectedState,matches:[projectedStart]}).data.status,'running');
+projectedState=api.compactionDefinition.update({state:projectedState},projectedDone);
+assert.equal(api.compactionDefinition.buildViewNode({state:projectedState,matches:[projectedStart,projectedDone]}).data.summary,'摘要');
+assert.equal(api.compactionDefinition.buildViewNode({matches:[projectedDone]}).data.summary,'摘要');
+const failedState=api.compactionDefinition.update({state:api.compactionDefinition.start({},projectedStart)},projectedFailure);
+assert.equal(api.compactionDefinition.buildViewNode({state:failedState,matches:[projectedStart,projectedFailure]}).visibility,'hidden');
+assert.equal(api.compactionDefinition.match(projectedFailure.event,{for:'compaction',view:{schemaVersion:99}}),null);
 // Context inspector compatibility: evaluate its shipped component as well.
 for(const path of ['ui/plugins/@xlang/xharness-client-ui-context/client.js','ui/dist/plugins/@xlang/xharness-client-ui-context/client.js']) {
  const s=read(path),a=s.indexOf('function CompactionBanner('),b=s.indexOf('\n    function ContextView',a);

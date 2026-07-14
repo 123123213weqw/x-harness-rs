@@ -383,6 +383,7 @@ async fn run(
             }
             tokio::task::yield_now().await;
         }
+        hydration_host.backfill_startup_metrics().await;
     });
     let mut signal_error = None;
     let early_server_result = tokio::select! {
