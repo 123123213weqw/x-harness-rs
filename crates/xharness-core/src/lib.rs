@@ -4,6 +4,7 @@ mod checkpoint;
 mod compaction;
 pub use checkpoint::CheckpointConfig;
 mod engine;
+mod retry;
 mod session;
 mod tool;
 mod types;

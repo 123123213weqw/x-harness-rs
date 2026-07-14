@@ -314,6 +314,12 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `ISSUE-59` 实际/请求前读数独立精度、历史变化提示、前后端 replay 与文档统一。见 [计量规范](specs/context-accounting.md)。
 - [ ] `ISSUE-57-61-RELEASE` 推送、GitHub 跨平台 CI、合并与软件安装更新；源代码验收不代表已安装版本已生效。
 
+## 自动 Compact 页面状态一致性（2026-09-30）
+
+- [x] `UI-COMPACT-PROJECTION-01` 后端实时与历史统一版本化 `view`；前端实时更新与历史 fallback 使用同一 reducer，保留稳定 key 和失败/取消隐藏语义。见 [规范](specs/compaction-view-v1.md)。
+- [x] `UI-COMPACT-PROJECTION-02` 实际打包 Assembler 回归：逐条/批量、刷新、分页、重复、重连、新旧投影混合、终态页及连续压缩；接入 CI。Host live/history/restart 四类终态回归。
+- [ ] `UI-COMPACT-PROJECTION-03` 推送、GitHub CI、合并与软件安装验证；本批不替换正在运行的软件。
+
 ## 前端闲置会话历史缓存（2026-09-13）
 
 - [x] `UI-CACHE-01` 保留 Session/scope 的历史 LRU，默认 6 个闲置会话 / 64 MiB 估算历史容量；保护当前/运行/待处理任务。见 [规范](specs/session-history-cache.md)。
@@ -328,7 +334,11 @@ Commit、Issue、PR 应引用这些 ID。
 规范见 [历史存储的无损渐进迁移](specs/session-history-storage-migration.md)。
 
 - [x] `HISTORY-01` 启动候选只读取 JSONL Header，Host 完整 load 后才发布；严格扫描接口不变，旧数据零迁移。V100 定向及包级回归。
-- [ ] `HISTORY-02` 版本化可丢弃索引/快照与失配回退，降低长会话恢复和历史读取成本。
+- [ ] `HISTORY-02` 总项：版本化可丢弃索引/快照与失配回退；以下分阶段验收，不能把历史分页优化等同于恢复快照完成。
+- [x] `HISTORY-02a` 只读历史偏移索引与 Host 分页接线；损坏/过期/超界回退及跨页投影回归。V100 全工作区与 Clippy 通过；144.50 MiB 隔离合成历史分页中位 14.327s→0.715s、测试进程峰值 30→12.5 MiB，不能代替 App 实测。见 [规范](specs/history-offset-index.md) 与 [验收](reports/history-offset-index-20260930.md)。
+- [x] `HISTORY-02b1` 闲置恢复快照 + 受限设置尾段重放：源戳/前缀摘要/Schema 校验、精确指标与去重回执恢复；中断工具、Inbox、审批、问题、Goal、Schedule 等回退原完整恢复；终态标题后台检查不重新物化历史。V100 全工作区 917 项、Clippy 与历史前端回归通过。见 [规范](specs/idle-recovery-checkpoint.md) 与 [验收](reports/idle-recovery-checkpoint-20261001.md)。原日志/模型历史不删减，未替换 App。
+- [ ] `HISTORY-02b2` 活动 Runtime 状态的快照加速：在不弱化完整 Session/副作用保护的前提下，分别验收 Inbox、审批/问题/迟到答案、Goal、Schedule、Compaction；当前这些工作保留完整权威恢复，不宣称已经加速。
+- [ ] `HISTORY-02c` 索引增量维护/缓存命中后刷新与真实最大旧日志分页验收；GitHub 跨平台 CI、合并和 App 安装验收另行完成。
 - [x] `HISTORY-03a` 显式单会话 v1→v2 冷批次 gzip 迁移；完整校验后单文件原子切换，旧数据双读、后续追加、审计与损坏兜底回归。
 - [ ] `HISTORY-03b` 冷会话自动选择、迁移限速/断点续跑、真实最大旧日志的内存与磁盘块数验收；当前不会自动迁移本机数据。
 - [ ] `HISTORY-04` 跨会话 request-audit 引用扫描和保守回收，损坏或未知日志时禁止删除共享对象。
@@ -1385,3 +1395,28 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] Context / Harness 区分“未开启捕获”和“捕获失败”，旧快照保持可读；补 JSONL、Core、Chromium 与 WebKit 回归。
 - [ ] 旧 `request-audit` 对象的安全引用扫描与垃圾回收，独立备份、迁移和崩溃恢复验收；不得按文件年龄直接删除。
 - [ ] 如需产品级按会话诊断开关、保存配额和保留期限，另设配置及隐私交互；目前只复用全局 Full Debug。
+
+## UI 生命周期补强（2026-09-30）
+
+- [x] `UI-LIFECYCLE-01`：连接失效时清理旧待交互状态并拒绝旧 Wait 回复；握手完成后的历史重同步保留新连接已重放的审批、问题和订阅水位。
+- [x] `UI-LIFECYCLE-02`：重试增量与历史共用 reducer；第二次重试或只有 started 的页可以恢复已知状态，不伪造失败原因和延迟。
+- [x] `UI-LIFECYCLE-03`：分页隔离事务中复用审计过的局部不可变状态；新证据、边界、前驱和缺失历史状态变化会失效。未声明的插件、重连和全量替换仍保守计算。
+- [x] 增加实际 Controller／Session／Assembler 回归，并纳入 CI。
+- [ ] 推送本批改动、等待 GitHub CI；安装包发布与本机替换另行授权。
+
+验收详情见 `docs/specs/ui-lifecycle-recovery.md`；构建节点减少不等于全部处理变成 O(新增数量)，索引扫描及 view builder 的隔离提交仍需遍历窗口。
+## 断网持续恢复（2026-10-01）
+
+- [x] 独立 retry 策略模块；结构化传输故障持续等待，有限 HTTP 重试保持不变。
+- [x] 复用 Always 持久重试事件；按 policy/phase 分离 retryId，UI 展示等待连接恢复。
+- [x] 保留取消、暂停、Steer、部分流和工具副作用边界；追加真实 HTTP / UI / journal 回归。
+- [x] 审核修复：跨步骤共享退避指数、持久 attempt 独立计数；完整响应/Steer 重置，Pause/NextStep 保留。
+- [x] 审核修复：永久 TLS peer Alert 与 io 包装叶子原因识别；临时 Alert / EOF 保持可恢复，真实双协议 TLS 拒绝验证不重试。
+- [x] V100：Core / OpenAI Provider / Host 的 all-targets 回归 413 项通过、5 项原有测试忽略；三包 Clippy -D warnings 通过。
+- [x] 本机 Node 7 组关联回归及 WebKit 历史缓存 32 项检查通过。
+- [ ] PR 的 GitHub 跨平台 CI 验收。
+- [ ] 跨平台网络变化通知提前唤醒；UI 总等待时间。
+- [ ] 普通进行中轮在进程重启后的自动恢复；须与 outcome_unknown / 用户停止权威联合验收。
+- [ ] token-count / capability 等独立前置请求的网络恢复策略。
+
+详见 `docs/specs/network-wait-recovery.md`。
