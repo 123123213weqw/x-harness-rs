@@ -229,6 +229,16 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
         json!({"action":"fill","text":"bridge-value"}),
     )?)
     .unwrap();
+    // An automatic visible-context renewal must not consume an observed frame.
+    browser_delegation::desktop_browser_delegate(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        Some("parent".into()),
+        true,
+        Some(origin.clone()),
+    )
+    .await?;
     let result = bridge_call(connection, "parent", "perform", request.clone()).await?;
     if result["result"]["effect"] != "applied" {
         return Err("delegated action did not produce a receipt".into());
@@ -256,7 +266,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     if bridge_call(connection, "parent", "list", json!({})).await?["result"]["available"] != false {
         return Err("hide/reselect resurrected browser consent".into());
     }
-    println!("Private native bridge passed: explicit consent, exact owner, read-only denial, real fill, consumed-frame denial, hide/reselect revocation (no model)");
+    println!("Private native bridge passed: exact chat binding, read-only denial, frame-preserving renewal, real fill, consumed-frame denial, hide/reselect revocation (no model)");
     Ok(())
 }
 
