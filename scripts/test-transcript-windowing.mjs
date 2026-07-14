@@ -118,7 +118,7 @@ try {
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
   const R=staticModules.react,D=staticModules['react-dom'],Row=createTranscriptWindowing(R);
   const {ToolRow}=load('@xharness/dsh-client-ui-tool');
-  const {ReasoningRow}=load('@xharness/dsh-client-ui-conversation');
+  const {ReasoningRow,CompactionItem}=load('@xharness/dsh-client-ui-conversation');
   const root=D.createRoot(document.getElementById('root'));window.fixtureRoot=root;
   const api=globalThis.__xhTranscriptState.get(R.createElement);
   document.documentElement.dataset.xhProcessMode='compact';
@@ -126,6 +126,7 @@ try {
   const children=()=>R.createElement('section',{},
     ...['one','two'].map(stateKey=>R.createElement('div',{'data-tool':stateKey,key:stateKey},R.createElement(ToolRow,{stateKey,t:k=>k,variant:'bash',toolName:'bash',icon:null,title:stateKey,summary:'echo '+stateKey,summarySuffix:null,body:'command',output:'output',errorSummary:null,state:'ok'}))),
     R.createElement('div',{'data-reasoning':''},R.createElement(ReasoningRow,{stateKey:0,text:'reasoning content',running:false,t:k=>k})),
+    R.createElement('div',{'data-compact':''},R.createElement(CompactionItem,{node:{status:'ended',summary:'saved compact summary',shadowedItemCount:1,shadowedTokenCount:128},t:k=>k})),
     R.createElement('details',{'data-native-detail':''},R.createElement('summary',{},'native detail'),R.createElement('p',{},'body')),
     R.createElement(Editable));
   window.renderState=()=>D.flushSync(()=>root.render(R.createElement('div',{'data-conversation-scroll':'',style:{height:600,width:900,overflow:'auto',overflowAnchor:'none'}},
@@ -136,6 +137,7 @@ try {
  await page.locator('[data-tool="one"] [aria-expanded]').click();
  await page.locator('[data-reasoning] [aria-expanded]').click();
  await page.locator('[data-native-detail] summary').click();
+ await page.locator('[data-compact] button[aria-expanded]').click();
  await page.locator('[data-draft]').fill('retain draft');
  // Focused text entry is temporarily protected, not every clicked button.
  await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});await page.waitForTimeout(150);
@@ -146,6 +148,8 @@ try {
  await page.locator('[data-tool="one"] [aria-expanded=true]').waitFor();
  assert.equal(await page.locator('[data-tool="two"] [aria-expanded=false]').count(),1,'tool call states stay independent');
  await page.locator('[data-reasoning] [aria-expanded=true]').waitFor();
+ await page.locator('[data-compact] button[aria-expanded=true]').waitFor();
+ assert.ok((await page.locator('[data-compact]').textContent()).includes('saved compact summary'),'compact summary survives eviction');
  assert.equal(await page.locator('[data-native-detail]').evaluate(e=>e.open),true,'native details state restored');
  assert.equal(await page.locator('[data-draft]').inputValue(),'retain draft','row-owned input draft restored');
  // Compact preference must not overwrite manually expanded state on remount.
