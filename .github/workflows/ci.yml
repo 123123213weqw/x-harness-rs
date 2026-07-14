@@ -118,6 +118,7 @@ jobs:
       - run: node scripts/test-assistant-projection.mjs
       - run: node scripts/test-retry-turn-projection.mjs
       - run: node scripts/test-atomic-history.mjs
+      - run: node scripts/test-ui-lifecycle-recovery.mjs
       - run: node scripts/test-live-answer-recovery.mjs
       - run: node scripts/test-startup-catalog-refresh.mjs
       - run: node scripts/test-permission-selection.mjs
