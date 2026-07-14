@@ -146,6 +146,20 @@ class Broker:
                 self.wfile.write(payload)
 
             def do_POST(self):
+                if self.path in ('/trial/receipt', '/v1/trial/receipt'):
+                    ledger = owner.ledger
+                    if ledger is None or not hasattr(ledger, 'receipt'):
+                        return self.error(404, 'endpoint not permitted')
+                    try:
+                        receipt = ledger.receipt(self.headers.get('Authorization', '').removeprefix('Bearer '))
+                    except PermissionError:
+                        return self.error(403, 'invalid trial capability')
+                    payload = json.dumps(receipt).encode()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(payload)))
+                    self.end_headers(); self.wfile.write(payload)
+                    return
                 if self.path in ('/trial/start', '/v1/trial/start'):
                     try:
                         if owner.ledger is None:

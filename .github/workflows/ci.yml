@@ -557,6 +557,17 @@ jobs:
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
           python3 scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe --evidence-dir dist/native-browser-evidence/linux
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Production BrowserPane binds genuine WebView to Host (zero API)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/native-react" --no-save --package-lock=false react@18.3.1 react-dom@18.3.1
+          mkdir -p "$RUNNER_TEMP/native-assets"
+          cp "$RUNNER_TEMP/native-react/node_modules/react/umd/react.production.min.js" "$RUNNER_TEMP/native-assets/react.js"
+          cp "$RUNNER_TEMP/native-react/node_modules/react-dom/umd/react-dom.production.min.js" "$RUNNER_TEMP/native-assets/react-dom.js"
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example native-browser-bench
+          python3 -B -m scripts.gui_bench.run_webview --contract --host-binary target/debug/xharness-host --native-binary apps/desktop/src-tauri/target/debug/examples/native-browser-bench --assets "$RUNNER_TEMP/native-assets" --evidence-dir dist/native-browser-evidence/linux/binding
       - name: Upload Linux native DOM evidence
         if: always()
         uses: actions/upload-artifact@v7

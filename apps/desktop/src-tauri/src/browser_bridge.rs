@@ -130,7 +130,13 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
         }
         return Ok(json!({"available":state.delegated_tab(&request.owner).is_ok()}));
     }
-    let tab = state.delegated_tab(&request.owner)?;
+    let tab = match state.delegated_tab(&request.owner) {
+        Ok(tab) => tab,
+        Err(error) if matches!(request.op, Operation::Perform) => {
+            return Ok(rejected_action(&error))
+        }
+        Err(error) => return Err(error),
+    };
     match request.op {
         Operation::Observe => {
             browser_inspect::inspect(
@@ -142,24 +148,45 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
             )
             .await
         }
-        Operation::Perform => serde_json::to_value(
-            browser_perform::perform(
-                &state,
-                &tab,
-                serde_json::from_value(request.arguments)
-                    .map_err(|_| "invalid native action arguments")?,
-                Some(&request.owner),
-            )
-            .await?,
-        )
-        .map_err(|_| "invalid native receipt".into()),
+        Operation::Perform => {
+            let arguments = match parse_action(request.arguments) {
+                Ok(arguments) => arguments,
+                Err(receipt) => return Ok(receipt),
+            };
+            // perform() returns Err only BEFORE scheduling JS. After scheduling,
+            // callback loss/navigation/malformed receipts are Ok(effect=unknown).
+            match browser_perform::perform(&state, &tab, arguments, Some(&request.owner)).await {
+                Ok(receipt) => {
+                    serde_json::to_value(receipt).map_err(|_| "invalid native receipt".into())
+                }
+                Err(error) => Ok(rejected_action(&error)),
+            }
+        }
         Operation::List => unreachable!(),
     }
+}
+
+fn rejected_action(message: &str) -> Value {
+    json!({"ok":false,"effect":"not_started","message":message.chars().take(500).collect::<String>()})
+}
+
+fn parse_action(arguments: Value) -> Result<browser_perform::PerformRequest, Value> {
+    serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native action arguments; describe perform for the action-specific schema; no action was scheduled"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn malformed_action_is_not_started_not_unknown_and_never_echoes_input() {
+        let receipt = parse_action(json!({"action":"eval","script":"private-input"})).unwrap_err();
+        assert_eq!(receipt["ok"], false);
+        assert_eq!(receipt["effect"], "not_started");
+        assert!(!receipt.to_string().contains("private-input"));
+        assert!(
+            parse_action(json!({"action":"click","frame_id":"a".repeat(32),"ref":"n0"})).is_ok()
+        );
+    }
     #[test]
     fn private_protocol_has_no_tab_override_eval_or_guest_control() {
         let token = "a".repeat(64);
