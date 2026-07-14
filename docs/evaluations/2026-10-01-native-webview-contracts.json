@@ -1,0 +1,559 @@
+{
+  "kind": "deterministic-genuine-native-dom-contract",
+  "base_commit": "fbe8ab1e08bca0cdfa77333597b28c683130f4e5",
+  "model_calls": 0,
+  "model_competence_score": null,
+  "os_input": false,
+  "trials": [
+    {
+      "task": "issue",
+      "repetition": 0,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.574,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "fill",
+            "label": "Search issues"
+          },
+          {
+            "action": "click",
+            "label": "Search"
+          },
+          {
+            "action": "click",
+            "label": "#105 Compaction recovery does not settle"
+          },
+          {
+            "action": "fill",
+            "label": "Recovery marker answer"
+          }
+        ],
+        "denials": [
+          "invalid_schema",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "pr",
+      "repetition": 0,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.559,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "New draft"
+          },
+          {
+            "action": "fill",
+            "label": "Title"
+          },
+          {
+            "action": "fill",
+            "label": "Description"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "dynamic",
+      "repetition": 0,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 6.123,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "Configure provider"
+          },
+          {
+            "action": "select",
+            "label": "Provider"
+          },
+          {
+            "action": "select",
+            "label": "Reasoning level"
+          },
+          {
+            "action": "click",
+            "label": "Save settings"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "modal_background",
+          "modal_page_scroll",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "game",
+      "repetition": 0,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.495,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "issue",
+      "repetition": 1,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.63,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "fill",
+            "label": "Search issues"
+          },
+          {
+            "action": "click",
+            "label": "Search"
+          },
+          {
+            "action": "click",
+            "label": "#105 Compaction recovery does not settle"
+          },
+          {
+            "action": "fill",
+            "label": "Recovery marker answer"
+          }
+        ],
+        "denials": [
+          "invalid_schema",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "pr",
+      "repetition": 1,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.524,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "New draft"
+          },
+          {
+            "action": "fill",
+            "label": "Title"
+          },
+          {
+            "action": "fill",
+            "label": "Description"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "dynamic",
+      "repetition": 1,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.999,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "Configure provider"
+          },
+          {
+            "action": "select",
+            "label": "Provider"
+          },
+          {
+            "action": "select",
+            "label": "Reasoning level"
+          },
+          {
+            "action": "click",
+            "label": "Save settings"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "modal_background",
+          "modal_page_scroll",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "game",
+      "repetition": 1,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.473,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "issue",
+      "repetition": 2,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.606,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "fill",
+            "label": "Search issues"
+          },
+          {
+            "action": "click",
+            "label": "Search"
+          },
+          {
+            "action": "click",
+            "label": "#105 Compaction recovery does not settle"
+          },
+          {
+            "action": "fill",
+            "label": "Recovery marker answer"
+          }
+        ],
+        "denials": [
+          "invalid_schema",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "pr",
+      "repetition": 2,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.566,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "New draft"
+          },
+          {
+            "action": "fill",
+            "label": "Title"
+          },
+          {
+            "action": "fill",
+            "label": "Description"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "dynamic",
+      "repetition": 2,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 6.003,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "Configure provider"
+          },
+          {
+            "action": "select",
+            "label": "Provider"
+          },
+          {
+            "action": "select",
+            "label": "Reasoning level"
+          },
+          {
+            "action": "click",
+            "label": "Save settings"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "modal_background",
+          "modal_page_scroll",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    },
+    {
+      "task": "game",
+      "repetition": 2,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.539,
+      "cleanup_passed": true,
+      "contract": {
+        "actions": [
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          },
+          {
+            "action": "click",
+            "label": "Target"
+          }
+        ],
+        "denials": [
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame",
+          "consumed_frame"
+        ],
+        "model_task_passed": null
+      }
+    }
+  ],
+  "native_callback_probe": {
+    "kind": "native_tauri_dom_contract",
+    "platform": "linux",
+    "model_calls": 0,
+    "os_input": false,
+    "binary_sha256": "3fff798b1a14bdb9cc324e6fc3e087300d5981c969980b21c98dbf78223dd3a6",
+    "cleanup_passed": true,
+    "exit_code": 0,
+    "seconds": 9.439,
+    "passed": true
+  },
+  "limitations": [
+    "Evaluator-driven actions, not new model repetitions",
+    "No full packaged AppFrame navigation or native OS input",
+    "V100 public GitHub TCP connections still time out before model admission"
+  ]
+}
