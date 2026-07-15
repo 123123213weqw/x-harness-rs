@@ -215,3 +215,38 @@ A new failing DOM regression reproduced a real input-barrier bug: observing a ba
 The model baseline is still the earlier pinned 12/12 series. Classifier-fixed paid repetitions, live GitHub model search/view, realistic PR UI, full packaged navigation, native OS input/screenshots and public benchmark comparison remain separate outstanding gates. No merge, release, local focus change or Goal completion is claimed.
 
 Compatibility follow-up: the fixed native function is not transpiled. The modal guard therefore uses no ES2022/2023 `Array.at` / `findLast` dependency. Unsupported `:modal` selectors conservatively block an open visible dialog instead of failing the entire observation. Chromium/WebKit feature-fault injections pass; these are not a claim of testing every legacy macOS version. The final native callback and all 12 zero-paid contracts were rerun after this change; the public numeric receipt records their exact binary hashes.
+
+
+## Current-candidate real model continuation (2026-10-01 night)
+
+The user explicitly authorized another **maximum CNY 20 increment on the same original CNY 200 ledger**. Production source `8fdfdb9` (upstream-integrated, classifier/modal/legacy-WebView fixes included) already passed all required exact-SHA CI, including [general CI 36876635176](https://github.com/123123213weqw/x-harness-rs/actions/runs/36876635176). No local desktop input, application replacement, production deployment, master merge or release occurred.
+
+The same genuine production BrowserPane → Tauri/WebKitGTK and real Host → official DeepSeek `deepseek-flash` / low / 8192-output-cap setup was used. Natural prompts contain task/safety intent, not discovery/action instructions. Four controlled local task families, three fresh isolated sessions each:
+
+| Task | Task completion | Model-loop seconds | Model requests including helpers | Strict teardown acceptance |
+|---|---:|---|---|---:|
+| Issue search/open/marker answer | 3/3 | 70.137 / 79.907 / 129.553 | 16 / 16 / 15 | 2/3 |
+| Exact PR draft without submission | 3/3 | 75.854 / 115.389 / 108.905 | 13 / 16 / 13 | 3/3 |
+| Modal/dependent settings/save | 3/3 | 75.873 / 178.020 / 163.348 | 18 / 15 / 17 | 3/3 |
+| Eight moving semantic Targets, zero Decoys | 3/3 | 118.680 / 159.534 / 227.095 | 23 / 22 / 25 | 2/3 |
+
+**12/12 page tasks completed, all turns ended `completed` and all disposable profiles cleaned up. Strict full acceptance is only 10/12**, because two bounded pre-teardown provider-quiet checks were not verified. Their final numeric receipts had no pending requests, and the original controller reconciled every request at shutdown; this does not retroactively prove that the earlier quiet checks passed. The earlier evaluator's `passed` field incorrectly hid this distinction. The public receipt explicitly separates `task_passed` from `acceptance_verified`; raw historical results are preserved. No paid retest of the new evaluator guard has been performed after closing this continuation.
+
+209 admitted requests, 1502.295 summed model-loop seconds; Host usage: 110568 uncached input, 887680 cache-read, 23862 output, with 3193 reasoning tokens **included** in output. Across paired tool-call/result events, summed dispatch/result time was 5.930 seconds and the maximum was 0.108 seconds; two tool error results were recovered. In the 178-second dynamic trial, request-header → assistant-message gaps reached 33.369 seconds, while all tool-result spans summed to 0.485 seconds. This identifies waiting outside tool execution as a follow-up area, **not** a controlled attribution to the provider versus SSH/network/token-count paths or evidence of a speedup. Compared with the earlier baseline, wall time is substantially more variable; SOTA/performance readiness is not claimed.
+
+### Evaluator corrections and zero-paid regressions
+
+- Only authenticated **numeric, side-effect-free receipt requests** retry transient network errors within the existing finite settlement deadline. Per-attempt timeouts are bounded by the remaining deadline; failed samples reset the quiet proof. HTTP/auth rejection and malformed data do not become speculative success. No model request, browser action or unknown effect is replayed.
+- Task success can no longer hide missing accounting/cleanup verification. A paid trial fails full acceptance if its pre-teardown settlement is unverified, final receipt is missing/pending, or admitted request count is unconfirmed; the runner stops rather than silently starting further paid trials.
+- Optional test-owned credential-free loopback proxy and bounded native setup timeout are explicit CLI settings. Ambient proxy/credentials are never inherited, and system network settings are not changed. These are evaluation transport options, not a second production browser or Agent loop.
+- Python contracts **36/36**, existing broker contracts **6/6**, and all four genuine native zero-paid task contracts passed after these evaluator changes. Rust/native production source is unchanged from the CI-verified `8fdfdb9`; the new evaluator/docs commit needs its own CI results.
+
+### Live GitHub remains unaccepted
+
+V100 direct GitHub HTTPS still timed out. An owned SSH reverse SOCKS transport reached the real main Issues page with verified TLS and HTTP 200, but the static resource host `github.githubassets.com` timed out. Genuine native setup probes with 40-second and 120-second setup bounds both failed to establish the session binding, cleaned up, and sent **zero model requests**. The transport limitations are real; these probes do not uniquely prove the cause of native binding unavailability. The earlier GitHub CI native page-read success remains valid on its own source, but is not a model search/open/PR-fill success. No public change or sign-in was performed.
+
+### Closed accounting
+
+Original counter 895 → 1104; conservative increment **CNY 2.238886**, cumulative **CNY 56.609398**. All 209 newly admitted requests have usage; no new unknown-usage reservations, no pending requests. This is a peak-cache-miss conservative bound, **not an invoice**. The ledger is closed, local/remote ephemeral capability files removed, owned model/proxy tunnels stopped; no key was transferred to the server/CI. No automatic paid reopening occurred.
+
+Machine-readable evidence: `docs/evaluations/2026-10-01-native-webview-current.json`. Remaining gates: paid verification of the stricter settlement guard on a stable test path, live GitHub search/view and realistic PR UI, full packaged desktop navigation, screenshots/native OS input, public benchmarks and controlled latency comparison. Goal completion is not asserted.

@@ -16,6 +16,7 @@ import struct
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
@@ -43,10 +44,27 @@ def bridge_call(connection, owner, op, arguments):
         return reply['result']
 
 
-def budget_receipt(api):
+def budget_receipt(api, timeout=10):
     request = urllib.request.Request(api['base_url'] + '/trial/receipt', data=b'{}',
         headers={'Authorization':'Bearer ' + api['capability']})
-    with urllib.request.urlopen(request, timeout=10) as response: return json.load(response)
+    with urllib.request.urlopen(request, timeout=timeout) as response: return json.load(response)
+
+
+def native_environment(profile, proxy=None):
+    if proxy is not None:
+        url = urlsplit(proxy)
+        if (url.scheme not in ('http', 'socks5') or url.hostname != '127.0.0.1'
+                or url.port is None or not 0 < url.port <= 65535
+                or url.username is not None or url.password is not None
+                or url.path or url.query or url.fragment):
+            raise ValueError('native proxy must be an explicit credential-free loopback endpoint')
+    env = environment(profile)
+    if proxy is not None:
+        # Test-owned SSH transport only. Never inherit ambient proxy credentials
+        # or change the user/server's system proxy; Host/provider stay separate.
+        env.update(http_proxy=proxy, https_proxy=proxy, all_proxy=proxy,
+                   no_proxy='127.0.0.1,localhost')
+    return env
 
 
 def tuple_address(address):
@@ -59,7 +77,16 @@ def settle_quiet(api, timeout=15):
     deadline = time.monotonic() + timeout
     quiet, previous = None, None
     while time.monotonic() < deadline:
-        receipt = budget_receipt(api)
+        try:
+            receipt = budget_receipt(api, timeout=min(3, max(.05, deadline-time.monotonic())))
+        except urllib.error.HTTPError:
+            return False  # Authorization/server rejection is not connectivity.
+        except (urllib.error.URLError, OSError):
+            # Only a numeric, side-effect-free receipt is retried. Never replay a
+            # model request/tool or infer quietness across missing observations.
+            quiet, previous = None, None
+            time.sleep(.2)
+            continue
         requests = receipt['requests']
         if receipt['pending_requests'] == 0:
             if quiet is None or requests != previous: quiet = time.monotonic()
@@ -68,6 +95,15 @@ def settle_quiet(api, timeout=15):
         previous = requests
         time.sleep(.2)
     return False
+
+
+def acceptance_passed(result):
+    if result.get('passed') is not True or result.get('cleanup_passed') is not True:
+        return False
+    if result.get('tier') == 'native-binding-contract': return True
+    return (result.get('provider_settled_before_teardown') is True
+        and result.get('pending_requests') == 0 and not result.get('accounting_pending')
+        and type(result.get('model_calls')) is int and result['model_calls'] > 0)
 
 
 def wait_ready(path, process, session, timeout=40):
@@ -125,6 +161,7 @@ def run(args, task, repetition):
     result = dict(task=task, repetition=repetition, passed=False, platform='linux', os_input=False,
                   tier='native-binding-contract' if args.contract else 'genuine-host-model-tauri-webview',
                   prompt_mode=args.prompt_mode, model_calls=0, error=None, phase='setup',
+                  native_transport='explicit-loopback-proxy' if args.native_proxy else 'direct',
                   host_sha256=hashlib.sha256(args.host_binary.read_bytes()).hexdigest(),
                   native_sha256=hashlib.sha256(args.native_binary.read_bytes()).hexdigest(),
                   ui_sha256=hashlib.sha256((REPO / 'ui/plugins/@xlang/xharness-client-ui-browser/client.js').read_bytes()).hexdigest())
@@ -139,9 +176,9 @@ def run(args, task, repetition):
                     raise ValueError('benchmark provider must be the loopback budget broker')
             fixture = Fixture(args.assets, task, run_id, session).start()
             native = subprocess.Popen(command(args.native_binary, 'linux') + [fixture.main_url, str(ready)],
-                env=environment(profile), stdout=native_log, stderr=subprocess.STDOUT, start_new_session=True)
+                env=native_environment(profile, args.native_proxy), stdout=native_log, stderr=subprocess.STDOUT, start_new_session=True)
             result['phase'] = 'native_binding'
-            connection = wait_ready(ready, native, session)
+            connection = wait_ready(ready, native, session, timeout=args.setup_timeout)
             env = child_environment(api['capability'] if api else 'zero-api-contract')
             env.update(XHARNESS_NATIVE_BROWSER_ADDRESS=connection['address'], XHARNESS_NATIVE_BROWSER_TOKEN=connection['token'])
             workspace = root / 'workspace'; workspace.mkdir()
@@ -199,6 +236,7 @@ def run(args, task, repetition):
             # Do not print transport request objects or capabilities.
             result['error'] = type(error).__name__ + ': ' + str(error)[:300]
         finally:
+            result['task_passed'] = result['passed']
             if client:
                 try:
                     if result.get('error'): client.call('session.cancel', {'sessionId':session})
@@ -222,6 +260,8 @@ def run(args, task, repetition):
                 except Exception:
                     result['accounting_pending'] = True
                     result['model_calls'] = None
+            if result['passed'] and not acceptance_passed(result):
+                result.update(passed=False, error='benchmark_accounting_unverified')
             result['total_seconds'] = round(time.monotonic()-started,3)
             (root/'result.json').write_text(json.dumps(result,indent=2))
             print(json.dumps({k:result.get(k) for k in ('task','repetition','passed','seconds','model_calls','error','cleanup_passed')}),flush=True)
@@ -252,14 +292,17 @@ def main():
     parser.add_argument('--evidence-dir', type=Path, required=True)
     parser.add_argument('--contract', action='store_true')
     parser.add_argument('--capability-file', type=Path)
+    parser.add_argument('--native-proxy', help='Optional test-owned, credential-free http/socks5 loopback endpoint; never a system proxy')
     parser.add_argument('--tasks', default='issue')
     parser.add_argument('--repetitions', type=int, default=1)
     parser.add_argument('--prompt-mode', choices=['natural','guided'], default='natural')
     parser.add_argument('--timeout', type=float, default=240)
+    parser.add_argument('--setup-timeout', type=float, default=40, help='Bound native page setup separately from the model-loop timeout')
     args = parser.parse_args()
     args.native_binary = args.native_binary.resolve(strict=True); args.host_binary = args.host_binary.resolve(strict=True)
     if not args.contract and not args.capability_file: parser.error('paid mode requires original broker and ledger snapshots')
     tasks = args.tasks.split(',')
+    if not 0 < args.setup_timeout <= 180: parser.error('setup timeout must be positive and at most 180 seconds')
     if not 1 <= args.repetitions <= 3 or any(t not in TASKS for t in tasks): parser.error('invalid task or repetition count')
     args.evidence_dir.mkdir(parents=True,exist_ok=True,mode=0o700)
     inputs = Path(tempfile.mkdtemp(prefix='xh-webview-inputs-'))
