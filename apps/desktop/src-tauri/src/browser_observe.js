@@ -7,8 +7,12 @@
   // DOM .click()/value setters bypass the browser's modal input barrier. Treat
   // background controls as blocked on BOTH observation and action, including
   // when a dialog opens between the two. Non-modal/hidden dialogs do not block.
-  const modals = Array.from(document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"],[role="alertdialog"][aria-modal="true"]')).filter(element => visible(element) && (element.tagName !== "DIALOG" || element.matches(":modal")));
-  const modal = modals.findLast(element => element.contains(document.activeElement)) || modals.at(-1);
+  const nativeModal = element => {
+    try { return element.matches(":modal") || element.getAttribute("aria-modal") === "true"; }
+    catch (_) { return true; } // Older WebViews: conservatively block an open dialog, not the entire observation.
+  };
+  const modals = Array.from(document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"],[role="alertdialog"][aria-modal="true"]')).filter(element => visible(element) && (element.tagName !== "DIALOG" || nativeModal(element))).reverse();
+  const modal = modals.find(element => element.contains(document.activeElement)) || modals[0];
   const disabled = element => element.matches(":disabled") || element.getAttribute("aria-disabled") === "true" || !!element.closest("[inert]") || !!modal && !modal.contains(element);
   const label = element => (element.getAttribute("aria-label") || Array.from(element.labels || []).map(x => x.innerText).join(" ") || element.getAttribute("placeholder") || element.innerText || element.getAttribute("title") || "").trim().slice(0, 240);
   const fingerprint = element => JSON.stringify([
@@ -63,7 +67,7 @@
   try {
     window[slot] = null;
     const area = args.scope === "main" ? document.querySelector("main")
-      : args.scope === "dialog" ? modal || Array.from(document.querySelectorAll('dialog[open],[role="dialog"]')).findLast(visible)
+      : args.scope === "dialog" ? modal || Array.from(document.querySelectorAll('dialog[open],[role="dialog"]')).reverse().find(visible)
         : document.body;
     if (!area) return JSON.stringify({ error: "observation scope is not present; observe page again" });
     const selector = 'button,input,textarea,select,a[href],summary,[role="button"],[role="checkbox"],[role="tab"],[contenteditable="true"]';
