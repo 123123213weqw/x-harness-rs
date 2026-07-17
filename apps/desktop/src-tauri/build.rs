@@ -1,4 +1,18 @@
 fn main() {
+    // Tauri embeds the production executable's resources, not Cargo examples.
+    // The Windows probe also imports TaskDialogIndirect and needs ComCtl32 v6;
+    // without this manifest the loader fails before main with 0xC0000139.
+    let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .join("examples/browser-inspect-probe.manifest");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    if std::env::var("TARGET").is_ok_and(|target| target.ends_with("windows-msvc")) {
+        println!("cargo:rustc-link-arg-examples=/MANIFEST:EMBED");
+        println!(
+            "cargo:rustc-link-arg-examples=/MANIFESTINPUT:{}",
+            manifest.display()
+        );
+    }
+
     // The bundled UI is served by the authenticated loopback Host, not a
     // tauri:// page. Remote IPC requires explicit application permissions too;
     // core:default alone only authorizes Tauri's own commands.
@@ -23,6 +37,10 @@ fn main() {
             "desktop_browser_close",
             "desktop_browser_restore",
             "desktop_browser_persist",
+            "desktop_browser_delegate",
+            "desktop_browser_access",
+            "desktop_browser_inspect",
+            "desktop_browser_perform",
         ]),
     ))
     .expect("failed to generate desktop IPC permissions")
