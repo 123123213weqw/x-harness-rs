@@ -1,0 +1,255 @@
+{
+  "kind": "deterministic-genuine-native-dom-contract",
+  "base_commit": "12bf8dcbb057e18041a54eaa82ad2baf7af42855",
+  "model_calls": 0,
+  "model_competence_score": null,
+  "os_input": false,
+  "trials": [
+    {
+      "task": "issue",
+      "repetition": 0,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.552,
+      "cleanup_passed": true,
+      "action_count": 4,
+      "denial_count": 5,
+      "denial_categories": [
+        "consumed_frame",
+        "invalid_schema"
+      ]
+    },
+    {
+      "task": "pr",
+      "repetition": 0,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.647,
+      "cleanup_passed": true,
+      "action_count": 3,
+      "denial_count": 3,
+      "denial_categories": [
+        "consumed_frame"
+      ]
+    },
+    {
+      "task": "dynamic",
+      "repetition": 0,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 6.089,
+      "cleanup_passed": true,
+      "action_count": 4,
+      "denial_count": 6,
+      "denial_categories": [
+        "consumed_frame",
+        "modal_background",
+        "modal_page_scroll"
+      ]
+    },
+    {
+      "task": "game",
+      "repetition": 0,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.558,
+      "cleanup_passed": true,
+      "action_count": 8,
+      "denial_count": 8,
+      "denial_categories": [
+        "consumed_frame"
+      ]
+    },
+    {
+      "task": "issue",
+      "repetition": 1,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.571,
+      "cleanup_passed": true,
+      "action_count": 4,
+      "denial_count": 5,
+      "denial_categories": [
+        "consumed_frame",
+        "invalid_schema"
+      ]
+    },
+    {
+      "task": "pr",
+      "repetition": 1,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.537,
+      "cleanup_passed": true,
+      "action_count": 3,
+      "denial_count": 3,
+      "denial_categories": [
+        "consumed_frame"
+      ]
+    },
+    {
+      "task": "dynamic",
+      "repetition": 1,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 6.03,
+      "cleanup_passed": true,
+      "action_count": 4,
+      "denial_count": 6,
+      "denial_categories": [
+        "consumed_frame",
+        "modal_background",
+        "modal_page_scroll"
+      ]
+    },
+    {
+      "task": "game",
+      "repetition": 1,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.526,
+      "cleanup_passed": true,
+      "action_count": 8,
+      "denial_count": 8,
+      "denial_categories": [
+        "consumed_frame"
+      ]
+    },
+    {
+      "task": "issue",
+      "repetition": 2,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.515,
+      "cleanup_passed": true,
+      "action_count": 4,
+      "denial_count": 5,
+      "denial_categories": [
+        "consumed_frame",
+        "invalid_schema"
+      ]
+    },
+    {
+      "task": "pr",
+      "repetition": 2,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.569,
+      "cleanup_passed": true,
+      "action_count": 3,
+      "denial_count": 3,
+      "denial_categories": [
+        "consumed_frame"
+      ]
+    },
+    {
+      "task": "dynamic",
+      "repetition": 2,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.972,
+      "cleanup_passed": true,
+      "action_count": 4,
+      "denial_count": 6,
+      "denial_categories": [
+        "consumed_frame",
+        "modal_background",
+        "modal_page_scroll"
+      ]
+    },
+    {
+      "task": "game",
+      "repetition": 2,
+      "passed": true,
+      "tier": "native-binding-contract",
+      "model_calls": 0,
+      "os_input": false,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "total_seconds": 5.506,
+      "cleanup_passed": true,
+      "action_count": 8,
+      "denial_count": 8,
+      "denial_categories": [
+        "consumed_frame"
+      ]
+    }
+  ],
+  "native_callback_probe": {
+    "kind": "native_tauri_dom_contract",
+    "platform": "linux",
+    "model_calls": 0,
+    "os_input": false,
+    "binary_sha256": "44bad484b7276f47202491154e69dde7d4b04192342b63eac223c51227dc6b7f",
+    "cleanup_passed": true,
+    "exit_code": 0,
+    "seconds": 9.287,
+    "passed": true
+  },
+  "limitations": [
+    "Evaluator-driven actions, not new model repetitions",
+    "No full packaged AppFrame navigation or native OS input",
+    "V100 public GitHub TCP connections still time out before model admission"
+  ],
+  "legacy_feature_fault_injection": {
+    "array_find_last_and_at_unavailable": "passed_chromium_and_webkit",
+    "unsupported_modal_selector": "passed_chromium_and_webkit",
+    "policy": "conservatively block a visible open dialog if :modal is unsupported"
+  }
+}
