@@ -1107,3 +1107,76 @@ async fn concurrent_stop_is_not_overwritten_by_resume_commit() {
         .unwrap();
     assert!(host.state.read().await.sessions["race"].dispatch_paused);
 }
+
+struct RestrictedHostTools;
+#[async_trait]
+impl SessionToolFactory for RestrictedHostTools {
+    fn allows_host_tool(&self, _: &str) -> bool {
+        false
+    }
+    async fn executor(
+        &self,
+        id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+    ) -> Result<xharness_tools::ToolExecutor, String> {
+        NoTools.executor(id, cwd, permission).await
+    }
+}
+
+#[tokio::test]
+async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
+    for restricted in [false, true] {
+        let mut models = ModelRegistry::new();
+        models
+            .register(RegisteredModel::new(
+                ModelDescriptor::new("test", "test", "test-model", "test-model"),
+                Arc::new(ScriptProvider {
+                    answers: Mutex::new(VecDeque::new()),
+                }),
+            ))
+            .unwrap();
+        let goals = Arc::new(crate::goals::GoalBridge::default());
+        // Register the Host branch without dereferencing a live application.
+        goals.host.set(std::sync::Weak::new()).unwrap();
+        let tool_factory: Arc<dyn SessionToolFactory> = if restricted {
+            Arc::new(RestrictedHostTools)
+        } else {
+            Arc::new(NoTools)
+        };
+        let factory = DurableTurnFactory {
+            goals,
+            store: Arc::new(MemorySessionStore::default()),
+            delegation_slots: Arc::new(tokio::sync::Semaphore::new(1)),
+            models: Arc::new(StdRwLock::new(models)),
+            tool_factory,
+            context_policy: Arc::new(IdentityContextPolicy),
+            compaction: Arc::new(StdRwLock::new(None)),
+            sessions: Arc::new(RwLock::new(HashMap::from([(
+                "restricted".into(),
+                DurableSessionConfig {
+                    cwd: "/tmp".into(),
+                    permission: PermissionPreset::DangerFullAccess,
+                    prompt: None,
+                    route: ModelRoute::new("test", "test-model"),
+                },
+            )]))),
+            debug: Arc::new(StdRwLock::new(DebugRecorder::default())),
+        };
+        let request = factory.build("restricted", Vec::new()).await.unwrap();
+        let names = request
+            .tool_executor
+            .unwrap()
+            .registry()
+            .definitions()
+            .await
+            .into_iter()
+            .map(|d| d.name)
+            .collect::<Vec<_>>();
+        if restricted {
+            assert!(names.is_empty(), "{names:?}");
+        } else {
+            assert_eq!(names, vec!["goal", "history"]);
+        }
+    }
+}
