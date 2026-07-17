@@ -31,11 +31,11 @@ function xhDiffLines(text) {
   if (typeof text !== 'string' || text === '') return []
   return (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n')
 }
-function XHReviewDiffBlock({ diffs, maxLines, className }) {
+function XHReviewDiffBlock({ diffs, maxLines, className, stateKey = "" }) {
   const [layout, setLayout] = react.useState(() => {
     try { return localStorage.getItem('xharness.ui.diff-layout.v1') === 'split' ? 'split' : 'inline' } catch { return 'inline' }
   })
-  const [expanded, setExpanded] = react.useState(false)
+  const [expanded, setExpanded] = globalThis.__xhTranscriptState?.get(react.createElement) ? globalThis.__xhTranscriptState.get(react.createElement).useState("diff:" + stateKey, false) : react.useState(false)
   const [copied, setCopied] = react.useState(false)
   const translate = (zh, en) => (document.documentElement.lang || '').toLowerCase().startsWith('zh') ? zh : en
   const changeLayout = value => {
