@@ -121,7 +121,8 @@ def normalize(body, protocol=None):
 
 
 class Broker:
-    def __init__(self, api_key, bind, unix_path=None, upstream_factory=None):
+    def __init__(self, api_key, bind, unix_path=None, upstream_factory=None,
+                 request_normalizer=normalize, max_body=MAX_BODY):
         if unix_path is not None:
             from socketserver import UnixStreamServer
         self.api_key = api_key
@@ -134,12 +135,31 @@ class Broker:
                 pass  # Never log bearer headers or request content.
 
             def error(self, code, message):
+                payload = json.dumps({"error": {"message": message, "type": "benchmark_broker"}}).encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
+                # An early denial can leave the request body unread. A TCP
+                # reset at close must not make clients read past the complete
+                # error payload while waiting for EOF (notably on macOS).
+                self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
-                self.wfile.write(json.dumps({"error": {"message": message, "type": "benchmark_broker"}}).encode())
+                self.wfile.write(payload)
 
             def do_POST(self):
+                if self.path in ('/trial/receipt', '/v1/trial/receipt'):
+                    ledger = owner.ledger
+                    if ledger is None or not hasattr(ledger, 'receipt'):
+                        return self.error(404, 'endpoint not permitted')
+                    try:
+                        receipt = ledger.receipt(self.headers.get('Authorization', '').removeprefix('Bearer '))
+                    except PermissionError:
+                        return self.error(403, 'invalid trial capability')
+                    payload = json.dumps(receipt).encode()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(payload)))
+                    self.end_headers(); self.wfile.write(payload)
+                    return
                 if self.path in ('/trial/start', '/v1/trial/start'):
                     try:
                         if owner.ledger is None:
@@ -148,6 +168,7 @@ class Broker:
                     except PermissionError:
                         return self.error(403, 'invalid trial capability')
                     self.send_response(200)
+                    self.send_header("Content-Length", "2")
                     self.end_headers()
                     self.wfile.write(b'{}')
                     return
@@ -159,12 +180,12 @@ class Broker:
                 self.connection.settimeout(120)
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
-                    if not 0 < length <= MAX_BODY or self.headers.get("Transfer-Encoding"):
+                    if not 0 < length <= max_body or self.headers.get("Transfer-Encoding"):
                         raise ValueError("invalid request size")
                     raw = self.rfile.read(length)
                     if len(raw) != length:
                         raise ValueError("incomplete body")
-                    body = normalize(json.loads(raw), ledger.protocol)
+                    body = request_normalizer(json.loads(raw), ledger.protocol)
                     encoded = json.dumps(body, ensure_ascii=False).encode()
                     token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                     reserved = ledger.reserve(token, len(encoded))

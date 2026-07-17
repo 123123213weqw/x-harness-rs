@@ -66,7 +66,7 @@ function xhWorkspaceClose(space, id) {
   return { items, activeId: space.activeId === id ? (items[Math.min(index, items.length - 1)]?.id ?? null) : space.activeId };
 }
 
-function XhWorkspacePane({ space, renderSlot, onSelect, onClose, onUpdate, onNewBrowser }) {
+function XhWorkspacePane({ space, sessionId, renderSlot, onSelect, onClose, onUpdate, onNewBrowser }) {
   const h = react.createElement;
   const active = space.items.find(item => item.id === space.activeId);
   const closeItem = item => onClose(item.id);
@@ -85,7 +85,7 @@ function XhWorkspacePane({ space, renderSlot, onSelect, onClose, onUpdate, onNew
       active && h('div', { key: active.id, className: `xhworkspace-item xhworkspace-${active.kind}`,
         role: 'tabpanel' },
         active.kind === 'tool' ? renderSlot('details', {}) : renderSlot('workspace.item', {
-          item: active, open: true, onUpdate: patch => onUpdate(active.id, patch),
+          item: active, sessionId, open: true, onUpdate: patch => onUpdate(active.id, patch),
           onClose: () => onClose(active.id), onNewBrowser,
         }))));
 }

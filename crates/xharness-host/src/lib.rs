@@ -149,6 +149,13 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         permission: PermissionPreset,
     ) -> Result<ToolExecutor, String>;
 
+    /// Deployment composition policy for tools injected by Host itself.
+    /// Defaults preserve production behavior; restrictions must cover this
+    /// second registration seam as well as factory-owned tools.
+    fn allows_host_tool(&self, _name: &str) -> bool {
+        true
+    }
+
     async fn goal_dependencies(
         &self,
         _session_id: &str,

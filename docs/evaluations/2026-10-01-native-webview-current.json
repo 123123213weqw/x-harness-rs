@@ -1,0 +1,501 @@
+{
+  "kind": "real-model-genuine-native-fixture-acceptance",
+  "tested_production_commit": "8fdfdb95119c6b9c71d161e619d41956d7e69622",
+  "platform": "linux-webkitgtk",
+  "os_input": false,
+  "model": "deepseek-flash",
+  "reasoning_effort": "low",
+  "max_output_tokens": 8192,
+  "prompt_mode": "natural",
+  "trials": [
+    {
+      "task": "issue",
+      "repetition": 0,
+      "seconds": 70.137,
+      "model_calls": 16,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 56320,
+        "cacheWriteTokens": 0,
+        "inputTokens": 9074,
+        "outputTokens": 1698,
+        "reasoningTokens": 150
+      },
+      "budget_sequences": [
+        896,
+        911
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 14,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.358,
+      "tool_result_seconds_max": 0.056
+    },
+    {
+      "task": "pr",
+      "repetition": 0,
+      "seconds": 75.854,
+      "model_calls": 13,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 34304,
+        "cacheWriteTokens": 0,
+        "inputTokens": 6711,
+        "outputTokens": 1488,
+        "reasoningTokens": 77
+      },
+      "budget_sequences": [
+        912,
+        924
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 12,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.372,
+      "tool_result_seconds_max": 0.069
+    },
+    {
+      "task": "dynamic",
+      "repetition": 0,
+      "seconds": 75.873,
+      "model_calls": 18,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 69760,
+        "cacheWriteTokens": 0,
+        "inputTokens": 9287,
+        "outputTokens": 2003,
+        "reasoningTokens": 307
+      },
+      "budget_sequences": [
+        925,
+        942
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 16,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.47,
+      "tool_result_seconds_max": 0.075
+    },
+    {
+      "task": "game",
+      "repetition": 0,
+      "seconds": 118.68,
+      "model_calls": 23,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 130176,
+        "cacheWriteTokens": 0,
+        "inputTokens": 11960,
+        "outputTokens": 2689,
+        "reasoningTokens": 282
+      },
+      "budget_sequences": [
+        943,
+        965
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 22,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.62,
+      "tool_result_seconds_max": 0.071
+    },
+    {
+      "task": "issue",
+      "repetition": 1,
+      "seconds": 79.907,
+      "model_calls": 16,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 58112,
+        "cacheWriteTokens": 0,
+        "inputTokens": 8592,
+        "outputTokens": 1698,
+        "reasoningTokens": 279
+      },
+      "budget_sequences": [
+        966,
+        981
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 14,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.403,
+      "tool_result_seconds_max": 0.072
+    },
+    {
+      "task": "pr",
+      "repetition": 1,
+      "seconds": 115.389,
+      "model_calls": 16,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 55552,
+        "cacheWriteTokens": 0,
+        "inputTokens": 8031,
+        "outputTokens": 1872,
+        "reasoningTokens": 299
+      },
+      "budget_sequences": [
+        982,
+        997
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 15,
+      "tool_error_results": 1,
+      "tool_result_seconds_sum": 0.517,
+      "tool_result_seconds_max": 0.093
+    },
+    {
+      "task": "dynamic",
+      "repetition": 1,
+      "seconds": 178.02,
+      "model_calls": 15,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 53760,
+        "cacheWriteTokens": 0,
+        "inputTokens": 8304,
+        "outputTokens": 1862,
+        "reasoningTokens": 293
+      },
+      "budget_sequences": [
+        998,
+        1012
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 15,
+      "tool_error_results": 1,
+      "tool_result_seconds_sum": 0.485,
+      "tool_result_seconds_max": 0.074
+    },
+    {
+      "task": "game",
+      "repetition": 1,
+      "seconds": 159.534,
+      "model_calls": 22,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 113792,
+        "cacheWriteTokens": 0,
+        "inputTokens": 10914,
+        "outputTokens": 2429,
+        "reasoningTokens": 338
+      },
+      "budget_sequences": [
+        1013,
+        1034
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 20,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.587,
+      "tool_result_seconds_max": 0.084
+    },
+    {
+      "task": "issue",
+      "repetition": 2,
+      "seconds": 129.553,
+      "model_calls": 15,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": false,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 54784,
+        "cacheWriteTokens": 0,
+        "inputTokens": 8831,
+        "outputTokens": 1696,
+        "reasoningTokens": 244
+      },
+      "budget_sequences": [
+        1035,
+        1049
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": false,
+      "tool_calls": 14,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.448,
+      "tool_result_seconds_max": 0.053
+    },
+    {
+      "task": "pr",
+      "repetition": 2,
+      "seconds": 108.905,
+      "model_calls": 13,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 34560,
+        "cacheWriteTokens": 0,
+        "inputTokens": 6783,
+        "outputTokens": 1366,
+        "reasoningTokens": 162
+      },
+      "budget_sequences": [
+        1050,
+        1062
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 12,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.377,
+      "tool_result_seconds_max": 0.054
+    },
+    {
+      "task": "dynamic",
+      "repetition": 2,
+      "seconds": 163.348,
+      "model_calls": 17,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": true,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 67072,
+        "cacheWriteTokens": 0,
+        "inputTokens": 9338,
+        "outputTokens": 2059,
+        "reasoningTokens": 238
+      },
+      "budget_sequences": [
+        1063,
+        1079
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": true,
+      "tool_calls": 16,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.442,
+      "tool_result_seconds_max": 0.051
+    },
+    {
+      "task": "game",
+      "repetition": 2,
+      "seconds": 227.095,
+      "model_calls": 25,
+      "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
+      "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
+      "cleanup_passed": true,
+      "provider_settled_before_teardown": false,
+      "pending_requests": 0,
+      "usage": {
+        "cacheReadTokens": 159488,
+        "cacheWriteTokens": 0,
+        "inputTokens": 12743,
+        "outputTokens": 3002,
+        "reasoningTokens": 524
+      },
+      "budget_sequences": [
+        1080,
+        1104
+      ],
+      "turn_reasons": [
+        {
+          "kind": "completed"
+        }
+      ],
+      "task_passed": true,
+      "acceptance_verified": false,
+      "tool_calls": 24,
+      "tool_error_results": 0,
+      "tool_result_seconds_sum": 0.851,
+      "tool_result_seconds_max": 0.108
+    }
+  ],
+  "totals": {
+    "task_passes": 12,
+    "strict_acceptance_verified": 10,
+    "trials": 12,
+    "model_requests": 209,
+    "model_loop_seconds": 1502.295,
+    "host_usage": {
+      "inputTokens": 110568,
+      "cacheReadTokens": 887680,
+      "cacheWriteTokens": 0,
+      "outputTokens": 23862,
+      "reasoningTokens": 3193
+    },
+    "reasoning_tokens_are_subset_of_output": true,
+    "tool_result_seconds_sum": 5.93,
+    "tool_result_seconds_max": 0.108,
+    "tool_error_results": 2
+  },
+  "accounting": {
+    "original_cny_ceiling": "200",
+    "continuation_ceiling": "20",
+    "start_requests": 895,
+    "end_requests": 1104,
+    "start_upper_bound_cny": "54.370512",
+    "end_upper_bound_cny": "56.609398",
+    "increment_upper_bound_cny": "2.238886",
+    "known_usage_requests": 209,
+    "unknown_usage_requests": 0,
+    "pending_requests": 0,
+    "closed": true,
+    "actual_invoice": false
+  },
+  "github": {
+    "native_setup_probes": [
+      {
+        "passed": false,
+        "phase": "native_binding",
+        "error": "TimeoutError: production BrowserPane did not bind native page to Host session",
+        "model_calls": 0,
+        "total_seconds": 42.999,
+        "cleanup_passed": true,
+        "native_transport": "explicit-loopback-proxy"
+      },
+      {
+        "passed": false,
+        "phase": "native_binding",
+        "error": "TimeoutError: production BrowserPane did not bind native page to Host session",
+        "model_calls": 0,
+        "total_seconds": 123.498,
+        "cleanup_passed": true,
+        "native_transport": "explicit-loopback-proxy"
+      }
+    ],
+    "model_task_passed": null,
+    "network_evidence": {
+      "direct_v100_connection": "timeout",
+      "scoped_main_page_http_status": 200,
+      "scoped_main_page_tls_verified": true,
+      "scoped_asset_host": "github.githubassets.com",
+      "scoped_asset_connection": "timeout"
+    },
+    "caveat": "Constrained egress is verified, but these probes do not uniquely explain why native delegation never became ready; no GitHub model search or PR task succeeded."
+  },
+  "regression": {
+    "python_contracts": 36,
+    "broker_contracts": 6,
+    "tested_production_ci": "https://github.com/123123213weqw/x-harness-rs/actions/runs/36876635176",
+    "paid_retest_after_benchmark_guard_fix": false,
+    "native_runner_contracts": 4,
+    "native_runner_model_calls": 0
+  },
+  "limitations": [
+    "Controlled local fixtures, not live GitHub PR UI",
+    "Semantic DOM game, not visual-only/realtime game",
+    "Genuine BrowserPane/native modules and Host, not full packaged AppFrame navigation",
+    "No local desktop operation or replacement",
+    "No native OS pointer/keyboard, screenshots or public benchmark comparison",
+    "Two trials completed their task but failed the bounded pre-teardown accounting quiet check; final original ledger reconciled every request",
+    "Variable model/network/tunnel latency; no same-path controlled A/B speedup claim",
+    "No SOTA or Goal completion claim"
+  ]
+}
