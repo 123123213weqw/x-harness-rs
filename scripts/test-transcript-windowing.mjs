@@ -112,12 +112,14 @@ try {
   let source=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
   if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.ChatView = ChatView; exports.ReasoningRow = ReasoningRow; exports.CompactionItem = CompactionItem; exports.apply = apply;');
   if(name==='dsh-client-ui-tool')source=source.replace('exports.apply = apply;', 'exports.ToolRow = ToolRow; exports.apply = apply;');
+  if(name==='dsh-client-ui-cordis')source=source.replace('exports.apply = apply;', 'exports.CordisDefineRow = CordisDefineRow; exports.apply = apply;');
   await page.addScriptTag({content:source});
  }
  await page.evaluate(()=>{
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
   const R=staticModules.react,D=staticModules['react-dom'],Row=createTranscriptWindowing(R);
   const {ToolRow}=load('@xharness/dsh-client-ui-tool');
+  const {CordisDefineRow}=load('@xharness/dsh-client-ui-cordis');
   const {ReasoningRow,CompactionItem}=load('@xharness/dsh-client-ui-conversation');
   const root=D.createRoot(document.getElementById('root'));window.fixtureRoot=root;
   const api=globalThis.__xhTranscriptState.get(R.createElement);
@@ -128,6 +130,10 @@ try {
     R.createElement('div',{'data-reasoning':''},R.createElement(ReasoningRow,{stateKey:0,text:'reasoning content',running:false,t:k=>k})),
     R.createElement('div',{'data-compact':''},R.createElement(CompactionItem,{node:{status:'ended',summary:'saved compact summary',shadowedItemCount:1,shadowedTokenCount:128},t:k=>k})),
     R.createElement('details',{'data-native-detail':''},R.createElement('summary',{},'native detail'),R.createElement('p',{},'body')),
+    ...['alpha','beta'].map(callId=>R.createElement('div',{'data-cordis':callId,key:callId},
+      R.createElement(CordisDefineRow,{callId,
+        block:{kind:'result',callId,content:[],subCalls:[],call:{argsRaw:JSON.stringify({name:callId,code:{client:'client code '+callId,host:'host code '+callId}})}},
+        t:k=>k,useInventory:f=>f({rows:[],removed:new Set()}),useLoaded:f=>f({})}))),
     R.createElement(Editable));
   window.renderState=()=>D.flushSync(()=>root.render(R.createElement('div',{'data-conversation-scroll':'',style:{height:600,width:900,overflow:'auto',overflowAnchor:'none'}},
     R.createElement(Row,{'data-state-row':'',estimatedHeight:300},children()),
@@ -138,6 +144,9 @@ try {
  await page.locator('[data-reasoning] [aria-expanded]').click();
  await page.locator('[data-native-detail] summary').click();
  await page.locator('[data-compact] button[aria-expanded]').click();
+ await page.locator('[data-cordis=alpha] [aria-expanded]').click();
+ await page.locator('[data-cordis=alpha]').getByRole('tab',{name:'body.hostCode',exact:true}).click();
+ assert.equal(await page.locator('[data-cordis=beta] [aria-expanded=false]').count(),1);
  await page.locator('[data-draft]').fill('retain draft');
  // Focused text entry is temporarily protected, not every clicked button.
  await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});await page.waitForTimeout(150);
@@ -152,6 +161,19 @@ try {
  assert.ok((await page.locator('[data-compact]').textContent()).includes('saved compact summary'),'compact summary survives eviction');
  assert.equal(await page.locator('[data-native-detail]').evaluate(e=>e.open),true,'native details state restored');
  assert.equal(await page.locator('[data-draft]').inputValue(),'retain draft','row-owned input draft restored');
+ assert.equal(await page.locator('[data-cordis=alpha] [aria-expanded=true]').count(),1,'Cordis expansion is restored');
+ assert.equal(await page.locator('[data-cordis=beta] [aria-expanded=false]').count(),1,'Cordis sibling must stay collapsed after eviction');
+ assert.equal(await page.locator('[data-cordis=alpha]').getByRole('tab',{name:'body.hostCode',exact:true}).getAttribute('aria-selected'),'true','Cordis source selection is restored');
+ await page.locator('[data-cordis=beta] [aria-expanded]').click();
+ assert.equal(await page.locator('[data-cordis=beta]').getByRole('tab',{name:'body.clientCode',exact:true}).getAttribute('aria-selected'),'true','Cordis sibling source stays independent');
+ // A second eviction also preserves different source tabs within the same seat.
+ await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});
+ await page.waitForFunction(()=>document.querySelector('[data-state-row]').dataset.transcriptMounted==='false');
+ await scroll.evaluate(e=>{e.scrollTop=0});
+ await page.locator('[data-cordis=alpha] [aria-expanded=true]').waitFor();
+ await page.locator('[data-cordis=beta] [aria-expanded=true]').waitFor();
+ assert.equal(await page.locator('[data-cordis=alpha]').getByRole('tab',{name:'body.hostCode',exact:true}).getAttribute('aria-selected'),'true');
+ assert.equal(await page.locator('[data-cordis=beta]').getByRole('tab',{name:'body.clientCode',exact:true}).getAttribute('aria-selected'),'true');
  // Compact preference must not overwrite manually expanded state on remount.
  await page.waitForTimeout(100);
  assert.equal(await page.locator('[data-tool="one"] [aria-expanded=true]').count(),1);

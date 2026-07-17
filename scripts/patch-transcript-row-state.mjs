@@ -10,7 +10,18 @@ export function patchTranscriptRowState(id, bytes) {
   if (s.includes(marker)) {
     if (s.split(marker).length !== 2 || !s.includes('function xhUseTranscriptState(key, initial)'))
       throw Error('Transcript row state anchors changed');
-    return bytes;
+    if (kind === 'dsh-client-ui-cordis') {
+      // Upgrade already assembled v1 bundles as well as clean source builds.
+      // Reject unknown shapes instead of silently leaving shared state keys.
+      for (const key of ['cordis-expanded', 'cordis-source']) {
+        const old = `xhUseTranscriptState("${key}",`;
+        const scoped = `xhUseTranscriptState("${key}:" + callId,`;
+        if (s.split(old).length === 2 && !s.includes(scoped)) s = s.replace(old, scoped);
+        else if (s.split(scoped).length !== 2 || s.includes(old))
+          throw Error('Cordis transcript state anchor changed: ' + key);
+      }
+    }
+    return Buffer.from(s);
   }
   const once = (from, to) => {
     if (s.split(from).length !== 2) throw Error('Transcript row state anchor changed: ' + from);
@@ -54,8 +65,8 @@ export function patchTranscriptRowState(id, bytes) {
     once('const [expanded, setExpanded] = React.useState(false)', 'const [expanded, setExpanded] = xhUseTranscriptState("computer:" + callId, false)');
   } else {
     // Cordis card fields are presentation-only; do not retain async operations.
-    once('const [expanded, setExpanded] = (0, react.useState)(false);', 'const [expanded, setExpanded] = xhUseTranscriptState("cordis-expanded", false);');
-    once('const [selectedSource, setSelectedSource] = (0, react.useState)(card.clientCode !== null ? "client" : "host");', 'const [selectedSource, setSelectedSource] = xhUseTranscriptState("cordis-source", card.clientCode !== null ? "client" : "host");');
+    once('const [expanded, setExpanded] = (0, react.useState)(false);', 'const [expanded, setExpanded] = xhUseTranscriptState("cordis-expanded:" + callId, false);');
+    once('const [selectedSource, setSelectedSource] = (0, react.useState)(card.clientCode !== null ? "client" : "host");', 'const [selectedSource, setSelectedSource] = xhUseTranscriptState("cordis-source:" + callId, card.clientCode !== null ? "client" : "host");');
   }
   return Buffer.from(s);
 }

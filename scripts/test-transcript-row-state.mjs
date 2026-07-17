@@ -20,6 +20,19 @@ const tool=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-tool
 assert.equal(tool.split('stateKey: block.callId,').length,8,'every built-in tool view has a stable call key');
 assert.match(tool,/xhUseTranscriptState\("tool:" \+ stateKey, false\)/);
 assert.match(tool,/if \(appliedMode === processMode\) return/);
+const cordisId='@xharness/dsh-client-ui-cordis';
+const cordis=readFileSync(new URL('../ui/dist/plugins/'+cordisId+'/client.js',import.meta.url));
+for(const key of ['cordis-expanded','cordis-source']) {
+ assert.ok(cordis.toString().includes(`xhUseTranscriptState("${key}:" + callId,`),'Cordis call-scoped '+key);
+ const legacy=Buffer.from(cordis.toString().replaceAll('"cordis-expanded:" + callId','"cordis-expanded"').replaceAll('"cordis-source:" + callId','"cordis-source"'));
+ assert.deepEqual(patchTranscriptRowState(cordisId,legacy),cordis,'legacy assembled Cordis keys upgrade');
+ assert.throws(()=>patchTranscriptRowState(cordisId,Buffer.from(cordis.toString().replace(`"${key}:" + callId`,'"unknown-shape"'))),/anchor changed/,'unknown Cordis keys fail closed');
+}
+const cleanCordis=Buffer.from(cordis.toString()
+ .replace(/\n\/\/ xh-transcript-row-state\/v1\nfunction xhUseTranscriptState\(key, initial\) \{[\s\S]*?\n\}\n/,'')
+ .replace('xhUseTranscriptState("cordis-expanded:" + callId, false)','(0, react.useState)(false)')
+ .replace('xhUseTranscriptState("cordis-source:" + callId, card.clientCode !== null ? "client" : "host")','(0, react.useState)(card.clientCode !== null ? "client" : "host")'));
+assert.deepEqual(patchTranscriptRowState(cordisId,cleanCordis),cordis,'clean-source Cordis assembly matches upgraded bundle');
 const helper=readFileSync(new URL('../ui/overrides/transcript-windowing.js',import.meta.url),'utf8');
 assert.ok(!helper.includes('row.pinned'),'no permanent interaction pins');
 assert.match(helper,/mounted: keepMounted/,'no full initial mount');
