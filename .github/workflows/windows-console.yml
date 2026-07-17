@@ -24,5 +24,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Repeat cold PowerShell console probe with phase evidence
+        run: |
+          1..5 | ForEach-Object {
+            Write-Host "Console probe cold-process iteration $_ / 5"
+            cargo test --locked -p xharness-process --test windows_process non_interactive_child_has_no_console_and_keeps_streams_and_exit_code -- --exact --nocapture
+            if ($LASTEXITCODE) { throw "Console probe iteration $_ failed; see phase evidence above" }
+          }
       - name: Native console, pipe, ACL, cancellation and ConPTY regressions
-        run: cargo test --locked -p xharness-process -p xharness-sandbox -p xharness-terminal --all-targets
+        run: cargo test --locked -p xharness-process -p xharness-sandbox -p xharness-terminal --all-targets -- --nocapture
