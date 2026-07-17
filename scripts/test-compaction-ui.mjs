@@ -19,7 +19,12 @@ const env={
 };
 const itemStart=source.indexOf('const CompactionItem =');
 const itemEnd=source.indexOf('\n\t\t});',itemStart)+7;
-vm.runInNewContext(source.slice(start,end)+'\n'+source.slice(itemStart,itemEnd)+'\nglobalThis.api={commandDefinition,compactionDefinition,compactSummary,CompactionItem};',env);
+// Isolated component fixtures must include their shipped dependencies, not a
+// substitute for the row-state hook. The no-row-provider path still uses React.
+const hookStart=source.indexOf('function xhUseTranscriptState(key, initial)');
+const hookEnd=source.indexOf('\n}',hookStart)+2;
+assert.ok(hookStart>=0 && hookEnd>hookStart,'shipped transcript state bridge exists');
+vm.runInNewContext(source.slice(hookStart,hookEnd)+'\n'+source.slice(start,end)+'\n'+source.slice(itemStart,itemEnd)+'\nglobalThis.api={commandDefinition,compactionDefinition,compactSummary,CompactionItem};',env);
 const api=env.api;
 const t=(key,args)=>`${key}:${JSON.stringify(args??{})}`;
 const find=(tree,predicate)=>{

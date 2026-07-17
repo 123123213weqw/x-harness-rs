@@ -5,6 +5,7 @@ import { patchConversationLifecycle } from './patch-conversation-lifecycle.mjs'
 import { patchAtomicHistory, patchHistoryRetry } from './patch-atomic-history.mjs'
 import { patchLiveAnswerRecovery } from './patch-live-answer-recovery.mjs'
 import { patchStartupCatalogRefresh } from './patch-startup-catalog-refresh.mjs'
+import { patchTranscriptRowState } from './patch-transcript-row-state.mjs'
 import { patchTranscriptWindowing } from './patch-transcript-windowing.mjs'
 import { patchQuestionContinuation } from './patch-question-continuation.mjs'
 import { patchPermissionSelection } from './patch-permission-selection.mjs'
@@ -146,6 +147,7 @@ for (const entry of composed) {
   if (entry.name === '@deepseek-ai/dsh-client-ui-tool') bytes = patchToolExperience(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') bytes = patchConversationExperience(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelSwitchProgress(bytes)
+  bytes = patchTranscriptRowState(entry.name, bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
@@ -283,7 +285,7 @@ const productPlugins = [
   },
 ]
 for (const product of productPlugins) {
-  const bytes = portableBytes(readFileSync(product.source))
+  const bytes = patchTranscriptRowState(product.id, portableBytes(readFileSync(product.source)))
   plugins.set(product.id, {
     declaration: product.declaration,
     source: product.source,
