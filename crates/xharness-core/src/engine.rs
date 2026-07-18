@@ -24,10 +24,10 @@ use xharness_compaction::{
 };
 use xharness_debug::{DebugEvent, DebugScope};
 use xharness_session::{
-    ApprovalOutcome, AssistantChunk, CommandResultKind, EventData as SessionEventData, LlmFailure,
-    LlmRetryMode, PendingToolApproval, RequestHeader, Revision, SequenceRange, SessionEvent,
-    SessionHeader, Store as EventSessionStore, SurfaceReplace, ToolOutcome, ToolResultData,
-    TurnEndReason,
+    ApprovalOutcome, AssistantChunk, CommandResultKind, CompactionProgress, CompactionStage,
+    EventData as SessionEventData, LlmFailure, LlmRetryMode, PendingToolApproval, RequestHeader,
+    Revision, SequenceRange, SessionEvent, SessionHeader, Store as EventSessionStore,
+    SurfaceReplace, ToolOutcome, ToolResultData, TurnEndReason,
 };
 
 /// Bound both crash-loss and memory growth without returning to one JSONL
@@ -82,6 +82,7 @@ enum CompactionOutcome {
 }
 
 struct CompactionSummaryOutput {
+    progress: CompactionProgress,
     text: String,
     usage: Option<TokenUsage>,
     max_output_tokens: u64,
@@ -824,6 +825,7 @@ impl Runner {
                                             json!({"error": error.to_string()}),
                                         )
                                         .await;
+                                        return Err(error);
                                     }
                                 }
                             }
@@ -1640,13 +1642,24 @@ impl Runner {
         let summarized = if let Some(error) = self.failed_compactions.get(&fingerprint) {
             Err(crate::compaction::SummaryError::Invalid(error.clone()))
         } else {
-            self.run_compaction_summary(&plan, &selected).await
+            self.run_compaction_summary(
+                &plan,
+                &selected,
+                &compaction_id,
+                source_command_id,
+                turn,
+                current_input_tokens,
+            )
+            .await
         };
         let summary = match summarized {
             Ok(summary) => summary,
             Err(error) => {
-                if !matches!(&error, crate::compaction::SummaryError::Cancelled)
-                    && !matches!(&error, crate::compaction::SummaryError::Provider(error) if error.retryable)
+                if !matches!(
+                    &error,
+                    crate::compaction::SummaryError::Cancelled
+                        | crate::compaction::SummaryError::Interrupted
+                ) && !matches!(&error, crate::compaction::SummaryError::Provider(error) if error.retryable)
                 {
                     if self.failed_compactions.len() >= 32 {
                         self.failed_compactions.clear();
@@ -1654,6 +1667,7 @@ impl Runner {
                     self.failed_compactions
                         .insert(fingerprint, error.to_string());
                 }
+                let interrupted = matches!(&error, crate::compaction::SummaryError::Interrupted);
                 let error = match error {
                     crate::compaction::SummaryError::Cancelled => self.stopped_failure(),
                     _ => RunFailure::Failed(error.to_string()),
@@ -1668,9 +1682,18 @@ impl Runner {
                     true,
                 )
                 .await?;
-                return Err(error);
+                return if interrupted {
+                    Ok(CompactionOutcome::Interrupted)
+                } else {
+                    Err(error)
+                };
             }
         };
+        let mut progress = summary.progress.clone();
+        progress.stage = CompactionStage::Validating;
+        progress.delay_ms = None;
+        self.journal_compaction_progress(&compaction_id, source_command_id, turn, progress.clone())
+            .await?;
         let checkpoint =
             frame_summary(&summary.text).map_err(|error| RunFailure::Failed(error.to_string()))?;
         let checkpoint_tokens = estimate_message_tokens(&AgentMessage::user(&checkpoint))?;
@@ -1741,6 +1764,8 @@ impl Runner {
             };
             match self.check_token_budget(&request, &prepared, &tools).await? {
                 TokenBudgetCheck::Ready(report) => {
+                    progress.input_tokens_after =
+                        report.as_ref().map(|r| r.estimate.total_input_tokens);
                     self.debug("compaction.candidate_budget", json!({"budget":report}))
                         .await;
                 }
@@ -1792,6 +1817,9 @@ impl Runner {
             };
         }
         self.failed_compactions.clear();
+        progress.stage = CompactionStage::Committing;
+        self.journal_compaction_progress(&compaction_id, source_command_id, turn, progress)
+            .await?;
         self.journal_append(
             vec![
                 SessionEventData::CompactionSummary {
@@ -1843,6 +1871,10 @@ impl Runner {
         &mut self,
         plan: &CompactionPlan,
         selected: &[AgentMessage],
+        compaction_id: &str,
+        source_command_id: Option<&str>,
+        turn: u32,
+        input_tokens_before: u64,
     ) -> Result<CompactionSummaryOutput, crate::compaction::SummaryError> {
         if self.cancellation.is_cancelled() {
             return Err(crate::compaction::SummaryError::Cancelled);
@@ -1866,16 +1898,79 @@ impl Runner {
             max_output_tokens: Some(plan.spec.max_tokens),
             debug_scope: self.debug_scope(),
         };
-        let output = crate::compaction::SummaryRunner::new(
+        let cancellation = self.cancellation.child_token();
+        let _cancel_on_drop = cancellation.clone().drop_guard();
+        let (progress_tx, mut progress_rx) = mpsc::channel(4);
+        let summary = crate::compaction::SummaryRunner::new(
             self.request.provider.clone(),
             guard,
             template,
-            self.cancellation.child_token(),
+            cancellation.clone(),
             plan.spec.compaction_retries,
         )
         .with_debug(self.request.debug.clone())
-        .run(selected.to_vec())
-        .await?;
+        .with_recovery(self.request.config.clone(), self.retry_entropy())
+        .with_progress(progress_tx)
+        .run(selected.to_vec());
+        tokio::pin!(summary);
+        let mut progress_open = true;
+        let mut last_progress = CompactionProgress {
+            input_tokens_before: Some(input_tokens_before),
+            ..Default::default()
+        };
+        let mut last_progress_at = tokio::time::Instant::now();
+        let output = loop {
+            tokio::select! {
+                biased;
+                _ = self.cancellation.cancelled() => return Err(crate::compaction::SummaryError::Cancelled),
+                command = self.command_rx.recv(), if self.command_open => {
+                    match command {
+                        Some(envelope) => {
+                            let interrupt = self.handle_envelope(envelope, true).await
+                                .map_err(|error| match error {
+                                    RunFailure::Stopped(_) => crate::compaction::SummaryError::Cancelled,
+                                    _ => crate::compaction::SummaryError::Invalid(error.to_string()),
+                                })?;
+                            let interrupt = if self.paused && !interrupt {
+                                let mut paused = last_progress.clone();
+                                paused.stage = CompactionStage::Paused;
+                                paused.delay_ms = None;
+                                self.journal_compaction_progress(compaction_id, source_command_id, turn, paused).await
+                                    .map_err(|e| crate::compaction::SummaryError::Invalid(e.to_string()))?;
+                                let interrupted = self.wait_while_paused(true).await
+                                    .map_err(|e| match e { RunFailure::Stopped(_) => crate::compaction::SummaryError::Cancelled, _ => crate::compaction::SummaryError::Invalid(e.to_string()) })?;
+                                if !interrupted {
+                                    // The retry sleep's deadline keeps advancing while
+                                    // paused. Do not restart the UI countdown on resume.
+                                    if let Some(delay) = last_progress.delay_ms.as_mut() {
+                                        *delay = delay.saturating_sub(last_progress_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+                                    }
+                                    last_progress_at = tokio::time::Instant::now();
+                                    self.journal_compaction_progress(compaction_id, source_command_id, turn, last_progress.clone()).await
+                                        .map_err(|e| crate::compaction::SummaryError::Invalid(e.to_string()))?;
+                                }
+                                interrupted
+                            } else { interrupt };
+                            if interrupt {
+                                cancellation.cancel();
+                                return Err(crate::compaction::SummaryError::Interrupted);
+                            }
+                        }
+                        None => self.command_open = false,
+                    }
+                }
+                progress = progress_rx.recv(), if progress_open => {
+                    if let Some(mut progress) = progress {
+                        progress.input_tokens_before = Some(input_tokens_before);
+                        last_progress = progress.clone();
+                        last_progress_at = tokio::time::Instant::now();
+                        self.journal_compaction_progress(compaction_id, source_command_id, turn, progress).await
+                            .map_err(|e| crate::compaction::SummaryError::Invalid(e.to_string()))?;
+                    } else { progress_open = false; }
+                }
+                result = &mut summary => break result?,
+            }
+        };
         self.debug(
             "compaction.summary_completed",
             json!({
@@ -1884,10 +1979,33 @@ impl Runner {
         )
         .await;
         Ok(CompactionSummaryOutput {
+            progress: CompactionProgress {
+                input_tokens_before: Some(input_tokens_before),
+                ..output.progress
+            },
             text: output.text,
             usage: output.usage,
             max_output_tokens: output.max_output_tokens,
         })
+    }
+
+    async fn journal_compaction_progress(
+        &mut self,
+        compaction_id: &str,
+        source_command_id: Option<&str>,
+        turn: u32,
+        progress: CompactionProgress,
+    ) -> Result<(), RunFailure> {
+        self.journal_append(
+            vec![SessionEventData::CompactionProgress {
+                compaction_id: compaction_id.to_owned(),
+                source_command_id: source_command_id.map(str::to_owned),
+                turn: Some(turn),
+                progress,
+            }],
+            true,
+        )
+        .await
     }
 
     async fn initialize_journal(&mut self) -> Result<(), RunFailure> {
