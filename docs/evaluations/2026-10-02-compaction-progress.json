@@ -1,0 +1,109 @@
+{
+  "date": "2026-10-02",
+  "branch": "fix/compaction-progress-recovery-20261002",
+  "baseCommit": "74f378c3763ed78c531684154bba5850032e049f",
+  "scope": "Durable compaction progress, explicit failure, cancellable transport recovery",
+  "implementation": {
+    "layers": [
+      "Session event contract",
+      "Core SummaryRunner and existing retry policy",
+      "shared live/history Projection",
+      "existing compaction UI card"
+    ],
+    "newTools": 0,
+    "stages": [
+      "preparing",
+      "summarizing",
+      "splitting",
+      "merging",
+      "retrying",
+      "paused",
+      "validating",
+      "committing"
+    ],
+    "metrics": [
+      "summary requests",
+      "completed partial/merge summaries",
+      "splits",
+      "retries",
+      "retry countdown",
+      "elapsed wall time",
+      "budget input before/after"
+    ],
+    "tokenMetricIsBillingUsage": false,
+    "percentage": "Not reported: recursive splitting discovers additional work dynamically",
+    "progressPayload": "Numeric snapshots only; no partial summary text or reasoning",
+    "delivery": "Bounded channel of four snapshots; journaled at work boundaries, not on every stream chunk",
+    "historyIndex": "Version 3; start and latest progress only, plus committed summary where needed; rebuilt from authoritative journal",
+    "commit": "Existing atomic summary/checkpoint/end transaction, only after candidate budget validation",
+    "recovery": "Classified transient transport failures reuse sustained backoff when enabled; HTTP and unstructured failures remain bounded; credential errors stop",
+    "controls": "Existing pause/resume/cancel/steer are processed during summarization; resume preserves remaining retry time",
+    "failure": "Visible terminal card and error details; unsuccessful candidate never replaces original model history",
+    "presentation": "Compact indeterminate monochrome progress bar; retry countdown remains visible, statistics collapsed by default; paused/reduced-motion animation disabled"
+  },
+  "regression": {
+    "rustExecutionHost": "WZU_Server",
+    "localRustCompilation": false,
+    "sourceSyncedBeforeCompilation": true,
+    "workspaceCheck": "passed",
+    "allTargetClippyWarningsDenied": "passed for Core, Session, Projection, JSONL, Host",
+    "core": {
+      "unitPassed": 37,
+      "loopPassed": 115
+    },
+    "host": {
+      "unitPassed": 193,
+      "integrationPassed": 22,
+      "ignored": 6
+    },
+    "projection": {
+      "passed": 17
+    },
+    "session": {
+      "unitPassed": 1,
+      "integrationPassed": 26
+    },
+    "jsonl": {
+      "unitPassed": 3,
+      "integrationPassed": 57,
+      "recoveryPassed": 11,
+      "archivePassed": 5,
+      "ignored": 1
+    },
+    "transportFaultFixture": "70 consecutive classified stream cuts with discarded partial text, then successful checkpoint; virtual Tokio time, no paid model",
+    "controlFixture": "Pause/resume followed by cancel or steer during backoff; original context preserved, no tool calls or partial summary committed",
+    "projectionParity": "Automatic/manual live, refreshed, progress-only and terminal-only pages, restart, duplicate delivery, mixed legacy/view carriers; 705 assembler checks",
+    "indexFixture": "50 retry snapshots leave only start/latest-progress/summary as terminal page dependencies, including restart and gzip compression",
+    "browserEngines": [
+      "Chromium",
+      "WebKit"
+    ],
+    "browserCoverage": "Shipped React/helper/CSS/locales in isolated headless fixture; live clock/countdown, expansion/session identity, light/dark, 360/715/1440px, zh/en, failure and timer cleanup; indeterminate accessibility (no fabricated value), paused/reduced-motion sweep and one style injection",
+    "browserFixtureLimits": "No production Host or model call; icon primitives substituted in fixture; not a native macOS application test",
+    "assemblyPatch": "Fresh upstream-prefix and product-prefix fixture transforms agree; checked helper and bundle hashes agree",
+    "fullUpstreamReassembly": "Not completed: local upstream checkout lacks web bundle build dependencies",
+    "relatedNodeChecks": [
+      "compaction UI",
+      "scroll follow",
+      "assistant projection",
+      "context accounting",
+      "retry turn projection",
+      "transcript row state",
+      "UI namespace"
+    ],
+    "architecture": "36 crate dependency boundaries and eight extracted Host processors passed",
+    "formatAndDiffChecks": "passed"
+  },
+  "delivery": {
+    "githubCi": "Regression steps added; remote GitHub run not triggered",
+    "paidApiCalls": 0,
+    "applicationRestartedOrReplaced": false,
+    "releaseCreated": false,
+    "merged": false
+  },
+  "limits": [
+    "Compaction after a process kill does not resume a cached partial summary; existing recovery retains original history",
+    "Visualization does not shorten model inference time",
+    "Native application and real provider end-to-end verification remain separate from deterministic regressions"
+  ]
+}
