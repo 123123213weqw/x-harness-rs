@@ -6,8 +6,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const reviewSource = readFileSync(resolve(root, 'ui/overrides/review-diff.js'), 'utf8')
-const processMode = readFileSync(resolve(root, 'ui/overrides/process-mode-hook.js'), 'utf8')
+const reviewSource = readFileSync(resolve(root, 'ui/overrides/review-diff.js'), 'utf8').replace(/\r\n/g, '\n')
+const processMode = readFileSync(resolve(root, 'ui/overrides/process-mode-hook.js'), 'utf8').replace(/\r\n/g, '\n')
 const marker = '// XHARNESS UPSTREAM UI EXPERIENCE 0.1.7-rc.2'
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 16)
 
@@ -15,7 +15,7 @@ function once(text, from, to, label) {
   if (text.split(from).length !== 2) throw new Error(`upstream UI ${label} signature changed: ${from.slice(0, 85)}`)
   return text.replace(from, to)
 }
-function finish(text) { return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd() + '\n') }
+function finish(text) { return Buffer.from(text.replace(/\r\n/g, '\n').replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd() + '\n') }
 
 export function patchToolExperience(bytes) {
   let text = bytes.toString('utf8')
@@ -96,7 +96,7 @@ function patchPreparingCall(text) {
 
 export function patchModelSwitchProgress(bytes) {
   let text = bytes.toString('utf8')
-  if (text.includes(marker)) return bytes
+  if (text.includes(marker)) return finish(text)
   const namespace = text.includes('_deepseek_ai_dsh_client_ui_primitives') ? 'deepseek_ai' : 'xharness'
   text = once(text, '\t\tfunction ModelSelect({ locked, available, directory, load, select, t }) {',
     `\t\t${marker}\n\t\tfunction ModelSelect({ locked, available, directory, load, select, t }) {`, 'model selection')
@@ -128,7 +128,7 @@ export function refreshUpstreamUiExperience(dist) {
     entry.url = `/plugins/${id}/client.js?rev=${entry.rev}`
   }
   const productId = '@xlang/xharness-client-ui-experience'
-  const source = readFileSync(resolve(root, `ui/plugins/${productId}/client.js`))
+  const source = finish(readFileSync(resolve(root, `ui/plugins/${productId}/client.js`), 'utf8'))
   const productPath = resolve(dist, `plugins/${productId}/client.js`)
   mkdirSync(dirname(productPath), { recursive: true })
   writeFileSync(productPath, source)
