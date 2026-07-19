@@ -1,0 +1,121 @@
+{
+  "date": "2026-10-02",
+  "branch": "fix/compaction-progress-recovery-20261002",
+  "baseCommit": "74f378c3763ed78c531684154bba5850032e049f",
+  "scope": "Durable compaction progress, explicit failure, cancellable transport recovery",
+  "implementation": {
+    "layers": [
+      "Session event contract",
+      "Core SummaryRunner and existing retry policy",
+      "shared live/history Projection",
+      "existing compaction UI card"
+    ],
+    "newTools": 0,
+    "stages": [
+      "preparing",
+      "summarizing",
+      "splitting",
+      "merging",
+      "retrying",
+      "paused",
+      "validating",
+      "committing"
+    ],
+    "metrics": [
+      "summary requests",
+      "completed partial/merge summaries",
+      "splits",
+      "retries",
+      "scheduled retry delay",
+      "budget input before/after"
+    ],
+    "tokenMetricIsBillingUsage": false,
+    "percentage": "Not reported: recursive splitting discovers additional work dynamically",
+    "progressPayload": "Numeric snapshots only; no partial summary text or reasoning",
+    "delivery": "Bounded channel of four snapshots; journaled at work boundaries, not on every stream chunk",
+    "historyIndex": "Version 3; start and latest progress only, plus committed summary where needed; rebuilt from authoritative journal",
+    "commit": "Existing atomic summary/checkpoint/end transaction, only after candidate budget validation",
+    "recovery": "Classified transient transport failures reuse sustained backoff when enabled; HTTP and unstructured failures remain bounded; credential errors stop",
+    "controls": "Existing pause/resume/cancel/steer are processed during summarization; resume preserves remaining retry time",
+    "failure": "Visible terminal card and error details; unsuccessful candidate never replaces original model history",
+    "presentation": "Single bilingual status: Compacting context… · May take a few minutes / 正在压缩… · 可能需要几分钟. No progress bar, percentage, request/retry count, stage expansion or ticking clock. Paused and terminal errors remain explicit; failure details can be expanded."
+  },
+  "regression": {
+    "rustExecutionHost": "WZU_Server",
+    "localRustCompilation": false,
+    "sourceSyncedBeforeCompilation": true,
+    "workspaceCheck": "passed",
+    "allTargetClippyWarningsDenied": "passed for Core, Session, Projection, JSONL, Host",
+    "core": {
+      "unitPassed": 37,
+      "loopPassed": 115
+    },
+    "host": {
+      "unitPassed": 193,
+      "integrationPassed": 22,
+      "ignored": 6
+    },
+    "projection": {
+      "passed": 17
+    },
+    "session": {
+      "unitPassed": 1,
+      "integrationPassed": 26
+    },
+    "jsonl": {
+      "unitPassed": 3,
+      "integrationPassed": 57,
+      "recoveryPassed": 11,
+      "archivePassed": 5,
+      "ignored": 1
+    },
+    "transportFaultFixture": "70 consecutive classified stream cuts with discarded partial text, then successful checkpoint; virtual Tokio time, no paid model",
+    "controlFixture": "Pause/resume followed by cancel or steer during backoff; original context preserved, no tool calls or partial summary committed",
+    "projectionParity": "Automatic/manual live, refreshed, progress-only and terminal-only pages, restart, duplicate delivery, mixed legacy/view carriers; 705 assembler checks",
+    "indexFixture": "50 retry snapshots leave only start/latest-progress/summary as terminal page dependencies, including restart and gzip compression",
+    "browserEngines": [
+      "Chromium",
+      "WebKit"
+    ],
+    "browserCoverage": "Shipped React/helper/CSS/locales in isolated headless fixture; one stable status across seven runtime stages and 70 retry snapshots, truthful paused state, no per-row timer, visible terminal failure and expandable error, session identity isolation, light/dark, 360/715/1440px, zh/en.",
+    "browserFixtureLimits": "No production Host or model call; icon primitives substituted in fixture; not a native macOS application test",
+    "assemblyPatch": "Fresh upstream-prefix and product-prefix fixture transforms agree; checked helper and bundle hashes agree",
+    "fullUpstreamReassembly": "Not completed: local upstream checkout lacks web bundle build dependencies",
+    "relatedNodeChecks": [
+      "compaction UI",
+      "scroll follow",
+      "assistant projection",
+      "context accounting",
+      "retry turn projection",
+      "transcript row state",
+      "UI namespace"
+    ],
+    "architecture": "36 crate dependency boundaries and eight extracted Host processors passed",
+    "formatAndDiffChecks": "passed",
+    "connectionCarrier": {
+      "codec": "Actual shipped Connection factory and embedded Zod, not a bypass of readSse or callUnary",
+      "transports": [
+        "session.history unary",
+        "SSE mux",
+        "browser WebSocket mux"
+      ],
+      "compatibilityCases": 33,
+      "fixture": "Old codec rejects indexes 67/70 and drops compaction live frames; updated codec preserves numeric progress, Unicode and future fields while rejecting invalid event envelopes",
+      "limits": "Transport mocks only; not an installed native application or paid provider end-to-end run"
+    }
+  },
+  "delivery": {
+    "githubCi": "Initial backend 8307d642 passed CI 36961798159; minimal-status 30e4b1f0 passed CI 36970288329 on Linux, Windows and macOS. Connection carrier follow-up will rerun CI on PR #190.",
+    "paidApiCalls": 0,
+    "releaseCreated": false,
+    "merged": false,
+    "applicationReplaced": false,
+    "originalApplicationRestarted": true,
+    "deploymentNote": "No compaction candidate was installed. The original 0.2.31 app was closed and reopened during a cancelled installation attempt before the user clarified PR-only delivery."
+  },
+  "limits": [
+    "Compaction after a process kill does not resume a cached partial summary; existing recovery retains original history",
+    "Visualization does not shorten model inference time",
+    "Native application and real provider end-to-end verification remain separate from deterministic regressions"
+  ]
+}
