@@ -123,6 +123,12 @@ try {
     await page.getByRole('button', { name: label, exact: true }).click()
     await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
   }
+  const beforeEscape = await page.evaluate(() => window.closeRequests)
+  await page.getByRole('button', { name: '下载记录', exact: true }).click()
+  await page.keyboard.press('Escape')
+  assert.equal(await page.getByRole('button', { name: '下载记录', exact: true }).getAttribute('aria-expanded'), 'false')
+  assert.equal(await page.evaluate(() => window.closeRequests), beforeEscape, 'Escape dismisses the local popup before closing the workspace')
+  await flush()
   // Each native await is a cancellation/visibility boundary, not just queue entry.
   for (const command of ['desktop_browser_bounds', 'desktop_browser_activate', 'desktop_browser_navigate']) {
     await page.evaluate(command => { window.hold = { command }; window.gateStarted = false }, command)
@@ -157,6 +163,103 @@ try {
   await page.evaluate(() => document.querySelector('[role="alertdialog"]').setAttribute('aria-hidden', 'true'))
   await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
   await page.evaluate(() => document.querySelector('[role="alertdialog"]').remove())
+  // A portaled menu is not a modal and is outside the shell slot. Native
+  // views must yield without waiting for a resize or a browser toolbar click.
+  await page.evaluate(() => {
+    const menu = document.createElement('div'); menu.id = 'portal-menu'; menu.role = 'menu'
+    menu.textContent = 'Model selection'
+    menu.style.cssText = 'position:fixed;left:450px;top:200px;width:200px;height:100px;z-index:100;background:white'
+    document.body.append(menu)
+  })
+  await assertHidden()
+  const closeCount = await page.evaluate(() => window.closeRequests)
+  await page.evaluate(() => document.getElementById('portal-menu').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  assert.equal(await page.evaluate(() => window.closeRequests), closeCount, 'an overlay owns Escape, not the browser underneath')
+  await resize(); await assertHidden()
+  await page.evaluate(() => document.getElementById('portal-menu').remove())
+  await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  const addSurface = async ({ role = '', parent = 'body', style = '', child = false } = {}) => page.evaluate(({ role, parent, style, child }) => {
+    const wrapper = document.createElement('div'); wrapper.id = 'layer-fixture'
+    const card = child ? document.createElement('div') : wrapper
+    if (role) card.setAttribute('role', role)
+    card.textContent = 'Global UI'
+    card.style.cssText = 'position:fixed;left:450px;top:200px;width:200px;height:100px;z-index:100;background:white;' + style
+    if (child) wrapper.append(card)
+    document.querySelector(parent).append(wrapper)
+  }, { role, parent, style, child })
+  const removeSurface = async () => {
+    await page.evaluate(() => document.getElementById('layer-fixture').remove())
+    await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  }
+  // Current settings are body-portaled, not children of data-shell-overlay.
+  await addSurface({ role: 'dialog', child: true, style: 'left:700px' })
+  await assertHidden() // Modals own the entire app, even outside the page rect.
+  await removeSurface()
+  for (const surface of [
+    { role: 'listbox', child: true },
+    { role: 'tooltip', style: 'pointer-events:none' },
+    { parent: '[data-shell-overlay]' }, // Slash/popupSelect card, no modal role.
+    {}, // Schedule/download portal, no ARIA role.
+  ]) {
+    await addSurface(surface); await assertHidden()
+    await resize(); await assertHidden()
+    await removeSurface()
+  }
+  // A chat-local menu does not blank a non-overlapping browser. Moving it or
+  // changing ancestor visibility is observed even without resizing the window.
+  await addSurface({ role: 'menu', child: true, style: 'left:700px' })
+  await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  await page.evaluate(() => document.querySelector('#layer-fixture > div').style.left = '450px')
+  await assertHidden()
+  for (const [attribute, value] of [['aria-hidden', 'true'], ['hidden', ''], ['style', 'display:none']]) {
+    await page.evaluate(([attribute, value]) => document.getElementById('layer-fixture').setAttribute(attribute, value), [attribute, value])
+    await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+    await page.evaluate(attribute => document.getElementById('layer-fixture').removeAttribute(attribute), attribute)
+    await assertHidden()
+  }
+  // A fixed app root is not a floating menu ancestor. Ordinary list content
+  // must not blank the native page just because its DOM rectangle overlaps it.
+  await removeSurface()
+  await page.evaluate(() => {
+    const root = document.getElementById('root'); root.style.position = 'fixed'
+    const list = document.createElement('div'); list.id = 'inline-list'; list.role = 'listbox'; list.textContent = 'Chat list'
+    list.style.cssText = 'width:200px;height:100px;margin-top:-300px'; root.append(list)
+  })
+  await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  await page.evaluate(() => { document.getElementById('inline-list').remove(); document.getElementById('root').style.position = '' })
+  await addSurface({ role: 'menu', child: true }); await assertHidden()
+  // Multiple overlay owners compose. Closing one cannot expose the other.
+  await page.evaluate(() => {
+    const second = document.getElementById('layer-fixture').cloneNode(true); second.id = 'second-layer'; document.body.append(second)
+    document.getElementById('layer-fixture').remove()
+  })
+  await assertHidden()
+  await page.evaluate(() => document.getElementById('second-layer').remove())
+  await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+  // Mutation during an in-flight activation must win before native work resumes.
+  for (const command of ['desktop_browser_bounds', 'desktop_browser_activate', 'desktop_browser_navigate']) {
+    await page.evaluate(command => { window.hold = { command }; window.gateStarted = false }, command)
+    if (command === 'desktop_browser_navigate') { await address.fill('example.io'); await address.press('Enter') }
+    else await resize()
+    await page.waitForFunction(() => window.gateStarted)
+    await addSurface({ role: 'menu', child: true })
+    const start = await page.evaluate(() => commands.length)
+    await page.evaluate(() => window.releaseGate())
+    await assertNoShow(start)
+    await removeSurface()
+  }
+  // Streamed chat content is not an overlay and causes no native hide/show IPC.
+  await flush()
+  const streamStart = await page.evaluate(() => commands.length)
+  await page.evaluate(() => {
+    const messages = document.createElement('div'); document.getElementById('root').append(messages)
+    for (let i = 0; i < 100; i++) messages.append(document.createTextNode(' delta'))
+    messages.remove()
+  })
+  await flush()
+  assert.equal(await page.evaluate(start => commands.slice(start).some(call =>
+    ['desktop_browser_bounds', 'desktop_browser_activate', 'desktop_browser_navigate'].includes(call.command)), streamStart), false,
+  'ordinary chat changes must not churn the native view')
   // A rejected native call must not poison subsequent synchronization.
   await page.evaluate(() => { window.hold = { command: 'desktop_browser_bounds', fail: true }; window.gateStarted = false })
   await resize(); await page.waitForFunction(() => window.gateStarted); await page.evaluate(() => window.releaseGate())

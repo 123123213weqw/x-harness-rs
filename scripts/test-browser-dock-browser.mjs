@@ -67,6 +67,30 @@ try {
   assert.equal(wide.drawer, false, 'a wide window docks the browser even without native outward expansion')
   assert.equal(wide.center, centerBefore - 440, 'internal dock shares width with the conversation')
   assert.equal(wide.browser, 440, JSON.stringify(wide))
+  assert.equal(await page.locator('._84hhiq_centerCol').evaluate(el => getComputedStyle(el).zIndex),
+    await page.locator('._84hhiq_detailsCol').evaluate(el => getComputedStyle(el).zIndex),
+    'chat and browser are peer stacking contexts in dock mode')
+  // Global UI must paint above both peers, including the browser's local menus.
+  const assertShellAboveBrowser = async () => {
+    await page.getByRole('button', { name: '更多浏览器操作', exact: true }).click()
+    await page.evaluate(() => {
+      const card = document.createElement('button')
+      card.dataset.testid = 'global-menu'; card.textContent = 'Global model menu'
+      card.style.cssText = 'position:absolute;right:30px;top:75px;width:160px;height:100px;background:white'
+      card.onclick = () => { window.globalMenuClicked = true }
+      document.querySelector('[data-shell-overlay]').append(card)
+    })
+    const visible = await page.getByTestId('global-menu').evaluate(element => {
+      const r = element.getBoundingClientRect()
+      return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === element
+    })
+    assert.equal(visible, true, 'shell overlays must win hit testing over browser chrome and drawer')
+    await page.getByTestId('global-menu').click()
+    assert.equal(await page.evaluate(() => window.globalMenuClicked), true)
+    await page.evaluate(() => document.querySelector('[data-testid="global-menu"]').remove())
+    await page.getByRole('button', { name: '更多浏览器操作', exact: true }).click()
+  }
+  await assertShellAboveBrowser()
   const dragHandle = page.locator('._84hhiq_handle[data-side="details"]')
   const drag = async delta => {
     const box = await dragHandle.boundingBox()
@@ -115,6 +139,7 @@ try {
   await page.setViewportSize({ width: 700, height: 780 })
   await page.waitForFunction(() => document.querySelector('[data-xhworkspace-drawer]') !== null)
   assert.equal(await page.getByRole('button', { name: '关闭工作区' }).count(), 1, 'drawer adds a dismissible scrim')
+  await assertShellAboveBrowser()
   await page.getByRole('button', { name: '关闭工作区' }).click({ position: { x: 20, y: 20 } })
   await page.getByRole('region', { name: '工作区' }).waitFor({ state: 'hidden' })
   await page.getByRole('button', { name: '展开右侧工作区' }).click()
