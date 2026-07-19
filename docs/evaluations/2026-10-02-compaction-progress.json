@@ -26,8 +26,7 @@
       "completed partial/merge summaries",
       "splits",
       "retries",
-      "retry countdown",
-      "elapsed wall time",
+      "scheduled retry delay",
       "budget input before/after"
     ],
     "tokenMetricIsBillingUsage": false,
@@ -39,7 +38,7 @@
     "recovery": "Classified transient transport failures reuse sustained backoff when enabled; HTTP and unstructured failures remain bounded; credential errors stop",
     "controls": "Existing pause/resume/cancel/steer are processed during summarization; resume preserves remaining retry time",
     "failure": "Visible terminal card and error details; unsuccessful candidate never replaces original model history",
-    "presentation": "Compact indeterminate monochrome progress bar; retry countdown remains visible, statistics collapsed by default; paused/reduced-motion animation disabled"
+    "presentation": "Single bilingual status: Compacting context… · May take a few minutes / 正在压缩… · 可能需要几分钟. No progress bar, percentage, request/retry count, stage expansion or ticking clock. Paused and terminal errors remain explicit; failure details can be expanded."
   },
   "regression": {
     "rustExecutionHost": "WZU_Server",
@@ -78,7 +77,7 @@
       "Chromium",
       "WebKit"
     ],
-    "browserCoverage": "Shipped React/helper/CSS/locales in isolated headless fixture; live clock/countdown, expansion/session identity, light/dark, 360/715/1440px, zh/en, failure and timer cleanup; indeterminate accessibility (no fabricated value), paused/reduced-motion sweep and one style injection",
+    "browserCoverage": "Shipped React/helper/CSS/locales in isolated headless fixture; one stable status across seven runtime stages and 70 retry snapshots, truthful paused state, no per-row timer, visible terminal failure and expandable error, session identity isolation, light/dark, 360/715/1440px, zh/en.",
     "browserFixtureLimits": "No production Host or model call; icon primitives substituted in fixture; not a native macOS application test",
     "assemblyPatch": "Fresh upstream-prefix and product-prefix fixture transforms agree; checked helper and bundle hashes agree",
     "fullUpstreamReassembly": "Not completed: local upstream checkout lacks web bundle build dependencies",
@@ -95,11 +94,13 @@
     "formatAndDiffChecks": "passed"
   },
   "delivery": {
-    "githubCi": "Regression steps added; remote GitHub run not triggered",
+    "githubCi": "Initial exact-source 8307d642 CI run 36961798159 passed on Linux, Windows and macOS; minimal-status follow-up will rerun CI on PR #190.",
     "paidApiCalls": 0,
-    "applicationRestartedOrReplaced": false,
     "releaseCreated": false,
-    "merged": false
+    "merged": false,
+    "applicationReplaced": false,
+    "originalApplicationRestarted": true,
+    "deploymentNote": "No compaction candidate was installed. The original 0.2.31 app was closed and reopened during a cancelled installation attempt before the user clarified PR-only delivery."
   },
   "limits": [
     "Compaction after a process kill does not resume a cached partial summary; existing recovery retains original history",
