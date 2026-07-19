@@ -32,6 +32,7 @@ try {
     }
     const layout = registrations['@xharness/dsh-client-ui-layout'].factory(runtime)
     const browser = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
+    browser.apply({ effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: () => {} } })
     let AppFrame
     layout.apply({
       effect: (fn, label) => { if (label.includes('service')) fn() },
