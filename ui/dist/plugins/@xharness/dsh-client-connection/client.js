@@ -5339,12 +5339,18 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* the client reads without echoing back; deep-validating it would hand-copy
 		* the dsh-tools vocabulary into this schema and drift with it.
 		*/
+// xh-compaction-wire/v1
 		const toolEventViewSchema = discriminatedUnion("for", [object({
 			for: literal("call"),
 			view: looseObject({ card: string() })
 		}), object({
 			for: literal("result"),
 			view: looseObject({ card: string() })
+		}), object({
+			for: literal("compaction"),
+			// Preserve the versioned product payload, including progress and future
+			// fields. Its owning renderer validates or falls back to durable facts.
+			view: looseObject({})
 		})]);
 		/** One session.history item: the session event plus its optional host-computed tool view. */
 		const historyEntrySchema = object({
