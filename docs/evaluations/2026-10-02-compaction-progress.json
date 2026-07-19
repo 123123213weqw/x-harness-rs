@@ -91,10 +91,21 @@
       "UI namespace"
     ],
     "architecture": "36 crate dependency boundaries and eight extracted Host processors passed",
-    "formatAndDiffChecks": "passed"
+    "formatAndDiffChecks": "passed",
+    "connectionCarrier": {
+      "codec": "Actual shipped Connection factory and embedded Zod, not a bypass of readSse or callUnary",
+      "transports": [
+        "session.history unary",
+        "SSE mux",
+        "browser WebSocket mux"
+      ],
+      "compatibilityCases": 33,
+      "fixture": "Old codec rejects indexes 67/70 and drops compaction live frames; updated codec preserves numeric progress, Unicode and future fields while rejecting invalid event envelopes",
+      "limits": "Transport mocks only; not an installed native application or paid provider end-to-end run"
+    }
   },
   "delivery": {
-    "githubCi": "Initial exact-source 8307d642 CI run 36961798159 passed on Linux, Windows and macOS; minimal-status follow-up will rerun CI on PR #190.",
+    "githubCi": "Initial backend 8307d642 passed CI 36961798159; minimal-status 30e4b1f0 passed CI 36970288329 on Linux, Windows and macOS. Connection carrier follow-up will rerun CI on PR #190.",
     "paidApiCalls": 0,
     "releaseCreated": false,
     "merged": false,
