@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import {patchCompactionProgressModel,patchCompactionProgress} from './patch-compaction-progress.mjs';
 import { patchCompactionViewModel } from './patch-compaction-view-model.mjs';
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const runtimeSource = read('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js');
@@ -19,7 +20,7 @@ for (const name of ['contextLocation', 'chatNode']) {
   assert.ok(start >= 0 && end > start);
   vm.runInContext(ui.slice(start, end + 4), context);
 }
-const start = ui.indexOf('const COMPACT_PLUGIN = "compact";');
+const start = ui.indexOf('// xh-compaction-progress/v1');
 const end = ui.indexOf('//#endregion', ui.indexOf('function registerCompactionConversationNode', start));
 vm.runInContext(ui.slice(start, end) + '\nglobalThis.definition=compactionDefinition;', context);
 const definition = context.definition;
@@ -65,7 +66,7 @@ function exercise(input, label, failed) {
   const full = assembler(); full.replaceWindow(input, false); full.flush();
   const expected = snapshot(full);
   assert.equal(expected.length, 1, label);
-  assert.equal(expected[0].visibility, failed ? 'hidden' : 'visible', label);
+  assert.equal(expected[0].visibility, 'visible', label);
   const live = assembler();
   let runningKey;
   for (const [index, entry] of input.entries()) {
@@ -130,18 +131,18 @@ const multi = assembler(); multi.replaceWindow(combined, false); multi.flush();
 const liveMulti = assembler(); for (const row of combined) { liveMulti.append(row); liveMulti.flush(); }
 assert.deepEqual(snapshot(liveMulti), snapshot(multi));
 assert.equal(snapshot(multi).length, fixtures.length);
-assert.equal(snapshot(multi).filter(n => n.visibility === 'visible').length, 1); checks += 3;
+assert.equal(snapshot(multi).filter(n => n.visibility === 'visible').length, fixtures.length); checks += 3;
 // Prove the real engine rejects the original null-withdrawal regression.
 const broken = assembler({ ...definition, buildViewNode: context => {
   const node = definition.buildViewNode(context);
-  return node?.visibility === 'hidden' ? null : node;
+  return node?.data.status === 'failed' ? null : node;
 } });
 const failure = wire(fixtures.find(f => f.error), 'legacy');
 for (const row of failure.slice(0, -1)) { broken.append(row); broken.flush(); }
 broken.append(failure.at(-1));
 assert.throws(() => broken.flush(), /withdrew materialized target/); checks++;
 // A fresh assembly must produce the same reducer/Definition as the shipped bundle.
-const fresh = patchCompactionViewModel(Buffer.from(read('../tests/fixtures/compaction-definition-legacy.js'))).toString();
+const fresh = patchCompactionProgressModel(patchCompactionViewModel(Buffer.from(read('../tests/fixtures/compaction-definition-legacy.js')))).toString();
 for (const name of ['updateCompactionState', 'fallbackState$2', 'projectedCompactionView']) {
   const extract = source => {
     const start = source.indexOf(`function ${name}(`), end = source.indexOf('\n\t\t}', start);
@@ -156,4 +157,5 @@ for (const row of wire(fixtures[1], 'projected'))
   assert.deepEqual(plain(generatedContext.definition.match(row.event, row.view)), plain(definition.match(row.event, row.view)));
 assert.deepEqual(patchCompactionViewModel(Buffer.from(fresh)), Buffer.from(fresh), 'fresh patch idempotence');
 assert.deepEqual(patchCompactionViewModel(Buffer.from(ui)), Buffer.from(ui), 'patch idempotence');
+assert.deepEqual(patchCompactionProgress(Buffer.from(ui)),Buffer.from(ui));
 console.log(`compaction projection: ${checks} checks; shipped assembler live/reload/batched/all page splits/duplicate/mixed/terminal-only passed`);
