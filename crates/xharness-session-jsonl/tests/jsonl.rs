@@ -1998,31 +1998,45 @@ async fn audit_preserves_multimodal_opaque_reasoning_and_crlf_legacy_history() {
 
 #[tokio::test]
 async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_and_compression() {
-    use xharness_session::{SequenceRange, SurfaceReplace};
+    use xharness_session::{CompactionProgress, CompactionStage, SequenceRange, SurfaceReplace};
     let dir = TestDir::new();
     let id = "compact-context";
     let store = JsonlSessionStore::new(dir.path())
         .unwrap()
         .with_cache_limits(0, 0);
     store.create(header(id)).await.unwrap();
-    store
-        .append(
-            id,
-            Revision::ZERO,
-            vec![
-                turn_start(1),
-                user_message(&"prior user history".repeat(4096)),
-                EventData::StepStart { turn: 1, step: 1 }.into(),
-                EventData::CompactionStart {
-                    compaction_id: "c1".into(),
-                    source_command_id: None,
-                    turn: Some(1),
-                }
-                .into(),
-            ],
-        )
-        .await
-        .unwrap();
+    let mut prefix = vec![
+        turn_start(1),
+        user_message(&"prior user history".repeat(4096)),
+        EventData::StepStart { turn: 1, step: 1 }.into(),
+        EventData::CompactionStart {
+            compaction_id: "c1".into(),
+            source_command_id: None,
+            turn: Some(1),
+        }
+        .into(),
+    ];
+    for i in 0..50 {
+        prefix.push(
+            EventData::CompactionProgress {
+                compaction_id: "c1".into(),
+                source_command_id: None,
+                turn: Some(1),
+                progress: CompactionProgress {
+                    stage: CompactionStage::Retrying,
+                    calls: i + 1,
+                    completed_parts: 0,
+                    splits: 0,
+                    retries: i + 1,
+                    delay_ms: Some(1000),
+                    input_tokens_before: Some(180000),
+                    input_tokens_after: None,
+                },
+            }
+            .into(),
+        );
+    }
+    store.append(id, Revision::ZERO, prefix).await.unwrap();
     let range = SequenceRange { start: 1, end: 1 };
     store
         .append(
@@ -2090,10 +2104,18 @@ async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(page.events, session.events()[5..]);
+        assert_eq!(page.events, session.events()[55..]);
         assert_eq!(
             page.context.iter().map(|e| e.seq).collect::<Vec<_>>(),
-            vec![3, 4]
+            vec![3, 53, 54]
+        );
+        assert_eq!(
+            page.context.len(),
+            3,
+            "only start, latest progress and summary, not 50 retry snapshots"
+        );
+        assert!(
+            matches!(page.context[1].data(),EventData::CompactionProgress {progress,..} if progress.retries==50)
         );
         assert_eq!(reopened.cache_stats().entries, 0);
     }

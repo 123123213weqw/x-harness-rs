@@ -492,6 +492,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         summary: Option<(crate::SequenceRange, Vec<Sequence>)>,
         replacement: bool,
         ended: bool,
+        progress: Option<crate::CompactionProgress>,
     }
 
     fn lifecycle_error(seq: Sequence, message: impl Into<String>) -> SessionError {
@@ -1582,6 +1583,39 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ..CompactionState::default()
                     },
                 );
+            }
+            EventData::CompactionProgress {
+                compaction_id,
+                source_command_id,
+                turn,
+                progress,
+            } => {
+                let Some(state) = compactions.get_mut(compaction_id) else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "compaction/progress has no matching start",
+                    ));
+                };
+                if state.ended
+                    || state.summary.is_some()
+                    || state.source_command_id != *source_command_id
+                    || state.turn != *turn
+                    || state.progress.as_ref().is_some_and(|old| {
+                        progress.calls < old.calls
+                            || progress.completed_parts < old.completed_parts
+                            || progress.splits < old.splits
+                            || progress.retries < old.retries
+                    })
+                    || progress.completed_parts > progress.calls
+                    || progress.delay_ms.is_some()
+                        != (progress.stage == crate::CompactionStage::Retrying)
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "compaction/progress has invalid lifecycle or counters",
+                    ));
+                }
+                state.progress = Some(progress.clone());
             }
             EventData::CompactionSummary {
                 compaction_id,
