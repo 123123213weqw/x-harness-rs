@@ -98,6 +98,15 @@ try {
   await page.evaluate(() => document.querySelector('[role="dialog"]').remove())
   await page.waitForFunction(() => lease?.owner === 'session-parent')
 
+  await page.evaluate(() => {
+    const menu = document.createElement('div'); menu.id = 'global-model-menu'; menu.role = 'menu'
+    menu.textContent = 'Model menu'; menu.style.cssText = 'position:fixed;left:300px;top:180px;width:200px;height:120px'
+    document.body.append(menu)
+  })
+  await page.waitForFunction(() => active === null && lease === null)
+  await page.evaluate(() => document.getElementById('global-model-menu').remove())
+  await page.waitForFunction(() => active === 'browser:1' && lease?.owner === 'session-parent')
+
   // The same visible tab is rebound to the actual selected chat, not inherited.
   const switchStart = await page.evaluate(() => calls.length)
   await page.evaluate(() => setSession('session-child'))
