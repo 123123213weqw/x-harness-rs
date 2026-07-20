@@ -28,6 +28,8 @@ window.__ModuleLoader__.load({
 .xhe-shortcut span{flex:1;min-width:0;font-size:12px}.xhe-key,.xhe-reset{font:inherit;font-size:11px;cursor:pointer;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:5px 8px}
 .xhe-key[data-recording=true]{border-color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
 .xhe-note{color:var(--dsw-alias-state-error-primary)!important}.xhe-footer{display:flex;justify-content:flex-end;margin-top:9px}
+html[data-xh-process-mode=compact] [data-variant=think][data-state=ok]{display:none}
+html[data-xh-process-mode=compact] [data-variant=think] .U8JO7q_separator,
 html[data-xh-process-mode=compact] [data-variant=think] .U8JO7q_summary{display:none}
 @media(max-width:700px){.xhe-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `
