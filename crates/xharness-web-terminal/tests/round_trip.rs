@@ -105,6 +105,50 @@ async fn open_send_read_resize_close_round_trip() {
 }
 
 #[tokio::test]
+async fn repeated_terminate_then_immediate_close_is_safe() {
+    let registry = Arc::new(TerminalRegistry::with_defaults());
+    let router = app(Some(TerminalRouterState::new(Some(registry.clone()))));
+    for iteration in 0..32 {
+        let name = format!("signal-close-{iteration}");
+        let (status, body) = post_json(
+            &router,
+            "/api/terminal/open",
+            json!({
+                "name": name,
+                "program": "/bin/sh",
+                "args": ["-c", "printf signal-close-ready; exec sleep 10"],
+                "cwd": "/tmp",
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "iteration {iteration}: {body}");
+        let output = poll_read(&router, &name, "signal-close-ready").await;
+        assert!(output.contains("signal-close-ready"), "{output:?}");
+
+        let (status, body) = post_json(
+            &router,
+            "/api/terminal/signal",
+            json!({"name": name, "signal": "terminate"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "iteration {iteration}: {body}");
+        // Do not yield intentionally between signalling the live child and
+        // closing it: close resolves the PTY group again as the child exits.
+        let (status, body) = post_json(&router, "/api/terminal/close", json!({"name": name})).await;
+        assert_eq!(status, StatusCode::OK, "iteration {iteration}: {body}");
+        assert_eq!(body["read"]["running"], json!(false), "{body}");
+        let (status, body) = post_json(&router, "/api/terminal/read", json!({"name": name})).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        let (status, body) = post_json(&router, "/api/terminal/list", json!({})).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["terminals"], json!([]), "{body}");
+    }
+    let report = registry.shutdown().await;
+    assert!(report.is_graceful(), "{report:?}");
+    assert_eq!(report.sessions, 0);
+}
+
+#[tokio::test]
 async fn terminal_sessions_are_isolated_across_conversations() {
     let registry = Arc::new(TerminalRegistry::with_defaults());
     let router = app(Some(TerminalRouterState::new(Some(registry.clone()))));
