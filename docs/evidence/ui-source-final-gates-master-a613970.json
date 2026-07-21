@@ -1009,6 +1009,18 @@
     {
       "name": "xh-pr194-tauri-linux-job.log",
       "sha256": "195f45714452eb55ae60caa2c0a24db57abd772e66dc8b9917e2c76e5d27590b"
+    },
+    {
+      "name": "xh-pr194-ci-followup-failed.log",
+      "sha256": "5bd9f7abfdeeb5f08ac4e6692de3123434d887bbc7753874ea37b3e0384ea897"
+    },
+    {
+      "name": "xh-script-assets-causal-chromium-final.log",
+      "sha256": "485e911d3619abf13f5c03b053d21ac516baf1cdb3f3cb1217427709b39df475"
+    },
+    {
+      "name": "xh-script-assets-causal-webkit-final.log",
+      "sha256": "9f4ba639d1b566ea99b6086829bd18ac09f55a97cd1c7e4f42de480dd0c9de7b"
     }
   ],
   "limitations": [
@@ -1043,5 +1055,35 @@
     "productionChangedInCiCorrection": false,
     "mergeAllowed": false,
     "nextRunRequired": true
+  },
+  "ciFollowup": {
+    "head": "f1bc06189c3b610342725a0caf11dfd82003fc69",
+    "runUrl": "https://github.com/123123213weqw/x-harness-rs/actions/runs/37018400691",
+    "nativeJobsPassed": [
+      "Rust Linux",
+      "Rust macOS arm64",
+      "Rust Windows x86_64",
+      "Tauri Desktop Linux",
+      "Update channel contract"
+    ],
+    "failedJob": "Context and Harness layout",
+    "failedPath": "scripts/test-script-assets-browser.mjs",
+    "cause": "test imposed total order across independent first-frame RAF and updater promise chains",
+    "productionChangedInCorrection": false,
+    "correction": "exact phase and updater causal chains, arguments and counts; deliberately cover both legal interleavings and original natural scheduling; retain UI/confirmation/Escape/XSS/pagehide/error assertions",
+    "localBrowserCases": 36,
+    "browsers": [
+      "chromium",
+      "webkit"
+    ],
+    "roundsPerEngine": 3,
+    "schedules": [
+      "startup-first",
+      "updater-first",
+      "natural"
+    ],
+    "rejectedInvalidTraceCases": 14,
+    "nextRunRequired": true,
+    "mergeAllowed": false
   }
 }
