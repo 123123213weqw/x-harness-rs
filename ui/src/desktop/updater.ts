@@ -121,13 +121,15 @@ function decodeState(value: unknown): UpdateState | undefined {
   host.id = 'xharness-desktop-updater'
   host.hidden = true
   // Keep the sidebar's bottom Settings button accessible in both rail and expanded layouts.
-  // Normal app chrome, not a top-level overlay: chat menus/settings must cover it.
-  host.style.cssText = 'position:fixed;left:11px;bottom:64px'
+  // App chrome / local drawer (0–10) < updater (11) < shell overlays (20).
+  // `auto` lets the sticky composer (7) paint over the expanded panel. Do not
+  // promote this to the top layer: settings, approvals and menus must still win.
+  host.style.cssText = 'position:fixed;left:11px;bottom:64px;z-index:11'
   const root = host.attachShadow({ mode: 'open' })
   root.innerHTML = `
     <style>
       :host{color-scheme:light dark} *{box-sizing:border-box}
-      .panel{position:absolute;bottom:46px;left:0;width:min(340px,calc(100vw - 32px));padding:16px;border-radius:16px;
+      .panel{position:absolute;bottom:46px;left:0;width:min(340px,calc(100vw - 32px));max-height:calc(100vh - 126px);overflow:auto;padding:16px;border-radius:16px;
         background:Canvas;color:CanvasText;border:1px solid color-mix(in srgb,CanvasText 15%,transparent);
         box-shadow:0 12px 40px #0003;font:13px/1.5 ui-sans-serif,system-ui,sans-serif}
       [hidden]{display:none!important}.header{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -143,7 +145,7 @@ function decodeState(value: unknown): UpdateState | undefined {
       progress{width:100%;height:6px;accent-color:#2463eb}.confirm{margin-top:12px;padding:10px;border:1px solid #d99b3444;border-radius:8px}
       @media(prefers-reduced-motion:no-preference){.busy svg{animation:pulse 1.5s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}}
     </style>
-    <section class="panel" hidden aria-label="XHarness 软件更新">
+    <section class="panel" hidden role="dialog" aria-modal="false" aria-label="XHarness 软件更新">
       <div class="header"><span class="title">XHarness 更新</span><button class="close" aria-label="关闭更新面板">×</button></div>
       <div class="text" role="status" aria-live="polite"></div>
       <progress hidden aria-label="更新下载进度"></progress>
@@ -199,7 +201,14 @@ function decodeState(value: unknown): UpdateState | undefined {
   $('.close').addEventListener('click', collapse)
   later.addEventListener('click', () => controller.dismiss())
   action.addEventListener('click', () => controller.confirming ? controller.confirm() : controller.act())
-  root.addEventListener('keydown', event => { if (event instanceof KeyboardEvent && event.key === 'Escape') { collapse(); toggle.focus() } })
+  root.addEventListener('keydown', event => {
+    if (event instanceof KeyboardEvent && event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      collapse()
+      toggle.focus()
+    }
+  })
 
   let disposed = false
   let unlisten: NativeUnlisten | undefined, initialTimer: number | undefined, periodicTimer: number | undefined
