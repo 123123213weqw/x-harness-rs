@@ -664,6 +664,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Install locked UI toolchain for native desktop contracts
+        run: npm ci --prefix ui --ignore-scripts
       - name: Production BrowserPane and native task/action contracts (zero API)
         run: |
           npm install --prefix "$RUNNER_TEMP/native-react" --no-save --package-lock=false react@18.3.1 react-dom@18.3.1

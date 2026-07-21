@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url'
 /** Acceptance-only AST seam over the actual production connection factory. */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -18,7 +19,7 @@ export function verifyConnectionArtifact(){
  const bytes=readFileSync(new URL(`dist/plugins/${id}/client.js`,ui)),graph=JSON.parse(readFileSync(new URL('dist/client-graph.json',ui))),entry=graph.entries.find(row=>row.id===id),html=readFileSync(new URL('dist/index.html',ui),'utf8')
  new Script(bytes.toString());assert.ok(entry,'shipped graph must contain connection');assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));assert.ok(html.includes(entry.url));assert.deepEqual(JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]),graph)
  const manifest=JSON.parse(readFileSync(new URL('modules.json',ui))),row=manifest.modules.find(entry=>entry.id===id)
- if(row?.kind==='source-module')assert.deepEqual(bytes,compileSourceModules(ui.pathname,[row]).get(id).bytes,'shipped connection must match its strict owned source, not a stale/frozen bundle')
+ if(row?.kind==='source-module')assert.deepEqual(bytes,compileSourceModules(fileURLToPath(ui),[row]).get(id).bytes,'shipped connection must match its strict owned source, not a stale/frozen bundle')
  return bytes.toString()
 }
 /** Unit-scoped insertion preserves all lexical imports and private production reducers. */
