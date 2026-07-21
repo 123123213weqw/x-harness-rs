@@ -11,7 +11,7 @@ const dir=mkdtempSync(join(tmpdir(),'xh-headline-'))
 const plugin='plugins/@xharness/dsh-client-ui-conversation/client.js'
 try {
  mkdirSync(join(dir,'plugins/@xharness/dsh-client-ui-conversation'),{recursive:true})
- for(const file of [plugin,'index.html','client-graph.json']) cpSync(new URL('../ui/'+(file===plugin?'legacy/':'dist/')+file,import.meta.url),join(dir,file))
+ for(const file of [plugin,'index.html','client-graph.json']) cpSync(new URL('../ui/reference/master-a613970/'+file,import.meta.url),join(dir,file))
  const run=()=>execFileSync(process.execPath,[fileURLToPath(new URL('./patch-brand-headline.mjs',import.meta.url)),dir])
  run(); const before=readFileSync(join(dir,'index.html'),'utf8');run()
  assert.equal(readFileSync(join(dir,'index.html'),'utf8'),before)
