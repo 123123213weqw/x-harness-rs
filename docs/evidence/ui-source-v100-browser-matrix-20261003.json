@@ -1,0 +1,1828 @@
+{
+  "schemaVersion": 1,
+  "baseline": "a613970c78a36a024de56100078323df25b96004",
+  "environment": {
+    "node": "v20.20.2",
+    "playwright": "1.59.1",
+    "location": "WZU_Server Ubuntu 22.04",
+    "latestCiRuntime": false,
+    "supplementaryOnly": true
+  },
+  "entryCounts": {
+    "total": 172,
+    "differential": 108,
+    "canonical": 60,
+    "platform": 4,
+    "initialPass": 169,
+    "initialFail": 3,
+    "acceptedAfterIndependentCorrections": 171,
+    "unresolved": 1
+  },
+  "initialEntries": [
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-renderer-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 17304,
+      "log": "000-chromium-source-test-renderer-source-browser.log",
+      "logSha256": "83114f4a515500f2f531ed039d368a0e4a697421ea9db4c59e6283fc81422955"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-workspace-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 28580,
+      "log": "001-chromium-source-test-workspace-source-browser.log",
+      "logSha256": "830bf918393b6c88db1aae893bf0fd1123befcc0b3578ca2bf878a5a85a6974e"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-model-selection-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 19660,
+      "log": "002-chromium-source-test-model-selection-source-browser.log",
+      "logSha256": "2488bd17c26a58cb37ebe3b26beb0771be88d2bc4f4b792c54e2d922642e3711"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-attachment-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 8384,
+      "log": "003-chromium-source-test-attachment-source-browser.log",
+      "logSha256": "aa9b3f8228a50b472803d9df01601238d2afc65874e0f1bc5469ce6d859f9562"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-settings-models-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 18171,
+      "log": "004-chromium-source-test-settings-models-source-browser.log",
+      "logSha256": "cc41186b8e321fecce46368930fe0a5b00df993352d936aeb219ae32a55cd2d2"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-tool-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 30507,
+      "log": "005-chromium-source-test-tool-source-browser.log",
+      "logSha256": "286b4de9c9a520ea5d1e67ac58745fb3706052789a1328b144b59f54d35c53fd"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-conversation-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 25478,
+      "log": "006-chromium-source-test-conversation-source-browser.log",
+      "logSha256": "38f030a2f1ebf6e1fe8e9c855ae9b852d493bbbc963afc4fb9b8e9c39e8504ee"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-trajectory-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 29839,
+      "log": "007-chromium-source-test-trajectory-source-browser.log",
+      "logSha256": "7d57d47d792b6caf3ef51b7642c289807bd57f2fb3e1c185f3caeaef7733355d"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-tasks-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 19010,
+      "log": "008-chromium-source-test-tasks-source-browser.log",
+      "logSha256": "4ebeb4a80884963057d8e18af4536895c4f34472cfab9356dbe40d862020a71a"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-profile-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 16456,
+      "log": "009-chromium-source-test-profile-source-browser.log",
+      "logSha256": "59ff4f5973dad492f20a144a16fac4652048ad3110ce44c6c1db32032dcc42c2"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-cordis-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 21422,
+      "log": "010-chromium-source-test-cordis-source-browser.log",
+      "logSha256": "c7de9397800b84bc7b2ca21dd7b8672d9e95b562fa1d312e7bba238f0735c4f0"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-owned-view-persistence-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 32300,
+      "log": "011-chromium-source-test-owned-view-persistence-browser.log",
+      "logSha256": "237d529dffbe139d26bac4bd609a09e7be7e477a21c2fe73a4e9113c707afdd9"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-plugin-hub-functional.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 18610,
+      "log": "012-chromium-source-test-plugin-hub-functional.log",
+      "logSha256": "406b36cc2e040cb6031422ddd89c03a5fe97f6d187aaaa943b9fffb481a0bcbb"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-dock-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 47697,
+      "log": "013-chromium-source-test-browser-dock-browser.log",
+      "logSha256": "c44dce25e65f23b56204b09062e51b932391269572268524ff75d339297f263a"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-dock-native-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 45394,
+      "log": "014-chromium-source-test-browser-dock-native-browser.log",
+      "logSha256": "25e79f32259b098fd33320610be56c17db3ce734717e0b2de95f9957fea0e335"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-persistence-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 24680,
+      "log": "015-chromium-source-test-browser-persistence-browser.log",
+      "logSha256": "cf342fcd81e4102f268111ae81dc79808f55afdd55af837c6c7d4fa28c81789e"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-restore-runtime.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 41921,
+      "log": "016-chromium-source-test-browser-restore-runtime.log",
+      "logSha256": "a34ca27edc8e907a0199d7330502a2e83809a0f19fc079ecb20f71dbe4d4a267"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-question-continuation-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 23384,
+      "log": "017-chromium-source-test-question-continuation-browser.log",
+      "logSha256": "a68247153785a84438c28e83dce75b740c6d4b4860ed1d257f798eac1e3c1e99"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-goal-runtime-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 31396,
+      "log": "018-chromium-source-test-goal-runtime-browser.log",
+      "logSha256": "99cd213c47d21ad29fd693db7cb7e1047a9e23d0b860e5054284f3df70afd638"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-approval-prompt-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 37158,
+      "log": "019-chromium-source-test-approval-prompt-browser.log",
+      "logSha256": "1956f7b7754683ee9b21bc094732fed6294326eb446f68e740ffd60c3e815806"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-workspace-directory-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 66979,
+      "log": "020-chromium-source-test-workspace-directory-browser.log",
+      "logSha256": "75ee93b5c7c1267f3d7bdf6e2180e887ea9d0472ffb50bad92055dc2fa89b0c3"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-request-audit-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 17717,
+      "log": "021-chromium-source-test-request-audit-browser.log",
+      "logSha256": "b96be344992d0ed1c584b141909b8ba292e078c76f4c0cea330be7cc02459443"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-conversation-message-edit-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 37070,
+      "log": "022-chromium-source-test-conversation-message-edit-browser.log",
+      "logSha256": "8ea31ea4aeb967110fbd58f69b3d6e23e9563e6c21091bb963be7f8af38add58"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-attachments-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 36760,
+      "log": "023-chromium-source-test-attachments-browser.log",
+      "logSha256": "0d4c622e06c01ba16a7ee33b08f21cef46cb42181c294b359be4a07942dd11ee"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-execution-checkpoints-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 35506,
+      "log": "024-chromium-source-test-execution-checkpoints-browser.log",
+      "logSha256": "f717cb07065932c2c44f8fdbc4173f09286e5049a7f4d1d626fcfb836e9d1077"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-streaming-math.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 13546,
+      "log": "025-chromium-source-test-streaming-math.log",
+      "logSha256": "c169281706212eb876acb5284378b3acff25502afc22ae71030b9f23336494ae"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-compaction-progress-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 35910,
+      "log": "026-chromium-source-test-compaction-progress-browser.log",
+      "logSha256": "e7f62ec01bcf4225ccaaef48f3e159f0d5ff54644fc2f7e938fad506921eefe4"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-renderer-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2027,
+      "log": "027-chromium-legacy-test-renderer-source-browser.log",
+      "logSha256": "25930a06ed5f530fc368a6df2a2e0d2b054f1d08fc82b32c2a027bdf3e675f84"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-workspace-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3329,
+      "log": "028-chromium-legacy-test-workspace-source-browser.log",
+      "logSha256": "66e99be5e0a5c6569912019aa8257774cb16906bf49dbc42d5216dc5f7185551"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-model-selection-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3021,
+      "log": "029-chromium-legacy-test-model-selection-source-browser.log",
+      "logSha256": "2488bd17c26a58cb37ebe3b26beb0771be88d2bc4f4b792c54e2d922642e3711"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-attachment-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 1919,
+      "log": "030-chromium-legacy-test-attachment-source-browser.log",
+      "logSha256": "7781b8c0b077c668a6f0a41d0a6a439d9937c7df90635621f025992a3dc906ef"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-settings-models-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2370,
+      "log": "031-chromium-legacy-test-settings-models-source-browser.log",
+      "logSha256": "b7a70638ef6b34eda256a0d25fd7c3763dede5f21e4ccb69a1e24a6509cde527"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-tool-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 22123,
+      "log": "032-chromium-legacy-test-tool-source-browser.log",
+      "logSha256": "1667382e8d0cf1a321ef2cecbefddd52b780537d2db6f6fce8476910ea76a53f"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-conversation-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3276,
+      "log": "033-chromium-legacy-test-conversation-source-browser.log",
+      "logSha256": "c89b6750bb4db52cd99d383a3a7c6bbacc7fbac2e103ce6410a04fd5e992724a"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-trajectory-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3374,
+      "log": "034-chromium-legacy-test-trajectory-source-browser.log",
+      "logSha256": "2b742656f9ba0da4c0afa03a7c25403dd29fc84057da14cefc3741f5c9e53ab4"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-tasks-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2822,
+      "log": "035-chromium-legacy-test-tasks-source-browser.log",
+      "logSha256": "a713d37fd4c8b9d3ee0b76b0562ae6ced139bcda8f2a1457f15fab3cd7725fa8"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-profile-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2219,
+      "log": "036-chromium-legacy-test-profile-source-browser.log",
+      "logSha256": "c3b8f111fa5699754381d7136161469d7f1f72dd73e0f18c32946e4aa1a07a7d"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-cordis-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3172,
+      "log": "037-chromium-legacy-test-cordis-source-browser.log",
+      "logSha256": "f67c24d6d877d7fd3a387112342e38ff7282f87cfff006b017351656b0dd0bb6"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-owned-view-persistence-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 1921,
+      "log": "038-chromium-legacy-test-owned-view-persistence-browser.log",
+      "logSha256": "e3b1046fc96c788cda1552143dc6da655a0fa3185686443ecd1e7ce892b89b51"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-plugin-hub-functional.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2473,
+      "log": "039-chromium-legacy-test-plugin-hub-functional.log",
+      "logSha256": "f005df15e67c180ca06d2c00c8e920d657d62ca2ece04d7f499057872732f5fb"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-browser-dock-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3624,
+      "log": "040-chromium-legacy-test-browser-dock-browser.log",
+      "logSha256": "49c98a546bd168d0a418c7b7ad4653ac1125408c9fd6ce48a8800008c8e25e9a"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-browser-dock-native-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2421,
+      "log": "041-chromium-legacy-test-browser-dock-native-browser.log",
+      "logSha256": "a957f943b401f78485fe542e4165f97a9e8d8ac1c9b08fe6a4b87d8448f7091c"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-browser-persistence-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 1868,
+      "log": "042-chromium-legacy-test-browser-persistence-browser.log",
+      "logSha256": "def83899b56fbe0fcca67231c673b5a8b6846553bbb54ba56062f76d97a1ee3b"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-browser-restore-runtime.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2070,
+      "log": "043-chromium-legacy-test-browser-restore-runtime.log",
+      "logSha256": "a34ca27edc8e907a0199d7330502a2e83809a0f19fc079ecb20f71dbe4d4a267"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-question-continuation-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3674,
+      "log": "044-chromium-legacy-test-question-continuation-browser.log",
+      "logSha256": "2d7c8e76bcedc69262e62f741bc2839c9d51ab76e4f40cd8bb70631ac746ab28"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-goal-runtime-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3322,
+      "log": "045-chromium-legacy-test-goal-runtime-browser.log",
+      "logSha256": "82adf96cfb4b665430fa2274c0966d9da2f73fe3140c5c96fb79eb53e95b9912"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-approval-prompt-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3222,
+      "log": "046-chromium-legacy-test-approval-prompt-browser.log",
+      "logSha256": "72e8cbf768d5a969a4c1a0a28d3115927f0d0727cfbbca02f21f78fe42a4dead"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-workspace-directory-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 6428,
+      "log": "047-chromium-legacy-test-workspace-directory-browser.log",
+      "logSha256": "1a87d453531905f6f17412a3b0dfa846761f332f53b726bc0d2d0e390c6d2da1"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-request-audit-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2370,
+      "log": "048-chromium-legacy-test-request-audit-browser.log",
+      "logSha256": "1161783fdea41a6915e8204cfacca038ff3f5adb78531d8b4d106124e368ac94"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-conversation-message-edit-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 4125,
+      "log": "049-chromium-legacy-test-conversation-message-edit-browser.log",
+      "logSha256": "76e3aaed146e3f9ef3030f991de565afdf9e82d8ffce23e49c4a4577c8c3a8ac"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-attachments-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 4826,
+      "log": "050-chromium-legacy-test-attachments-browser.log",
+      "logSha256": "4387633edfacb7fb2f1cb68e628fc7dd01ffb6f8b3ff7790eced7117fcc16f19"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-execution-checkpoints-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2770,
+      "log": "051-chromium-legacy-test-execution-checkpoints-browser.log",
+      "logSha256": "54693d842be7230a95036b578babd6b53ff162ced82359ccc7b6caded0ca3863"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-streaming-math.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2721,
+      "log": "052-chromium-legacy-test-streaming-math.log",
+      "logSha256": "2195600cc3de3b11c4d7a81f2936af60ae51b8232cdade125d989adf7918560b"
+    },
+    {
+      "engine": "chromium",
+      "impl": "legacy",
+      "path": "scripts/test-compaction-progress-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3372,
+      "log": "053-chromium-legacy-test-compaction-progress-browser.log",
+      "logSha256": "bcc2fa1a6b70f92d9d8129537c36006a8abecd43367253869b0738f94d7e870e"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-context-layout.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 29502,
+      "log": "054-chromium-source-test-context-layout.log",
+      "logSha256": "d883d61462b9c6cfefa72bbbf754440215570fc862cd9a0b43e43c604410585f"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-plugin-center-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 6178,
+      "log": "055-chromium-source-test-plugin-center-browser.log",
+      "logSha256": "dd946785a3d3d56dea424fd3f46aeb350f872dd93e5b9969e3205343c2f3d94c"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-plugin-hub-functional.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 20012,
+      "log": "056-chromium-source-test-plugin-hub-functional.log",
+      "logSha256": "406b36cc2e040cb6031422ddd89c03a5fe97f6d187aaaa943b9fffb481a0bcbb"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-motion-tokens-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 666,
+      "log": "057-chromium-source-test-motion-tokens-browser.log",
+      "logSha256": "ab000fcbf4217f54a047c4131f6cd08efffcfc5534f8dcbc0701389be4557123"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-terminal-layout-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 27096,
+      "log": "058-chromium-source-test-terminal-layout-browser.log",
+      "logSha256": "7dd490b4d84a9509da9af002d52fcda6ffe487a96f762e024e750da511fb45ac"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-settings-save-feedback-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 1317,
+      "log": "059-chromium-source-test-settings-save-feedback-browser.log",
+      "logSha256": "81d0590e018899b0901a2a802e90f2336a86ff684d2c9c53ad1ebca6bbd725a9"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-desktop-updater-layer.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 18665,
+      "log": "060-chromium-source-test-desktop-updater-layer.log",
+      "logSha256": "7b2ab91b4cee1ffcd421e5dd44a720a7ad78a59e0ac374558aaa26469670d6da"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-model-controls-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 2629,
+      "log": "061-chromium-source-test-model-controls-browser.log",
+      "logSha256": "2488bd17c26a58cb37ebe3b26beb0771be88d2bc4f4b792c54e2d922642e3711"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-upstream-ui-experience-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 61117,
+      "log": "062-chromium-source-test-upstream-ui-experience-browser.log",
+      "logSha256": "afc7920ccb38f6701911276e36e925b71c2c58b4c0f8672dd602411766e8a46b"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-subagent-navigation.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 40864,
+      "log": "063-chromium-source-test-subagent-navigation.log",
+      "logSha256": "edb4bb80bb3cf8ebaaa6ceba6a8dc5702dfba51bb36701236fc06540f802b81d"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-workspace-directory-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 67436,
+      "log": "064-chromium-source-test-workspace-directory-browser.log",
+      "logSha256": "75ee93b5c7c1267f3d7bdf6e2180e887ea9d0472ffb50bad92055dc2fa89b0c3"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-pane-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 17116,
+      "log": "065-chromium-source-test-browser-pane-browser.log",
+      "logSha256": "e8d36fc8a7c755e5ca612a415f0e6bbcd61361e219ab91ad4bb60f08821f6274"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-dock-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 43280,
+      "log": "066-chromium-source-test-browser-dock-browser.log",
+      "logSha256": "c44dce25e65f23b56204b09062e51b932391269572268524ff75d339297f263a"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-dock-native-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 44587,
+      "log": "067-chromium-source-test-browser-dock-native-browser.log",
+      "logSha256": "25e79f32259b098fd33320610be56c17db3ce734717e0b2de95f9957fea0e335"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-native-bridge.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 22671,
+      "log": "068-chromium-source-test-browser-native-bridge.log",
+      "logSha256": "5f7a4bb721d0cc0a1b71bd7ef1ba4eddad58ced6dea8faa135d9a42ba51bee2a"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-access.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 21571,
+      "log": "069-chromium-source-test-browser-access.log",
+      "logSha256": "35599d81e68c40a3752342ee4ffc6218785968a49c309ff40fac7d3a699ddba3"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-persistence-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 27346,
+      "log": "070-chromium-source-test-browser-persistence-browser.log",
+      "logSha256": "cf342fcd81e4102f268111ae81dc79808f55afdd55af837c6c7d4fa28c81789e"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-browser-restore-runtime.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 42276,
+      "log": "071-chromium-source-test-browser-restore-runtime.log",
+      "logSha256": "a34ca27edc8e907a0199d7330502a2e83809a0f19fc079ecb20f71dbe4d4a267"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-conversation-message-edit-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 38368,
+      "log": "072-chromium-source-test-conversation-message-edit-browser.log",
+      "logSha256": "8ea31ea4aeb967110fbd58f69b3d6e23e9563e6c21091bb963be7f8af38add58"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-attachments-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 38270,
+      "log": "073-chromium-source-test-attachments-browser.log",
+      "logSha256": "0d4c622e06c01ba16a7ee33b08f21cef46cb42181c294b359be4a07942dd11ee"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-execution-checkpoints-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 35717,
+      "log": "074-chromium-source-test-execution-checkpoints-browser.log",
+      "logSha256": "f717cb07065932c2c44f8fdbc4173f09286e5049a7f4d1d626fcfb836e9d1077"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-streaming-math.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 13447,
+      "log": "075-chromium-source-test-streaming-math.log",
+      "logSha256": "c169281706212eb876acb5284378b3acff25502afc22ae71030b9f23336494ae"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-session-history-cache.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 107060,
+      "log": "076-chromium-source-test-session-history-cache.log",
+      "logSha256": "4a9ca0e2a7207b796f10903f7fd96667fbeaed3b147fd989ea34cb398638ea00"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-transcript-windowing.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 45902,
+      "log": "077-chromium-source-test-transcript-windowing.log",
+      "logSha256": "0d1768f90ad8dcdedb07128cd0e1bada8ed86bad0b66853bd195c4ec2e29b2bb"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-compaction-progress-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 36963,
+      "log": "078-chromium-source-test-compaction-progress-browser.log",
+      "logSha256": "e7f62ec01bcf4225ccaaef48f3e159f0d5ff54644fc2f7e938fad506921eefe4"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-question-continuation-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 20923,
+      "log": "079-chromium-source-test-question-continuation-browser.log",
+      "logSha256": "a68247153785a84438c28e83dce75b740c6d4b4860ed1d257f798eac1e3c1e99"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-approval-prompt-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 36010,
+      "log": "080-chromium-source-test-approval-prompt-browser.log",
+      "logSha256": "1956f7b7754683ee9b21bc094732fed6294326eb446f68e740ffd60c3e815806"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-goal-runtime-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 31860,
+      "log": "081-chromium-source-test-goal-runtime-browser.log",
+      "logSha256": "99cd213c47d21ad29fd693db7cb7e1047a9e23d0b860e5054284f3df70afd638"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-computer-ui-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 38468,
+      "log": "082-chromium-source-test-computer-ui-browser.log",
+      "logSha256": "f318d90aee4d9341d83b9e4d05ab3daa97e62566bac22ddc08f2b5ddee777e02"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-request-audit-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 16509,
+      "log": "083-chromium-source-test-request-audit-browser.log",
+      "logSha256": "b96be344992d0ed1c584b141909b8ba292e078c76f4c0cea330be7cc02459443"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-script-assets-browser.mjs",
+      "kind": "platform",
+      "status": 0,
+      "elapsedMs": 12004,
+      "log": "084-chromium-source-test-script-assets-browser.log",
+      "logSha256": "c1ab43fc2e01697d3d918751e972f7521f93a66a2d3ac94a5fe85da9e9f611a6"
+    },
+    {
+      "engine": "chromium",
+      "impl": "source",
+      "path": "scripts/test-platform-source-browser.mjs",
+      "kind": "platform",
+      "status": 0,
+      "elapsedMs": 23220,
+      "log": "085-chromium-source-test-platform-source-browser.log",
+      "logSha256": "f9eead7627d9b8633b392cbd9cc4436178f01aa5c6bd0f8a24e3298c7ea41e1b"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-renderer-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 18914,
+      "log": "086-webkit-source-test-renderer-source-browser.log",
+      "logSha256": "8827ef898e85e37123d7e6041081d786db7d7d6cbc0fff616daf2be1ea072915"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-workspace-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 34292,
+      "log": "087-webkit-source-test-workspace-source-browser.log",
+      "logSha256": "86ec46f9fa8a9f20274f7d0474749e85276423334844e2d96b58ee58d711f3e8"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-model-selection-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 22419,
+      "log": "088-webkit-source-test-model-selection-source-browser.log",
+      "logSha256": "e1a9fd406b5f0b3c217963a587c03c8d5c7113a0898fa4cd7d4a955505fbd32d"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-attachment-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 10143,
+      "log": "089-webkit-source-test-attachment-source-browser.log",
+      "logSha256": "320c8b589e55b0c38b2e51e8b0d6dbb2ce4ac3c181942cdc9b6e908b368af1b7"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-settings-models-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 22837,
+      "log": "090-webkit-source-test-settings-models-source-browser.log",
+      "logSha256": "324e25f53214cca2dce8ee3c140e859ecd1c458ca1f767948f6f7f5d91f5f48e"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-tool-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 33447,
+      "log": "091-webkit-source-test-tool-source-browser.log",
+      "logSha256": "01c46d91e2684442501a67c7e941f64a42dddeba9a8e9e54acc5886301c50044"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-conversation-source-browser.mjs",
+      "kind": "differential",
+      "status": 1,
+      "elapsedMs": 23175,
+      "log": "092-webkit-source-test-conversation-source-browser.log",
+      "logSha256": "6aa4fd032387cbd44ce3c025d6f69609d2027ebfa72c0627484638c9c51c9b8c"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-trajectory-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 36052,
+      "log": "093-webkit-source-test-trajectory-source-browser.log",
+      "logSha256": "06a99498c6f050190a1aa084887404b637061e66e94111e0afe807519e7298d6"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-tasks-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 24332,
+      "log": "094-webkit-source-test-tasks-source-browser.log",
+      "logSha256": "68e9509d6e706134c849d5a7ac5fffe70a104db15b65ec0e9d6bfb27ac111ffa"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-profile-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 19515,
+      "log": "095-webkit-source-test-profile-source-browser.log",
+      "logSha256": "7d22335c5fdef612186f68b165c292ecc24888bd236a06f255091ee92b8e240d"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-cordis-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 25728,
+      "log": "096-webkit-source-test-cordis-source-browser.log",
+      "logSha256": "5c5c1d91a458557666a369d403ae77f31e4e15f836b9e16f4ca9c94c9dd306f6"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-owned-view-persistence-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 36453,
+      "log": "097-webkit-source-test-owned-view-persistence-browser.log",
+      "logSha256": "b75937ddf9224bf0ebeca64cbce5d2910841930297a06500a997774dd702ce60"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-plugin-hub-functional.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 22131,
+      "log": "098-webkit-source-test-plugin-hub-functional.log",
+      "logSha256": "88e9be797619646a9a7354f4911773be068d77644800455d6ed477f7691790db"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-dock-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 50741,
+      "log": "099-webkit-source-test-browser-dock-browser.log",
+      "logSha256": "41b7ca14010af9961f1f0935f21e9a869111456fbb3542b837202633824fdf51"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-dock-native-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 43574,
+      "log": "100-webkit-source-test-browser-dock-native-browser.log",
+      "logSha256": "f723de8f97a78aec1b7c9ed16875cad24681268af7c7cac7ee0003707be7c193"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-persistence-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 27928,
+      "log": "101-webkit-source-test-browser-persistence-browser.log",
+      "logSha256": "38ea020d8747c48098b3605f520bd970d270a6ac7f1ce6a1bfb95205e6e4b337"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-restore-runtime.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 45286,
+      "log": "102-webkit-source-test-browser-restore-runtime.log",
+      "logSha256": "dbad84eebddbe4dfb0199eb10b8afdc463e05987a8ba20223fd2c080e9e54bce"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-question-continuation-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 24429,
+      "log": "103-webkit-source-test-question-continuation-browser.log",
+      "logSha256": "88062a8bcb2cd918e39afe7b2e8c85a52061fa38990104fb59c2fb7b3d491083"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-goal-runtime-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 34447,
+      "log": "104-webkit-source-test-goal-runtime-browser.log",
+      "logSha256": "9eff02437133676d005a8190de33319fb2e3264330c8a282deb09fa503f098fb"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-approval-prompt-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 34548,
+      "log": "105-webkit-source-test-approval-prompt-browser.log",
+      "logSha256": "ee4115fe96e6f6364544bedac52550d834743f588bd4b41f74fdfcc782aa710d"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-workspace-directory-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 71619,
+      "log": "106-webkit-source-test-workspace-directory-browser.log",
+      "logSha256": "2a2e98a83df91d993c2d64ec698977b05dd5ef8fee168c18d5c07d75245c0e74"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-request-audit-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 21472,
+      "log": "107-webkit-source-test-request-audit-browser.log",
+      "logSha256": "e3c41f9e4e68c6ac58f765a700093d0882523d945b4af1d1b2451aaaa37083dc"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-conversation-message-edit-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 39625,
+      "log": "108-webkit-source-test-conversation-message-edit-browser.log",
+      "logSha256": "bcfc298142eff32953e459d98aa976c783553f06486dc613ae73cd609d9184b3"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-attachments-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 39714,
+      "log": "109-webkit-source-test-attachments-browser.log",
+      "logSha256": "ea03f1bfff1e742570d51c81c452b09391d4fd47c128ecd463aac747bfab29aa"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-execution-checkpoints-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 38833,
+      "log": "110-webkit-source-test-execution-checkpoints-browser.log",
+      "logSha256": "096e7ae4d5c0af294b9730ef654d7206412346dffc3ad765feecfeba1c6354c9"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-streaming-math.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 16158,
+      "log": "111-webkit-source-test-streaming-math.log",
+      "logSha256": "034b156801cc529965ead4143b66765a4f8389fb90aaaec04fe9b82a189113a8"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-compaction-progress-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 41931,
+      "log": "112-webkit-source-test-compaction-progress-browser.log",
+      "logSha256": "0e3cb325573adc662b0293f7639824bcf35b16816afdb40474ff92258c6a0261"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-renderer-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3924,
+      "log": "113-webkit-legacy-test-renderer-source-browser.log",
+      "logSha256": "bf3c13d400f17943c468d9fdee754f62a4ad4f7a5d6170253295cdb18f1b38d4"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-workspace-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 5478,
+      "log": "114-webkit-legacy-test-workspace-source-browser.log",
+      "logSha256": "59ef865c5aa9ecb49e4d19773d60fcc88028f3f6504dca58140d2f508ecda267"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-model-selection-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 4977,
+      "log": "115-webkit-legacy-test-model-selection-source-browser.log",
+      "logSha256": "e1a9fd406b5f0b3c217963a587c03c8d5c7113a0898fa4cd7d4a955505fbd32d"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-attachment-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 2672,
+      "log": "116-webkit-legacy-test-attachment-source-browser.log",
+      "logSha256": "ced1042cbe0a00af2b61a47b0b229e168eaa450037f688391153814dd687483a"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-settings-models-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3422,
+      "log": "117-webkit-legacy-test-settings-models-source-browser.log",
+      "logSha256": "4f211a95f1042b55939104bed9f933680b0908e49c00cfe2a476f9283ede9c78"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-tool-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 25093,
+      "log": "118-webkit-legacy-test-tool-source-browser.log",
+      "logSha256": "b023b7e45d4e219e53780e9f107a9f70c2bd3d454bf908d6d5a55a29866e2695"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-conversation-source-browser.mjs",
+      "kind": "differential",
+      "status": 1,
+      "elapsedMs": 3532,
+      "log": "119-webkit-legacy-test-conversation-source-browser.log",
+      "logSha256": "6aa4fd032387cbd44ce3c025d6f69609d2027ebfa72c0627484638c9c51c9b8c"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-trajectory-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 5730,
+      "log": "120-webkit-legacy-test-trajectory-source-browser.log",
+      "logSha256": "a07b407e77afbc965a9bad9b39f137ea70ecacb0002b46e276c98511ce77f949"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-tasks-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 5378,
+      "log": "121-webkit-legacy-test-tasks-source-browser.log",
+      "logSha256": "cb61e780ad20ac5fdc8802e785e5f4664aeca9afdd28bb5dff7e317cc46dc7ab"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-profile-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 4976,
+      "log": "122-webkit-legacy-test-profile-source-browser.log",
+      "logSha256": "e89578ab49415c43c593ce6d6bdc93aebb8ad02de573338faa4ccd62e2510a6c"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-cordis-source-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 5880,
+      "log": "123-webkit-legacy-test-cordis-source-browser.log",
+      "logSha256": "fe407f2aeffaf661ff70e87399f03e85c7df6fb703c9c4a548749e60ae96d96b"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-owned-view-persistence-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 3874,
+      "log": "124-webkit-legacy-test-owned-view-persistence-browser.log",
+      "logSha256": "64f1e32c6980a158397333b0014d77d55c6b378f2142d3b4aba92b9efaab8519"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-plugin-hub-functional.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 5076,
+      "log": "125-webkit-legacy-test-plugin-hub-functional.log",
+      "logSha256": "57d5766d18fc30a5b47a6a9e5f715afca54ba5157b40833036d6a41be63bb635"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-browser-dock-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 6633,
+      "log": "126-webkit-legacy-test-browser-dock-browser.log",
+      "logSha256": "3ae3c6fe41909c3469db4a171be0d40eac038f166fddf1d73a52a2b0984baaaf"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-browser-dock-native-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 4826,
+      "log": "127-webkit-legacy-test-browser-dock-native-browser.log",
+      "logSha256": "7a3086a03be0dceb57374e70504a3aa45b78375183645b34e100723ba3399abd"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-browser-persistence-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 4335,
+      "log": "128-webkit-legacy-test-browser-persistence-browser.log",
+      "logSha256": "087c8a9e6873dd1d8de1494dc637e7d872cc1b145f80a0dc5095d12a19afee78"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-browser-restore-runtime.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 4981,
+      "log": "129-webkit-legacy-test-browser-restore-runtime.log",
+      "logSha256": "dbad84eebddbe4dfb0199eb10b8afdc463e05987a8ba20223fd2c080e9e54bce"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-question-continuation-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 6178,
+      "log": "130-webkit-legacy-test-question-continuation-browser.log",
+      "logSha256": "c14cceee8b1824d82b5c00b48bdfc772bb0d19d5c37ba0758d176e755906a26b"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-goal-runtime-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 6330,
+      "log": "131-webkit-legacy-test-goal-runtime-browser.log",
+      "logSha256": "59ca326ec0135bf5dd9650696536096e398b6fd968e383d20732e1ef04ebab1e"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-approval-prompt-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 5679,
+      "log": "132-webkit-legacy-test-approval-prompt-browser.log",
+      "logSha256": "bbb4e45045a8c30f9e28e0e43a533c936d2c60a4f12607b99a933d332704f1ab"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-workspace-directory-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 10854,
+      "log": "133-webkit-legacy-test-workspace-directory-browser.log",
+      "logSha256": "e8340ecdb01f98dcea339378f87d139b4669bedbe6c2d5a68c2e35fda5371436"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-request-audit-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 5378,
+      "log": "134-webkit-legacy-test-request-audit-browser.log",
+      "logSha256": "7eb4c456e36146fb80f6cc4453c56e93cb21b2eb9814e694f903098026c0d036"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-conversation-message-edit-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 6381,
+      "log": "135-webkit-legacy-test-conversation-message-edit-browser.log",
+      "logSha256": "a5f652dcded689b2d78b95567cb909b28cdc99b064e273fa52c426df93f58e5c"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-attachments-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 8957,
+      "log": "136-webkit-legacy-test-attachments-browser.log",
+      "logSha256": "7260e116b9d0246cf8e4318160637f5c90d9ca8810eee4bc23ad42058c10a980"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-execution-checkpoints-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 8888,
+      "log": "137-webkit-legacy-test-execution-checkpoints-browser.log",
+      "logSha256": "a30db26f94d1fd53017a700ee65f79e871d59b37b2c62d521c0111bf35d59259"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-streaming-math.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 6945,
+      "log": "138-webkit-legacy-test-streaming-math.log",
+      "logSha256": "fb1901d7b60407f3bc902f81f4da610c9dcf279fae5d5c88eccf56eaae32c39f"
+    },
+    {
+      "engine": "webkit",
+      "impl": "legacy",
+      "path": "scripts/test-compaction-progress-browser.mjs",
+      "kind": "differential",
+      "status": 0,
+      "elapsedMs": 9411,
+      "log": "139-webkit-legacy-test-compaction-progress-browser.log",
+      "logSha256": "d6ffa6517bfec7a67c6cf7a8205d7576889e1a77c49c9190781e9b5ea89b4209"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-context-layout.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 36603,
+      "log": "140-webkit-source-test-context-layout.log",
+      "logSha256": "3de2c6442542aff32c156ef2435da9bf1c3bd5c6587ae534e14145bf85ae0e0f"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-plugin-center-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 12297,
+      "log": "141-webkit-source-test-plugin-center-browser.log",
+      "logSha256": "432abf40906e11a93501967f28f3901036733ab8b300c5555d6c982bfe0f4637"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-plugin-hub-functional.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 22724,
+      "log": "142-webkit-source-test-plugin-hub-functional.log",
+      "logSha256": "88e9be797619646a9a7354f4911773be068d77644800455d6ed477f7691790db"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-motion-tokens-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 1569,
+      "log": "143-webkit-source-test-motion-tokens-browser.log",
+      "logSha256": "deec2115a9e4e36b3cc4fee33af825cb110747029e9601cd70b945ef37bc6436"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-terminal-layout-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 28385,
+      "log": "144-webkit-source-test-terminal-layout-browser.log",
+      "logSha256": "22aaa1c0d8ab41f9660bcd2f41f4c0ff178ffdf465ffebcaa87f14cce0a0b650"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-settings-save-feedback-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 2671,
+      "log": "145-webkit-source-test-settings-save-feedback-browser.log",
+      "logSha256": "81d0590e018899b0901a2a802e90f2336a86ff684d2c9c53ad1ebca6bbd725a9"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-desktop-updater-layer.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 22277,
+      "log": "146-webkit-source-test-desktop-updater-layer.log",
+      "logSha256": "7888f2aebc23813c7b2429cb87129c4c4af51132a3b097edaf1f3498b6517a40"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-model-controls-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 4579,
+      "log": "147-webkit-source-test-model-controls-browser.log",
+      "logSha256": "e1a9fd406b5f0b3c217963a587c03c8d5c7113a0898fa4cd7d4a955505fbd32d"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-upstream-ui-experience-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 48786,
+      "log": "148-webkit-source-test-upstream-ui-experience-browser.log",
+      "logSha256": "d7b45d61b7604c9596f03a9292803a72256b138911e289224fcefa4012458bb1"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-subagent-navigation.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 42180,
+      "log": "149-webkit-source-test-subagent-navigation.log",
+      "logSha256": "e9282fde07d1df95c962f1ea3a0bbf3357c991645adf91233dd408ee33ffb269"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-workspace-directory-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 68753,
+      "log": "150-webkit-source-test-workspace-directory-browser.log",
+      "logSha256": "2a2e98a83df91d993c2d64ec698977b05dd5ef8fee168c18d5c07d75245c0e74"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-pane-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 19013,
+      "log": "151-webkit-source-test-browser-pane-browser.log",
+      "logSha256": "10ab5f46a546036de0caa1675acc790ebea8b0f1c216a58baa83689424d55869"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-dock-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 48041,
+      "log": "152-webkit-source-test-browser-dock-browser.log",
+      "logSha256": "41b7ca14010af9961f1f0935f21e9a869111456fbb3542b837202633824fdf51"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-dock-native-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 45687,
+      "log": "153-webkit-source-test-browser-dock-native-browser.log",
+      "logSha256": "f723de8f97a78aec1b7c9ed16875cad24681268af7c7cac7ee0003707be7c193"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-native-bridge.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 25881,
+      "log": "154-webkit-source-test-browser-native-bridge.log",
+      "logSha256": "9e123e80ea70a901d0194d6fc671b92ea8aa0b16eb573710658f81a56dd3f990"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-access.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 32001,
+      "log": "155-webkit-source-test-browser-access.log",
+      "logSha256": "ff3b235ca5d3c2745b9563bd67b3fb9d6bfff3608e6ab0ef1b8c043a662f322f"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-persistence-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 27730,
+      "log": "156-webkit-source-test-browser-persistence-browser.log",
+      "logSha256": "38ea020d8747c48098b3605f520bd970d270a6ac7f1ce6a1bfb95205e6e4b337"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-browser-restore-runtime.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 46912,
+      "log": "157-webkit-source-test-browser-restore-runtime.log",
+      "logSha256": "dbad84eebddbe4dfb0199eb10b8afdc463e05987a8ba20223fd2c080e9e54bce"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-conversation-message-edit-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 38522,
+      "log": "158-webkit-source-test-conversation-message-edit-browser.log",
+      "logSha256": "bcfc298142eff32953e459d98aa976c783553f06486dc613ae73cd609d9184b3"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-attachments-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 40535,
+      "log": "159-webkit-source-test-attachments-browser.log",
+      "logSha256": "ea03f1bfff1e742570d51c81c452b09391d4fd47c128ecd463aac747bfab29aa"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-execution-checkpoints-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 38271,
+      "log": "160-webkit-source-test-execution-checkpoints-browser.log",
+      "logSha256": "096e7ae4d5c0af294b9730ef654d7206412346dffc3ad765feecfeba1c6354c9"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-streaming-math.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 15005,
+      "log": "161-webkit-source-test-streaming-math.log",
+      "logSha256": "034b156801cc529965ead4143b66765a4f8389fb90aaaec04fe9b82a189113a8"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-session-history-cache.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 105709,
+      "log": "162-webkit-source-test-session-history-cache.log",
+      "logSha256": "81af3f65d3a0fb1a7739307e663f58dfe6c7838fdd759263b61289dcc4a46f45"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-transcript-windowing.mjs",
+      "kind": "canonical",
+      "status": 1,
+      "elapsedMs": 67198,
+      "log": "163-webkit-source-test-transcript-windowing.log",
+      "logSha256": "ee028db2a9a3d4fd24fc4127d5f46c5dcbbb9d1fc59e1b56c1e1f047fe39d2a9"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-compaction-progress-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 40524,
+      "log": "164-webkit-source-test-compaction-progress-browser.log",
+      "logSha256": "0e3cb325573adc662b0293f7639824bcf35b16816afdb40474ff92258c6a0261"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-question-continuation-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 23828,
+      "log": "165-webkit-source-test-question-continuation-browser.log",
+      "logSha256": "88062a8bcb2cd918e39afe7b2e8c85a52061fa38990104fb59c2fb7b3d491083"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-approval-prompt-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 39438,
+      "log": "166-webkit-source-test-approval-prompt-browser.log",
+      "logSha256": "ee4115fe96e6f6364544bedac52550d834743f588bd4b41f74fdfcc782aa710d"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-goal-runtime-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 33659,
+      "log": "167-webkit-source-test-goal-runtime-browser.log",
+      "logSha256": "9eff02437133676d005a8190de33319fb2e3264330c8a282deb09fa503f098fb"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-computer-ui-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 37668,
+      "log": "168-webkit-source-test-computer-ui-browser.log",
+      "logSha256": "349757852588337c473b3133460a7c13ee7025b5b3ef91d71e39db6467485b08"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-request-audit-browser.mjs",
+      "kind": "canonical",
+      "status": 0,
+      "elapsedMs": 19774,
+      "log": "169-webkit-source-test-request-audit-browser.log",
+      "logSha256": "e3c41f9e4e68c6ac58f765a700093d0882523d945b4af1d1b2451aaaa37083dc"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-script-assets-browser.mjs",
+      "kind": "platform",
+      "status": 0,
+      "elapsedMs": 33259,
+      "log": "170-webkit-source-test-script-assets-browser.log",
+      "logSha256": "a578da7a4013deb025838cedc8ec6e17644a4614e5128a5ae5d32f640b7977e6"
+    },
+    {
+      "engine": "webkit",
+      "impl": "source",
+      "path": "scripts/test-platform-source-browser.mjs",
+      "kind": "platform",
+      "status": 0,
+      "elapsedMs": 41176,
+      "log": "171-webkit-source-test-platform-source-browser.log",
+      "logSha256": "c94d05d582106bac54bbeb1e102fb6cf2bf7e87563cad2a435923575038fba7a"
+    }
+  ],
+  "independentCorrections": [
+    {
+      "path": "scripts/test-conversation-source-browser.mjs",
+      "engines": [
+        "webkit"
+      ],
+      "implementations": [
+        "source",
+        "legacy"
+      ],
+      "status": 0,
+      "count": 2,
+      "log": "xh-v100-checkpoint-corrected-full-boot-final.log",
+      "scope": "only two checkpoint runs; subsequent full-boot locale failure retained separately"
+    }
+  ],
+  "fullGraphLocale": {
+    "initialFailure": "OS locale zh-CN in Linux Chromium, identical Settings localization in frozen and source; exact English fixture locators timeout",
+    "testChange": "explicit en-US browser locale and exact navigator.language assertion, no production changes",
+    "localPass": 4,
+    "v100Pass": 4,
+    "engines": [
+      "chromium",
+      "webkit"
+    ],
+    "implementations": [
+      "source",
+      "legacy"
+    ],
+    "pixelComparison": "exact bytes within each engine/platform",
+    "v100ChromiumPngSha256": "ba6ba58332391c5517aeb174353bb628a49d205811e80a0edce8b5919fc6439b",
+    "v100WebkitPngSha256": "e0d0395e8c1a25c5571d56947807914ad6c06fe9a4c20569e110f8500b51bde5",
+    "confirmedRemoteNodeExit": 0
+  },
+  "unresolved": [
+    {
+      "todo": "UI-LINUX-ANCHOR-01",
+      "path": "scripts/test-transcript-windowing.mjs",
+      "engine": "webkit",
+      "sameFrozenFailureConfirmed": true,
+      "migrationRegression": false,
+      "cause": "CSS overflow-anchor unsupported; computed property absent bypasses measured-height compensation",
+      "initialExtent": 89928,
+      "remeasuredExtent": 95856,
+      "unchangedScrollTop": 89328,
+      "row349Top": 5300,
+      "viewportHeight": 600,
+      "productionChanged": false,
+      "testWeakened": false,
+      "log": "conversation-linux-transcript-scroll-barrier.log"
+    }
+  ],
+  "logs": [
+    {
+      "name": "xh-v100-browser-matrix-verified-environment.log",
+      "sha256": "c203511c24ee14c8cc35359269ad6fc1e0f9b0a169801f8d844135e15746639f"
+    },
+    {
+      "name": "xh-v100-full-boot-locale-diagnostic.log",
+      "sha256": "8c2d4c900d9ca3c91c262a0501c8b58b31c471842556ba53be31c8c4ae37e436"
+    },
+    {
+      "name": "xh-full-boot-en-us-local-confirmed.log",
+      "sha256": "a59351602f78660bda6390b2e6fb7d3dbdc8d4922b319b6f7d89d5bc063da1c7"
+    },
+    {
+      "name": "xh-full-boot-en-us-v100-confirmed.log",
+      "sha256": "4b66d2e05e4c190168594e5d613a338143fe0dc7777a1d48bad05ec85638757f"
+    },
+    {
+      "name": "xh-v100-checkpoint-corrected-full-boot-final.log",
+      "sha256": "aeaac6279c531d86125eefb7dc38fa40204225c1a1df2a1c20f12fa9b884437c"
+    },
+    {
+      "name": "conversation-linux-transcript-scroll-barrier.log",
+      "sha256": "bfb4f33dce50f618c23338616f680eb525b6155028a5891ebe4b65e175b60606"
+    }
+  ],
+  "limitations": [
+    "supplementary Node20/Playwright1.59.1, not latest GitHub Node22 or native desktop acceptance",
+    "entries are not internal assertion counts",
+    "169 first-round pass plus two independent corrected passes; remaining defect not counted as pass",
+    "no paid model call or user conversation read",
+    "no production bytes modified by final test corrections"
+  ]
+}
