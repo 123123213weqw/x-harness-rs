@@ -1,0 +1,21 @@
+=== transcript diagnostic chromium source ===
+{"implementation":"source","engine":"chromium","readerAppend":{"before":3530,"after":2690,"geometry":{"floor":13761,"rows":[{"key":"8","top":-587,"height":30},{"key":"9","top":-541,"height":30},{"key":"10","top":-495,"height":30},{"key":"11","top":-449,"height":30},{"key":"12","top":-403,"height":30},{"key":"13","top":-357,"height":30},{"key":"14","top":-311,"height":30},{"key":"15","top":-265,"height":30},{"key":"16","top":-219,"height":30},{"key":"17","top":-173,"height":30},{"key":"18","top":-127,"height":30},{"key":"19","top":-81,"height":30},{"key":"20","top":-35,"height":30},{"key":"21","top":11,"height":30},{"key":"22","top":57,"height":30},{"key":"23","top":103,"height":30},{"key":"24","top":149,"height":30},{"key":"25","top":195,"height":30},{"key":"26","top":241,"height":30},{"key":"27","top":287,"height":30},{"key":"28","top":333,"height":30},{"key":"29","top":379,"height":30},{"key":"30","top":425,"height":30},{"key":"31","top":471,"height":30},{"key":"32","top":517,"height":30},{"key":"33","top":563,"height":30},{"key":"34","top":609,"height":30},{"key":"35","top":655,"height":30},{"key":"36","top":701,"height":30},{"key":"37","top":747,"height":30},{"key":"38","top":793,"height":30},{"key":"39","top":839,"height":30},{"key":"40","top":885,"height":30},{"key":"41","top":931,"height":30},{"key":"42","top":977,"height":30},{"key":"43","top":1023,"height":30}],"saved":{"anchorKey":"21","anchorTop":11,"scrollTop":2690}}}}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: append does not pull history reader to bottom
+    at file://<workspace>/scripts/test-transcript-windowing.mjs:250:9
+    at runNextTicks (node:internal/process/task_queues:65:5)
+    at process.processImmediate (node:internal/timers:472:9) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v25.9.0
+=== transcript diagnostic chromium legacy ===
+{"engine":"chromium","implementation":"legacy","baseline":{"dom":29936,"heapBytes":14917596},"optimized":{"dom":1040,"heapBytes":12305492},"firstWindowed":0,"resizePeak":1,"checks":"bounded first mount/resize, tool/reasoning/native-details/draft state, call isolation, focus/selection protection and release, live tip, cleanup, real ChatView anchors","note":"synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint"}

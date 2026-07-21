@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
+import {layoutUnitModuleTestInput} from './fixtures/layout-module-test-input.mjs'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
-const source = readFileSync(new URL('../ui/overrides/browser-window-controller.js', import.meta.url), 'utf8')
+const source=layoutUnitModuleTestInput('browser-window-controller.js',['xhCreateBrowserWindowController'])
 const desktopCapability = JSON.parse(readFileSync(new URL('../apps/desktop/src-tauri/capabilities/desktop-main.json', import.meta.url), 'utf8'))
-const create = vm.runInNewContext(`${source}\nxhCreateBrowserWindowController`)
+let registration
+vm.runInNewContext(source,{window:{__ModuleLoader__:{load:row=>{registration=row}}},console})
+const create=registration.factory(()=>({})).xhCreateBrowserWindowController
 assert.equal(await create(undefined).set(true, 440), 0, 'ordinary Web borrows width on the left')
 
 function fixture({ scale = 1, windowWidth = 1000, rightEdge = 1800, maximized = false } = {}) {
@@ -89,4 +92,4 @@ assert.equal(desktopCapability.permissions.includes('core:window:allow-set-size'
   assert.equal(await closing, 0)
   assert.equal(state.size.width, 1000, 'serialized close cannot leave a late-opened window wide')
 }
-console.log('adaptive browser window expansion controller passed')
+console.log('adaptive browser window expansion controller passed / '+(process.env.UI_TEST_IMPL??'source')+' / strict production closure')

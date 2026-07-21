@@ -1,0 +1,74 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "checkJs": false,
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2024",
+      "ESNext.Disposable",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": false,
+    "sourceMap": false,
+    "paths": {
+      "@xlang/xharness-client-plugin-api": [
+        "src/plugin-api/client.ts"
+      ],
+      "@xharness/cordis": [
+        "src/modules/platform/vendor/cordis/types/index.d.ts"
+      ],
+      "@xharness/cosmokit": [
+        "src/modules/platform/vendor/cosmokit/types/index.d.ts"
+      ],
+      "@xharness/cordis-plugin-loader": [
+        "src/modules/platform/vendor/loader/types/index.d.ts"
+      ],
+      "@deepseek-ai/cordis": [
+        "src/modules/platform/vendor/cordis/types/index.d.ts"
+      ],
+      "@deepseek-ai/cosmokit": [
+        "src/modules/platform/vendor/cosmokit/types/index.d.ts"
+      ],
+      "@deepseek-ai/cordis-plugin-loader": [
+        "src/modules/platform/vendor/loader/types/index.d.ts"
+      ],
+      "@standard-schema/spec": [
+        "src/modules/settings/vendor/standard-schema/spec.d.ts"
+      ],
+      "@xharness/dsh-client-ui-slots": [
+        "src/modules/platform/slots/index.ts"
+      ],
+      "@xharness/dsh-client-ui-primitives": [
+        "src/modules/platform/primitives/index.ts"
+      ],
+      "@xharness/dsh-client-runtime/client": [
+        "src/modules/client-runtime/index.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-slots": [
+        "src/modules/platform/slots/index.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-primitives": [
+        "src/modules/platform/primitives/index.ts"
+      ],
+      "@deepseek-ai/dsh-client-runtime/client": [
+        "src/modules/client-runtime/index.ts"
+      ],
+      "immer": [
+        "src/modules/client-runtime/vendor/immer/dist/immer.d.ts"
+      ]
+    },
+    "rewriteRelativeImportExtensions": true
+  },
+  "files": [
+    "src/modules/platform/primitives/css-modules.d.ts",
+    "src/modules/shared/assets.d.ts",
+    "src/modules/shared/external.d.ts",
+    "src/modules/shared/foundation-external.d.ts",
+    "src/modules/views-external.d.ts"
+  ],
+  "include": []
+}

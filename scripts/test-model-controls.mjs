@@ -1,9 +1,11 @@
+import {assertRebuildInput} from './fixtures/repository-ui-input.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
+import { verifyConnectionArtifact, exposeConnection } from './connection-artifact-test.mjs'
 import { patchModelControls } from './patch-model-controls.mjs'
 const bundle = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-model-selection/client.js', import.meta.url))
-assert.equal(patchModelControls(bundle).toString(), bundle.toString(), 'packaged extension must match product source; patch is idempotent')
+assertRebuildInput('@xharness/dsh-client-ui-model-selection')
 let registration
 vm.runInNewContext(bundle.toString(), { window: { __ModuleLoader__: { load(x) { registration=x } } } })
 function createSnapshotStore(snapshot) {
@@ -60,19 +62,19 @@ release({result:{ok:true,value:{current,groups,failures:[],routable:true}}});awa
 assert.equal(directory.store.getSnapshot(),snapshot)
 console.log('model controls: RPC forwarding, persistence re-load, model limits, invalid input, transport errors, race/disposal passed')
 // Use the actual bundled wire schemas, not a lookalike validator.
-const connectionBundle=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-connection/client.js',import.meta.url),'utf8')
+const connectionBundle=verifyConnectionArtifact()
 let connectionFactory
 const sandbox={window:{__ModuleLoader__:{load(x){connectionFactory=x.factory}}},console,URL,AbortController,setTimeout,clearTimeout}
-vm.runInNewContext(connectionBundle.replace('exports.AbstractApiClient = AbstractApiClient;', 'exports.testModelsSchema = sessionModelsValueSchema; exports.testSelectedSchema = sessionSelectModelValueSchema; exports.AbstractApiClient = AbstractApiClient;'), sandbox)
+vm.runInNewContext(exposeConnection(connectionBundle,['sessionModelsValueSchema','sessionSelectModelValueSchema']), sandbox)
 const wire=connectionFactory(id=>{if(id==='@xharness/cordis')return {Service:class{}};return {}})
 const input={current,groups:[{id:'test',name:'Test',models:[{id:'large',name:'Large',contextWindow:131072,contextWindowSource:'provider_reported',contextWindowCapability:{providerLimit:{tokens:131072,source:'provider_reported'}},reasoning:{defaultEffort:'max',efforts:[{id:'max',name:'Max'}]}}]}],failures:[],routable:true}
-const decoded=wire.testModelsSchema.parse(input)
+const decoded=wire.sessionModelsValueSchema.parse(input)
 assert.equal(decoded.current.contextWindowTokens,65536)
 assert.equal(decoded.groups[0].models[0].contextWindow,131072)
 assert.equal(decoded.groups[0].models[0].contextWindowSource,'provider_reported')
 assert.equal(decoded.groups[0].models[0].contextWindowCapability.providerLimit.tokens,131072)
-assert.equal(wire.testSelectedSchema.parse({selected:current}).selected.contextWindowTokens,65536)
-assert.throws(()=>wire.testSelectedSchema.parse({selected:{...current,contextWindowTokens:-1}}))
+assert.equal(wire.sessionSelectModelValueSchema.parse({selected:current}).selected.contextWindowTokens,65536)
+assert.throws(()=>wire.sessionSelectModelValueSchema.parse({selected:{...current,contextWindowTokens:-1}}))
 console.log('actual bundled wire schemas preserve model capability and persisted selection')
 // Boot metadata must identify exactly the bytes carried by Web and the desktop bundle.
 const {createHash}=await import('node:crypto')
@@ -89,12 +91,12 @@ assert.equal(api.xhReasoningStatus({current,groups:[{id:'test',models:[{id:'larg
 assert.equal(api.xhReasoningStatus({current,groups:[{id:'test',models:[{id:'large',reasoningCapability:{state:'disabled'}}]}]}),'已禁用配置');
 assert.equal(api.xhReasoningStatus({current,groups:[{id:'test',models:[{id:'large',reasoning:{efforts:[]},reasoningCapability:{stale:true}}]}]}),'沿用上次能力 · 待刷新');
 const withCapability=structuredClone(input);withCapability.groups[0].models[0].reasoningCapability={state:'supported',source:'provider_reported',stale:false};
-assert.equal(wire.testModelsSchema.parse(withCapability).groups[0].models[0].reasoningCapability.source,'provider_reported');
+assert.equal(wire.sessionModelsValueSchema.parse(withCapability).groups[0].models[0].reasoningCapability.source,'provider_reported');
 const refreshCalls=[];
 const refreshed=new api.ModelDirectory({models:async args=>{refreshCalls.push(args);return {result:{ok:true,value:input}}}},'refresh-session',()=>true);
 await refreshed.load(true);assert.equal(refreshCalls[0].refreshCapabilities,true);
 const {patchReasoningSettings,patchModelConnection}=await import('./patch-model-controls.mjs');
 for (const [id,patch] of [['dsh-client-ui-model-selection',patchModelControls],['dsh-client-connection',patchModelConnection],['dsh-client-ui-settings-models',patchReasoningSettings]]) {
- const bytes=readFileSync(new URL(`../ui/dist/plugins/@xharness/${id}/client.js`,import.meta.url));assert.deepEqual(patch(bytes),bytes,'patch must be repeatable: '+id);
+ const bytes=readFileSync(new URL(`../ui/reference/master-a613970/plugins/@xharness/${id}/client.js`,import.meta.url));assert.deepEqual(patch(bytes),bytes,'patch must be repeatable: '+id);
 }
 console.log('Reasoning unknown/disabled/stale state, discovery refresh and repeatable asset patches passed');

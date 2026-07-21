@@ -36,16 +36,14 @@ def verify(app=None):
         png = (desktop / 'icons' / name).read_bytes()
         assert png[:8] == b'\x89PNG\r\n\x1a\n', f'invalid PNG: {name}'
         assert png[25] == 6, f'Tauri requires RGBA PNG, got color type {png[25]}: {name}'
-    assert (ROOT / 'ui/desktop/updater.js').read_bytes() == (ROOT / 'ui/dist/desktop-updater.js').read_bytes(), 'stale updater in ui/dist'
-    assert (ROOT / 'ui/desktop/startup.js').read_bytes() == (ROOT / 'ui/dist/desktop-startup.js').read_bytes(), 'stale startup instrumentation in ui/dist'
-    assert (ROOT / 'ui/desktop/titlebar.js').read_bytes() == (ROOT / 'ui/dist/desktop-titlebar.js').read_bytes(), 'stale desktop title bar script in ui/dist'
+    subprocess.run(['node', 'scripts/verify-owned-script-assets.mjs'], cwd=ROOT, check=True)
     assert (ROOT / 'ui/desktop/titlebar.css').read_bytes() == (ROOT / 'ui/dist/desktop-titlebar.css').read_bytes(), 'stale desktop title bar style in ui/dist'
     directory_plugin = 'plugins/@xlang/xharness-client-ui-directory/client.js'
     computer_plugin = 'plugins/@xlang/xharness-client-ui-computer/client.js'
     browser_plugin = 'plugins/@xlang/xharness-client-ui-browser/client.js'
-    assert (ROOT / 'ui' / directory_plugin).read_bytes() == (ROOT / 'ui/dist' / directory_plugin).read_bytes(), 'stale directory flow in ui/dist'
-    assert (ROOT / 'ui' / computer_plugin).read_bytes() == (ROOT / 'ui/dist' / computer_plugin).read_bytes(), 'stale computer privacy UI in ui/dist'
-    assert (ROOT / 'ui' / browser_plugin).read_bytes() == (ROOT / 'ui/dist' / browser_plugin).read_bytes(), 'stale browser UI in ui/dist'
+    # Source module bytes were already checked by the complete UI build gate.
+    for plugin in [directory_plugin, computer_plugin, browser_plugin]:
+        assert (ROOT / 'ui/dist' / plugin).is_file(), f'missing source-built UI: {plugin}'
     graph = json.loads((ROOT / 'ui/dist/client-graph.json').read_text(encoding='utf-8'))
     assert any(entry['id'] == '@xlang/xharness-client-ui-directory' for entry in graph['entries']), 'missing directory flow in boot graph'
     assert any(entry['id'] == '@xlang/xharness-client-ui-computer' for entry in graph['entries']), 'missing computer privacy UI in boot graph'
@@ -65,9 +63,9 @@ def verify(app=None):
         installed = app / 'Contents/Resources' / icon
         assert digest(installed) == digest(desktop / 'icons/icon.icns'), f'packaged icon is stale: {installed}'
         assert info['CFBundleShortVersionString'] == config['version'], 'packaged version mismatch'
-        assert (app / 'Contents/Resources/web/desktop-updater.js').read_bytes() == (ROOT / 'ui/desktop/updater.js').read_bytes(), 'packaged updater is stale'
-        assert (app / 'Contents/Resources/web/desktop-startup.js').read_bytes() == (ROOT / 'ui/desktop/startup.js').read_bytes(), 'packaged startup instrumentation is stale'
-        assert (app / 'Contents/Resources/web/desktop-titlebar.js').read_bytes() == (ROOT / 'ui/desktop/titlebar.js').read_bytes(), 'packaged title bar script is stale'
+        assert (app / 'Contents/Resources/web/desktop-updater.js').read_bytes() == (ROOT / 'ui/dist/desktop-updater.js').read_bytes(), 'packaged updater is stale'
+        assert (app / 'Contents/Resources/web/desktop-startup.js').read_bytes() == (ROOT / 'ui/dist/desktop-startup.js').read_bytes(), 'packaged startup instrumentation is stale'
+        assert (app / 'Contents/Resources/web/desktop-titlebar.js').read_bytes() == (ROOT / 'ui/dist/desktop-titlebar.js').read_bytes(), 'packaged title bar script is stale'
         assert (app / 'Contents/Resources/web/desktop-titlebar.css').read_bytes() == (ROOT / 'ui/desktop/titlebar.css').read_bytes(), 'packaged title bar style is stale'
         web = app / 'Contents/Resources/web'
         for relative in ['index.html', 'client-graph.json', 'favicon.png', 'app-icon-512.png', 'manifest.webmanifest',

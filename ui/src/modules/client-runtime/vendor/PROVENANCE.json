@@ -1,0 +1,93 @@
+{
+  "formatVersion": 1,
+  "package": "immer",
+  "version": "10.2.0",
+  "license": "MIT",
+  "sourceRevision": "e1996ceb8a3a180c565b7304a4f3c4ce3b1a08ff",
+  "source": "npm:immer@10.2.0",
+  "integrity": "sha512-d/+XTN3zfODyjr89gM3mPq1WNX2B8pYsu7eORitdwyA2sBubnTl3laYlBk4sXY5FUa5qTZGBDPJICVbvqzjlbw==",
+  "tarballSha256": "23e8ffb42851e74536e4cad3354f1d2183aee0d5a9f16e0d92a33e6fbcea74b2",
+  "files": [
+    {
+      "path": "immer/LICENSE",
+      "sha256": "99cf22f6960a6fe228ec84ea9aefb0d75b27999ece83a3a9801e1c2081fa270b"
+    },
+    {
+      "path": "immer/dist/immer.d.ts",
+      "sha256": "acb93abc527fa52eb2adc5602a7c3c0949861f8e4317a187bb5c3372f872eff4"
+    },
+    {
+      "path": "immer/package.json",
+      "sha256": "51893f6e048acc73408ac85e79f3e22ad46657420d31056f195230ece16750a4"
+    },
+    {
+      "path": "immer/src/core/current.ts",
+      "sha256": "c42952a414f662fcb5e218fbefa379ba95249e91b9c8eada5eed74f6590e3d82"
+    },
+    {
+      "path": "immer/src/core/finalize.ts",
+      "sha256": "d9d9e4529b24b269ce4f8b61e420acc8b6c186f33ffb41db2d82aca927ce5a5d"
+    },
+    {
+      "path": "immer/src/core/immerClass.ts",
+      "sha256": "4f8957fa95383cf294ef8ade76b837bbe1ea896225d1bba8ad10366ca2225c7c"
+    },
+    {
+      "path": "immer/src/core/proxy.ts",
+      "sha256": "7ead383b1440edcceed53a92bca3afef1d8560d9754e30e92c6a85ed26df8459"
+    },
+    {
+      "path": "immer/src/core/scope.ts",
+      "sha256": "e3d6ae8018e61d2a53dfcb1c6fc78b3c9cb48db0bb8b181a9f3052d3d47e9b4e"
+    },
+    {
+      "path": "immer/src/immer.ts",
+      "sha256": "6c5eb6e79814517d55948f5e8b7deaf233971e213fd8a252075fabc725895f78"
+    },
+    {
+      "path": "immer/src/internal.ts",
+      "sha256": "3d8f2bd0bc4379a9f6709a907029d02029c93cad75fed586cfbab88060a35896"
+    },
+    {
+      "path": "immer/src/plugins/mapset.ts",
+      "sha256": "ae9456ed7aa59a15d7d0f03fedec3e42bd28c4d00b5c130754b43af715d4d247"
+    },
+    {
+      "path": "immer/src/plugins/patches.ts",
+      "sha256": "9cfec13ee2803b74d22dfa531a975d63d84e27e3b037348b018241d169e406a3"
+    },
+    {
+      "path": "immer/src/types/globals.d.ts",
+      "sha256": "7a3e25d022daacb54a8bfdaeabea263c6266cfc19c9d855d002b7014beb8dc8d"
+    },
+    {
+      "path": "immer/src/types/index.js.flow",
+      "sha256": "bc5ef627a35bc462b885679e0f20007567b3eac53e7b7548e020859793632313"
+    },
+    {
+      "path": "immer/src/types/types-external.ts",
+      "sha256": "401197b2f2ce2124bc6183f5b06cdc83a2703f2392bfeb687664e856bd4788d8"
+    },
+    {
+      "path": "immer/src/types/types-internal.ts",
+      "sha256": "07f91da1a4b8f8b1463af5e1d0f9a234837eaaa034d8db46c2c943850be2a4fc"
+    },
+    {
+      "path": "immer/src/utils/common.ts",
+      "sha256": "34d307f664168b38a6bf2a796fa33bc7c496a2a67c094ce9589973743850a96c"
+    },
+    {
+      "path": "immer/src/utils/env.ts",
+      "sha256": "c8b9b7d096f5eb90aaadf4d0c1947217635381dd990ff317b83111d5424a624e"
+    },
+    {
+      "path": "immer/src/utils/errors.ts",
+      "sha256": "16f19ab73cb27b1cd44588d4fb6527901c16badbaa76cc5c3dca376c54335c7d"
+    },
+    {
+      "path": "immer/src/utils/plugins.ts",
+      "sha256": "901f79920936487e826c48dfb88c595a7d50d5da96324acdc4431b7d20f8cea1"
+    }
+  ],
+  "adaptations": []
+}

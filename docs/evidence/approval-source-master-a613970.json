@@ -1,0 +1,95 @@
+{
+  "formatVersion": 1,
+  "baseline": "a613970c78a36a024de56100078323df25b96004",
+  "script": "scripts/test-approval-prompt-browser.mjs",
+  "scriptSha256": "9521f5be1130972dee3d2212f3f858bee937ef5616943718e9a4d7a8be1d5967",
+  "frozenConversationSha256": "c172eda5221df580998a7007487f932d3a6e275ba57bccf5320d7bdbed8821d8",
+  "sourceConversationSha256": "47b85231641fc30b973e186ff02a5435946ea3fd7cc9c83e284ea7e24cc13d44",
+  "platform": "installOwnedViewPlatform: actual immutable HTML entry / strict compilePlatformUi entry",
+  "seam": "exposeConversation: actual factory lexical AST for private ApprovalPanel/selectApproval; no production exports",
+  "errorFilter": "Exact only: owned feature fixture: stop Host boot; absent factory dependency explicitly throws",
+  "preservedAssertions": [
+    "selector/no question/approval takeover",
+    "waiting strip/ARIA detail/tool escalation header",
+    "explicit reason",
+    "paired shell command shown/hidden/unparsable",
+    "allow-once/reject correlation payload",
+    "one-shot latch/re-render/new-request isolation",
+    "in-flight disabled actions/refused-receipt retry",
+    "normal composer hidden",
+    "narrow viewport overflow"
+  ],
+  "fixtureAdaptation": "Paired running call now supplies the actual valid Tool node DTO fields: name/callView/time/turn/step/subCalls; no source-only fake decoder bypass",
+  "runs": [
+    {
+      "implementation": "source",
+      "engine": "chromium",
+      "exitCode": 0,
+      "log": "/tmp/xh-approval-source-chromium.log",
+      "logSha256": "1956f7b7754683ee9b21bc094732fed6294326eb446f68e740ffd60c3e815806",
+      "screenshots": [
+        {
+          "path": "dist/approval-ui/chromium-source-desktop.png",
+          "sha256": "a1bec6539757318f89f591a12027ed2f52dea84d9bf15d8b8b8d4e46862599de"
+        },
+        {
+          "path": "dist/approval-ui/chromium-source.png",
+          "sha256": "65d95002c9e777552c17058e0ece35acb18c915cb2f04b4b7dec6b71a7003fa2"
+        }
+      ]
+    },
+    {
+      "implementation": "source",
+      "engine": "webkit",
+      "exitCode": 0,
+      "log": "/tmp/xh-approval-source-webkit.log",
+      "logSha256": "ee4115fe96e6f6364544bedac52550d834743f588bd4b41f74fdfcc782aa710d",
+      "screenshots": [
+        {
+          "path": "dist/approval-ui/webkit-source-desktop.png",
+          "sha256": "5b711f66b020b700c83c29e6538666240c01ac0411fca1024ec7a0f9832f8ea9"
+        },
+        {
+          "path": "dist/approval-ui/webkit-source.png",
+          "sha256": "73082f105a9e01234b522cddf0d2d3da07f2f83fd5344879106f346664f2e871"
+        }
+      ]
+    },
+    {
+      "implementation": "frozen",
+      "engine": "chromium",
+      "exitCode": 0,
+      "log": "/tmp/xh-approval-frozen-chromium.log",
+      "logSha256": "a274cf62a44d5024eae499e6f7654e7b4987624a79dc281f152d708ba84251c8",
+      "screenshots": [
+        {
+          "path": "dist/approval-ui/chromium-frozen-desktop.png",
+          "sha256": "a1bec6539757318f89f591a12027ed2f52dea84d9bf15d8b8b8d4e46862599de"
+        },
+        {
+          "path": "dist/approval-ui/chromium-frozen.png",
+          "sha256": "65d95002c9e777552c17058e0ece35acb18c915cb2f04b4b7dec6b71a7003fa2"
+        }
+      ]
+    },
+    {
+      "implementation": "frozen",
+      "engine": "webkit",
+      "exitCode": 0,
+      "log": "/tmp/xh-approval-frozen-webkit.log",
+      "logSha256": "315544f4d2ca435ddb5a37fff27db442ef908183b52366bfa9e0b2927167ed68",
+      "screenshots": [
+        {
+          "path": "dist/approval-ui/webkit-frozen-desktop.png",
+          "sha256": "5b711f66b020b700c83c29e6538666240c01ac0411fca1024ec7a0f9832f8ea9"
+        },
+        {
+          "path": "dist/approval-ui/webkit-frozen.png",
+          "sha256": "73082f105a9e01234b522cddf0d2d3da07f2f83fd5344879106f346664f2e871"
+        }
+      ]
+    }
+  ],
+  "productionChanges": false,
+  "scopeLimit": "This feature test intercepts before Host boot; root whole-graph boot and pixels remain separate."
+}

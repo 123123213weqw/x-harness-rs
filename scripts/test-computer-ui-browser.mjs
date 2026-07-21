@@ -2,24 +2,41 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { assertRebuildInput } from './fixtures/repository-ui-input.mjs'
 
-const dependencies = process.env.UI_TEST_DEPS ?? '/tmp/xharness-model-ui-tests'
+const dependencies = process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
+const dist = resolve(process.env.UI_TEST_DIST ?? new URL('../ui/dist/', import.meta.url).pathname)
+const id = '@xlang/xharness-client-ui-computer'
+const bytes = readFileSync(resolve(dist, 'plugins', id, 'client.js'))
+const graph = JSON.parse(readFileSync(resolve(dist, 'client-graph.json'), 'utf8'))
+const entry = graph.entries.find(row => row.id === id)
+assert.ok(entry, 'canonical ModuleLoader graph includes computer UI')
+assert.equal(entry.rev, createHash('sha256').update(bytes).digest('hex').slice(0, 16))
+assert.match(bytes.toString(), /^\/\/ Generated from src\/modules\/computer\/index\.tsx;/)
+assert.equal(assertRebuildInput(id).kind, 'source-module', 'browser runs the strict repository source input, not frozen ui/plugins')
 const require = createRequire(resolve(dependencies, 'package.json'))
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 const browser = await ({ chromium, webkit })[engine].launch({ headless: true })
 try {
   const page = await browser.newPage()
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
   await page.setContent('<main id="root"></main>')
   for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js']) {
     await page.addScriptTag({ path: resolve(dependencies, 'node_modules', file) })
   }
   await page.addScriptTag({ content: `window.__ModuleLoader__={load(value){window.__computerRegistration=value}}` })
-  await page.addScriptTag({ content: readFileSync(new URL('../ui/plugins/@xlang/xharness-client-ui-computer/client.js', import.meta.url), 'utf8') })
+  await page.addScriptTag({ content: bytes.toString() })
   await page.evaluate(() => {
     const registration = window.__computerRegistration
     const plugin = registration.factory(id => {
       if (id === 'react') return window.React
+      if (id === 'react/jsx-runtime') {
+        const jsx = (type, props, key) => React.createElement(type, key === undefined ? props : { ...props, key })
+        return { jsx, jsxs: jsx, Fragment: React.Fragment }
+      }
       throw new Error(`unexpected module dependency: ${id}`)
     })
     let Row
@@ -123,7 +140,10 @@ try {
   assert.deepEqual(await page.evaluate(() => window.__nativeActivityCalls[1].args.request), {
     callId: 'native-call', active: false, mode: '', text: '',
   })
-  console.log(`${engine}: Computer row, global privacy indicator, settled summary and navigation retention passed`)
+  assert.equal(await indicator.isHidden(), true)
+  await page.evaluate(() => window.__nativeComputerRoot.unmount())
+  assert.deepEqual(errors, [], 'canonical computer UI must not emit browser exceptions')
+  console.log(`${engine}: canonical source ModuleLoader Computer row, privacy indicator, settled summary, navigation retention and serialized native start/stop passed; browser errors []`)
 } finally {
   await browser.close()
 }
