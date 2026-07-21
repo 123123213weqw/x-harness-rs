@@ -1,605 +1,621 @@
+// Generated from src/modules/settings-general/index.ts; do not edit.
 window.__ModuleLoader__.load({
-	id: "@xharness/dsh-client-ui-settings-general",
-	factory: (require) => {
-		var module = { exports: {} };
-		var exports = module.exports;
-		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-		let _xharness_dsh_client_ui_slots = require("@xharness/dsh-client-ui-slots");
-		let react_jsx_runtime = require("react/jsx-runtime");
-		let react = require("react");
-		let _xharness_dsh_client_ui_primitives = require("@xharness/dsh-client-ui-primitives");
-		let _xharness_dsh_client_runtime_client = require("@xharness/dsh-client-runtime/client");
-		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
-		function r(e) {
-			var t, f, n = "";
-			if ("string" == typeof e || "number" == typeof e) n += e;
-			else if ("object" == typeof e) if (Array.isArray(e)) {
-				var o = e.length;
-				for (t = 0; t < o; t++) e[t] && (f = r(e[t])) && (n && (n += " "), n += f);
-			} else for (f in e) e[f] && (n && (n += " "), n += f);
-			return n;
-		}
-		function clsx() {
-			for (var e, t, f = 0, n = "", o = arguments.length; f < o; f++) (e = arguments[f]) && (t = r(e)) && (n && (n += " "), n += t);
-			return n;
-		}
-		//#endregion
-		//#region \0dsh-css:deepseek-harness/packages/client/ui-settings-general/src/client/SettingsRoot.module.css.mjs
-		const css$3 = "._8OspXW_trigger{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:12px;flex:none;align-items:center;gap:8px;margin:4px -2px;padding:0 10px 0 8px;font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden}._8OspXW_trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}._8OspXW_trigger._8OspXW_rail{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;margin:8px 0 10px;padding:0}._8OspXW_triggerLabel{white-space:nowrap;overflow:hidden}._8OspXW_overlay{z-index:1000;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}._8OspXW_mask{background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);position:absolute;inset:0}._8OspXW_panel{z-index:1;background:var(--dsw-alias-bg-layer-2);width:800px;max-width:calc(100vw - 48px);height:min(800px,100vh - 48px);box-shadow:var(--dsw-shadow-lv3);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:24px;display:flex;position:relative;overflow:hidden}._8OspXW_nav{box-sizing:border-box;flex-direction:column;flex:none;gap:18px;width:188px;padding:22px 12px 0;display:flex}._8OspXW_navTitle{color:var(--dsw-alias-label-primary);padding:0 12px;font-size:16px;font-weight:500;line-height:24px}._8OspXW_navList{flex-direction:column;gap:4px;display:flex}._8OspXW_navCell{box-sizing:border-box;cursor:pointer;height:40px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:9px 16px 9px 12px;font-family:inherit;font-size:14px;font-weight:400;line-height:22px;display:flex}._8OspXW_navCell:hover{background:var(--dsw-specific-sidebar-nav-item-hover)}._8OspXW_navCell._8OspXW_active{background:var(--dsw-specific-sidebar-nav-item-active)}._8OspXW_navIcon{flex:none}._8OspXW_navLabel{white-space:nowrap;text-overflow:ellipsis;flex:1;min-width:0;overflow:hidden}._8OspXW_content{flex-direction:column;flex:1;min-width:0;display:flex}._8OspXW_header{box-sizing:border-box;flex:none;justify-content:space-between;align-items:flex-start;gap:8px;height:54px;padding:20px 14px 8px 10px;display:flex}._8OspXW_actions{justify-content:flex-end;align-items:center;gap:8px;min-width:0;margin-left:auto;display:flex}._8OspXW_close{cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:28px;justify-content:center;align-items:center;padding:0;display:inline-flex}._8OspXW_close:hover{background:var(--dsw-alias-interactive-bg-hover)}._8OspXW_options{flex:1;min-height:0;padding:0 24px 24px;overflow-y:auto}._8OspXW_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}";
-		const tagId$3 = "@xharness/dsh-client-ui-settings-general/SettingsRoot.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$3) + "]") === null) {
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "@xharness/dsh-client-ui-settings-general";
-			tag.dataset.pluginCss = tagId$3;
-			tag.textContent = css$3;
-			document.head.appendChild(tag);
-		}
-		var SettingsRoot_module_css_default = {
-			"actions": "_8OspXW_actions",
-			"active": "_8OspXW_active",
-			"close": "_8OspXW_close",
-			"content": "_8OspXW_content",
-			"header": "_8OspXW_header",
-			"hiddenLabel": "_8OspXW_hiddenLabel",
-			"mask": "_8OspXW_mask",
-			"nav": "_8OspXW_nav",
-			"navCell": "_8OspXW_navCell",
-			"navIcon": "_8OspXW_navIcon",
-			"navLabel": "_8OspXW_navLabel",
-			"navList": "_8OspXW_navList",
-			"navTitle": "_8OspXW_navTitle",
-			"options": "_8OspXW_options",
-			"overlay": "_8OspXW_overlay",
-			"panel": "_8OspXW_panel",
-			"rail": "_8OspXW_rail",
-			"trigger": "_8OspXW_trigger",
-			"triggerLabel": "_8OspXW_triggerLabel"
-		};
-		//#endregion
-		//#region lib/types/client/SettingsRoot.js
-		/**
-		* Settings shell root: the sidebar-foot trigger row plus the centered modal
-		* panel (figma 501:29947, 1080x700) with the section nav rail. The shell is
-		* a pure composition face — every piece of text (trigger label, panel title,
-		* close label, sections) arrives from registrants through slots; accessible
-		* names resolve to that content (trigger: its own text; dialog:
-		* aria-labelledby the title node; close: visually-hidden slot text). Modal
-		* open state and the active section id are component-local viewing state;
-		* the onboarding coordinator mounts exactly one ordered registrant while the
-		* sessions-derived empty-Hero fact is active. Visible dialog chrome belongs
-		* to the step, so a mounted-but-deciding step paints nothing here.
-		*/
-		/** Nav glyph by section id; unknown ids fall back to the settings gear. */
-		function navIcon(id) {
-			if (id === "models") return (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconDataOutline16, {
-				className: SettingsRoot_module_css_default.navIcon,
-				size: 16
-			});
-			if (id === "agent-presets") return (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconAgentPresetOutline16, {
-				className: SettingsRoot_module_css_default.navIcon,
-				size: 16
-			});
-			if (id === "plugins") return (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconPersonalizationOutline16, {
-				className: SettingsRoot_module_css_default.navIcon,
-				size: 16
-			});
-			return (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconSettingsOutline16, {
-				className: SettingsRoot_module_css_default.navIcon,
-				size: 16
-			});
-		}
-		/**
-		* The modal layer: full-viewport mask + centered panel. Close paths: the
-		* header button, a mask click, and document-level Escape (mounted only while
-		* open, so the listener lifetime is the panel's).
-		*/
-		function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }) {
-			const active = rows.find((r) => r.id === activeId)?.id ?? rows[0]?.id;
-			const titleId = (0, react.useId)();
-			(0, react.useEffect)(() => {
-				const onKeyDown = (e) => {
-					if (e.key === "Escape") onClose();
-				};
-				document.addEventListener("keydown", onKeyDown);
-				return () => {
-					document.removeEventListener("keydown", onKeyDown);
-				};
-			}, [onClose]);
-			const closeButton = (0, react.useRef)(null);
-			(0, react.useEffect)(() => {
-				closeButton.current?.focus();
-			}, []);
-			return (0, react_jsx_runtime.jsxs)("div", {
-				className: SettingsRoot_module_css_default.overlay,
-				role: "presentation",
-				children: [(0, react_jsx_runtime.jsx)("div", {
-					className: SettingsRoot_module_css_default.mask,
-					"aria-hidden": "true",
-					onClick: onClose
-				}), (0, react_jsx_runtime.jsxs)("div", {
-					className: SettingsRoot_module_css_default.panel,
-					role: "dialog",
-					"aria-modal": "true",
-					"aria-labelledby": titleId,
-					children: [(0, react_jsx_runtime.jsxs)("nav", {
-						className: SettingsRoot_module_css_default.nav,
-						children: [(0, react_jsx_runtime.jsx)("div", {
-							className: SettingsRoot_module_css_default.navTitle,
-							id: titleId,
-							children: renderSlot("settings.header", {})
-						}), (0, react_jsx_runtime.jsx)("div", {
-							className: SettingsRoot_module_css_default.navList,
-							children: rows.map((row) => (0, react_jsx_runtime.jsxs)("button", {
-								type: "button",
-								className: clsx(SettingsRoot_module_css_default.navCell, row.id === active && SettingsRoot_module_css_default.active),
-								"aria-current": row.id === active ? "true" : void 0,
-								onClick: () => {
-									onSelect(row.id);
-								},
-								children: [navIcon(row.id), (0, react_jsx_runtime.jsx)("span", {
-									className: SettingsRoot_module_css_default.navLabel,
-									children: row.label
-								})]
-							}, row.id))
-						})]
-					}), (0, react_jsx_runtime.jsxs)("div", {
-						className: SettingsRoot_module_css_default.content,
-						children: [(0, react_jsx_runtime.jsxs)("div", {
-							className: SettingsRoot_module_css_default.header,
-							children: [(0, react_jsx_runtime.jsx)("div", {
-								className: SettingsRoot_module_css_default.actions,
-								children: renderSlot("settings.action", {})
-							}), (0, react_jsx_runtime.jsxs)("button", {
-								ref: closeButton,
-								type: "button",
-								className: SettingsRoot_module_css_default.close,
-								onClick: onClose,
-								children: [(0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconCloseOutline16, { size: 14 }), (0, react_jsx_runtime.jsx)("span", {
-									className: SettingsRoot_module_css_default.hiddenLabel,
-									children: renderSlot("settings.close", {})
-								})]
-							})]
-						}), (0, react_jsx_runtime.jsx)("div", {
-							className: SettingsRoot_module_css_default.options,
-							children: active !== void 0 && renderSlot("settings.section", { close: onClose }, { only: active })
-						})]
-					})]
-				})]
-			});
-		}
-		/**
-		* Render the settings trigger and panel.
-		* @param props - composed slot props (contract/slots.ts).
-		* @returns the settings shell element tree.
-		*/
-		function SettingsRoot(props) {
-			const { wide, useSections, useOnboardingSteps, useSessions, renderSlot } = props;
-			const [open, setOpen] = (0, react.useState)(false);
-			const [activeId, setActiveId] = (0, react.useState)(void 0);
-			const [completedOnboarding, setCompletedOnboarding] = (0, react.useState)(() => /* @__PURE__ */ new Set());
-			const close = (0, react.useCallback)(() => {
-				setOpen(false);
-				setActiveId(void 0);
-			}, []);
-			const openSection = (0, react.useCallback)((id) => {
-				setActiveId(id);
-				setOpen(true);
-			}, []);
-			const rows = useSections((s) => s);
-			const onboardingSteps = useOnboardingSteps((s) => s);
-			const onboardingActive = useSessions((state) => state.phase === "ready" && (state.current === void 0 || state.byId[state.current]?.blank === true));
-			const onboardingStep = onboardingActive ? onboardingSteps.find((step) => !completedOnboarding.has(step.id)) : void 0;
-			(0, react.useEffect)(() => {
-				if (onboardingActive) return;
-				setCompletedOnboarding(/* @__PURE__ */ new Set());
-			}, [onboardingActive]);
-			const completeOnboardingStep = (0, react.useCallback)((id) => {
-				setCompletedOnboarding((previous) => {
-					if (previous.has(id)) return previous;
-					return new Set([...previous, id]);
-				});
-			}, []);
-			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-				(0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: clsx(SettingsRoot_module_css_default.trigger, !wide && SettingsRoot_module_css_default.rail),
-					"aria-haspopup": "dialog",
-					"aria-expanded": open,
-					onClick: () => {
-						setOpen(true);
-					},
-					children: renderSlot("settings.trigger", { wide })
-				}),
-				open && (0, react_jsx_runtime.jsx)(SettingsPanel, {
-					rows,
-					renderSlot,
-					activeId,
-					onSelect: setActiveId,
-					onClose: close
-				}),
-				onboardingStep !== void 0 && renderSlot("settings.onboarding", {
-					stepId: onboardingStep.id,
-					complete: () => {
-						completeOnboardingStep(onboardingStep.id);
-					},
-					openSection
-				}, { only: onboardingStep.id })
-			] });
-		}
-		//#endregion
-		//#region \0dsh-css:deepseek-harness/packages/client/ui-settings-general/src/client/chrome.module.css.mjs
-		const css$2 = ".GHoW-q_triggerLabel{white-space:nowrap;overflow:hidden}";
-		const tagId$2 = "@xharness/dsh-client-ui-settings-general/chrome.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "@xharness/dsh-client-ui-settings-general";
-			tag.dataset.pluginCss = tagId$2;
-			tag.textContent = css$2;
-			document.head.appendChild(tag);
-		}
-		var chrome_module_css_default = { "triggerLabel": "GHoW-q_triggerLabel" };
-		//#endregion
-		//#region lib/types/client/chrome.js
-		/**
-		* Shell chrome content registered into the shell's trigger/header seats: the
-		* trigger row icon + label (figma sidebar foot) and the panel title text.
-		* The shell renders the surrounding chrome (button, nav heading row) and
-		* reads each entry's `label` option for aria text.
-		*/
-		/**
-		* Render the trigger row content (icon; label only in the wide column).
-		* @param props - composed slot props.
-		* @returns the trigger content fragment.
-		*/
-		function TriggerContent({ wide, t }) {
-			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [wide ? (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconSettingsOutline16, { size: 16 }) : (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconSettingsOutline14, { size: 18 }), wide && (0, react_jsx_runtime.jsx)("span", {
-				className: chrome_module_css_default.triggerLabel,
-				children: t("trigger")
-			})] });
-		}
-		/**
-		* Render the panel title text.
-		* @param props - composed slot props.
-		* @returns the title text node.
-		*/
-		function HeaderContent({ t }) {
-			return (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: t("title") });
-		}
-		/**
-		* Render the close button's visually-hidden label text.
-		* @param props - composed slot props.
-		* @returns the label text node.
-		*/
-		function CloseLabel({ t }) {
-			return (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: t("close") });
-		}
-		//#endregion
-		//#region \0dsh-css:deepseek-harness/packages/client/ui-settings-general/src/client/GeneralSection.module.css.mjs
-		const css$1 = ".C4ry3W_section{flex-direction:column;width:100%;display:flex}.C4ry3W_section>[data-slot=\"settings.general.item\"]>:last-child{border-bottom:none}";
-		const tagId$1 = "@xharness/dsh-client-ui-settings-general/GeneralSection.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "@xharness/dsh-client-ui-settings-general";
-			tag.dataset.pluginCss = tagId$1;
-			tag.textContent = css$1;
-			document.head.appendChild(tag);
-		}
-		var GeneralSection_module_css_default = { "section": "C4ry3W_section" };
-		//#endregion
-		//#region lib/types/client/GeneralSection.js
-		/**
-		* Render the General section content column.
-		* @param props - composed slot props (contract/slots.ts).
-		* @returns the section element tree.
-		*/
-		function GeneralSection({ renderSlot }) {
-			return (0, react_jsx_runtime.jsx)("div", {
-				className: GeneralSection_module_css_default.section,
-				children: renderSlot("settings.general.item", {})
-			});
-		}
-		//#endregion
-		//#region \0dsh-css:deepseek-harness/packages/client/ui-settings-general/src/client/SettingsDocumentAction.module.css.mjs
-		const css = ".TdWx9W_action{align-items:center;gap:8px;min-width:0;display:flex}.TdWx9W_error{max-width:180px;color:var(--dsw-alias-state-error-primary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}";
-		const tagId = "@xharness/dsh-client-ui-settings-general/SettingsDocumentAction.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "@xharness/dsh-client-ui-settings-general";
-			tag.dataset.pluginCss = tagId;
-			tag.textContent = css;
-			document.head.appendChild(tag);
-		}
-		var SettingsDocumentAction_module_css_default = {
-			"action": "TdWx9W_action",
-			"error": "TdWx9W_error"
-		};
-		//#endregion
-		//#region lib/types/client/SettingsDocumentAction.js
-		/** Optional settings-header action for opening a file-backed Host document. */
-		/**
-		* Render the open-document action only after Host metadata confirms document availability.
-		* @param props - header owner props, localized copy, and injected document state.
-		* @returns the action, or null while unavailable or unresolved.
-		*/
-		function SettingsDocumentAction({ controller, useSnapshot, t }) {
-			const state = useSnapshot((snapshot) => snapshot);
-			(0, react.useEffect)(() => {
-				controller.load();
-			}, [controller]);
-			if (state.status !== "ready") return null;
-			return (0, react_jsx_runtime.jsxs)("div", {
-				className: SettingsDocumentAction_module_css_default.action,
-				children: [state.error === null ? null : (0, react_jsx_runtime.jsx)("span", {
-					className: SettingsDocumentAction_module_css_default.error,
-					role: "alert",
-					children: t("openDocument.error")
-				}), (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.Button, {
-					variant: "outline",
-					size: "sm",
-					disabled: state.opening,
-					onClick: () => {
-						controller.open();
-					},
-					children: t("openDocument")
-				})]
-			});
-		}
-		//#endregion
-		//#region lib/types/client/settings-document-store.js
-		/** State owner for the optional local settings-document action. */
-		function messageOf(error) {
-			return error instanceof Error ? error.message : String(error);
-		}
-		/** Derives local-document availability from the shared mirror and invokes the pathless Host-owned open operation. */
-		var SettingsDocumentStore = class {
-			api;
-			describeFace;
-			/** uSES-safe state source shared by the registered header action. */
-			store = (0, _xharness_dsh_client_runtime_client.createSnapshotStore)({
-				status: "idle",
-				opening: false,
-				error: null
-			});
-			following;
-			/**
-			* @param api - loopback settings wire face that opens the provider document.
-			* @param describeFace - the shared mirror's describe face (`hasDocument` source).
-			*/
-			constructor(api, describeFace) {
-				this.api = api;
-				this.describeFace = describeFace;
-			}
-			/**
-			* Begin following the mirror (idempotent) and reflect whether the current
-			* provider owns a local document.
-			* @returns settlement once the snapshot reflects the mirror.
-			*/
-			async load() {
-				this.following ??= this.describeFace.subscribe(() => {
-					this.derive();
-				});
-				this.store.update((state) => {
-					state.status = "loading";
-					state.error = null;
-				});
-				await this.describeFace.ensure();
-				this.derive();
-			}
-			/**
-			* Open the loaded document once; concurrent gestures collapse behind the in-flight action.
-			* @returns after the native-open request settles, or immediately when unavailable/already opening.
-			*/
-			async open() {
-				const current = this.store.getSnapshot();
-				if (current.status !== "ready" || current.opening) return;
-				this.store.update((state) => {
-					state.opening = true;
-					state.error = null;
-				});
-				try {
-					const response = await this.api.settings.openDocument({});
-					if (!response.result.ok) throw new Error(response.result.error.message);
-				} catch (error) {
-					this.store.update((state) => {
-						state.error = messageOf(error);
-					});
-				} finally {
-					this.store.update((state) => {
-						state.opening = false;
-					});
-				}
-			}
-			/** Stop following the mirror. */
-			dispose() {
-				this.following?.();
-				this.following = void 0;
-			}
-			derive() {
-				const mirrored = this.describeFace.getSnapshot();
-				if (mirrored.view === void 0) {
-					if (mirrored.error !== null) this.store.update((state) => {
-						state.status = "unavailable";
-						state.error = mirrored.error;
-					});
-					return;
-				}
-				const { hasDocument } = mirrored.view;
-				this.store.update((state) => {
-					state.status = hasDocument ? "ready" : "unavailable";
-					state.error = null;
-				});
-			}
-		};
-		//#endregion
-		//#region lib/types/client/locales.js
-		/** Shell chrome and General-nav dictionaries; feature rows own their copy. */
-		/** Simplified Chinese dictionary (the key-set source of truth). */
-		const zh = {
-			"trigger": "设置",
-			"title": "设置",
-			"close": "关闭",
-			"openDocument": "打开配置文件",
-			"openDocument.error": "无法打开配置文件",
-			"general.nav": "通用设置"
-		};
-		/** English dictionary, checked complete against the zh key set. */
-		const en = {
-			"trigger": "Settings",
-			"title": "Settings",
-			"close": "Close",
-			"openDocument": "Open configuration file",
-			"openDocument.error": "Could not open configuration file",
-			"general.nav": "General"
-		};
-		//#endregion
-		//#region lib/types/client/index.js
-		/** Dictionary namespace owned by this plugin (shell chrome + General copy). */
-		const NS = "settings";
-		/**
-		* Required services (cordis fiber inject). The target slots are declared by
-		* ui-settings' apply, whose activation order relative to this one is NOT
-		* constrained; registrations depend on their slots through `slots.inject()`.
-		*/
-		const inject = [
-			"slots",
-			"locale",
-			"connection",
-			"settingsScope"
-		];
-		/**
-		* Register the `settings` dictionaries, the chrome content, and the General
-		* section, each once its slot declaration is on the ledger.
-		* @param ctx - client root context.
-		*/
-		function apply(ctx) {
-			ctx.effect(() => ctx.locale.register(NS, {
-				zh,
-				en
-			}), "ui-settings-general: dictionaries");
-			const t = ctx.locale.bind(NS);
-			const connection = ctx.get("connection");
-			const documentController = connection.isLoopback ? new SettingsDocumentStore(connection.api, ctx.settingsScope.describe()) : void 0;
-			const documentInjected = documentController === void 0 ? void 0 : () => ({
-				controller: documentController,
-				hooks: { snapshot: documentController.store }
-			});
-			ctx.effect(() => () => {
-				documentController?.dispose();
-			}, "ui-settings-general: document action directory");
-			let rowsVersion = -1;
-			let rowsRevision = -1;
-			let rows = [];
-			let onboardingVersion = -1;
-			let onboardingSteps = [];
-			const shellInjected = () => ({ hooks: {
-				sections: {
-					getSnapshot: () => {
-						const version = ctx.slots.getVersion("settings.section");
-						const revision = ctx.locale.getSnapshot().revision;
-						if (version !== rowsVersion || revision !== rowsRevision) {
-							rowsVersion = version;
-							rowsRevision = revision;
-							rows = ctx.slots.entries("settings.section").map((e) => ({
-								/* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
-								id: e.options.id ?? "",
-								order: e.options.order ?? 0,
-								label: (0, _xharness_dsh_client_ui_slots.resolveSlotLabel)(e.options.label) ?? ""
-							})).sort((a, b) => a.order - b.order);
-						}
-						return rows;
-					},
-					subscribe: (listener) => {
-						const offLedger = ctx.slots.subscribe("settings.section", listener);
-						const offLocale = ctx.locale.subscribe(listener);
-						return () => {
-							offLedger();
-							offLocale();
-						};
-					}
-				},
-				onboardingSteps: {
-					getSnapshot: () => {
-						const version = ctx.slots.getVersion("settings.onboarding");
-						if (version !== onboardingVersion) {
-							onboardingVersion = version;
-							onboardingSteps = ctx.slots.entries("settings.onboarding").map((e) => ({
-								/* v8 ignore next -- list-slot registration requires id */
-								id: e.options.id ?? "",
-								order: e.options.order ?? 0
-							})).sort((a, b) => a.order - b.order);
-						}
-						return onboardingSteps;
-					},
-					subscribe: (listener) => ctx.slots.subscribe("settings.onboarding", listener)
-				}
-			} });
-			ctx.slots.inject("sidebar.settings", () => ctx.slots.register({
-				name: "sidebar.settings",
-				children: {
-					"settings.trigger": {
-						kind: "single",
-						scope: "root"
-					},
-					"settings.header": {
-						kind: "single",
-						scope: "root"
-					},
-					"settings.action": {
-						kind: "list",
-						scope: "root"
-					},
-					"settings.close": {
-						kind: "single",
-						scope: "root"
-					},
-					"settings.section": {
-						kind: "list",
-						scope: "root"
-					},
-					"settings.onboarding": {
-						kind: "list",
-						scope: "root"
-					}
-				},
-				inject: shellInjected
-			}, SettingsRoot));
-			ctx.slots.inject("settings.trigger", () => ctx.slots.register({
-				name: "settings.trigger",
-				locale: NS
-			}, TriggerContent));
-			ctx.slots.inject("settings.header", () => ctx.slots.register({
-				name: "settings.header",
-				locale: NS
-			}, HeaderContent));
-			if (documentInjected !== void 0) ctx.slots.inject("settings.action", () => ctx.slots.register({
-				name: "settings.action",
-				id: "open-document",
-				order: 0,
-				locale: NS,
-				inject: documentInjected
-			}, SettingsDocumentAction));
-			ctx.slots.inject("settings.close", () => ctx.slots.register({
-				name: "settings.close",
-				locale: NS
-			}, CloseLabel));
-			ctx.slots.inject("settings.section", () => ctx.slots.register({
-				name: "settings.section",
-				id: "general",
-				order: 0,
-				label: () => t("general.nav"),
-				locale: NS,
-				children: { "settings.general.item": {
-					kind: "list",
-					scope: "root"
-				} }
-			}, GeneralSection));
-		}
-		//#endregion
-		exports.SettingsDocumentStore = SettingsDocumentStore;
-		exports.apply = apply;
-		exports.inject = inject;
-		return module.exports;
-	}
-});
+id: "@xharness/dsh-client-ui-settings-general",
+factory: (__externalRequire) => {
+const __units = {
+"src/modules/settings-general/index.js": function(module, exports, require) {
+// source: src/modules/settings-general/index.ts
 
-//# sourceMappingURL=client.js.map
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.inject = exports.SettingsDocumentStore = void 0;
+exports.apply = apply;
+const dsh_client_ui_slots_1 = require("@xharness/dsh-client-ui-slots");
+const SettingsRoot_1 = require("./SettingsRoot");
+const chrome_1 = require("./chrome");
+const GeneralSection_1 = require("./GeneralSection");
+const SettingsDocumentAction_1 = require("./SettingsDocumentAction");
+const settings_document_store_1 = require("./settings-document-store");
+const locales_1 = require("./locales");
+var settings_document_store_2 = require("./settings-document-store");
+Object.defineProperty(exports, "SettingsDocumentStore", { enumerable: true, get: function () { return settings_document_store_2.SettingsDocumentStore; } });
+/** Dictionary namespace owned by this plugin (shell chrome + General copy). */
+const NS = 'settings';
+/**
+ * Required services (cordis fiber inject). The target slots are declared by
+ * ui-settings' apply, whose activation order relative to this one is NOT
+ * constrained; registrations depend on their slots through `slots.inject()`.
+ */
+exports.inject = ['slots', 'locale', 'connection', 'settingsScope'];
+/**
+ * Register the `settings` dictionaries, the chrome content, and the General
+ * section, each once its slot declaration is on the ledger.
+ * @param ctx - client root context.
+ */
+function apply(ctx) {
+    ctx.effect(() => ctx.locale.register(NS, { zh: locales_1.zh, en: locales_1.en }), 'ui-settings-general: dictionaries');
+    // Copy freshness is framework-owned: components read the standard `t`
+    // seat, and the nav label is a thunk the owner resolves per render — no
+    // locale/change re-registration wiring.
+    const t = ctx.locale.bind(NS);
+    const connection = ctx.get('connection');
+    // The action follows the shared describe mirror, whose owning plugin
+    // already refreshes it on document commits and reconnects.
+    const documentController = connection.isLoopback
+        ? new settings_document_store_1.SettingsDocumentStore(connection.api, ctx.settingsScope.describe())
+        : undefined;
+    const documentInjected = documentController === undefined
+        ? undefined
+        : () => ({
+            controller: documentController,
+            hooks: { snapshot: documentController.store },
+        });
+    ctx.effect(() => () => { documentController?.dispose(); }, 'ui-settings-general: document action directory');
+    // The settings shell: this package occupies the sidebar-owned hole and
+    // declares the settings slots. Ledger → nav-row projection as an observable
+    // source (uSES contract: getSnapshot returns the cached rows until the
+    // ledger version moves). Labels may be locale-following thunks, so the cache
+    // key includes the locale revision and subscribers ride both sources.
+    let rowsVersion = -1;
+    let rowsRevision = -1;
+    let rows = [];
+    let onboardingVersion = -1;
+    let onboardingSteps = [];
+    const shellInjected = () => ({
+        hooks: {
+            sections: {
+                getSnapshot: () => {
+                    const version = ctx.slots.getVersion('settings.section');
+                    const revision = ctx.locale.getSnapshot().revision;
+                    if (version !== rowsVersion || revision !== rowsRevision) {
+                        rowsVersion = version;
+                        rowsRevision = revision;
+                        rows = ctx.slots.entries('settings.section')
+                            .map(e => ({
+                            /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
+                            id: e.options.id ?? '',
+                            order: e.options.order ?? 0,
+                            label: (0, dsh_client_ui_slots_1.resolveSlotLabel)(e.options.label) ?? '',
+                        }))
+                            .sort((a, b) => a.order - b.order);
+                    }
+                    return rows;
+                },
+                subscribe: (listener) => {
+                    const offLedger = ctx.slots.subscribe('settings.section', listener);
+                    const offLocale = ctx.locale.subscribe(listener);
+                    return () => {
+                        offLedger();
+                        offLocale();
+                    };
+                },
+            },
+            onboardingSteps: {
+                getSnapshot: () => {
+                    const version = ctx.slots.getVersion('settings.onboarding');
+                    if (version !== onboardingVersion) {
+                        onboardingVersion = version;
+                        onboardingSteps = ctx.slots.entries('settings.onboarding')
+                            .map(e => ({
+                            /* v8 ignore next -- list-slot registration requires id */
+                            id: e.options.id ?? '',
+                            order: e.options.order ?? 0,
+                        }))
+                            .sort((a, b) => a.order - b.order);
+                    }
+                    return onboardingSteps;
+                },
+                subscribe: listener => ctx.slots.subscribe('settings.onboarding', listener),
+            },
+        },
+    });
+    ctx.slots.inject('sidebar.settings', () => ctx.slots.register({
+        name: 'sidebar.settings',
+        children: {
+            'settings.trigger': { kind: 'single', scope: 'root' },
+            'settings.header': { kind: 'single', scope: 'root' },
+            'settings.action': { kind: 'list', scope: 'root' },
+            'settings.close': { kind: 'single', scope: 'root' },
+            'settings.section': { kind: 'list', scope: 'root' },
+            'settings.onboarding': { kind: 'list', scope: 'root' },
+        },
+        inject: shellInjected,
+    }, SettingsRoot_1.SettingsRoot));
+    ctx.slots.inject('settings.trigger', () => ctx.slots.register({ name: 'settings.trigger', locale: NS }, chrome_1.TriggerContent));
+    ctx.slots.inject('settings.header', () => ctx.slots.register({ name: 'settings.header', locale: NS }, chrome_1.HeaderContent));
+    if (documentInjected !== undefined) {
+        ctx.slots.inject('settings.action', () => ctx.slots.register({
+            name: 'settings.action',
+            id: 'open-document',
+            order: 0,
+            locale: NS,
+            inject: documentInjected,
+        }, SettingsDocumentAction_1.SettingsDocumentAction));
+    }
+    ctx.slots.inject('settings.close', () => ctx.slots.register({ name: 'settings.close', locale: NS }, chrome_1.CloseLabel));
+    ctx.slots.inject('settings.section', () => ctx.slots.register({
+        name: 'settings.section',
+        id: 'general',
+        order: 0,
+        label: () => t('general.nav'),
+        locale: NS,
+        children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
+    }, GeneralSection_1.GeneralSection));
+}
+
+},
+"src/modules/settings-general/SettingsRoot.js": function(module, exports, require) {
+// source: src/modules/settings-general/SettingsRoot.tsx
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SettingsRoot = SettingsRoot;
+const jsx_runtime_1 = require("react/jsx-runtime");
+/**
+ * Settings shell root: the sidebar-foot trigger row plus the centered modal
+ * panel (figma 501:29947, 1080x700) with the section nav rail. The shell is
+ * a pure composition face — every piece of text (trigger label, panel title,
+ * close label, sections) arrives from registrants through slots; accessible
+ * names resolve to that content (trigger: its own text; dialog:
+ * aria-labelledby the title node; close: visually-hidden slot text). Modal
+ * open state and the active section id are component-local viewing state;
+ * the onboarding coordinator mounts exactly one ordered registrant while the
+ * sessions-derived empty-Hero fact is active. Visible dialog chrome belongs
+ * to the step, so a mounted-but-deciding step paints nothing here.
+ */
+const react_1 = require("react");
+const views_types_1 = require("../views-types");
+const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
+const SettingsRoot_styles_1 = __importDefault(require("./SettingsRoot.styles"));
+/** Nav glyph by section id; unknown ids fall back to the settings gear. */
+function navIcon(id) {
+    if (id === 'models')
+        return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconDataOutline16, { className: SettingsRoot_styles_1.default.navIcon, size: 16 });
+    if (id === 'agent-presets')
+        return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconAgentPresetOutline16, { className: SettingsRoot_styles_1.default.navIcon, size: 16 });
+    if (id === 'plugins')
+        return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPersonalizationOutline16, { className: SettingsRoot_styles_1.default.navIcon, size: 16 });
+    return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconSettingsOutline16, { className: SettingsRoot_styles_1.default.navIcon, size: 16 });
+}
+/**
+ * The modal layer: full-viewport mask + centered panel. Close paths: the
+ * header button, a mask click, and document-level Escape (mounted only while
+ * open, so the listener lifetime is the panel's).
+ */
+function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }) {
+    // Entries can unmount underneath the requested id, so the render-time
+    // projection falls back to the first row when the id is gone.
+    const active = rows.find(r => r.id === activeId)?.id ?? rows[0]?.id;
+    const titleId = (0, react_1.useId)();
+    (0, react_1.useEffect)(() => {
+        const onKeyDown = (e) => {
+            if (e.key === 'Escape')
+                onClose();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => { document.removeEventListener('keydown', onKeyDown); };
+    }, [onClose]);
+    // Baseline focus management: entering the dialog lands on the close button.
+    const closeButton = (0, react_1.useRef)(null);
+    (0, react_1.useEffect)(() => { closeButton.current?.focus(); }, []);
+    return ((0, jsx_runtime_1.jsxs)("div", { className: SettingsRoot_styles_1.default.overlay, role: "presentation", children: [(0, jsx_runtime_1.jsx)("div", { className: SettingsRoot_styles_1.default.mask, "aria-hidden": "true", onClick: onClose }), (0, jsx_runtime_1.jsxs)("div", { className: SettingsRoot_styles_1.default.panel, role: "dialog", "aria-modal": "true", "aria-labelledby": titleId, children: [(0, jsx_runtime_1.jsxs)("nav", { className: SettingsRoot_styles_1.default.nav, children: [(0, jsx_runtime_1.jsx)("div", { className: SettingsRoot_styles_1.default.navTitle, id: titleId, children: renderSlot('settings.header', {}) }), (0, jsx_runtime_1.jsx)("div", { className: SettingsRoot_styles_1.default.navList, children: rows.map(row => ((0, jsx_runtime_1.jsxs)("button", { type: "button", className: (0, views_types_1.classNames)(SettingsRoot_styles_1.default.navCell, row.id === active && SettingsRoot_styles_1.default.active), "aria-current": row.id === active ? 'true' : undefined, onClick: () => { onSelect(row.id); }, children: [navIcon(row.id), (0, jsx_runtime_1.jsx)("span", { className: SettingsRoot_styles_1.default.navLabel, children: row.label })] }, row.id))) })] }), (0, jsx_runtime_1.jsxs)("div", { className: SettingsRoot_styles_1.default.content, children: [(0, jsx_runtime_1.jsxs)("div", { className: SettingsRoot_styles_1.default.header, children: [(0, jsx_runtime_1.jsx)("div", { className: SettingsRoot_styles_1.default.actions, children: renderSlot('settings.action', {}) }), (0, jsx_runtime_1.jsxs)("button", { ref: closeButton, type: "button", className: SettingsRoot_styles_1.default.close, onClick: onClose, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCloseOutline16, { size: 14 }), (0, jsx_runtime_1.jsx)("span", { className: SettingsRoot_styles_1.default.hiddenLabel, children: renderSlot('settings.close', {}) })] })] }), (0, jsx_runtime_1.jsx)("div", { className: SettingsRoot_styles_1.default.options, children: active !== undefined && renderSlot('settings.section', { close: onClose }, { only: active }) })] })] })] }));
+}
+/**
+ * Render the settings trigger and panel.
+ * @param props - composed slot props (contract/slots.ts).
+ * @returns the settings shell element tree.
+ */
+function SettingsRoot(props) {
+    const { wide, useSections, useOnboardingSteps, useSessions, renderSlot } = props;
+    const [open, setOpen] = (0, react_1.useState)(false);
+    const [activeId, setActiveId] = (0, react_1.useState)(undefined);
+    const [completedOnboarding, setCompletedOnboarding] = (0, react_1.useState)(() => new Set());
+    const close = (0, react_1.useCallback)(() => {
+        setOpen(false);
+        setActiveId(undefined);
+    }, []);
+    const openSection = (0, react_1.useCallback)((id) => {
+        setActiveId(id);
+        setOpen(true);
+    }, []);
+    // The ledger tick keeps the nav rows fresh: registrants re-register with
+    // freshly localized text on locale change, and the trigger/header/close
+    // seats re-render through their own outlets' subscriptions.
+    const rows = useSections(s => s);
+    const onboardingSteps = useOnboardingSteps(s => s);
+    const onboardingActive = useSessions(state => state.phase === 'ready'
+        && (state.current === undefined || state.byId[state.current]?.blank === true));
+    const onboardingStep = onboardingActive
+        ? onboardingSteps.find(step => !completedOnboarding.has(step.id))
+        : undefined;
+    (0, react_1.useEffect)(() => {
+        if (onboardingActive)
+            return;
+        setCompletedOnboarding(new Set());
+    }, [onboardingActive]);
+    const completeOnboardingStep = (0, react_1.useCallback)((id) => {
+        setCompletedOnboarding((previous) => {
+            if (previous.has(id))
+                return previous;
+            return new Set([...previous, id]);
+        });
+    }, []);
+    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, views_types_1.classNames)(SettingsRoot_styles_1.default.trigger, !wide && SettingsRoot_styles_1.default.rail), "aria-haspopup": "dialog", "aria-expanded": open, onClick: () => { setOpen(true); }, children: renderSlot('settings.trigger', { wide }) }), open && ((0, jsx_runtime_1.jsx)(SettingsPanel, { rows: rows, renderSlot: renderSlot, activeId: activeId, onSelect: setActiveId, onClose: close })), onboardingStep !== undefined && renderSlot('settings.onboarding', {
+                stepId: onboardingStep.id,
+                complete: () => { completeOnboardingStep(onboardingStep.id); },
+                openSection,
+            }, { only: onboardingStep.id })] }));
+}
+
+},
+"src/modules/views-types.js": function(module, exports, require) {
+// source: src/modules/views-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.classNames = classNames;
+exports.installStyles = installStyles;
+function classNames(...values) { return values.filter(Boolean).join(' '); }
+/** Exact legacy style identity, but editable source rather than compiled input. */
+function installStyles(id, plugin, css) {
+    if (typeof document === 'undefined' || document.querySelector(`style[data-plugin-css=${JSON.stringify(id)}]`) !== null)
+        return;
+    const tag = document.createElement('style');
+    tag.dataset.plugin = plugin;
+    tag.dataset.pluginCss = id;
+    tag.textContent = css;
+    document.head.appendChild(tag);
+}
+
+},
+"src/modules/settings-general/SettingsRoot.styles.js": function(module, exports, require) {
+// source: src/modules/settings-general/SettingsRoot.styles.ts
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const SettingsRoot_css_1 = __importDefault(require("./SettingsRoot.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)("@xharness/dsh-client-ui-settings-general/SettingsRoot.module.css", "@xharness/dsh-client-ui-settings-general", SettingsRoot_css_1.default);
+const styles = {
+    "actions": "_8OspXW_actions",
+    "active": "_8OspXW_active",
+    "close": "_8OspXW_close",
+    "content": "_8OspXW_content",
+    "header": "_8OspXW_header",
+    "hiddenLabel": "_8OspXW_hiddenLabel",
+    "mask": "_8OspXW_mask",
+    "nav": "_8OspXW_nav",
+    "navCell": "_8OspXW_navCell",
+    "navIcon": "_8OspXW_navIcon",
+    "navLabel": "_8OspXW_navLabel",
+    "navList": "_8OspXW_navList",
+    "navTitle": "_8OspXW_navTitle",
+    "options": "_8OspXW_options",
+    "overlay": "_8OspXW_overlay",
+    "panel": "_8OspXW_panel",
+    "rail": "_8OspXW_rail",
+    "trigger": "_8OspXW_trigger",
+    "triggerLabel": "_8OspXW_triggerLabel"
+};
+exports.default = styles;
+
+},
+"src/modules/settings-general/SettingsRoot.css": function(module, exports, require) {
+// source: src/modules/settings-general/SettingsRoot.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = "._8OspXW_trigger{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:12px;flex:none;align-items:center;gap:8px;margin:4px -2px;padding:0 10px 0 8px;font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden}._8OspXW_trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}._8OspXW_trigger._8OspXW_rail{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;margin:8px 0 10px;padding:0}._8OspXW_triggerLabel{white-space:nowrap;overflow:hidden}._8OspXW_overlay{z-index:1000;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}._8OspXW_mask{background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);position:absolute;inset:0}._8OspXW_panel{z-index:1;background:var(--dsw-alias-bg-layer-2);width:800px;max-width:calc(100vw - 48px);height:min(800px,100vh - 48px);box-shadow:var(--dsw-shadow-lv3);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:24px;display:flex;position:relative;overflow:hidden}._8OspXW_nav{box-sizing:border-box;flex-direction:column;flex:none;gap:18px;width:188px;padding:22px 12px 0;display:flex}._8OspXW_navTitle{color:var(--dsw-alias-label-primary);padding:0 12px;font-size:16px;font-weight:500;line-height:24px}._8OspXW_navList{flex-direction:column;gap:4px;display:flex}._8OspXW_navCell{box-sizing:border-box;cursor:pointer;height:40px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:9px 16px 9px 12px;font-family:inherit;font-size:14px;font-weight:400;line-height:22px;display:flex}._8OspXW_navCell:hover{background:var(--dsw-specific-sidebar-nav-item-hover)}._8OspXW_navCell._8OspXW_active{background:var(--dsw-specific-sidebar-nav-item-active)}._8OspXW_navIcon{flex:none}._8OspXW_navLabel{white-space:nowrap;text-overflow:ellipsis;flex:1;min-width:0;overflow:hidden}._8OspXW_content{flex-direction:column;flex:1;min-width:0;display:flex}._8OspXW_header{box-sizing:border-box;flex:none;justify-content:space-between;align-items:flex-start;gap:8px;height:54px;padding:20px 14px 8px 10px;display:flex}._8OspXW_actions{justify-content:flex-end;align-items:center;gap:8px;min-width:0;margin-left:auto;display:flex}._8OspXW_close{cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:28px;justify-content:center;align-items:center;padding:0;display:inline-flex}._8OspXW_close:hover{background:var(--dsw-alias-interactive-bg-hover)}._8OspXW_options{flex:1;min-height:0;padding:0 24px 24px;overflow-y:auto}._8OspXW_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}\n";
+
+},
+"src/modules/settings-general/chrome.js": function(module, exports, require) {
+// source: src/modules/settings-general/chrome.tsx
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TriggerContent = TriggerContent;
+exports.HeaderContent = HeaderContent;
+exports.CloseLabel = CloseLabel;
+const jsx_runtime_1 = require("react/jsx-runtime");
+/**
+ * Shell chrome content registered into the shell's trigger/header seats: the
+ * trigger row icon + label (figma sidebar foot) and the panel title text.
+ * The shell renders the surrounding chrome (button, nav heading row) and
+ * reads each entry's `label` option for aria text.
+ */
+const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
+const chrome_styles_1 = __importDefault(require("./chrome.styles"));
+/**
+ * Render the trigger row content (icon; label only in the wide column).
+ * @param props - composed slot props.
+ * @returns the trigger content fragment.
+ */
+function TriggerContent({ wide, t }) {
+    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [wide ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconSettingsOutline16, { size: 16 }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconSettingsOutline14, { size: 18 }), wide && (0, jsx_runtime_1.jsx)("span", { className: chrome_styles_1.default.triggerLabel, children: t('trigger') })] }));
+}
+/**
+ * Render the panel title text.
+ * @param props - composed slot props.
+ * @returns the title text node.
+ */
+function HeaderContent({ t }) {
+    return (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: t('title') });
+}
+/**
+ * Render the close button's visually-hidden label text.
+ * @param props - composed slot props.
+ * @returns the label text node.
+ */
+function CloseLabel({ t }) {
+    return (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: t('close') });
+}
+
+},
+"src/modules/settings-general/chrome.styles.js": function(module, exports, require) {
+// source: src/modules/settings-general/chrome.styles.ts
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const chrome_css_1 = __importDefault(require("./chrome.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)("@xharness/dsh-client-ui-settings-general/chrome.module.css", "@xharness/dsh-client-ui-settings-general", chrome_css_1.default);
+const styles = {
+    "triggerLabel": "GHoW-q_triggerLabel"
+};
+exports.default = styles;
+
+},
+"src/modules/settings-general/chrome.css": function(module, exports, require) {
+// source: src/modules/settings-general/chrome.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".GHoW-q_triggerLabel{white-space:nowrap;overflow:hidden}\n";
+
+},
+"src/modules/settings-general/GeneralSection.js": function(module, exports, require) {
+// source: src/modules/settings-general/GeneralSection.tsx
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.GeneralSection = GeneralSection;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const GeneralSection_styles_1 = __importDefault(require("./GeneralSection.styles"));
+/**
+ * Render the General section content column.
+ * @param props - composed slot props (contract/slots.ts).
+ * @returns the section element tree.
+ */
+function GeneralSection({ renderSlot }) {
+    return ((0, jsx_runtime_1.jsx)("div", { className: GeneralSection_styles_1.default.section, children: renderSlot('settings.general.item', {}) }));
+}
+
+},
+"src/modules/settings-general/GeneralSection.styles.js": function(module, exports, require) {
+// source: src/modules/settings-general/GeneralSection.styles.ts
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const GeneralSection_css_1 = __importDefault(require("./GeneralSection.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)("@xharness/dsh-client-ui-settings-general/GeneralSection.module.css", "@xharness/dsh-client-ui-settings-general", GeneralSection_css_1.default);
+const styles = {
+    "section": "C4ry3W_section"
+};
+exports.default = styles;
+
+},
+"src/modules/settings-general/GeneralSection.css": function(module, exports, require) {
+// source: src/modules/settings-general/GeneralSection.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".C4ry3W_section{flex-direction:column;width:100%;display:flex}.C4ry3W_section>[data-slot=\"settings.general.item\"]>:last-child{border-bottom:none}\n";
+
+},
+"src/modules/settings-general/SettingsDocumentAction.js": function(module, exports, require) {
+// source: src/modules/settings-general/SettingsDocumentAction.tsx
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SettingsDocumentAction = SettingsDocumentAction;
+const jsx_runtime_1 = require("react/jsx-runtime");
+/** Optional settings-header action for opening a file-backed Host document. */
+const react_1 = require("react");
+const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
+const SettingsDocumentAction_styles_1 = __importDefault(require("./SettingsDocumentAction.styles"));
+/**
+ * Render the open-document action only after Host metadata confirms document availability.
+ * @param props - header owner props, localized copy, and injected document state.
+ * @returns the action, or null while unavailable or unresolved.
+ */
+function SettingsDocumentAction({ controller, useSnapshot, t }) {
+    const state = useSnapshot(snapshot => snapshot);
+    (0, react_1.useEffect)(() => {
+        void controller.load();
+    }, [controller]);
+    if (state.status !== 'ready')
+        return null;
+    return ((0, jsx_runtime_1.jsxs)("div", { className: SettingsDocumentAction_styles_1.default.action, children: [state.error === null ? null : (0, jsx_runtime_1.jsx)("span", { className: SettingsDocumentAction_styles_1.default.error, role: "alert", children: t('openDocument.error') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "outline", size: "sm", disabled: state.opening, onClick: () => { void controller.open(); }, children: t('openDocument') })] }));
+}
+
+},
+"src/modules/settings-general/SettingsDocumentAction.styles.js": function(module, exports, require) {
+// source: src/modules/settings-general/SettingsDocumentAction.styles.ts
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const SettingsDocumentAction_css_1 = __importDefault(require("./SettingsDocumentAction.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)("@xharness/dsh-client-ui-settings-general/SettingsDocumentAction.module.css", "@xharness/dsh-client-ui-settings-general", SettingsDocumentAction_css_1.default);
+const styles = {
+    "action": "TdWx9W_action",
+    "error": "TdWx9W_error"
+};
+exports.default = styles;
+
+},
+"src/modules/settings-general/SettingsDocumentAction.css": function(module, exports, require) {
+// source: src/modules/settings-general/SettingsDocumentAction.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".TdWx9W_action{align-items:center;gap:8px;min-width:0;display:flex}.TdWx9W_error{max-width:180px;color:var(--dsw-alias-state-error-primary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}\n";
+
+},
+"src/modules/settings-general/settings-document-store.js": function(module, exports, require) {
+// source: src/modules/settings-general/settings-document-store.ts
+
+"use strict";
+/** State owner for the optional local settings-document action. */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SettingsDocumentStore = void 0;
+const client_1 = require("@xharness/dsh-client-runtime/client");
+function messageOf(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+/** Derives local-document availability from the shared mirror and invokes the pathless Host-owned open operation. */
+class SettingsDocumentStore {
+    /**
+     * @param api - loopback settings wire face that opens the provider document.
+     * @param describeFace - the shared mirror's describe face (`hasDocument` source).
+     */
+    constructor(api, describeFace) {
+        this.api = api;
+        this.describeFace = describeFace;
+        /** uSES-safe state source shared by the registered header action. */
+        this.store = (0, client_1.createSnapshotStore)({
+            status: 'idle', opening: false, error: null,
+        });
+    }
+    /**
+     * Begin following the mirror (idempotent) and reflect whether the current
+     * provider owns a local document.
+     * @returns settlement once the snapshot reflects the mirror.
+     */
+    async load() {
+        this.following ?? (this.following = this.describeFace.subscribe(() => { this.derive(); }));
+        this.store.update((state) => {
+            state.status = 'loading';
+            state.error = null;
+        });
+        await this.describeFace.ensure();
+        this.derive();
+    }
+    /**
+     * Open the loaded document once; concurrent gestures collapse behind the in-flight action.
+     * @returns after the native-open request settles, or immediately when unavailable/already opening.
+     */
+    async open() {
+        const current = this.store.getSnapshot();
+        if (current.status !== 'ready' || current.opening)
+            return;
+        this.store.update((state) => {
+            state.opening = true;
+            state.error = null;
+        });
+        try {
+            const response = await this.api.settings.openDocument({});
+            if (!response.result.ok)
+                throw new Error(response.result.error.message);
+        }
+        catch (error) {
+            this.store.update((state) => { state.error = messageOf(error); });
+        }
+        finally {
+            this.store.update((state) => { state.opening = false; });
+        }
+    }
+    /** Stop following the mirror. */
+    dispose() {
+        this.following?.();
+        this.following = undefined;
+    }
+    derive() {
+        const mirrored = this.describeFace.getSnapshot();
+        if (mirrored.view === undefined) {
+            // A held failure with no answer means the document cannot be located;
+            // without one the read is still in flight and loading stands.
+            if (mirrored.error !== null) {
+                this.store.update((state) => {
+                    state.status = 'unavailable';
+                    state.error = mirrored.error;
+                });
+            }
+            return;
+        }
+        const { hasDocument } = mirrored.view;
+        this.store.update((state) => {
+            state.status = hasDocument ? 'ready' : 'unavailable';
+            state.error = null;
+        });
+    }
+}
+exports.SettingsDocumentStore = SettingsDocumentStore;
+
+},
+"src/modules/settings-general/locales.js": function(module, exports, require) {
+// source: src/modules/settings-general/locales.ts
+
+"use strict";
+/** Shell chrome and General-nav dictionaries; feature rows own their copy. */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.en = exports.zh = void 0;
+/** Simplified Chinese dictionary (the key-set source of truth). */
+exports.zh = {
+    'trigger': '设置',
+    'title': '设置',
+    'close': '关闭',
+    'openDocument': '打开配置文件',
+    'openDocument.error': '无法打开配置文件',
+    'general.nav': '通用设置',
+};
+/** English dictionary, checked complete against the zh key set. */
+exports.en = {
+    'trigger': 'Settings',
+    'title': 'Settings',
+    'close': 'Close',
+    'openDocument': 'Open configuration file',
+    'openDocument.error': 'Could not open configuration file',
+    'general.nav': 'General',
+};
+
+}
+};
+const __dependencies = {"src/modules/settings-general/index.js":{"./SettingsRoot":"src/modules/settings-general/SettingsRoot.js","./chrome":"src/modules/settings-general/chrome.js","./GeneralSection":"src/modules/settings-general/GeneralSection.js","./SettingsDocumentAction":"src/modules/settings-general/SettingsDocumentAction.js","./settings-document-store":"src/modules/settings-general/settings-document-store.js","./locales":"src/modules/settings-general/locales.js"},"src/modules/settings-general/SettingsRoot.js":{"../views-types":"src/modules/views-types.js","./SettingsRoot.styles":"src/modules/settings-general/SettingsRoot.styles.js"},"src/modules/views-types.js":{},"src/modules/settings-general/SettingsRoot.styles.js":{"./SettingsRoot.css":"src/modules/settings-general/SettingsRoot.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsRoot.css":{},"src/modules/settings-general/chrome.js":{"./chrome.styles":"src/modules/settings-general/chrome.styles.js"},"src/modules/settings-general/chrome.styles.js":{"./chrome.css":"src/modules/settings-general/chrome.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/chrome.css":{},"src/modules/settings-general/GeneralSection.js":{"./GeneralSection.styles":"src/modules/settings-general/GeneralSection.styles.js"},"src/modules/settings-general/GeneralSection.styles.js":{"./GeneralSection.css":"src/modules/settings-general/GeneralSection.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/GeneralSection.css":{},"src/modules/settings-general/SettingsDocumentAction.js":{"./SettingsDocumentAction.styles":"src/modules/settings-general/SettingsDocumentAction.styles.js"},"src/modules/settings-general/SettingsDocumentAction.styles.js":{"./SettingsDocumentAction.css":"src/modules/settings-general/SettingsDocumentAction.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsDocumentAction.css":{},"src/modules/settings-general/settings-document-store.js":{},"src/modules/settings-general/locales.js":{}};
+const __cache = Object.create(null);
+const __load = id => {
+  if (__cache[id]) return __cache[id].exports;
+  const unit = __units[id];
+  if (!unit) throw Error('Unknown local UI module: ' + id);
+  const module = { exports: {} };
+  __cache[id] = module;
+  try {
+    unit(module, module.exports, request => Object.prototype.hasOwnProperty.call(__dependencies[id], request)
+      ? __load(__dependencies[id][request]) : __externalRequire(request));
+  } catch (error) { delete __cache[id]; throw error; }
+  return module.exports;
+};
+return __load("src/modules/settings-general/index.js");
+}
+});

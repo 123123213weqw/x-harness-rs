@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { createHash } from 'node:crypto';
+import { frozenRuntime, frozenConversation, runtimeTestApi, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs';
 import { patchAtomicHistory, patchHistoryRetry } from './patch-atomic-history.mjs';
 
 const source = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js', import.meta.url), 'utf8');
 const chatSource = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js', import.meta.url), 'utf8');
-assert.equal(patchAtomicHistory(Buffer.from(source)).toString(), source);
-assert.equal(patchHistoryRetry(Buffer.from(chatSource)).toString(), chatSource);
-assert.equal(patchAtomicHistory(Buffer.from(source.replaceAll('\n', '\r\n'))).toString(), source);
+assert.equal(patchAtomicHistory(Buffer.from(frozenRuntime)).toString(), frozenRuntime);
+assert.equal(patchHistoryRetry(Buffer.from(frozenConversation)).toString(), frozenConversation);
+assert.equal(patchAtomicHistory(Buffer.from(frozenRuntime.replaceAll('\n', '\r\n'))).toString(), frozenRuntime);
 assert.throws(() => patchAtomicHistory(Buffer.from('upstream changed')), /anchor changed/);
 assert.throws(() => patchHistoryRetry(Buffer.from('upstream changed')), /anchor changed/);
 const graph = JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json', import.meta.url)));
@@ -17,13 +17,7 @@ for (const [id, bytes] of [['@xharness/dsh-client-runtime', source], ['@xharness
   assert.equal(entry.rev, createHash('sha256').update(bytes).digest('hex').slice(0, 16));
   assert.ok(readFileSync(new URL('../ui/dist/index.html', import.meta.url), 'utf8').includes(entry.url));
 }
-let registration;
-vm.runInNewContext(source.replace('exports.apply = apply;', 'exports.Session = Session; exports.apply = apply;'), {
-  window: { __ModuleLoader__: { load: value => { registration = value; } } },
-  console, URL, AbortController, setTimeout, clearTimeout, queueMicrotask,
-  requestAnimationFrame: f => setTimeout(f, 0), cancelAnimationFrame: clearTimeout,
-});
-const runtime = registration.factory(id => id === '@xharness/cordis' ? { Service: class {} } : {});
+const runtime = runtimeTestApi();
 let failBuild = false;
 const definition = {
   kind: 'probe', target: 'probe',
@@ -153,3 +147,5 @@ await sparseSession.loadOlder();
 assert.equal(sparseSession.openState, 'open');
 assert.deepEqual(Array.from(sparseSession.events, event => event.seq), [2, 4, 8, 10, 12]);
 console.log('atomic history: transactional mapping, interaction/live-buffer preservation, pagination/gap serialization and retry passed');
+
+runFrozenSourceDifferential('frozen history transactions|Conversation registries|frozen local history reuse');

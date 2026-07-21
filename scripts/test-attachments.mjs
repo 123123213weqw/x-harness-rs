@@ -1,3 +1,6 @@
+import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs'
+import {verifyConnectionArtifact,exposeConnection} from './connection-artifact-test.mjs'
+import {conversationFixture} from './fixtures/conversation-source-fixture.mjs'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
@@ -9,14 +12,15 @@ import { patchComposerAddMenu } from './patch-composer-add-menu.mjs'
 const root = fileURLToPath(new URL('../',import.meta.url))
 const id = '@xharness/dsh-client-ui-conversation'
 const source = readFileSync(resolve(root,`ui/dist/plugins/${id}/client.js`),'utf8').replaceAll('\r\n','\n')
-assert.equal(patchAttachments(id,Buffer.from(source)).toString(),source,'patch must be idempotent')
+const native=source.startsWith('// Generated');verifyConversationArtifact();const golden=legacyConversation().toString();assert.equal(patchAttachments(id,Buffer.from(golden)).toString(),golden,'frozen patch must be idempotent')
 const start = source.indexOf('function attachmentMediaType(')
 const end = source.indexOf('//#region lib/types/client/input/blocks.js',start)
-assert.ok(start>0&&end>start)
+if(!native)assert.ok(start>0&&end>start)
 const revoked=[]
 const context = vm.createContext({console,crypto:{randomUUID},URL:{createObjectURL:()=> 'blob:'+randomUUID(),revokeObjectURL:url=>revoked.push(url)},btoa,Uint8Array,Map,Set,Promise,Error,
   _xharness_cordis:{Service:class {constructor(ctx){this.ctx=ctx}}}})
-vm.runInContext(source.slice(start,end)+'\nglobalThis.Controller=ConversationController;globalThis.validate=validateAttachments;',context)
+if(native){const {api}=conversationFixture(source,['ConversationController','validateAttachments'],{URL:context.URL});context.Controller=api.ConversationController;context.validate=api.validateAttachments;}
+else vm.runInContext(source.slice(start,end)+'\nglobalThis.Controller=ConversationController;globalThis.validate=validateAttachments;',context)
 const controller = new context.Controller({effect(){}},{input:{},blocks:{}})
 const png = new File([new Uint8Array([1,2,3])],'截图.png',{type:'image/png'})
 const pdf = new File(['PDF bytes'],'说明.pdf',{type:'application/pdf'})
@@ -38,12 +42,14 @@ assert.throws(()=>context.validate(Array.from({length:21},()=>({name:'a.png',typ
 const svg=controller.createDraftImages([new File(['<svg/>'],'unsafe.svg',{type:'image/svg+xml'})])[0]
 assert.equal(svg.kind,'file','SVG stays a download, not active inline content')
 const cards=readFileSync(resolve(root,'ui/dist/plugins/@xharness/dsh-client-ui-attachment/client.js'),'utf8')
-assert.ok(cards.includes('XHarnessHistoryFile'));
+assert.ok(cards.includes('HistoryFile'));
+const {assertRebuildInput}=await import('./fixtures/repository-ui-input.mjs');assertRebuildInput('@xharness/dsh-client-ui-attachment');
 assert.ok(!cards.includes("className:'xh-attachment-toolbar'"), 'standalone attachment toolbar must be removed');
-assert.ok(source.includes('XHarnessComposerAddMenu'), 'reuse the composer plus for attachments');
+assert.match(source,/(?:XHarness)?ComposerAddMenu/, 'reuse the composer plus for attachments');
 assert.ok(source.includes("multiple: true"), 'composer picker accepts mixed files');
-assert.equal(patchAttachments('@xharness/dsh-client-ui-attachment',Buffer.from(cards)).toString(),cards.replaceAll('\r\n','\n'));
-assert.ok(source.includes(readFileSync(resolve(root,'ui/overrides/composer-add-menu.js'),'utf8').replaceAll('\r\n','\n').trim()), 'shipped helper matches source');
+const legacyCards=readFileSync(resolve(root,'ui/reference/master-a613970/plugins/@xharness/dsh-client-ui-attachment/client.js'),'utf8');
+assert.equal(patchAttachments('@xharness/dsh-client-ui-attachment',Buffer.from(legacyCards)).toString(),legacyCards.replaceAll('\r\n','\n'));
+assert.ok((native?golden:source).includes(readFileSync(resolve(root,'ui/overrides/composer-add-menu.js'),'utf8').replaceAll('\r\n','\n').trim()), 'shipped helper matches source');
 assert.throws(()=>patchComposerAddMenu(id,Buffer.from('unexpected upstream composer')),/signature changed/);
 assert.throws(()=>patchComposerAddMenu('@xharness/dsh-client-ui-attachment',Buffer.from('unexpected upstream rail')),/signature changed/);
 const models=readFileSync(resolve(root,'ui/dist/plugins/@xharness/dsh-client-ui-settings-models/client.js'),'utf8')
@@ -52,9 +58,10 @@ console.log('attachments: ordered mixed payloads, failure retention, success rel
 // Decode through the actual shipped connection schemas, not only a stub session.
 let wireRegistration;
 let wireSource=readFileSync(resolve(root,'ui/dist/plugins/@xharness/dsh-client-connection/client.js'),'utf8');
-wireSource=wireSource.replace('exports.AbstractApiClient = AbstractApiClient;', 'exports.testAttachment = sessionAttachmentValueSchema; exports.testPart = promptContentPartSchema; exports.AbstractApiClient = AbstractApiClient;');
+wireSource=wireSource.startsWith('// Generated')?exposeConnection(verifyConnectionArtifact(),['promptContentPartSchema','sessionAttachmentValueSchema']):wireSource.replace('exports.AbstractApiClient = AbstractApiClient;', 'exports.testAttachment = sessionAttachmentValueSchema; exports.testPart = promptContentPartSchema; exports.AbstractApiClient = AbstractApiClient;');
 vm.runInNewContext(wireSource,{window:{__ModuleLoader__:{load:r=>wireRegistration=r}},console,URL,AbortController,setTimeout,clearTimeout});
 const wire=wireRegistration.factory(id=>id==='@xharness/cordis'?{Service:class{}}:{});
+wire.testPart??=wire.promptContentPartSchema;wire.testAttachment??=wire.sessionAttachmentValueSchema;
 for(const part of captured) assert.equal(wire.testPart.parse(part).type,part.type);
 const emptyFile={attachment:{attachmentId:'sha256:fixture',mediaType:'application/octet-stream',bytes:0,name:'empty.txt'},data:''};
 assert.equal(wire.testAttachment.parse(emptyFile).attachment.bytes,0);

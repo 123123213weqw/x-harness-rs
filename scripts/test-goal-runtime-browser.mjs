@@ -1,12 +1,17 @@
 // Actual shipped React, primitives, workspace owner and product flow; only the
 // host services/slot harness are fixtures. No running App or user data is used.
+import {installOwnedViewPlatform} from './fixtures/owned-view-platform-browser.mjs'
+import {verifyArtifact} from './fixtures/shipped-source-values.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+const impl=process.env.UI_TEST_IMPL??'artifact';assert.ok(['artifact','source','legacy'].includes(impl));
 const root = fileURLToPath(new URL('../', import.meta.url))
-const dist = resolve(root, 'ui/dist')
+const dist = resolve(process.env.UI_TEST_DIST??resolve(root,impl==='legacy'?'ui/reference/master-a613970':'ui/dist'))
+const goalSource=readFileSync(resolve(dist,'plugins/@xharness/dsh-client-ui-goal/client.js'),'utf8')
+if(impl!=='legacy')assert.equal(goalSource,verifyArtifact('@xharness/dsh-client-ui-goal'),'actual Goal artifact is strict-source fresh')
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/ui-tests', 'package.json'))
 const engines = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
@@ -17,30 +22,15 @@ try {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   page.setDefaultTimeout(8000)
-  const assets = readdirSync(resolve(dist, 'assets'))
-  const entry = assets.find(name => /^index-.*\.js$/.test(name))
-  const css = assets.filter(name => name.endsWith('.css'))
-  await page.route('**/*', route => {
-    const url = new URL(route.request().url())
-    const name = url.pathname.slice('/assets/'.length)
-    if (url.pathname.startsWith('/assets/') && assets.includes(name)) {
-      return route.fulfill({ body: readFileSync(resolve(dist, 'assets', name)),
-        contentType: name.endsWith('.css') ? 'text/css' : 'application/javascript' })
-    }
-    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head>
-      ${css.map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
-      <script>window.__ModuleLoader__={create: options => {window.staticModules=options.staticModules;throw Error('isolated fixture: stop host boot')}};</script>
-      <script type="module" src="/assets/${entry}"></script></head><body><div id="root"></div></body></html>` })
-    return route.abort()
-  })
-  await page.goto('http://workspace-fixture.test/')
-  await page.waitForFunction(() => window.staticModules)
+  await installOwnedViewPlatform(page,impl==='legacy'?'legacy':'source')
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
   const plugins = readdirSync(resolve(dist,'plugins/@xharness'));
   for (const name of plugins) {
     const file = resolve(dist,'plugins/@xharness',name,'client.js');
     let source=readFileSync(file,'utf8');
-    if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =', 'exports.XhCheckpointView = XhCheckpointView; exports.xhCheckpointDefinition = xhCheckpointDefinition; exports.XHarnessMessageEditor =');
+    // Every source selection probes the same source-fresh production factory;
+    // frozen selection reads only the immutable latest-master baseline.
+    if(name==='dsh-client-ui-goal')source=goalSource;
     await page.addScriptTag({content:source});
   }
   await page.evaluate(() => {
@@ -83,8 +73,10 @@ try {
   await page.getByText('已完成 · 3/5 轮',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'确认完成',exact:true}).count(),0);
   await page.evaluate(()=>renderGoal('blocked','blocked'));
-  await page.getByRole('button',{name:'action.resume',exact:true}).waitFor();
+  await page.getByRole('button',{name:'action.resume',exact:true}).click();assert.equal(await page.evaluate(()=>calls.at(-1)),'resume');
+  await page.evaluate(()=>renderGoal('paused','paused'));await page.getByRole('button',{name:'action.resume',exact:true}).click();assert.equal(await page.evaluate(()=>calls.at(-1)),'resume');
   await page.evaluate(()=>renderGoal('disabled','active'));
+  assert.equal(await page.getByRole('button',{name:'action.pause',exact:true}).count(),0,'disabled execution cannot be paused');
   await page.getByRole('button',{name:'启用自动推进',exact:true}).click();
   await page.getByRole('button',{name:'预算',exact:true}).click();
   await page.getByRole('spinbutton',{name:'轮数预算'}).fill('12');
@@ -92,12 +84,13 @@ try {
   assert.equal(await page.evaluate(()=>calls.includes('budget')),true);
   // No goal remains hidden; completed goals stay in the original single card.
   await page.evaluate(()=>renderGoal('running','active','goal-wide'));
-  const evidence=resolve(root,'dist/goal-ui');mkdirSync(evidence,{recursive:true});
+  const evidence=resolve(process.env.UI_TEST_OUTPUT??resolve(root,'dist/goal-ui'),impl);mkdirSync(evidence,{recursive:true});
   await page.screenshot({path:resolve(evidence,engine+'-desktop.png')});
   await page.setViewportSize({width:375,height:700});
-  for(const state of ['running','blocked','awaiting_confirmation','disabled']) {
-    await page.evaluate(state=>renderGoal(state,state==='blocked'?'blocked':'active','goal-'+state),state);
+  for(const state of ['running','paused','blocked','awaiting_confirmation','disabled']) {
+    await page.evaluate(state=>renderGoal(state,state==='blocked'?'blocked':state==='paused'?'paused':'active','goal-'+state),state);
     assert.equal(await page.locator('details').count(),0);
+    assert.deepEqual(await page.locator('[data-goal-bar] > div').evaluate(e=>({minHeight:e.style.minHeight,height:e.style.height,wrap:e.style.flexWrap})),{minHeight:'36px',height:'auto',wrap:'wrap'});
     assert.equal(await page.locator('[data-goal-bar] [data-goal-runtime]').count(),1);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   }
@@ -122,6 +115,6 @@ try {
   assert.equal(await page.locator('[data-goal-bar]').count(),0);
   assert.equal(await page.locator('[data-goal-runtime]').count(),0);
 
-  assert.deepEqual(errors.filter(e=>!e.includes('isolated fixture')),[]);
-  console.log(engine+': upstream GoalDock/GoalBar single inline card, confirm, retry, stale pending action, complete, blocked resume, legacy enable, narrow layout passed');
+  assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
+  console.log(engine+' '+impl+': upstream GoalDock/GoalBar single inline card, confirm, retry, stale pending action, complete, blocked resume, legacy enable, narrow layout passed');
 } finally {await browser.close()}

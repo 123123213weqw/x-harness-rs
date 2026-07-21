@@ -1,0 +1,484 @@
+{
+  "formatVersion": 1,
+  "baseline": "a613970c78a36a024de56100078323df25b96004",
+  "productionChanges": false,
+  "frozenRoot": "ui/reference/master-a613970",
+  "actualSourceConversation": {
+    "path": "ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js",
+    "sha256": "47b85231641fc30b973e186ff02a5435946ea3fd7cc9c83e284ea7e24cc13d44",
+    "freshness": "verifyConversationArtifact checks graph/boot/preload syntax and strict-source bytes"
+  },
+  "actualFrozenConversation": {
+    "path": "ui/reference/master-a613970/plugins/@xharness/dsh-client-ui-conversation/client.js",
+    "sha256": "c172eda5221df580998a7007487f932d3a6e275ba57bccf5320d7bdbed8821d8"
+  },
+  "platformLoader": {
+    "path": "scripts/fixtures/owned-view-platform-browser.mjs",
+    "sha256": "543b61bca7bec0964db46f3ddf6aeaf3782f0794f47c84d82fac906b50b966c7",
+    "behavior": "immutable master HTML effective entry or strict compilePlatformUi outputs; real React/Cordis/SlotCore/primitives, never index-* guesses"
+  },
+  "conversationScope": {
+    "path": "scripts/conversation-artifact-test.mjs",
+    "sha256": "405ca0a5004c9ae47ebfeb1d1a2b649cab381932df89ced7bbd2d9e99ce112d2",
+    "behavior": "private unit lexical AST seams preserve actual imports/factory without production exports"
+  },
+  "errorPolicy": "Only exact owned feature fixture: stop Host boot interception is excluded; all other page errors / missing factory dependencies remain failures",
+  "fixtureAdaptations": [
+    "Message edit historical image/read DTO includes actual 70-byte fixture PNG metadata; no guard weakening",
+    "Attachments restores original HTTPS secure context for genuine crypto.randomUUID; no crypto shim",
+    "Attachments allows only URLs actually created by this fixture page and not revoked; unknown blob URLs and external requests stay blocked",
+    "Theme consumed through actual dependency factory, without replacing runtime defineStore"
+  ],
+  "totalRuns": 17,
+  "passed": 17,
+  "suites": [
+    {
+      "suite": "message-edit",
+      "script": "scripts/test-conversation-message-edit-browser.mjs",
+      "scriptSha256": "bb9dd2743443b145f16054e01f893d317a32885f75709f850ea73a7c2710f11e",
+      "actualFactoryAcceptanceUnits": [
+        "SessionInputShell",
+        "xhEditStorage",
+        "UserMessageNodeView"
+      ],
+      "originalAssertCalls": 13,
+      "finalAssertCalls": 16,
+      "preservedAssertions": [
+        "durable reference no reupload/requireIdle",
+        "fork source seq/content",
+        "unsent draft confirm/cancel undo",
+        "input-machine failure keeps text/success clears transaction/double send one-shot",
+        "image-only missing/retry/remove",
+        "running guard",
+        "narrow overflow",
+        "actual page reload IndexedDB text/File byte backup"
+      ],
+      "runs": [
+        {
+          "implementation": "source",
+          "engine": "chromium",
+          "exitCode": 0,
+          "log": "/tmp/xh-message-edit-source-chromium.log",
+          "logSha256": "8ea31ea4aeb967110fbd58f69b3d6e23e9563e6c21091bb963be7f8af38add58",
+          "screenshots": []
+        },
+        {
+          "implementation": "source",
+          "engine": "webkit",
+          "exitCode": 0,
+          "log": "/tmp/xh-message-edit-source-webkit.log",
+          "logSha256": "bcfc298142eff32953e459d98aa976c783553f06486dc613ae73cd609d9184b3",
+          "screenshots": []
+        },
+        {
+          "implementation": "frozen",
+          "engine": "chromium",
+          "exitCode": 0,
+          "log": "/tmp/xh-message-edit-frozen-chromium.log",
+          "logSha256": "2a2aa0d78f12b8d9f10f3d73fc39ea0d0f00a10905296ec98ec93c49bc5b2689",
+          "screenshots": []
+        },
+        {
+          "implementation": "frozen",
+          "engine": "webkit",
+          "exitCode": 0,
+          "log": "/tmp/xh-message-edit-frozen-webkit.log",
+          "logSha256": "2d8ce397511119cc64bc14a328e40323922e87281b0096655d724d41b499ab61",
+          "screenshots": []
+        }
+      ]
+    },
+    {
+      "suite": "checkpoints",
+      "script": "scripts/test-execution-checkpoints-browser.mjs",
+      "scriptSha256": "c3c237b31f8160c51d347f589fc91b4a3a7695cd2c48aed766739b3a76639381",
+      "actualFactoryAcceptanceUnits": [
+        "XhCheckpointView",
+        "xhCheckpointDefinition"
+      ],
+      "originalAssertCalls": 4,
+      "finalAssertCalls": 6,
+      "preservedAssertions": [
+        "actual assembler live/reload/prepend identical notice nodes",
+        "checkpoint expand",
+        "restored notice",
+        "visible max-steps limit opened",
+        "narrow overflow"
+      ],
+      "runs": [
+        {
+          "implementation": "source",
+          "engine": "chromium",
+          "exitCode": 0,
+          "log": "/tmp/xh-checkpoints-source-chromium.log",
+          "logSha256": "f717cb07065932c2c44f8fdbc4173f09286e5049a7f4d1d626fcfb836e9d1077",
+          "screenshots": [
+            {
+              "path": "dist/execution-checkpoint-ui/chromium-source.png",
+              "sha256": "2850bab0e5f9d2f176b1e7f32d17755492cd71484e5796eb1d354e99aab21ca2"
+            }
+          ]
+        },
+        {
+          "implementation": "source",
+          "engine": "webkit",
+          "exitCode": 0,
+          "log": "/tmp/xh-checkpoints-source-webkit.log",
+          "logSha256": "096e7ae4d5c0af294b9730ef654d7206412346dffc3ad765feecfeba1c6354c9",
+          "screenshots": [
+            {
+              "path": "dist/execution-checkpoint-ui/webkit-source.png",
+              "sha256": "b3ce0e90dd8a586bd8968dfdcc8aaffe420b9541db372093b7a103ab4246cdf5"
+            }
+          ]
+        },
+        {
+          "implementation": "frozen",
+          "engine": "chromium",
+          "exitCode": 0,
+          "log": "/tmp/xh-checkpoints-frozen-chromium.log",
+          "logSha256": "2b45468ea436185b8c85376278ef270c571d902d8a30f2bba7c5069e053366d8",
+          "screenshots": [
+            {
+              "path": "dist/execution-checkpoint-ui/chromium-frozen.png",
+              "sha256": "2850bab0e5f9d2f176b1e7f32d17755492cd71484e5796eb1d354e99aab21ca2"
+            }
+          ]
+        },
+        {
+          "implementation": "frozen",
+          "engine": "webkit",
+          "exitCode": 0,
+          "log": "/tmp/xh-checkpoints-frozen-webkit.log",
+          "logSha256": "17e6c30d2c3e454df2f211d77a896fa10d0882908deb8addb993d8398b61b8c4",
+          "screenshots": [
+            {
+              "path": "dist/execution-checkpoint-ui/webkit-frozen.png",
+              "sha256": "b3ce0e90dd8a586bd8968dfdcc8aaffe420b9541db372093b7a103ab4246cdf5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "attachments",
+      "script": "scripts/test-attachments-browser.mjs",
+      "scriptSha256": "5bf0ece3492a2e136f20fb1fc3e5c717936037043f16c4387b95028fbb4cbf5c",
+      "actualFactoryAcceptanceUnits": [
+        "InputBar",
+        "SessionInputShell",
+        "ConversationController"
+      ],
+      "originalAssertCalls": 23,
+      "finalAssertCalls": 26,
+      "preservedAssertions": [
+        "actual plus/command caret/keyboard/outside Escape Tab close",
+        "mixed native File chooser/image bytes/lightbox",
+        "drop prevents browser navigation/paste",
+        "cancel/reselection retain text and attachments",
+        "missing durable file retry",
+        "disabled and late file dialog result guard",
+        "narrow/menu bounds",
+        "real dark palette changes",
+        "session switch closes menu",
+        "preview genuine page-minted non-revoked blob URL"
+      ],
+      "runs": [
+        {
+          "implementation": "source",
+          "engine": "chromium",
+          "exitCode": 0,
+          "log": "/tmp/xh-attachments-source-chromium.log",
+          "logSha256": "0d4c622e06c01ba16a7ee33b08f21cef46cb42181c294b359be4a07942dd11ee",
+          "screenshots": [
+            {
+              "path": "dist/attachment-ui-evidence/chromium-source-dark-menu.png",
+              "sha256": "d6ceb4b482d931c8341f52858234b72151544b2768bfbe2d3042e49abf857e33"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-source-empty.png",
+              "sha256": "44cbd70eedff2ba87db012f457effae9f0ddc4c03cb2aca3ea2cd8ecc791e5df"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-source-menu-detail.png",
+              "sha256": "b6704355d5aa52a9f575d96cc6d0895e113172c88c629cedf84478582ecc9456"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-source-mixed.png",
+              "sha256": "658e99c209f0f81257a16f265f3fee3bfcc77f16c6578d2bc5d8a14e8d7607ec"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-source-narrow-menu.png",
+              "sha256": "5cdc6b4810ae64c42a7c98c8a4e231ddd26030f3219bb54397ee794a58a01707"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-source-narrow.png",
+              "sha256": "950084cd51f7ef69e657b9842ef34bed2f791b62fbfe3d4a14579de9ab3e1510"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-source-plus-menu.png",
+              "sha256": "abe3a086d934b6dc7b10a9a03802ad3a9f3e81882fb7c515f12dfa0244ea3d1d"
+            }
+          ]
+        },
+        {
+          "implementation": "source",
+          "engine": "webkit",
+          "exitCode": 0,
+          "log": "/tmp/xh-attachments-source-webkit.log",
+          "logSha256": "ea03f1bfff1e742570d51c81c452b09391d4fd47c128ecd463aac747bfab29aa",
+          "screenshots": [
+            {
+              "path": "dist/attachment-ui-evidence/webkit-source-dark-menu.png",
+              "sha256": "107db1ff1ec74a4ca2f7ceb9a2b72d4a46fc5630bc09c3d190dea063471d1d4b"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-source-empty.png",
+              "sha256": "2995cdb8e5483cbdf8e4129b22598034dd83a8abc34a9899ce215b2248f2d4be"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-source-menu-detail.png",
+              "sha256": "59ae89115843861ee90bd005e72f07774f008536feece7c0c5b52fa8c65cfd09"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-source-mixed.png",
+              "sha256": "8cf3ea2526b5b658daf4a0c2d0c9e834d0bf089bed9f351ed853aa97aca733ce"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-source-narrow-menu.png",
+              "sha256": "3990978a0725e421cc4fc644ab23db06634788d3057cb7b83bd02e2010f37c47"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-source-narrow.png",
+              "sha256": "e70e8c2b1331658cb1bc8155e887898cc8e563e906cac5d71e96cb0254353a62"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-source-plus-menu.png",
+              "sha256": "def2b02433b9c7d35bf7dad8e00125471204b2b64ef434e6fb05e24dfa3a4863"
+            }
+          ]
+        },
+        {
+          "implementation": "frozen",
+          "engine": "chromium",
+          "exitCode": 0,
+          "log": "/tmp/xh-attachments-frozen-chromium.log",
+          "logSha256": "6d7c7747ca07eba25902efdccad967a578fd93873611121c29dd92e60d127a9b",
+          "screenshots": [
+            {
+              "path": "dist/attachment-ui-evidence/chromium-frozen-dark-menu.png",
+              "sha256": "18a78d6af79e0ad98ed084c67c369fabc4e901388155c6e97f54990205cbd7e0"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-frozen-empty.png",
+              "sha256": "44cbd70eedff2ba87db012f457effae9f0ddc4c03cb2aca3ea2cd8ecc791e5df"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-frozen-menu-detail.png",
+              "sha256": "b6704355d5aa52a9f575d96cc6d0895e113172c88c629cedf84478582ecc9456"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-frozen-mixed.png",
+              "sha256": "658e99c209f0f81257a16f265f3fee3bfcc77f16c6578d2bc5d8a14e8d7607ec"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-frozen-narrow-menu.png",
+              "sha256": "5cdc6b4810ae64c42a7c98c8a4e231ddd26030f3219bb54397ee794a58a01707"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-frozen-narrow.png",
+              "sha256": "950084cd51f7ef69e657b9842ef34bed2f791b62fbfe3d4a14579de9ab3e1510"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/chromium-frozen-plus-menu.png",
+              "sha256": "abe3a086d934b6dc7b10a9a03802ad3a9f3e81882fb7c515f12dfa0244ea3d1d"
+            }
+          ]
+        },
+        {
+          "implementation": "frozen",
+          "engine": "webkit",
+          "exitCode": 0,
+          "log": "/tmp/xh-attachments-frozen-webkit.log",
+          "logSha256": "8d5ca639e7644db05669196789e979c421dad0fab8c57128178fc8931ab18fbe",
+          "screenshots": [
+            {
+              "path": "dist/attachment-ui-evidence/webkit-frozen-dark-menu.png",
+              "sha256": "87b0534dcd52105f9c74637b029dadfddecce6ddd645f177dba797b93da28bfa"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-frozen-empty.png",
+              "sha256": "2995cdb8e5483cbdf8e4129b22598034dd83a8abc34a9899ce215b2248f2d4be"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-frozen-menu-detail.png",
+              "sha256": "59ae89115843861ee90bd005e72f07774f008536feece7c0c5b52fa8c65cfd09"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-frozen-mixed.png",
+              "sha256": "8cf3ea2526b5b658daf4a0c2d0c9e834d0bf089bed9f351ed853aa97aca733ce"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-frozen-narrow-menu.png",
+              "sha256": "3990978a0725e421cc4fc644ab23db06634788d3057cb7b83bd02e2010f37c47"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-frozen-narrow.png",
+              "sha256": "e70e8c2b1331658cb1bc8155e887898cc8e563e906cac5d71e96cb0254353a62"
+            },
+            {
+              "path": "dist/attachment-ui-evidence/webkit-frozen-plus-menu.png",
+              "sha256": "def2b02433b9c7d35bf7dad8e00125471204b2b64ef434e6fb05e24dfa3a4863"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "suite": "transcript-row-state",
+      "script": "scripts/test-transcript-row-state.mjs",
+      "scriptSha256": "d77abca396657220762379b95b3a25b9fe04e699898c032a3000e4106d28e162",
+      "originalAssertCalls": 20,
+      "finalAssertCalls": 51,
+      "immutableGolden": "patchTranscriptRowState positive/idempotence, unknown-shape negatives, Cordis old-key upgrade and clean-source equality; immutable graph/boot/hash checks; unchanged helper bounded/weak/pending guards",
+      "nativeScope": "Actual canonical lexical units; verifyArtifact strict byte freshness for Conversation/Tool/Cordis/Computer; actual locked React18.3.1 + react-dom/server, no fake primitives/icons/Service",
+      "preservedAssertions": [
+        "four immutable registrants/single bridge/patch idempotence/unknown fail closed",
+        "seven immutable Tool call keys and mode reapply guard",
+        "Cordis call-id/source-tab key upgrade/unknown keys/clean assembly",
+        "no interaction pins/first mount bounded/WeakMap root lifetime",
+        "four immutable pending tool cases"
+      ],
+      "newNativeAssertions": [
+        "real typed row bridge shares React.createElement identity across namespace wrappers",
+        "actual hook setter including functional update accumulates retained map values",
+        "fresh hook mounts restore call alpha and isolate beta/other row/session",
+        "Cordis source tab and Tool applied-mode survive remount",
+        "all seven actual Tool registrants pass block.callId, same-mode guard remains",
+        "real ComputerRow SSR mounts restore alpha expansion/isolate beta and other row",
+        "real consumed Tool DTO pending root/nested/result plus malformed rejection"
+      ],
+      "sourceArtifacts": {
+        "conversation": {
+          "path": "ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js",
+          "sha256": "47b85231641fc30b973e186ff02a5435946ea3fd7cc9c83e284ea7e24cc13d44"
+        },
+        "tool": {
+          "path": "ui/dist/plugins/@xharness/dsh-client-ui-tool/client.js",
+          "sha256": "18824b78d3927a50a97e1fe33b4f99549e0664bda1af8aaa16ff7bc04d0f3605"
+        },
+        "cordis": {
+          "path": "ui/dist/plugins/@xharness/dsh-client-ui-cordis/client.js",
+          "sha256": "806599dc2b8a73a39d65c5ce991a3efc3d4548f564ec422d1e1f3acbcfdda909"
+        },
+        "computer": {
+          "path": "ui/dist/plugins/@xlang/xharness-client-ui-computer/client.js",
+          "sha256": "c200f064a82f0933f7909c1b550df1d3ffebc142f5175b295464899432a614ce"
+        }
+      },
+      "runs": [
+        {
+          "implementation": "immutable guards + actual source",
+          "engine": "node-real-react-server",
+          "exitCode": 0,
+          "log": "/tmp/xh-row-state-native-final.log",
+          "logSha256": "0e00865852dfa4e64165fa8687747bc07948b996f02d6137ff93d7a40efede8c"
+        }
+      ],
+      "scopeLimit": "SSR remounts prove restoration through genuine React hooks and the actual Computer row, not viewport DOM interaction; actual two-eviction Computer browser A/B is separately Views-owned"
+    },
+    {
+      "suite": "compaction-progress",
+      "script": "scripts/test-compaction-progress-browser.mjs",
+      "scriptSha256": "6746cc87b7e3ec9b8e8c725bf46663342c23391aa2ff2f45407cac3559a09183",
+      "originalAssertCalls": 23,
+      "finalAssertCalls": 25,
+      "actualFactoryAcceptanceUnits": [
+        "CompactionProgressCard",
+        "en",
+        "zh"
+      ],
+      "preservedAssertions": [
+        "immutable includes exact maintained compaction patch helper",
+        "minimal status no extra disclosure/progressbar/per-row timer",
+        "seven stages/70 retries never expand or flicker the status",
+        "truthful paused status and exact zh/en strings",
+        "no fabricated count/percentage/time visible",
+        "terminal failure visible before disclosure/updated failure keeps disclosure/session remount isolates it",
+        "12 theme/width/locale cases no overflow/status after terminal",
+        "legacy failed-without-error is disabled disclosure",
+        "unmount leaves no leaked timers/no unexpected page errors"
+      ],
+      "actualUI": "Full actual ModuleLoader factory through lexical AST seam; real platform SVG icons/primitives/locales and actual injected plugin CSS; no copied override card/hook/classes or fake icon functions",
+      "runs": [
+        {
+          "implementation": "source",
+          "engine": "chromium",
+          "exitCode": 0,
+          "log": "/tmp/xh-compaction-progress-chromium-source.log",
+          "logSha256": "e7f62ec01bcf4225ccaaef48f3e159f0d5ff54644fc2f7e938fad506921eefe4",
+          "screenshots": [
+            {
+              "path": "/Users/wangyue/codex-build/xharness-plugin-migration/ui-full-source/merged-main-review/final-compaction-ui/compaction-progress-chromium-source.png",
+              "sha256": "c003176e129bbfc926333418c8be67be10c69c4596a39399d4f8eda495ab2d99"
+            }
+          ]
+        },
+        {
+          "implementation": "source",
+          "engine": "webkit",
+          "exitCode": 0,
+          "log": "/tmp/xh-compaction-progress-webkit-source.log",
+          "logSha256": "0e3cb325573adc662b0293f7639824bcf35b16816afdb40474ff92258c6a0261",
+          "screenshots": [
+            {
+              "path": "/Users/wangyue/codex-build/xharness-plugin-migration/ui-full-source/merged-main-review/final-compaction-ui/compaction-progress-webkit-source.png",
+              "sha256": "77b125e26ccf89968a625c0b79f884e1a9a6c9ee6f4146535b95a1a96c0d601a"
+            }
+          ]
+        },
+        {
+          "implementation": "frozen",
+          "engine": "chromium",
+          "exitCode": 0,
+          "log": "/tmp/xh-compaction-progress-chromium-frozen.log",
+          "logSha256": "45d4e12829735e885f95ce875d837a661ca54e374c2bd6905b05b5272ba65e79",
+          "screenshots": [
+            {
+              "path": "/Users/wangyue/codex-build/xharness-plugin-migration/ui-full-source/merged-main-review/final-compaction-ui/compaction-progress-chromium-frozen.png",
+              "sha256": "0d45b8c714f3156419209551f5ff8d00d3bd0b9ea0857974d3ce4865e5aed617"
+            }
+          ]
+        },
+        {
+          "implementation": "frozen",
+          "engine": "webkit",
+          "exitCode": 0,
+          "log": "/tmp/xh-compaction-progress-webkit-frozen.log",
+          "logSha256": "5321ed7b43c568e4a8e47769809b1e6c3e37e94980c0e46cf6ef42002af4a44b",
+          "screenshots": [
+            {
+              "path": "/Users/wangyue/codex-build/xharness-plugin-migration/ui-full-source/merged-main-review/final-compaction-ui/compaction-progress-webkit-frozen.png",
+              "sha256": "77b125e26ccf89968a625c0b79f884e1a9a6c9ee6f4146535b95a1a96c0d601a"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "scopeLimits": [
+    "Isolated feature Host service/slot fixtures remain; root whole-graph boot/network gate is separate",
+    "Attachment DOM drop/paste does not prove native Explorer→WebView2 delivery; packaged Windows acceptance remains separate",
+    "Screenshots are byte-recorded artifacts; this receipt does not assert cross-implementation PNG equality"
+  ],
+  "browserRuns": 16,
+  "nodeRuns": 1,
+  "sourceFreshnessAfterComputerFix": true,
+  "confirmedProductionGapResolvedByOwner": {
+    "module": "computer",
+    "gap": "Source previously used local React.useState(false), unlike immutable call-keyed retained state",
+    "fix": "Views owner imports the existing real tool/transcript-state adapter, uses computer:+callId; root canonical rebuilt before this receipt",
+    "detectedBy": "transcript-row-state source review/actual retained-map ComputerRow assertion",
+    "ourProductionChanges": false
+  }
+}

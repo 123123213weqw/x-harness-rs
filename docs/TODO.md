@@ -1,5 +1,19 @@
 # XHarness 总任务清单
 
+## 自有前端全量源码迁移（2026-10-02）
+
+基线为已合并主分支 `a613970c78a36a024de56100078323df25b96004`，不要求另一个上游目录。
+本轮未替换本机软件、未发布安装包；以前的分片通过记录不能当作当前整图验收。
+
+- [x] `UI-SOURCE-01` 单一源码清单和原子构建器：自有 ModuleLoader 模块、内部 Plugin API、平台及四个桌面脚本从本仓库编译；拒绝旧外部目录、classic-js 业务入口和 `frozenOverrides`。
+- [x] `UI-SOURCE-02` 生产构建输入拒绝 `dist`、`reference`、`node_modules` 别名；真实第三方版本／许可／完整 Hash 固定，保留独立冻结主分支 A/B 基线。
+- [x] `UI-SOURCE-03` 共用 AST／TypeChecker 门禁禁止显式／直接推断 `any`、普通／非空断言及抑制指令；允许 `as const`、导入重命名、`satisfies`。严格配置不能降低。
+- [x] `UI-SOURCE-04` 独立平台实际 Chromium／WebKit 差分：React 单例、staticModules ABI、Loader、Cordis 调用上下文、SlotCore、流式数学、高亮及主题叠层；见 `docs/evidence/platform-source-master-a613970.md`。仅是平台切片，不等于整图通过。
+- [x] `UI-SOURCE-05` 全业务真实 SDK 编译／类型门禁全部通过；持久化、开放事件和动态 target 兼容证明，不以 ambient 假签名或丢弃旧数据绕过。
+- [x] `UI-SOURCE-06` 干净完整构建、重复字节一致、损坏／失败保留旧产物，冻结主分支／新源码全部业务 A/B 与 canonical Node／Chromium／WebKit 回归。
+- [x] `UI-SOURCE-07a` WZU_Server 远程真实 Rust Host 响应与 TS DTO 对照通过；不在本机编译 Rust。
+- [ ] `UI-SOURCE-07b` 当前提交的 GitHub CI 全绿后合并；桌面安装和发布仍需独立授权及验收。
+
 ## 旧公开接口清理（2026-09-30）
 
 - [x] `LEGACY-API-01` 删除无调用的参数裁剪阈值常量；保留历史审计字段、参数完整性保护和现有 Context 策略。

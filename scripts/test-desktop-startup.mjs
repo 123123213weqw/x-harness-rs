@@ -1,8 +1,9 @@
+import {scriptAsset} from './fixtures/script-asset-test.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
-const source = readFileSync(new URL('../ui/desktop/startup.js', import.meta.url), 'utf8')
+const source = scriptAsset('desktop-startup.js')
 
 function fixture({ desktop = true, mounted = false } = {}) {
   const calls = []

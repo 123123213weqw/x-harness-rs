@@ -1,0 +1,40 @@
+import cssSource from './AgentPresetSection.css'
+import { installStyles } from '../shared/foundation-styles'
+installStyles("@xharness/dsh-client-ui-agent-preset/AgentPresetSection.module.css", "@xharness/dsh-client-ui-agent-preset", cssSource)
+const styles = {
+			"badge": "_3zrGGG_badge",
+			"brokenBadge": "_3zrGGG_brokenBadge",
+			"card": "_3zrGGG_card",
+			"cardActive": "_3zrGGG_cardActive",
+			"cardBroken": "_3zrGGG_cardBroken",
+			"cardBrokenReason": "_3zrGGG_cardBrokenReason",
+			"cardDesc": "_3zrGGG_cardDesc",
+			"cardFoot": "_3zrGGG_cardFoot",
+			"cardHead": "_3zrGGG_cardHead",
+			"cardId": "_3zrGGG_cardId",
+			"cardMain": "_3zrGGG_cardMain",
+			"cardName": "_3zrGGG_cardName",
+			"cards": "_3zrGGG_cards",
+			"creatorButton": "_3zrGGG_creatorButton",
+			"deleteConfirm": "_3zrGGG_deleteConfirm",
+			"deleteDialog": "_3zrGGG_deleteDialog",
+			"dialog": "_3zrGGG_dialog",
+			"dialogFields": "_3zrGGG_dialogFields",
+			"error": "_3zrGGG_error",
+			"field": "_3zrGGG_field",
+			"fieldLabel": "_3zrGGG_fieldLabel",
+			"group": "_3zrGGG_group",
+			"groupHead": "_3zrGGG_groupHead",
+			"iconButton": "_3zrGGG_iconButton",
+			"iconDanger": "_3zrGGG_iconDanger",
+			"inUse": "_3zrGGG_inUse",
+			"input": "_3zrGGG_input",
+			"intro": "_3zrGGG_intro",
+			"revealedPath": "_3zrGGG_revealedPath",
+			"revealedPathLabel": "_3zrGGG_revealedPathLabel",
+			"secondaryButton": "_3zrGGG_secondaryButton",
+			"section": "_3zrGGG_section",
+			"title": "_3zrGGG_title",
+			"viewerCode": "_3zrGGG_viewerCode"
+		} as const
+export default styles

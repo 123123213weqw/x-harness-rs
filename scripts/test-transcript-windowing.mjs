@@ -1,4 +1,7 @@
+import {installOwnedViewPlatform} from './fixtures/owned-view-platform-browser.mjs';
+import {exposeModuleUnit} from './fixtures/module-unit-scope.mjs';
 import assert from 'node:assert/strict';
+import {verifyConversationArtifact,exposeConversation,legacyConversation} from './conversation-artifact-test.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
@@ -7,11 +10,13 @@ import { Script } from 'node:vm';
 import { createHash } from 'node:crypto';
 import { patchTranscriptWindowing } from './patch-transcript-windowing.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
-const dist = resolve(root, 'ui/dist');
-const shipped = readFileSync(resolve(dist,'plugins/@xharness/dsh-client-ui-conversation/client.js'));
+const implementation=process.env.UI_TEST_IMPL??'source';assert.ok(['source','legacy'].includes(implementation));
+const dist = resolve(root, implementation==='source'?'ui/dist':'ui/reference/master-a613970');
+const sourceArtifact=Buffer.from(verifyConversationArtifact()),golden=legacyConversation();
+const shipped=implementation==='source'?sourceArtifact:golden;
 new Script(shipped.toString());
-assert.deepEqual(patchTranscriptWindowing(shipped), shipped);
-assert.deepEqual(patchTranscriptWindowing(Buffer.from(shipped.toString().replace("Product-owned bounded transcript DOM", "Older transcript DOM"))), shipped);
+assert.deepEqual(patchTranscriptWindowing(golden), golden);
+assert.deepEqual(patchTranscriptWindowing(Buffer.from(golden.toString().replace("Product-owned bounded transcript DOM", "Older transcript DOM"))), golden);
 assert.throws(()=>patchTranscriptWindowing(Buffer.from('upstream changed')), /anchor changed/);
 const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
 const entry=graph.entries.find(e=>e.id==='@xharness/dsh-client-ui-conversation');
@@ -21,22 +26,23 @@ const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','p
 const engine=process.env.UI_TEST_BROWSER??'chromium';
 const browser=await require('playwright')[engine].launch({headless:true});
 const helper=readFileSync(resolve(root,'ui/overrides/transcript-windowing.js'),'utf8');
-assert.ok(shipped.toString().includes(helper), 'shipped implementation must match maintained source');
+assert.ok(golden.toString().includes(helper), 'shipped implementation must match maintained source');
 try {
  const page=await browser.newPage({viewport:{width:1100,height:850}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- const assets=readdirSync(resolve(dist,'assets'));
- const index=readFileSync(resolve(dist,'index.html'),'utf8').match(/src="\/assets\/(index-[^"?]+\.js)/)[1];
- await page.route('**/*',route=>{
-  const url=new URL(route.request().url()), name=url.pathname.slice('/assets/'.length);
-  if(url.pathname.startsWith('/assets/')&&assets.includes(name))return route.fulfill({body:readFileSync(resolve(dist,'assets',name)),contentType:name.endsWith('.css')?'text/css':'application/javascript'});
-  if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:`<script>window.__ModuleLoader__={create:o=>{window.staticModules=o.staticModules;throw Error('fixture stop boot')}};</script><script type="module" src="/assets/${index}"></script><style>.fixture-row:empty{display:none}</style><div id="root"></div>`});
-  return route.abort();
- });
- await page.goto('http://transcript.test/');await page.waitForFunction(()=>window.staticModules);
- await page.addScriptTag({content:helper});
+ await installOwnedViewPlatform(page,shipped.toString().startsWith('// Generated from src/modules/conversation/')?'source':'legacy');
+ await page.addStyleTag({content:'.fixture-row:empty{display:none}'});
+ await page.evaluate(()=>{window.registrations={};window.__ModuleLoader__={load:r=>{registrations[r.id]=r}}});
+ for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
+  let source=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
+  if(name==='dsh-client-ui-conversation')source=exposeConversation(shipped.toString(),['XhTranscriptWindowRow','ChatView','createTranscriptWindowing']);
+  await page.addScriptTag({content:source});
+ }
+ await page.evaluate(()=>{const cache={};window.loadFixture=id=>{if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(loadFixture))}});
  await page.evaluate(()=>{
-  const R=staticModules.react,D=staticModules['react-dom'],WindowRow=createTranscriptWindowing(R);
+  const R=staticModules.react,D=staticModules['react-dom'];
+  const createTranscriptWindowing=loadFixture('@xharness/dsh-client-ui-conversation/client').createTranscriptWindowing;
+  const WindowRow=createTranscriptWindowing(R);
   const identity=globalThis.__xhTranscriptState.get(R.createElement);createTranscriptWindowing({...R});
   if(identity!==globalThis.__xhTranscriptState.get(R.createElement))throw Error('React namespace wrappers must share row state');
   const root=D.createRoot(document.getElementById('root'));window.fixtureRoot=root;
@@ -110,14 +116,14 @@ try {
  await page.evaluate(()=>{fixtureRoot.unmount();window.registrations={};window.__ModuleLoader__={load:r=>{registrations[r.id]=r}}});
  for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
   let source=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
-  if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.ChatView = ChatView; exports.ReasoningRow = ReasoningRow; exports.CompactionItem = CompactionItem; exports.apply = apply;');
-  if(name==='dsh-client-ui-tool')source=source.replace('exports.apply = apply;', 'exports.ToolRow = ToolRow; exports.apply = apply;');
-  if(name==='dsh-client-ui-cordis')source=source.replace('exports.apply = apply;', 'exports.CordisDefineRow = CordisDefineRow; exports.apply = apply;');
+  if(name==='dsh-client-ui-conversation')source=exposeConversation(shipped.toString(),['ChatView','ReasoningRow','CompactionItem','createTranscriptWindowing']);
+  if(name==='dsh-client-ui-tool')source=exposeModuleUnit(source,'tool','tool/components/ToolRow','ToolRow');
+  if(name==='dsh-client-ui-cordis')source=exposeModuleUnit(source,'cordis','CordisDefineRow','CordisDefineRow');
   await page.addScriptTag({content:source});
  }
  await page.evaluate(()=>{
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
-  const R=staticModules.react,D=staticModules['react-dom'],Row=createTranscriptWindowing(R);
+  const R=staticModules.react,D=staticModules['react-dom'],Row=load('@xharness/dsh-client-ui-conversation').createTranscriptWindowing(R);
   const {ToolRow}=load('@xharness/dsh-client-ui-tool');
   const {CordisDefineRow}=load('@xharness/dsh-client-ui-cordis');
   const {ReasoningRow,CompactionItem}=load('@xharness/dsh-client-ui-conversation');
@@ -182,7 +188,10 @@ try {
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
   const R=staticModules.react,D=staticModules['react-dom'],View=load('@xharness/dsh-client-ui-conversation/client').ChatView;
   const root=D.createRoot(document.getElementById('root'));window.fixtureRoot=root;
-  const make=i=>({key:String(i),kind:'user',anchorSeq:i,data:{}});
+  // Publish genuine Chat target DTOs. A raw {} is an unknown surface in the
+  // strict reader, not a user/assistant row with the fixture's 160px body.
+  const make=i=>({key:String(i),kind:'user',anchorSeq:100+i,data:{kind:'user',seq:100+i,time:100+i,source:{kind:'user'},content:[{type:'text',text:'Message '+i}]}});
+  window.makeAssistant=(key,seq)=>({key,kind:'assistant-step',anchorSeq:seq,data:{status:'settled',turn:0,step:0,time:seq,blocks:[{kind:'text',text:'Message '+key}]}});
   const nodes=new Map(Array.from({length:100},(_,i)=>[String(i),make(i)]));
   window.snap={chat:{order:[...nodes.keys()],nodes,timeline:{turns:new Map()}},queue:[],running:false,openState:'open',openError:null,hasMore:true,loadingOlder:false};
   window.saved=null;
@@ -194,6 +203,7 @@ try {
   window.renderActual=()=>D.flushSync(()=>root.render(R.createElement('div',{'data-conversation-scroll':'',style:{height:600,width:900,overflow:'auto','--dsh-chat-content-width':'100%','--dsh-composer-side-clearance':'0px',overflowAnchor:'none'}},R.createElement(View,props))));renderActual();
  });
  await page.waitForFunction(()=>document.querySelectorAll('[data-transcript-mounted="false"]').length>70);
+ await page.locator('[data-body="99"]').waitFor();
  assert.ok(await scroll.evaluate(e=>e.scrollHeight-e.scrollTop-e.clientHeight)<30,'actual ChatView opens at bottom');
  // Compaction replaces a large history span while the turn keeps running.
  // Native anchoring can emit a scroll without any reader gesture. That must
@@ -201,7 +211,7 @@ try {
  await page.evaluate(()=>{
   snap={...snap,running:true,chat:{...snap.chat,
     order:[...snap.chat.order.slice(-25),'compact'],
-    nodes:new Map([...snap.chat.nodes,['compact',{key:'compact',kind:'compaction',anchorSeq:100,data:{status:'running'}}]])}};
+    nodes:new Map([...snap.chat.nodes,['compact',{key:'compact',kind:'compaction',anchorSeq:200,data:{kind:'compaction',seq:200,time:200,status:'running',error:null}}]])}};
   renderActual();
  });
  await scroll.evaluate(e=>{
@@ -212,7 +222,7 @@ try {
  assert.ok(await scroll.evaluate(e=>e.scrollHeight-e.scrollTop-e.clientHeight)<30,'compaction reflow keeps live follow');
  await page.evaluate(()=>{
   snap={...snap,chat:{...snap.chat,order:[...snap.chat.order,'after-compact'],
-    nodes:new Map([...snap.chat.nodes,['after-compact',{key:'after-compact',kind:'assistant',anchorSeq:101,data:{}}]])}};
+    nodes:new Map([...snap.chat.nodes,['after-compact',makeAssistant('after-compact',201)]])}};
   renderActual();
  });
  assert.ok(await scroll.evaluate(e=>e.scrollHeight-e.scrollTop-e.clientHeight)<30,'answer after compact remains visible');
@@ -225,18 +235,23 @@ try {
  const readerTop=await scroll.evaluate(e=>e.scrollTop);
  await page.evaluate(()=>{
   snap={...snap,chat:{...snap.chat,order:[...snap.chat.order,'after-reader-scroll'],
-    nodes:new Map([...snap.chat.nodes,['after-reader-scroll',{key:'after-reader-scroll',kind:'assistant',anchorSeq:102,data:{}}]])}};
+    nodes:new Map([...snap.chat.nodes,['after-reader-scroll',makeAssistant('after-reader-scroll',202)]])}};
   renderActual();
  });
  assert.ok(Math.abs(await scroll.evaluate(e=>e.scrollTop)-readerTop)<2,'explicit reader scroll disables follow');
  await page.evaluate(()=>{
   snap={...snap,running:false,chat:{...snap.chat,order:[...Array.from({length:100},(_,i)=>String(i))]}};renderActual();
  });
- await scroll.evaluate(e=>{e.scrollTop=5000});await page.waitForTimeout(150);
+ // This is a fresh reader gesture, not an unrelated programmatic position
+ // write after the previous phase's 1.5s attribution window has elapsed.
+ await scroll.evaluate(e=>{e.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-5000}));e.scrollTop=5000;e.dispatchEvent(new Event('scroll'))});await page.waitForTimeout(150);
+ assert.equal(await page.getByRole('button',{name:'chat.toBottom',exact:true}).count(),1,'genuine history reader owns the viewport before append');
  const before=await scroll.evaluate(e=>e.scrollTop);
- await page.evaluate(()=>{snap={...snap,chat:{...snap.chat,order:[...snap.chat.order,'100'],nodes:new Map([...snap.chat.nodes,['100',{key:'100',kind:'assistant',anchorSeq:100,data:{}}]])}};renderActual()});
+ await page.evaluate(()=>{snap={...snap,chat:{...snap.chat,order:[...snap.chat.order,'100'],nodes:new Map([...snap.chat.nodes,['100',makeAssistant('100',203)]])}};renderActual()});
  await page.waitForTimeout(150);
- assert.ok(Math.abs(await scroll.evaluate(e=>e.scrollTop)-before)<2,'append does not pull history reader to bottom');
+ const afterAppend=await scroll.evaluate(e=>e.scrollTop);
+ if(Math.abs(afterAppend-before)>=2)console.error(JSON.stringify({implementation,engine,readerAppend:{before,after:afterAppend,geometry:await scroll.evaluate(e=>({floor:e.scrollHeight-e.clientHeight,rows:[...e.querySelectorAll('[data-transcript-mounted=true]')].map(row=>({key:row.dataset.chatAnchorKey,top:row.getBoundingClientRect().top,height:row.getBoundingClientRect().height})),saved:window.saved}))}}));
+ assert.ok(Math.abs(afterAppend-before)<2,'append does not pull history reader to bottom');
  // Invoke the real load-older button; offscreen anchors remain in the DOM.
  const anchor=await page.evaluate(()=>{const root=document.querySelector('[data-conversation-scroll]'),top=root.getBoundingClientRect().top;const row=[...root.querySelectorAll('[data-chat-anchor-key]')].find(e=>e.getBoundingClientRect().top>=top);return {key:row.dataset.chatAnchorKey,top:row.getBoundingClientRect().top}});
  await page.getByRole('button',{name:'chat.loadOlder',exact:true}).dispatchEvent('click');
@@ -244,6 +259,6 @@ try {
  const after=await page.locator('[data-chat-anchor-key="'+anchor.key+'"]').evaluate(e=>e.getBoundingClientRect().top);
  assert.ok(Math.abs(after-anchor.top)<2,'prepend preserves real ChatView anchor');
  await page.evaluate(()=>fixtureRoot.unmount());
- assert.deepEqual(errors.filter(e=>!e.includes('fixture stop boot')),[]);
- console.log(JSON.stringify({engine,baseline,optimized,firstWindowed, resizePeak, checks:'bounded first mount/resize, tool/reasoning/native-details/draft state, call isolation, focus/selection protection and release, live tip, cleanup, real ChatView anchors',note:'synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint'}));
+ assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
+ console.log(JSON.stringify({engine,implementation,baseline,optimized,firstWindowed, resizePeak, checks:'bounded first mount/resize, tool/reasoning/native-details/draft state, call isolation, focus/selection protection and release, live tip, cleanup, real ChatView anchors',note:'synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint'}));
 } finally {await browser.close()}

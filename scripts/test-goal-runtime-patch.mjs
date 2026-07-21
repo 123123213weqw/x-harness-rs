@@ -3,19 +3,15 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {Script} from 'node:vm';
 import {patchGoalRuntime} from './patch-goal-runtime.mjs';
-const file=new URL('../ui/dist/plugins/@xharness/dsh-client-ui-goal/client.js',import.meta.url);
-const bytes=readFileSync(file),text=bytes.toString();
-assert.deepEqual(patchGoalRuntime(bytes),bytes,'shipped UI must be refreshed and patch idempotent');
-assert.equal(text.includes('XhGoalDetails'),false,'no detached details component');
-assert.equal(text.includes("jsx('details'"),false);
-assert.ok(text.includes('jsx(XhGoalControls'));
-assert.ok(text.includes('xh-goal-inline/v2'));
-assert.equal(text.includes('XhGoalCreate'),false,'absent Goal stays silent');
-assert.equal(text.includes('设定目标'),false);
-new Script(text);
+import {assertRebuildInput} from './fixtures/repository-ui-input.mjs';
+import {goalCases,legacyGoal} from './goal-test-harness.mjs';
+const file=new URL('../ui/dist/plugins/@xharness/dsh-client-ui-goal/client.js',import.meta.url),bytes=readFileSync(file),text=bytes.toString();
+// Patch machinery remains a frozen-bundle golden contract, not a transform over
+// generated native TS. New behavior checks evaluate the whole actual factory.
+const golden=Buffer.from(legacyGoal);assert.deepEqual(patchGoalRuntime(golden),golden);
+assert.equal(legacyGoal.includes('XhGoalDetails'),false);assert.equal(legacyGoal.includes("jsx('details'"),false);assert.ok(legacyGoal.includes('jsx(XhGoalControls'));assert.ok(legacyGoal.includes('xh-goal-inline/v2'));assert.equal(legacyGoal.includes('XhGoalCreate'),false);assert.equal(legacyGoal.includes('设定目标'),false);
 assert.throws(()=>patchGoalRuntime(Buffer.from('unknown upstream payload')),/anchor changed/);
-const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url)));
-const plugin=graph.entries.find(e=>e.id==='@xharness/dsh-client-ui-goal');
-assert.equal(plugin.rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
-assert.ok(readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8').includes(plugin.url));
-console.log('Goal patch: idempotent, fail-closed anchors, one card, shipped manifest/hash passed');
+assertRebuildInput('@xharness/dsh-client-ui-goal');new Script(text);
+for(const[label,source]of[['actual artifact',text],['frozen golden',legacyGoal]])for(const[name,check]of Object.entries(goalCases)){await check(source);console.log(label+': '+name+' passed');}
+const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url))),plugin=graph.entries.find(e=>e.id==='@xharness/dsh-client-ui-goal'),html=readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8');assert.equal(plugin.rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));assert.ok(html.includes(plugin.url));assert.deepEqual(JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]),graph);
+console.log('Goal: actual factory native behavior, frozen idempotent/fail-closed patch golden, source freshness/hash/preload/boot passed');

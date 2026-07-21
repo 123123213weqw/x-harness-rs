@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "allowJs": false, "checkJs": false, "jsx": "react-jsx", "lib": ["ES2022", "DOM", "DOM.Iterable"] },
+  "include": ["shared/*.ts", "plugin-hub/*.tsx", "profile/*.tsx", "motion/*.ts", "directory/*.tsx", "computer/*.tsx", "schedule/*.tsx", "tasks/*.tsx", "terminal/*.tsx", "context/*.tsx", "../../../types/plugin-runtime.d.ts"]
+}

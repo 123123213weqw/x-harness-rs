@@ -1,0 +1,8 @@
+=== test-context-layout.mjs chromium ===
+chromium: 19 layout cases passed (switching, live snapshots, tools, resize, composer, empty)
+=== test-context-layout.mjs webkit ===
+webkit: 19 layout cases passed (switching, live snapshots, tools, resize, composer, empty)
+=== test-terminal-layout-browser.mjs chromium ===
+chromium: terminal dock fits WebView, document stays fixed, scroll boundaries and theme backing verified
+=== test-terminal-layout-browser.mjs webkit ===
+webkit: terminal dock fits WebView, document stays fixed, scroll boundaries and theme backing verified

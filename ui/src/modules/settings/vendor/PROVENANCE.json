@@ -1,0 +1,43 @@
+{
+  "formatVersion": 1,
+  "sourceRepository": "https://github.com/deepseek-ai/deepseek-harness",
+  "sourceRevision": "141eb6fef83422698aef7a981029e843e8161534",
+  "packages": {
+    "schemastery": "3.18.1",
+    "cosmokit": "1.8.2",
+    "standard-schema": "1.1.0"
+  },
+  "adaptation": "Local import paths; cosmokit entry exports only required misc/types; optional Buffer declaration and type-only array non-null assertions; guarded absent list/dict assignment (same serialization/validation output). Runtime validation and helper algorithms retained.",
+  "files": [
+    {
+      "path": "schemastery/index.ts",
+      "origin": "vendor/schemastery/src/index.ts",
+      "sourceSha256": "cf8a4de0481969a1a6d44eac390015f3494be1ce19b84d4fcfb7e93e5072cee5",
+      "sha256": "c3a61b713ae25c88d28a2af41ce7ed072f1f39915a69fe8a095d6d8db76e9b5c"
+    },
+    {
+      "path": "cosmokit/types.ts",
+      "origin": "vendor/cosmokit/src/types.ts",
+      "sourceSha256": "09d72a91052105e88500bfb99a8e8ce0c9ebf6f6e7df569053e114bc77aa019c",
+      "sha256": "f3150551d481bb9cdee23067cb53d1fc487a0293d2dd6bcaf66330d6fb9ed28c"
+    },
+    {
+      "path": "cosmokit/index.ts",
+      "origin": "vendor/cosmokit/src/index.ts",
+      "sourceSha256": "51dd173c70001d7d7891d3aab7e26594da65f7cb6671253f6d457ac889326b3c",
+      "sha256": "f12294a74d1b4aba055f5430d9a867479f6a4d8be81b1133ebdf7a74320148ff"
+    },
+    {
+      "path": "cosmokit/misc.ts",
+      "origin": "vendor/cosmokit/src/misc.ts",
+      "sourceSha256": "117617943074ea57c15f216905dacd2f6d1c4c2ff16586f97a7a7a87dbf2141f",
+      "sha256": "117617943074ea57c15f216905dacd2f6d1c4c2ff16586f97a7a7a87dbf2141f"
+    },
+    {
+      "path": "standard-schema/spec.d.ts",
+      "origin": "@standard-schema/spec/dist/index.d.ts",
+      "sourceSha256": "bdd14f07b4eca0b4b5203b85b8dbc4d084c749fa590bee5ea613e1641dcd3b29",
+      "sha256": "bdd14f07b4eca0b4b5203b85b8dbc4d084c749fa590bee5ea613e1641dcd3b29"
+    }
+  ]
+}

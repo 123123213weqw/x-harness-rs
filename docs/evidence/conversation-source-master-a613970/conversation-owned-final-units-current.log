@@ -1,0 +1,127 @@
+=== test-conversation-source ===
+✔ fork/subagent breadcrumbs preserve source ancestry, missing parents and cycle guards (129.699875ms)
+✔ real source entry preserves published ABI, injection, exact stylesheet tags and dictionaries (61.105209ms)
+✔ complete apply registration: keyed nodes, resident shell, overlays, docks, hooks and latest-master keyed seats (9.435458ms)
+✔ pure input machine preserves reference, undo/redo, claim and paste transaction behavior (1.597416ms)
+✔ settings-backed busy Enter policy and block registry retain session-specific state (0.203041ms)
+✔ host send preserves durable file/image references, byte payloads, requireIdle and failure retention (1.998416ms)
+✔ durable attachment validation limits and MIME extension fallback match deployed behavior (0.349042ms)
+✔ message editor replace confirm/cancel, draft restore, in-flight guard and durable cleanup (2.794083ms)
+✔ message editor does not overwrite a draft changed while persistent save is pending (0.34425ms)
+✔ reload recovery is transactional; missing hydration blocks admission and retry succeeds (0.683917ms)
+✔ compaction emits running row immediately and ends only at terminal/checkpoint evidence (1.464125ms)
+✔ checkpoint and max-steps turn termination remain visible and immediate (0.676875ms)
+✔ context accuracy/staleness, ring guards and reader-scroll ownership match all edge readings (0.284834ms)
+✔ historical attachment cache deduplicates, isolates sessions and invalidates pending generations (0.6375ms)
+✔ image-only admission is one-flight and refuses attachment mutation until the host settles (0.524125ms)
+✔ fork-before-user reads source-authorized bytes before child creation and preserves file kind (0.517416ms)
+✔ incremental transcript builder retains full history and stable order across live projection upserts (20.198209ms)
+✔ lazy input-shell editor construction preserves standard-kit materialization before service registration (0.856041ms)
+✔ permission pending feedback belongs to current versus next execution round (0.065375ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 237.315125
+=== test-conversation-main-differential ===
+✔ latest compaction progress: eight real stages, nullish metrics, exact counters and identity (0.763125ms)
+✔ latest compaction: view forwarding/history-only success, pause/failure and terminal late-progress stability (1.91725ms)
+✔ latest network retry: producer correlation, replay, tail cuts, full/partial facts and cancellation (1.562208ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7.864375
+=== test-tool-source-module ===
+✔ Tool: strict production ABI, inject, all CSS/classmap lifecycle and registered slots unchanged (26.325333ms)
+✔ Tool: row variants, stream prefixes, filesystem summary, nonzero exit and interruption are frozen-compatible (1.527958ms)
+✔ Tool: read/diff/search/web intent projection and malformed/unknown fallback differential corpus (2.572042ms)
+✔ Tool: terminal cwd normalization, running/final status and label forwarding are not simplified (1.11625ms)
+✔ Tool: recursive subcall keyed dispatch retains selection and fallback routing (0.172125ms)
+✔ Tool: collapsed/live row model and selected details body match the old component tree (0.675417ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 35.824833
+=== test-settings-models-source ===
+✔ published ABI, exact CSS and no removed onboarding slot (7.010041ms)
+✔ API-key validation permits literal keys but rejects pasted quotes/env or unsafe chars (0.200791ms)
+✔ capacity parser/formatter and complete model validation match edge vocabulary (0.422792ms)
+✔ minimal path ops preserve unknown fields and meaningful field deletion (0.174791ms)
+✔ provider/settings/credentials join loads once in parallel and never serializes secrets (0.552666ms)
+✔ latest generation wins both provider phase and credential phase (1.492333ms)
+✔ credential failures enrich usable rows without erasing held provider state (0.270625ms)
+✔ background invalidation is lazy until section loaded (0.096125ms)
+✔ profile removal respects credential-first idempotent retry and settings failure (0.220667ms)
+✔ discovered image capability preserves true/false/unknown without guessing or rewriting fields (0.192875ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13.622167
+=== test-model-selection-source ===
+✔ source export ABI and exact CSS retained (1.190708ms)
+✔ context validation uses selected model maximum and preserves complete selection (11.301416ms)
+✔ reasoning discovery status uses provider-owned metadata (0.141958ms)
+✔ load/select RPC fields, late load must not overwrite newer selection (0.574ms)
+✔ late transport failure cannot overwrite newer operation; active error retains catalog (0.55925ms)
+✔ disposed late settlements and addressed subagents do not mutate directory (0.190583ms)
+✔ Host reset clears old state and reloads; rejected RPC publishes accurate operation error (1.703541ms)
+✔ resolver cache, composer blocks and session disposal agree (0.478ms)
+✔ /model command, opaque slash ids, dynamic default effort and composer injection agree (0.75ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 19.561917
+=== test-question-source-module ===
+✔ questions: strict production ABI, inject, slots, dictionaries and frozen patched CSS are unchanged (3.544541ms)
+✔ questions: chain selector claims only the first question, preserving carrier identity (0.148125ms)
+✔ questions: answer and cancellation forward correct envelope, reject stale receipt and preserve transport failure (0.568292ms)
+✔ questions: plan-review narrowing never removes reachable custom/third/multiselect answers (0.18825ms)
+✔ questions: recommendation parsing leaves submitted label untouched; IME Enter signals are respected (0.282209ms)
+✔ questions: same-key carrier replay, plan decision and deferred view match frozen render tree (1.163417ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9.690667
+=== test-preset-source-modules ===
+✔ permission-presets: exact published ABI and factory CSS (2.858917ms)
+✔ agent-preset: exact published ABI and factory CSS (2.698542ms)
+✔ permission: schema enum filtering, product labels and malformed descriptor errors (0.419125ms)
+✔ permission: revision-guarded minimal write folds shared mirror and cleans subscription (0.591875ms)
+✔ permission: unavailable, read-only and mutation failure stay coherent (0.227708ms)
+✔ permission: popup filters custom, confirms full access and forwards command (0.681334ms)
+✔ agent-preset: healthy picker filtering, roster failure shapes and draft vocabulary (0.34725ms)
+✔ agent-preset: default preference writes minimal settings field and reports both refusal shapes (0.178417ms)
+✔ agent-preset: staged choice waits for blank session and publishes accepted identity (0.367292ms)
+✔ agent-preset: management copy, readonly view, fallback location and delete preserve Host routing (0.834583ms)
+✔ agent-preset: frozen hidden-mode slots never return while events remain live (0.634792ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 18.371666

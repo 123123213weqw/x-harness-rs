@@ -3,23 +3,23 @@
 // UI_TEST_DEPS points at a directory with node_modules/{playwright,react,react-dom}.
 // Does not connect to a running Harness or load any user conversations.
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { verifyArtifact, shippedUnitValue } from './fixtures/shipped-source-values.mjs'
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? repo, 'package.json'))
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 assert.ok(['chromium', 'webkit'].includes(engine))
-const bundle = readFileSync(join(repo, 'ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js'), 'utf8')
-// Fail loudly on upstream contract changes instead of testing stale copied CSS.
-const cssLine = bundle.split('\n').find(line => line.includes('const css') && line.includes('[data-conversation-composer-overlay]'))
-assert.ok(cssLine, 'upstream composer overlay CSS must exist')
-const css = JSON.parse(cssLine.trim().match(/^const \S+ = (".*");$/)[1])
-const classBlock = bundle.match(/var ConversationRoot_module_css_default = \{([\s\S]*?)\};/)[1]
-const classes = Object.fromEntries([...classBlock.matchAll(/"(\w+)": "([^"]+)"/g)].map(m => [m[1],m[2]]))
-const source = readFileSync(process.env.UI_TEST_PLUGIN ?? join(repo, 'ui/plugins/@xlang/xharness-client-ui-context/client.js'), 'utf8')
+// Read exact AST-scoped values from the canonical CSS and class-map units;
+// never depend on the old bundle's emitted variable names or copied CSS.
+const conversation=verifyArtifact('@xharness/dsh-client-ui-conversation')
+const css=shippedUnitValue(conversation,'src/modules/conversation/skeleton/ConversationRoot.css')
+const classes=shippedUnitValue(conversation,'src/modules/conversation/skeleton/ConversationRoot.styles.js')
+assert.ok(css.includes('[data-conversation-composer-overlay]'),'shipped composer overlay CSS must exist')
+for(const name of ['root','header','scrollBody','viewArea','composerSeat'])assert.equal(typeof classes[name],'string')
+const source=verifyArtifact('@xlang/xharness-client-ui-context')
 const browser = await ({chromium, webkit}[engine]).launch({
   headless: true,
   ...(process.env.UI_TEST_EXECUTABLE ? {executablePath: process.env.UI_TEST_EXECUTABLE} : {}),

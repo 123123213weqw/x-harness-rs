@@ -1,0 +1,18 @@
+✔ legacy: decoration registration does not acquire a caller's undeclared commands namespace (9.983167ms)
+✔ legacy: command registration follows actual caller fibers, popup scopes and listener rejection containment (6.659416ms)
+✔ legacy: input service reads current isolated sessions and retains independent controller lifetime (2.019791ms)
+✔ legacy: reference callback wire values, quoted order, cancellation and registration teardown preserve original behavior (2.711292ms)
+✔ legacy: Typert heterogeneous lookup/Context policies remain erased unknown and caller-owned (4.012917ms)
+✔ source: decoration registration does not acquire a caller's undeclared commands namespace (9.365625ms)
+✔ source: command registration follows actual caller fibers, popup scopes and listener rejection containment (6.743541ms)
+✔ source: input service reads current isolated sessions and retains independent controller lifetime (2.384958ms)
+✔ source: reference callback wire values, quoted order, cancellation and registration teardown preserve original behavior (4.665541ms)
+✔ source: Typert heterogeneous lookup/Context policies remain erased unknown and caller-owned (31.092708ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 83.286125
