@@ -3041,8 +3041,8 @@
     },
     {
       "path": "scripts/test-conversation-source-browser.mjs",
-      "bytes": 24279,
-      "sha256": "4cd63a6d7a26e6a4cddc3a02717d04c4bfffd4922aaf0446ffcd5997a335be61"
+      "bytes": 24604,
+      "sha256": "3163be1b37a2ce965a1f36066298dedb842c4a0b2a78fb10c19d64c6e779f55d"
     },
     {
       "path": "scripts/test-conversation-source.mjs",
@@ -3139,6 +3139,32 @@
       "Strict malformed-shape rejection is explicitly not permissive frozen malformed-input parity; known-owner compaction rollback and valid old/foreign payload compatibility have specific real tests.",
       "Parent/peer whole-graph boot, clean reproduction, remote Rust and CI evidence is independent of these local receipts.",
       "Hashes describe the observed frozen canonical build and must be refreshed after a source/rebuild change."
+    ]
+  },
+  "checkpointDomSemanticCorrection": {
+    "previousTestPin": {
+      "path": "scripts/test-conversation-source-browser.mjs",
+      "bytes": 24279,
+      "sha256": "4cd63a6d7a26e6a4cddc3a02717d04c4bfffd4922aaf0446ffcd5997a335be61"
+    },
+    "productionChanged": false,
+    "linuxWebkitSourceFrozen": {
+      "passed": 2,
+      "rawInnerTextBoth": "执行已停止：步骤硬上限\nsaved checkpoint\n",
+      "outerHtmlEqual": true,
+      "producerContentEqual": true
+    },
+    "macFourCombinationsPassed": 4,
+    "noTrim": true,
+    "assertions": [
+      "one expanded details",
+      "exact direct summary textContent",
+      "exact direct body textContent",
+      "all original remaining functional assertions"
+    ],
+    "logs": [
+      "conversation-linux-webkit-checkpoint-differential.log",
+      "conversation-checkpoint-semantic-mac-4runs.log"
     ]
   }
 }
