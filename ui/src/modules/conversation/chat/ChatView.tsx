@@ -20,6 +20,7 @@ import { Button, IconChevronDownOutline14, Modal } from '../primitives'
 import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots'
 import { PendingSteeringBubble } from './MessageItem'
 import { ChatNodeSeat } from './ChatNodeSeat'
+import { bindTranscriptFollow } from './TranscriptWindowRow'
 import { formatRunDuration } from './message-chrome'
 import css from './ChatView.styles'
 
@@ -224,6 +225,9 @@ export function ChatView({
   /** Last position delivered or written on the main thread. */
   const observedTopRef = useRef(0)
   const readerScrollUntilRef = useRef(0)
+  // A resize/anchor correction shortly after an upward gesture is not a
+  // downward reader gesture. Only a fresh downward/scrollbar input may re-pin.
+  const readerDirectionRef = useRef(0)
   /** Paging anchor: semantic row/position at click, updated by reader scrolls
    * while the request is pending and restored after the prepend lands. */
   const anchorRef = useRef<PagingAnchor | null>(null)
@@ -245,12 +249,22 @@ export function ChatView({
 
   const toBottom = (el: HTMLElement): void => {
     anchorRef.current = null
+    // Explicit/programmatic return ends the previous reader gesture. Delayed
+    // resize/clamp scroll events must not inherit an earlier up gesture.
+    readerScrollUntilRef.current = 0
+    readerDirectionRef.current = 0
     el.scrollTop = el.scrollHeight
     observedTopRef.current = el.scrollTop
     atBottomRef.current = true
     setAtBottom(true)
     chatScroll.save(null)
   }
+
+  useLayoutEffect(() => {
+    const local = listRef.current
+    if (local === null) return
+    return bindTranscriptFollow(scrollerOf(local), atBottomRef)
+  }, [])
 
   useLayoutEffect(() => {
     const local = listRef.current
@@ -329,7 +343,8 @@ export function ChatView({
     const floor = Math.max(0, el.scrollHeight - el.clientHeight)
     const readerInputRecent = Date.now() <= readerScrollUntilRef.current
     const movedByReader = readerInputRecent && Math.abs(el.scrollTop - Math.min(observedTopRef.current, floor)) > 0.5
-    const isAtBottom = scrollFollowAtBottom(atBottomRef.current, el.scrollTop, floor, observedTopRef.current, readerInputRecent)
+    const isAtBottom = scrollFollowAtBottom(atBottomRef.current, el.scrollTop, floor, observedTopRef.current,
+      readerInputRecent && (atBottomRef.current || readerDirectionRef.current >= 0))
     if (!movedByReader && isAtBottom) {
       toBottom(el)
       return
@@ -349,31 +364,87 @@ export function ChatView({
     observedTopRef.current = el.scrollTop
   }
 
-  // Bind the scroll listener on the resolved scrollport once per mount;
-  // reader-input attribution rides the observed-top ledger, not per-device
-  // input listeners.
+  // Gesture intent is delivered before scroll/resize/layout callbacks. Release
+  // follow synchronously when the reader starts moving up, even a few pixels
+  // inside FOLLOW_THRESHOLD. Otherwise streaming can win that first frame.
   useEffect(() => {
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: effect runs after the list node commits. */
     if (local === null) return
     const el = scrollerOf(local)
     const onScroll = (): void => { onScrollRef.current() }
-    const markReaderInput = (): void => { readerScrollUntilRef.current = Date.now() + 1500 }
-    const onPointer = (event: PointerEvent): void => { if (event.target === el) markReaderInput() }
+    const markReaderInput = (direction?: number): void => {
+      readerScrollUntilRef.current = Date.now() + 1500
+      if (direction !== undefined) readerDirectionRef.current = direction
+    }
+    const pauseFollowing = (): void => {
+      atBottomRef.current = false
+      setAtBottom(false)
+    }
+    const onWheel = (event: WheelEvent): void => {
+      // Ctrl-wheel/pinch zoom and horizontal-only movement are not read-up.
+      if (event.ctrlKey || event.deltaY === 0) return
+      markReaderInput(Math.sign(event.deltaY))
+      if (event.deltaY < 0) pauseFollowing()
+    }
+    let touchY: number | null = null
+    const onTouchStart = (event: TouchEvent): void => {
+      const touch = event.touches[0]
+      touchY = event.touches.length === 1 && touch !== undefined ? touch.clientY : null
+    }
+    const onTouchMove = (event: TouchEvent): void => {
+      const touch = event.touches[0]
+      if (event.touches.length !== 1 || touch === undefined) { touchY = null; return }
+      const y = touch.clientY
+      markReaderInput(touchY === null ? -1 : y === touchY ? undefined : Math.sign(touchY - y))
+      if (touchY === null || y > touchY) pauseFollowing()
+      touchY = y
+    }
+    const onTouchEnd = (): void => { touchY = null }
+    let readerPointer: number | null = null
+    const onPointer = (event: PointerEvent): void => {
+      if (event.target !== el || event.button !== 0) return
+      readerPointer = event.pointerId
+      markReaderInput(0)
+      pauseFollowing()
+    }
+    const onPointerMove = (event: PointerEvent): void => {
+      if (event.pointerId === readerPointer) markReaderInput()
+    }
+    const onPointerEnd = (event: PointerEvent): void => {
+      if (event.pointerId === readerPointer) readerPointer = null
+    }
     const onKey = (event: KeyboardEvent): void => {
-      if (event.target instanceof Element && event.target.closest('input,textarea,[contenteditable=true]')) return
-      if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)) markReaderInput()
+      if (event.defaultPrevented || (event.target instanceof Element
+        && event.target.closest('input,textarea,[contenteditable=true],[role=menu],[role=listbox],[role=combobox]'))) return
+      if (event.key === ' ' && event.target instanceof Element && event.target.closest('button,a')) return
+      if (!['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)) return
+      const upward = ['ArrowUp','PageUp','Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)
+      markReaderInput(upward ? -1 : 1)
+      if (upward) pauseFollowing()
     }
     el.addEventListener('scroll', onScroll, { passive: true })
-    el.addEventListener('wheel', markReaderInput, { passive: true })
-    el.addEventListener('touchmove', markReaderInput, { passive: true })
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    el.addEventListener('touchend', onTouchEnd, { passive: true })
+    el.addEventListener('touchcancel', onTouchEnd, { passive: true })
     el.addEventListener('pointerdown', onPointer)
+    window.addEventListener('pointermove', onPointerMove, { passive: true })
+    window.addEventListener('pointerup', onPointerEnd)
+    window.addEventListener('pointercancel', onPointerEnd)
     el.addEventListener('keydown', onKey)
     return () => {
       el.removeEventListener('scroll', onScroll)
-      el.removeEventListener('wheel', markReaderInput)
-      el.removeEventListener('touchmove', markReaderInput)
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
       el.removeEventListener('pointerdown', onPointer)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerEnd)
+      window.removeEventListener('pointercancel', onPointerEnd)
       el.removeEventListener('keydown', onKey)
     }
   }, [])
@@ -541,6 +612,9 @@ function FileOpenErrorDialog({
 
 /** Native clamp/compaction is not reader input and cannot steal follow ownership. */
 export function scrollFollowAtBottom(current: boolean, top: number, floor: number, observed: number, recentInput: boolean): boolean {
-  const moved = Math.abs(top - Math.min(observed, floor)) > 0.5
-  return moved && recentInput ? floor - top <= 25 : current
+  const delta = top - Math.min(observed, floor)
+  if (!recentInput || Math.abs(delta) <= 0.5) return current
+  // Near-bottom tolerance is for downward re-entry, never for cancelling an
+  // upward gesture. A layout shrink/clamp without movement keeps ownership.
+  return delta > 0 && floor - top <= FOLLOW_THRESHOLD + 1
 }

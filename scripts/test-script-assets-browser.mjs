@@ -44,7 +44,9 @@ try {
     assert.equal(await page.evaluate(()=>window.__unlistened),true)
     assert.deepEqual(errors,[])
     observed.push(await page.evaluate(()=>({
-      commands:window.__calls.filter(row=>row[0]!=='desktop_check_update').map(row=>[row[0],row[1]??null]),
+      // Startup's RAF and updater boot are independent async actors. Check the
+      // phase sequence separately, without asserting their cross-actor order.
+      commands:window.__calls.filter(row=>!['desktop_check_update','desktop_report_startup_phase'].includes(row[0])).map(row=>[row[0],row[1]??null]),
       phases:window.__phases,hidden:document.documentElement.hasAttribute('data-xh-page-hidden'),
       update:document.querySelector('#xharness-desktop-updater').shadowRoot.querySelector('.text').textContent,
     })))

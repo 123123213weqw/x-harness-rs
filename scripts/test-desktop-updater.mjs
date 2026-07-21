@@ -139,7 +139,11 @@ class Element {
 }
 class ButtonElement extends Element {}
 class ProgressElement extends Element {}
-class KeyEvent {constructor(key) {this.key = key}}
+class KeyEvent {
+  constructor(key) { this.key = key; this.prevented = false; this.stopped = false }
+  preventDefault() { this.prevented = true }
+  stopPropagation() { this.stopped = true }
+}
 class Root extends Element {
   constructor() { super(); this.nodes = new Map() }
   querySelector(selector) { if (!this.nodes.has(selector)) this.nodes.set(selector, (selector === '.action' ? new ButtonElement() : selector === 'progress' ? new ProgressElement() : new Element())); return this.nodes.get(selector) }
@@ -168,7 +172,7 @@ await test('real DOM bridge shows left blue icon, safe notes, confirmation and c
   const b = await boot()
   assert.match(b.host.style.cssText, /left:11px/)
   assert.match(b.host.style.cssText, /bottom:64px/)
-  assert.doesNotMatch(b.host.style.cssText, /z-index/i, 'Updater must use normal chat UI stacking')
+  assert.match(b.host.style.cssText, /z-index:11/, 'Content/composer < updater < shared shell overlays')
   assert.equal(b.host.hidden, false)
   assert.equal(b.host.root.querySelector('.panel').hidden, true)
   b.emit(snapshot(1, 'available', { notes: '<img src=x onerror=alert(1)>' }))
@@ -183,7 +187,10 @@ await test('real DOM bridge shows left blue icon, safe notes, confirmation and c
   assert.equal($('.action').textContent, '重启更新')
   await $('.action').listeners.click()
   assert.equal($('.confirm').hidden, false)
-  b.host.root.listeners.keydown(new KeyEvent('Escape'))
+  const escape = new KeyEvent('Escape')
+  b.host.root.listeners.keydown(escape)
+  assert.equal(escape.prevented, true)
+  assert.equal(escape.stopped, true, 'Escape must not close an unrelated app surface behind the updater')
   assert.equal($('.confirm').hidden, true)
   assert.equal($('.panel').hidden, true)
   assert.equal(b.calls.some(([command]) => command === 'desktop_install_update'), false)
