@@ -1029,6 +1029,30 @@
     {
       "name": "conversation-checkpoint-semantic-mac-4runs.log",
       "sha256": "4fb8163121c89fddbcc66e666db626f84f2fcd598071b67be9f3c2594e5c45b2"
+    },
+    {
+      "name": "xh-v100-browser-matrix-verified-environment.log",
+      "sha256": "c203511c24ee14c8cc35359269ad6fc1e0f9b0a169801f8d844135e15746639f"
+    },
+    {
+      "name": "xh-v100-full-boot-locale-diagnostic.log",
+      "sha256": "8c2d4c900d9ca3c91c262a0501c8b58b31c471842556ba53be31c8c4ae37e436"
+    },
+    {
+      "name": "xh-full-boot-en-us-local-confirmed.log",
+      "sha256": "a59351602f78660bda6390b2e6fb7d3dbdc8d4922b319b6f7d89d5bc063da1c7"
+    },
+    {
+      "name": "xh-full-boot-en-us-v100-confirmed.log",
+      "sha256": "4b66d2e05e4c190168594e5d613a338143fe0dc7777a1d48bad05ec85638757f"
+    },
+    {
+      "name": "xh-v100-checkpoint-corrected-full-boot-final.log",
+      "sha256": "aeaac6279c531d86125eefb7dc38fa40204225c1a1df2a1c20f12fa9b884437c"
+    },
+    {
+      "name": "conversation-linux-transcript-scroll-barrier.log",
+      "sha256": "bfb4f33dce50f618c23338616f680eb525b6155028a5891ebe4b65e175b60606"
     }
   ],
   "limitations": [
@@ -1103,7 +1127,36 @@
     "producerTextEqual": true,
     "correctedMacBrowserCombinationsPassed": 4,
     "testCorrection": "exact separate summary/body textContent plus exactly one open details; no whitespace trimming or producer changes",
-    "matrixStillRunning": true,
+    "matrixStillRunning": false,
     "productionChanged": false
+  },
+  "supplementaryLinuxMatrix": {
+    "receipt": "ui-source-v100-browser-matrix-20261003.json",
+    "totalEntries": 172,
+    "initialPass": 169,
+    "initialFail": 3,
+    "independentCorrectedPass": 2,
+    "accepted": 171,
+    "unresolved": 1,
+    "knownExistingDefect": "UI-LINUX-ANCHOR-01",
+    "notLatestCiRuntime": true
+  },
+  "fullBootLocaleCorrection": {
+    "initialFailure": "OS locale zh-CN in Linux Chromium, identical Settings localization in frozen and source; exact English fixture locators timeout",
+    "testChange": "explicit en-US browser locale and exact navigator.language assertion, no production changes",
+    "localPass": 4,
+    "v100Pass": 4,
+    "engines": [
+      "chromium",
+      "webkit"
+    ],
+    "implementations": [
+      "source",
+      "legacy"
+    ],
+    "pixelComparison": "exact bytes within each engine/platform",
+    "v100ChromiumPngSha256": "ba6ba58332391c5517aeb174353bb628a49d205811e80a0edce8b5919fc6439b",
+    "v100WebkitPngSha256": "e0d0395e8c1a25c5571d56947807914ad6c06fe9a4c20569e110f8500b51bde5",
+    "confirmedRemoteNodeExit": 0
   }
 }
