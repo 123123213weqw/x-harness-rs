@@ -1021,6 +1021,14 @@
     {
       "name": "xh-script-assets-causal-webkit-final.log",
       "sha256": "9f4ba639d1b566ea99b6086829bd18ac09f55a97cd1c7e4f42de480dd0c9de7b"
+    },
+    {
+      "name": "conversation-linux-webkit-checkpoint-differential.log",
+      "sha256": "f1d99564d9bb0eb91f0e76a858fabb7c31a3b438a89be368566612526d6ac256"
+    },
+    {
+      "name": "conversation-checkpoint-semantic-mac-4runs.log",
+      "sha256": "4fb8163121c89fddbcc66e666db626f84f2fcd598071b67be9f3c2594e5c45b2"
     }
   ],
   "limitations": [
@@ -1085,5 +1093,17 @@
     "rejectedInvalidTraceCases": 14,
     "nextRunRequired": true,
     "mergeAllowed": false
+  },
+  "supplementaryLinuxCheckpoint": {
+    "runtime": "WZU_Server Ubuntu 22.04, Node 20.20.2, cached Playwright 1.59.1; supplementary, not latest CI runtime",
+    "initialFailure": "aggregate details.innerText includes layout-generated final LF in both implementations",
+    "realFrozenSourceDomComparisonPassed": 2,
+    "outerHtmlEqual": true,
+    "rawInnerTextEqual": true,
+    "producerTextEqual": true,
+    "correctedMacBrowserCombinationsPassed": 4,
+    "testCorrection": "exact separate summary/body textContent plus exactly one open details; no whitespace trimming or producer changes",
+    "matrixStillRunning": true,
+    "productionChanged": false
   }
 }
