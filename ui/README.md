@@ -1,71 +1,76 @@
 # XHarness Web UI
 
-This directory is the versioned XHarness browser product shipped beside the
-Rust Host. It reuses the DeepSeek Harness browser UI under the MIT license,
-while replacing all visible DeepSeek branding with XHarness branding. Both the
-product-owned sources and the deployable bundle are committed here; a fresh
-clone does not need the historical sibling `x-harness` checkout.
+The Web and Tauri product share the same versioned static UI. All product
+modules, the module platform and desktop bridges now build from source in this
+repository. No sibling checkout or external upstream directory is required.
+The ModuleLoader ABI, Host protocol, storage keys and Tauri loading scheme are
+unchanged; the independent reference freezes merged master `a613970` for tests.
 
 ## Layout
 
-- `dist/`: deployable static assets. This generated directory is intentionally
-  tracked and must be refreshed together with source/plugin changes.
-- `dist/plugins/`: the complete, dependency-ordered client plugin graph. The
-  generated `index.html` preloads the module-system/runtime bundles and embeds
-  `window.__DSH_BOOT__`, so a plain static Rust host can boot the UI without the
-  upstream Node-side index transform.
-- `dist/client-graph.json`: generated graph metadata for deployment diagnosis.
-- `brand/`: the original xLang brand reference supplied for this project.
-- `overrides/`: source-level branding replacements used when rebuilding from
-  the upstream UI.
-- `desktop/updater.js`: Tauri-only updater bridge with separate download and confirmed restart/install. It is injected
-  directly into product HTML and intentionally does not join the upstream
-  client-module graph.
-- `plugins/@xlang/xharness-client-ui-browser/`: right-hand workspace browser
-  tabs. In the desktop app they control native child WebViews; in an ordinary
-  Web deployment they explicitly fall back to an external-browser link.
+- `src/modules/`: product-owned TS/TSX modules and platform sources. Genuine
+  third-party source packages are retained under verified `vendor/` roots with
+  their licenses and provenance, not rewritten as product code.
+- `src/plugin-api/`: checked Plugin Center RPC DTOs and decoders.
+- `src/desktop/`: desktop/startup/titlebar/updater/brand bridges compiled from TS.
+- `modules.json`: the sole production module and static asset input manifest.
+- `package.json` / `package-lock.json`: locked **build-only** Node toolchain.
+  End users still run the packaged Rust Host and browser/WebView, not npm.
+- `dist/`: generated, tracked deployable assets, including the dependency graph,
+  HTML preloads, resource hashes, platform chunks and product modules. Refresh
+  this directory with source changes; never hand-edit generated bundles.
+- `reference/master-a613970/`: immutable test-only old UI. Production builders
+  reject `reference` and `dist` as source inputs, including symlink aliases.
+- `source-vendors.json` / `platform-npm-provenance.json`: verified package/source
+  versions and hashes. The pinned xterm executable/CSS/license are static assets,
+  not an untyped product module.
+- `overrides/`: declared icons and styles remain static inputs; old replacement
+  components and string-patch scripts are not executed by source assembly.
 
-The compiled bundle ships on the `@xharness/` scope: package ids, plugin
-directories, the boot manifest and the bundler-derived identifiers inside each
-plugin are rewritten by `scripts/rewrite-ui-namespace.mjs` after assembly, so no
-upstream package scope survives in `ui/dist`. `__DSH_BOOT__` and the `--dsw-*`
-CSS tokens are protocol/design-system identifiers from the same upstream
-contract; they are not rendered branding and are retained until the Host and
-theme define their own protocol.
+Product ModuleLoader IDs use the `@xharness/` and `@xlang/` namespaces directly.
+Original third-party source maps retain their exact provenance. `__DSH_BOOT__`
+and `--dsw-*` are preserved protocol/design-system keys, not visible branding.
+See repository `THIRD_PARTY_NOTICES.md` for license attribution.
 
-For license attribution, see the repository-level `THIRD_PARTY_NOTICES.md`.
-
-## Rebuild and verification
-
-Rebuild against an explicitly selected DeepSeek Harness checkout:
+## Build and verification
 
 ```bash
-scripts/rebuild-ui.sh /path/to/deepseek-harness
-node scripts/test-context-plugin.mjs
-node scripts/test-schedule-plugin.mjs
-node scripts/test-desktop-updater.mjs
+# repository inputs only; no external directory argument
+bash scripts/rebuild-ui.sh
+npm run typecheck --prefix ui
+npm run check:build --prefix ui
+npm run check:plugin-api --prefix ui
+node --test scripts/test-owned-ui-type-policy.mjs scripts/test-source-module-builder.mjs
+node --test scripts/test-standalone-ui-build.mjs
 ```
 
-The first command rebuilds the complete upstream Client face, applies XHarness
-branding, injects the product plugins into the dependency-ordered client graph,
-and writes the result back to `ui/dist/`. Commit `ui/dist/client-graph.json`
-and the rebuilt assets with every source-level Web change.
+`assemble-static-ui.mjs` checks the complete admitted source closure against
+real SDKs, builds module dependencies and assets, then atomically replaces
+`dist/`. Failed compilation or missing input does not destroy the previous
+artifact. Repeat builds from identical locked inputs must be byte-identical.
+The same strict source guard rejects explicit/inferred `any`, ordinary/non-null
+assertions and TypeScript suppressions; literal `as const`, import aliases and
+`satisfies` are allowed. Pinned third-party originals are verified separately.
+
+Commit source, manifest, lockfile, graph, HTML and generated assets together.
+CI also runs the actual platform/Core and old/new Chromium + WebKit regressions.
+These are fixture and protocol acceptance, not claims that every native OS,
+external account or real-model workload was exercised.
 
 ## Workspace directory browser (Web / Windows / macOS / Linux)
 
-`ui/plugins/@xlang/xharness-client-ui-directory/client.js` fills both existing
+`src/modules/directory/index.tsx` fills both existing
 workspace directory-flow slots. The sidebar Add workspace button and the
 new-conversation workspace picker can browse existing folders or create one
 child folder, then open it using the shared workspace service. Paths, including
 Windows drive letters/UNC paths, are resolved by the Rust Host, not joined in
 JavaScript. Browsing acts on the Host filesystem (not a remote browser's disk).
 
-The static assembler explicitly includes this plugin: the upstream Node host's
-dynamic auto-picker composition does not run in a static Rust deployment.
-To refresh only this capability without changing other upstream packages:
+The repository module manifest explicitly includes this capability. Rebuild
+the shared artifact after changing it:
 
 ```bash
-node scripts/sync-workspace-directory.mjs
+npm run build --prefix ui
 node scripts/test-workspace-directory.mjs
 # UI_TEST_DEPS contains Playwright; UI_TEST_BROWSER=chromium or webkit.
 node scripts/test-workspace-directory-browser.mjs
@@ -94,7 +99,7 @@ available. Clicking Drives and locations refreshes attached drive letters.
 ## Embedded desktop browser
 
 `apps/desktop/src-tauri/src/browser.rs` owns independent Tauri child WebViews
-for HTTP(S) pages. `workspace-pane.js` owns placement and tabs; the browser
+for HTTP(S) pages. `src/modules/layout/workspace-pane.tsx` owns placement and tabs; the browser
 plugin only controls URL/navigation and reports page events. The desktop
 capability is scoped to the `main` **WebView**, not the whole window, so visited
 pages cannot invoke Host/updater IPC. Native browser storage uses a dedicated

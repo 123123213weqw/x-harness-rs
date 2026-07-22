@@ -1,0 +1,9 @@
+{
+  "extends": "../../../tsconfig.sources.json",
+  "files": [
+    "index.ts", "external.d.ts", "../shared/external.d.ts", "../views-external.d.ts",
+    "../shared/foundation-external.d.ts"
+  ],
+  "include": [],
+  "compilerOptions": { "noEmit": true }
+}

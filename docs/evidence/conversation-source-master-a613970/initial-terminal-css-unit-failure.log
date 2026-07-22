@@ -1,0 +1,25 @@
+=== test-context-layout.mjs chromium ===
+chromium: 19 layout cases passed (switching, live snapshots, tools, resize, composer, empty)
+=== test-context-layout.mjs webkit ===
+webkit: 19 layout cases passed (switching, live snapshots, tools, resize, composer, empty)
+=== test-terminal-layout-browser.mjs chromium ===
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: unit src/modules/terminal/index.js contains CSS
+    at literal (file://<workspace>/scripts/fixtures/shipped-source-values.mjs:34:10)
+    at shippedUnitValue (file://<workspace>/scripts/fixtures/shipped-source-values.mjs:43:9)
+    at file://<workspace>/scripts/test-terminal-layout-browser.mjs:23:21
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:639:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: undefined,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v25.9.0

@@ -5,7 +5,8 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, dirname } from 'node:path'
+import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { rewriteUiNamespace, upstreamScopeSurvivors } from './rewrite-ui-namespace.mjs'
 import { UI_IDENTIFIER_PREFIX, UI_NAMESPACE, UPSTREAM_IDENTIFIER_PREFIX, UPSTREAM_NAMESPACE, pluginDir, pluginPath } from './ui-namespace.mjs'
@@ -20,7 +21,20 @@ const ids = graph.entries.map(entry => entry.id)
 assert.ok(ids.length > 0, 'graph has entries')
 assert.equal(ids.filter(id => id.startsWith(`${UPSTREAM_NAMESPACE}/`)).length, 0, `no ${UPSTREAM_NAMESPACE} ids in the graph`)
 assert.ok(ids.some(id => id.startsWith(`${UI_NAMESPACE}/`)), `graph ships ${UI_NAMESPACE} ids`)
-assert.deepEqual(upstreamScopeSurvivors(dist), [], 'no upstream scope left in any text artifact')
+const survivors=upstreamScopeSurvivors(dist)
+assert.deepEqual(survivors.filter(path=>!/^assets\/[^ ]+\.map \(/.test(path)), [], 'no upstream scope in runtime assets')
+// Source maps keep real pinned third-party source and attribution. They must
+// not be rewritten to fabricate ownership, nor hide own/runtime imports.
+for(const survivor of survivors){
+ const relative=survivor.replace(/ \(\d+\)$/, ''),map=JSON.parse(readFileSync(join(dist,relative),'utf8'))
+ assert.ok(Array.isArray(map.sources)&&Array.isArray(map.sourcesContent))
+ for(let i=0;i<map.sources.length;i++){
+  const content=map.sourcesContent[i];if(!content?.includes(UPSTREAM_NAMESPACE))continue
+  const actual=resolve(dirname(join(dist,relative)),map.sources[i])
+  assert.ok(actual.startsWith(resolve(root,'ui/src/modules/platform/vendor')+'/'),'only genuine pinned vendor source may retain original namespace')
+  assert.equal(content,readFileSync(actual,'utf8'),'source map retains original, unmodified source bytes')
+ }
+}
 
 // Plugin directories, urls, revisions and the boot manifest must agree.
 assert.equal(readdirSync(join(dist, 'plugins')).includes(UPSTREAM_NAMESPACE), false, 'no upstream plugin directory')
@@ -36,21 +50,20 @@ for (const entry of graph.entries) {
   assert.equal(text.includes(`${UPSTREAM_NAMESPACE}/`), false, `no upstream require in ${entry.id}`)
 }
 assert.equal(graph.rev, revision(Buffer.from(JSON.stringify(graph.entries))), 'graph revision covers its entries')
-const shippedPlugins = readdirSync(pluginDir(dist)).map(name => `${UI_NAMESPACE}/${name}`)
-assert.ok(
-  shippedPlugins.some(id => readFileSync(pluginPath(dist, id)).toString('utf8').includes(UI_IDENTIFIER_PREFIX)),
-  'bundler-derived identifiers follow the shipped scope',
-)
-
-// Re-running the rewrite is a no-op, and it fails closed when the upstream
-// scope is still present but the plugin directory moved.
-assert.deepEqual(rewriteUiNamespace(dist), { moved: 0, files: 0, occurrences: 0 }, 'rewrite is idempotent on a shipped dist')
+for(const entry of graph.entries){
+ const declarations=[]
+ vm.runInNewContext(readFileSync(join(dist,'plugins',entry.id,'client.js'),'utf8'),{window:{__ModuleLoader__:{load:row=>declarations.push(row.id)}}})
+ assert.deepEqual(declarations,[entry.id],'actual factory registration follows graph namespace, regardless of compiler binding names')
+}
+// The historical rewriter is test-only. Never let it rewrite original vendor
+// source-map contents in the canonical artifact merely to satisfy a test.
 
 const scratch = mkdtempSync(join(tmpdir(), 'ui-namespace-'))
 try {
   cpSync(join(dist, 'client-graph.json'), join(scratch, 'client-graph.json'))
   cpSync(join(dist, 'index.html'), join(scratch, 'index.html'))
   cpSync(join(dist, 'plugins'), join(scratch, 'plugins'), { recursive: true })
+  assert.deepEqual(rewriteUiNamespace(scratch), {moved:0,files:0,occurrences:0}, 'runtime-only historical rewrite remains idempotent')
   const stale = join(scratch, 'plugins', UPSTREAM_NAMESPACE)
   cpSync(pluginDir(scratch), stale, { recursive: true })
   const staleEntry = join(stale, 'dsh-client-ui-goal', 'client.js')

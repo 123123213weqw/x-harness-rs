@@ -1,0 +1,2768 @@
+{
+  "formatVersion": 1,
+  "baseline": "a613970c78a36a024de56100078323df25b96004",
+  "actualFrozenEntry": "assets/index-xhmotion-347f73ecba2d.js",
+  "entryPath": "assets/platform-SNWQJ5HU.js",
+  "preloadPath": "assets/loader-35NVWEMD.js",
+  "cssPaths": [
+    "assets/platform-XD5TLYYA.css"
+  ],
+  "files": [
+    {
+      "path": "assets/platform/swift-YDT54AMB.js.map",
+      "sha256": "ba7f6a11fac1cbeba174baa8a80161a0369cd35d79328325f7d19405d6351f24",
+      "bytes": 116149,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/swift-YDT54AMB.js",
+      "sha256": "767a669e7a7509c75775dfd41a64437c165426e236c715fcf999e45d5cbbce5f",
+      "bytes": 88323,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/php-OZOXY4UV.js.map",
+      "sha256": "fa1746c4c932d617340524494be2c239b67af8f5ee584c8796f421cecf6c4cf0",
+      "bytes": 141992,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/php-OZOXY4UV.js",
+      "sha256": "9dfa3b1b228bd2c8eb9528831ceca13ada8bcb678b1fc8c11eeccc2c5972ad00",
+      "bytes": 113493,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/toml-JWLQEKZH.js.map",
+      "sha256": "23f9c74178475278d2801cf0b0eb47d710e4447f2467420ecd38f236a7d329bb",
+      "bytes": 9433,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/toml-JWLQEKZH.js",
+      "sha256": "23d4668f9ade045f5052192517f809920da1db49682630a6c90ab20f0b953a7d",
+      "bytes": 6661,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/ini-7CZJGSDF.js.map",
+      "sha256": "069d34693418cc2af57fdc8b17e7cda5505a686183981ddd692a263bacfdcc91",
+      "bytes": 2429,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/ini-7CZJGSDF.js",
+      "sha256": "ac6a4f4b1747f6daa773b06f8020727ddf72b4f8ee7aa635bc3676ce40831643",
+      "bytes": 1756,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/markdown-OC5T4DHW.js.map",
+      "sha256": "2e2ba4abd0f6697243df5edcca403e5dbefb7b5c76b11cc6ed83dabb1947e091",
+      "bytes": 82281,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/markdown-OC5T4DHW.js",
+      "sha256": "5f206d90f0c9f2b4b3df58ce48ba669982c2126a958b5676afc0038cd626cdca",
+      "bytes": 59586,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/mdx-GTI6RKTQ.js.map",
+      "sha256": "e1918760d6ef3fdd41b0322eccad79f4855f480d4c50f49bb36d109a88296278",
+      "bytes": 176679,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/mdx-GTI6RKTQ.js",
+      "sha256": "86f1b6f74200e997972d2c143ead8d8e6615ed11c757d97266485359270f936f",
+      "bytes": 136345,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/scss-PYTWQYZT.js.map",
+      "sha256": "4e6785dece0cb4235a70da5d800e47d0c4dac3e67ccc3c6194f01e5d37347859",
+      "bytes": 38283,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/scss-PYTWQYZT.js",
+      "sha256": "e2ba890fb26da1cc8fbc00c7a604772592d82a34955fbff078e4497a79dbb942",
+      "bytes": 27472,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/less-XJSW6QT4.js.map",
+      "sha256": "8a438c60aebfb71ea0d71bf8ab64433e312b75d872c926df9c7ceec653d810f0",
+      "bytes": 132999,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/less-XJSW6QT4.js",
+      "sha256": "ba4cdf986e8a7dc245da120b751cd21d59bc13fa9d5805cfb70dc432c0edc8ae",
+      "bytes": 98848,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/cpp-TRPLO25C.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/cpp-TRPLO25C.js",
+      "sha256": "ccb5d92b5ee20737aad333927963a41a12334a11a1af32eae5856add7786ee05",
+      "bytes": 221,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/lua-YGHFLW63.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/lua-YGHFLW63.js",
+      "sha256": "2b040e1f04364ecaf8932f20843719c8946339e267f6cc7174730eed2a6e2e6e",
+      "bytes": 191,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/yaml-O3JHHXZ5.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/yaml-O3JHHXZ5.js",
+      "sha256": "ac67738ec0b8fdb95c45882478f1e4a7888f2a5c14e3297db51d11a1be48e672",
+      "bytes": 164,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/ruby-JZGNQ46O.js.map",
+      "sha256": "d4242bf8d6ba888f62e9ab82df5363e9813f8aaea08d8684ed0b93b25a2d200e",
+      "bytes": 579121,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/ruby-JZGNQ46O.js",
+      "sha256": "89b2b40cfd23fbbfb755f5dc206926fd07940307c4bab412774908e1c4e5874c",
+      "bytes": 427023,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-3YI5PCIY.js.map",
+      "sha256": "02055fe600cf8ba26cce62d303daf0a6252802fafc910dacc7c08f51de0fe814",
+      "bytes": 831388,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-3YI5PCIY.js",
+      "sha256": "454dcee05c9d3032442f15112821f30500f69d87b3a84716f7a185e67deb16c4",
+      "bytes": 638387,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-F5UVVWXI.js.map",
+      "sha256": "e6fc91bae6c759101a30207a8574c734e38c9d7a4e34769bd165b7a1051283a1",
+      "bytes": 22077,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-F5UVVWXI.js",
+      "sha256": "244c74e6c17ab38e8db1aef7cbee338f94c51b6c66eb3bee6ffa69e17ebc2fdd",
+      "bytes": 15789,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-XKKJEABJ.js.map",
+      "sha256": "7312bdb632e135048ee0ba9ab42a8a374627acc037329f6285e0b60186f5576b",
+      "bytes": 14858,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-XKKJEABJ.js",
+      "sha256": "10c1127eeb94bacdf5f9ad63bba5919881362b8c24565f9fd6352cd3e75f7498",
+      "bytes": 10732,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/go-ZQGODOV5.js.map",
+      "sha256": "b6f066e66f4eb851528e62807a7738ec3b3609dd7a86220dad99b43459c722dc",
+      "bytes": 66566,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/go-ZQGODOV5.js",
+      "sha256": "ef568f957c6c75481b3bb79699a09ce0be36be7539d1a4123ecca5579f8d262e",
+      "bytes": 47045,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/rust-7F2HKJI5.js.map",
+      "sha256": "1924c2520d49aa4655fb00f5cdb030f2b4928c032797aebf898cd640a6518076",
+      "bytes": 21423,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/rust-7F2HKJI5.js",
+      "sha256": "0dea05b41622ec850e995ac93f13c61b74c5bf8a4a095dc3fcdc80af880bb9f0",
+      "bytes": 15304,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/csharp-XRAE7N37.js.map",
+      "sha256": "401693e9a45b744f6ab994de064efdcc8fd6403b00afc2fcef1c2735107d182f",
+      "bytes": 126305,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/csharp-XRAE7N37.js",
+      "sha256": "621e24ea83ed7ef4f202ac7b30622e510b02f86a707e9593937d02ff067844bb",
+      "bytes": 90432,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/kotlin-27BVSPCN.js.map",
+      "sha256": "cb72d26735c77b9d198a532d240216085f9b31269b3e2e8101686ebcf37fe450",
+      "bytes": 12739,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/kotlin-27BVSPCN.js",
+      "sha256": "535e35d6ecaa6131e056282958c921cdbe739a4b98f79448e3e503701db64b1a",
+      "bytes": 9028,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform-SNWQJ5HU.js.map",
+      "sha256": "815734a5f76215076e6410d216ef280ca6457972cb81be2c6c7cbcc3a4669c3b",
+      "bytes": 3578853,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform-SNWQJ5HU.js",
+      "sha256": "261d9482e4245d6e84d67e0312b09f384e56196580bd1d958e0c063c4afba380",
+      "bytes": 1737231,
+      "role": "entry"
+    },
+    {
+      "path": "assets/platform/chunk-ST2J62G7.js.map",
+      "sha256": "b141ef4c6a77329fb72939b7d96d8cffb7e5fe94c658dc7ce774700ffda1f64f",
+      "bytes": 4278,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-ST2J62G7.js",
+      "sha256": "da462a4f0d75fe30ee797f2849146935c1d92a01f929b928af3b574ee9614ac0",
+      "bytes": 3050,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-ELGTYTKL.js.map",
+      "sha256": "045591fd64d3a818320c2acefe3c4cdd2141b00c534c76ea6a4a8d8e5470d890",
+      "bytes": 300742,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-ELGTYTKL.js",
+      "sha256": "e0e95f2efa7e9396d1a84d40d773563929314a30bc085b57f7f5707f2ba556f0",
+      "bytes": 222927,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/python-ETCUCBXH.js.map",
+      "sha256": "459b77c27aecc9e1fbd4d9611daa2fe5eb7768cc5bef531d5018cc2ffbea017c",
+      "bytes": 95193,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/python-ETCUCBXH.js",
+      "sha256": "2f85948cf9790fbb3e210d87d60fe522da2ff6a46d5ed15e105d42c0e03e0fc6",
+      "bytes": 70195,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/css-7FCRZHMO.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/css-7FCRZHMO.js",
+      "sha256": "bdbc7ce54bfce8b8c9e06b76ba9a3b8536f9c9f93cec9f59a8107a47bd6af026",
+      "bytes": 161,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/html-P2WV46NV.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/html-P2WV46NV.js",
+      "sha256": "32bdeab871c420eefc381e01c019df0f5e2d79fd9f79f225742db45b66a2c917",
+      "bytes": 194,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-73HS3GNO.js.map",
+      "sha256": "ca7cbcd53ec0e8ac52c52e229ce748bcadffcaa245a0a46c0af6e2a367efd172",
+      "bytes": 309387,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-73HS3GNO.js",
+      "sha256": "05e93fabfdac177602516f85deeb7ecc8731fef6620b62b41acd5c8bf1db2469",
+      "bytes": 232886,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-3HFYEBY4.js.map",
+      "sha256": "967d37ba9066c88dbcc18ff0527bd81db4f2b8e509557b85dfc2dd73b9413d8a",
+      "bytes": 60602,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-3HFYEBY4.js",
+      "sha256": "8997d6403a6ad8f826a9178f542780a395e0dc9c7f8082a7dfda431e2df5d42f",
+      "bytes": 49264,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/java-TEXK3R62.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/java-TEXK3R62.js",
+      "sha256": "b77615e72362bcfbb18be77907e32b1584cfa7a2b79261c99a305bb1d97610b5",
+      "bytes": 164,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/xml-KMXWDCDL.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/xml-KMXWDCDL.js",
+      "sha256": "18a4865edac39e877bd0cdffa9679c4477a18514ffe94aed95eb83401e639d61",
+      "bytes": 191,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-RUEIDT5F.js.map",
+      "sha256": "18726d85b6f7977bd21d385790271c3208a37221c8ddaa2952f60215a754bcd8",
+      "bytes": 7798,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-RUEIDT5F.js",
+      "sha256": "6d126a0dfcc123c6fdfafb06d8cf22ab5e4a5f893c388adba80b03299ff9688a",
+      "bytes": 5641,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-BT4E2EJW.js.map",
+      "sha256": "b52d24f44cdd5f52b0bb152c18758c47b79b508a8221c7e8fce3eb33d7981cb4",
+      "bytes": 38589,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-BT4E2EJW.js",
+      "sha256": "0402c157e7664b2d4d425b77920ff10a3c609971631344cc12e76706bfd76b67",
+      "bytes": 27445,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/sql-ELCFMKM3.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/sql-ELCFMKM3.js",
+      "sha256": "8dabc3f06018d9b53741cc52a210ca91b79f38119492e3b3b974a57d0de2e31e",
+      "bytes": 161,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-WRACKSAQ.js.map",
+      "sha256": "b04260f4734a94caa6e54bf0cfe4b734f80a605b9f4f2138a8a43b7879b9e264",
+      "bytes": 27895,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-WRACKSAQ.js",
+      "sha256": "59a1719d0dbd3cc8b8bc4309db2acaf3a7539c4ba8778e3b50b67715768c0346",
+      "bytes": 23651,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/c-FHZF47JL.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/c-FHZF47JL.js",
+      "sha256": "935668e0a53a44583dddfaf9ad9dcdf916f7d00b109d6dba7a941b7aafb5dd89",
+      "bytes": 155,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-2D66HAW7.js.map",
+      "sha256": "ff75ef16f79e2143c8e69c020352a3a7247fbde9cc7f9cea6a2c57858133c725",
+      "bytes": 95344,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-2D66HAW7.js",
+      "sha256": "a4594608cebd5037f4a6f87cf5e87fbd6237ed7309a265006aead53263555bf6",
+      "bytes": 72330,
+      "role": "module"
+    },
+    {
+      "path": "assets/platform/chunk-YOCBWPQK.js.map",
+      "sha256": "90ce9a92139fdc52c064b4d703497b8696fe5ca5afb0c6d133afdf7ef1756ac1",
+      "bytes": 203,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform/chunk-YOCBWPQK.js",
+      "sha256": "bd3a6f6826c8586a8e5366cb643bdb59b6294777eb0861dcfd861d5da1412a04",
+      "bytes": 2056,
+      "role": "module"
+    },
+    {
+      "path": "assets/fonts/KaTeX_AMS-Regular-U6PRYMIZ.woff2",
+      "sha256": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308",
+      "bytes": 28076,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_AMS-Regular-CYEKBG2K.woff",
+      "sha256": "30da91e84c893f875e252689faebdc590b2871145e8adc7f9a9d4dbd8ce0b251",
+      "bytes": 33516,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_AMS-Regular-JKX5W2C4.ttf",
+      "sha256": "68534840bcfdd2bffb6f0e8deb48684dd01e7f04ea2813267577afb906de1d13",
+      "bytes": 63632,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Bold-5QL5CMTE.woff2",
+      "sha256": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c",
+      "bytes": 6912,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Bold-WZ3QSGD3.woff",
+      "sha256": "1ae6bd7475590e97e7f145a89e09ccde322f7a6bc0b91607b1c8b8ee28290fed",
+      "bytes": 7716,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Bold-ZTS3R3HK.ttf",
+      "sha256": "07d8e303ce4fc12b4bb54f1004170dd190a1f3db45d400fe68060df3e0897268",
+      "bytes": 12368,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Regular-KX5MEWCF.woff2",
+      "sha256": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b",
+      "bytes": 6908,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Regular-3LKEU76G.woff",
+      "sha256": "3398dd02302557a793f2863f88e02d96ce10df2abffa07c8e9fa90775116e65c",
+      "bytes": 7656,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Regular-A7XRTZ5Q.ttf",
+      "sha256": "ed0b74372feefcbb9c0666b2e210da37b7e49fa7fbbf3eeb11db5f693dacfbb7",
+      "bytes": 12344,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Bold-2QVFK6NQ.woff2",
+      "sha256": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f",
+      "bytes": 11348,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Bold-T4SWXBMT.woff",
+      "sha256": "9be7ceb88004ab8ad124082246fbfcca4091e36385d4ec6ed1df67375dad50fb",
+      "bytes": 13296,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Bold-WGHVTYOR.ttf",
+      "sha256": "9163df9c7122432e6495b4229fa9071cf9ae86a758ae5efc4924ec2e1a6dbce1",
+      "bytes": 19584,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Regular-2PEIFJSJ.woff2",
+      "sha256": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc",
+      "bytes": 11316,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Regular-PQMHCIK6.woff",
+      "sha256": "5e28753be717dac97f559f49bc10be9cf3c124ddcabda6659d11cb68febc6463",
+      "bytes": 13208,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Regular-5U4OPH2X.ttf",
+      "sha256": "1e6f9579e90e2cac37f8f60a597c436e075c114385652b7cbeb0dec0421291b3",
+      "bytes": 19572,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Bold-YP5VVQRP.woff2",
+      "sha256": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021",
+      "bytes": 25324,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Bold-2GA4IZIN.woff",
+      "sha256": "c76c5d696297d51b9cb1639c7da4334f0e7dec81b42b11213b5e25ef671bb822",
+      "bytes": 29912,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Bold-W5FBVCZM.ttf",
+      "sha256": "138ac28d1663b3037e9c5f52371fa5c63d8324f4a38d22cd573e6ea3a3fd0cf8",
+      "bytes": 51336,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-BoldItalic-N4V3DX7S.woff2",
+      "sha256": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b",
+      "bytes": 16780,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-BoldItalic-4P4C7HJH.woff",
+      "sha256": "a6f7ec0d846ac7ad975adb8959c37ed49b94acbc4ae436db9ce9e20287e4a64c",
+      "bytes": 19412,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-BoldItalic-ODMLBJJQ.ttf",
+      "sha256": "70ee1f64a20f2048c21940ef46d0144fd215baa953ca69afd1e31e98544f708f",
+      "bytes": 32968,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Italic-RELBIK7M.woff2",
+      "sha256": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267",
+      "bytes": 16988,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Italic-SASNQFN2.woff",
+      "sha256": "f1d6ef86f3b11a528bd5185199bd2443ecb2b0dead96d88674b5a2c12be24bdf",
+      "bytes": 19676,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Italic-I43T2HSR.ttf",
+      "sha256": "0d85ae7cc30f23790a7f1a58c4a112fdca8aae769b6ba11429af1d98b1b6cb3a",
+      "bytes": 33580,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Regular-ARRPAO67.woff2",
+      "sha256": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866",
+      "bytes": 26272,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Regular-P5I74A2A.woff",
+      "sha256": "c6368d87e8a1a3a5d337623d83d8dc4b868f242a9ad476237d6f8d1e0f168cdc",
+      "bytes": 30772,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Regular-W74P5G27.ttf",
+      "sha256": "d0332f52868370fd83ae7fa46470f90c8f2eab2fcf12bc4f88080b340c95a830",
+      "bytes": 53580,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-BoldItalic-K4WTGH3J.woff2",
+      "sha256": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1",
+      "bytes": 16400,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-BoldItalic-6EBV3DK5.woff",
+      "sha256": "850c0af5c2238497febaf5e461d880bf458c341f42f4f330f1b1ab5698b1998e",
+      "bytes": 18668,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-BoldItalic-VB447A4D.ttf",
+      "sha256": "f9377ab0271cda59af24bcffbd46a4d0c8a3572ffafdbb38de2ad5ea7b0d5ee5",
+      "bytes": 31196,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-Italic-6KGCHLFN.woff2",
+      "sha256": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264",
+      "bytes": 16440,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-Italic-KKK3USB2.woff",
+      "sha256": "8a8d244581371912b8f3f5a23e2437cb2a59cd9bcaebb0346e722c05737a2571",
+      "bytes": 18748,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-Italic-SON4MRCA.ttf",
+      "sha256": "08ce98e51b04d58945a301e639e02b6998af29fdfd61a7b8afdd07bbfc479d4a",
+      "bytes": 31308,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Bold-RRNVJFFW.woff2",
+      "sha256": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62",
+      "bytes": 12216,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Bold-X5M5EMOD.woff",
+      "sha256": "ece03cfd83e22c212cdef66feb8442d25a083beb988db3f1883f3f9738d750ba",
+      "bytes": 14408,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Bold-STQ6RXC7.ttf",
+      "sha256": "1ece03f79f95277d57dc7f6b435a74e1379b0d46104a8530286b60ff49369ea0",
+      "bytes": 24504,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Italic-HMPFTM52.woff2",
+      "sha256": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a",
+      "bytes": 12028,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Italic-PSN4QKYX.woff",
+      "sha256": "91ee67500cc0129aa0ace3ac5c61ff1692102f0f31d02b69347fba35dcb75bf2",
+      "bytes": 14112,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Italic-WTBAZBGY.ttf",
+      "sha256": "3931dd81faed86ba021bb2bbdc36f5bed9a38d6b4f4077aca59b265aa1b02083",
+      "bytes": 22364,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Regular-XIQ62X4E.woff2",
+      "sha256": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342",
+      "bytes": 10344,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Regular-OQCII6EP.woff",
+      "sha256": "11e4dc8a6471ff6d6ee561d53d10fde8f7489e798257ff449c5d37c197435605",
+      "bytes": 12316,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Regular-2TL3USAE.ttf",
+      "sha256": "f36ea897e19f4a2e571d1e900e4e3710e438deb05a842486045ba0a3e616a4ad",
+      "bytes": 19436,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Script-Regular-APUWIHLP.woff2",
+      "sha256": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b",
+      "bytes": 9644,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Script-Regular-A5IFOEBS.woff",
+      "sha256": "d96cdf2b3bdd4d64a8fd5f74a4c467f123a8a73931cd435889f08ffaf9bf947a",
+      "bytes": 10588,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Script-Regular-72OLXYNA.ttf",
+      "sha256": "1c67f068fea8bb09bf099c088b1cf64bd27516a6e07f4684344873564bb66a67",
+      "bytes": 16648,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size1-Regular-5LRUTBFT.woff2",
+      "sha256": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe",
+      "bytes": 5468,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size1-Regular-4HRHTS65.woff",
+      "sha256": "c943cc986384f59e86bea5fd7dc50a9c4dfe567a7c05eb40d6790720dead97c9",
+      "bytes": 6496,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size1-Regular-7K6AASVL.ttf",
+      "sha256": "95b6d2f1a50173bfedb8c63e1d1c99b10427d0a4df4201cb44513b226951a22b",
+      "bytes": 12228,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size2-Regular-LELKET5D.woff2",
+      "sha256": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd",
+      "bytes": 5208,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size2-Regular-K5ZHAIS6.woff",
+      "sha256": "2014c523c3210bcc166648c4d4cc57f05b747df07a24277bf71c51e67dc79e3d",
+      "bytes": 6188,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size2-Regular-222HN3GT.ttf",
+      "sha256": "a6b2099fb555c60e3a0db3a08842ebf1d732c6eb4e4bf44913613bed4fc4e39b",
+      "bytes": 11508,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size3-Regular-WQRQ47UD.woff2",
+      "sha256": "73d591271b1604960cb10bb90fee021670af7297017e0e98480b332d11f51995",
+      "bytes": 3624,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size3-Regular-TLFPAHDE.woff",
+      "sha256": "6ab6b62e9b62dae2c00dd90f791bd10950be0ecc3490d7d6045f51c2e8fe0949",
+      "bytes": 4420,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size3-Regular-UFCO6WCA.ttf",
+      "sha256": "500e04d54f0d51666332c9d2089aa803be22aa878eca539e59fa53c6e522b082",
+      "bytes": 7588,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size4-Regular-CDMV7U5C.woff2",
+      "sha256": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0",
+      "bytes": 4928,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size4-Regular-PKMWZHNC.woff",
+      "sha256": "99f9c6750b489c9462bf04900bd3f939df9b829339daaaaa99ef5495cdddea58",
+      "bytes": 5980,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size4-Regular-7PGNVPQK.ttf",
+      "sha256": "c647367d1dd4e162468717d020e1fc0f1dc5c26ebfdffbe55261713bf88c5877",
+      "bytes": 10364,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Typewriter-Regular-VBYJ4NRC.woff2",
+      "sha256": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b",
+      "bytes": 13568,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Typewriter-Regular-MJMFSK64.woff",
+      "sha256": "e14fed02b1aba7ce9f5afd5844b5d0321b22351febc720e0de8b8723527609f7",
+      "bytes": 16028,
+      "role": "font"
+    },
+    {
+      "path": "assets/fonts/KaTeX_Typewriter-Regular-3F5K6SQ6.ttf",
+      "sha256": "f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa",
+      "bytes": 27556,
+      "role": "font"
+    },
+    {
+      "path": "assets/platform-XD5TLYYA.css.map",
+      "sha256": "14a0aa27c5af0ae1a3189a67186f80ff94ed838566fe39d95f81e29d95ef2a81",
+      "bytes": 133798,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/platform-XD5TLYYA.css",
+      "sha256": "38950eca201b78db28697a2fe2088ea22049638f59c239c36c26b9a265df9ae0",
+      "bytes": 70817,
+      "role": "stylesheet"
+    },
+    {
+      "path": "assets/loader-35NVWEMD.js.map",
+      "sha256": "3fd0041802f75d6ee4b67610540f8e214c9b1684e0413ae74b924c5f8dce0d99",
+      "bytes": 2784,
+      "role": "source-map"
+    },
+    {
+      "path": "assets/loader-35NVWEMD.js",
+      "sha256": "5a7840f11e8928b16c4342a4b1f2e1003f0801ba263efebe662aaebc94c1b1ae",
+      "bytes": 1484,
+      "role": "bootstrap"
+    }
+  ],
+  "inputs": [
+    {
+      "source": "src/modules/platform/primitives/css-modules.d.ts",
+      "sha256": "977a7f55de28754b5f62019e404d43e13ab5c840c181413f3860d29223db15f5"
+    },
+    {
+      "source": "src/modules/shared/assets.d.ts",
+      "sha256": "a748eede30428ab4b9520a73058fa0e5a63213ec6b1bf9d8b0ba06e0d1319d8f"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/types/array.d.ts",
+      "sha256": "f63b6a79179ea0f70902e1c9d8c98b3fd457b124c7c5dcb3adccc4fae5a8c5b6"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/types/types.d.ts",
+      "sha256": "c9c65015cc5c42972ba3505e316608b930bfdef9b50c6e3a69f6f12c741ee8b6"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/types/misc.d.ts",
+      "sha256": "b3ffb1d306130b143d309b7621dc0f94446bf0d0721a5aeaae92f1112c3a852c"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/types/string.d.ts",
+      "sha256": "018925218746fd81518276960ee5eaaf7664f7ac0a1bc01d6604903254186ced"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/types/time.d.ts",
+      "sha256": "2fb4faf4cb90b96c83a3282f6cad6eafd3395a251ae2d193a0a27c63cf4dfc78"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/types/index.d.ts",
+      "sha256": "c13b5d8130dd6e460525a992cd04da1811205fab493c6c79c5ad7f85ed664497"
+    },
+    {
+      "source": "src/modules/settings/vendor/standard-schema/spec.d.ts",
+      "sha256": "bdd14f07b4eca0b4b5203b85b8dbc4d084c749fa590bee5ea613e1641dcd3b29"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/utils.d.ts",
+      "sha256": "87149646f2227b818f9bdef4980fedc0539572b4574b63d75e1bbb7702390acb"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/registry.d.ts",
+      "sha256": "1188a67702253930766e6b03670b8f906e87ac11623c9aa69012215552a6f354"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/reflect.d.ts",
+      "sha256": "84a46d00b1a6528add43e0f27c1f27bab158f1454d8d05c7ea120a0907a6dc7b"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/fiber.d.ts",
+      "sha256": "92ad94d79ff7bee1ec0d748a43ede4af055f98a447e44fdeaf1bc51018121f0c"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/events.d.ts",
+      "sha256": "85378f28d9c897b23d8735807da4f8aad1ed1a4f1a5b32bb4c58df3afe3cb8d2"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/logger.d.ts",
+      "sha256": "fcc969c54b945c21a4ad9a9e4565ae0d535f45c1755910a882826c5785f160f8"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/context.d.ts",
+      "sha256": "ddbdfbaace4a8e1982dded8fdb9a05b3f14b4db3613628caff53e623542f5b71"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/service.d.ts",
+      "sha256": "1bb754c0d12ad9f1b371e9a1496e0caba5b5a7a750796c5de81e123750e2fb09"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/types/index.d.ts",
+      "sha256": "07bae5644c6daf842c291799022faa0374dabd7c813362e084083b328a421529"
+    },
+    {
+      "source": "src/modules/platform/node-module-stub.ts",
+      "sha256": "d2164a8356d534a2a4fd5524c0e55b08146e959bac142e4beea1b57ff59c7bdc"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/types/internal.d.ts",
+      "sha256": "a03cce09bc077c79b5bc9a80d9c9a29d5b2d1f82e8c9fd7cc6e63312fcfec7bb"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/types/config/tree.d.ts",
+      "sha256": "9a7dce8110424bd924a012619c77361e50700b22bf2a8d634755b9fcb46e8110"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/types/config/group.d.ts",
+      "sha256": "6e8077f786e06e9f4515c32388754ede0d992e0121548f547bc7047531262cd1"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/types/config/entry.d.ts",
+      "sha256": "09579eb8471c415ac0fed3969b12c8d9eb86e93ec5b85a331d2e2fade1c280ac"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/types/config/isolate.d.ts",
+      "sha256": "f7123a5bbd90991856db9709d84f46ed08d7174aef6312523fa8a0e7d8c752dc"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/types/config/utils.d.ts",
+      "sha256": "dd64c060383ec8d64784e63bb3a3bc8a04c0d7b21387854449ec34586cb11e06"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/types/index.d.ts",
+      "sha256": "32399e00001a10f495696d8c4812ea347d3fbce846dba38a38bff8d25bfbf539"
+    },
+    {
+      "source": "src/modules/client-modules/manifest.ts",
+      "sha256": "5271cb2e7619fef2a38c66579abbf8c86a6b8405c23a237d70e31408dfe357ae"
+    },
+    {
+      "source": "src/modules/client-modules/system.ts",
+      "sha256": "8608b51d85bf925fe370aa751003a6fc9d1b99cbbc01b2b141e327ef6753d30e"
+    },
+    {
+      "source": "src/modules/client-modules/context.ts",
+      "sha256": "e8ff1d21653e603e570b1fdc617fd8712ba8725f13c6e702003373c8a50bde7d"
+    },
+    {
+      "source": "src/modules/client-modules/index.ts",
+      "sha256": "968abda876cd84117519f83831bd08529cbd38a4b6da84191dc1eb57875e9fb3"
+    },
+    {
+      "source": "src/modules/platform/web/loader-status.ts",
+      "sha256": "24b2508cbfdc8f64cd1dc553d00f56ad2f85fcab8df5fce3c85b5c7388bf9c41"
+    },
+    {
+      "source": "src/modules/platform/web/boot-page.ts",
+      "sha256": "05822f0c0c71c97937b93fd865288bfbd56fcad631ab5263c987081b8774ba20"
+    },
+    {
+      "source": "src/modules/platform/slots/renderer.ts",
+      "sha256": "1ead78b5506c822bda8a37a2ae50a92acd9671d932c3cacd3bd698ce100f746d"
+    },
+    {
+      "source": "src/modules/client-runtime/vendor/immer/dist/immer.d.ts",
+      "sha256": "acb93abc527fa52eb2adc5602a7c3c0949861f8e4317a187bb5c3372f872eff4"
+    },
+    {
+      "source": "src/modules/platform/slots/store.ts",
+      "sha256": "5a999560a16585dfdcb5cbf4568a5c2995a9c47fde899240838d601feefbcd31"
+    },
+    {
+      "source": "src/modules/platform/slots/index.ts",
+      "sha256": "21db6285562a190cf9cf56fbe393b91f77daf8af1526de62d2dcf64495bf508d"
+    },
+    {
+      "source": "src/modules/platform/primitives/StateDot.tsx",
+      "sha256": "0e30ac9c250626eeea02da547275e7779562234a847267ec11805b1ec9b594b9"
+    },
+    {
+      "source": "src/modules/platform/primitives/icons/props.ts",
+      "sha256": "98d350861746bca58f07d5301a0caff7270035c9331ed5b605e702d7f590f1fb"
+    },
+    {
+      "source": "src/modules/platform/primitives/icons/index.tsx",
+      "sha256": "59ad3213daf21aabf07da2a9712e558e0cae3ccd2b3d096cec3ce66b4aa7809b"
+    },
+    {
+      "source": "src/modules/platform/primitives/DisclosureRow.tsx",
+      "sha256": "8bd50d10e02e6552952a6b7aa3e7d4386e1c1d94f9f51ade7cfbad133e7ba3ed"
+    },
+    {
+      "source": "src/modules/platform/primitives/Button.tsx",
+      "sha256": "5f1db06042fa372c45d777feffaab3b1d0c9395a89fa00b735bd9cbc8a389371"
+    },
+    {
+      "source": "src/modules/platform/primitives/Pill.tsx",
+      "sha256": "7acf38a1d501cddcdbfcf14b07e9d4d04b45abb25367d596a2f7406c13f6391f"
+    },
+    {
+      "source": "src/modules/platform/primitives/Input.tsx",
+      "sha256": "dcb73dad681f3f37975c08ed3aa97922a1f5337548b406806324877a5d398c51"
+    },
+    {
+      "source": "src/modules/platform/primitives/pointer-grace.ts",
+      "sha256": "9b0504ccb33be56fdefef78ea7c2b73f396f5e98f381f0e101a769916c66a4e2"
+    },
+    {
+      "source": "src/modules/platform/primitives/Menu.tsx",
+      "sha256": "e1990ba2398a654089c5a9fa7addc1a4fd2a1107f1d966ee3cfef5b440a05b5c"
+    },
+    {
+      "source": "src/modules/platform/primitives/useAnchoredMaxHeight.ts",
+      "sha256": "f017bd3133a67e7ca0b95aee66d34cac7c95541671b7c082f446f0220b4c5e65"
+    },
+    {
+      "source": "src/modules/platform/primitives/useAnchoredPosition.ts",
+      "sha256": "20a590a93c46e82d04e6a856d1eb1feaa0411c037b780c64c6148914483b3cd8"
+    },
+    {
+      "source": "src/modules/platform/primitives/useDismissOnOutsidePointer.ts",
+      "sha256": "ee42494da6a34ea099d24daee25c339bb80a994c4332f396d95fbb90ef3a80bc"
+    },
+    {
+      "source": "src/modules/platform/primitives/clipboard.ts",
+      "sha256": "f3c5ff3d5ac550adda2366e245d33cf4d91d219bfb8692ef1943866d83748a0f"
+    },
+    {
+      "source": "src/modules/platform/primitives/HoverCard.tsx",
+      "sha256": "06227f034ed2a125e0c6621df67f2b1c9ae942a05e298ebd4ac42ce809f78e91"
+    },
+    {
+      "source": "src/modules/platform/primitives/Modal.tsx",
+      "sha256": "004aef4dc808d67be66ea1aa76a7d1fe2124288054bd7e5cdb8c852c85238035"
+    },
+    {
+      "source": "src/modules/platform/primitives/OnboardingSurface.tsx",
+      "sha256": "281b1e6e3888e23ccb036d6a5ca24b9f88a767cfc9f5fd169e829e70b40bd3b6"
+    },
+    {
+      "source": "src/modules/platform/primitives/RiskConfirmation.tsx",
+      "sha256": "7ebd0ef9c837a79e26fe02f5cc88232c2c91f2bac4934bf9ed8d6c9cc4376c5e"
+    },
+    {
+      "source": "src/modules/platform/primitives/ConnectionBanner.tsx",
+      "sha256": "cab4f37d2eb351141af37f32b81425b767209e6d905a4931ad2675f82b2a535c"
+    },
+    {
+      "source": "src/modules/platform/primitives/FishLogo.tsx",
+      "sha256": "46d96145c2e389c59425310c69d15614ba5aab2bbb914e6a2386509af858d970"
+    },
+    {
+      "source": "src/modules/platform/primitives/BrandWordmark.tsx",
+      "sha256": "e2842cc5a303cab704247813f7a45e8e4b6eaa58b1ba51b09a50d6e3ab76f59c"
+    },
+    {
+      "source": "src/modules/platform/primitives/Tooltip.tsx",
+      "sha256": "1421015006091598eb8a2fc6e28971c5447af649652953e5012bd902a94c84fe"
+    },
+    {
+      "source": "src/modules/platform/primitives/Toast.tsx",
+      "sha256": "e7f6395c0b142cd41bf6b5b107951f34ec191dc3604b100cbe393dcfe24fe72b"
+    },
+    {
+      "source": "src/modules/platform/primitives/JsonTree.tsx",
+      "sha256": "55ae6bbe265f48c2d02efea5661fd1c1dc4e5539731590b6f66fc7487a832763"
+    },
+    {
+      "source": "src/modules/platform/primitives/ansi.ts",
+      "sha256": "774b3063a6f7ad108f2123887d089c022f92af89d718f71493667de3effd9196"
+    },
+    {
+      "source": "src/modules/platform/primitives/head-tail-cap.ts",
+      "sha256": "e93b5f6972fa57109f25bfe36e1d3e6f2c68981c425f4a7c486ceed92b1fbb19"
+    },
+    {
+      "source": "src/modules/platform/primitives/use-copy-feedback.ts",
+      "sha256": "2850f4b3984de80c2bc32c8efcce13be7412b976ce91acb4f2065d853f456da9"
+    },
+    {
+      "source": "src/modules/platform/primitives/TerminalBlock.tsx",
+      "sha256": "a9dde116042e78787162ad16dc502077915999fc7a42e71282aa2b308019ea0b"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/highlight.ts",
+      "sha256": "94abb9e4c3b772ff5d32f63353761d75d07f4cc26f5c6585e3d2221172f624e6"
+    },
+    {
+      "source": "src/modules/platform/primitives/ReadBlock.tsx",
+      "sha256": "e2a05531c2178b8536b4c592c180c3cdb8107d8d5f76adfeb742ff92ac8af4ee"
+    },
+    {
+      "source": "src/modules/platform/primitives/DiffBlock.tsx",
+      "sha256": "fd3a209790d90b7c9cd71bc8a61e2f958d62631c8f68081a2af3b7aa58535129"
+    },
+    {
+      "source": "src/modules/platform/primitives/SearchBlock.tsx",
+      "sha256": "1115967af619472f501879deeea0d0210425f7cb016473d9e2f11d35fd3ffd40"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/incremental.ts",
+      "sha256": "2975a332ac74b931a7cb489e2eea28469aa3d9596328d5a474d41379b6c7b640"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/cjkFriendlyStrong.ts",
+      "sha256": "bc4adf3183f7d0feea17e3a176e7c4b1db5bdddc29e7fc87261f627ff8a39b53"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/mathCompatibility.ts",
+      "sha256": "5f8cec86fd613fd2f67510e22b0a9d661f4173b3d49fb13fef71b25f4abb652b"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/parse.ts",
+      "sha256": "8475190950dc3e8971ab85cc7618413261394a43c5a2cc070e494307309ca5f6"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/streaming-math.ts",
+      "sha256": "d7d39bba783baadf053e736cb03498b95344681068d4effc73653b80e2bf1262"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/CodeBlock.tsx",
+      "sha256": "aedd8015701adbd442a6daa9ca71c18b6f9fe61f9488ed3352b42ac27f84d522"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/katex.tsx",
+      "sha256": "22140afbd98fc52eb9922225549f555d681a59e751f9e35f798c0bc619512b83"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/render.tsx",
+      "sha256": "5694c07c48b663fc3391d594a61fba2261c39d0ccec36b8058f0c764b112b8a0"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/MarkdownText.tsx",
+      "sha256": "4f3c5060b1bbe5a474156ea8e09a20e805013f439e84440b0ba578e178bf1974"
+    },
+    {
+      "source": "src/modules/platform/primitives/WebBlock.tsx",
+      "sha256": "e43df0cd9aeb5e23fae9699e471f9a45d8b153de5276271a48406bf793139e85"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/JsonBlock.tsx",
+      "sha256": "4efa8030ba642e2f7f91463407b9ea3544bb1406ac0648cc95b1a922249ce184"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/MessageText.tsx",
+      "sha256": "3170d64381baaf3f253476beb07b1f783fa49bb32d086969f5dda1515075caea"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/plain-text.ts",
+      "sha256": "3edbeba28d378f75a64cf85c2e8ea1d7962e93d560d0b9c8a4b321a2ada8b946"
+    },
+    {
+      "source": "src/modules/platform/primitives/index.ts",
+      "sha256": "c8cadd24a36f71a4a4d8a1482351fc26bce356181e3e4de84fa8b427b15115fa"
+    },
+    {
+      "source": "src/modules/platform/web/platform.ts",
+      "sha256": "0ea1014f6d778f4f12e3ffea1f3d92d9cadd5177320aba9361d3f8b7538375e8"
+    },
+    {
+      "source": "src/modules/platform/web/seed.ts",
+      "sha256": "a29b2801343cfe5e29f33d98cd53d3a75a148214a9594b7e2d0a1faf0bab5f73"
+    },
+    {
+      "source": "src/modules/platform/web/boot.ts",
+      "sha256": "d7507233c4a354df7f54386ab407d02705d9a1ad65e20e2a31ea5f0c7e1a3bfd"
+    },
+    {
+      "source": "src/modules/platform/web/index.ts",
+      "sha256": "1371693c6123535f35910836530e0278e71607c5c246037caf5639b9a784ff86"
+    },
+    {
+      "source": "src/modules/platform/main.ts",
+      "sha256": "84e32a3d42592d907210b26eba03f6c0a51e65b05ba342cdfcf3cdd493c49fb1"
+    },
+    {
+      "source": "src/modules/platform/bootstrap.ts",
+      "sha256": "f4b74c17d778308e2cadae12d345a1fd74e4b69e457dc13df55068dc7fcd8af0"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/src/misc.ts",
+      "sha256": "117617943074ea57c15f216905dacd2f6d1c4c2ff16586f97a7a7a87dbf2141f"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/src/array.ts",
+      "sha256": "cf4de899ecffd66a90d8cef6f4c7d127d31f77f776d8e173d41c30d2d7632cf7"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/src/types.ts",
+      "sha256": "09d72a91052105e88500bfb99a8e8ce0c9ebf6f6e7df569053e114bc77aa019c"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/src/string.ts",
+      "sha256": "5564272b3e15e49235cbe3a8b453f27306baf282d23a893982841670f65d3c04"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/src/time.ts",
+      "sha256": "49957c4608465a1fbd738186a92c47fffcd1fc4ba59dbf89524f8a773fe16fe2"
+    },
+    {
+      "source": "src/modules/platform/vendor/cosmokit/src/index.ts",
+      "sha256": "51dd173c70001d7d7891d3aab7e26594da65f7cb6671253f6d457ac889326b3c"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/utils.ts",
+      "sha256": "8fe273424583d21267ef13f248840e97454d09d836a0ac08323a9482c2069263"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/events.ts",
+      "sha256": "96565a2b5fbf35c26b78cbdc785b2b2e3f01fa55a9fd1f6af5355ab35ccc343c"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/logger.ts",
+      "sha256": "5121e76fd9f55b9b90dfea09d6e60d122e7530246b8b19970ddebd9c35ccf7d8"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/fiber.ts",
+      "sha256": "750555b47603f88e7ef7a05d1a8d629b355c176a1185af411aac6e3e1e2b7ba3"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/reflect.ts",
+      "sha256": "6847b9781044023d65aebb5896a873b9f0a3d777eaf7fa0dd2a7a408eb6b74a6"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/registry.ts",
+      "sha256": "34bbd60ae502b4f85201c204afb52a9acabde6878d9278493478c1b2183debd3"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/context.ts",
+      "sha256": "96b388162d6013c1898de61e35f28917abb93809de24174980f2a1a348d0b115"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/service.ts",
+      "sha256": "614205c6ce7cf1a057b8b352e96aa4fcd734c967a3d2283a126c9c61f268e3be"
+    },
+    {
+      "source": "src/modules/platform/vendor/cordis/src/index.ts",
+      "sha256": "c2232f082c763488225eafcd33530640ad26af0c7d6ea871a4f7e8ebf0eb3704"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/src/internal.ts",
+      "sha256": "6d2e9adc901b39dfacb7ece2e56b1553cee8ecf0405b7c0b8541048958987477"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/src/config/group.ts",
+      "sha256": "a3079629f907745ddc1e0f2520b66d57711053b4d3715ee8b5983954a6908168"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/src/config/tree.ts",
+      "sha256": "5be2d9c3f2581f6c714380216f6ffd8171a0cbe0405adbaf13c9563ffae0ada9"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/src/config/utils.ts",
+      "sha256": "8ff540ba75490ef137546b2b222903478d8451cf422c50c56fb11cff5a181749"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/src/config/entry.ts",
+      "sha256": "c1a15a12decb49bda43a953787708a9fb6afa2bc056018287d89fcd3a1d2c5fe"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/src/config/isolate.ts",
+      "sha256": "950a6f5e0727cd28bff3df09e8c42c9670fcf1f058d6a64d7572c83b5cd403a9"
+    },
+    {
+      "source": "src/modules/platform/vendor/loader/src/index.ts",
+      "sha256": "d535dce0a13e8cbfa39d79722ada8c65606ff207d3ee6946ae11586f378cefd8"
+    },
+    {
+      "source": "src/modules/platform/web/boot-page.module.css",
+      "sha256": "8f2b9e3bed7d22f544400cf62123c0ad88d0b6dfa14d30fe5c3c185a3601b90d"
+    },
+    {
+      "source": "node_modules/react/cjs/react.production.min.js",
+      "sha256": "4b35e378f469c4f492c7514bb106b5833746dbbae80496bd4aa9acc6e9ac4b42"
+    },
+    {
+      "source": "node_modules/react/index.js",
+      "sha256": "a216c390bf956cbb906c66d29fdb2e2ad6999464a5ca83e476533a6f25ad0ef3"
+    },
+    {
+      "source": "node_modules/react/cjs/react-jsx-runtime.production.min.js",
+      "sha256": "76e3364c46895ed2c4a8d5cc332e5e4ef31d6f732d35b1e56826dc5895245452"
+    },
+    {
+      "source": "node_modules/react/jsx-runtime.js",
+      "sha256": "28170e60f2ff0bc045bc7d175f5849e86f68dd02d76d7255369420718b30295a"
+    },
+    {
+      "source": "node_modules/scheduler/cjs/scheduler.production.min.js",
+      "sha256": "f6cb8cf42696980c702f6b879417ab8bd489660485eb012b46f67e92e18a78ee"
+    },
+    {
+      "source": "node_modules/scheduler/index.js",
+      "sha256": "b413b3aac7bd209fd82cbe2241fda1467558daaef830744f45ed8396fac9185e"
+    },
+    {
+      "source": "node_modules/react-dom/cjs/react-dom.production.min.js",
+      "sha256": "cbf7fe6b9726ee65f8bcd5715289cc5161c8dacf74d0b8aaa0d29412516f5f47"
+    },
+    {
+      "source": "node_modules/react-dom/index.js",
+      "sha256": "f26fcb81b5d1dc32c6edea34645c75b60d259916293d3208c8be48ac33e882e4"
+    },
+    {
+      "source": "node_modules/react-dom/client.js",
+      "sha256": "a510041dfc40d69b3aa574e5e111864186c711fbeb3db41aa2f27196b27c429f"
+    },
+    {
+      "source": "node_modules/clsx/dist/clsx.mjs",
+      "sha256": "d949e5cdbfebc76a6642b1901095e900fc3f2262d8dc0373aa44850a9bc75522"
+    },
+    {
+      "source": "src/modules/platform/primitives/StateDot.module.css",
+      "sha256": "44b426f2016989477e5e7702f817057f328f6f46428c07ce0deae10dd8fad3b9"
+    },
+    {
+      "source": "src/modules/platform/primitives/DisclosureRow.module.css",
+      "sha256": "79a4b0fa82a516d76c7b7d7b0da0e354a1e2862536ca0386b9c0a7a995ad5ffe"
+    },
+    {
+      "source": "src/modules/platform/primitives/Button.module.css",
+      "sha256": "4666bf191abc8b6bcfd4e22355bab0c2f04391b85c2e918bd882a37ff68ef2b9"
+    },
+    {
+      "source": "src/modules/platform/primitives/Pill.module.css",
+      "sha256": "c1c39eb6adc0e40326f7a33598a32195b388cb9db2627a9c723c009b44a94dab"
+    },
+    {
+      "source": "src/modules/platform/primitives/Input.module.css",
+      "sha256": "790195c01e1416a590e0b0353c5beeab1ae510151b2bd580fdea4ddbd4dca399"
+    },
+    {
+      "source": "src/modules/platform/primitives/Menu.module.css",
+      "sha256": "1eee2a9fc186c7f872c466781ffda894d14a3f514cbb3cabd1777397e33405b8"
+    },
+    {
+      "source": "src/modules/platform/primitives/HoverCard.module.css",
+      "sha256": "4d8fbf2368bd9f232f09422af94bf3527b4c9715445deaae18cf04fc1306475b"
+    },
+    {
+      "source": "src/modules/platform/primitives/Modal.module.css",
+      "sha256": "ebfe5549125cb0e1b1d86858e2f1021d0209c25d590a466be9cd5127097a74dc"
+    },
+    {
+      "source": "src/modules/platform/primitives/OnboardingSurface.module.css",
+      "sha256": "82c4cd7e345a8e64d2b4817d15823692fa344f3458852207c0863bf3dd414b56"
+    },
+    {
+      "source": "src/modules/platform/primitives/RiskConfirmation.module.css",
+      "sha256": "c4c8e339a9f12ebf21c785cd6217898733f8a053f63d5aee936611fcd319ef27"
+    },
+    {
+      "source": "src/modules/platform/primitives/ConnectionBanner.module.css",
+      "sha256": "17588efc8567f1bf595e339619b9abf90d6129c048c93854ce58f0fa6a6d87fd"
+    },
+    {
+      "source": "src/modules/platform/primitives/Tooltip.module.css",
+      "sha256": "9286defa4a20872df113af062b9b78d2ec465f857ffada668dbe32f9d55e41c5"
+    },
+    {
+      "source": "src/modules/platform/primitives/Toast.module.css",
+      "sha256": "83b40e61e998525bdc2f3bf2457868d6ca1533c23fc31e04ef01e0bf5b96dc48"
+    },
+    {
+      "source": "src/modules/platform/primitives/JsonTree.module.css",
+      "sha256": "7814c49cc5e2bb8970878d7d382b7a912ea81205da2c18973444efa6e9d7fe32"
+    },
+    {
+      "source": "node_modules/anser/lib/index.js",
+      "sha256": "d1aa5e4bdb0450757a17e9445b38b23dcfeb695ac16086ee895021c9ccfb1f09"
+    },
+    {
+      "source": "src/modules/platform/primitives/TerminalBlock.module.css",
+      "sha256": "fccd47134a144ec41c4780c5b9d3a49a35bcba29c96eb29c8b86e9ba325b0621"
+    },
+    {
+      "source": "node_modules/shiki/dist/rolldown-runtime-BBjsoOtd.mjs",
+      "sha256": "bc1c4c6b4073846c33e02846e4b262d6747c77fc72ca9f9cc2f23b8ff135c35d"
+    },
+    {
+      "source": "node_modules/@shikijs/types/dist/index.mjs",
+      "sha256": "966801ba2cac174bb2df4478585179a92e6a5147e6a3f52771d6926ac72bb262"
+    },
+    {
+      "source": "node_modules/@shikijs/vscode-textmate/dist/index.js",
+      "sha256": "e620383bf90108b309c238d054a06e519328425a02d0ce62b84c7023ba5543d9"
+    },
+    {
+      "source": "node_modules/@shikijs/primitive/dist/index.mjs",
+      "sha256": "65cd5db33752ccfa81e681be14e4a9e8d63faec2c7e4aace8776f383efe3fb66"
+    },
+    {
+      "source": "node_modules/html-void-elements/index.js",
+      "sha256": "f9211e17693f8dfdab3613ac49f83d2b16c6868354244a253ab87b870f7cb037"
+    },
+    {
+      "source": "node_modules/property-information/lib/util/schema.js",
+      "sha256": "d97aa20f271dd5e3ea798dff8cc1fa196a074081b92e60b9335824ce00d05ba6"
+    },
+    {
+      "source": "node_modules/property-information/lib/util/merge.js",
+      "sha256": "4f9b3be6a66510d379a3096297da53f2a5a49eebeba6b8db17a5e7b044a90c33"
+    },
+    {
+      "source": "node_modules/property-information/lib/normalize.js",
+      "sha256": "b682cd82e5383c9752b3fd9b354d4694150a1b70027337998bcd46e030ed3e93"
+    },
+    {
+      "source": "node_modules/property-information/lib/util/info.js",
+      "sha256": "9cacb8f3711acde4ef79814c4f42d97a4923ccb37e5a6ddd550ebbffb452a1e5"
+    },
+    {
+      "source": "node_modules/property-information/lib/util/types.js",
+      "sha256": "534ee498a7991c73556e49cf8031de26b193f4ffdf3da0aeac52add9d7b6ea1c"
+    },
+    {
+      "source": "node_modules/property-information/lib/util/defined-info.js",
+      "sha256": "abfc5c18f95ffe73105e336370b778d4d24eb539fe609428035f690e3ded73b2"
+    },
+    {
+      "source": "node_modules/property-information/lib/util/create.js",
+      "sha256": "e1da7557afffe2afa5ee8b582fa8e302578342e9ced8bc8410fc618968730137"
+    },
+    {
+      "source": "node_modules/property-information/lib/aria.js",
+      "sha256": "e46d46194887fe65bfc84dac050b20c163f131f81f10e88f38b48925cf01602b"
+    },
+    {
+      "source": "node_modules/property-information/lib/util/case-sensitive-transform.js",
+      "sha256": "4935f8bbb39e31920d1efe1a1feb742678113f6355b4feb7b3060118a04c9eda"
+    },
+    {
+      "source": "node_modules/property-information/lib/util/case-insensitive-transform.js",
+      "sha256": "ed53a57e86ad3153460b9aa558206d9781bb21ace54f825b3ff8ba26c708aa5e"
+    },
+    {
+      "source": "node_modules/property-information/lib/html.js",
+      "sha256": "e204fcc00f9ba1c19049be6dbe1fa0c9378d8401482aead17cb0d0e47adff671"
+    },
+    {
+      "source": "node_modules/property-information/lib/svg.js",
+      "sha256": "c12f46a6c616f46cf7d24f4979471402f78320d71e6642db88c3566f160f0356"
+    },
+    {
+      "source": "node_modules/property-information/lib/xlink.js",
+      "sha256": "9a92f5105b5f4558bf1b63cb43a11c57289fb4b638e9ad4f1d99716602b95a91"
+    },
+    {
+      "source": "node_modules/property-information/lib/xmlns.js",
+      "sha256": "5e3700fcaa7faf7542982e2657286be3a652744c0f3d0ee64c311ed158ef00d9"
+    },
+    {
+      "source": "node_modules/property-information/lib/xml.js",
+      "sha256": "aa91faf152020c8be409ae8253d3ebaf85b2a9246c5a3ed96d9d5424c9e4064c"
+    },
+    {
+      "source": "node_modules/property-information/lib/hast-to-react.js",
+      "sha256": "47ba04ebd32327cae23e50c70f218c17161722942616182d46ce0cde7a2d58a8"
+    },
+    {
+      "source": "node_modules/property-information/lib/find.js",
+      "sha256": "0e7b3a54af5d32fe6b30648b420f82ccf0bf7e2d2af9460e3c173c2785084336"
+    },
+    {
+      "source": "node_modules/property-information/index.js",
+      "sha256": "c70e5d2c76ea00116e87d0fabe961f6d260e94641ab76dfb0a73c9c9498a4a3d"
+    },
+    {
+      "source": "node_modules/zwitch/index.js",
+      "sha256": "81f592d700aff8042238e7cab8e03c002e689117ecf15844ed753e08825a2873"
+    },
+    {
+      "source": "node_modules/stringify-entities/lib/core.js",
+      "sha256": "94c13739ebd1932284e9070b575ca5fe4c7f9539c1ba00d9eab1e80a4b8633d7"
+    },
+    {
+      "source": "node_modules/stringify-entities/lib/util/to-hexadecimal.js",
+      "sha256": "9ee776d7783770473fbe50b6c82c772b698848ea2eb8b0357857015328e10701"
+    },
+    {
+      "source": "node_modules/stringify-entities/lib/util/to-decimal.js",
+      "sha256": "adad15ef3ec16d10b82dd7f9a4689b198dd68ab55a7ceecd010ddfee0fb2c81e"
+    },
+    {
+      "source": "node_modules/character-entities-legacy/index.js",
+      "sha256": "866ea4d827640306ef91015eff237695892340ae0f8ded6a17a7fe83f13c7513"
+    },
+    {
+      "source": "node_modules/character-entities-html4/index.js",
+      "sha256": "e577a2808b49682ec5815136707399e2f822b122efa3b6e7c856a12a73413ffd"
+    },
+    {
+      "source": "node_modules/stringify-entities/lib/constant/dangerous.js",
+      "sha256": "4319c36762a75bda915ff6890944ac50ce4de71cea47b0429257bcc4e95c26a8"
+    },
+    {
+      "source": "node_modules/stringify-entities/lib/util/to-named.js",
+      "sha256": "82f890b04897582899731c9090eefb5f37a2dfcaedd2798c164e067f5ff05499"
+    },
+    {
+      "source": "node_modules/stringify-entities/lib/util/format-smart.js",
+      "sha256": "372e33408706863ea7bb95ef139de391b1c01a5e0d09b73414e5a983234f8d76"
+    },
+    {
+      "source": "node_modules/stringify-entities/lib/util/format-basic.js",
+      "sha256": "2fd53b5328ecb8b9ea32b99672ef891bf157d107af89a5050f675b495b3c763b"
+    },
+    {
+      "source": "node_modules/stringify-entities/lib/index.js",
+      "sha256": "4f19d10eeacdb541c4cad75457833ba1eb3d028ff387e9a1ecbc717617a75e2a"
+    },
+    {
+      "source": "node_modules/stringify-entities/index.js",
+      "sha256": "0b8dd92df1fa36c265ab1d75f4b6472027c16d9f259ec22c670e1dddb3a09406"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/handle/comment.js",
+      "sha256": "db0efb054ad051ff4b872e47e5beff9d8f1755397949e46af3203db43d6e86df"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/handle/doctype.js",
+      "sha256": "ac6e11e9e12f00b4f06febc7af8d961e99f89981aa7d9f3bd5dc35e3982d7c73"
+    },
+    {
+      "source": "node_modules/ccount/index.js",
+      "sha256": "cbba065a9f66c5909d49f740a64f12cfde03220303a845b2273d54af59e70af9"
+    },
+    {
+      "source": "node_modules/comma-separated-tokens/index.js",
+      "sha256": "a62eb07c352878a940619595a2e2d11221bc02a16f9a64501612105fddbc2c0b"
+    },
+    {
+      "source": "node_modules/space-separated-tokens/index.js",
+      "sha256": "080bce26a6623cdb189d1cd62c6bdd27fe9984b40f19d81abe113a20dae3c379"
+    },
+    {
+      "source": "node_modules/hast-util-whitespace/lib/index.js",
+      "sha256": "8b9342003bf1956922a92d6299ec98fdd6369e0d83f3d96bc144a793137e80f7"
+    },
+    {
+      "source": "node_modules/hast-util-whitespace/index.js",
+      "sha256": "1e443111d1b477b45f35f751834b5a031c1ed1272f53322c7f40e2b28d790cc2"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/omission/util/siblings.js",
+      "sha256": "fbef526c0f03dd4472fc41de09766a8c885af8a85147e926c086e2e7f19ad627"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/omission/omission.js",
+      "sha256": "382fdb25a2812d15a4aac024dc18dbdb0fed0048fe13efcd44d7ff6d695970a4"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/omission/closing.js",
+      "sha256": "0e7724ee2d1a2cd8518325a5bb0297a7a13fbaad30ce6105687f563502d49d83"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/omission/opening.js",
+      "sha256": "c242ddec7456d280882a010c16eeba18257a28a4336594a5c215d2f3ce95e38b"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/handle/element.js",
+      "sha256": "e0d6a66c292ab5d726dc8bed367a2882bce03a07cee09c86df3810aeb29acebd"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/handle/text.js",
+      "sha256": "c2dcdd630646314b36e11df53a4090362e471e308857814beebe53aaa7934577"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/handle/raw.js",
+      "sha256": "fe6a3d9be9a0d13f98c638f60c0d6a4de5ea447cad06251ae670a8a9d4fb73e3"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/handle/root.js",
+      "sha256": "e76e89501eb788ef2f143da17543e0103498bdb86150c1da7e0e1603182a41eb"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/handle/index.js",
+      "sha256": "3fc926e2a0d88029bd3bfaa75adb1a427107b7dab1e45d18490ab9bd15848a41"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/lib/index.js",
+      "sha256": "7045fefdc6fad99506e387343e679c97a6dd47edf6abd9460abbe5f3336fa944"
+    },
+    {
+      "source": "node_modules/hast-util-to-html/index.js",
+      "sha256": "10984d1819cb0c036fe2fbb47047d2b3b670c38634680f346df4882674877450"
+    },
+    {
+      "source": "node_modules/@shikijs/core/dist/index.mjs",
+      "sha256": "71702105d96c5425a3b70a98b564efffdab5ea0206f74f2440c8bdfdd358c272"
+    },
+    {
+      "source": "node_modules/shiki/dist/core.mjs",
+      "sha256": "32a795c90486276843438d65435eece143f055a435083529b502cb83cf9dffa3"
+    },
+    {
+      "source": "node_modules/@shikijs/engine-javascript/dist/scanner-DX8LRFGE.mjs",
+      "sha256": "4f057294198e3e8dc2459ff0b5b66685e9ea5384ed9636850ced58fe63541300"
+    },
+    {
+      "source": "node_modules/oniguruma-parser/dist/utils.js",
+      "sha256": "b295e6252087093d290c0657e584bb863a55cd9008b7cba4998c3c08571ad159"
+    },
+    {
+      "source": "node_modules/oniguruma-parser/dist/tokenizer/tokenize.js",
+      "sha256": "c83dbefdd7a59302bbfec41575b842cad04e7deac66a8bd3a4374dc14374eed9"
+    },
+    {
+      "source": "node_modules/oniguruma-parser/dist/parser/node-utils.js",
+      "sha256": "b2855d0c3d6683e90280d3e539384381d89dd812785a84175224403ec51a9a8c"
+    },
+    {
+      "source": "node_modules/oniguruma-parser/dist/parser/parse.js",
+      "sha256": "114b1488c50ae2d273d107efea3b238fd822446fee8ef8d0cbdf2366a4fea0ab"
+    },
+    {
+      "source": "node_modules/oniguruma-parser/dist/traverser/traverse.js",
+      "sha256": "00ab3568b4ef13420476520bbd7108d6d7487cc7273e3387fc2e09085c082f14"
+    },
+    {
+      "source": "node_modules/regex/src/utils-internals.js",
+      "sha256": "cbd3f397dc5c6dbee556b2c50e05fe90a5f605c54e6b03e8622bdd6746054b86"
+    },
+    {
+      "source": "node_modules/regex-utilities/src/index.js",
+      "sha256": "6ea867f015ee403793968716eb0b7345266ab692572bc0f7cc25279268d4b758"
+    },
+    {
+      "source": "node_modules/regex/src/atomic.js",
+      "sha256": "bde76d802e7dcfba88312403876c0132f8bc81f75678024fbdf51744a0944ffa"
+    },
+    {
+      "source": "node_modules/regex/src/subclass.js",
+      "sha256": "e6025e4ffb76ea065343e458b263f79172302578bc201d33d1551d37483e4590"
+    },
+    {
+      "source": "node_modules/regex/src/internals.js",
+      "sha256": "6d90a040afdec01d9856e2296352d345da60ab091057f67958f9ce0888c8315a"
+    },
+    {
+      "source": "node_modules/regex-recursion/src/index.js",
+      "sha256": "a5ed45f11102d7cb449ecd89057b5f2c50dba8ed79bc21826c75e25182f01383"
+    },
+    {
+      "source": "node_modules/oniguruma-to-es/dist/esm/index.js",
+      "sha256": "42aa0dc1015d146928f4a074221d23abce11edbeea2ee9f3df01e21bb67e6d72"
+    },
+    {
+      "source": "node_modules/@shikijs/engine-javascript/dist/engine-compile.mjs",
+      "sha256": "64aeb7ea59eb1df937436f2fdec5b1c67a75e54de3742b334142b24c63e9014a"
+    },
+    {
+      "source": "node_modules/@shikijs/engine-javascript/dist/engine-raw.mjs",
+      "sha256": "c1980112d4faf904353021ed5998fe256de94170d76ea7b3fd9acceb786d91c1"
+    },
+    {
+      "source": "node_modules/@shikijs/engine-javascript/dist/index.mjs",
+      "sha256": "0270c7120870afbc20149ba240dfce54c4fa39a29e14b6a4038cdff607bfa566"
+    },
+    {
+      "source": "node_modules/shiki/dist/engine-javascript.mjs",
+      "sha256": "8ad394e40e74198c6c4b8b22aa5f425f554597f00412444ff4474d440aee74d3"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/typescript.mjs",
+      "sha256": "6e8fe43b5e189a1e103c9e8bfec1a15b1072627d93c5061a0b063405b1c5fbd2"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/shellscript.mjs",
+      "sha256": "95a2353b07d65e7cc699662ff139111f4a47ce8d761c60975dd1bf20971a1864"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/json.mjs",
+      "sha256": "b057750f7333dae18feeb337cedbdb87f463f6a5d8358d375911ef28c0742325"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/python.mjs",
+      "sha256": "98300d0d7f05ece9fd85e702a6ce0fe8f910082afd4d4fd13a48d927ac2afd2f"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/javascript.mjs",
+      "sha256": "9e2baa2cf197acfcc4d45f87af10275ced002f6cb1ebcd6ce570340cbbfab902"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/css.mjs",
+      "sha256": "dff3bfe730e04426b9119258016140453671218aff5f7d224b2322f9d360c554"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/html.mjs",
+      "sha256": "db459a440f772dcab53b33b849bb7829433d2d43cf2c040d17bf22b4277d297c"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/haml.mjs",
+      "sha256": "49c3c75aa8dbb16b9111bd5c5f4db1a7f5139ada197866f0d96595a068d46497"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/java.mjs",
+      "sha256": "37d4cd10708b251cd0a2efc60b090c801598d016cef921f19a6b31c2031c846f"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/xml.mjs",
+      "sha256": "4c8d8f591501bc1d8f407f93869f96d82384dce5e721a4eb75b10f276a953990"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/sql.mjs",
+      "sha256": "cb1bfbdbf1cab3418219c72d16825d7df31cdb078e53b00fe0409ef3175bfdd5"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/jsx.mjs",
+      "sha256": "e93e62820880daf7a547dc35a8053a013a3b324d617a17cc8d2f94717a5d8fd6"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/tsx.mjs",
+      "sha256": "7eefa50eb5e48354d7f7838e6bf36b4bcc5b39d6806f10ced432824037328fe1"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/graphql.mjs",
+      "sha256": "ba16156a21a63ae3161b57703e76d89d6b58db9b0f919f03f584f02e5d67540e"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/regexp.mjs",
+      "sha256": "1f2c1a99d011c7864bb428372e0f9f4810d5f13ef5c773d6482956b5e4ed5dd0"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/c.mjs",
+      "sha256": "f2da7ca9f12fc2c5194351508fff542cd1bb2d7ec13d5d1e3f788883475bebd8"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/glsl.mjs",
+      "sha256": "bd2ac3c72841bf210e6d9b604dfb6bedc8b6d028a653ea2e49c3a07e3204754e"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/cpp-macro.mjs",
+      "sha256": "a1a89c679be99e230d354f38eaaee6aae140a22204eaa281b9aba69f8de1d919"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/cpp.mjs",
+      "sha256": "8e341b6be82dbc3317c6868e67327435ed90bf8b12b331134e9dad2717af65f0"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/lua.mjs",
+      "sha256": "3cf2e47f578a49bc5c8aa51f6f4391f511b8c5eeb46837a6ed0efa75534d8f91"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/yaml.mjs",
+      "sha256": "057427cbd35c6c6cd100b9f0d447549581eff926ff822f14be63791dc8d7631a"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/ruby.mjs",
+      "sha256": "202c6a0dd529015d6a669af6e0a4fc82e7e9616288a51090430a91eab48536f7"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/go.mjs",
+      "sha256": "592e98118a5c94602e63b8b67d3317aa583a6e115c2e82f59e659fa6d49e7a3a"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/rust.mjs",
+      "sha256": "e4e301976b9199cfa6e1dcd3cb398a59fcf0c58cdc10f6f41445221a21869642"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/csharp.mjs",
+      "sha256": "ce909b10307209e0691b71e4d42f5a29342022882e0d7115284a7ff281b5cfa4"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/kotlin.mjs",
+      "sha256": "137f10eb20d082b9f96e60748c10cdfb3b06f51f557fa670aec3128055481028"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/swift.mjs",
+      "sha256": "be0a69a4ed7d2ca38186768dd43069a88c1ba27ea93c1cba14765671da74683d"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/php.mjs",
+      "sha256": "943d1c3a1a5c8c8db224e36f73cdf7e9b7e6ed13558d3d1e22e7e8caa4b6b378"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/toml.mjs",
+      "sha256": "4238ee612fce2bb5bef5581f89409d99398b29f1c0d93315a11c50e870e59dd5"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/ini.mjs",
+      "sha256": "91f4640cf0f0789cf0169c94afd1d7aa1d67650dcc729f25e5ee65930b6d6c4a"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/markdown.mjs",
+      "sha256": "5c45727de7a8279ad67817724fa3dce91186ae787456f1e9b5e5ceffeb17f0f0"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/mdx.mjs",
+      "sha256": "15e1fd24b5ec2c65efb44f0a6e59124126b5d03f094c82f8913b2867d0dcc5c1"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/scss.mjs",
+      "sha256": "daccedb3030f6f12632e1f247d1af8233cbcec183284bf589fc41dd5267e29d1"
+    },
+    {
+      "source": "node_modules/@shikijs/langs/dist/less.mjs",
+      "sha256": "5a7bbc1bc11df85b9727649de33f079f034259e3fd092f98e0eecb2f6ab2a46f"
+    },
+    {
+      "source": "src/modules/platform/primitives/ReadBlock.module.css",
+      "sha256": "f792edcceb6ad66fa2fd53500997c0a271a8b812cf1f6465bf752a063bcb491b"
+    },
+    {
+      "source": "src/modules/platform/primitives/DiffBlock.module.css",
+      "sha256": "15b39aceeff5f9e0d26aa9f3fbc04222e9436b0efb9f6d29e15c4b7466b1650b"
+    },
+    {
+      "source": "src/modules/platform/primitives/SearchBlock.module.css",
+      "sha256": "95011c4d66a328615face9249956d8bdcb3dc1c0b72ce3f24a83fef2bdacd6ad"
+    },
+    {
+      "source": "node_modules/mdast-util-to-string/lib/index.js",
+      "sha256": "53015b2b0b7a72aed1c2d880d3c2aaed73972241f968d4a206a18d92fbe57b21"
+    },
+    {
+      "source": "node_modules/mdast-util-to-string/index.js",
+      "sha256": "46fb60d03aacb0a3f66c7be7f7c93e85013076f59d595c7220554b05027d8ada"
+    },
+    {
+      "source": "node_modules/decode-named-character-reference/index.dom.js",
+      "sha256": "bbfdff9072ab38fb0669b2fe2fef28e9b36e5cbbeed3592cd13fc29748755dd3"
+    },
+    {
+      "source": "node_modules/micromark-util-chunked/index.js",
+      "sha256": "0776986647dd83ca16594bc02984a288f11e4c8a2d6f81b2487b3c9ef3a34f94"
+    },
+    {
+      "source": "node_modules/micromark-util-combine-extensions/index.js",
+      "sha256": "b2aaec9f3549d92afb610d41b4f5ab73293fbeab0d2b6080ad7a8bd3518e46e1"
+    },
+    {
+      "source": "node_modules/micromark-util-decode-numeric-character-reference/index.js",
+      "sha256": "74d2139b3651d79a7f4c1d3b21159d9c89459256e12b263ed2eb6b4fce599f87"
+    },
+    {
+      "source": "node_modules/micromark-util-encode/index.js",
+      "sha256": "323cc4fbd190cdcb56be068ff98e104aa2f431ea1039d7e967f3f7891cb859f0"
+    },
+    {
+      "source": "node_modules/micromark-util-normalize-identifier/index.js",
+      "sha256": "6def6e2422ac8905df740d27603d8eaa5d2fdbe41122c40958ac785ff0c8dfe3"
+    },
+    {
+      "source": "node_modules/micromark-util-character/index.js",
+      "sha256": "0ec487160ae3fa7f375698f9f951a0c5d7d752800bca2e3b1de15e3a07ee0417"
+    },
+    {
+      "source": "node_modules/micromark-util-sanitize-uri/index.js",
+      "sha256": "c8c100c6e730dd6b19ecaa70ef9f1da99c10c415dc9b6539820d41756c0fc197"
+    },
+    {
+      "source": "node_modules/micromark/lib/compile.js",
+      "sha256": "8bf26920007f3a8886c120cd863872d1372d30ccee99bfb549a15135a698e471"
+    },
+    {
+      "source": "node_modules/micromark-factory-space/index.js",
+      "sha256": "0325d6a34aeb0f069e764ea25a48874c5c1f95b70a35590b9767eef0e66a2617"
+    },
+    {
+      "source": "node_modules/micromark/lib/initialize/content.js",
+      "sha256": "a1e1ad9cb372cc3ad2caa172de2f0658a9d38cde01a3f1109041a8b1ea83345e"
+    },
+    {
+      "source": "node_modules/micromark/lib/initialize/document.js",
+      "sha256": "a27b0a34fe26d7000ed4e5dfbde302a3dd01eb01d20aaa74c2033694b7b9cac8"
+    },
+    {
+      "source": "node_modules/micromark-util-classify-character/index.js",
+      "sha256": "fa7b4a93bc117a88844216e2bb8fef3483825bac1d9186126048ca42f1ed3e57"
+    },
+    {
+      "source": "node_modules/micromark-util-resolve-all/index.js",
+      "sha256": "fa3b71cedce7b6f31ae68720dccfd561b7191e3d7280663cee1400a2dd38698c"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/attention.js",
+      "sha256": "0c4d5d13b7c56ed8e3c7b4617a1a2624c827576e652e65140478c47545526314"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/autolink.js",
+      "sha256": "d0762261ea02440fbc81b5facf994bc42ba1561d4c7bf822dd9d09a7c05a69ed"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/blank-line.js",
+      "sha256": "ef542164abcf6a5e6806720105146feba7e340a1f6d8c08c840707208ca76d69"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/block-quote.js",
+      "sha256": "dc87caa801ada12890767e83534b15746097b3cc6c9d5a99c046c1a252632366"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/character-escape.js",
+      "sha256": "8fd107627d4f0363999adf68fadd375a17a7536da8eee96799c805e3e57b3fe4"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/character-reference.js",
+      "sha256": "cc8138483321def7b2f4304df0e76ee2bcea84bb1bc5bc603534063b30ddd959"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/code-fenced.js",
+      "sha256": "ad089ec3656e37e3adbcda1fa873a8377d0b4143d556e279424b65b49f0d209f"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/code-indented.js",
+      "sha256": "179e7327f4c7565b0f1f74042e8fca37f232750f52e8bb4064a8f7602abce01c"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/code-text.js",
+      "sha256": "6e59e9b77a76a825c8cd142b0a2f0495aa5122da271770cb09322456a5207451"
+    },
+    {
+      "source": "node_modules/micromark-util-subtokenize/lib/splice-buffer.js",
+      "sha256": "addce56cc7eccc0cb0ba10f7f8eab4c902f5ddf55ff43e0fb2907815ea63440e"
+    },
+    {
+      "source": "node_modules/micromark-util-subtokenize/index.js",
+      "sha256": "a70e48d4652be4f956606dcda3e4c13707952dc74b86f6f71990eba88d4a1e79"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/content.js",
+      "sha256": "86fe007055efee6edaecfbb2ccebb9bdd1e7887a45d1c5881bcaa7ed6a973b77"
+    },
+    {
+      "source": "node_modules/micromark-factory-destination/index.js",
+      "sha256": "8ef4475091af9f26c98ef6ee0fcccc8964fcbf60c7654b9f3d4af34da2adaa4b"
+    },
+    {
+      "source": "node_modules/micromark-factory-label/index.js",
+      "sha256": "011484772e200ea32f3139c0a258627af573dcabd78bd4eb514a34495cb4aea0"
+    },
+    {
+      "source": "node_modules/micromark-factory-title/index.js",
+      "sha256": "1556b0f5d6f04b32d7178ea89b6381b936d7b8a18c92f4ca2844c4c062ed7a89"
+    },
+    {
+      "source": "node_modules/micromark-factory-whitespace/index.js",
+      "sha256": "8cdbba455b8ff17dee625a111eab27ccf3966ac3840e66a8b21aa0d800c639d4"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/definition.js",
+      "sha256": "800e7ef9f722e2536dc5e9774d0e22b0dcc58770d7a8011dc2c205f5fd263009"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/hard-break-escape.js",
+      "sha256": "a84fdfcc8ad17557345f074d2cc61ac902349ae4666a86c934be7914029a80bd"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/heading-atx.js",
+      "sha256": "963cbe1d91fcbd825cb452cea673e1ca874a7533a31a5c48b674cb4817799b40"
+    },
+    {
+      "source": "node_modules/micromark-util-html-tag-name/index.js",
+      "sha256": "da74ea4080075b3f45a13eda9a05789e7038e1560954aff6979daafa68d0f096"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/html-flow.js",
+      "sha256": "907e1b73e4eb1e51e818ab74698872906f3163788aeea7232b36d0d30aafedd0"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/html-text.js",
+      "sha256": "017f2b1f7be2303f4b849394f29430f4daea803dbb7eaf4ce82bb63e42e6c47c"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/label-end.js",
+      "sha256": "0fb2b950e1ed066cc1af4072bb4ff841a640aa8e02a43dc6de288ea8044e67e4"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/label-start-image.js",
+      "sha256": "60877f46d816d25fe11d86e24b703b4501240cdb89d63f7cc978d39af500abb8"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/label-start-link.js",
+      "sha256": "ffdab4c9eb7c16743e91f3b20711cdded335413c279aa4fa76d2d98d515cc0ec"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/line-ending.js",
+      "sha256": "3fa206316adeeb5a76e93c52d044f9ed32c1c1aad3a25346b913fec375ada089"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/thematic-break.js",
+      "sha256": "0249d3b4ed750ed74d7b9cdcf7b0ad07048a6fcf735c22a41c43d6f54c8d4a10"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/list.js",
+      "sha256": "86115cefb14f3d7076cfe28a6f06dd805ae4e024b0897eaa897d64db1966c7e4"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/lib/setext-underline.js",
+      "sha256": "36d333f33ee829a005a116ff464f7be89e2311650a36f3837bc20915c2d2d6c9"
+    },
+    {
+      "source": "node_modules/micromark-core-commonmark/index.js",
+      "sha256": "67211c138962eb4153158d185781612cb5a4f811a7f26f98863d03e7560595b6"
+    },
+    {
+      "source": "node_modules/micromark/lib/initialize/flow.js",
+      "sha256": "36a507211b00526d6ec1e9d9cca7547d26a5b01db61bb6d0d94d625d2babe66f"
+    },
+    {
+      "source": "node_modules/micromark/lib/initialize/text.js",
+      "sha256": "c0e5b3edbad427ce44aac1b33ed78361c85fc521e52e534cdd43873a0d8e7982"
+    },
+    {
+      "source": "node_modules/micromark/lib/constructs.js",
+      "sha256": "afecd299e4b5e7edb3ecba007000c311ed2b7c86e4e28729f9783da9021da2cf"
+    },
+    {
+      "source": "node_modules/micromark/lib/create-tokenizer.js",
+      "sha256": "fb3354e4cf38590a70e83f8556e96d717800b4f20e4e30949ae50d8c36ed09d1"
+    },
+    {
+      "source": "node_modules/micromark/lib/parse.js",
+      "sha256": "a8e110b17213a26a212332b2c8c39d31c302735c810bb0078e00b752f00552d9"
+    },
+    {
+      "source": "node_modules/micromark/lib/postprocess.js",
+      "sha256": "0faf397c79cefaa71f92b00aa11c5b2e954aa7560ceb1c93d85d21853136b5d6"
+    },
+    {
+      "source": "node_modules/micromark/lib/preprocess.js",
+      "sha256": "b582f16d9bc04d93d388004544be9c5293fda614eb86f8d02b97c3e57b9409e1"
+    },
+    {
+      "source": "node_modules/micromark/index.js",
+      "sha256": "0abeeca43ffae89b3d911da05de284f4ea6b80bde67ee8f30d7bc9655f4dad97"
+    },
+    {
+      "source": "node_modules/micromark-util-decode-string/index.js",
+      "sha256": "d38b07736ff9de94721153d910fd2966608bf8cd423f2dad9c091acf8ef3377d"
+    },
+    {
+      "source": "node_modules/unist-util-stringify-position/lib/index.js",
+      "sha256": "9d66941cf43fa4f4faa5912019ad9dae3f1ea3395b0c2fe64c2bcd5c2d4b2c28"
+    },
+    {
+      "source": "node_modules/unist-util-stringify-position/index.js",
+      "sha256": "7b80d608db2ab15251da8c71c4ed8029102b16677d80f4977487136e6b9e5774"
+    },
+    {
+      "source": "node_modules/mdast-util-from-markdown/lib/index.js",
+      "sha256": "2b19a9873232679ef08429e08c5836c865a54d8113ae5d58cb9409a60863727b"
+    },
+    {
+      "source": "node_modules/mdast-util-from-markdown/index.js",
+      "sha256": "b5ac1d75a898f7e28ae90ce26ab937b5f574bd5b4e8c17745bd15ba78a4a33f5"
+    },
+    {
+      "source": "node_modules/devlop/lib/default.js",
+      "sha256": "702fcb7d6bfdfe7b673b8bb7fa9d531d9b7d02693bed89f8dbb0a2c461604cf6"
+    },
+    {
+      "source": "node_modules/escape-string-regexp/index.js",
+      "sha256": "af2065ad2f2d2b91946c2121e21618daa3f4b18787af9226f8c953ca54cca2f5"
+    },
+    {
+      "source": "node_modules/unist-util-is/lib/index.js",
+      "sha256": "ce90bad6b772a7e1115d76e4cc53bfade1ee1fe8ac1b8880f48b0e1512ffba44"
+    },
+    {
+      "source": "node_modules/unist-util-is/index.js",
+      "sha256": "037c062d404356c6bbb8dad28d39445165d23e84ac35a63496a98d40aaa8d645"
+    },
+    {
+      "source": "node_modules/unist-util-visit-parents/lib/color.js",
+      "sha256": "84d02ef62d60a8e4fc8529fa6725abb85729274a873afbb8d4d9fb317ae01135"
+    },
+    {
+      "source": "node_modules/unist-util-visit-parents/lib/index.js",
+      "sha256": "8789a4f20d3e3c82bcaeec9628697752d662461bf6237ecfba61cfcc00f30bf7"
+    },
+    {
+      "source": "node_modules/unist-util-visit-parents/index.js",
+      "sha256": "6e3e10026230a33197e56422a2d95fc1815528c0bde7c1c790fd1a733b04bd39"
+    },
+    {
+      "source": "node_modules/mdast-util-find-and-replace/lib/index.js",
+      "sha256": "b171699f61c99a82565a6d6f8f3a1348d7d37756f889be30def0337caa9dbe2f"
+    },
+    {
+      "source": "node_modules/mdast-util-find-and-replace/index.js",
+      "sha256": "7a4656d4f6e259733e75f160544e681c1250180db6f099907dde936bce1d8c7b"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-autolink-literal/lib/index.js",
+      "sha256": "4965bd92f22009a0fd0fa4f7af73903e4d793165634c26ab5827fe5386fbcff2"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-autolink-literal/index.js",
+      "sha256": "c3c1073e83ac96d470b41a7ace9636321578659a83e1d14d4c8ac7f7f85db8a8"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-footnote/lib/index.js",
+      "sha256": "47f5f97e3698325187eff57567e05f0a63162506cdd95f8f6468f2a7bbf69eff"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-footnote/index.js",
+      "sha256": "b94bca85a6eefc173cd3a68381c45bfdc75643ed8f901a428d311d5a01575678"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-strikethrough/lib/index.js",
+      "sha256": "808441e33c8419430429dba66470f34367636fac752cb89d1fb5473bc4d29d83"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-strikethrough/index.js",
+      "sha256": "0156f05d678b6885b4e2a41248ac1366232e51e92bb0b6fc561c209062f5a721"
+    },
+    {
+      "source": "node_modules/markdown-table/index.js",
+      "sha256": "2dd3014e8ce92317dfd819fc678217d8fdf47086a4607cc49566f0dee02b832a"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/configure.js",
+      "sha256": "e5264debb8cb4bbe153339e366aa790ddd2d271ae864a712eacb61e10dc11656"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/blockquote.js",
+      "sha256": "b6dd851a1714f34fabdefb0cdacc77443326c9b6b8f5e83a90cada5d3bc71354"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/pattern-in-scope.js",
+      "sha256": "be9c737be3309735314d3b20d73afebff1d9d8d6681d43fe517fa573a193d255"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/break.js",
+      "sha256": "7bd4f6ce61d3b082fc679aba40b8c7944637ac1ae202d54857e5480d075fc120"
+    },
+    {
+      "source": "node_modules/longest-streak/index.js",
+      "sha256": "41d5da657563b0bf09d2e5235349195276e9246e1239370d98416e27a85b989c"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/format-code-as-indented.js",
+      "sha256": "875735363c778c12d8a760e77420d636b7d2e111c955c2002168ba744e12d30b"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-fence.js",
+      "sha256": "2319c48816ce3d363ab42687621d64824dafabb2747540396192806e5a51992d"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/code.js",
+      "sha256": "628bbd3ac2d8027d6c532689d0022e4f4c97740228bb7d13717b0c487bb4ce9d"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-quote.js",
+      "sha256": "ce4b9514ae41379d7156ffedd44b15e421fd0518ee8668c1914bf5baf3a0985a"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/definition.js",
+      "sha256": "83a7f5799a2622ae6256d5ee8a9612ebb1335809ffe63729cf57822816d33383"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-emphasis.js",
+      "sha256": "ed8cbf60a71d9cd433dd1af38bb690afafc45c7c657fc62cba8e161a8aee6878"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/encode-character-reference.js",
+      "sha256": "a1aacc0ea2e4cd7fb84deaa115a5deaf4576e0701dd9441d5d6ffa70386c5dfd"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/encode-info.js",
+      "sha256": "919824b727823671cf6188fb17e5c012a29059d88e821135371e5309c103f03d"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/emphasis.js",
+      "sha256": "bea3469e986f837b2b07deb2d6018394d84d3e6ce87f5df0155b3f4b099177b5"
+    },
+    {
+      "source": "node_modules/unist-util-visit/lib/index.js",
+      "sha256": "83779ce32216704c4a7593fd350c48a6570f445b1bb583cbe6d1da12d86cc4bd"
+    },
+    {
+      "source": "node_modules/unist-util-visit/index.js",
+      "sha256": "0bd7a392932d4578d13e0ab49705ba1488ecaad56fa4cf865f85dac64d34de91"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/format-heading-as-setext.js",
+      "sha256": "7efc6b494ee952b1831053decae18e702be275ec0ff93ea3069c8730f65ecb73"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/heading.js",
+      "sha256": "16e615ef320f6e1f1244366abc52df0916ee7e904dc3294b5461ebd00251a35b"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/html.js",
+      "sha256": "07aae47b1697513c04efedc45f2cf10047e680d7af3c7e517ec126578a092d83"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/image.js",
+      "sha256": "6ca9becc1bc294a246d6134ad546591580eb641a38c3120ff149cf090ed1ec69"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/image-reference.js",
+      "sha256": "8da0d0564cefefdc0442961c72d33c7e8bf924f1933be9fe646ccffc5545c438"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/inline-code.js",
+      "sha256": "82024330cc4f32d476d81f572ce2c760bc43975bb1030d73c064a391df694971"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/format-link-as-autolink.js",
+      "sha256": "f7ae2fab97bc8541829b81eb84f9e5e6dffec2ed38172b8242d4e7876f0a346b"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/link.js",
+      "sha256": "7c1f94738795ca9988655a7425ddb4bfaa1671884a598b639766608938278830"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/link-reference.js",
+      "sha256": "27f4e01096422e1b897b65d3f2511240e518550968ed3e2f20a15f5459093ac6"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-bullet.js",
+      "sha256": "c9e29e954a8976cf2b86b93414e4a4d40ba904fef02ba47dea4ca3790dcfdfc5"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-bullet-other.js",
+      "sha256": "b5c1d4e8085dec4551dc27d79cc37995b5da2c9a620798e70a708713a27d8906"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-bullet-ordered.js",
+      "sha256": "e5b643295c4d28ca25a58701b0acf19873032ee6385d8e7bf92298cfb3010df2"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-rule.js",
+      "sha256": "95ab8adc95f1e590e3433d739c79d2132833b3397fcc833db9c79aee582ea988"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/list.js",
+      "sha256": "226202457c9f1da831f98dde5c9824b85087d61a04024eb1915f10278ea11013"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-list-item-indent.js",
+      "sha256": "2966c2cae70ef1dc0a71b84cf821c65a12fb4d41da76aae3de5e33eba6265d09"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/list-item.js",
+      "sha256": "1d386f2d5cb3af88f88ab6ae52384f64d52726b4107206782d9ea3d3c3a1f75f"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/paragraph.js",
+      "sha256": "777de9e03969c3e98ec5b1df78de243954be4008eeab44d77ee873900e397e00"
+    },
+    {
+      "source": "node_modules/mdast-util-phrasing/lib/index.js",
+      "sha256": "cfba43614dcc2d644d7f0b2a83a172b6119aa70ba10a504f03528a0fb4c873eb"
+    },
+    {
+      "source": "node_modules/mdast-util-phrasing/index.js",
+      "sha256": "f87bb5f2c3fe0f98bd2802db6438ecf751f051c64fe502377444067a9c59ce6e"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/root.js",
+      "sha256": "9689eed04d6cce3d528882e780d94e3a9932e2409a70f53ce26f28f20cf63af8"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-strong.js",
+      "sha256": "65a9dcd6c2e771b10c524a85ea72e985e64362f001317a4e90d7318644551bd5"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/strong.js",
+      "sha256": "a4c417b138d263546b5e2e5f4105db9fdf64e39cd5bf32ca51ebca2bfc8f1f98"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/text.js",
+      "sha256": "82c7802143c42efbb86f81ae026ea8b21bb6181a79b5a179db668deabed42c39"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/check-rule-repetition.js",
+      "sha256": "ed3e4bec7a04ea73d842017a8164915e5b35f9b37470f4be99ecfe7eacaf8321"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/thematic-break.js",
+      "sha256": "e6ba03c46587555d686a3d9d707be2b94ecc0c4d08df302cb19aa76391e0dc27"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/handle/index.js",
+      "sha256": "490a5bac7d713e0c0576cde3bad5e18a581836540f62c2bb08ec6ecb01fd6c83"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/join.js",
+      "sha256": "4bbacdff9179436225a16583a30a428415a106005058a3d315468526cd53cedc"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/unsafe.js",
+      "sha256": "748691eabb03fb76b35f43690f510eb23902397cc2cb2ce75371aae177857b13"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/association.js",
+      "sha256": "a7059dc12cccb03befe1d118d062240b0f08201be9da238f2056f4cfe5d3ba53"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/compile-pattern.js",
+      "sha256": "cc5942773ca68186c628ae956e7734709376dbf94df3c57ef5e7be276e4ba7a6"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/container-phrasing.js",
+      "sha256": "9172b7a8114cf4123e6a67ccf1de5d8c6d4492fa760217fad8c04a7dcf703675"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/container-flow.js",
+      "sha256": "462a5ba7f6fbeb0e21f5021a4f07961c0e93108660dda27b559cad88eb09dc66"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/indent-lines.js",
+      "sha256": "1f0fdb29bf49d7c189d161f16c7d3f91a9d8ce625f5a6aeaad9de9810bd93782"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/safe.js",
+      "sha256": "8a8db3e41daf6c810cb289406fb9e46dde2dfaf4a0789c7193db90de3cfdfa77"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/util/track.js",
+      "sha256": "a7254e9fa9b1c92e349e2fde6bbacfc9b2453806f9cf06f16ff735fdde900f8e"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/lib/index.js",
+      "sha256": "00c783f8e7168233253e04066aa9e06753754e916eacaa636e1f76e2ef8c7c38"
+    },
+    {
+      "source": "node_modules/mdast-util-to-markdown/index.js",
+      "sha256": "424f094d7793c73a0a94e6b11bc747d122fa409037cf13e48ac490c2e283c03a"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-table/lib/index.js",
+      "sha256": "5f5fc1551fe95d4e4e5a8729e52391abb9a053c0a618aa79dfb0364728299be8"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-table/index.js",
+      "sha256": "9cc7b5b80a5b94d6c0803936b9a120c272e32a63f802cb960de7c6c59907ee65"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-task-list-item/lib/index.js",
+      "sha256": "1986b0f334e23659909982bc930ebc11784212d9331ef97efa14f268af01d852"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm-task-list-item/index.js",
+      "sha256": "38e8209a8b251e633588fd16ad1152c33daced7ff21be821827c29be7bf37d3f"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm/lib/index.js",
+      "sha256": "0ead64b5f705ade5818adf7059c62c34353f00aaf4528549aceccd342004297e"
+    },
+    {
+      "source": "node_modules/mdast-util-gfm/index.js",
+      "sha256": "f6d345b843a3b44d74a5e8ee123f90c7d16f0c670542810c8b06367c44a01b50"
+    },
+    {
+      "source": "node_modules/mdast-util-math/lib/index.js",
+      "sha256": "fabe05044becc9ae3ff1320f4c2ed30d8aa8859b4944e126cac22a570bae9574"
+    },
+    {
+      "source": "node_modules/mdast-util-math/index.js",
+      "sha256": "266fcd72f8606ae61640f98ea2aa660562c08d3e5cc14956d09051813aab47c0"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js",
+      "sha256": "2b45c68982c1f80daf125b709faba88803b131a0d710b0374dd309495a74efeb"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-autolink-literal/lib/html.js",
+      "sha256": "531d28a41ae6add3cdb04ecf8be50bace69bd334df9271cd146907ac4c5eb685"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-autolink-literal/index.js",
+      "sha256": "df8add1053d02f32b6fbbd72d5d7fb213590ea32d666bc15c7f4e69467d021be"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-footnote/lib/syntax.js",
+      "sha256": "5fd8d63fcbb9918a0f7b92f2ba6adea3845e9cbf7f1e74ee239f4d018943ef6b"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-footnote/lib/html.js",
+      "sha256": "eb300069225e67d6a71c96d16c7e69c64d14ba54c42c2ea7a3bfb5a8012d83b3"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-footnote/index.js",
+      "sha256": "9f2dd0393871a1d2db494fd4e5502ede219eda13ac05fea9ea6dd9c8ccf8dff6"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-strikethrough/lib/html.js",
+      "sha256": "6230e158b586049d3ba5612c7a2cd781bb48af69e5f3985339519d0720a7eeea"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js",
+      "sha256": "293e9b13a554fe569efd096cd7f1c3f4d6da861f30bba701e8b923f621181250"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-strikethrough/index.js",
+      "sha256": "0ee76753d9416266808227424eac60626edd98daeb27b74df4da71d2444c147c"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-table/lib/html.js",
+      "sha256": "e01378aaa7ce1f99b772f486606e3fa6fc1e48839ce6c79c4586127ccfc69852"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-table/lib/edit-map.js",
+      "sha256": "47e082373ee2022e2569ea4c0d7e05dbeae0a55885a6b5fb7efce65436b9bd82"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-table/lib/infer.js",
+      "sha256": "c2a038479872bd8026d513d528e56717fa266f09905f53192c6b5a0da6bc9ea7"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-table/lib/syntax.js",
+      "sha256": "45aac9771cc150aa2e3b62ae12fc370c07b72732d84e847b47e09dd17b3a7bfe"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-table/index.js",
+      "sha256": "bfdd4285a9f61faa334ced8f98fbbd1c3ba35f00a1613839c23c30c0786dcc97"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-tagfilter/lib/index.js",
+      "sha256": "ea626eefc8e4c741e450f31eed8476eeb1b344ea0db00363ad176c117a845a35"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-tagfilter/index.js",
+      "sha256": "11a91af64d788b9cef27855f6dad3cd2bf5f5b7a5b0ce3ba6794ef587699675f"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-task-list-item/lib/html.js",
+      "sha256": "8a90e3c2badc4eb1f640f7ae84d9ec5c6835c17c39aaec9a08c0014fdcad1623"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js",
+      "sha256": "b819eb327b98387d58b3c254df11324b9291420e7b59306cc41d8a25b0820385"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm-task-list-item/index.js",
+      "sha256": "9642f1c0386a40107895796c2207e55f981c762614887835e56ad18849f24788"
+    },
+    {
+      "source": "node_modules/micromark-extension-gfm/index.js",
+      "sha256": "66b05551c6efe3d6a1c75bca914c192139bc3c998fdb2b0d0784ab6685934bbc"
+    },
+    {
+      "source": "node_modules/micromark-extension-math/lib/math-flow.js",
+      "sha256": "5399d010e7dee830eb033b56bc3162c6ec0be64cc4da82d808533bd9aa918248"
+    },
+    {
+      "source": "node_modules/micromark-extension-math/lib/math-text.js",
+      "sha256": "228234cea5f5ee00ebe3e1c2e5e0362efbbdc7f296d77f0ead3ee0b9fdb8ef78"
+    },
+    {
+      "source": "node_modules/micromark-extension-math/lib/syntax.js",
+      "sha256": "abe6c2f50bdd1899290310c20d77ca6db1f17c5542eea85141e83460a4b02810"
+    },
+    {
+      "source": "node_modules/katex/dist/katex.mjs",
+      "sha256": "09a78a9812d1e7d3ace85033512e6a450127b9554ef281b4b6567408694c6e36"
+    },
+    {
+      "source": "node_modules/micromark-extension-math/lib/html.js",
+      "sha256": "556cea30c8cbfb9f4482de842d504bf714c15c1634416b2f3d654d8f25eb3396"
+    },
+    {
+      "source": "node_modules/micromark-extension-math/index.js",
+      "sha256": "d2651b530ac7e16dac559f6230bae438846f693dbc7b8e39b2b3001bf8455208"
+    },
+    {
+      "source": "node_modules/micromark-util-symbol/lib/codes.js",
+      "sha256": "f714f25d71a49a17429befbeb67af141ac9aaae969a7d64af30547f2ef32875f"
+    },
+    {
+      "source": "node_modules/micromark-util-symbol/lib/constants.js",
+      "sha256": "4f97f02687845c9c57545074d6768b423e0a73c3e560eccf4d999cba3e41f60b"
+    },
+    {
+      "source": "node_modules/micromark-util-symbol/lib/types.js",
+      "sha256": "17af096915e6c6e4966c758e13c5f14dc4fb05e7a32c4e3ec0c957aa4646f778"
+    },
+    {
+      "source": "node_modules/micromark-util-symbol/lib/values.js",
+      "sha256": "a6eee9d658bd97e03256148f844decb141ec35b102c83f5c312ead5af2aea820"
+    },
+    {
+      "source": "node_modules/micromark-util-symbol/lib/default.js",
+      "sha256": "1591ff41a65d33aa17a8477554e989e3cd85e657f83206a8b2dc6f68710ecff9"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/CodeBlock.module.css",
+      "sha256": "cdc295dff342fbcc33db61d8260938228a29245da72e987287db870cc3a95821"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/MarkdownText.module.css",
+      "sha256": "3e4ed740dd404ca75c786f675e7611de6c8fe6da66ddf05da7b670b196ebe2d0"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_AMS-Regular.woff2",
+      "sha256": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_AMS-Regular.woff",
+      "sha256": "30da91e84c893f875e252689faebdc590b2871145e8adc7f9a9d4dbd8ce0b251"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_AMS-Regular.ttf",
+      "sha256": "68534840bcfdd2bffb6f0e8deb48684dd01e7f04ea2813267577afb906de1d13"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Caligraphic-Bold.woff2",
+      "sha256": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Caligraphic-Bold.woff",
+      "sha256": "1ae6bd7475590e97e7f145a89e09ccde322f7a6bc0b91607b1c8b8ee28290fed"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Caligraphic-Bold.ttf",
+      "sha256": "07d8e303ce4fc12b4bb54f1004170dd190a1f3db45d400fe68060df3e0897268"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Caligraphic-Regular.woff2",
+      "sha256": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Caligraphic-Regular.woff",
+      "sha256": "3398dd02302557a793f2863f88e02d96ce10df2abffa07c8e9fa90775116e65c"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Caligraphic-Regular.ttf",
+      "sha256": "ed0b74372feefcbb9c0666b2e210da37b7e49fa7fbbf3eeb11db5f693dacfbb7"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Fraktur-Bold.woff2",
+      "sha256": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Fraktur-Bold.woff",
+      "sha256": "9be7ceb88004ab8ad124082246fbfcca4091e36385d4ec6ed1df67375dad50fb"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Fraktur-Bold.ttf",
+      "sha256": "9163df9c7122432e6495b4229fa9071cf9ae86a758ae5efc4924ec2e1a6dbce1"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Fraktur-Regular.woff2",
+      "sha256": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Fraktur-Regular.woff",
+      "sha256": "5e28753be717dac97f559f49bc10be9cf3c124ddcabda6659d11cb68febc6463"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Fraktur-Regular.ttf",
+      "sha256": "1e6f9579e90e2cac37f8f60a597c436e075c114385652b7cbeb0dec0421291b3"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Bold.woff2",
+      "sha256": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Bold.woff",
+      "sha256": "c76c5d696297d51b9cb1639c7da4334f0e7dec81b42b11213b5e25ef671bb822"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Bold.ttf",
+      "sha256": "138ac28d1663b3037e9c5f52371fa5c63d8324f4a38d22cd573e6ea3a3fd0cf8"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-BoldItalic.woff2",
+      "sha256": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-BoldItalic.woff",
+      "sha256": "a6f7ec0d846ac7ad975adb8959c37ed49b94acbc4ae436db9ce9e20287e4a64c"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-BoldItalic.ttf",
+      "sha256": "70ee1f64a20f2048c21940ef46d0144fd215baa953ca69afd1e31e98544f708f"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Italic.woff2",
+      "sha256": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Italic.woff",
+      "sha256": "f1d6ef86f3b11a528bd5185199bd2443ecb2b0dead96d88674b5a2c12be24bdf"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Italic.ttf",
+      "sha256": "0d85ae7cc30f23790a7f1a58c4a112fdca8aae769b6ba11429af1d98b1b6cb3a"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Regular.woff2",
+      "sha256": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Regular.woff",
+      "sha256": "c6368d87e8a1a3a5d337623d83d8dc4b868f242a9ad476237d6f8d1e0f168cdc"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Main-Regular.ttf",
+      "sha256": "d0332f52868370fd83ae7fa46470f90c8f2eab2fcf12bc4f88080b340c95a830"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Math-BoldItalic.woff2",
+      "sha256": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Math-BoldItalic.woff",
+      "sha256": "850c0af5c2238497febaf5e461d880bf458c341f42f4f330f1b1ab5698b1998e"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Math-BoldItalic.ttf",
+      "sha256": "f9377ab0271cda59af24bcffbd46a4d0c8a3572ffafdbb38de2ad5ea7b0d5ee5"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Math-Italic.woff2",
+      "sha256": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Math-Italic.woff",
+      "sha256": "8a8d244581371912b8f3f5a23e2437cb2a59cd9bcaebb0346e722c05737a2571"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Math-Italic.ttf",
+      "sha256": "08ce98e51b04d58945a301e639e02b6998af29fdfd61a7b8afdd07bbfc479d4a"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Bold.woff2",
+      "sha256": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Bold.woff",
+      "sha256": "ece03cfd83e22c212cdef66feb8442d25a083beb988db3f1883f3f9738d750ba"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Bold.ttf",
+      "sha256": "1ece03f79f95277d57dc7f6b435a74e1379b0d46104a8530286b60ff49369ea0"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Italic.woff2",
+      "sha256": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Italic.woff",
+      "sha256": "91ee67500cc0129aa0ace3ac5c61ff1692102f0f31d02b69347fba35dcb75bf2"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Italic.ttf",
+      "sha256": "3931dd81faed86ba021bb2bbdc36f5bed9a38d6b4f4077aca59b265aa1b02083"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Regular.woff2",
+      "sha256": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Regular.woff",
+      "sha256": "11e4dc8a6471ff6d6ee561d53d10fde8f7489e798257ff449c5d37c197435605"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_SansSerif-Regular.ttf",
+      "sha256": "f36ea897e19f4a2e571d1e900e4e3710e438deb05a842486045ba0a3e616a4ad"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Script-Regular.woff2",
+      "sha256": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Script-Regular.woff",
+      "sha256": "d96cdf2b3bdd4d64a8fd5f74a4c467f123a8a73931cd435889f08ffaf9bf947a"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Script-Regular.ttf",
+      "sha256": "1c67f068fea8bb09bf099c088b1cf64bd27516a6e07f4684344873564bb66a67"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size1-Regular.woff2",
+      "sha256": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size1-Regular.woff",
+      "sha256": "c943cc986384f59e86bea5fd7dc50a9c4dfe567a7c05eb40d6790720dead97c9"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size1-Regular.ttf",
+      "sha256": "95b6d2f1a50173bfedb8c63e1d1c99b10427d0a4df4201cb44513b226951a22b"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size2-Regular.woff2",
+      "sha256": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size2-Regular.woff",
+      "sha256": "2014c523c3210bcc166648c4d4cc57f05b747df07a24277bf71c51e67dc79e3d"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size2-Regular.ttf",
+      "sha256": "a6b2099fb555c60e3a0db3a08842ebf1d732c6eb4e4bf44913613bed4fc4e39b"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size3-Regular.woff2",
+      "sha256": "73d591271b1604960cb10bb90fee021670af7297017e0e98480b332d11f51995"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size3-Regular.woff",
+      "sha256": "6ab6b62e9b62dae2c00dd90f791bd10950be0ecc3490d7d6045f51c2e8fe0949"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size3-Regular.ttf",
+      "sha256": "500e04d54f0d51666332c9d2089aa803be22aa878eca539e59fa53c6e522b082"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size4-Regular.woff2",
+      "sha256": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size4-Regular.woff",
+      "sha256": "99f9c6750b489c9462bf04900bd3f939df9b829339daaaaa99ef5495cdddea58"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Size4-Regular.ttf",
+      "sha256": "c647367d1dd4e162468717d020e1fc0f1dc5c26ebfdffbe55261713bf88c5877"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Typewriter-Regular.woff2",
+      "sha256": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Typewriter-Regular.woff",
+      "sha256": "e14fed02b1aba7ce9f5afd5844b5d0321b22351febc720e0de8b8723527609f7"
+    },
+    {
+      "source": "node_modules/katex/dist/fonts/KaTeX_Typewriter-Regular.ttf",
+      "sha256": "f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa"
+    },
+    {
+      "source": "node_modules/katex/dist/katex.min.css",
+      "sha256": "0289a02cf451a44dd73add683a09644252363871ac11713a647b732cee8b1ee3"
+    },
+    {
+      "source": "src/modules/platform/primitives/WebBlock.module.css",
+      "sha256": "04d8f1c0b4f9c009f81032dc7c78fba19df743c5a4498da29262fc2f082d890e"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/JsonBlock.module.css",
+      "sha256": "4b97662e09b18c7febf0697f566c57444ed9044c4e3f8432e75968ccce7af72e"
+    },
+    {
+      "source": "src/modules/platform/primitives/markdown/MessageText.module.css",
+      "sha256": "95d227acaec1b949140345184a127bd53a72621af78c39af818bade0ec99e0a0"
+    },
+    {
+      "source": "src/modules/platform/web/base.css",
+      "sha256": "d4b536f3ead1e892804df4899637f6a391be33cf3d9c1ff6dafc1f6be2176faa"
+    }
+  ],
+  "tests": {
+    "command": "UI_TEST_DEPS=<playwright-deps> node scripts/test-platform-source-browser.mjs",
+    "engines": [
+      "chromium",
+      "webkit"
+    ],
+    "fullComputedAndPixelSnapshotsPerImplementation": 12,
+    "passed": true,
+    "logSha256": "71866b9b2de322b8883c748d8bf07116e3b910a02a2c344246f684ad96e509e0",
+    "log": "/tmp/xh-platform-ab-latest-final.log",
+    "processExitCode": 0
+  },
+  "limits": [
+    "Platform-only; full Host and all foundation groups remain separate acceptance",
+    "59 frozen KaTeX fonts retained; one exact missing original font included"
+  ],
+  "finalNamespaceAdaptation": {
+    "ownedModuleComments": "@xharness",
+    "ownedLoaderStatusTypeImport": "@xharness/cordis",
+    "runtimeBehaviorUnchanged": true,
+    "originalVendorFilesUnchanged": true
+  }
+}

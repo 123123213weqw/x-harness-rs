@@ -1,5 +1,20 @@
 # XHarness 总任务清单
 
+## 自有前端全量源码迁移（2026-10-02）
+
+基线为已合并主分支 `a613970c78a36a024de56100078323df25b96004`，不要求另一个上游目录。
+本轮未替换本机软件、未发布安装包；以前的分片通过记录不能当作当前整图验收。
+
+- [x] `UI-SOURCE-01` 单一源码清单和原子构建器：自有 ModuleLoader 模块、内部 Plugin API、平台及四个桌面脚本从本仓库编译；拒绝旧外部目录、classic-js 业务入口和 `frozenOverrides`。
+- [x] `UI-SOURCE-02` 生产构建输入拒绝 `dist`、`reference`、`node_modules` 别名；真实第三方版本／许可／完整 Hash 固定，保留独立冻结主分支 A/B 基线。
+- [x] `UI-SOURCE-03` 共用 AST／TypeChecker 门禁禁止显式／直接推断 `any`、普通／非空断言及抑制指令；允许 `as const`、导入重命名、`satisfies`。严格配置不能降低。
+- [x] `UI-SOURCE-04` 独立平台实际 Chromium／WebKit 差分：React 单例、staticModules ABI、Loader、Cordis 调用上下文、SlotCore、流式数学、高亮及主题叠层；见 `docs/evidence/platform-source-master-a613970.md`。仅是平台切片，不等于整图通过。
+- [x] `UI-SOURCE-05` 全业务真实 SDK 编译／类型门禁全部通过；持久化、开放事件和动态 target 兼容证明，不以 ambient 假签名或丢弃旧数据绕过。
+- [x] `UI-SOURCE-06` 干净完整构建、重复字节一致、损坏／失败保留旧产物，冻结主分支／新源码全部业务 A/B 与 canonical Node／Chromium／WebKit 回归。
+- [x] `UI-SOURCE-07a` WZU_Server 远程真实 Rust Host 响应与 TS DTO 对照通过；不在本机编译 Rust。
+- [ ] `UI-SOURCE-07b` 当前提交的 GitHub CI 全绿后合并；桌面安装和发布仍需独立授权及验收。
+- [ ] `UI-LINUX-ANCHOR-01` 既有 Linux WebKit Safari 26.4 不支持 `overflow-anchor` 时，窗口化测高未补偿滚动位置，尾行离开视口。V100 172 个补充入口首次 169 通过、checkpoint 两项独立修正后累计 171；剩余此项 source/frozen 均复现，不能记为全绿或迁移回归。单独修能力判断与测高补偿，保留真实点击、锚点、展开状态和 active-row 回归。见 `docs/evidence/ui-source-v100-browser-matrix-20261003.json`。
+
 ## 旧公开接口清理（2026-09-30）
 
 - [x] `LEGACY-API-01` 删除无调用的参数裁剪阈值常量；保留历史审计字段、参数完整性保护和现有 Context 策略。
@@ -1306,7 +1321,7 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 高度占位、前后各一屏缓冲、共享观察器、按帧更新；2026-10-01 改为临时焦点／选区保护、live tip 与未结算工具保留。
 - [x] 接入真实 ChatView 和静态 UI 重建流程，保留原锚点与滚动逻辑。
 - [x] 服务器 Chromium 三次 DOM/JS 堆 A/B、真实 ChatView 滚动回归；本机 WebKit 通过，详见 `reports/transcript-windowing-20260913.md`。
-- [ ] Linux WebKit 服务器回归：2026-10-01 已有浏览器，但 V100 缺少系统依赖；CI 已接入两个引擎，尚待 GitHub CI 验证。
+- [ ] Linux WebKit 服务器回归：2026-10-03 已补齐 V100 测试系统依赖，172 入口补充矩阵完成；滚动测高真实点击在旧/新实现均失败，见 `UI-LINUX-ANCHOR-01`。不能继续归因于浏览器无法启动；最新 CI 和原生 WebView 验收另行核实。
 - [x] 首次加载／宽度变化不再全量挂载；真实 macOS 安装包 footprint 对照仍待发布后验收。
 - [x] 跨组件轻量交互状态外置，已交互的历史行可离屏卸载并恢复展示状态。
 - [ ] 数据层全文检索替代依赖所有消息 DOM 的原生查找。
@@ -1427,5 +1442,5 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 行外轻量展示状态、按 callId／思考块隔离；取消点击永久固定，输入与选区仅临时保护。
 - [x] 接入原工具呈现注册与静态 UI 重建路径，不修改模型输入、工具执行和磁盘历史。
 - [x] V100 静态及 Chromium 八组关联回归、本机 macOS WebKit 窗口化回归；350 行首次重组件挂载 0，五轮宽度变化峰值 1（模拟用例，不代表真实进程 footprint）。
-- [ ] Linux WebKit 回归：V100 缺少 libgstcodecparsers-1.0.so.0、libavif.so.13，浏览器无法启动；跨平台 GitHub CI 待推送后验收。
+- [ ] Linux WebKit 回归：V100 缺失测试库已补齐；Safari 26.4 的既有测高滚动补偿缺口已复现并单列 `UI-LINUX-ANCHOR-01`，不使用强制点击/等待绕过失败。最新 GitHub CI 与原生 WebView 结果不冒充该版本通过。
 - [ ] 发布后对真实 macOS WKWebView footprint／启动峰值验收；源码修改不代表本机已升级。

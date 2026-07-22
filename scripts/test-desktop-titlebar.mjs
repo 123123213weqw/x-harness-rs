@@ -1,9 +1,10 @@
+import {scriptAsset} from './fixtures/script-asset-test.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
 const root = new URL('../', import.meta.url)
-const source = readFileSync(new URL('ui/desktop/titlebar.js', root), 'utf8')
+const source = scriptAsset('desktop-titlebar.js')
 const css = readFileSync(new URL('ui/desktop/titlebar.css', root), 'utf8')
 const config = JSON.parse(readFileSync(new URL('apps/desktop/src-tauri/tauri.conf.json', root), 'utf8'))
 const capability = JSON.parse(readFileSync(new URL('apps/desktop/src-tauri/capabilities/desktop-main.json', root), 'utf8'))

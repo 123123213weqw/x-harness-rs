@@ -2,32 +2,12 @@
 // the shipped assembler and turn-error reducer, not a replacement state machine.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
-
+import {projectionArtifacts} from './projection-artifact-test.mjs';
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const runtimeSource = read('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js');
-const ui = read('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js');
 const fixture = JSON.parse(read('./fixtures/retry-turn-projection.json'));
-let registration;
-vm.runInNewContext(runtimeSource, {
-  window: { __ModuleLoader__: { load: value => { registration = value; } } },
-  console, URL, AbortController, setTimeout, clearTimeout,
-});
-const runtime = registration.factory(id => {
-  if (id === '@xharness/cordis') return { Service: class {} };
-  return {};
-});
-const context = vm.createContext({ _xharness_dsh_client_runtime_client: runtime });
-for (const name of ['contextLocation', 'chatNode', 'lastStep$1', 'retryTurn', 'failureFrom', 'fallbackState']) {
-  const start = ui.indexOf(`function ${name}(`);
-  const end = ui.indexOf('\n\t\t}', start);
-  assert.ok(start >= 0 && end > start, `missing shipped helper ${name}`);
-  vm.runInContext(ui.slice(start, end + 4), context);
-}
-const start = ui.indexOf('const turnErrorDefinition = {');
-const end = ui.indexOf('\n\t\t};', start);
-assert.ok(start >= 0 && end > start, 'missing shipped turn-error definition');
-const definition = vm.runInContext(ui.slice(start, end + 5) + '\nturnErrorDefinition', context);
+for(const implementation of ['source','legacy']) {
+const {runtime,conversation}=projectionArtifacts(['turnErrorDefinition'],implementation);
+const definition=conversation.turnErrorDefinition;
 const plain = value => JSON.parse(JSON.stringify(value));
 function assembler() {
   return new runtime.ConversationNodeAssembler(
@@ -47,8 +27,12 @@ function entries(offset = 0) {
     seq, time: seq + 1, type: row.type,
     data: {
       turn: row.turn + offset,
-      ...(row.type === 'turn/end' ? { reason: { kind: 'error', error: { code: 'TRANSPORT', message: `turn ${row.turn} failed` } } } : {}),
-      ...(row.type.startsWith('llm/') ? { retryId: 'retry-1', retry: 1, step: 1 } : {}),
+      ...(row.type === 'turn/end' ? { reason: { kind: 'error', error: { code: 'TRANSPORT', message: `turn ${row.turn} failed`,details:{} } } } : {}),
+      // The shared Rust fixture is deliberately only the ownership coordinate
+      // sequence. Fill the scheduled producer's independent facts identically
+      // for both actual factories; do not test an invalid owner DTO by accident.
+      ...(row.type.startsWith('llm/') ? { retryId: 'retry-1', retry: 1, step: 1,
+        ...(row.type==='llm/retry'?{mode:'normal',maxRetries:2,delayMs:500,provider:'fixture',policyKey:'default',failure:{code:'TRANSPORT',message:'network'}}:{})} : {}),
     },
   } }));
 }
@@ -83,4 +67,6 @@ for (const offset of [0, 4]) {
   assert.throws(() => assembler().replaceWindow(broken, false),
     new RegExp(`conversation Context 10:turn-error${offset + 1} received an update before its start Match`));
 }
-console.log('retry turn projection: live/reload/all page splits/duplicate delivery/error ownership passed; old numbering reproduces the failure');
+console.log(implementation+' retry turn projection: live/reload/all page splits/duplicate delivery/error ownership passed; old numbering reproduces the failure');
+
+}

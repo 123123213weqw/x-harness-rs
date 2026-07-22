@@ -1,30 +1,35 @@
 // Exercise the shipped plugin hub against a deterministic Host RPC fixture.
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import {installOwnedViewPlatform} from './fixtures/owned-view-platform-browser.mjs'
+import {createHash} from 'node:crypto'
+import { ownedViewModuleTestInput } from './owned-view-module-test-input.mjs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 
-const deps = resolve(process.env.UI_TEST_DEPS ?? '/tmp/xharness-model-ui-tests')
+const deps = resolve(process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps')
 const require = createRequire(resolve(deps, 'package.json'))
-const { chromium } = require('playwright')
-const browser = await chromium.launch({ headless: true })
+const browserName = process.env.UI_TEST_BROWSER ?? 'chromium'
+assert.ok(['chromium', 'webkit'].includes(browserName))
+const hubSource = ownedViewModuleTestInput('@xlang/xharness-client-ui-plugin-hub')
+const browser = await require('playwright')[browserName].launch({ headless: true })
 try {
   const page = await browser.newPage()
   const errors = []
-  page.on('pageerror', error => errors.push(error.message))
-  await page.setContent('<div id="root"></div>')
-  for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js']) {
-    await page.addScriptTag({ path: resolve(deps, 'node_modules', file) })
-  }
+  page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
+  await installOwnedViewPlatform(page,process.env.UI_TEST_IMPL==='legacy'?'legacy':'source')
+  await page.evaluate(()=>document.body.innerHTML='<div id="root"></div>')
   await page.addScriptTag({ content: `
-    window.__fixture = { catalog: [], installed: [], calls: [] };
-    window.confirm = message => { window.__fixture.confirm = message; return true; };
-    window.__ModuleLoader__ = { load({ factory }) { window.__hub = factory(name => {
+    window.__fixture = { catalog: [], installed: [], calls: [], confirm: true };
+    window.confirm = message => { window.__fixture.confirmMessage = message; return window.__fixture.confirm; };
+    window.__modules = {};
+    window.__ModuleLoader__ = { load({ id, factory }) { window.__modules[id] = factory(name => {
       if (name === 'react') return React;
+      if (window.__modules[name]) return window.__modules[name];
       throw Error('unexpected module ' + name);
     }); } };
   ` })
-  await page.addScriptTag({ content: readFileSync(resolve('ui/dist/plugins/@xlang/xharness-client-ui-plugin-hub/client.js'), 'utf8') })
+  if (hubSource.includes('@xlang/xharness-client-plugin-api')) await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-plugin-api') })
+  await page.addScriptTag({ content: hubSource })
   await page.addScriptTag({ content: `
     let labels = {};
     let component, props;
@@ -47,7 +52,7 @@ try {
           } else if (endpoint === 'plugins/install') {
             const source = store.catalog.find(item => item.name === args.name);
             store.installed = [{ name: source.name, version: source.version, description: source.description,
-              digest: source.source.sha256, enabled: false, mcpEnabled: false, capabilities: ['skills', 'mcp'], skills: [{ name: 'demo', description: 'Demo Skill' }] }];
+              digest: source.source.sha256, enabled: false, mcpEnabled: false, capabilities: ['skills', 'mcp'], skills: [{ name: 'demo', description: 'Demo Skill', relativePath: 'skills/demo/SKILL.md', sha256: 'b'.repeat(64) }] }];
             value = { plugin: store.installed[0] };
           } else if (endpoint === 'plugins/enable' || endpoint === 'plugins/disable') {
             store.installed[0].enabled = endpoint === 'plugins/enable';
@@ -65,15 +70,29 @@ try {
       } }; },
       slots: { inject(_name, fn) { fn(); }, register(_spec, view) { component = view; props = { ..._spec.inject(), t: ctx.locale.bind('xharness.pluginHub') }; } },
     };
-    window.__hub.apply(ctx);
+    window.__modules['@xlang/xharness-client-ui-plugin-hub'].apply(ctx);
     ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(component, props));
   ` })
   const hub = page.locator('[data-xharness-plugin-hub]')
   await hub.waitFor()
+  await hub.getByText('No plugin catalog imported').waitFor()
+  assert.equal(await hub.getByRole('combobox').count(), 0, 'main has no WIP source selector')
+  assert.deepEqual(await page.evaluate(() => window.__fixture.calls), ['plugins/catalog', 'plugins/installed', 'plugins/updates'], 'main startup only reads metadata')
+  await page.evaluate(()=>document.fonts.ready);const initialPixelsSha256=createHash('sha256').update(await hub.screenshot({animations:'disabled'})).digest('hex')
+  await hub.getByRole('tab', { name: 'Personal' }).focus()
+  await page.keyboard.press('ArrowLeft')
+  assert.equal(await hub.getByRole('tab', {name: 'Public'}).getAttribute('aria-selected'), 'true')
+  await page.keyboard.press('End')
+  assert.equal(await hub.getByRole('tab', {name: 'Personal'}).getAttribute('aria-selected'), 'true')
   await hub.getByRole('tab', { name: 'Personal' }).click()
   await hub.locator('input[type=file]').setInputFiles({ name: 'marketplace.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ plugins: [{ name: 'demo', version: '1.0', description: 'A demo skill', source: { source: 'url', type: 'zip', url: 'https://example.com/demo.zip', sha256: 'a'.repeat(64) } }] })) })
   await hub.getByText('A demo skill').waitFor()
   assert.ok(await hub.getByRole('tabpanel', { name: 'Personal' }).getByText('demo').count() >= 1)
+  await page.evaluate(() => window.__fixture.confirm = false)
+  await hub.getByRole('button', { name: 'Install', exact: true }).click()
+  await page.waitForFunction(() => !document.querySelector('.xhph-actions button').disabled)
+  assert.equal(await page.evaluate(() => window.__fixture.calls.includes('plugins/install')), false)
+  await page.evaluate(() => window.__fixture.confirm = true)
   await hub.getByRole('button', { name: 'Install', exact: true }).click()
   await hub.getByRole('button', { name: 'Enable', exact: true }).first().waitFor()
   await hub.getByRole('button', { name: 'Enable', exact: true }).first().click()
@@ -83,10 +102,18 @@ try {
   await hub.getByRole('button', { name: 'Allow MCP', exact: true }).click()
   await hub.getByRole('button', { name: 'Disable MCP', exact: true }).waitFor()
   assert.equal(await page.evaluate(() => window.__fixture.installed[0].mcpEnabled), true)
-  assert.match(await page.evaluate(() => window.__fixture.confirm), /TOKEN ← Host environment: DEEPSEEK_API_KEY/)
+  assert.match(await page.evaluate(() => window.__fixture.confirmMessage), /TOKEN ← Host environment: DEEPSEEK_API_KEY/)
   assert.ok((await page.evaluate(() => window.__fixture.calls)).includes('plugins/enable'))
+  await hub.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await page.waitForFunction(() => !document.querySelector('.xhph-actions button').disabled)
+  assert.equal(await page.evaluate(() => window.__fixture.calls.includes('plugins/refreshCatalog')), false, 'main Refresh is a metadata reload, not new Host endpoint')
+  await hub.getByRole('button', { name: 'Uninstall', exact: true }).click()
+  await hub.getByText('No user plugins installed').waitFor()
+  assert.equal(await page.evaluate(() => window.__fixture.installed.length), 0)
+  assert.equal(await hub.locator('.xhph-icon img').count(), 0, 'main initials have no WIP bundled artwork')
   assert.deepEqual(errors, [])
-  console.log('plugin hub functional: import, install, Skill enable, MCP consent and refresh passed')
+  console.log(JSON.stringify({engine:browserName,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,initialPixelsSha256,pageErrors:errors}))
+  console.log(`plugin hub functional / ${browserName} / ${process.env.UI_TEST_IMPL ?? 'canonical'}: main import, install/cancel, Skill enable, MCP environment-source consent, metadata refresh, uninstall and keyboard tabs passed`)
 } finally {
   await browser.close()
 }

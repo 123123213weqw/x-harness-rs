@@ -1,0 +1,164 @@
+{
+  "formatVersion": 1,
+  "sourceRevision": "ad2e6d0b0edea1c1e268004f0e686a90185b5097",
+  "packages": [
+    {
+      "package": "@tanstack/react-virtual",
+      "version": "3.14.9",
+      "license": "MIT",
+      "sourceRevision": "ad2e6d0b0edea1c1e268004f0e686a90185b5097"
+    },
+    {
+      "package": "@tanstack/virtual-core",
+      "version": "3.17.7",
+      "license": "MIT",
+      "sourceRevision": "ad2e6d0b0edea1c1e268004f0e686a90185b5097"
+    },
+    {
+      "package": "diff",
+      "version": "9.0.0",
+      "license": "BSD-3-Clause",
+      "sourceRevision": "ed13aca03aa25735fafc0645d1185e7a1c68fd8c",
+      "npmGitHead": "db0b12ace208da7fd741cf96d97f009347a9eaa8"
+    }
+  ],
+  "files": [
+    {
+      "path": "diff/LICENSE",
+      "sha256": "eda81a415869e67809f6a9f3fd6056062cb83a462118e07eec5e92b2e0c40ce9"
+    },
+    {
+      "path": "diff/src/convert/dmp.ts",
+      "sha256": "4274de8332cd62ec00d6e682f7ad6413b7ae51e4363dc013ecc1df875980f46d",
+      "upstreamSha256": "df68c3ad2b41a8378b22b9a11ff251af26076e08f45dab0d90f6cdc4657aad9e"
+    },
+    {
+      "path": "diff/src/convert/xml.ts",
+      "sha256": "c0a3f7ab4090019c738e56e6151e016f907ffed22e50c1da36c3ce95803c453e",
+      "upstreamSha256": "182c64d37a36de18065a80cfc0fc038e069e36adf08c9f551031a5623ce8b4a5"
+    },
+    {
+      "path": "diff/src/diff/array.ts",
+      "sha256": "ef8e92e779c73ee577774c3c02600d38b5f94d5d60b7b8b0add4afa56f26f062",
+      "upstreamSha256": "94360691086628fd43cedae0e15e66b97d73e217cb3dce4139eda38d83f4f684"
+    },
+    {
+      "path": "diff/src/diff/base.ts",
+      "sha256": "e1b1c6236a317b352e2a767f93f47864642fd88c4e1ca9b4669e5e111dc143fb",
+      "upstreamSha256": "76f428cf14013762e915c8488afcff65a95928af8cefbf25cfe2c481ca8676b6"
+    },
+    {
+      "path": "diff/src/diff/character.ts",
+      "sha256": "5f0e9d2b97891fbacb7c4279d342a70bfcbf03537c5713a17ed9866f300bb74a",
+      "upstreamSha256": "0778fc8dd01f9b561e9c9b8af9264b76657de452f5c57bdf03970f6a7ad23d93"
+    },
+    {
+      "path": "diff/src/diff/css.ts",
+      "sha256": "93f1d7318fd340b860bb91e2bdc1a0f989800d66ec5b59c9154925be3031251e",
+      "upstreamSha256": "53522a86a6225ff06bc9d2c526d5d3daff299fb796940d0c0559a507cb6c3e90"
+    },
+    {
+      "path": "diff/src/diff/json.ts",
+      "sha256": "d3c744c68fdbf1d5a51f91f214527ab018e884e5986c054696adfbedcdfca9c5",
+      "upstreamSha256": "921f3587f469799243e0c1c26532cd3fa5de4c958a3ba10592b81cb289038eaa"
+    },
+    {
+      "path": "diff/src/diff/line.ts",
+      "sha256": "6c66f77e5c2687f91d9936ef1224c9b36b04f8a0fe7b0e757b6f7accb7d3010e",
+      "upstreamSha256": "96c1d5549cb8481acbfc22a7939fed855933566d8f363832ee461412597627f8"
+    },
+    {
+      "path": "diff/src/diff/sentence.ts",
+      "sha256": "63b10b4bfac68cfba633cdf67996c8d88e916569d952a29b2f7621eadd675d13",
+      "upstreamSha256": "8a70778e1223d87c1c4001707e6e526ac7426901ee86b6932106f06680b13edd"
+    },
+    {
+      "path": "diff/src/diff/word.ts",
+      "sha256": "d7c3b18097844aba32252a4d3628fa023c5d21fcdb2b65378bda4e7d22020ec4",
+      "upstreamSha256": "33fd4203d679a0369450c02d29bb8224a54b614bcb659f6c4f2315b8386c8e66"
+    },
+    {
+      "path": "diff/src/index.ts",
+      "sha256": "fe86c904978402082514757fddf1d38b52340144a7ec338268c77ccb5367851b",
+      "upstreamSha256": "8084899ebbc2138012b7e95879f227e85f59ec1640ab5fa2557f65c5aaea421d"
+    },
+    {
+      "path": "diff/src/patch/apply.ts",
+      "sha256": "285424ed24e136746571c276f0ab372cd5e17f4ddfe0cd2c455a8f9570fbe335",
+      "upstreamSha256": "141102315f700ae7fd8fc977dfa4dc22b8fd4e8bcd1eec5d677c03a0d80c6ba2"
+    },
+    {
+      "path": "diff/src/patch/create.ts",
+      "sha256": "b67fd1660aa94f95e18242cfcb27b593d4e0d323f008e4fcab221010ae53d096",
+      "upstreamSha256": "d00678639d13154bcbf1c781d4bcee370b591e570ba60891031c610369ed7689"
+    },
+    {
+      "path": "diff/src/patch/line-endings.ts",
+      "sha256": "29b25e56da76863f097b97eac3c4a8d94c654a959e6c8f05ca0f04caa70c60d4",
+      "upstreamSha256": "41a616c3a77957b17cabf4dc9fd25fc5357262c36bfd5c03c0c0929fc4d981ca"
+    },
+    {
+      "path": "diff/src/patch/parse.ts",
+      "sha256": "2627ba866e80cf1b157258d48c246456290f5e2c402cbe2dfe4c361ec11ef7c9",
+      "upstreamSha256": "c7f4121a2ac03bc518319e6dbb224087a7ae4e5a2af26a8c73841e8b40c5b0b8"
+    },
+    {
+      "path": "diff/src/patch/reverse.ts",
+      "sha256": "152f226aa47ea16f090fbab24cb5030372e34f3b6c2d8eaf4742559caed28a3b",
+      "upstreamSha256": "593c8ac1d118d380054fdfddb19cb7619e7aa9629f899425308f9bce8b8c3dab"
+    },
+    {
+      "path": "diff/src/types.ts",
+      "sha256": "883273efc550d570f2c00679080df91de02a9512bf2406512573f6a9aacf8301"
+    },
+    {
+      "path": "diff/src/util/array.ts",
+      "sha256": "7f3ca4c28a0e08c2101dd046a7c31ac19c980bb409993527ebd44968f22b4472"
+    },
+    {
+      "path": "diff/src/util/distance-iterator.ts",
+      "sha256": "4d05e478f44e6a64613b523d1e70e19e3727c74017760622df1bec6d39a50238"
+    },
+    {
+      "path": "diff/src/util/params.ts",
+      "sha256": "0a302eef2978342baffd65152f82c4fdabef88b6dc51ce17eba7f337f446ffe1"
+    },
+    {
+      "path": "diff/src/util/string.ts",
+      "sha256": "cb586acb8493c7dd8f3be5d5775b8d8705f2c4664ecc2c3169bca0a0903a8360"
+    },
+    {
+      "path": "react-virtual/LICENSE",
+      "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
+    },
+    {
+      "path": "react-virtual/src/index.tsx",
+      "sha256": "4c96cae619310b5087e2cff5f9babe7ee476c941cf0cb5dada74f1626b66a8ba",
+      "upstreamSha256": "a18d33ccd5af5c50091e173640c8459a17271394e05b689da88662689a1aebea"
+    },
+    {
+      "path": "virtual-core/LICENSE",
+      "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
+    },
+    {
+      "path": "virtual-core/src/index.ts",
+      "sha256": "81f148a7c5c7ceb08f70dd2136de4259c700fe8faea6e284fdc13fbd3b53fb44",
+      "upstreamSha256": "8efa5eb95eed96b6d2a974f3ab7da90c3680a3f01a2f672524902f6392d249c2"
+    },
+    {
+      "path": "virtual-core/src/lazy-measurements.ts",
+      "sha256": "8cc1bcc087b63eca08e6f1af8d4ee90b534c7474ddcb69574cb283da181964eb"
+    },
+    {
+      "path": "virtual-core/src/utils.ts",
+      "sha256": "dd56cc1aa28f11c335b0d9567580385f24d0334700ca97e77431d70eb2653c36",
+      "upstreamSha256": "2bf5c306b3a6b2f33aef4be22352d9a125a40dbc58077655b5d280d467812c80"
+    }
+  ],
+  "adaptations": [
+    "Repository-relative dependency imports; .js source import suffixes removed for standalone TypeScript compilation",
+    "Erased module-scoped process type declarations; scoped build defines preserve upstream production behavior",
+    "Bounded array-read non-null assertions and explicit undefined optional unions under noUncheckedIndexedAccess/exactOptionalPropertyTypes; upstream executable statements are unchanged",
+    "Upstream patch options suppression removed in favor of an erased option boundary assertion"
+  ]
+}

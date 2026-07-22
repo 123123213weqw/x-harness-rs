@@ -1,0 +1,41 @@
+import type { Context } from "../types/runtime"
+import type {
+  ConversationNodeDefinition, UnknownSurfaceNode,
+} from "../types/runtime"
+import { isAppendSurfaceEvent } from '../runtime-values'
+import { chatNode } from './common'
+
+declare module "../contract/chat-nodes" {
+  interface ChatNodeDataMap {
+    /** Generic presentation of an unclaimed append-surface event. */
+    unknown: UnknownSurfaceNode
+  }
+}
+
+/** Unclaimed append-surface fallback Definition. */
+export const unknownFallbackDefinition: ConversationNodeDefinition<UnknownSurfaceNode> = {
+  kind: 'unknown-surface',
+  target: 'chat',
+  match: event => isAppendSurfaceEvent(event)
+    ? { id: String(event.seq), role: 'start' }
+    : null,
+  start: (_context, match) => ({
+    kind: 'unknown',
+    seq: match.event.seq,
+    time: match.event.time,
+    type: match.event.type,
+    data: match.event.data,
+  }),
+  update: context => context.state,
+  buildViewNode: context => context.state === undefined
+    ? null
+    : chatNode(context, 'unknown', context.state.seq, context.state),
+}
+
+/**
+ * Register the unmatched append-surface fallback contribution.
+ * @param ctx - owning UI Conversation context.
+ */
+export function registerUnknownConversationFallback(ctx: Context): void {
+  ctx.conversationEvents.registerFallback(unknownFallbackDefinition)
+}

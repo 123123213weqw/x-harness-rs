@@ -6,18 +6,19 @@ import {readFileSync, mkdtempSync, writeFileSync, mkdirSync, rmSync} from 'node:
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import vm from 'node:vm';
+import {verifyConnectionArtifact,legacyConnection} from './connection-artifact-test.mjs';
 import {LEGACY_VIEW_SCHEMA, COMPACTION_VIEW_SCHEMA, patchCompactionWire, syncCompactionWire} from './patch-compaction-wire.mjs';
 
-const source = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-connection/client.js', import.meta.url), 'utf8');
+const source=verifyConnectionArtifact(),golden=legacyConnection().toString();
 const plain = value => JSON.parse(JSON.stringify(value));
 const marker = '// xh-compaction-wire/v1\n';
-assert.ok(source.includes(marker + COMPACTION_VIEW_SCHEMA), 'shipped schema includes compaction extension');
-const legacy = source.replace(marker + COMPACTION_VIEW_SCHEMA, LEGACY_VIEW_SCHEMA);
-assert.deepEqual(patchCompactionWire(Buffer.from(legacy)), Buffer.from(source));
-assert.deepEqual(patchCompactionWire(Buffer.from(source)), Buffer.from(source), 'idempotent');
+assert.ok(golden.includes(marker + COMPACTION_VIEW_SCHEMA), 'shipped schema includes compaction extension');
+const legacy = golden.replace(marker + COMPACTION_VIEW_SCHEMA, LEGACY_VIEW_SCHEMA);
+assert.deepEqual(patchCompactionWire(Buffer.from(legacy)), Buffer.from(golden));
+assert.deepEqual(patchCompactionWire(Buffer.from(golden)), Buffer.from(golden), 'idempotent');
 assert.throws(() => patchCompactionWire(Buffer.from('changed carrier')), /anchor changed/);
 assert.throws(() => patchCompactionWire(Buffer.from(legacy + LEGACY_VIEW_SCHEMA)), /anchor changed/);
-assert.throws(() => patchCompactionWire(Buffer.from(marker + source)), /malformed or duplicate/);
+assert.throws(() => patchCompactionWire(Buffer.from(marker + golden)), /malformed or duplicate/);
 
 function load(bytes, overrides = {}) {
   let registration;

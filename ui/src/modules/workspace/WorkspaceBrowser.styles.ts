@@ -1,0 +1,42 @@
+import cssSource from './WorkspaceBrowser.css'
+import { installStyles } from '../shared/foundation-styles'
+installStyles("@xharness/dsh-client-ui-workspace/WorkspaceBrowser.module.css", "@xharness/dsh-client-ui-workspace", cssSource)
+const styles = {
+			"clearButton": "w3qmIq_clearButton",
+			"deleteAction": "w3qmIq_deleteAction",
+			"deleteStatus": "w3qmIq_deleteStatus",
+			"empty": "w3qmIq_empty",
+			"fade": "w3qmIq_fade",
+			"flatList": "w3qmIq_flatList",
+			"groupSection": "w3qmIq_groupSection",
+			"headerActions": "w3qmIq_headerActions",
+			"headerActionsHidden": "w3qmIq_headerActionsHidden",
+			"iconButton": "w3qmIq_iconButton",
+			"list": "w3qmIq_list",
+			"listArea": "w3qmIq_listArea",
+			"listTopDropActive": "w3qmIq_listTopDropActive",
+			"listTopDropIndicator": "w3qmIq_listTopDropIndicator",
+			"rail": "w3qmIq_rail",
+			"renameError": "w3qmIq_renameError",
+			"renameInput": "w3qmIq_renameInput",
+			"root": "w3qmIq_root",
+			"search": "w3qmIq_search",
+			"searchButton": "w3qmIq_searchButton",
+			"searchExpanded": "w3qmIq_searchExpanded",
+			"searchInput": "w3qmIq_searchInput",
+			"searchSlot": "w3qmIq_searchSlot",
+			"searchSlotExpanded": "w3qmIq_searchSlotExpanded",
+			"searchStatus": "w3qmIq_searchStatus",
+			"searchTree": "w3qmIq_searchTree",
+			"searchWarning": "w3qmIq_searchWarning",
+			"sectionHeader": "w3qmIq_sectionHeader",
+			"sectionLabel": "w3qmIq_sectionLabel",
+			"sectionLabelHidden": "w3qmIq_sectionLabelHidden",
+			"sessionOverflowButton": "w3qmIq_sessionOverflowButton",
+			"treeBody": "w3qmIq_treeBody",
+			"wide": "w3qmIq_wide",
+			"wide-in": "w3qmIq_wide-in",
+			"workspaceDropAfter": "w3qmIq_workspaceDropAfter",
+			"workspaceDropBefore": "w3qmIq_workspaceDropBefore"
+		} as const
+export default styles
