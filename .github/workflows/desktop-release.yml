@@ -62,6 +62,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked source UI toolchain
+        run: npm ci --prefix ui --ignore-scripts
       - name: Prepare immutable tag for unified entry
         if: github.event_name == 'workflow_dispatch' && inputs.prepare_tag
         env:
@@ -134,6 +136,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked source UI toolchain
+        run: npm ci --prefix ui --ignore-scripts
       - uses: actions/download-artifact@v8
         with:
           name: desktop-plan
@@ -280,6 +284,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked source UI toolchain
+        run: npm ci --prefix ui --ignore-scripts
       - uses: actions/download-artifact@v8
         with:
           name: desktop-plan

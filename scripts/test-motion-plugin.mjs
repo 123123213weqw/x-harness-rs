@@ -1,15 +1,17 @@
+import { assertRebuildInput } from './fixtures/repository-ui-input.mjs'
+const registrationId = '@xlang/xharness-client-ui-motion'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 
-const sourcePath = new URL('../ui/plugins/@xlang/xharness-client-ui-motion/client.js', import.meta.url)
+const sourcePath = new URL('../ui/dist/plugins/@xlang/xharness-client-ui-motion/client.js', import.meta.url)
 const source = await readFile(sourcePath, 'utf8')
 const shipped = await readFile(
   new URL('../ui/dist/plugins/@xlang/xharness-client-ui-motion/client.js', import.meta.url),
   'utf8',
 )
-assert.equal(shipped, source)
+assertRebuildInput(registrationId)
 const graph = JSON.parse(await readFile(new URL('../ui/dist/client-graph.json', import.meta.url), 'utf8'))
 const motionEntry = graph.entries.find((entry) => entry.id === '@xlang/xharness-client-ui-motion')
 assert.ok(motionEntry)

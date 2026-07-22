@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {Script} from 'node:vm';
 import {patchStreamingMath} from './patch-streaming-math.mjs';
-const root=fileURLToPath(new URL('../',import.meta.url)),dist=resolve(root,'ui/dist');
-const html=readFileSync(resolve(dist,'index.html'),'utf8'),asset=html.match(/src="(\/assets\/index-[^"?]+\.js)/)[1];
+import {installOwnedViewPlatform} from './fixtures/owned-view-platform-browser.mjs';
+const root=fileURLToPath(new URL('../',import.meta.url)),dist=resolve(root,'ui/reference/master-a613970');
+const implementation=process.env.UI_TEST_IMPL??'source';
+assert.ok(['source','legacy'].includes(implementation));
+// The old patcher is now test-only: retain all of its original positive and
+// negative assertions against the independent immutable artifact.
+const html=readFileSync(resolve(dist,'index.html'),'utf8'),asset=html.match(/<script type="module" crossorigin src="([^"]+)"/)[1];
 const source=readFileSync(resolve(dist,'.'+asset),'utf8');
 assert.equal(patchStreamingMath(source),source);
 assert.equal(patchStreamingMath(source.replace('Parse with the same math','Old implementation of math')),source);
@@ -16,14 +21,7 @@ const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','p
 const engine=process.env.UI_TEST_BROWSER??'chromium';const browser=await require('playwright')[engine].launch({headless:true});
 try{
  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
- const assets=readdirSync(resolve(dist,'assets'));
- await page.route('**/*',route=>{
-  const path=new URL(route.request().url()).pathname,name=path.slice('/assets/'.length);
-  if(path.startsWith('/assets/')&&assets.includes(name))return route.fulfill({body:readFileSync(resolve(dist,'assets',name)),contentType:name.endsWith('.css')?'text/css':'application/javascript'});
-  if(path==='/')return route.fulfill({contentType:'text/html',body:`<script>window.__ModuleLoader__={create:o=>{window.staticModules=o.staticModules;throw Error('fixture stop boot')}};</script><script type="module" src="${asset}"></script><div id="root"></div>`});
-  return route.abort();
- });
- await page.goto('http://math.test');await page.waitForFunction(()=>window.staticModules);
+ await installOwnedViewPlatform(page,implementation);
  await page.evaluate(()=>{
   const R=staticModules.react,D=staticModules['react-dom'],M=staticModules['@xharness/dsh-client-ui-primitives'].MarkdownText;
   const root=D.createRoot(document.getElementById('root'));const labels={copyLabel:'copy',copiedLabel:'copied'};
@@ -66,6 +64,6 @@ try{
  // Replacement/retry must reset frozen content instead of leaving old formula nodes.
  await page.evaluate(()=>renderMath('Replacement text',true,'frozen'));assert.equal(await page.locator('.katex').count(),0);checks++;
  await page.evaluate(()=>renderMath(String.raw`$\notARealCommand$`,true,'bad'));assert.ok(await page.locator('#root').innerText());checks++;
- assert.deepEqual(errors.filter(e=>!e.includes('fixture stop boot')),[]);
- console.log(JSON.stringify({engine,checks,asset,passed:'stream fragments, closed/unclosed math, code isolation, final equivalence, frozen DOM, replacement, invalid TeX'}));
+ assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
+ console.log(JSON.stringify({engine,implementation,checks,asset,passed:'stream fragments, closed/unclosed math, code isolation, final equivalence, frozen DOM, replacement, invalid TeX'}));
 }finally{await browser.close()}

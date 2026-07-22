@@ -1,16 +1,18 @@
+import { assertRebuildInput } from './fixtures/repository-ui-input.mjs'
+const registrationId = '@xlang/xharness-client-ui-terminal'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 
 let registration
-const sourcePath = new URL('../ui/plugins/@xlang/xharness-client-ui-terminal/client.js', import.meta.url)
+const sourcePath = new URL('../ui/dist/plugins/@xlang/xharness-client-ui-terminal/client.js', import.meta.url)
 const source = await readFile(sourcePath, 'utf8')
 const shipped = await readFile(
   new URL('../ui/dist/plugins/@xlang/xharness-client-ui-terminal/client.js', import.meta.url),
   'utf8',
 )
-assert.equal(shipped, source)
+assertRebuildInput(registrationId)
 const graph = JSON.parse(await readFile(new URL('../ui/dist/client-graph.json', import.meta.url), 'utf8'))
 const terminalEntry = graph.entries.find((entry) => entry.id === '@xlang/xharness-client-ui-terminal')
 assert.ok(terminalEntry)
@@ -218,7 +220,9 @@ fetchResponse = {
 }
 await assert.rejects(() => plugin.terminalCall('open', { name: 'x' }), /boom/)
 fetchResponse = { ok: true, status: 200, json: async () => ({ ok: true, terminal: {} }) }
-assert.deepEqual(await plugin.terminalCall('open', { name: 'x' }), { ok: true, terminal: {} })
+await assert.rejects(() => plugin.terminalCall('open', { name: 'x' }), /Invalid terminal descriptor/)
+fetchResponse = { ok: true, status: 200, json: async () => ({ ok: true, terminal: { name: 'x', running: true } }) }
+assert.deepEqual(JSON.parse(JSON.stringify(await plugin.terminalCall('open', { name: 'x' }))), { ok: true, terminal: { name: 'x', running: true } })
 
 // The theme resolver degrades to provided fallbacks without a canvas context.
 documentState.lang = 'zh-CN'
@@ -274,7 +278,7 @@ pendingSleeps.shift()()
 await poll
 
 // The wire calls and local tab lists are both scoped to the selected chat.
-fetchResponse = { ok: true, status: 200, json: async () => ({ ok: true, terminal: { running: true } }) }
+fetchResponse = { ok: true, status: 200, json: async () => ({ ok: true, terminal: { name: 't1', running: true } }) }
 await storeB.create()
 assert.equal(fetchCalls.at(-1).url, '/api/terminal/open')
 assert.equal(fetchCalls.at(-1).body.session_id, 'chat-b')

@@ -1,12 +1,18 @@
 // Actual shipped React, primitives, workspace owner and product flow; only the
 // host services/slot harness are fixtures. No running App or user data is used.
+import { verifyConversationArtifact, exposeConversation, legacyConversation } from './conversation-artifact-test.mjs'
+import { installOwnedViewPlatform } from './fixtures/owned-view-platform-browser.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../', import.meta.url))
-const dist = resolve(root, 'ui/dist')
+const implementation = process.env.UI_TEST_IMPL ?? 'source'
+assert.ok(['source', 'native', 'legacy', 'frozen'].includes(implementation), 'known feature implementation')
+const frozen = implementation === 'legacy' || implementation === 'frozen'
+const dist = resolve(root, frozen ? 'ui/reference/master-a613970' : 'ui/dist')
+const shippedConversation = frozen ? legacyConversation().toString() : verifyConversationArtifact()
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/ui-tests', 'package.json'))
 const engines = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
@@ -17,30 +23,16 @@ try {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   page.setDefaultTimeout(8000)
-  const assets = readdirSync(resolve(dist, 'assets'))
-  const entry = assets.find(name => /^index-.*\.js$/.test(name))
-  const css = assets.filter(name => name.endsWith('.css'))
-  await page.route('**/*', route => {
-    const url = new URL(route.request().url())
-    const name = url.pathname.slice('/assets/'.length)
-    if (url.pathname.startsWith('/assets/') && assets.includes(name)) {
-      return route.fulfill({ body: readFileSync(resolve(dist, 'assets', name)),
-        contentType: name.endsWith('.css') ? 'text/css' : 'application/javascript' })
-    }
-    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head>
-      ${css.map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
-      <script>window.__ModuleLoader__={create: options => {window.staticModules=options.staticModules;throw Error('isolated fixture: stop host boot')}};</script>
-      <script type="module" src="/assets/${entry}"></script></head><body><div id="root"></div></body></html>` })
-    return route.abort()
-  })
-  await page.goto('http://workspace-fixture.test/')
-  await page.waitForFunction(() => window.staticModules)
+  await installOwnedViewPlatform(page, frozen ? 'legacy' : 'source')
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
   const plugins = readdirSync(resolve(dist,'plugins/@xharness'));
   for (const name of plugins) {
     const file = resolve(dist,'plugins/@xharness',name,'client.js');
     let source=readFileSync(file,'utf8');
-    if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =', 'exports.XhCheckpointView = XhCheckpointView; exports.xhCheckpointDefinition = xhCheckpointDefinition; exports.XHarnessMessageEditor =');
+    if(name==='dsh-client-ui-conversation') {
+      assert.equal(source, shippedConversation, 'actual selected fresh/immutable Conversation factory')
+      source=exposeConversation(shippedConversation,["XhCheckpointView", "xhCheckpointDefinition"]);
+    }
     await page.addScriptTag({content:source});
   }
   await page.evaluate(() => {
@@ -84,7 +76,7 @@ try {
   await page.setViewportSize({width:375,height:700});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   const evidence=resolve(root,'dist/execution-checkpoint-ui');mkdirSync(evidence,{recursive:true});
-  await page.screenshot({path:resolve(evidence,engine+'.png')});
-  assert.deepEqual(errors.filter(e=>!e.includes('isolated fixture')),[]);
-  console.log(engine+': shipped checkpoint component expand/collapse, restored notice, visible hard limit and narrow layout passed');
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'.png')});
+  assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
+  console.log(engine+'/'+implementation+': shipped checkpoint component expand/collapse, restored notice, visible hard limit and narrow layout passed');
 } finally {await browser.close()}

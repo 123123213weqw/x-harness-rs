@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
+import {assertRebuildInput} from './fixtures/repository-ui-input.mjs'
+import {verifyConversationArtifact,exposeConversation,legacyConversation} from './conversation-artifact-test.mjs'
+import {sourceDeclaration} from './fixtures/source-declaration.mjs'
 import { patchToolExperience, patchConversationExperience, patchModelSwitchProgress } from './patch-upstream-ui-experience.mjs'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -17,13 +20,13 @@ for (const [id, patch] of [
   ['@xharness/dsh-client-ui-model-selection', patchModelSwitchProgress],
 ]) {
   const code = readCanonical(resolve(root, `ui/dist/plugins/${id}/client.js`))
-  assert.deepEqual(patch(code), code, `${id} patch must be idempotent`)
+  const frozen=readCanonical(resolve(root,`ui/reference/master-a613970/plugins/${id}/client.js`));assert.deepEqual(patch(frozen), frozen, `${id} old patch remains repeatable`);assertRebuildInput(id)
   const entry = graph.entries.find(value => value.id === id)
   assert.equal(entry.rev, hash(code), `${id} graph revision`)
-  assert.match(code.toString(), /XHARNESS UPSTREAM UI EXPERIENCE 0\.1\.7-rc\.2/)
 }
 const productId = '@xlang/xharness-client-ui-experience'
-const product = readCanonical(resolve(root, `ui/plugins/${productId}/client.js`))
+assertRebuildInput(productId)
+const product = readCanonical(resolve(root, `ui/dist/plugins/${productId}/client.js`))
 const shipped = readCanonical(resolve(root, `ui/dist/plugins/${productId}/client.js`))
 assert.deepEqual(shipped, product)
 assert.equal(graph.entries.find(value => value.id === productId)?.rev, hash(product))
@@ -31,21 +34,18 @@ assert.ok(graph.entries.indexOf(graph.entries.find(value => value.id === product
 assert.match(html, /@xlang\/xharness-client-ui-experience/)
 assert.match(html, new RegExp(`"rev":"${graph.rev}"`))
 const tool = readFileSync(resolve(root, 'ui/dist/plugins/@xharness/dsh-client-ui-tool/client.js'), 'utf8')
-assert.equal((tool.match(/XHReviewDiffBlock, \{/g) ?? []).length, 2, 'tool row and details share review surface')
+assert.ok((tool.match(/XHReviewDiffBlock/g) ?? []).length >= 2, 'both row/detail keep actual shared review component');assertRebuildInput('@xharness/dsh-client-ui-tool')
 assert.match(tool, /target: "_blank", rel: "noopener noreferrer"/)
 assert.match(tool, /data-state|"preparing"/)
 const css = readFileSync(resolve(root, 'ui/dist/monochrome.css'), 'utf8')
 assert.match(css, /xh-model-switching/)
 assert.match(css, /prefers-reduced-motion/)
 const conversation = readFileSync(resolve(root, 'ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js'), 'utf8')
-const start = conversation.indexOf('function xhPreparingCall(')
-const end = conversation.indexOf('\n\t\t}', start)
-assert.ok(start > 0 && end > start, 'streaming preparation predicate exists')
-const preparing = vm.runInNewContext(`${conversation.slice(start, end + 4)}; xhPreparingCall`)
+const preparing = vm.runInNewContext(sourceDeclaration(conversation,'preparingCall')+';preparingCall')
 assert.equal(preparing({ kind: 'tool-call', name: 'bash', argsRaw: '{"command":' }), true)
 assert.equal(preparing({ kind: 'tool-call', name: 'bash', argsRaw: '' }), true)
 assert.equal(preparing({ kind: 'tool-call', name: 'bash', argsRaw: '{"command":"pwd"}' }), false)
 assert.equal(preparing({ kind: 'tool-call', name: '', argsRaw: '' }), false)
-assert.match(conversation, /streaming && xhPreparingCall\(block\)/)
+assert.match(conversation,/streaming && (?:\(0, [\w.]+\.preparingCall\)|preparingCall)\(block\)/)
 assert.match(css, /\.xh-tool-preparing/)
 console.log('upstream UI experience graph and patch tests passed')

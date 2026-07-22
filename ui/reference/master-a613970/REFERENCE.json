@@ -1,0 +1,1087 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "a613970c78a36a024de56100078323df25b96004",
+  "source": "immutable merged master UI, test-only; never a production build input",
+  "files": [
+    {
+      "path": "app-icon-512.png",
+      "sha256": "c83d3f2d9d3fcb981793fa6e29d7ff7608bd791d015a87fdf517a7549de5ba8f",
+      "bytes": 221733
+    },
+    {
+      "path": "assets/fonts/KaTeX_AMS-Regular-BQhdFMY1.woff2",
+      "sha256": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308",
+      "bytes": 28076
+    },
+    {
+      "path": "assets/fonts/KaTeX_AMS-Regular-DMm9YOAa.woff",
+      "sha256": "30da91e84c893f875e252689faebdc590b2871145e8adc7f9a9d4dbd8ce0b251",
+      "bytes": 33516
+    },
+    {
+      "path": "assets/fonts/KaTeX_AMS-Regular-DRggAlZN.ttf",
+      "sha256": "68534840bcfdd2bffb6f0e8deb48684dd01e7f04ea2813267577afb906de1d13",
+      "bytes": 63632
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf",
+      "sha256": "07d8e303ce4fc12b4bb54f1004170dd190a1f3db45d400fe68060df3e0897268",
+      "bytes": 12368
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Bold-BEiXGLvX.woff",
+      "sha256": "1ae6bd7475590e97e7f145a89e09ccde322f7a6bc0b91607b1c8b8ee28290fed",
+      "bytes": 7716
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2",
+      "sha256": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c",
+      "bytes": 6912
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Regular-CTRA-rTL.woff",
+      "sha256": "3398dd02302557a793f2863f88e02d96ce10df2abffa07c8e9fa90775116e65c",
+      "bytes": 7656
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2",
+      "sha256": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b",
+      "bytes": 6908
+    },
+    {
+      "path": "assets/fonts/KaTeX_Caligraphic-Regular-wX97UBjC.ttf",
+      "sha256": "ed0b74372feefcbb9c0666b2e210da37b7e49fa7fbbf3eeb11db5f693dacfbb7",
+      "bytes": 12344
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Bold-BdnERNNW.ttf",
+      "sha256": "9163df9c7122432e6495b4229fa9071cf9ae86a758ae5efc4924ec2e1a6dbce1",
+      "bytes": 19584
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Bold-BsDP51OF.woff",
+      "sha256": "9be7ceb88004ab8ad124082246fbfcca4091e36385d4ec6ed1df67375dad50fb",
+      "bytes": 13296
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Bold-CL6g_b3V.woff2",
+      "sha256": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f",
+      "bytes": 11348
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Regular-CB_wures.ttf",
+      "sha256": "1e6f9579e90e2cac37f8f60a597c436e075c114385652b7cbeb0dec0421291b3",
+      "bytes": 19572
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Regular-CTYiF6lA.woff2",
+      "sha256": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc",
+      "bytes": 11316
+    },
+    {
+      "path": "assets/fonts/KaTeX_Fraktur-Regular-Dxdc4cR9.woff",
+      "sha256": "5e28753be717dac97f559f49bc10be9cf3c124ddcabda6659d11cb68febc6463",
+      "bytes": 13208
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Bold-Cx986IdX.woff2",
+      "sha256": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021",
+      "bytes": 25324
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Bold-Jm3AIy58.woff",
+      "sha256": "c76c5d696297d51b9cb1639c7da4334f0e7dec81b42b11213b5e25ef671bb822",
+      "bytes": 29912
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Bold-waoOVXN0.ttf",
+      "sha256": "138ac28d1663b3037e9c5f52371fa5c63d8324f4a38d22cd573e6ea3a3fd0cf8",
+      "bytes": 51336
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2",
+      "sha256": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b",
+      "bytes": 16780
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-BoldItalic-DzxPMmG6.ttf",
+      "sha256": "70ee1f64a20f2048c21940ef46d0144fd215baa953ca69afd1e31e98544f708f",
+      "bytes": 32968
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-BoldItalic-SpSLRI95.woff",
+      "sha256": "a6f7ec0d846ac7ad975adb8959c37ed49b94acbc4ae436db9ce9e20287e4a64c",
+      "bytes": 19412
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Italic-3WenGoN9.ttf",
+      "sha256": "0d85ae7cc30f23790a7f1a58c4a112fdca8aae769b6ba11429af1d98b1b6cb3a",
+      "bytes": 33580
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Italic-BMLOBm91.woff",
+      "sha256": "f1d6ef86f3b11a528bd5185199bd2443ecb2b0dead96d88674b5a2c12be24bdf",
+      "bytes": 19676
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Italic-NWA7e6Wa.woff2",
+      "sha256": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267",
+      "bytes": 16988
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Regular-B22Nviop.woff2",
+      "sha256": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866",
+      "bytes": 26272
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Regular-Dr94JaBh.woff",
+      "sha256": "c6368d87e8a1a3a5d337623d83d8dc4b868f242a9ad476237d6f8d1e0f168cdc",
+      "bytes": 30772
+    },
+    {
+      "path": "assets/fonts/KaTeX_Main-Regular-ypZvNtVU.ttf",
+      "sha256": "d0332f52868370fd83ae7fa46470f90c8f2eab2fcf12bc4f88080b340c95a830",
+      "bytes": 53580
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-BoldItalic-B3XSjfu4.ttf",
+      "sha256": "f9377ab0271cda59af24bcffbd46a4d0c8a3572ffafdbb38de2ad5ea7b0d5ee5",
+      "bytes": 31196
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2",
+      "sha256": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1",
+      "bytes": 16400
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-BoldItalic-iY-2wyZ7.woff",
+      "sha256": "850c0af5c2238497febaf5e461d880bf458c341f42f4f330f1b1ab5698b1998e",
+      "bytes": 18668
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-Italic-DA0__PXp.woff",
+      "sha256": "8a8d244581371912b8f3f5a23e2437cb2a59cd9bcaebb0346e722c05737a2571",
+      "bytes": 18748
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-Italic-flOr_0UB.ttf",
+      "sha256": "08ce98e51b04d58945a301e639e02b6998af29fdfd61a7b8afdd07bbfc479d4a",
+      "bytes": 31308
+    },
+    {
+      "path": "assets/fonts/KaTeX_Math-Italic-t53AETM-.woff2",
+      "sha256": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264",
+      "bytes": 16440
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Bold-CFMepnvq.ttf",
+      "sha256": "1ece03f79f95277d57dc7f6b435a74e1379b0d46104a8530286b60ff49369ea0",
+      "bytes": 24504
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Bold-D1sUS0GD.woff2",
+      "sha256": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62",
+      "bytes": 12216
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Bold-DbIhKOiC.woff",
+      "sha256": "ece03cfd83e22c212cdef66feb8442d25a083beb988db3f1883f3f9738d750ba",
+      "bytes": 14408
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Italic-C3H0VqGB.woff2",
+      "sha256": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a",
+      "bytes": 12028
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Italic-DN2j7dab.woff",
+      "sha256": "91ee67500cc0129aa0ace3ac5c61ff1692102f0f31d02b69347fba35dcb75bf2",
+      "bytes": 14112
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf",
+      "sha256": "3931dd81faed86ba021bb2bbdc36f5bed9a38d6b4f4077aca59b265aa1b02083",
+      "bytes": 22364
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Regular-BNo7hRIc.ttf",
+      "sha256": "f36ea897e19f4a2e571d1e900e4e3710e438deb05a842486045ba0a3e616a4ad",
+      "bytes": 19436
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Regular-CS6fqUqJ.woff",
+      "sha256": "11e4dc8a6471ff6d6ee561d53d10fde8f7489e798257ff449c5d37c197435605",
+      "bytes": 12316
+    },
+    {
+      "path": "assets/fonts/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2",
+      "sha256": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342",
+      "bytes": 10344
+    },
+    {
+      "path": "assets/fonts/KaTeX_Script-Regular-C5JkGWo-.ttf",
+      "sha256": "1c67f068fea8bb09bf099c088b1cf64bd27516a6e07f4684344873564bb66a67",
+      "bytes": 16648
+    },
+    {
+      "path": "assets/fonts/KaTeX_Script-Regular-D3wIWfF6.woff2",
+      "sha256": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b",
+      "bytes": 9644
+    },
+    {
+      "path": "assets/fonts/KaTeX_Script-Regular-D5yQViql.woff",
+      "sha256": "d96cdf2b3bdd4d64a8fd5f74a4c467f123a8a73931cd435889f08ffaf9bf947a",
+      "bytes": 10588
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size1-Regular-C195tn64.woff",
+      "sha256": "c943cc986384f59e86bea5fd7dc50a9c4dfe567a7c05eb40d6790720dead97c9",
+      "bytes": 6496
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size1-Regular-Dbsnue_I.ttf",
+      "sha256": "95b6d2f1a50173bfedb8c63e1d1c99b10427d0a4df4201cb44513b226951a22b",
+      "bytes": 12228
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size1-Regular-mCD8mA8B.woff2",
+      "sha256": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe",
+      "bytes": 5468
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size2-Regular-B7gKUWhC.ttf",
+      "sha256": "a6b2099fb555c60e3a0db3a08842ebf1d732c6eb4e4bf44913613bed4fc4e39b",
+      "bytes": 11508
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size2-Regular-Dy4dx90m.woff2",
+      "sha256": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd",
+      "bytes": 5208
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size2-Regular-oD1tc_U0.woff",
+      "sha256": "2014c523c3210bcc166648c4d4cc57f05b747df07a24277bf71c51e67dc79e3d",
+      "bytes": 6188
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size3-Regular-CTq5MqoE.woff",
+      "sha256": "6ab6b62e9b62dae2c00dd90f791bd10950be0ecc3490d7d6045f51c2e8fe0949",
+      "bytes": 4420
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size3-Regular-DgpXs0kz.ttf",
+      "sha256": "500e04d54f0d51666332c9d2089aa803be22aa878eca539e59fa53c6e522b082",
+      "bytes": 7588
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size4-Regular-BF-4gkZK.woff",
+      "sha256": "99f9c6750b489c9462bf04900bd3f939df9b829339daaaaa99ef5495cdddea58",
+      "bytes": 5980
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size4-Regular-DWFBv043.ttf",
+      "sha256": "c647367d1dd4e162468717d020e1fc0f1dc5c26ebfdffbe55261713bf88c5877",
+      "bytes": 10364
+    },
+    {
+      "path": "assets/fonts/KaTeX_Size4-Regular-Dl5lxZxV.woff2",
+      "sha256": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0",
+      "bytes": 4928
+    },
+    {
+      "path": "assets/fonts/KaTeX_Typewriter-Regular-C0xS9mPB.woff",
+      "sha256": "e14fed02b1aba7ce9f5afd5844b5d0321b22351febc720e0de8b8723527609f7",
+      "bytes": 16028
+    },
+    {
+      "path": "assets/fonts/KaTeX_Typewriter-Regular-CO6r4hn1.woff2",
+      "sha256": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b",
+      "bytes": 13568
+    },
+    {
+      "path": "assets/fonts/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf",
+      "sha256": "f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa",
+      "bytes": 27556
+    },
+    {
+      "path": "assets/index-BNMwCG9c.css",
+      "sha256": "b56df4902c9374fee34ef013943c87f4eab81d6a92751b8b76af147fd454d70e",
+      "bytes": 35372
+    },
+    {
+      "path": "assets/index-nWTCj8pL.js",
+      "sha256": "fa53a6c7b731a34a820c8090f73ff0a1e6962b38c43bf20aa8268f7c1256e516",
+      "bytes": 380651
+    },
+    {
+      "path": "assets/index-nWTCj8pL.js.map",
+      "sha256": "7a85bdadac721539c9f4c26e61691d541dbf885ede6966f6a61e0492dd8deffa",
+      "bytes": 999929
+    },
+    {
+      "path": "assets/index-xhmath-68ba66027e9a.js",
+      "sha256": "68ba66027e9a28272a7fb5bfc8710cbbce317b652adfaa9756295d2bf13563e1",
+      "bytes": 384332
+    },
+    {
+      "path": "assets/index-xhmotion-347f73ecba2d.js",
+      "sha256": "347f73ecba2dd78f06c87992e3b7019d859f4abd6bf76aa1216b36e3b2785114",
+      "bytes": 382286
+    },
+    {
+      "path": "assets/langs/c-BIGW1oBm.js",
+      "sha256": "9c06263922b97a0e5890b832e23d44f3c0da54430ac6f971aa0ede8f4c2b8b66",
+      "bytes": 72152
+    },
+    {
+      "path": "assets/langs/c-BIGW1oBm.js.map",
+      "sha256": "0807bb2054edbe575a6a36012c82cd0ff11fbdfa42b6e5bf8f67a5b20f4f9a1b",
+      "bytes": 95409
+    },
+    {
+      "path": "assets/langs/cpp-DIPi6g--.js",
+      "sha256": "e8e90a01d5632251be2784ecea9b061cf05f962db1c8684a8bae6480eba88823",
+      "bytes": 637594
+    },
+    {
+      "path": "assets/langs/cpp-DIPi6g--.js.map",
+      "sha256": "13dfd665cc113bbfdb638f0f6952a3d4b195fcf573b31502a7258b6ba064175d",
+      "bytes": 831500
+    },
+    {
+      "path": "assets/langs/csharp-DSvCPggb.js",
+      "sha256": "8443ef70cc6fec2de601c15c548ab1890e9bbc71a21ba9c216de77481c3cb6d6",
+      "bytes": 90233
+    },
+    {
+      "path": "assets/langs/csharp-DSvCPggb.js.map",
+      "sha256": "07d8621687c73851385c35825ce11910f2ece38b9bca21a19321a215bc954ec9",
+      "bytes": 126379
+    },
+    {
+      "path": "assets/langs/css-CLj8gQPS.js",
+      "sha256": "69ee0204c2c40a92b8368049da700f0d08d40f5274809cfb624fd09e73eb32ee",
+      "bytes": 49082
+    },
+    {
+      "path": "assets/langs/css-CLj8gQPS.js.map",
+      "sha256": "0a33cd5469506b65219683c0986f6f357841372a57f7b642479da72c7a251179",
+      "bytes": 60671
+    },
+    {
+      "path": "assets/langs/go-C27-OAKa.js",
+      "sha256": "a6c3f73f1abb778ef3f5e489db1942542dc88ddac5b111ff55813fa1655dd23c",
+      "bytes": 46858
+    },
+    {
+      "path": "assets/langs/go-C27-OAKa.js.map",
+      "sha256": "72b3183b8042fa35038c9aece88de1f63498b951228f82b60ad58ed0fcbd9893",
+      "bytes": 66633
+    },
+    {
+      "path": "assets/langs/html-CfGypltT.js",
+      "sha256": "15ce12410bda36a36fe67290bd2ed65ab32f90c9624554f129632613843e43d0",
+      "bytes": 232159
+    },
+    {
+      "path": "assets/langs/html-CfGypltT.js.map",
+      "sha256": "9d76558d6316360abe7adf7f7c25ef013d4beb4ac4e0790d25e5ddfa012e9fe9",
+      "bytes": 308963
+    },
+    {
+      "path": "assets/langs/ini-BEwlwnbL.js",
+      "sha256": "d72bde3de42bb1ef3268bd65afedecf54747c208ac24335f7c6b4456924091c1",
+      "bytes": 1566
+    },
+    {
+      "path": "assets/langs/ini-BEwlwnbL.js.map",
+      "sha256": "4baf0b1b8ef8134d8e738177638f2ee0543cc629ad760601eb21212431043330",
+      "bytes": 2498
+    },
+    {
+      "path": "assets/langs/java-CylS5w8V.js",
+      "sha256": "934a0e63cf4cefb991100f15c42fdc60aaee3c7036a7ba6cb10ce5a6322a7ae9",
+      "bytes": 27261
+    },
+    {
+      "path": "assets/langs/java-CylS5w8V.js.map",
+      "sha256": "39637dde2310190f17801d0f4e01dd3da610ce3b1a57db9416c713f5e5b4b78f",
+      "bytes": 38660
+    },
+    {
+      "path": "assets/langs/kotlin-BdnUsdx6.js",
+      "sha256": "99d81f485d9366a1f3f8c84b0fc5cee69b0d28d6c8f7f1e8dac29e554e80d24f",
+      "bytes": 8829
+    },
+    {
+      "path": "assets/langs/kotlin-BdnUsdx6.js.map",
+      "sha256": "1b95ffe588f8ebeeb57a9b4e249be8f2a9fdd5de5058576c8cfe000830acc467",
+      "bytes": 12813
+    },
+    {
+      "path": "assets/langs/less-B1dDrJ26.js",
+      "sha256": "50c4bace8838379b74e0a22dab369c3cb81b57ba1b5b17ea5af8668f8290e8bf",
+      "bytes": 97675
+    },
+    {
+      "path": "assets/langs/less-B1dDrJ26.js.map",
+      "sha256": "6aea92835ea61a8fb1163e604a1e45e8d365e509f84c35fb011bebec8c6f78d7",
+      "bytes": 131880
+    },
+    {
+      "path": "assets/langs/lua-BaeVxFsk.js",
+      "sha256": "b218901041a92a152f51a7f3f74f26120e931e258abb1c73bcee551721015f67",
+      "bytes": 15576
+    },
+    {
+      "path": "assets/langs/lua-BaeVxFsk.js.map",
+      "sha256": "12ef56c007a7138698a60435f6350568f0cc1855b18558e870c14a1b96f52ea3",
+      "bytes": 22144
+    },
+    {
+      "path": "assets/langs/markdown-Cvjx9yec.js",
+      "sha256": "d9a83df9f57287a1f3594d5231480ea90a14adf7a8550c7a57930c3cf5b3f47d",
+      "bytes": 59381
+    },
+    {
+      "path": "assets/langs/markdown-Cvjx9yec.js.map",
+      "sha256": "a73528b1c8b25aa4de6e333aaaafa78d931f48fce513ad7fab0f3ed29cf291f8",
+      "bytes": 82359
+    },
+    {
+      "path": "assets/langs/mdx-Cmh6b_Ma.js",
+      "sha256": "8b88c45af52bcc95513e479bfce5b068d91f60a811acf8bb614bbb071d0e1151",
+      "bytes": 136155
+    },
+    {
+      "path": "assets/langs/mdx-Cmh6b_Ma.js.map",
+      "sha256": "88a08c7587e0f02ddfa30041ba226e9468bc397c66e59df9a5d503e238e5ad49",
+      "bytes": 176748
+    },
+    {
+      "path": "assets/langs/php-DDkx9sim.js",
+      "sha256": "feb3eb88af969fbaf3212d97eb372267f59ed99772d8ca6d6acb4e3f9e76d9c6",
+      "bytes": 113111
+    },
+    {
+      "path": "assets/langs/php-DDkx9sim.js.map",
+      "sha256": "08a0e5586a2103102c7f217c2ce36fce574fbe32b4986ef5fba94a81a78c91cc",
+      "bytes": 142066
+    },
+    {
+      "path": "assets/langs/python-B6aJPvgy.js",
+      "sha256": "1c6725168b498ade965cf0d8723c600fc9bf0de74988b6191106b304b571aaae",
+      "bytes": 69996
+    },
+    {
+      "path": "assets/langs/python-B6aJPvgy.js.map",
+      "sha256": "24d04801787a2fc841b5ed3df279f45204957660519eef2f2018c590db182966",
+      "bytes": 95267
+    },
+    {
+      "path": "assets/langs/ruby-DCxyoPen.js",
+      "sha256": "39ab9af7240010afa36748998c39ff47895c3a905739d75bc0443276d4afb7db",
+      "bytes": 425791
+    },
+    {
+      "path": "assets/langs/ruby-DCxyoPen.js.map",
+      "sha256": "2a84295b9668c6e921dfb5d4945730becbe4bbef6c6fafc279eeb0b74fdc8cca",
+      "bytes": 579268
+    },
+    {
+      "path": "assets/langs/rust-B1yitclQ.js",
+      "sha256": "c02d27696b07c37fa2cac9de826a967a30401a33959cd891ebbf11d5bf245ce3",
+      "bytes": 15111
+    },
+    {
+      "path": "assets/langs/rust-B1yitclQ.js.map",
+      "sha256": "a3f5ffa955d819ef4aa24fe49b8e531861d2b17436c4d63d56a67de6f2864e72",
+      "bytes": 21494
+    },
+    {
+      "path": "assets/langs/scss-D5BDwBP9.js",
+      "sha256": "d873165bb797f0547966aa681ade9af96c06ec17c2b0c12708303d9ace461753",
+      "bytes": 27246
+    },
+    {
+      "path": "assets/langs/scss-D5BDwBP9.js.map",
+      "sha256": "03ffa10b3226073d7e07d41c0cb48ee0175292ed0bf422a14f5fef8705da3b9b",
+      "bytes": 38354
+    },
+    {
+      "path": "assets/langs/sql-CRqJ_cUM.js",
+      "sha256": "60e00dca0f03a580d3717adbb9c730772e750909dc8c78408051091278eda6c0",
+      "bytes": 23469
+    },
+    {
+      "path": "assets/langs/sql-CRqJ_cUM.js.map",
+      "sha256": "568890dd85341cf2a7c2d8d0c7ccbc9ae05a38e31dfcdefafb4317f47202b2d6",
+      "bytes": 27964
+    },
+    {
+      "path": "assets/langs/swift-D82vCrfD.js",
+      "sha256": "db1c1476b58bc8b4ed86fe585ad9191fcb55b7ad851144e7d60af1836f49c26a",
+      "bytes": 86730
+    },
+    {
+      "path": "assets/langs/swift-D82vCrfD.js.map",
+      "sha256": "9ab96532d52240222f4eb7f127b4892ce7b044ac727dbfc12bf9fd086723fa88",
+      "bytes": 114538
+    },
+    {
+      "path": "assets/langs/toml-vGWfd6FD.js",
+      "sha256": "aeb916b96e9eb064aa87c8f765abfded0ab0d53aefa3aa9b90cc1af4d1ad75d2",
+      "bytes": 6468
+    },
+    {
+      "path": "assets/langs/toml-vGWfd6FD.js.map",
+      "sha256": "58599ea3de1c31cc0dfdf95c24460a3989d01e7ad00dc9b276bf364be08589e7",
+      "bytes": 9504
+    },
+    {
+      "path": "assets/langs/xml-sdJ4AIDG.js",
+      "sha256": "d41d94621a62727ad56943d2d7e04e820c2642c3a9c246eb10e7d6e6e89d1fed",
+      "bytes": 5425
+    },
+    {
+      "path": "assets/langs/xml-sdJ4AIDG.js.map",
+      "sha256": "502fbbefda047249c886706b48f979392ead1ee2cd601dd09a5b2e73b75794a5",
+      "bytes": 7868
+    },
+    {
+      "path": "assets/langs/yaml-Buea-lGh.js",
+      "sha256": "8aad9cddbe3602b06b194e66d021aa63d715df01cf94e8ffcac810e48f0529e3",
+      "bytes": 10548
+    },
+    {
+      "path": "assets/langs/yaml-Buea-lGh.js.map",
+      "sha256": "9dd563fd18e1ac190b79de6872a823e8ce219bb1f22a36a2887506aba3525929",
+      "bytes": 14929
+    },
+    {
+      "path": "assets/vendor-CjyC-hUb.css",
+      "sha256": "8b86a22c0e3551fb5c3ec2af2b2515232614f75fd1e7ce76d62bec9ce12a6686",
+      "bytes": 29642
+    },
+    {
+      "path": "assets/vendor-D22_Mp1f.js",
+      "sha256": "a999d26735448a40f2a8a21bf9cf9748b7815634fae4c5ca51d929843da9a907",
+      "bytes": 744872
+    },
+    {
+      "path": "assets/vendor-D22_Mp1f.js.map",
+      "sha256": "31515da090158bd6b305aac3dfdef83430beeba72ac8e7b690852ead54749b1c",
+      "bytes": 2513485
+    },
+    {
+      "path": "client-graph.json",
+      "sha256": "b20c86a155e99c16436f80ece4b3904fa51a587dee80f3588c60e7ba997a0a26",
+      "bytes": 18331
+    },
+    {
+      "path": "desktop-startup.js",
+      "sha256": "1b9336cf00f5378451cadcdd8823a9b2189f20dd0c3900b165a7a61790f3f8ab",
+      "bytes": 1303
+    },
+    {
+      "path": "desktop-titlebar.css",
+      "sha256": "2accb344eb74033b1af0f34c74efd49f1bce52c0f598dea0f8882851d6ac4e84",
+      "bytes": 587
+    },
+    {
+      "path": "desktop-titlebar.js",
+      "sha256": "95e95cbce8b47ac3db6891ef2fcfa5cb69e4ec9350c92649065d227903d147d2",
+      "bytes": 903
+    },
+    {
+      "path": "desktop-updater.js",
+      "sha256": "d5348c2c543cdf8062bfea29b81f27587f569334e532da0c46b9e074373c2b54",
+      "bytes": 11081
+    },
+    {
+      "path": "favicon.png",
+      "sha256": "e5ed34820e7aa887e799a148057cc0825c7b0e5e642eebdef6c6c180c8f14a91",
+      "bytes": 4729
+    },
+    {
+      "path": "index.html",
+      "sha256": "7311d1ba3cb5187853faa0bd672146b84c273c1426bfc0d4b812eaee6d45e420",
+      "bytes": 16922
+    },
+    {
+      "path": "logo-motion.css",
+      "sha256": "2d34fc5ec1473d3513e1968dd686116d402b10efb4d0cf51e9a2966ca7b7e8a7",
+      "bytes": 1393
+    },
+    {
+      "path": "logo-motion.js",
+      "sha256": "265d6e5b1c1b90421c9d55546a4979ae2e19c7f10a2e0e4666b5fbe2f89e9ae9",
+      "bytes": 252
+    },
+    {
+      "path": "manifest.webmanifest",
+      "sha256": "a3afb2088b64cedaa3269998b2ff90bbd979dea08b1f9684e63d3507f8442469",
+      "bytes": 263
+    },
+    {
+      "path": "monochrome.css",
+      "sha256": "2905f1eccd5e04776bd48cb55bae51446096b776868e10ac1572aa779daad8cc",
+      "bytes": 6476
+    },
+    {
+      "path": "motion-tokens.css",
+      "sha256": "ffe8b346f9d0721ce9dbc7c471cc47db309819049c92fc7eca4c1e6c5ad4db8d",
+      "bytes": 600
+    },
+    {
+      "path": "plugins/@xharness/dsh-api-gateway/client.js",
+      "sha256": "2f444019996fa353584c38a346e6d6e131771004e57c17aa8dabe43c942a9c30",
+      "bytes": 17217
+    },
+    {
+      "path": "plugins/@xharness/dsh-api-gateway/client.js.map",
+      "sha256": "027b9b41ed103e503f14da65c9d3b1afcc0667abd64d15539e04192edc6ce951",
+      "bytes": 30823
+    },
+    {
+      "path": "plugins/@xharness/dsh-api-remotes/client.js",
+      "sha256": "7a69d91f246293f70323751767adcf80b148f5c02b34fecd4ed6a23018b7710c",
+      "bytes": 204803
+    },
+    {
+      "path": "plugins/@xharness/dsh-api-remotes/client.js.map",
+      "sha256": "ae1cfa853ddefc9a972afd72d82b2cc7ef24d4f0a2bbdd7108d118294f3d61ba",
+      "bytes": 479610
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-connection/client.js",
+      "sha256": "2b12bd8728082ca302725ca36dc369f05911eaf5c0bf66aa1c4241c40cbfe23c",
+      "bytes": 357908
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-hmr/client.js",
+      "sha256": "804d23403521bad3369af45dd2e01dc880ce5f6474d67b70bac9824f76d414b0",
+      "bytes": 3424
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-hmr/client.js.map",
+      "sha256": "3a3789a008d983347d69e6332be91321c97ccd563e03483fb303160fc5af41d7",
+      "bytes": 7149
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-locale/client.js",
+      "sha256": "ebf800b46d7328004cec204cd6d8cee4b006893d3e4bcf25eda351d3b1f4b0f1",
+      "bytes": 48790
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-locale/client.js.map",
+      "sha256": "cb047a42830bbb7ca0a8945704d0ea2801c6a27f36fe157c39db0c48a1573744",
+      "bytes": 94413
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-modules/client.js",
+      "sha256": "c970d985ed0ff617d7f9f29f23ef055b8dc4ae487c381e479d02876194e30723",
+      "bytes": 15344
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-modules/client.js.map",
+      "sha256": "299925b7cdaedf93e26849909c3cdddfb16d13bb31b56fcd580dbc4217823eb7",
+      "bytes": 22605
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-runtime/client.js",
+      "sha256": "6dc7e3636580d071644d2d9628eec930b2d5566f7f004870f6ddc29c3b02122d",
+      "bytes": 422140
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-agent-preset/client.js",
+      "sha256": "4e3371c7e588f2ffc75ba632bd77c3f0bb5110e5ab39abaa727c8606c4d74d7a",
+      "bytes": 73081
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-agent-preset/client.js.map",
+      "sha256": "fab110a2e061b335cc0100e4776459e11c53e0648da762f8bc71fd538dce03ae",
+      "bytes": 93066
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-attachment/client.js",
+      "sha256": "042d7f5b1042023cd83e7f66fd8ededcd0ed3c43c7e18d9f470cbce795fe642e",
+      "bytes": 37934
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-brand-official/client.js",
+      "sha256": "cd4145953f71453bb877e94d845ce48accd17eb801fe540b4d37889ef513a65b",
+      "bytes": 1895
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-brand-official/client.js.map",
+      "sha256": "4906e9637e8a2ab160471b6b52bb16203127471d9ddb8e25565e5fa5dfc43bf5",
+      "bytes": 2261
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-commands/client.js",
+      "sha256": "5fe70e96820013add656e472ea005dd5c3fc1f4763452288294c44d69445231d",
+      "bytes": 45665
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-commands/client.js.map",
+      "sha256": "ed3a647016675f41b111b8aa1d9ca88c73b3ba839b077493dfcbd1795a2b2d1e",
+      "bytes": 67574
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-conversation/client.js",
+      "sha256": "c172eda5221df580998a7007487f932d3a6e275ba57bccf5320d7bdbed8821d8",
+      "bytes": 493779
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-cordis/client.js",
+      "sha256": "371183f481e29d07f1cbaf2c1f388262e76492dc660aa2b2154a706bb6e767a2",
+      "bytes": 74305
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-cordis/client.js.map",
+      "sha256": "f082fbefe8f2729937b74c5396836169630d1141c20cd8f5d587d71d6d1a88aa",
+      "bytes": 85924
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-deliverables/client.js",
+      "sha256": "377fdee4819c4722688b42e309484ace9b414fd92844bb9eeaa580f64465674f",
+      "bytes": 16334
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-deliverables/client.js.map",
+      "sha256": "e85e47c49fc50bcc42ff248dc79aadfcc056e180f4c5673b7424bb9fe9db1ae3",
+      "bytes": 21242
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-goal/client.js",
+      "sha256": "4d6b2ad30f03cec98af6f4fb276d1f7101c6703cf36bd2f89c846dad678ef390",
+      "bytes": 23489
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-goal/client.js.map",
+      "sha256": "f62fe8cd6489ee72b9fbd74d7d008118e397fc932e1d2a9b1ebf0e805c2adb6b",
+      "bytes": 20998
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-input-trigger/client.js",
+      "sha256": "3a5cb8089d146b9d90b97ff4f4cb1bf3778b91d17c15d13e2965b9f0f1413ae3",
+      "bytes": 36737
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-input-trigger/client.js.map",
+      "sha256": "46d7a7c76ff2e9574882d32616f830ff254b82657cd99f418369d325b9a78d27",
+      "bytes": 56278
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-jobs/client.js",
+      "sha256": "6815ceb993666f548a86e6e0eec1eeb9876c718e0c808ea35b21cc94b8afab59",
+      "bytes": 12796
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-jobs/client.js.map",
+      "sha256": "21da5dcc43a4fe31d618721bfd05118c415ee563d8c65955ffe2b4dfc4f7b52b",
+      "bytes": 14339
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-layout/client.js",
+      "sha256": "f3bcfd2e7cdf920818cf34ab54aeaf11515e0105273d0d1b667d26ef3298ea98",
+      "bytes": 35898
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-layout/client.js.map",
+      "sha256": "be2cc1bc0b3856d6bc1a8baca2b3b7547e939c31b64527bdb5eb0652c3160162",
+      "bytes": 28745
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-message-feedback/client.js",
+      "sha256": "1f7b2f009240671d9252bd22e849d73c1bb9345381beeb94fe63a8bc753a3be5",
+      "bytes": 28143
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-message-feedback/client.js.map",
+      "sha256": "c3b6d8aa015d041c4b9a53dc306cd174e7ef346bdde97b82238ea533626c7215",
+      "bytes": 42341
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-model-selection/client.js",
+      "sha256": "88c25ccba6af9d7acdbde04a23a0eddce1db3d26787668d8580a6a13b532552d",
+      "bytes": 46380
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-permission-presets/client.js",
+      "sha256": "df7beae073b25ee608573d42eb9e00193e7a33be1f184360a80bc39903935b08",
+      "bytes": 19694
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-permission-presets/client.js.map",
+      "sha256": "7b038082359e015fe18d8cfb9d0da41ac7b5b2f9d164f085ec51b14a70188ebf",
+      "bytes": 28668
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-plan/client.js",
+      "sha256": "ae70405da6f19712515bfa893a1db7cb362911a656b99046f2cd964fc4dee3ec",
+      "bytes": 5781
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-plan/client.js.map",
+      "sha256": "f70434fb983a95920d1190d93c72658da05ee355a7c22b7ad5593a3ccf4971fe",
+      "bytes": 6214
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-reference/client.js",
+      "sha256": "0ff45ce6ab18e0034000607bb881cc7cb382510154cb1728c74e292bdf6782db",
+      "bytes": 5489
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-reference/client.js.map",
+      "sha256": "0063aec9a23e20eb1e665e050ae4145f598722734328dcc95ff4fa1f46172ac5",
+      "bytes": 10271
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-renderer/client.js",
+      "sha256": "c814c272099b1adfebe54818aca1312dfae0f5036527d1504a65f53c634b156d",
+      "bytes": 39200
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-renderer/client.js.map",
+      "sha256": "ff0ce85a39e02e7050c6cbd8f03f1a7f862935acf7df5a7c5d965b1626db13da",
+      "bytes": 65794
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings-general/client.js",
+      "sha256": "2cd700027f3368fbee5851379bd1382f3c34e08edf5bdd56c34db9e72f1cc2ad",
+      "bytes": 26458
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings-general/client.js.map",
+      "sha256": "3ef9cd6baaaf8a644a207d5cbf4a0647309df61ab903ddd94c274dc6b81f6d98",
+      "bytes": 30720
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings-models/client.js",
+      "sha256": "c99583be59f6dd37c0ea633fb0f1bdb72bee049452d8580b26c5813c3ecfb670",
+      "bytes": 130893
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings-plugin-inventory/client.js",
+      "sha256": "3c5ccc3acd281b0826d145e1c84f79741b1705cc38f9c760a294b32b0d4dab5c",
+      "bytes": 17247
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings-plugin-inventory/client.js.map",
+      "sha256": "b8cbbfdc7cada52ad2e7a907cfe3ca62796ae988125b792c18e60ba56502ef5d",
+      "bytes": 14648
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings-plugins/client.js",
+      "sha256": "3e4cdccc71e1b0e042f23591e8076985b6b448cd441f873b49a48d1104e4bd58",
+      "bytes": 52927
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings-plugins/client.js.map",
+      "sha256": "9be07eba3be2c0c9a93cad03e51ffa169055f355cf24a776c2646c0c665dd464",
+      "bytes": 67252
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings/client.js",
+      "sha256": "fed369c1ff72e5ceca8edcb2754f55d85952762f10423fd6f7bb8033ecb51476",
+      "bytes": 53437
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-settings/client.js.map",
+      "sha256": "c073f83faf0bda94d044c9e47976568e0dae93557a988361dae07a81ce675cc6",
+      "bytes": 102359
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-sidebar/client.js",
+      "sha256": "84d4f00ab3181c743ed691dde6fe6b0e0e6b79bba4bd070bd122c6a433789ecf",
+      "bytes": 17336
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-sidebar/client.js.map",
+      "sha256": "c0b06a6730e7efdfd42f9fa2c05e818dcb701c814e1164e4ab7e469db01d856e",
+      "bytes": 16490
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-skill/client.js",
+      "sha256": "d10371e33d5ea60a28f4498c5fae18d929c5af58a9ea230970ddde7e6acaba7d",
+      "bytes": 15999
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-skill/client.js.map",
+      "sha256": "8b7d882126cf6e5d3b4436fe25f2ebbbaf1cc62515dcaf280876c394fdd7ac83",
+      "bytes": 19208
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-subagent/client.js",
+      "sha256": "555275dde414ff52c7b5b6ba1c91611e791c448e191fa018b45ad7b7c087cb8a",
+      "bytes": 33351
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-subagent/client.js.map",
+      "sha256": "a585e841010b5ca75efca09d1739afa7d089b92998598e3f9621b4fe510e0a9b",
+      "bytes": 40820
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-theme/client.js",
+      "sha256": "5346f67c769f5b865a1a18da5a039d3953d78ed6735db70ffc9ed79da4a4787f",
+      "bytes": 79856
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-theme/client.js.map",
+      "sha256": "317ab065688de6c8bc7cfe22398f7b6f2ebc980ab83ff2983ce5e7beb3134cdd",
+      "bytes": 99296
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-tool/client.js",
+      "sha256": "353123f6c4bf9263630324c4da350b3b4c120434d8b853115808f40584547ea1",
+      "bytes": 88365
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-tool/client.js.map",
+      "sha256": "c10872b19a5c89954d47cb547c19f8e1c3a04534407e8085046add5861783836",
+      "bytes": 107828
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-trajectory/client.js",
+      "sha256": "6a4b9ff207259ac42214f9489660d5ef4dbb4b2587bee49358d86e68d174c7d7",
+      "bytes": 359331
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-trajectory/client.js.map",
+      "sha256": "59dcaebc31bd3acb3bb512679253ecc2b931ee1c17c829d54181d1460501a9ea",
+      "bytes": 551841
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-user-questions/client.js",
+      "sha256": "7a58c344687658600d35f65c01e8bef53ef1b65ef994171e91bce9ecc87e768e",
+      "bytes": 37846
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-user-questions/client.js.map",
+      "sha256": "60052719bf417163f2f58b472a598ebbcae0ff21600a606183af11f7a877fa95",
+      "bytes": 37228
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-workflow-run/client.js",
+      "sha256": "f9796c0a9791e7724ecd8516922900ebfda929631a0463d9e78e13f07b50880c",
+      "bytes": 27877
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-workflow-run/client.js.map",
+      "sha256": "99eb7190d639677a27652cd268ecc92805f50ff0cd6a6194cf5e47ecd263d276",
+      "bytes": 34454
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-workspace/client.js",
+      "sha256": "2fc73b35009e0fc484ad1ab87d28db2f63122971bf0a3bac3edbb7825ba34dd9",
+      "bytes": 116506
+    },
+    {
+      "path": "plugins/@xharness/dsh-client-ui-workspace/client.js.map",
+      "sha256": "f980cdc187bde6fb7320b9e80c75ab10e499d6bdeae10f5018dd61833c4eda7c",
+      "bytes": 148149
+    },
+    {
+      "path": "plugins/@xharness/dsh-cordis-client-runner/client.js",
+      "sha256": "3561650c77056cc2ffb088724646fe0314ac3bb1c7125e048fe7f8c04d518cab",
+      "bytes": 228518
+    },
+    {
+      "path": "plugins/@xharness/dsh-cordis-client-runner/client.js.map",
+      "sha256": "2e8577b40963cbb96a1e0c6c355b64606d61480b636a468deb17939c50e55a83",
+      "bytes": 319680
+    },
+    {
+      "path": "plugins/@xharness/dsh-session-log-export/client.js",
+      "sha256": "dd2bd4f58afb62eb220ca3d5102ba0b9b1a68fa3f83df2d93e7afc5bc8a5b2de",
+      "bytes": 11378
+    },
+    {
+      "path": "plugins/@xharness/dsh-session-log-export/client.js.map",
+      "sha256": "ce5faf0435290af1619203b348108655974690b5b41c756e9715b047e34942fd",
+      "bytes": 14549
+    },
+    {
+      "path": "plugins/@xharness/dsh-typert-registry/client.js",
+      "sha256": "62a34552bd72d467b51279ad8020a3eca0be3863093143573e11067d98604880",
+      "bytes": 52138
+    },
+    {
+      "path": "plugins/@xharness/dsh-typert-registry/client.js.map",
+      "sha256": "0706d61ca7efc4d3b3b531b017eef7242dfc237942a3ac2f873eae7c3b88d097",
+      "bytes": 121774
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-browser/client.js",
+      "sha256": "4309624105a58b4a2597959162810d94b7015b392d4b2eff87dda4984212cb31",
+      "bytes": 37487
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-computer/client.js",
+      "sha256": "1b38520b20d27ad061c4d3f24ff50eb0e192522ed77b578ff0226185820d8999",
+      "bytes": 17470
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-context/client.js",
+      "sha256": "56261f3ca7bd8e92386338887475cb92226c6ff61f76d90bb4e4eb1b51a0d32c",
+      "bytes": 51288
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-directory/client.js",
+      "sha256": "9b0f804d0ec36fd858942698d3c3a99ec0ddf3236606764aa741bcfedf797a90",
+      "bytes": 18518
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-experience/client.js",
+      "sha256": "a7f7d624bb20d4e5dc8a13b871953e349061a8bc9dd9ea61af644739d9480f24",
+      "bytes": 11789
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-motion/client.js",
+      "sha256": "ff45ce8e240aaf0a494aedb65a25c27a20671b5056f262b55b4cf48fe5c8fbf2",
+      "bytes": 8117
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-plugin-hub/client.js",
+      "sha256": "b7ef53995719c80918e2cfa957195c4eaad743258862db79704ab34879d34cb2",
+      "bytes": 15832
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-profile/client.js",
+      "sha256": "c3bffefa1dcce60bc6808d0635c9c1d18e6c82c6fe802e2fcc660b9da96274f2",
+      "bytes": 17323
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-schedule/client.js",
+      "sha256": "16251e6fb14b6ad760917f7f3293461262089420250b6d389daa3252c3f3a867",
+      "bytes": 16459
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-tasks/client.js",
+      "sha256": "0dfff6c52f21f525a0038ed1e4cc77d77e6e54fe92dc7529218a914bdd3bfeaa",
+      "bytes": 51244
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-terminal/client.js",
+      "sha256": "a8df75682082e5d76e65963b1c95f3e221115971e182885d5075d960ef9838ed",
+      "bytes": 30327
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-terminal/vendor/LICENSE-xterm.txt",
+      "sha256": "b569f629d00f2626a8100df2a1798210535621e42164dfd426a6fe5aac7b0ccd",
+      "bytes": 1261
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.css",
+      "sha256": "ba8e6985669488981ccf40c0cefe3aba80722cb6c92de7ad628b0bd717faf2b6",
+      "bytes": 5559
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.js",
+      "sha256": "1f991ac3b4b283ebf96e60ae23a00a52765dd3a2e46fa6fdda9f1aab032f7495",
+      "bytes": 289441
+    }
+  ]
+}

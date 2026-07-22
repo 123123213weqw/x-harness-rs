@@ -1,0 +1,1 @@
+Network wait UI: actual shipped source closure + immutable golden, network/∞/normal/started/cancelled/30s and maintained golden patch idempotency passed

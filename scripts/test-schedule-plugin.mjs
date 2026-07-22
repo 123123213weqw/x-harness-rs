@@ -12,7 +12,7 @@ const sandbox = {
 }
 vm.createContext(sandbox)
 vm.runInContext(
-  await readFile(new URL('../ui/plugins/@xlang/xharness-client-ui-schedule/client.js', import.meta.url), 'utf8'),
+  await readFile(new URL('../ui/dist/plugins/@xlang/xharness-client-ui-schedule/client.js', import.meta.url), 'utf8'),
   sandbox,
 )
 

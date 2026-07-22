@@ -1,0 +1,14 @@
+@xharness/dsh-typert-registry 743197 3e9b37b38aaf7b6c strict + owned policy + source-fresh PASS
+@xharness/dsh-client-connection 1039861 9a7f5772b0230201 strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-settings-models 149839 75c956204b822ffd strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-conversation 1354325 47b85231641fc30b strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-tool 852964 18824b78d3927a50 strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-input-trigger 50130 a1c00319eb51afcc strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-commands 59312 52d6456fe6a9617d strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-subagent 39750 b8f2d8342a043968 strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-reference 10439 a7fd86ce133facff strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-model-selection 86300 433477e33634872c strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-permission-presets 28464 a93a88670a10692e strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-agent-preset 58327 d323ea922a1d5bee strict + owned policy + source-fresh PASS
+@xharness/dsh-client-ui-user-questions 46713 307ec76f3198fe78 strict + owned policy + source-fresh PASS
+@xlang/xharness-client-ui-context 56846 090db52474b430ed strict + owned policy + source-fresh PASS

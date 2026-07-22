@@ -1,0 +1,40 @@
+import cssSource from './Rows.css'
+import { installStyles } from '../../shared/foundation-styles'
+installStyles("@xharness/dsh-client-ui-workspace/Rows.module.css", "@xharness/dsh-client-ui-workspace", cssSource)
+const styles = {
+			"arrow": "PT4Uyq_arrow",
+			"arrowOpen": "PT4Uyq_arrowOpen",
+			"chevron": "PT4Uyq_chevron",
+			"dot": "PT4Uyq_dot",
+			"dropAfter": "PT4Uyq_dropAfter",
+			"dropBefore": "PT4Uyq_dropBefore",
+			"flatSessionRowWithoutStatus": "PT4Uyq_flatSessionRowWithoutStatus",
+			"folder": "PT4Uyq_folder",
+			"folderActive": "PT4Uyq_folderActive",
+			"hoverContent": "PT4Uyq_hoverContent",
+			"hoverPath": "PT4Uyq_hoverPath",
+			"hoverStatus": "PT4Uyq_hoverStatus",
+			"hoverTime": "PT4Uyq_hoverTime",
+			"hoverTitle": "PT4Uyq_hoverTitle",
+			"iconButton": "PT4Uyq_iconButton",
+			"menuOpen": "PT4Uyq_menuOpen",
+			"meta": "PT4Uyq_meta",
+			"projectRow": "PT4Uyq_projectRow",
+			"projectText": "PT4Uyq_projectText",
+			"renameInput": "PT4Uyq_renameInput",
+			"row-in": "PT4Uyq_row-in",
+			"rowActions": "PT4Uyq_rowActions",
+			"searchResultHeading": "PT4Uyq_searchResultHeading",
+			"searchResultMeta": "PT4Uyq_searchResultMeta",
+			"searchResultRow": "PT4Uyq_searchResultRow",
+			"searchResultSnippet": "PT4Uyq_searchResultSnippet",
+			"searchResultTitle": "PT4Uyq_searchResultTitle",
+			"searchResultWorkspace": "PT4Uyq_searchResultWorkspace",
+			"selected": "PT4Uyq_selected",
+			"sessionRow": "PT4Uyq_sessionRow",
+			"slot": "PT4Uyq_slot",
+			"time": "PT4Uyq_time",
+			"title": "PT4Uyq_title",
+			"visuallyHidden": "PT4Uyq_visuallyHidden"
+		} as const
+export default styles

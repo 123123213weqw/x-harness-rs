@@ -1,0 +1,14 @@
+✔ latest-native archive metadata stays absent on old payloads and preserves all current protocol fields when present (53.200875ms)
+✔ frozen/source in-process fork carrier retains parent/origin in session list and host frames without pretending the HTTP schema changed (44.689875ms)
+✔ fixture generic RPC routes root capabilities before session-only decoders and rejects unsupported calls explicitly (63.986042ms)
+✔ latest-native direct unarchive/delete helpers preserve established generic RPC endpoint/payload/abort/correlation ABI (3.80375ms)
+✔ open carrier projects legitimate full messages by identity including unknown content tags, empty assistant and foreign fields (0.518959ms)
+✔ surface folding preserves replacement/provenance errors and atomic incremental admission of unknown carriers (1.095375ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 179.051458

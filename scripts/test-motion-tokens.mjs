@@ -12,7 +12,7 @@ assert.equal(shipped, source, 'the shell must ship the product token source unch
 assert.equal((html.match(/data-xh-motion-tokens/g) ?? []).length, 1, 'inject tokens once')
 assert.ok(html.includes(`/motion-tokens.css?rev=${revision}`), 'cache-bust on token changes')
 assert.ok(html.indexOf('data-xh-motion-tokens') < html.indexOf('window.__DSH_BOOT__'))
-assert.match(read('scripts/assemble-static-ui.mjs'), /ui\/overrides\/motion-tokens\.css/)
+assert.ok(JSON.parse(read('ui/modules.json')).assets.some(asset => asset.path === 'motion-tokens.css' && asset.source === 'overrides/motion-tokens.css'))
 
 for (const name of [
   'fast', 'control', 'overlay-in', 'overlay-out', 'panel-in',

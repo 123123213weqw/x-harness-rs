@@ -1,0 +1,8 @@
+=== tool chromium source ===
+chromium/source: live expansion, stream/result preservation, open-file propagation, inspect, failure summary, preparing, process-mode/manual-state retention, URL policy, split diff persistence/500–3000 cap and narrow layout passed
+=== tool chromium legacy ===
+chromium/legacy: live expansion, stream/result preservation, open-file propagation, inspect, failure summary, preparing, process-mode/manual-state retention, URL policy, split diff persistence/500–3000 cap and narrow layout passed
+=== tool webkit source ===
+webkit/source: live expansion, stream/result preservation, open-file propagation, inspect, failure summary, preparing, process-mode/manual-state retention, URL policy, split diff persistence/500–3000 cap and narrow layout passed
+=== tool webkit legacy ===
+webkit/legacy: live expansion, stream/result preservation, open-file propagation, inspect, failure summary, preparing, process-mode/manual-state retention, URL policy, split diff persistence/500–3000 cap and narrow layout passed

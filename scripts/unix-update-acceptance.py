@@ -627,14 +627,27 @@ def isolate_base_updater_timers(path):
     # A second browser timer must not inject unrelated operations mid-assertion.
     require(path.is_file() and not path.is_symlink(), 'Missing regular base updater UI')
     text = path.read_text(encoding='utf-8')
-    initial = '    initialTimer = window.setTimeout(() => controller.check(), 1500)'
-    periodic = ("    periodicTimer = window.setInterval(() => {\n"
-                "      if (document.visibilityState === 'visible') controller.check()\n"
-                "    }, 6 * 60 * 60 * 1000)")
-    require(text.count(initial) == 1 and text.count(periodic) == 1,
+    # Two approved generations only: the frozen script and the repository TS
+    # emitter. Do not match arbitrary timers or weaken drift/duplicate checks.
+    variants = [
+        ('\n    initialTimer = window.setTimeout(() => controller.check(), 1500)\n',
+         "\n    periodicTimer = window.setInterval(() => {\n"
+         "      if (document.visibilityState === 'visible') controller.check()\n"
+         "    }, 6 * 60 * 60 * 1000)\n"),
+        ('\n      initialTimer = window.setTimeout(() => controller.check(), 1500);\n',
+         '\n      periodicTimer = window.setInterval(() => {\n'
+         '        if (document.visibilityState === "visible") controller.check();\n'
+         '      }, 6 * 60 * 60 * 1e3);\n'),
+    ]
+    matches = [(initial, periodic) for initial, periodic in variants
+               if text.count(initial) == 1 and text.count(periodic) == 1]
+    require(len(matches) == 1
+            and text.count('initialTimer = window.setTimeout') == 1
+            and text.count('periodicTimer = window.setInterval') == 1,
             'Base updater timer injection anchor drifted')
-    text = text.replace(initial, '    // Isolated base: native driver owns automatic checks.', 1)
-    path.write_text(text.replace(periodic, '    // Production target timers remain unmodified.', 1), encoding='utf-8')
+    initial, periodic = matches[0]
+    text = text.replace(initial, '\n    // Isolated base: native driver owns automatic checks.\n', 1)
+    path.write_text(text.replace(periodic, '\n    // Production target timers remain unmodified.\n', 1), encoding='utf-8')
 
 
 def prepare(args):

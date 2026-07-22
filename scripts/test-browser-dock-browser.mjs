@@ -1,45 +1,40 @@
+import {installOwnedViewHtml} from './fixtures/owned-view-platform-browser.mjs'
+import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 // Isolated regression of the shipped AppFrame browser dock, no Rust Host required.
 import assert from 'node:assert/strict'
+import {createHash} from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
-import { patchBrowserDock } from './patch-browser-dock.mjs'
 
-const deps = resolve(process.env.UI_TEST_DEPS ?? '/tmp/xharness-model-ui-tests')
+const deps = resolve(process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps')
 const require = createRequire(resolve(deps, 'package.json'))
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 const browser = await ({ chromium, webkit })[engine].launch({ headless: true })
 try {
-  const layoutSource = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-layout/client.js', import.meta.url), 'utf8')
-  assert.equal(patchBrowserDock(Buffer.from(layoutSource)).toString(), layoutSource, 'dock rebuild patch is idempotent')
+  const layoutSource=ownedViewModuleTestInput('@xharness/dsh-client-ui-layout')
   const page = await browser.newPage({ viewport: { width: 1280, height: 780 } })
   const errors = []
-  page.on('pageerror', error => errors.push(error.message))
-  await page.setContent('<html><head></head><body style="margin:0"><div id="root" style="position:fixed;inset:0"></div></body></html>')
-  for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js']) {
-    await page.addScriptTag({ path: resolve(deps, 'node_modules', file) })
-  }
+  page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
+  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical','<html><head></head><body style="margin:0"><div id="root" style="position:fixed;inset:0"></div></body></html>')
   await page.addScriptTag({ content: 'window.__ModuleLoader__={load:x=>{window.registrations??={};registrations[x.id]=x}}' })
   await page.addScriptTag({ content: layoutSource })
-  await page.addScriptTag({ content: readFileSync(new URL('../ui/plugins/@xlang/xharness-client-ui-browser/client.js', import.meta.url), 'utf8') })
+  await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
+  await page.addScriptTag({ content: ownedViewModuleTestInput('@xharness/dsh-client-runtime') })
   await page.evaluate(() => {
-    const runtime = id => {
-      if (id === 'react') return React
-      if (id === 'react/jsx-runtime') return { jsx: (type, props) => React.createElement(type, props), jsxs: (type, props) => React.createElement(type, props), Fragment: React.Fragment }
-      if (id === '@xharness/dsh-client-runtime/client') return { defineStore: spec => spec }
-      return {}
-    }
+    const engine=registrations['@xharness/dsh-client-runtime'].factory(id=>{if(id in staticModules)return staticModules[id];throw Error(id)})
+    const runtime=id=>{if(id==='@xharness/dsh-client-runtime/client')return engine;if(id in staticModules)return staticModules[id];throw Error(id)}
     const layout = registrations['@xharness/dsh-client-ui-layout'].factory(runtime)
     const browser = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
     browser.apply({ effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: () => {} } })
-    let AppFrame
+    let AppFrame,rootDefinition
     layout.apply({
       effect: (fn, label) => { if (label.includes('service')) fn() },
       reflect: { provide: (_name, service) => { window.layoutService = service; return () => {} } },
-      slots: { register: (_, component) => { AppFrame = component; return () => {} } },
+      slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } },
     })
-    const actions = { setNarrow: () => {}, openDetails: () => {}, closeDetails: () => {}, setSidebar: () => {}, setDetails: () => {} }
+    const instance=rootDefinition.store().create(),actions=instance.actions;rootDefinition.inject(actions)
     window.layoutActions = actions
     const slots = (name, props) => {
       if (name === 'shell.overlay') return null
@@ -49,7 +44,7 @@ try {
     }
     window.root = ReactDOM.createRoot(document.getElementById('root'))
     root.render(React.createElement(AppFrame, {
-      useStore: selector => selector({ sidebar: 280, details: 0, narrowExpanded: false }),
+      useStore:selector=>selector(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),
       useSessions: selector => selector({ current: undefined, byId: {} }), actions, renderSlot: slots,
     }))
   })
@@ -68,6 +63,7 @@ try {
   assert.equal(wide.drawer, false, 'a wide window docks the browser even without native outward expansion')
   assert.equal(wide.center, centerBefore - 440, 'internal dock shares width with the conversation')
   assert.equal(wide.browser, 440, JSON.stringify(wide))
+  await page.evaluate(()=>document.fonts.ready);const initialPixelsSha256=createHash('sha256').update(await page.locator('#root').screenshot({animations:'disabled'})).digest('hex')
   assert.equal(await page.locator('._84hhiq_centerCol').evaluate(el => getComputedStyle(el).zIndex),
     await page.locator('._84hhiq_detailsCol').evaluate(el => getComputedStyle(el).zIndex),
     'chat and browser are peer stacking contexts in dock mode')
@@ -147,5 +143,6 @@ try {
   assert.equal(await page.getByRole('textbox', { name: '网址' }).inputValue(), '', 'closing a tab discards its local navigation state')
   await page.evaluate(() => root.unmount())
   assert.deepEqual(errors, [])
+  console.log(JSON.stringify({engine,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,actualRuntimeEngine:true,initialPixelsSha256,pageErrors:errors}))
   console.log(`${engine}: browser layout fallback passed`)
 } finally { await browser.close() }

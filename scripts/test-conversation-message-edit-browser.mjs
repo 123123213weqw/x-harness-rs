@@ -1,12 +1,18 @@
 // Actual shipped React, primitives, workspace owner and product flow; only the
 // host services/slot harness are fixtures. No running App or user data is used.
+import { verifyConversationArtifact, exposeConversation, legacyConversation } from './conversation-artifact-test.mjs'
+import { installOwnedViewPlatform } from './fixtures/owned-view-platform-browser.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, mkdirSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../', import.meta.url))
-const dist = resolve(root, 'ui/dist')
+const implementation = process.env.UI_TEST_IMPL ?? 'source'
+assert.ok(['source', 'native', 'legacy', 'frozen'].includes(implementation), 'known feature implementation')
+const frozen = implementation === 'legacy' || implementation === 'frozen'
+const dist = resolve(root, frozen ? 'ui/reference/master-a613970' : 'ui/dist')
+const shippedConversation = frozen ? legacyConversation().toString() : verifyConversationArtifact()
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/ui-tests', 'package.json'))
 const engines = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
@@ -17,30 +23,16 @@ try {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   page.setDefaultTimeout(8000)
-  const assets = readdirSync(resolve(dist, 'assets'))
-  const entry = assets.find(name => /^index-.*\.js$/.test(name))
-  const css = assets.filter(name => name.endsWith('.css'))
-  await page.route('**/*', route => {
-    const url = new URL(route.request().url())
-    const name = url.pathname.slice('/assets/'.length)
-    if (url.pathname.startsWith('/assets/') && assets.includes(name)) {
-      return route.fulfill({ body: readFileSync(resolve(dist, 'assets', name)),
-        contentType: name.endsWith('.css') ? 'text/css' : 'application/javascript' })
-    }
-    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head>
-      ${css.map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
-      <script>window.__ModuleLoader__={create: options => {window.staticModules=options.staticModules;throw Error('isolated fixture: stop host boot')}};</script>
-      <script type="module" src="/assets/${entry}"></script></head><body><div id="root"></div></body></html>` })
-    return route.abort()
-  })
-  await page.goto('http://workspace-fixture.test/')
-  await page.waitForFunction(() => window.staticModules)
+  await installOwnedViewPlatform(page, frozen ? 'legacy' : 'source')
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
   const plugins = readdirSync(resolve(dist,'plugins/@xharness'));
   for (const name of plugins) {
     const file = resolve(dist,'plugins/@xharness',name,'client.js');
     let source=readFileSync(file,'utf8');
-    if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =', 'exports.xhEditStorage = xhEditStorage; exports.SessionInputShell = SessionInputShell; exports.XHarnessEditAction = XHarnessEditAction; exports.XHarnessForkAction = XHarnessForkAction; exports.XHarnessMessageEditor =');
+    if(name==='dsh-client-ui-conversation') {
+      assert.equal(source, shippedConversation, 'actual selected fresh/immutable Conversation factory')
+      source=exposeConversation(shippedConversation,["SessionInputShell", "xhEditStorage", "UserMessageNodeView"]);
+    }
     await page.addScriptTag({content:source});
   }
   await page.evaluate(() => {
@@ -58,7 +50,7 @@ try {
     const registry=new Map();let count=0;
     const conversation={createdImageUrls:new Set(),draftImages:ids=>ids.map(id=>registry.get(id)).filter(Boolean),
       createDraftImages:files=>files.map(file=>{const a={id:'i'+count++,file,previewUrl:URL.createObjectURL(file)};registry.set(a.id,a);return a;}),
-      releaseDraftImage:id=>{const a=registry.get(id);if(a)URL.revokeObjectURL(a.previewUrl);registry.delete(id);}};
+      releaseDraftImage:id=>{const a=registry.get(id);if(a)URL.revokeObjectURL(a.previewUrl);registry.delete(id);},replaceDraftPreview:(image,file)=>{URL.revokeObjectURL(image.previewUrl);image.file=file;image.previewUrl=URL.createObjectURL(file);image.loadState='ready';}};
     window.admissions=[];window.forkClicks=[];window.running=false;window.failSend=false;window.missing=false;
     const shell=new module.SessionInputShell({defaultSink:async(text,ids)=>{
       editor.guardSubmit();admissions.push({text,ids});
@@ -67,14 +59,13 @@ try {
     },commandImages:{serialize:async()=>[],release:()=>{},unsupportedNotice:()=>''}});
     const store=module.xhEditStorage();
     const deps={id:'fixture',shell,conversation,storage:store,t:k=>k,running:()=>running,focus:()=>{},
-      read:async()=>missing?{ok:false,error:{message:'gone'}}:{ok:true,value:{attachment:{mediaType:'image/png'},data:Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg=='),c=>c.charCodeAt(0))}}};
+      read:async()=>missing?{ok:false,error:{message:'gone'}}:{ok:true,value:{attachment:{attachmentId:'x',mediaType:'image/png',name:'sample.png',bytes:70},data:Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg=='),c=>c.charCodeAt(0))}}};
     const editor=new module.XHarnessMessageEditor(deps);shell.xhEditor=editor;window.editor=editor;window.shell=shell;window.deps=deps;
     const oldSubmit=shell.submit.bind(shell);shell.submit=(...args)=>{try{editor.guardSubmit();oldSubmit(...args)}catch(e){editor.set({error:String(e)})}};
     const useInput=select=>select(React.useSyncExternalStore(shell.state.subscribe,shell.state.getSnapshot));
     const root=DOM.createRoot(document.getElementById('root'));
     function App(){return React.createElement('div',{},
-      React.createElement(module.XHarnessEditAction,{content:[{type:'text',text:'old message'}],editMessage:c=>editor.request(c),t:k=>k}),
-      React.createElement(module.XHarnessForkAction,{content:[{type:'text',text:'old message'}],seq:7,forkMessage:(seq,content)=>forkClicks.push({seq,content}),t:k=>k}),
+      React.createElement(module.UserMessageNodeView,{node:{data:{seq:7,time:1,content:[{type:'text',text:'old message'}]}},editAvailable:true,renderMessageImages:()=>null,editMessage:c=>editor.request(c),forkMessage:(seq,content)=>forkClicks.push({seq,content}),t:k=>k}),
       React.createElement(module.XHarnessEditableInputBar,{sessionId:'fixture',keyboard:shell,inputActions:shell.actions,
         useSession:f=>f({running:false,subagent:null,removed:false}),useInput,useNotices:()=>null,useLexicon:()=>new Map(),useMenuLauncher:()=>false,useProjection:()=>undefined,
         renderSlot:()=>null,t:k=>k,resolveSubmitMode:()=> 'queue',draftImages:ids=>conversation.draftImages(ids),
@@ -112,12 +103,12 @@ try {
   await page.waitForFunction(()=>!editor.state.editing&&shell.snapshot.draft==='');
   assert.equal(await page.evaluate(()=>admissions.length),2);
   // Image-only editing, missing attachment retry and explicit removal.
-  await page.evaluate(async()=>{missing=true;await editor.request([{type:'image',attachment:{attachmentId:'x',mediaType:'image/png',name:'sample.png'}}]);});
+  await page.evaluate(async()=>{missing=true;await editor.request([{type:'image',attachment:{attachmentId:'x',mediaType:'image/png',name:'sample.png',bytes:70}}]);});
   await page.getByRole('button',{name:'message.editRetry',exact:true}).waitFor();
   await page.getByRole('button',{name:'message.editRemove',exact:true}).click();
   await page.getByRole('button',{name:'message.editRetry',exact:true}).waitFor({state:'hidden'});
   assert.equal(await page.evaluate(()=>shell.snapshot.imageIds.length),0);
-  await page.evaluate(async()=>{await editor.cancel();await editor.request([{type:'image',attachment:{attachmentId:'x',mediaType:'image/png',name:'sample.png'}}]);});
+  await page.evaluate(async()=>{await editor.cancel();await editor.request([{type:'image',attachment:{attachmentId:'x',mediaType:'image/png',name:'sample.png',bytes:70}}]);});
   await page.getByRole('button',{name:'message.editRetry',exact:true}).waitFor();
   await page.evaluate(()=>{missing=false;});
   await page.getByRole('button',{name:'message.editRetry',exact:true}).click();
@@ -129,7 +120,7 @@ try {
   // Compact layout remains inside the viewport.
   await page.setViewportSize({width:420,height:720});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-  assert.deepEqual(errors.filter(e=>!e.includes('isolated fixture: stop host boot')),[]);
+  assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
   // A genuine browser refresh preserves both File blobs and edited text in IndexedDB.
   await page.evaluate(async()=>{
     running=false;shell.setDraft('before refresh');
@@ -148,5 +139,6 @@ try {
     return {text:r.draft.text,backup:r.backup.text,file:new TextDecoder().decode(r.backup.images[0].blob),name:r.backup.images[0].name};
   });
   assert.deepEqual(recovered,{text:'edited before reload',backup:'before refresh',file:'backup file',name:'draft.png'});
-  console.log(engine+': shipped message edit button, real InputMachine/composer, draft undo, failure/retry, double send, image-only, missing image and running guard passed');
+  assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
+  console.log(engine+'/'+implementation+': shipped message edit button, real InputMachine/composer, draft undo, failure/retry, double send, image-only, missing image and running guard passed');
 } finally { await browser.close(); }

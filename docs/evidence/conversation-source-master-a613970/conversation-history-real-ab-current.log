@@ -1,0 +1,10 @@
+✔ legacy: malformed known compaction rolls back real history and preserves retry/pending state (31.0855ms)
+✔ source: malformed known compaction rolls back real history and preserves retry/pending state (106.183375ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 141.626917

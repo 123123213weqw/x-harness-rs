@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {Script} from 'node:vm';
+import {loadSourceInternals} from './fixtures/load-source-internals.mjs';
 import {patchWorkspaceCreatedAt} from './patch-workspace-created-at.mjs';
 const root=new URL('..',import.meta.url);
+const dist=process.env.UI_TEST_DIST ?? 'ui/dist';
 const read=path=>readFileSync(new URL(path,root),'utf8');
 const WORKSPACE='@xharness/dsh-client-ui-workspace',RUNTIME='@xharness/dsh-client-runtime',T='\t';
 
@@ -54,20 +56,63 @@ assert.ok(runtimeText.includes('latest = xhEpochMs(workspace.createdAt)'),'recen
 assert.equal(runtimeText.includes('Date.parse(workspace.createdAt)'),false);
 new Script(runtimeText);
 
-// The shipped bundle must already be refreshed, and stay syntactically valid.
+// Keep the golden patch tests above. Native shipped source must prove the same
+// parser, grouping, hover rendering and runtime recency behavior, not match a
+// historical transpiler's injection anchor or be exempted without execution.
 for(const id of [WORKSPACE,RUNTIME]){
-  const bytes=readFileSync(new URL(`ui/dist/plugins/${id}/client.js`,root));
-  assert.deepEqual(patchWorkspaceCreatedAt(id,bytes),bytes,'shipped UI must be refreshed and patch idempotent');
+  const bytes=readFileSync(new URL(`${dist}/plugins/${id}/client.js`,root));
   const text=bytes.toString();
-  assert.ok(text.includes('function xhEpochMs(value)'),`${id} must carry the helper`);
-  assert.equal(text.includes('Date.parse(workspace.createdAt)'),false,`${id} must not parse the wire value as a date`);
   new Script(text);
+  if(!text.startsWith('// Generated from src/modules/')){
+    assert.deepEqual(patchWorkspaceCreatedAt(id,bytes),bytes,'frozen shipped UI patch is idempotent');
+    assert.ok(text.includes('function xhEpochMs(value)'),`${id} must carry the parser`);
+    assert.equal(text.includes('Date.parse(workspace.createdAt)'),false);
+    continue;
+  }
+  const values=[String(ms),ms,`  ${ms}  `,'2026-09-12T04:42:19.123Z','0','12.5','',undefined,null,'not-a-date',{},'99999999999999999999'];
+  const jsx=(type,props,key)=>({type,props,key});
+  const external=name=>{
+    if(name==='react')return {useState:value=>[value,()=>{}],useMemo:fn=>fn(),useCallback:fn=>fn,useRef:value=>({current:value}),useEffect:()=>{}};
+    if(name==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'fragment'};
+    if(name==='@xharness/cordis')return {Context:class{},Service:class{}};
+    if(name==='@xharness/dsh-client-ui-slots')return {SlotOwnershipError:class extends Error{},StaleAuthorizationError:class extends Error{}};
+    if(name==='@xharness/dsh-client-ui-primitives')return new Proxy({},{get:(_target,key)=>String(key)});
+    if(name==='@xharness/dsh-client-runtime/client')return {defineStore:spec=>({spec}),indexSubagentDescendants:()=>new Map()};
+    throw Error(`unexpected timestamp-test external ${name}`);
+  };
+  const loaded=loadSourceInternals(id,external,{console,Error,Date,URL,AbortController,setTimeout,clearTimeout});
+  if(id===WORKSPACE){
+    const native=loaded.internal('src/modules/workspace/timestamp.js').xhEpochMs;
+    const rows=loaded.internal('src/modules/workspace/rows/Rows.js');
+    for(const value of values)assert.equal(native(value),xhEpochMs(value),'native source parser retains golden behavior');
+    const t=(key,args)=>key==='date.ymd'?`${args.y}-${args.m}-${args.d}`:key==='hover.created'?args.time:key;
+    assert.equal(rows.createdLabel(ms,t),rows.createdLabel(Number(ms),t));
+    assert.ok(!rows.createdLabel(ms,t).includes('NaN'));
+    assert.equal(rows.createdLabel(Number.NaN,t),undefined);
+    const invalid=rows.WorkspaceHoverContent({label:'Title',cwd:'/workspace',createdAt:Number.NaN,t});
+    assert.equal(invalid.props.children[2],null,'native invalid timestamp omits the whole hover time row');
+    const tree=loaded.internal('src/modules/workspace/tree.js');
+    const list={ids:[],byId:{},current:undefined,phase:'ready'};
+    const workspaces=[{workspaceId:'native',path:'/native',title:'Native',sessionIds:[],createdAt:String(ms),updatedAt:String(ms)}];
+    assert.equal(tree.deriveGroups(list,workspaces,[],{expandedGroups:[]})[0].createdAt,ms,'native grouping accepts Host milliseconds');
+  }else{
+    const native=loaded.internal('src/modules/client-runtime/workspaces/epoch.js').workspaceEpochMs;
+    for(const value of values)assert.equal(native(value),xhEpochMs(value),'runtime parser retains golden behavior');
+    const {WorkspaceRuntime}=loaded.internal('src/modules/client-runtime/workspaces/service.js');
+    const runtime=Object.create(WorkspaceRuntime.prototype);let result;
+    const items=[{workspaceId:'old',path:'/old',title:'Old',sessionIds:[],createdAt:'1000',updatedAt:'1000'},{workspaceId:'new',path:'/new',title:'New',sessionIds:[],createdAt:'2000',updatedAt:'2000'}];
+    runtime.manager={getSnapshot:()=>({items,archivedSessionIds:[],state:'idle',phase:'ready',error:null})};
+    runtime.sessions={list:{getSnapshot:()=>({phase:'ready',byId:{},current:undefined})}};
+    runtime.list={set:value=>{result=value}};
+    runtime.project();assert.equal(result.recentWorkspaceId,'new','native source runtime recency uses decimal-ms fallback');
+    items[0].createdAt='2026-09-12T04:42:19.123Z';runtime.project();assert.equal(result.recentWorkspaceId,'old','native source runtime still supports ISO fallback');
+  }
 }
-const graph=JSON.parse(read('ui/dist/client-graph.json'));
+const graph=JSON.parse(read(`${dist}/client-graph.json`));
 for(const id of [WORKSPACE,RUNTIME]){
-  const bytes=readFileSync(new URL(`ui/dist/plugins/${id}/client.js`,root));
+  const bytes=readFileSync(new URL(`${dist}/plugins/${id}/client.js`,root));
   const entry=graph.entries.find(candidate=>candidate.id===id);
   assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,16),`${id} revision must match shipped bytes`);
-  assert.ok(read('ui/dist/index.html').includes(entry.url),`${id} boot graph must carry the refreshed revision`);
+  assert.ok(read(`${dist}/index.html`).includes(entry.url),`${id} boot graph must carry the refreshed revision`);
 }
 console.log('Workspace timestamp patch: millisecond+ISO parsing, fail-closed anchors, refreshed graph/hash passed');
