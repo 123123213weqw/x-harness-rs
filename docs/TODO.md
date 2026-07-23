@@ -1444,3 +1444,15 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] V100 静态及 Chromium 八组关联回归、本机 macOS WebKit 窗口化回归；350 行首次重组件挂载 0，五轮宽度变化峰值 1（模拟用例，不代表真实进程 footprint）。
 - [ ] Linux WebKit 回归：V100 缺失测试库已补齐；Safari 26.4 的既有测高滚动补偿缺口已复现并单列 `UI-LINUX-ANCHOR-01`，不使用强制点击/等待绕过失败。最新 GitHub CI 与原生 WebView 结果不冒充该版本通过。
 - [ ] 发布后对真实 macOS WKWebView footprint／启动峰值验收；源码修改不代表本机已升级。
+
+## job_output 等待超时：隔离实验（2026-10-03）
+
+- [x] 仅改等待超时解析；旧版新增契约 5 通过／1 失败，负值被接受。
+- [x] V100 四 crate 68 项通过、coding-tools 全目标 Clippy 通过；新增 6 项覆盖参数、等待、取消、游标与归属。
+- [x] DeepSeek／V100 Qwen 各 4 次真实后台编程／故障恢复，8/8 独立验收；候选 2/2 拒绝负值并合法恢复。
+- [x] 源码／Definitions 隔离审计、证据 hash、额度与中文报告；保留 Qwen 普通组耗时增长，不声称提速／泛化收益。
+- [x] 用户授权后整理独立正确性 PR；仅生产解析／契约测试／中文文档，不提交实验设施。
+- [ ] #196／#197 前置与本 PR 的 CI 全通过后再合并；当前不替换软件。
+- [ ] 后续单变量实验：write 描述明确 read 观察与 stale 冲突恢复；不削弱版本保护，不与本次混改。
+
+见 [job_output 实验报告](reports/job-output-timeout-ab-20261003.md)。
