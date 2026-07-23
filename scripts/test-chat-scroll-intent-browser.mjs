@@ -64,6 +64,30 @@ try {
   })
   const scroll = page.locator('[data-conversation-scroll]'), jump = page.getByRole('button', { name: 'Back to bottom', exact: true })
   const geometry = () => scroll.evaluate(e => ({ top: e.scrollTop, gap: e.scrollHeight - e.clientHeight - e.scrollTop }))
+  // Native wheel scrolling is asynchronous (Linux WebKit animates it beyond
+  // 150ms). Observe stable geometry instead of taking a mid-gesture snapshot.
+  // The deadline and bounded samples also make a genuinely stuck test fail.
+  const settledGeometry = () => scroll.evaluate(e => new Promise((resolve, reject) => {
+    const start = performance.now(), samples = []
+    let previous, stableSince = start, frame, maxTop = e.scrollTop
+    const timeout = setTimeout(() => {
+      cancelAnimationFrame(frame)
+      reject(new Error('Scroll geometry did not settle: ' + JSON.stringify(samples)))
+    }, 3000)
+    const sample = now => {
+      const current = { top: e.scrollTop, height: e.scrollHeight, viewport: e.clientHeight }
+      maxTop = Math.max(maxTop, current.top)
+      samples.push({ ms: Math.round(now - start), ...current })
+      if (samples.length > 60) samples.shift()
+      if (!previous || current.top !== previous.top || current.height !== previous.height || current.viewport !== previous.viewport) stableSince = now
+      previous = current
+      if (now - stableSince >= 120) {
+        clearTimeout(timeout)
+        resolve({ ...current, gap: current.height - current.viewport - current.top, maxTop, samples })
+      } else frame = requestAnimationFrame(sample)
+    }
+    frame = requestAnimationFrame(sample)
+  }))
   await page.waitForFunction(() => { const e = document.querySelector('[data-conversation-scroll]'); return e.scrollTop > 9000 })
   await page.waitForTimeout(100)
   await page.evaluate(() => grow())
@@ -171,12 +195,18 @@ try {
   assert.ok((await geometry()).gap <= 1, 'Long native scrollbar drag can return to bottom-follow')
   await scroll.hover()
   await page.mouse.wheel(0, -180)
-  await page.waitForTimeout(150)
-  const wheelTop = (await geometry()).top
-  assert.ok((await geometry()).gap >= 100, 'Real wheel left the floor')
+  // First prove the gesture actually started, then wait for its animation to
+  // finish. The earlier synthetic case still appends before the first scroll.
+  await page.waitForFunction(() => { const e = document.querySelector('[data-conversation-scroll]'); return e.scrollHeight - e.clientHeight - e.scrollTop >= 100 })
+  const wheelBefore = await settledGeometry()
+  assert.ok(wheelBefore.gap >= 100, 'Real wheel left the floor')
   await page.evaluate(() => grow(true))
-  await page.waitForTimeout(150)
-  assert.ok(Math.abs((await geometry()).top - wheelTop) < 2, 'Actual wheel + row append leaves the reader in place')
+  const wheelAfter = await settledGeometry()
+  const diagnostic = JSON.stringify({ engine, wheelBefore, wheelAfter })
+  assert.ok(Math.abs(wheelAfter.top - wheelBefore.top) < 2, 'Actual wheel + row append leaves the reader in place: ' + diagnostic)
+  assert.ok(wheelAfter.maxTop - wheelBefore.top < 2, 'Append never pulls the reader downward, even transiently: ' + diagnostic)
+  assert.ok(wheelAfter.gap >= 100, 'Append does not re-pin the reader: ' + diagnostic)
+  assert.equal(await jump.isVisible(), true, 'Actual wheel preserves the explicit return-to-bottom control')
   await page.evaluate(() => unmount())
   assert.deepEqual(errors, [])
   console.log(`${engine}: real ChatView tiny-up/resize, pre-scroll append race, persistent reader intent, keyboard/touch/native wheel/long scrollbar drag, jump/down re-entry, compaction and non-scroll input passed`)
