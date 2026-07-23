@@ -66,7 +66,12 @@ test('checkpoint and max-steps turn termination remain visible and immediate',()
 });
 test('context accuracy/staleness, ring guards and reader-scroll ownership match all edge readings',()=>{
  for(const pressure of [undefined,{}, {projectedTokens:10,contextWindow:100},{pressureTokens:20,projectedTokens:1,contextWindow:100},{pressureTokens:10,pressureAccuracy:'estimated',contextWindow:100},{projectedTokens:33,projectedAccuracy:'exact_tokenizer',contextWindow:100,phase:'history_changed'},{projectedTokens:NaN,contextWindow:100},{pressureTokens:Infinity,projectedTokens:10,contextWindow:100},{projectedTokens:-1,contextWindow:100},{projectedTokens:0,contextWindow:0},{projectedTokens:500,contextWindow:100}])assert.deepEqual(json(apis[1].plugin.contextOccupancy(pressure)),json(apis[0].plugin.contextOccupancy(pressure)));
- for(const recent of [false,true])for(const pinned of [false,true])for(const [top,floor,observed] of [[0,100,100],[100,100,100],[50,50,100],[80,100,100]])assert.equal(apis[1].plugin.xhScrollFollowAtBottom(pinned,top,floor,observed,recent),apis[0].plugin.xhScrollFollowAtBottom(pinned,top,floor,observed,recent));
+ // Intentional correction: even an upward move within 25px releases follow.
+ // Other scroll/clamp ownership readings retain the pinned legacy baseline.
+ for(const recent of [false,true])for(const pinned of [false,true])for(const [top,floor,observed] of [[0,100,100],[100,100,100],[50,50,100],[80,100,100]]){
+  const up=recent&&top<Math.min(observed,floor)-.5;
+  assert.equal(apis[1].plugin.xhScrollFollowAtBottom(pinned,top,floor,observed,recent),up?false:apis[0].plugin.xhScrollFollowAtBottom(pinned,top,floor,observed,recent));
+ }
 
 });
 
