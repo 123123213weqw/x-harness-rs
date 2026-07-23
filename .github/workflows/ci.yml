@@ -210,6 +210,8 @@ jobs:
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
         run: |
+          UI_TEST_BROWSER=chromium node scripts/test-page-priority-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-page-priority-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=chromium node scripts/test-plugin-center-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-plugin-hub-functional.mjs
