@@ -9,7 +9,9 @@ const base=resolve(implementation==='source'?'ui/dist':'ui/reference/master-a613
 const deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
 const require=createRequire(resolve(deps,'package.json')),browser=await require('playwright')[engine].launch({headless:true})
 try{
- const page=await browser.newPage({viewport:{width:1280,height:820},colorScheme:'light'}),errors=[],failed=[],requests=[],consoleErrors=[]
+ // English accessible-name assertions must not inherit the runner's OS locale.
+ const page=await browser.newPage({viewport:{width:1280,height:820},colorScheme:'light',locale:'en-US'}),errors=[],failed=[],requests=[],consoleErrors=[]
+ assert.equal(await page.evaluate(()=>navigator.language),'en-US','complete graph fixture uses its explicit English browser locale')
  page.on('pageerror',error=>errors.push(error.stack??error.message));page.on('console',message=>{if(message.type()==='error')consoleErrors.push(message.text())});page.on('requestfailed',request=>failed.push({url:request.url(),error:request.failure()?.errorText}))
  await page.route('**/*',route=>{
   const url=new URL(route.request().url());requests.push(url.pathname)
