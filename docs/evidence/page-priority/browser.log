@@ -1,0 +1,27 @@
+v20.20.2
+1.61.1
+40075f0d17e91edb9f9ed2a725c7d7705f7ba4323862bff987c5bcdf4ba070fe  ui/dist/asset-manifest.json
+2239055c5be8a496de10384f954e04001e8a2100594fcc2e032d70ff657cd540  ui/src/modules/platform/primitives/DialogSurface.tsx
+9754e5ce6bfde1f4e76010d50980deb3fa244132b7b6310e733c2fb6d99731c7  scripts/test-page-priority-browser.mjs
+=== chromium priority ===
+{"engine":"chromium","nestedEscape":true,"modalFocus":true,"focusRestored":true,"nativeMenuInteractive":true,"nestedModal":true,"narrowSettings":true,"sidebarDrawer":true,"collapsedSettingsName":true,"errors":[]}
+=== chromium boot ===
+{"engine":"chromium","implementation":"source","fullGraph":true,"fixtureTransport":true,"settingsProviders":true,"modelEffortAndContextControls":true,"effortChange":true,"buttons":23,"inputs":1,"errors":[],"staticFailures":[],"fixtureHmrDisconnects":0,"text":"XHarness\nNew Session\nWorkspaces\nfixture\nNew Session\nWaiting for answer\nFixture 历史会话\nnow\nfixture\n1min\nfixture\n2min\nproject\nTasks\nSettings\nThe Language of a New Era\nfixture\nWorkspace Write\nDeepSeek-V4-Flash\n+","loadedPlugins":53}
+=== chromium settings-save ===
+Settings save notice browser: modal layer, localization, bounded DOM, focus, dismiss, success, narrow viewport passed
+=== chromium plugin-center ===
+plugin center browser / chromium: open, sidebar switch, return-to-chat and no runtime errors passed
+=== chromium native-dock ===
+{"engine":"chromium","implementation":"canonical","actualPlatform":true,"actualRuntimeEngine":true,"initialPixelsSha256":"5b2826bb40ed2197cbc0a5d3afb530ce81c9a051a9992692284e06e8dc368d0e","pageErrors":[]}
+chromium: adaptive native browser dock passed
+=== webkit priority ===
+{"engine":"webkit","nestedEscape":true,"modalFocus":true,"focusRestored":true,"nativeMenuInteractive":true,"nestedModal":true,"narrowSettings":true,"sidebarDrawer":true,"collapsedSettingsName":true,"errors":[]}
+=== webkit boot ===
+{"engine":"webkit","implementation":"source","fullGraph":true,"fixtureTransport":true,"settingsProviders":true,"modelEffortAndContextControls":true,"effortChange":true,"buttons":23,"inputs":1,"errors":[],"staticFailures":[],"fixtureHmrDisconnects":1,"text":"XHarness\nNew Session\nWorkspaces\nfixture\nNew Session\nWaiting for answer\nFixture 历史会话\nnow\nfixture\n1min\nfixture\n2min\nproject\nTasks\nSettings\nThe Language of a New Era\nfixture\nWorkspace Write\nDeepSeek-V4-Flash","loadedPlugins":53}
+=== webkit settings-save ===
+Settings save notice browser: modal layer, localization, bounded DOM, focus, dismiss, success, narrow viewport passed
+=== webkit plugin-center ===
+plugin center browser / webkit: open, sidebar switch, return-to-chat and no runtime errors passed
+=== webkit native-dock ===
+{"engine":"webkit","implementation":"canonical","actualPlatform":true,"actualRuntimeEngine":true,"initialPixelsSha256":"2115b3a32e12c5ba7a5416be059608710eee97b51afd0d212e0c3455201e6edc","pageErrors":[]}
+webkit: adaptive native browser dock passed

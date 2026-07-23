@@ -203,19 +203,18 @@ export function AppFrame({
 
   // Narrow viewports auto-collapse the sidebar; the store mirror keeps
   // toggleSidebar's semantics right (narrow toggles flip the manual
-  // re-expand override, stores.ts). Collapsed is decided here, so the
-  // solver stays breakpoint-free: a narrow re-expand passes the preference
-  // (or the default when the wide preference is closed) and the center
-  // absorbs the squeeze.
+  // re-expand override, stores.ts). A narrow manual expansion is a drawer:
+  // the solver keeps the control rail reserved and never squeezes the center.
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
   const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
-  const sidebarWidth=sidebarCollapsed?56:panels.sidebar===0?SIDEBAR_DEFAULT:clampWidth(panels.sidebar,264,420)
+  const sidebarDrawer = narrow && !sidebarCollapsed
+  const sidebarWidth=sidebarCollapsed||sidebarDrawer?56:panels.sidebar===0?SIDEBAR_DEFAULT:clampWidth(panels.sidebar,264,420)
   const workspaceOpen=space.items.length>0
   const workspaceAvailable=viewport-sidebarWidth-480
   const workspaceDrawer=workspaceOpen&&workspaceAvailable<360
   const workspaceDockWidth=workspaceOpen&&!workspaceDrawer?Math.min(workspaceWidth,workspaceAvailable):0
-  const cols=computeColumns(viewport-workspaceDockWidth,sidebarCollapsed?0:panels.sidebar===0?SIDEBAR_DEFAULT:panels.sidebar,0,workspaceDockWidth>0?480:640)
+  const cols=computeColumns(viewport-workspaceDockWidth,sidebarCollapsed||sidebarDrawer?0:panels.sidebar===0?SIDEBAR_DEFAULT:panels.sidebar,0,workspaceDockWidth>0?480:640)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -244,12 +243,15 @@ export function AppFrame({
       data-xhworkspace-open={workspaceOpen||undefined}
       data-xhworkspace-drawer={workspaceDrawer||undefined}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-sidebar-drawer={sidebarDrawer || undefined}
       data-details-collapsed={!workspaceOpen||undefined}
       data-dragging={dragging || undefined}
     >
-      <div className={css.sidebarCol} onClickCapture={event => {
+      {sidebarDrawer && <button type="button" className="xh-sidebar-scrim" aria-label={navigator.language.startsWith('zh') ? '关闭侧栏' : 'Close sidebar'} onClick={actions.toggleSidebar} />}
+      <div className={css.sidebarCol} style={sidebarDrawer ? { width: Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420)) } : undefined} onClickCapture={event => {
         const target = event.target
         if (pluginCenterOpen && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]'))) closePluginCenter()
+        if (sidebarDrawer && target instanceof Element && target.closest('[role="treeitem"][aria-selected]')) actions.toggleSidebar()
       }}>
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the mounted slot at the compact-rail width, and the
@@ -258,7 +260,7 @@ export function AppFrame({
             renders the rail UI too). */}
         {renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
-          width: cols.sidebar,
+          width: sidebarDrawer ? Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420)) : cols.sidebar,
         })}
       </div>
       <>
@@ -279,7 +281,7 @@ export function AppFrame({
         {renderSlot('shell.overlay', {})}
       </div>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {!sidebarCollapsed && !sidebarDrawer && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {workspaceDockWidth>0&&<DragHandle side="details" left={viewport-workspaceDockWidth} onStart={onWorkspaceStart} onDrag={onWorkspaceDrag} onEnd={onDragEnd} />}
     </div>
   )

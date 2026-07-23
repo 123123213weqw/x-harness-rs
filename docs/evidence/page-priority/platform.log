@@ -1,0 +1,3 @@
+chromium: frozen/source platform keys, singleton, 10 streamed math scenarios, partial/frozen/retry, brand/lazy Shiki, tracked Core Service, SlotCore lifecycle and 12 computed-layout/pixel snapshots passed
+webkit: frozen/source platform keys, singleton, 10 streamed math scenarios, partial/frozen/retry, brand/lazy Shiki, tracked Core Service, SlotCore lifecycle and 12 computed-layout/pixel snapshots passed
+typed HTML queue/live bootstrap and 59 frozen / 60 npm KaTeX font byte pins passed; 136 emitted platform assets
