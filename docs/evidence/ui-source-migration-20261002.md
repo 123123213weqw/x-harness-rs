@@ -52,6 +52,30 @@
 
 这次纠正未修改生产 UI 源码或构建产物。首轮失败与更正后复跑日志分别记录；必须等待更正提交的新一轮 CI 真正全绿才能合并。
 
+## 第二轮 CI：独立异步链的正确对照
+
+[第二轮 CI](https://github.com/123123213weqw/x-harness-rs/actions/runs/37018400691) 的 Rust 三平台、Linux Desktop 和更新门禁通过，原 Node 回归继续通过。浏览器矩阵的第一项暴露不稳定的测试总序要求：startup 的 `first_frame` 与 updater 的状态检查没有因果依赖，不应要求二者交错位置相同。内容、链内顺序及 UI 完整一致，但总数组顺序不同导致拒绝。
+
+测试不排序、不删原 UI/确认/取消/注入防护/生命周期断言，也不改生产调度。改为精确比较两个因果链的命令、参数、次数和必要先后关系；真实 RAF/Promise 主动覆盖两种合法交错，保留自然加载方式。Chromium/WebKit 各三轮、三调度、两实现，36/36 实际 DOM cases 通过；14 类坏顺序/错误参数/重复或未知命令及错误 UI/lifecycle trace 必须拒绝。更正前 CI 失败与更正后日志各自保留，仍需下一轮完整 CI 全绿。
+
+## Linux 补充验证的布局文本边界
+
+V100 的 Ubuntu 22.04 / Node 20.20.2 / 已缓存 Playwright 1.59.1 用于补充矩阵，不替代 GitHub 最新 Node 22 / Playwright 验收。预先检查浏览器后补齐缺失的 AVIF/GStreamer 测试库；最初浏览器缺失的预检查失败独立保留，不计为产品通过。
+
+其中 Linux WebKit 的 checkpoint 聚合 `innerText` 在两实现均添加布局尾 LF。单独 source/frozen 诊断完整功能 2/2 通过，outerHTML、summary/body 和 raw innerText 均相同；因此测试改为一个展开 details 加两个内容座位的精确 `textContent`，不 trim 数据，也不改生产。Mac 四组合再跑 4/4 通过；原输入、附件、编辑、reasoning、compact、历史失败、权限、审批及 queue 断言保留。
+
+## V100 补充矩阵完成与整图 locale 固定（2026-10-03）
+
+172 个 workflow 浏览器入口已全部运行：108 个 source/frozen 差分、60 个 canonical、4 个平台/桌面脚本入口。首次 169/172 通过；上述 checkpoint 两个入口修正后独立重跑通过，合计 171 个已验收入口，**另 1 个旧 Linux WebKit 滚动问题未通过**，不将重跑覆盖首次失败，也不称补充矩阵全绿。入口数不是内部断言数。逐项状态、环境和日志 Hash 见 [V100 机器收据](ui-source-v100-browser-matrix-20261003.json)。原始日志另持久保存在本机验收目录。
+
+整图 English accessible-name 测试曾继承 V100 的中文 OS locale：Chromium 两实现均为 `zh-CN`，按钮均为“设置”，并非新源码缺失 Settings。测试明确配置 `locale: 'en-US'` 并检查 `navigator.language`，继续精确检查英文标签；不在生产改语言、不放宽成双语或删 locators。纠正后本机 4/4、V100 4/4 source/frozen × 两引擎全图启动及模型 High→Off 通过，各引擎内 old/new 首帧 PNG 字节相同。V100 Chromium SHA `ba6ba58332391c5517aeb174353bb628a49d205811e80a0edce8b5919fc6439b`，WebKit SHA `e0d0395e8c1a25c5571d56947807914ad6c06fe9a4c20569e110f8500b51bde5`；跨平台 PNG 不要求相同。
+
+### 单独保留的既有 Linux WebKit 兼容问题
+
+Playwright 1.59.1 / WebKit Safari 26.4 不支持 CSS `overflow-anchor`。窗口化控制器只在计算值为 `none` 时补偿测高；该浏览器计算值缺失，滚到底部后临近行由 240px 估高变成 1228px，extent 从 89928 增至 95856，但 scrollTop 仍为 89328。349 行因此跑到视口下方并被 IO 正常卸载，真实按钮点击超时。加入原生 scroll 消费 barrier 后 source 和独立 frozen 都复现，不能用 sleep、强制点击或重复滚动假装修复。
+
+这是旧实现同样存在的能力判断缺口，不是 TS 迁移差异；本轮为保持迁移范围与行为基线，没有修改生产滚动算法，也没有放宽这项测试。`UI-LINUX-ANCHOR-01` 单独跟进不支持 CSS scroll anchoring 时的高度补偿，需保留 viewport/展开状态及 active-row 行为并重做两引擎回归。补充环境结果不能替代最新 GitHub CI 或 Linux 原生 WebView 验收。
+
 ## 明确限制
 
 - 浏览器使用真实平台/组件/SDK，Host/Tauri/外部响应由隔离 fixture 控制；不读取当前用户对话、不调用付费模型。
