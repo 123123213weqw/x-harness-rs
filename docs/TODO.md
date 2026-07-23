@@ -1456,3 +1456,14 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] Windows/macOS 实机回归及未调优任务确认；Unix symlink 测试不等同于 Windows reparse-point 验证。
 
 见 [Read 规范](specs/read-contract-ab.md)与[完整实验报告](reports/read-contract-ab-20261003.md)。实验设施和私有证据保留在独立实验工作区，不混入生产修复 PR。
+
+## 前台 Shell 超时解析：单变量实验（2026-10-03）
+
+- [x] 冻结 PR #196 基线，仅修改 timeout_ms 的严格解析；描述／默认／上限／输出／其它工具不改。
+- [x] V100 47 项回归、Clippy／probe build 通过；旧版同一新测试真实失败，负超时仍执行命令。
+- [x] DeepSeek 和 V100 Qwen 27B 各 8 次真实编程／故障恢复，16 次全验收通过；候选 4/4 拒绝负超时后合法恢复。
+- [x] 完整报告保留普通任务耗时增长和样本限制，**不宣称提速／稳定性能收益**；两臂源码／Definitions 审计、分析单测、证据与额度记录完成。
+- [x] 按用户要求将候选整理为独立正确性修复；回归测试拆分非法／合法调用，增加自动清理，生产逻辑保持实验版本。V100 正式 48 项回归及三个 crate 全目标 Clippy 通过；首次共享缓存异常与强制重编译结果均保留。
+- [ ] 独立 PR 的 CI／审查与 Windows/macOS 验收；依赖 #196，软件不替换。
+
+见 [实验规范](specs/bash-timeout-ab.md)及[双模型结果](reports/bash-timeout-ab-20261003.md)。
