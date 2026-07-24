@@ -108,30 +108,26 @@ assert.equal(api.compactionDefinition.buildViewNode({matches:[projectedDone]}).d
 const failedState=api.compactionDefinition.update({state:api.compactionDefinition.start({},projectedStart)},projectedFailure);
 assert.equal(api.compactionDefinition.buildViewNode({state:failedState,matches:[projectedStart,projectedFailure]}).visibility,'visible');
 assert.equal(api.compactionDefinition.match(projectedFailure.event,{for:'compaction',view:{schemaVersion:99}}),null);
-// Context inspector compatibility: execute the full canonical factory's own scope.
-const {sourceDeclaration}=await import('./fixtures/source-declaration.mjs');
+// Removing the Context display must not remove the shared compaction
+// projection or alter captured Unicode/structured summaries used by Harness.
 const {assertRebuildInput}=await import('./fixtures/repository-ui-input.mjs');
-const {artifactUnitScope}=await import('./fixtures/context-artifact-scope.mjs');
 const {verifyArtifact}=await import('./fixtures/shipped-source-values.mjs');
 const contextId='@xlang/xharness-client-ui-context';
-for(const path of [`ui/reference/master-a613970/plugins/${contextId}/client.js`,`ui/dist/plugins/${contextId}/client.js`]) {
- const s=read(path);
- let banner;
- if(s.startsWith('// Generated')) {
-  assert.equal(s,verifyArtifact(contextId),'canonical Context must be strict-source fresh');
-  const unit='src/modules/context/index.js',h=(type,props,...children)=>({type,props,children});let registration;
-  const scoped=artifactUnitScope({source:s,root:unit},{CompactionBanner:{unit,member:'CompactionBanner'}},{[unit]:['CompactionBanner']});
-  vm.runInNewContext(scoped,{window:{__ModuleLoader__:{load:row=>{registration=row}}},console});
-  const react={createElement:h,useEffect(){},useMemo:fn=>fn(),useState:value=>[value,()=>{}]};
-  banner=registration.factory(name=>{assert.equal(name,'react','Context has only its real React external');return react}).CompactionBanner;
- } else {
-  const ctx={h:(type,props,...children)=>({type,props,children}),numberOrUndefined:x=>x,fmtTokens:String,asObject:x=>x};
-  vm.runInNewContext(sourceDeclaration(s,'CompactionBanner')+'\nglobalThis.banner=CompactionBanner',ctx);banner=ctx.banner;
- }
- for(const summary of ['你好🧪',[{type:'text',text:'你'},{type:'image',text:'not text'},{type:'text',text:'好🧪'}]]) {
-  const tree=banner({compaction:{kind:'compaction',seq:1,time:1,summary,shadowedTokenCount:128}});
-  assert.equal(tree.children[0][1].children[0],'你好🧪');
- }
+const contextSource=verifyArtifact(contextId);
+assert.doesNotMatch(contextSource,/function CompactionBanner|function ContextView/);
+let registration;
+vm.runInNewContext(contextSource,{window:{__ModuleLoader__:{load:row=>{registration=row}}},console});
+const definitions=[],views=[],tabs=[];
+const contextPlugin=registration.factory(name=>{assert.equal(name,'react');return {createElement:jsx,useEffect(){},useState:value=>[value,()=>{}]}});
+contextPlugin.apply({effect(){},locale:{register(){},bind:()=>key=>key},conversationEvents:{register:definition=>definitions.push(definition)},conversationViews:{register:view=>views.push(view)},slots:{inject:(_name,fn)=>fn(),register:spec=>tabs.push(spec.id)}});
+assert.deepEqual(tabs,['harness']);
+const compact=definitions.find(definition=>definition.kind==='xharness-context-compaction');
+for(const summary of ['你好🧪',[{type:'text',text:'你'},{type:'image',text:'not text'},{type:'text',text:'好🧪'}]]) {
+ const event={type:'compaction/summary',seq:1,time:1,data:{summary,shadowedTokenCount:128}};
+ const state=compact.start({}, {event});
+ const node=compact.buildViewNode({key:'compact-1',kind:compact.kind,id:'1',state});
+ const snapshot=views[0].create().replace({nodes:[node]});
+ assert.equal(snapshot.compactions[0].summary,summary,'removing display preserves the captured summary unchanged');
 }
 assertRebuildInput(contextId);
-console.log('compaction UI: automatic/manual, failure/cancel, replay/history, late summary, expand/collapse, counts and Context compatibility passed');
+console.log('compaction UI: automatic/manual, failure/cancel, replay/history, late summary, expand/collapse, counts and unchanged shared projection passed');
