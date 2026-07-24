@@ -69,6 +69,84 @@ async fn authorized_absolute_read_matches_relative_and_keeps_mutation_contract()
     assert_eq!(relative, absolute);
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn ordinary_windows_absolute_reads_keep_workspace_and_attachment_boundaries() {
+    use xharness_sandbox::SandboxMode;
+    fn ordinary(path: &std::path::Path) -> PathBuf {
+        let value = path.to_str().unwrap();
+        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+            PathBuf::from(format!(r"\\{rest}"))
+        } else {
+            PathBuf::from(value.strip_prefix(r"\\?\").unwrap())
+        }
+    }
+    let f = Fixture::new();
+    let attachment = f.base.join("attachment");
+    std::fs::create_dir(&attachment).unwrap();
+    std::fs::write(f.work.join("text.txt"), "workspace\n").unwrap();
+    std::fs::write(attachment.join("note.txt"), "attachment\n").unwrap();
+    std::fs::write(f.base.join("private.txt"), "outside\n").unwrap();
+    let sibling = f.base.join("work-other");
+    std::fs::create_dir(&sibling).unwrap();
+    std::fs::write(sibling.join("text.txt"), "sibling\n").unwrap();
+    let ordinary_work = ordinary(&f.work);
+    for mode in [SandboxMode::WorkspaceWrite, SandboxMode::ReadOnly] {
+        let platform = Arc::new(
+            NativePlatform::new(
+                PlatformConfig::new(&ordinary_work)
+                    .sandbox_mode(mode)
+                    .read_only_root(&attachment),
+            )
+            .unwrap(),
+        );
+        assert!(
+            platform
+                .resolve_file(ordinary_work.join("text.txt"))
+                .is_err(),
+            "mutations must stay relative"
+        );
+        let bundle = CodingToolBundle::new(
+            platform,
+            Arc::new(JobRegistry::default()),
+            Arc::new(WebRuntime::default()),
+            "windows-read",
+            "owner",
+        );
+        let e = ToolExecutor::new(bundle.registry().await.unwrap());
+        let relative = page(&e, json!({"path":"text.txt"})).await;
+        for path in [
+            f.work.join("text.txt"),
+            ordinary_work.join("text.txt"),
+            ordinary_work
+                .join("text.txt")
+                .to_string_lossy()
+                .replace('\\', "/")
+                .into(),
+        ] {
+            assert_eq!(page(&e, json!({"path":path})).await, relative);
+        }
+        let expected = page(&e, json!({"path":attachment.join("note.txt")})).await;
+        assert_eq!(
+            page(&e, json!({"path":ordinary(&attachment).join("note.txt")})).await,
+            expected
+        );
+        for path in [
+            ordinary(&f.base).join("private.txt"),
+            ordinary(&sibling).join("text.txt"),
+            ordinary_work.join("..\\private.txt"),
+        ] {
+            let result = e
+                .execute(ToolRequest::new("read", json!({"path":path}).to_string()))
+                .await;
+            assert!(
+                !result.is_ok(),
+                "outside workspace path accepted: {result:?}"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn outside_component_prefix_and_parent_traversal_are_denied() {
     let f = Fixture::new();

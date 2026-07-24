@@ -268,7 +268,7 @@ impl NativePlatform {
     ) -> Result<(&FsService, FsTarget), FsError> {
         let input = input.as_ref();
         for filesystem in &self.read_only_filesystems {
-            if let Ok(relative) = input.strip_prefix(filesystem.workspace_root()) {
+            if let Some(relative) = strip_read_root(input, filesystem.workspace_root()) {
                 return Ok((filesystem, filesystem.resolve(relative)?));
             }
         }
@@ -278,7 +278,7 @@ impl NativePlatform {
         // enforces no-follow containment while opening the file. Mutation
         // resolution deliberately retains its existing authority/contract.
         if self.access != PlatformAccess::FullAccess && input.is_absolute() {
-            let relative = input.strip_prefix(&self.workspace_root).map_err(|_| FsError::InvalidPath {
+            let relative = strip_read_root(input, &self.workspace_root).ok_or_else(|| FsError::InvalidPath {
                 display: input.to_string_lossy().into_owned(),
                 reason: "absolute read path is outside authorized read roots; use a workspace-relative path",
             })?;
@@ -490,6 +490,61 @@ fn native_filesystem_root(workspace: &Path) -> PathBuf {
 }
 
 #[cfg(not(windows))]
+fn strip_read_root<'a>(path: &'a Path, root: &Path) -> Option<&'a Path> {
+    path.strip_prefix(root).ok()
+}
+
+#[cfg(windows)]
+fn strip_read_root(path: &Path, root: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    let mut components = path.components();
+    for expected in root.components() {
+        let actual = components.next()?;
+        let matches = match (expected, actual) {
+            (Component::Prefix(left), Component::Prefix(right)) => {
+                windows_read_prefixes_match(left.kind(), right.kind())
+            }
+            (Component::Normal(left), Component::Normal(right)) => left
+                .as_encoded_bytes()
+                .eq_ignore_ascii_case(right.as_encoded_bytes()),
+            _ => expected == actual,
+        };
+        if !matches {
+            return None;
+        }
+    }
+    // Preserve the suffix for FsService's traversal and no-follow checks.
+    // Only lexical volume/component matching happens here; no user path is
+    // canonicalized and then reopened.
+    Some(components.collect())
+}
+
+#[cfg(any(windows, test))]
+fn windows_read_prefixes_match(left: std::path::Prefix<'_>, right: std::path::Prefix<'_>) -> bool {
+    use std::path::Prefix;
+    match (left, right) {
+        (
+            Prefix::Disk(left) | Prefix::VerbatimDisk(left),
+            Prefix::Disk(right) | Prefix::VerbatimDisk(right),
+        ) => left.eq_ignore_ascii_case(&right),
+        (
+            Prefix::UNC(left_server, left_share) | Prefix::VerbatimUNC(left_server, left_share),
+            Prefix::UNC(right_server, right_share) | Prefix::VerbatimUNC(right_server, right_share),
+        ) => {
+            left_server
+                .as_encoded_bytes()
+                .eq_ignore_ascii_case(right_server.as_encoded_bytes())
+                && left_share
+                    .as_encoded_bytes()
+                    .eq_ignore_ascii_case(right_share.as_encoded_bytes())
+        }
+        // Device namespaces and other verbatim forms are not aliases for a
+        // drive or UNC share. Never strip a different volume's prefix.
+        _ => left == right,
+    }
+}
+
+#[cfg(not(windows))]
 fn strip_native_root<'a>(path: &'a Path, root: &Path) -> Option<&'a Path> {
     path.strip_prefix(root).ok()
 }
@@ -521,5 +576,95 @@ impl std::fmt::Debug for NativePlatform {
             .field("workspace_root", &self.workspace_root)
             .field("sandbox", &self.sandbox)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod read_prefix_tests {
+    use super::windows_read_prefixes_match;
+    use std::{ffi::OsStr, path::Prefix};
+
+    #[test]
+    fn ordinary_and_extended_drive_and_unc_prefixes_match_without_changing_volume() {
+        assert!(windows_read_prefixes_match(
+            Prefix::Disk(b'c'),
+            Prefix::VerbatimDisk(b'C')
+        ));
+        assert!(windows_read_prefixes_match(
+            Prefix::VerbatimDisk(b'C'),
+            Prefix::Disk(b'C')
+        ));
+        assert!(!windows_read_prefixes_match(
+            Prefix::Disk(b'D'),
+            Prefix::VerbatimDisk(b'C')
+        ));
+        let share = Prefix::VerbatimUNC(OsStr::new("Server"), OsStr::new("Share"));
+        assert!(windows_read_prefixes_match(
+            share,
+            Prefix::UNC(OsStr::new("server"), OsStr::new("share"))
+        ));
+        assert!(!windows_read_prefixes_match(
+            share,
+            Prefix::UNC(OsStr::new("other"), OsStr::new("share"))
+        ));
+        assert!(!windows_read_prefixes_match(
+            share,
+            Prefix::UNC(OsStr::new("server"), OsStr::new("other"))
+        ));
+        assert!(!windows_read_prefixes_match(share, Prefix::Disk(b'C')));
+        assert!(!windows_read_prefixes_match(
+            Prefix::VerbatimDisk(b'C'),
+            Prefix::DeviceNS(OsStr::new("C:"))
+        ));
+        assert!(!windows_read_prefixes_match(
+            Prefix::VerbatimDisk(b'C'),
+            Prefix::Verbatim(OsStr::new("C:"))
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_read_roots_match_whole_components_and_preserve_the_suffix() {
+        use super::strip_read_root;
+        use std::path::{Path, PathBuf};
+        for (root, path) in [
+            (r"\\?\C:\Repo", r"C:\repo\sub\text.txt"),
+            (r"\\?\C:\Repo", "C:/repo/sub/text.txt"),
+            (
+                r"\\?\UNC\Server\Share\Repo",
+                r"\\server\share\repo\sub\text.txt",
+            ),
+            (
+                r"\\Server\Share\Repo",
+                r"\\?\UNC\server\share\repo\sub\text.txt",
+            ),
+        ] {
+            assert_eq!(
+                strip_read_root(Path::new(path), Path::new(root)),
+                Some(PathBuf::from(r"sub\text.txt"))
+            );
+        }
+        let root = Path::new(r"\\?\C:\Repo");
+        for path in [
+            r"C:\repo-other\text.txt",
+            r"D:\Repo\text.txt",
+            r"C:Repo\text.txt",
+            r"\\.\C:\Repo\text.txt",
+        ] {
+            assert!(strip_read_root(Path::new(path), root).is_none(), "{path}");
+        }
+        assert_eq!(
+            strip_read_root(Path::new(r"C:\Repo\..\private.txt"), root),
+            Some(PathBuf::from(r"..\private.txt")),
+            "FsService must still see and reject traversal"
+        );
+        let root = Path::new(r"\\?\UNC\Server\Share\Repo");
+        for path in [
+            r"\\other\Share\Repo\text.txt",
+            r"\\Server\other\Repo\text.txt",
+            r"\\Server\Share\Repo-other\text.txt",
+        ] {
+            assert!(strip_read_root(Path::new(path), root).is_none(), "{path}");
+        }
     }
 }
