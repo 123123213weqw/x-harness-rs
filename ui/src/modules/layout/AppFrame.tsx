@@ -251,6 +251,10 @@ export function AppFrame({
       <div className={css.sidebarCol} style={sidebarDrawer ? { width: Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420)) } : undefined} onClickCapture={event => {
         const target = event.target
         if (pluginCenterOpen && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]'))) closePluginCenter()
+      }} onClick={event => {
+        // Row actions stop propagation; dismiss only a completed navigation
+        // click after the row has handled it, keeping its menu mounted.
+        const target = event.target
         if (sidebarDrawer && target instanceof Element && target.closest('[role="treeitem"][aria-selected]')) actions.toggleSidebar()
       }}>
         {/* Render-site slot call with live concession output: a closed
