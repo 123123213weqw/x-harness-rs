@@ -184,7 +184,7 @@ impl CodingToolBundle {
                         .args(native_shell_args(&command))
                         .envs(managed_environment());
                     if !background {
-                        spec = spec.timeout(command_timeout(optional_u64(&context, "timeout_ms"))?);
+                        spec = spec.timeout(command_timeout_argument(&context)?);
                     }
                     if background {
                         let reservation = jobs
@@ -1070,6 +1070,15 @@ fn resolve_cwd(
         Some(path) => root.join(path),
     };
     fs::canonicalize(&path).map_err(handler_error)
+}
+
+fn command_timeout_argument(context: &ToolExecutionContext) -> Result<Duration, ToolHandlerError> {
+    let value = context.arguments.get("timeout_ms").map(|value| {
+        value.as_u64().ok_or_else(|| ToolHandlerError::new(
+            "timeout_ms must be a non-negative integer representable as u64; omit it to use the default"
+        ))
+    }).transpose()?;
+    command_timeout(value)
 }
 
 fn command_timeout(value: Option<u64>) -> Result<Duration, ToolHandlerError> {
