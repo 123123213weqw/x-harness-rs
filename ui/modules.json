@@ -454,6 +454,7 @@
       "source": "src/modules/context/index.tsx",
       "inject": [
         "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
         "@xharness/dsh-client-ui-conversation"
       ]
     },
