@@ -96,6 +96,7 @@ jobs:
           npm run check:plugin-api --prefix ui
           npm run check:build --prefix ui
           npm run build --prefix ui
+          node scripts/test-plugin-icon-assets.mjs
           npm run check:build --prefix ui
           node --test scripts/test-standalone-ui-build.mjs
           node --test scripts/test-ui-migration-reference.mjs scripts/test-owned-ui-type-policy.mjs scripts/test-source-module-builder.mjs scripts/test-plugin-api-types.mjs scripts/test-owned-script-assets.mjs

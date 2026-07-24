@@ -3,7 +3,7 @@ import type { PluginCall, RpcTransport, InstalledPlugin, PackageSource } from '.
 
 export interface DescriptionItem { name: string; description: string; version: string }
 // UI-only merged view. Never used to validate or weaken a wire response.
-export type PluginCard = DescriptionItem & Partial<InstalledPlugin> & { source?: PackageSource | undefined }
+export type PluginCard = DescriptionItem & Partial<InstalledPlugin> & { source?: PackageSource | undefined; icon?: string | null | undefined }
 export interface PluginHubProps { t(key: string): string; call: PluginCall }
 export interface PluginHubContext {
   effect(effect: () => void | (() => void), label: string): void
