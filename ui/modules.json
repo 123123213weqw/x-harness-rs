@@ -618,6 +618,50 @@
       "path": "desktop-titlebar.css",
       "source": "desktop/titlebar.css",
       "sha256": "2accb344eb74033b1af0f34c74efd49f1bce52c0f598dea0f8882851d6ac4e84"
+    },
+    {
+      "path": "plugin-icons/browser.svg",
+      "source": "src/assets/plugin-icons/browser.svg"
+    },
+    {
+      "path": "plugin-icons/debug.svg",
+      "source": "src/assets/plugin-icons/debug.svg"
+    },
+    {
+      "path": "plugin-icons/documents.svg",
+      "source": "src/assets/plugin-icons/documents.svg"
+    },
+    {
+      "path": "plugin-icons/git-branch.svg",
+      "source": "src/assets/plugin-icons/git-branch.svg"
+    },
+    {
+      "path": "plugin-icons/github.svg",
+      "source": "src/assets/plugin-icons/github.svg"
+    },
+    {
+      "path": "plugin-icons/review.svg",
+      "source": "src/assets/plugin-icons/review.svg"
+    },
+    {
+      "path": "plugin-icons/refactor.svg",
+      "source": "src/assets/plugin-icons/refactor.svg"
+    },
+    {
+      "path": "plugin-icons/test.svg",
+      "source": "src/assets/plugin-icons/test.svg"
+    },
+    {
+      "path": "plugin-icons/api.svg",
+      "source": "src/assets/plugin-icons/api.svg"
+    },
+    {
+      "path": "plugin-icons/database.svg",
+      "source": "src/assets/plugin-icons/database.svg"
+    },
+    {
+      "path": "plugin-icons/docker.svg",
+      "source": "src/assets/plugin-icons/docker.svg"
     }
   ],
   "platform": {
