@@ -308,6 +308,10 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
                     const target = event.target;
                     if (pluginCenterOpen && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]')))
                         closePluginCenter();
+                }, onClick: event => {
+                    // Row actions stop propagation; dismiss only a completed navigation
+                    // click after the row has handled it, keeping its menu mounted.
+                    const target = event.target;
                     if (sidebarDrawer && target instanceof Element && target.closest('[role="treeitem"][aria-selected]'))
                         actions.toggleSidebar();
                 }, children: renderSlot('sidebar', {

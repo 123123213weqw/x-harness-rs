@@ -1,0 +1,8 @@
+{"engine":"chromium","narrowRowActions":true,"keyboardMenu":true,"renameDialog":true,"navigationClosesDrawer":true,"wideRowActions":true,"errors":[]}
+{"engine":"webkit","narrowRowActions":true,"keyboardMenu":true,"renameDialog":true,"navigationClosesDrawer":true,"wideRowActions":true,"errors":[]}
+{"engine":"chromium","nestedEscape":true,"modalFocus":true,"focusRestored":true,"nativeMenuInteractive":true,"nestedModal":true,"narrowSettings":true,"sidebarDrawer":true,"collapsedSettingsName":true,"errors":[]}
+{"engine":"webkit","nestedEscape":true,"modalFocus":true,"focusRestored":true,"nativeMenuInteractive":true,"nestedModal":true,"narrowSettings":true,"sidebarDrawer":true,"collapsedSettingsName":true,"errors":[]}
+{"engine":"chromium","implementation":"canonical","actualPlatform":true,"actualRuntimeEngine":true,"initialPixelsSha256":"36662234bb63891130ccb339b408e33ba1715a7efdae4e8e8eb37e66676db42e","pageErrors":[]}
+chromium: browser layout fallback passed
+{"engine":"webkit","implementation":"canonical","actualPlatform":true,"actualRuntimeEngine":true,"initialPixelsSha256":"2865595d75d4e87504288c4018386275028dede51fc7eba13bbdf074a00dea9f","pageErrors":[]}
+webkit: browser layout fallback passed

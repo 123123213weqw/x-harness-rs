@@ -56,6 +56,14 @@ GitHub CI `37081635914` 的 Rust 三平台、Tauri Linux、更新渠道门禁通
 
 补测首次遇到 WebKit 原生 cancel 在 key-up 返回之后才提交的断言竞态，改为等待内层隐藏，再检查唯一外层、焦点恢复和无异常，不放松结果断言。两引擎页面优先级与各 12 组冻结／源码平台几何和像素再次通过。保留[初次日志（包含该竞态）](page-priority/drawer-initial.log)及[最终复验日志](page-priority/drawer-followup.log)。最终产物构建一致性及严格 TS 检查通过，GitHub 全量门禁继续重新执行。
 
+## 侧栏会话操作回归修复
+
+窄屏会话行的省略号按钮原本在 Frame 捕获阶段被当成导航，按钮自身的 `stopPropagation` 来不及阻止侧栏收起、行和菜单卸载。关闭抽屉改为冒泡阶段处理：会话导航先执行，行内操作和 Portal 菜单保留既有事件隔离；插件中心的捕获处理不变。
+
+新增 `test-sidebar-row-actions-browser.mjs` 验证窄屏 Rename／Fork／Archive 菜单可见、Escape 仅关菜单并恢复触发按钮焦点、Enter 打开菜单、重命名弹窗可取消、普通会话导航关闭抽屉，以及宽屏菜单。重建前的生产 dist 在“操作必须保留抽屉”断言失败，重建后两引擎通过；测试纳入 CI。
+
+保留 `6a11976` 的抽屉定位修复，并合入已合并 #198 的 master `1c2e465`；TODO 两段和双方源码均保留，生成图由合并后的源码重建。严格 TypeScript 和确定性构建校验通过。WZU_Server Node **20.20.2**、Playwright **1.61.1** 上，Chromium／WebKit 各通过会话操作、页面优先级、浏览器工作区三组回归；本机也通过两引擎会话操作。[完整输出](page-priority/row-actions-followup.log)。GitHub 完整门禁仍需单独通过。
+
 ## 边界
 
 上述页面操作使用隔离 fixture，不调用真实 Host、不删用户数据、不提交真实模型请求。额外的 Node 20 基础模块复跑为 121/123：两个冻结 timer 用例缺少 `Promise.withResolvers`（当前 CI 要求 Node 22），不是本次 UI 的失败。保留 [诊断输出](page-priority/node20.log)，未给生产代码或测试注入 Polyfill。首次浏览器测试工具发现共享 Playwright 已升级但相应 WebKit 未安装，改为独立固定 1.61.1 后重新执行上述矩阵；初次验收脚本误假设 fixture 提供方可删除、以及 resize 尚未结算的时序问题也已纠正，未通过关闭断言绕过。
