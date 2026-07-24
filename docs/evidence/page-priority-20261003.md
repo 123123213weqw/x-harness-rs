@@ -5,9 +5,9 @@
 基于 `d705aa6` 的独立分支 `fix/ui-page-priority-20261003`。只修改自有 TS 前端，不改 Host、模型请求、Profile 格式、桌面安装包或正在运行的 3082 服务；不覆盖整轮折叠和工具参数的其他修复分支。提交后发现 #195 已合入 `master`（`6010a59`），将其合并到本修复分支；仅三个生成元数据文件冲突，保留双方源码并重建产物，而非选择某一侧的旧 dist。
 
 - 生产整图：53 个模块、154 个资产，全部从仓库源码构建。
-- `ui/dist/asset-manifest.json` SHA-256：`e03973f42896e7a94642ebc61c6d7adee2ee8b15eae97b2c84393784c36df46c`。
+- `ui/dist/asset-manifest.json` SHA-256：`c1479be31d57c09a4547f7cdea48d3d1b59205c2887f6c4f787caa5aa468d972`。
 - `DialogSurface.tsx` SHA-256：`2239055c5be8a496de10384f954e04001e8a2100594fcc2e032d70ff657cd540`。
-- 页面优先级回归脚本 SHA-256：`1515eb073b3bbebc4b53d952e0287ce5ee77ec8f4a0220e7cad158e71cf0bc3e`。
+- 页面优先级回归脚本的历史版本 Hash 保存在各轮日志；最终版本包含等待 WebKit 原生 cancel 完成的生命周期同步。
 
 ## 四项问题与修复
 
@@ -46,7 +46,15 @@
 - 两引擎实际 ChatView 滚轮、微小向上阅读、resize／append 竞态、键盘／触摸／滚动条、返回底部及 compact 回归通过。
 - Rail 测试同时等待 frame 几何和实际 slot 里的 Open sidebar／唯一 New session 控件，避免异步 concession 尚未发布时抢点旧宽侧栏控件；未放松功能断言。
 
-[完整合并后输出](page-priority/merged-main.log)包含最终产物和脚本 Hash，区别于首次矩阵日志。
+[完整合并后输出](page-priority/merged-main.log)包含合入 #195 时的产物和脚本 Hash，区别于首次矩阵日志；以下 CI 复验修复进一步重建了布局模块。
+
+## PR #199 首次 CI 的抽屉回归修复
+
+GitHub CI `37081635914` 的 Rust 三平台、Tauri Linux、更新渠道门禁通过，但浏览器回归发现本次新加的显式网格列位置使右侧绝对定位抽屉仍以 0px 轨道为包含块，按钮落到视口外或被遮罩挡住。相同规则也会把侧栏抽屉的百分比最大宽度限制在 56px 轨道内。未绕过红色检查合并。
+
+仅对覆盖抽屉恢复 `grid-area:auto`，令其以整个 Frame 定位；停靠模式仍固定列。增加 700px 右侧抽屉宽度、右边界及真实命中测试，以及 426px 侧栏至少 240px 宽度断言。WZU_Server Node 22.14.0／Playwright 1.61.1 的 Chromium、WebKit 上，source 和 legacy 四组 browser dock 均通过。
+
+补测首次遇到 WebKit 原生 cancel 在 key-up 返回之后才提交的断言竞态，改为等待内层隐藏，再检查唯一外层、焦点恢复和无异常，不放松结果断言。两引擎页面优先级与各 12 组冻结／源码平台几何和像素再次通过。保留[初次日志（包含该竞态）](page-priority/drawer-initial.log)及[最终复验日志](page-priority/drawer-followup.log)。最终产物构建一致性及严格 TS 检查通过，GitHub 全量门禁继续重新执行。
 
 ## 边界
 
