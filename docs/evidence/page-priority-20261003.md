@@ -5,7 +5,7 @@
 基于 `d705aa6` 的独立分支 `fix/ui-page-priority-20261003`。只修改自有 TS 前端，不改 Host、模型请求、Profile 格式、桌面安装包或正在运行的 3082 服务；不覆盖整轮折叠和工具参数的其他修复分支。提交后发现 #195 已合入 `master`（`6010a59`），将其合并到本修复分支；仅三个生成元数据文件冲突，保留双方源码并重建产物，而非选择某一侧的旧 dist。
 
 - 生产整图：53 个模块、154 个资产，全部从仓库源码构建。
-- `ui/dist/asset-manifest.json` SHA-256：`467e7db6e990260a3249b5c7afe31887ded801369ae8e52ce70683ef41814008`。
+- `ui/dist/asset-manifest.json` SHA-256：`74fa87ec9607fd9ae7f0e6f91bc866f7d421a50c90cb6d1de2df229094b33efa`。
 - `DialogSurface.tsx` SHA-256：`2239055c5be8a496de10384f954e04001e8a2100594fcc2e032d70ff657cd540`。
 - 页面优先级回归脚本的历史版本 Hash 保存在各轮日志；最终版本包含等待 WebKit 原生 cancel 完成的生命周期同步。
 
@@ -57,6 +57,16 @@ GitHub CI `37081635914` 的 Rust 三平台、Tauri Linux、更新渠道门禁通
 补测首次遇到 WebKit 原生 cancel 在 key-up 返回之后才提交的断言竞态，改为等待内层隐藏，再检查唯一外层、焦点恢复和无异常，不放松结果断言。两引擎页面优先级与各 12 组冻结／源码平台几何和像素再次通过。保留[初次日志（包含该竞态）](page-priority/drawer-initial.log)及[最终复验日志](page-priority/drawer-followup.log)。最终产物构建一致性及严格 TS 检查通过，GitHub 全量门禁继续重新执行。
 
 扩大远程完整浏览器链路后发现目录选择器的内嵌新建文件夹 Esc 只停止冒泡，原生默认 cancel 仍会误关外层。补 `preventDefault`，并在原有浏览器测试中新增表单关闭后工作区选择器仍可见的断言。Chromium／WebKit × source／legacy 四组目录回归通过，保留全部原始断言、真实平台和 Runtime，见[完整日志](page-priority/directory-native-escape.log)。重新构建并通过严格类型及构建一致性检查。旧 CI `37085222009` 在等待期间由本任务主动取消，避免已知缺陷继续占用 runner；不算作通过。
+
+## 侧栏会话操作回归修复
+
+窄屏会话行的省略号按钮原本在 Frame 捕获阶段被当成导航，按钮自身的 `stopPropagation` 来不及阻止侧栏收起、行和菜单卸载。关闭抽屉改为冒泡阶段处理：会话导航先执行，行内操作和 Portal 菜单保留既有事件隔离；插件中心的捕获处理不变。
+
+新增 `test-sidebar-row-actions-browser.mjs` 验证窄屏 Rename／Fork／Archive 菜单可见、Escape 仅关菜单并恢复触发按钮焦点、Enter 打开菜单、重命名弹窗可取消、普通会话导航关闭抽屉，以及宽屏菜单。重建前的生产 dist 在“操作必须保留抽屉”断言失败，重建后两引擎通过；测试纳入 CI。
+
+保留 `6a11976` 的抽屉定位修复，并合入已合并 #198 的 master `1c2e465`；TODO 两段和双方源码均保留，生成图由合并后的源码重建。严格 TypeScript 和确定性构建校验通过。WZU_Server Node **20.20.2**、Playwright **1.61.1** 上，Chromium／WebKit 各通过会话操作、页面优先级、浏览器工作区三组回归；本机也通过两引擎会话操作。[完整输出](page-priority/row-actions-followup.log)。GitHub 完整门禁仍需单独通过。
+
+目录 Esc 修复推送前，远端同一分支已新增 `13c1882`（侧栏行操作及 #198）。本次不强推覆盖；合并双方代码与验收段落，冲突仅限中文证据和生成元数据，重新从完整源码构建，保留 `bf3ab1a` 的目录修复。合并产物严格 TS 与构建一致性再次通过；浏览器集成门禁继续复验。
 
 ## 边界
 
