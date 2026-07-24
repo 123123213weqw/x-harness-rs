@@ -82,7 +82,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Windows Shell reconciliation regression failed' }
 
   context-layout:
-    name: Context and Harness layout / Chromium + WebKit
+    name: Harness layout / Chromium + WebKit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

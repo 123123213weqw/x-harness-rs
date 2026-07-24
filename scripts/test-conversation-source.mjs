@@ -15,6 +15,15 @@ test('fork/subagent breadcrumbs preserve source ancestry, missing parents and cy
  for(const read of readers){assert.deepEqual(json(read(list,'agent')).map(row=>row.id),['parent','fork','agent']);assert.deepEqual(json(read(list,'missing')),[]);assert.deepEqual(json(read({byId:{fork:{...list.byId.fork,parentId:'fork'}}},'fork')).map(row=>row.id),['fork']);}
 });
 
+test('removed Context selection falls back to Chat without hiding retained Harness',()=>{
+ const read=harness(exposeConversation(compiled.entry,['resolveActiveView'])).plugin.resolveActiveView;
+ const tabs=[{id:'chat',label:'Chat'},{id:'trajectory',label:'Trajectory'},{id:'harness',label:'Harness'}];
+ for(const selected of ['context','unknown',null])assert.equal(read(tabs,selected).id,'chat');
+ assert.equal(read(tabs,'harness').id,'harness');
+ assert.equal(read(tabs,'trajectory').id,'trajectory');
+ assert.equal(read([], 'context'),undefined);
+});
+
 test('real source entry preserves published ABI, injection, exact stylesheet tags and dictionaries',()=>{
  const old=harness(legacySource),next=harness(compiled.entry);assert.deepEqual(Object.keys(next.plugin).sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(next.plugin.inject),json(old.plugin.inject));
  // Intentional post-migration feature delta: completed-turn disclosure.
