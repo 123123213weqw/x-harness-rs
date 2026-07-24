@@ -1,10 +1,13 @@
-import { isChatNode } from '../contract/chat-node-codec'
-import { memo, useMemo } from 'react'
+import { isChatData, isChatNode } from '../contract/chat-node-codec'
+import { memo, useMemo, useRef } from 'react'
 import { JsonBlock } from '../primitives'
 import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots'
 import type { ChatNode } from '../contract/chat-nodes'
 import css from './ChatView.styles'
 import { TranscriptWindowRow } from './TranscriptWindowRow'
+import { turnProcessPresentation } from './turn-process'
+import { TurnProcessSummary } from './TurnTailNodeView'
+import type { TranscriptValues } from './transcript-state'
 
 interface ChatNodeSeatProps extends ChatNodeOwnerProps {
   readonly nodeKey: string
@@ -12,19 +15,47 @@ interface ChatNodeSeatProps extends ChatNodeOwnerProps {
   readonly useSession: ChatViewSlotProps['useSession']
   readonly renderSlot: ChatViewSlotProps['renderSlot']
   readonly t: ChatViewSlotProps['t']
+  readonly expandedTurns?: ReadonlySet<number>
+  readonly toggleTurnProcess?: (turn: number) => void
 }
 
 type RoutedChatNodeOwner = {
   [Kind in ChatNode['kind']]: ChatNodeOwnerProps & { readonly node: ChatNode<Kind> }
 }[ChatNode['kind']]
 
+/** Resident, independently subscribed entry before the first loaded work row. */
+export function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, toggleTurnProcess, t }: Pick<
+  ChatNodeSeatProps, 'nodeKey' | 'useSession' | 'expandedTurns' | 'toggleTurnProcess' | 't'
+>) {
+  const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey))
+  const location = node?.location
+  const turnId = location?.kind === 'turn' || location?.kind === 'step' ? location.turn.turn : undefined
+  const currentTurn = useSession(snapshot => turnId === undefined ? undefined : snapshot.chat.timeline.turns.get(turnId))
+  const rawTail = useSession(snapshot => turnId === undefined ? undefined : snapshot.chat.timeline.turns.get(turnId)?.data.get('turn-tail'))
+  const tail = useMemo(() => isChatData('turn-tail', rawTail) && rawTail.turn === turnId ? rawTail : undefined, [rawTail, turnId])
+  if (currentTurn === undefined || tail === undefined || toggleTurnProcess === undefined) return null
+  return <TranscriptWindowRow estimatedHeight={32} className={css.flowItem} data-chat-anchor-key={`turn-process:${currentTurn.turn}`}>
+    <TurnProcessSummary turn={currentTurn} data={tail} t={t}
+      collapsed={!(expandedTurns?.has(currentTurn.turn) ?? false)} onToggle={() => { toggleTurnProcess(currentTurn.turn) }} />
+  </TranscriptWindowRow>
+}
+
 /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
 export const ChatNodeSeat = memo(function ChatNodeSeat({
   nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, keepMounted,
-  renderMessageImages, fileMentions, useSession, renderSlot, t,
+  renderMessageImages, fileMentions, useSession, renderSlot, t, expandedTurns,
 }: ChatNodeSeatProps) {
   const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey))
   const routedNode = isChatNode(node) ? node : undefined
+  const location = node?.location
+  const turn = location?.kind === 'turn' || location?.kind === 'step' ? location.turn.turn : undefined
+  const rawTail = useSession(snapshot => turn === undefined ? undefined : snapshot.chat.timeline.turns.get(turn)?.data.get('turn-tail'))
+  const tail = useMemo(() => isChatData('turn-tail', rawTail) && rawTail.turn === turn ? rawTail : undefined, [rawTail, turn])
+  const presentation = routedNode === undefined ? { collapsed: false, hidden: false }
+    : turnProcessPresentation(routedNode, tail, expandedTurns?.has(turn ?? -1) ?? false)
+  // This seat, not its heavy/windowed child, owns display choices. Whole-turn
+  // folding must not erase Think/Tool/Compaction/native-details expansion.
+  const presentationState = useRef<TranscriptValues>(new Map())
   const owner = useMemo<ChatNodeOwnerProps | null>(() => node === undefined
     ? null
     : {
@@ -36,10 +67,11 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
       editMessage, forkMessage, editAvailable,
       renderMessageImages,
       fileMentions,
+      processCollapsed: presentation.collapsed,
     }, [
-    node, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, renderMessageImages, fileMentions,
+    node, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, renderMessageImages, fileMentions, presentation.collapsed,
   ])
-  if (node === undefined || owner === null) return null
+  if (node === undefined || owner === null || presentation.hidden) return null
   // Runtime dispatch owns the correlation: every Node's discriminant is the
   // keyed-slot entry passed alongside that same Node. TypeScript does not
   // distribute an object containing a union into a union of objects itself.
@@ -47,6 +79,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   return (
     <TranscriptWindowRow
       keepMounted={keepMounted ?? false}
+      presentationState={presentationState.current}
       className={css.flowItem}
       data-chat-anchor-key={node.key}
       data-chat-flow-key={node.key}
