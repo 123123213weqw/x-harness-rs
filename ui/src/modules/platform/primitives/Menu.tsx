@@ -16,6 +16,10 @@ import { IconCheckOutline16 } from './icons/index'
 import { usePointerGrace } from './pointer-grace'
 import css from './Menu.module.css'
 
+// Last-opened eligible menu consumes Escape before the native dialog's cancel.
+// A menu behind another modal must not steal that modal's Escape.
+const openMenuRoots: HTMLElement[] = []
+
 /** Selectable row (optionally with a nested submenu). */
 export interface MenuItem {
   id: string
@@ -169,6 +173,8 @@ export function Menu({ open, anchor, items, selectedId, selectedIds, onSelect, o
       setOpenSubmenuId(null)
       return
     }
+    const root = rootRef.current
+    if (root !== null) openMenuRoots.push(root)
     const onPointerDown = (e: PointerEvent) => {
       if (!(e.target instanceof Node)) return
       // The portaled list is outside the anchor subtree; check both.
@@ -177,11 +183,23 @@ export function Menu({ open, anchor, items, selectedId, selectedIds, onSelect, o
       onClose()
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape' || e.defaultPrevented || root === null) return
+      const activeDialog = document.activeElement?.closest('dialog:modal') ?? null
+      // Native modal focus remains in its subtree, including our portaled list.
+      const eligible = openMenuRoots.filter(entry => entry.closest('dialog:modal') === activeDialog)
+      if (eligible.at(-1) !== root) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      onClose()
+      root.querySelector<HTMLElement>('button,[tabindex]')?.focus()
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
     return () => {
+      if (root !== null) {
+        const index = openMenuRoots.indexOf(root)
+        if (index !== -1) openMenuRoots.splice(index, 1)
+      }
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
@@ -296,7 +314,7 @@ export function Menu({ open, anchor, items, selectedId, selectedIds, onSelect, o
       onPointerLeave={closeOnPointerLeave ? () => { if (open) armClose() } : undefined}
     >
       {anchor}
-      {portal ? (list !== false && createPortal(list, document.body)) : list}
+      {portal ? (list !== false && createPortal(list, rootRef.current?.closest('dialog') ?? document.body)) : list}
     </span>
   )
 }

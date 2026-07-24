@@ -1,0 +1,29 @@
+v22.14.0
+e03973f42896e7a94642ebc61c6d7adee2ee8b15eae97b2c84393784c36df46c  ui/dist/asset-manifest.json
+1515eb073b3bbebc4b53d952e0287ce5ee77ec8f4a0220e7cad158e71cf0bc3e  scripts/test-page-priority-browser.mjs
+ok - all phases and bounded/unknown progress
+ok - download never calls install; dismiss/escape equivalent never installs
+ok - rapid repeated clicks start only one operation
+ok - reload restores ready download and timer does not replace it
+ok - reload during download blocks another download and rejects stale status
+ok - check failure retries the correct command; install must confirm again
+ok - download failure retries the correct command; install must confirm again
+ok - install failure retries the correct command; install must confirm again
+ok - IPC disconnect becomes retryable; malformed events ignored
+ok - install retry cannot be replaced by automatic check
+ok - real DOM bridge shows left blue icon, safe notes, confirmation and closes without install
+ok - unconfigured builds hide updater and do not check network
+ok - offline automatic check does not force open a panel
+ok - native ACL boot failures remain inspectable without offering installation
+14 desktop updater tests passed; bundle/config verified
+conversation scroll follow: upward intent correction, compaction/downward re-entry, listener lifetime + freshness/hash/boot passed
+=== chromium merged priority ===
+{"engine":"chromium","nestedEscape":true,"modalFocus":true,"focusRestored":true,"nativeMenuInteractive":true,"nestedModal":true,"narrowSettings":true,"sidebarDrawer":true,"collapsedSettingsName":true,"errors":[]}
+{"engine":"chromium","implementation":"source","fullGraph":true,"fixtureTransport":true,"settingsProviders":true,"modelEffortAndContextControls":true,"effortChange":true,"buttons":23,"inputs":1,"errors":[],"staticFailures":[],"fixtureHmrDisconnects":0,"text":"XHarness\nNew Session\nWorkspaces\nfixture\nNew Session\nWaiting for answer\nFixture 历史会话\nnow\nfixture\n1min\nfixture\n2min\nproject\nTasks\nSettings\nThe Language of a New Era\nfixture\nWorkspace Write\nDeepSeek-V4-Flash\n+","loadedPlugins":53}
+chromium: 24 actual sticky-composer/updater/shell stacking cases + short viewport, long notes, confirmation, Escape/focus, editable draft passed; no installation invoked.
+chromium: real ChatView tiny-up/resize, pre-scroll append race, persistent reader intent, keyboard/touch/native wheel/long scrollbar drag, jump/down re-entry, compaction and non-scroll input passed
+=== webkit merged priority ===
+{"engine":"webkit","nestedEscape":true,"modalFocus":true,"focusRestored":true,"nativeMenuInteractive":true,"nestedModal":true,"narrowSettings":true,"sidebarDrawer":true,"collapsedSettingsName":true,"errors":[]}
+{"engine":"webkit","implementation":"source","fullGraph":true,"fixtureTransport":true,"settingsProviders":true,"modelEffortAndContextControls":true,"effortChange":true,"buttons":23,"inputs":1,"errors":[],"staticFailures":[],"fixtureHmrDisconnects":1,"text":"XHarness\nNew Session\nWorkspaces\nfixture\nNew Session\nWaiting for answer\nFixture 历史会话\nnow\nfixture\n1min\nfixture\n2min\nproject\nTasks\nSettings\nThe Language of a New Era\nfixture\nWorkspace Write\nDeepSeek-V4-Flash","loadedPlugins":53}
+webkit: 24 actual sticky-composer/updater/shell stacking cases + short viewport, long notes, confirmation, Escape/focus, editable draft passed; no installation invoked.
+webkit: real ChatView tiny-up/resize, pre-scroll append race, persistent reader intent, keyboard/touch/native wheel/long scrollbar drag, jump/down re-entry, compaction and non-scroll input passed
