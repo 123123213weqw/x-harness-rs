@@ -1,0 +1,26 @@
+{"engine":"chromium","implementation":"source","actualPlatform":true,"actualRuntimeEngine":true,"initialPixelsSha256":"36662234bb63891130ccb339b408e33ba1715a7efdae4e8e8eb37e66676db42e","pageErrors":[]}
+chromium: browser layout fallback passed
+{"engine":"chromium","implementation":"legacy","actualPlatform":true,"actualRuntimeEngine":true,"initialPixelsSha256":"36662234bb63891130ccb339b408e33ba1715a7efdae4e8e8eb37e66676db42e","pageErrors":[]}
+chromium: browser layout fallback passed
+{"engine":"chromium","nestedEscape":true,"modalFocus":true,"focusRestored":true,"nativeMenuInteractive":true,"nestedModal":true,"narrowSettings":true,"sidebarDrawer":true,"collapsedSettingsName":true,"errors":[]}
+{"engine":"webkit","implementation":"source","actualPlatform":true,"actualRuntimeEngine":true,"initialPixelsSha256":"2865595d75d4e87504288c4018386275028dede51fc7eba13bbdf074a00dea9f","pageErrors":[]}
+webkit: browser layout fallback passed
+{"engine":"webkit","implementation":"legacy","actualPlatform":true,"actualRuntimeEngine":true,"initialPixelsSha256":"2865595d75d4e87504288c4018386275028dede51fc7eba13bbdf074a00dea9f","pageErrors":[]}
+webkit: browser layout fallback passed
+node:internal/modules/run_main:122
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: only inner modal closes
+
+2 !== 1
+
+    at file:///home/data/wangyue/repos/codex-build/x-harness-rs-page-priority/scripts/test-page-priority-browser.mjs:133:10 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 2,
+  expected: 1,
+  operator: 'strictEqual'
+}
+
+Node.js v22.14.0

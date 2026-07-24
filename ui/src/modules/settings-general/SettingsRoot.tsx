@@ -14,7 +14,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import {classNames as clsx} from '../views-types'
 import {
   IconAgentPresetOutline16, IconCloseOutline16, IconDataOutline16,
-  IconPersonalizationOutline16, IconSettingsOutline16,
+  IconPersonalizationOutline16, IconSettingsOutline16, DialogSurface,
 } from '@xharness/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract'
 import css from './SettingsRoot.styles'
@@ -37,8 +37,8 @@ type PanelProps = {
 
 /**
  * The modal layer: full-viewport mask + centered panel. Close paths: the
- * header button, a mask click, and document-level Escape (mounted only while
- * open, so the listener lifetime is the panel's).
+ * header button, a mask click, and native top-layer cancel. Menus can consume
+ * Escape without closing this surface; background controls remain inert.
  */
 function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelProps) {
   // Entries can unmount underneath the requested id, so the render-time
@@ -46,22 +46,13 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
   const active = rows.find(r => r.id === activeId)?.id ?? rows[0]?.id
   const titleId = useId()
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => { document.removeEventListener('keydown', onKeyDown) }
-  }, [onClose])
-
-  // Baseline focus management: entering the dialog lands on the close button.
+  // DialogSurface owns native modality and restores the opening trigger.
   const closeButton = useRef<HTMLButtonElement | null>(null)
-  useEffect(() => { closeButton.current?.focus() }, [])
 
   return (
-    <div className={css.overlay} role="presentation">
+    <DialogSurface className={css.overlay} labelledBy={titleId} onClose={onClose} initialFocus={closeButton}>
       <div className={css.mask} aria-hidden="true" onClick={onClose} />
-      <div className={css.panel} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div className={css.panel}>
         <nav className={css.nav}>
           <div className={css.navTitle} id={titleId}>{renderSlot('settings.header', {})}</div>
           <div className={css.navList}>
@@ -92,7 +83,7 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
           </div>
         </div>
       </div>
-    </div>
+    </DialogSurface>
   )
 }
 

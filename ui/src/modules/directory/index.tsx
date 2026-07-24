@@ -253,7 +253,7 @@ function DirectoryDialog({ busy, onPicked, onCancel, listDirectory, createDirect
       listing?.path && entries.length === 0 && h('p', { role: 'status' }, t('empty')),
       listing?.truncated && h('p', { role: 'status' }, t('truncated'))),
     folder !== null && h('form', { className: 'xhdir-create', 'aria-label': t('newFolder'), onSubmit: confirmCreate,
-      onKeyDown: (event: React.KeyboardEvent<HTMLFormElement>) => { if (event.key === 'Escape' && !event.nativeEvent.isComposing) { event.stopPropagation(); closeFolder() } } },
+      onKeyDown: (event: React.KeyboardEvent<HTMLFormElement>) => { if (event.key === 'Escape' && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); closeFolder() } } },
       h('label', null, t('folderName'), h('input', { ref: folderInput, value: folder, disabled: creating,
         onChange: (event: React.ChangeEvent<HTMLInputElement>) => setFolder(event.target.value), spellCheck: false })),
       h('p', null, t('createIn'), ' ', h('span', { className: 'xhdir-target' }, listing?.path)),
