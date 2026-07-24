@@ -3,9 +3,8 @@
 // cannot leave sticky page controls above the mask. This is still an in-page
 // WebUI dialog; it never creates or targets another browser/native window.
 
-import { useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { DialogSurface } from './DialogSurface'
 import clsx from 'clsx'
 import { IconCloseOutline16 } from './icons/index'
 import css from './Modal.module.css'
@@ -41,25 +40,13 @@ export function Modal({
   contentClassName?: string
   headless?: boolean
 }) {
-  useEffect(() => {
-    if (!open) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => { document.removeEventListener('keydown', onKeyDown) }
-  }, [open, onClose])
-
   if (!open) return null
 
-  return createPortal((
-    <div className={css.root} role="presentation">
+  return (
+    <DialogSurface className={clsx(css.root)} label={title} onClose={onClose}>
       <div className={css.mask} aria-hidden="true" onClick={onClose} />
       <div
         className={clsx(css.dialog, className)}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
       >
         {headless
           ? children
@@ -81,6 +68,6 @@ export function Modal({
             </>
           )}
       </div>
-    </div>
-  ), document.body)
+    </DialogSurface>
+  )
 }

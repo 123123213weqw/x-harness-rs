@@ -393,6 +393,8 @@ export interface ChatNodeTurnDataInjected {
 
 /** Stable owner currency delivered to one keyed Chat business renderer. */
 export interface ChatNodeOwnerProps {
+  /** Display-only whole-turn disclosure; omitted by independent Chat renderers. */
+  processCollapsed?: boolean | undefined
   editMessage(content: readonly unknown[]): void | Promise<void>
   forkMessage(seq: number, content: readonly unknown[]): void | Promise<unknown>
   editAvailable: boolean
