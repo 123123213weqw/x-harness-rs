@@ -552,6 +552,23 @@ button.DisclosureRow_leading {
   white-space: nowrap;
 }
 
+/* src/modules/platform/primitives/DialogSurface.module.css */
+.DialogSurface_surface {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  background: transparent;
+  color: inherit;
+}
+.DialogSurface_surface::backdrop {
+  background: transparent;
+}
+
 /* src/modules/platform/primitives/Modal.module.css */
 .Modal_root {
   position: fixed;
@@ -3024,4 +3041,4 @@ select,
 textarea {
   font-family: inherit;
 }
-/*# sourceMappingURL=platform-XD5TLYYA.css.map */
+/*# sourceMappingURL=platform-EYF7LNX2.css.map */
