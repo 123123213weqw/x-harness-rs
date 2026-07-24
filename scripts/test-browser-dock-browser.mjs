@@ -135,6 +135,14 @@ try {
   await page.getByRole('button', { name: '关闭 notes.md' }).click()
   await page.setViewportSize({ width: 700, height: 780 })
   await page.waitForFunction(() => document.querySelector('[data-xhworkspace-drawer]') !== null)
+  await page.waitForFunction(() => {
+    const panel = document.querySelector('._84hhiq_detailsCol').getBoundingClientRect()
+    return Math.abs(panel.right - 700) < 1 && Math.abs(panel.width - 560) < 1
+  })
+  assert.equal(await page.getByRole('button', { name: '更多浏览器操作', exact: true }).evaluate(element => {
+    const box = element.getBoundingClientRect()
+    return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+  }), true, 'narrow drawer controls are inside the viewport and above the workspace scrim')
   assert.equal(await page.getByRole('button', { name: '关闭工作区' }).count(), 1, 'drawer adds a dismissible scrim')
   await assertShellAboveBrowser()
   await page.getByRole('button', { name: '关闭工作区' }).click({ position: { x: 20, y: 20 } })
