@@ -1463,3 +1463,26 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] 后续单变量实验：write 描述明确 read 观察与 stale 冲突恢复；不削弱版本保护，不与本次混改。
 
 见 [job_output 实验报告](reports/job-output-timeout-ab-20261003.md)。
+
+## Read 契约兼容（2026-10-03）
+
+- [x] 分页字段公开单位／范围，保留 limit 字节语义；严格拒绝负数／非法数值，不再静默默认。
+- [x] 授权工作区内绝对路径只读兼容；复用 FsService no-follow／版本保护，write/edit 权限不变。
+- [x] V100 原型 46 项回归通过，旧实现新测试 8 通过／3 失败；新增 11 项覆盖 UTF-8／长行、路径／symlink、stale cursor、取消及参数边界。
+- [x] DeepSeek 12 次开发对照，两臂全验收各 6/6；read 失败 2/19→0/19。均值改善但任务间有退化，**不声称稳定泛化性能收益**。
+- [x] 基于 master `d705aa6` 整理独立 PR；V100 重新执行 46 项回归通过，本机 fmt／diff 检查通过。
+- [ ] PR CI 与审查通过后再决定合并；不替换或重启软件。
+- [ ] Windows/macOS 实机回归及未调优任务确认；Unix symlink 测试不等同于 Windows reparse-point 验证。
+
+见 [Read 规范](specs/read-contract-ab.md)与[完整实验报告](reports/read-contract-ab-20261003.md)。实验设施和私有证据保留在独立实验工作区，不混入生产修复 PR。
+
+## 前台 Shell 超时解析：单变量实验（2026-10-03）
+
+- [x] 冻结 PR #196 基线，仅修改 timeout_ms 的严格解析；描述／默认／上限／输出／其它工具不改。
+- [x] V100 47 项回归、Clippy／probe build 通过；旧版同一新测试真实失败，负超时仍执行命令。
+- [x] DeepSeek 和 V100 Qwen 27B 各 8 次真实编程／故障恢复，16 次全验收通过；候选 4/4 拒绝负超时后合法恢复。
+- [x] 完整报告保留普通任务耗时增长和样本限制，**不宣称提速／稳定性能收益**；两臂源码／Definitions 审计、分析单测、证据与额度记录完成。
+- [x] 按用户要求将候选整理为独立正确性修复；回归测试拆分非法／合法调用，增加自动清理，生产逻辑保持实验版本。V100 正式 48 项回归及三个 crate 全目标 Clippy 通过；首次共享缓存异常与强制重编译结果均保留。
+- [ ] 独立 PR 的 CI／审查与 Windows/macOS 验收；依赖 #196，软件不替换。
+
+见 [实验规范](specs/bash-timeout-ab.md)及[双模型结果](reports/bash-timeout-ab-20261003.md)。
