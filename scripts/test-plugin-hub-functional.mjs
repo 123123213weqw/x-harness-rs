@@ -14,9 +14,17 @@ const hubSource = ownedViewModuleTestInput('@xlang/xharness-client-ui-plugin-hub
 const browser = await require('playwright')[browserName].launch({ headless: true })
 try {
   const page = await browser.newPage()
+  page.setDefaultTimeout(20000)
+  const iconRequests = []
   const errors = []
   page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
   await installOwnedViewPlatform(page,process.env.UI_TEST_IMPL==='legacy'?'legacy':'source')
+  await page.route('https://icons.example.test/**', route => {
+    iconRequests.push(route.request().url())
+    return route.request().url().endsWith('/broken.svg')
+      ? route.fulfill({status:404,body:'missing'})
+      : route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#38bdf8"/></svg>'})
+  })
   await page.evaluate(()=>document.body.innerHTML='<div id="root"></div>')
   await page.addScriptTag({ content: `
     window.__fixture = { catalog: [], installed: [], calls: [], confirm: true };
@@ -85,9 +93,15 @@ try {
   await page.keyboard.press('End')
   assert.equal(await hub.getByRole('tab', {name: 'Personal'}).getAttribute('aria-selected'), 'true')
   await hub.getByRole('tab', { name: 'Personal' }).click()
-  await hub.locator('input[type=file]').setInputFiles({ name: 'marketplace.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ plugins: [{ name: 'demo', version: '1.0', description: 'A demo skill', source: { source: 'url', type: 'zip', url: 'https://example.com/demo.zip', sha256: 'a'.repeat(64) } }] })) })
+  const demo = { name: 'demo', version: '1.0', description: 'A demo skill', icon:'https://icons.example.test/demo.svg', source: { source: 'url', type: 'zip', url: 'https://example.com/demo.zip', sha256: 'a'.repeat(64) } }
+  const supportsCatalogIcons = process.env.UI_TEST_IMPL !== 'legacy'
+  await hub.locator('input[type=file]').setInputFiles({ name: 'marketplace.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ plugins: [demo] })) })
   await hub.getByText('A demo skill').waitFor()
   assert.ok(await hub.getByRole('tabpanel', { name: 'Personal' }).getByText('demo').count() >= 1)
+  if (supportsCatalogIcons) {
+    await page.waitForFunction(() => document.querySelector('.xhph-icon img')?.naturalWidth === 32)
+    assert.equal(await hub.locator('.xhph-icon img').getAttribute('referrerpolicy'), 'no-referrer')
+  }
   await page.evaluate(() => window.__fixture.confirm = false)
   await hub.getByRole('button', { name: 'Install', exact: true }).click()
   await page.waitForFunction(() => !document.querySelector('.xhph-actions button').disabled)
@@ -95,6 +109,10 @@ try {
   await page.evaluate(() => window.__fixture.confirm = true)
   await hub.getByRole('button', { name: 'Install', exact: true }).click()
   await hub.getByRole('button', { name: 'Enable', exact: true }).first().waitFor()
+  if (supportsCatalogIcons) {
+    await page.waitForFunction(() => document.querySelector('.xhph-installed .xhph-icon img')?.naturalWidth === 32)
+    assert.equal(await hub.locator('.xhph-installed .xhph-icon img').getAttribute('src'),demo.icon,'installed card inherits catalog icon without changing installed wire schema')
+  }
   await hub.getByRole('button', { name: 'Enable', exact: true }).first().click()
   await hub.getByRole('button', { name: 'Disable', exact: true }).first().waitFor()
   assert.equal(await page.evaluate(() => window.__fixture.installed[0].enabled), true)
@@ -110,7 +128,24 @@ try {
   await hub.getByRole('button', { name: 'Uninstall', exact: true }).click()
   await hub.getByText('No user plugins installed').waitFor()
   assert.equal(await page.evaluate(() => window.__fixture.installed.length), 0)
-  assert.equal(await hub.locator('.xhph-icon img').count(), 0, 'main initials have no WIP bundled artwork')
+  if (supportsCatalogIcons) {
+    assert.equal(await hub.locator('.xhph-icon img').count(), 1, 'catalog SVG remains after uninstall')
+    const importIcons = async plugins => {
+      await hub.locator('input[type=file]').setInputFiles({name:'icons.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({plugins}))})
+      await page.waitForFunction(() => !document.querySelector('.xhph-actions button').disabled)
+    }
+    await importIcons([{...demo,icon:'https://icons.example.test/broken.svg'},{...demo,name:'missing',icon:null},{...demo,name:'unsafe',icon:'javascript:alert(1)'},{...demo,name:'malformed',icon:'https://['},{...demo,name:'credentials',icon:'https://user:password@icons.example.test/private.svg'}])
+    await page.waitForFunction(() => document.querySelectorAll('.xhph-item').length === 5 && document.querySelectorAll('.xhph-icon img').length === 0)
+    assert.deepEqual(await hub.locator('.xhph-icon').allTextContents(),['D','M','U','M','C'],'bad URLs and failed images fall back without broken-image glyphs')
+    assert.equal(iconRequests.filter(url=>url.endsWith('/broken.svg')).length,1,'no failure retry loop')
+    assert.equal(iconRequests.some(url=>url.includes('/private.svg')),false,'credential-bearing metadata does not make a request')
+    await importIcons([{...demo,icon:'https://icons.example.test/recovered.svg'}])
+    await page.waitForFunction(() => document.querySelector('.xhph-icon img')?.naturalWidth === 32)
+    assert.match(await hub.locator('.xhph-icon img').getAttribute('src'),/recovered\.svg$/,'new URL recovers an existing failed card')
+    await page.evaluate(()=>document.fonts.ready)
+    const box = await hub.locator('.xhph-icon img').boundingBox()
+    assert.equal(box.width,42);assert.equal(box.height,42)
+  } else assert.equal(await hub.locator('.xhph-icon img').count(), 0, 'frozen reference uses initials')
   assert.deepEqual(errors, [])
   console.log(JSON.stringify({engine:browserName,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,initialPixelsSha256,pageErrors:errors}))
   console.log(`plugin hub functional / ${browserName} / ${process.env.UI_TEST_IMPL ?? 'canonical'}: main import, install/cancel, Skill enable, MCP environment-source consent, metadata refresh, uninstall and keyboard tabs passed`)
