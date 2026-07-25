@@ -126,27 +126,44 @@ together. Run `node scripts/test-browser-ui.mjs` plus both Chromium and WebKit
 `test-browser-*-browser.mjs` / `test-browser-native-bridge.mjs`. Rust checks and
 tests run on the configured remote build server per `AGENTS.md`.
 
-## Context Inspector
+## Harness inspector
 
-产品自有插件 `@xlang/xharness-client-ui-context` 在会话顶部注册第三个
-`Context` Tab。源码位于：
+The product-owned inspector source is `ui/src/modules/context/index.tsx`.
+The **Harness** tab shows only the captured **system prompt** and **tool
+registry**: a neutral prompt block and expandable tool descriptions/parameter
+schemas. It supports Chinese/English, the shell's explicit light/dark theme,
+request selection, and tool search scoped to the current chat. Assembly traces,
+policy/budget panels, route metadata, hashes, and per-tool token estimates are
+not rendered here. The former **Context** diagnostic tab and its colored message
+cards, filters, and diff display are removed. Host context management, compaction,
+request audit storage, and the shared request/usage/compaction projection remain
+unchanged.
 
-```text
-ui/plugins/@xlang/xharness-client-ui-context/client.js
-```
+Harness reuses `request/header` projections and the on-demand
+`session.requestSnapshot` endpoint. It hydrates only the selected request and
+does not enable full diagnostic capture,
+reconstruct old prompts from current settings, or retain every request body in
+memory. Disabled/failed capture, loading, retryable reads, and genuinely empty
+payloads are distinct states; a metadata-only snapshot is not shown as “no
+tools” or an estimated zero-token system prompt.
 
-`scripts/assemble-static-ui.mjs` 会把该插件加入与上游插件相同的模块图，
-因此重新构建 DeepSeek Web Shell 时不会丢失此功能。插件直接消费 Rust
-后端持久化的 `request/header.input/options` 和 `compaction/summary`，展示
-模型实际上下文、Token Budget、工具定义以及压缩前后对比。
-
-快速验证：
+Rebuild the complete source graph (do not run the legacy partial sync scripts):
 
 ```bash
-node --check ui/plugins/@xlang/xharness-client-ui-context/client.js
+npm run build --prefix ui
+npm run check:build --prefix ui
 node scripts/test-context-plugin.mjs
-node scripts/test-schedule-plugin.mjs
+node scripts/test-product-source-modules.mjs
+# UI_TEST_DEPS points to isolated Playwright/React test dependencies.
+UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
+UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
+UI_TEST_BROWSER=chromium node scripts/test-request-audit-browser.mjs
+UI_TEST_BROWSER=webkit node scripts/test-request-audit-browser.mjs
 ```
+
+Commit the source, module manifest, and rebuilt `ui/dist` together. An installed
+Tauri app needs a new package to consume changed frontend assets; changing the
+repository or Web preview does not modify the installed app.
 
 ## Schedule Catalog
 
