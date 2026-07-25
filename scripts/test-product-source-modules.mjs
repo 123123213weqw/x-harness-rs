@@ -74,19 +74,33 @@ for (const name of names) {
   test(`${name}: strict source exports, inject, slots, locale and styles match existing product`, () => {
     const before = harness(false, name); const after = harness(true, name)
     assert.deepEqual(Object.keys(after.plugin).sort(), Object.keys(before.plugin).sort())
-    assert.deepEqual(normalized(after.plugin.inject), normalized(before.plugin.inject))
+    assert.deepEqual(normalized(after.plugin.inject), normalized(name === 'context' ? [...before.plugin.inject, 'locale'] : before.plugin.inject))
     before.plugin.apply(before.ctx); after.plugin.apply(after.ctx)
-    assert.deepEqual(normalized(after.locales), normalized(before.locales))
-    assert.deepEqual(normalized(after.slots.map(row => row.spec)), normalized(before.slots.map(row => row.spec)))
-    const expectedStyles = [...before.styles].map(([id, style]) => [id, style.textContent])
-    if (name === 'plugin-hub') {
-      // Keep the immutable letter-icon migration baseline intact. Preserve all
-      // original rules; allow ONLY this explicit passive-image style extension.
-      assert.equal(expectedStyles.length, 1)
-      assert.equal(expectedStyles[0][0], 'xharness-plugin-hub-style')
-      expectedStyles[0][1] += '.xhph-icon-artwork{background:transparent}.xhph-icon img{display:block;width:42px;height:42px;object-fit:contain}\n'
+    if (name === 'context') {
+      assert.equal(after.locales.length, 1)
+      assert.equal(after.locales[0].namespace, 'xharness.harness')
+      assert.deepEqual(Object.keys(after.locales[0].dictionaries.zh).sort(), Object.keys(after.locales[0].dictionaries.en).sort())
+    } else assert.deepEqual(normalized(after.locales), normalized(before.locales))
+    assert.deepEqual(normalized(after.slots.map(row => row.spec)), normalized(before.slots.filter(row => name !== 'context' || row.spec.id !== 'context').map(row => name === 'context' && row.spec.id === 'harness' ? {...row.spec, inject: () => {}} : row.spec)))
+    if (name === 'context') {
+      const current = after.styles.get('xharness-context-inspector-style').textContent
+      // Context is intentionally removed; Harness retains the shared scroll
+      // contract and theme tokens, without obsolete colored diagnostic styles.
+      assert.deepEqual(after.slots.map(row => row.spec.id), ['harness'])
+      assert.doesNotMatch(current, /xhctx-card|xhctx-filterbar|xhctx-compaction-banner|xhctx-diff/)
+      assert.match(current, /background:var\(--dsw-alias-bg-base,#fff\)/)
+      assert.doesNotMatch(current, /xhctx-pipeline|xhctx-assembly-section|xhctx-harness-columns/)
+    } else {
+      const expectedStyles = [...before.styles].map(([id, style]) => [id, style.textContent])
+      if (name === 'plugin-hub') {
+        // Keep the immutable letter-icon migration baseline intact. Preserve all
+        // original rules; allow ONLY this explicit passive-image style extension.
+        assert.equal(expectedStyles.length, 1)
+        assert.equal(expectedStyles[0][0], 'xharness-plugin-hub-style')
+        expectedStyles[0][1] += '.xhph-icon-artwork{background:transparent}.xhph-icon img{display:block;width:42px;height:42px;object-fit:contain}\n'
+      }
+      assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), expectedStyles)
     }
-    assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), expectedStyles)
     for (const cleanup of after.cleanups) cleanup()
   })
 }
@@ -195,7 +209,7 @@ test('terminal: stable shortcut markers preserve both languages and closing phas
   }
 })
 
-test('context: request/usage/compaction projection and rendered actual/Harness views preserve content', {skip: !names.includes('context')}, () => {
+test('context: request/usage/compaction projection is unchanged while Context UI is removed', {skip: !names.includes('context')}, () => {
   const hosts = [harness(false, 'context'), harness(true, 'context')]
   const output = []
   for (const host of hosts) {
