@@ -1,5 +1,10 @@
 # XHarness
 
+> **Source status:** New product development has moved to a private repository.
+> This repository preserves the open-source **0.2.32** baseline under its original
+> licenses and remains the public download, update and feedback channel.
+> See [Source availability](SOURCE_STATUS.md).
+
 [简体中文](README_zh.md) · English
 
 [![CI](https://github.com/123123213weqw/x-harness-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/123123213weqw/x-harness-rs/actions/workflows/ci.yml)
