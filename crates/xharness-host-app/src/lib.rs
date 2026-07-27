@@ -7,6 +7,8 @@
 
 #[cfg(target_os = "macos")]
 mod computer_media;
+pub mod hosted;
+pub mod hosted_bootstrap;
 pub mod native_browser;
 pub mod ownership;
 mod plugin_mcp;

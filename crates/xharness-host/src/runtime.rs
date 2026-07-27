@@ -809,6 +809,7 @@ struct DurableSessionConfig {
 }
 
 struct DurableTurnFactory {
+    execution: crate::execution::ExecutionBoundary,
     goals: Arc<crate::goals::GoalBridge>,
     store: Arc<dyn Store>,
     delegation_slots: Arc<tokio::sync::Semaphore>,
@@ -841,6 +842,7 @@ impl TurnRequestFactory for DurableTurnFactory {
         input: &str,
         events: broadcast::Receiver<AgentEvent>,
     ) -> Result<(), String> {
+        self.execution.check()?;
         self.goals.prepare(id, input, events).await
     }
     async fn goal_report(
@@ -858,6 +860,7 @@ impl TurnRequestFactory for DurableTurnFactory {
         &self,
         agent_id: &str,
     ) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, String> {
+        self.execution.check()?;
         let session = self.store.load(agent_id).await.map_err(|e| e.to_string())?;
         if session
             .as_ref()
@@ -875,6 +878,7 @@ impl TurnRequestFactory for DurableTurnFactory {
         }
     }
     async fn build(&self, agent_id: &str, input: Vec<AgentMessage>) -> Result<LoopRequest, String> {
+        self.execution.check()?;
         let mut config = self
             .sessions
             .read()
@@ -910,6 +914,7 @@ impl TurnRequestFactory for DurableTurnFactory {
             .tool_factory
             .executor(agent_id, &config.cwd, config.permission)
             .await?;
+        let tool_executor = self.execution.executor(tool_executor);
         let snapshot = self.store.load(agent_id).await.map_err(|e| e.to_string())?;
         if self.tool_factory.allows_host_tool("history") {
             tool_executor
@@ -947,7 +952,7 @@ impl TurnRequestFactory for DurableTurnFactory {
                 .map_err(|e| e.to_string())?;
         }
         self.tool_factory.validate_executor(&tool_executor).await?;
-        let mut request = LoopRequest::new(provider, input);
+        let mut request = LoopRequest::new(self.execution.provider(provider), input);
         request.reasoning_effort = config.route.reasoning_effort;
         request.compaction_reasoning_effort = compaction_reasoning_effort;
         request.debug = self
@@ -976,6 +981,7 @@ impl TurnRequestFactory for DurableTurnFactory {
 /// The Web DTO cache is not authoritative. A later Host-store migration can
 /// rebuild it from this runtime's Session log without changing [`AgentRuntime`].
 pub struct DurableLoopAgentRuntime {
+    execution: crate::execution::ExecutionBoundary,
     goals: Arc<crate::goals::GoalBridge>,
     models: Arc<StdRwLock<ModelRegistry>>,
     default_route: ModelRoute,
@@ -1081,7 +1087,9 @@ impl DurableLoopAgentRuntime {
         let debug = Arc::new(StdRwLock::new(DebugRecorder::disabled()));
         let compaction = Arc::new(StdRwLock::new(None));
         let goals = Arc::new(crate::goals::GoalBridge::default());
+        let execution = crate::execution::ExecutionBoundary::default();
         let factory = Arc::new(DurableTurnFactory {
+            execution: execution.clone(),
             goals: Arc::clone(&goals),
             store: Arc::clone(&store),
             delegation_slots: Arc::new(tokio::sync::Semaphore::new(delegation_concurrency.limit())),
@@ -1094,6 +1102,7 @@ impl DurableLoopAgentRuntime {
         });
         let registry = Arc::new(AgentRegistry::new(Arc::clone(&store), leases));
         Ok(Self {
+            execution,
             models,
             default_route,
             store,
@@ -1112,6 +1121,19 @@ impl DurableLoopAgentRuntime {
     pub fn with_debug(self, debug: DebugRecorder) -> Self {
         *self.debug.write().expect("debug recorder lock poisoned") = debug;
         self
+    }
+
+    /// Install before any session is resumed/admitted. All autonomous turns
+    /// share the same factory; auxiliary providers and handler entry are gated.
+    pub fn with_execution_gate(self, gate: Arc<dyn crate::ExecutionGate>) -> Result<Self, String> {
+        self.execution.install(gate)?;
+        Ok(self)
+    }
+
+    fn require_execution(&self) -> Result<(), AgentRuntimeError> {
+        self.execution
+            .check()
+            .map_err(|message| AgentRuntimeError::Preparation { message })
     }
 
     /// Future turns use the new immutable provider instances. Active turns
@@ -1156,6 +1178,7 @@ impl DurableLoopAgentRuntime {
     }
 
     async fn attach_schedules(&self, handle: &DurableAgentHandle) -> Result<(), AgentRuntimeError> {
+        self.require_execution()?;
         self.goals
             .handles
             .write()
@@ -1218,6 +1241,7 @@ impl DurableLoopAgentRuntime {
         &self,
         request: &AgentTurnRequest,
     ) -> Result<(AgentMessage, String), AgentRuntimeError> {
+        self.require_execution()?;
         if self.supervisor.is_closed() {
             return Err(AgentRuntimeError::Preparation {
                 message: "agent runtime is shutting down".to_owned(),
@@ -1313,10 +1337,11 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     fn auxiliary_model(&self, route: &ModelRoute) -> Option<AuxiliaryModel> {
+        self.execution.check().ok()?;
         let models = self.models.read().expect("model registry lock poisoned");
         let model = models.resolve(route)?;
         Some(AuxiliaryModel {
-            provider: model.provider.clone(),
+            provider: self.execution.provider(model.provider.clone()),
             reasoning_effort: model
                 .descriptor
                 .reasoning
@@ -1358,6 +1383,9 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     fn needs_session_resume(&self, session: &Session) -> Result<bool, AgentRuntimeError> {
+        if self.execution.check().is_err() {
+            return Ok(false);
+        }
         if pending_manual_compaction(session).is_some() {
             return Ok(true);
         }
@@ -1489,6 +1517,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         &self,
         request: AgentSessionRequest,
     ) -> Result<AgentResumeReport, AgentRuntimeError> {
+        self.require_execution()?;
         if !self.can_route(&request.route) {
             return Err(AgentRuntimeError::ModelUnavailable {
                 provider: request.route.provider,
@@ -1707,6 +1736,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         session_id: &str,
         command_id: &str,
     ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.require_execution()?;
         let handle = self.supervisor.get(session_id).await.ok_or_else(|| {
             AgentRuntimeError::Preparation {
                 message: format!("durable agent {session_id:?} is not active"),
@@ -1820,6 +1850,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             Some(prepared) => prepared,
             None => self.prepare_turn(request).await?,
         };
+        self.require_execution()?;
         prepared.handle.wake().await.map_err(agent_command_error)?;
         Ok(self.running_from_prepared(prepared))
     }
@@ -2629,5 +2660,66 @@ mod tests {
                 .count(),
             1
         );
+    }
+    #[tokio::test]
+    async fn inactive_execution_gate_rejects_admission_resume_compaction_and_auxiliary_model() {
+        struct Deny;
+        impl crate::ExecutionGate for Deny {
+            fn require_active(&self) -> Result<(), String> {
+                Err("inactive fixture".into())
+            }
+        }
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut models = ModelRegistry::new();
+        models
+            .register(RegisteredModel::new(
+                ModelDescriptor::new("fixture", "Fixture", "model", "Model"),
+                Arc::new(ScriptProvider {
+                    answers: Mutex::new(VecDeque::from(["unused".into()])),
+                }),
+            ))
+            .unwrap();
+        let route = ModelRoute::new("fixture", "model");
+        let runtime = DurableLoopAgentRuntime::from_registry(
+            route.clone(),
+            models,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            store.clone(),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        )
+        .unwrap()
+        .with_execution_gate(Arc::new(Deny))
+        .unwrap();
+        let request = AgentTurnRequest {
+            session_id: "fenced".into(),
+            cwd: "/workspace".into(),
+            route: route.clone(),
+            permission: PermissionPreset::WorkspaceWrite,
+            prompt: None,
+            messages: vec![AgentMessage::user("must not execute")],
+            input_metadata: None,
+        };
+        assert!(runtime.admit_turn(request.clone()).await.is_err());
+        assert!(runtime.start_turn(request).await.is_err());
+        assert!(runtime
+            .resume_session(AgentSessionRequest {
+                session_id: "fenced".into(),
+                cwd: "/workspace".into(),
+                route: route.clone(),
+                permission: PermissionPreset::WorkspaceWrite,
+                prompt: None
+            })
+            .await
+            .is_err());
+        assert!(runtime
+            .start_manual_compaction("fenced", "compact")
+            .await
+            .is_err());
+        assert!(runtime.auxiliary_model(&route).is_none());
+        assert!(store.load("fenced").await.unwrap().is_none());
+        let report = runtime.shutdown(Duration::from_secs(1)).await;
+        assert!(report.is_graceful());
     }
 }
