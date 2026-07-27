@@ -17592,8 +17592,8 @@ function SearchResults({ useSessions, open, workspaces, archivedSessionIds, quer
 function PluginOutline16({ size = 16 }) {
     return (0, jsx_runtime_1.jsx)("svg", { width: size, height: size, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("path", { d: "M2.4 2.5h3.05c-.15.64.26 1.18.9 1.18s1.05-.54.9-1.18h3.65v3.05c.64-.15 1.18.26 1.18.9s-.54 1.05-1.18.9v3.65H7.85c.15.64-.26 1.18-.9 1.18s-1.05-.54-.9-1.18H2.4V7.85c-.64.15-1.18-.26-1.18-.9s.54-1.05 1.18-.9V2.5Z", transform: "translate(0 -0.75) scale(1.2)", stroke: "currentColor", strokeWidth: 1.15, strokeLinecap: "round", strokeLinejoin: "round" }) });
 }
-/** The collapsed sidebar's session index uses the same visible sessions and open action as the wide list. */
-function CollapsedSessionRail({ useSessions, archivedSessionIds, open, t }) {
+/** The session index stays available beside the wide list and inside the collapsed rail. */
+function SessionRail({ useSessions, archivedSessionIds, open, t }) {
     const list = useSessions(state => state);
     const sessions = (0, react_1.useMemo)(() => (0, tree_1.deriveFlat)(list, archivedSessionIds), [list, archivedSessionIds]);
     const selected = (0, react_1.useRef)(null);
@@ -17863,7 +17863,7 @@ function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, use
                             setSearchExpanded(true);
                             setSearchOnExpand(true);
                             expandSidebar();
-                        }, children: (0, jsx_runtime_1.jsx)(primitives_1.IconSearchOutline16, { size: 18 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 22 }) }) }) }), (0, jsx_runtime_1.jsxs)("div", { className: WorkspaceBrowser_styles_1.default.listArea, children: [!wide && (0, jsx_runtime_1.jsx)(CollapsedSessionRail, { useSessions: useSessions, archivedSessionIds: archivedSessionIds, open: open, t: t }), wide && (normalizedQuery !== ''
+                        }, children: (0, jsx_runtime_1.jsx)(primitives_1.IconSearchOutline16, { size: 18 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 22 }) }) }) }), (0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.listArea, wide && CollapsedSessionRail_styles_1.default.wideArea), children: [(0, jsx_runtime_1.jsx)(SessionRail, { useSessions: useSessions, archivedSessionIds: archivedSessionIds, open: open, t: t }), wide && (normalizedQuery !== ''
                         ? ((0, jsx_runtime_1.jsx)(SearchResults, { useSessions: useSessions, open: open, workspaces: workspaces, archivedSessionIds: archivedSessionIds, query: normalizedQuery, remote: remoteSearch, resultLimit: searchResultLimit, t: t }))
                         : groupBy === 'flat'
                             ? ((0, jsx_runtime_1.jsx)(FlatList, { useSessions: useSessions, open: open, forkSession: forkSession, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, archivedSessionIds: archivedSessionIds, orderBy: orderBy, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, t: t }))
@@ -18808,6 +18808,7 @@ const styles = {
     item: 'xh-session-rail-item',
     mark: 'xh-session-rail-mark',
     current: 'xh-session-rail-current',
+    wideArea: 'xh-session-rail-wide-area',
 };
 exports.default = styles;
 
@@ -18816,7 +18817,7 @@ exports.default = styles;
 // source: src/modules/workspace/CollapsedSessionRail.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = ".xh-session-rail {\n  display: flex;\n  flex: 1;\n  min-height: 0;\n  flex-direction: column;\n  align-items: center;\n  overflow-y: auto;\n  scrollbar-width: none;\n  overscroll-behavior: contain;\n}\n.xh-session-rail::-webkit-scrollbar { display: none; }\n.xh-session-rail-item {\n  display: flex;\n  flex: none;\n  width: 36px;\n  height: 17px;\n  align-items: center;\n  justify-content: center;\n  padding: 0;\n  border: 0;\n  background: transparent;\n  cursor: pointer;\n}\n.xh-session-rail-mark {\n  width: 10px;\n  height: 2px;\n  border-radius: 2px;\n  background: var(--dsw-alias-label-dimmed);\n}\n.xh-session-rail-item:hover .xh-session-rail-mark,\n.xh-session-rail-item:focus-visible .xh-session-rail-mark,\n.xh-session-rail-current .xh-session-rail-mark {\n  background: var(--dsw-alias-label-primary);\n}\n.xh-session-rail-item:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: -2px; border-radius: 4px; }\n";
+exports.default = ".xh-session-rail {\n  display: flex;\n  flex: 1;\n  min-height: 0;\n  flex-direction: column;\n  align-items: center;\n  overflow-y: auto;\n  scrollbar-width: none;\n  overscroll-behavior: contain;\n}\n.xh-session-rail::-webkit-scrollbar { display: none; }\n.xh-session-rail-wide-area { flex-direction: row; gap: 2px; }\n.xh-session-rail-wide-area > .xh-session-rail { order: 2; flex: none; width: 20px; }\n.xh-session-rail-wide-area > :not(.xh-session-rail) { min-width: 0; }\n.xh-session-rail-wide-area .xh-session-rail-item { width: 20px; }\n.xh-session-rail-item {\n  display: flex;\n  flex: none;\n  width: 36px;\n  height: 17px;\n  align-items: center;\n  justify-content: center;\n  padding: 0;\n  border: 0;\n  background: transparent;\n  cursor: pointer;\n}\n.xh-session-rail-mark {\n  width: 10px;\n  height: 2px;\n  border-radius: 2px;\n  background: var(--dsw-alias-label-dimmed);\n}\n.xh-session-rail-item:hover .xh-session-rail-mark,\n.xh-session-rail-item:focus-visible .xh-session-rail-mark,\n.xh-session-rail-current .xh-session-rail-mark {\n  background: var(--dsw-alias-label-primary);\n}\n.xh-session-rail-item:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: -2px; border-radius: 4px; }\n";
 
 },
 "src/modules/workspace/locales.js": function(module, exports, require) {
