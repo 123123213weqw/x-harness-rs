@@ -15,6 +15,8 @@ use xharness_host::{
     HostConfig,
 };
 use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
+use xharness_host_app::hosted::{HostedBackend, HostedExecution};
+use xharness_host_app::hosted_bootstrap::HostedGoalBootstrap;
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
 use xharness_host_app::{
     configured_web_runtime, ManagedAgentMarkdownSink, NativePluginBackend, NativeToolFactory,
@@ -69,6 +71,24 @@ async fn main_inner(
     }
     // Must precede even debug/config writes and all session restoration.
     let _ownership = xharness_host_app::ownership::acquire(&args.state_dir).await?;
+    let hosted = if let Some(directory) = &args.hosted_permit_dir {
+        let signal = os_shutdown_signal();
+        let execution = HostedExecution::open(directory, &args.workspace, &args.state_dir)?;
+        if let Some(path) = &args.hosted_bootstrap_file {
+            let bootstrap = HostedGoalBootstrap::read(path, directory)?;
+            let store = JsonlSessionStore::new(args.state_dir.join("sessions"))?.for_runtime();
+            bootstrap.reserve(execution.journal(), &store).await?;
+            execution.begin_prepared_bootstrap()?;
+        } else {
+            tokio::select! {
+                result = execution.await_activation() => result?,
+                signal = signal => { signal?; return Ok(()); }
+            }
+        }
+        Some(execution)
+    } else {
+        None
+    };
     #[cfg(windows)]
     if let (Some(context), Ok(event)) = (
         env::var_os("XHARNESS_CRASH_CONTEXT"),
@@ -92,7 +112,14 @@ async fn main_inner(
     if let Some(trace) = trace {
         eprintln!("xharness full debug trace: {}", trace.directory.display());
     }
-    let result = run(args, debug.clone(), failure_code, &startup_progress).await;
+    let result = if let Some(execution) = &hosted {
+        tokio::select! {
+            result = run(args,debug.clone(),failure_code,&startup_progress,hosted.clone()) => result,
+            failure = execution.boot_revoked() => failure.map_err(|error|error.into()),
+        }
+    } else {
+        run(args, debug.clone(), failure_code, &startup_progress, None).await
+    };
     let outcome = match &result {
         Ok(()) => serde_json::json!({"outcome": "success"}),
         Err(error) => serde_json::json!({"outcome": "failed", "error": error.to_string()}),
@@ -109,6 +136,7 @@ async fn run(
     debug: DebugRecorder,
     failure_code: &mut Option<StartupFailureCode>,
     startup_progress: &StartupProgress,
+    hosted: Option<Arc<HostedExecution>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     debug
         .record(DebugEvent::new(
@@ -213,21 +241,24 @@ async fn run(
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     *failure_code = Some(StartupFailureCode::RuntimeInitialization);
     startup_progress.stage(StartupStage::RuntimeInitialization);
-    let runtime = Arc::new(
-        DurableLoopAgentRuntime::from_registry_with_delegation_concurrency(
-            deployment.default_route,
-            deployment.registry,
-            tools.clone(),
-            Arc::new(ToolResultPruningContextPolicy::default()),
-            Arc::clone(&store),
-            leases,
-            config.event_capacity,
-            args.delegation_concurrency,
-        )?
-        .with_debug(debug.clone())
-        .with_compaction(args.compaction.clone())
-        .with_schedules(schedules),
-    );
+    let runtime = DurableLoopAgentRuntime::from_registry_with_delegation_concurrency(
+        deployment.default_route,
+        deployment.registry,
+        tools.clone(),
+        Arc::new(ToolResultPruningContextPolicy::default()),
+        Arc::clone(&store),
+        leases,
+        config.event_capacity,
+        args.delegation_concurrency,
+    )?
+    .with_debug(debug.clone())
+    .with_compaction(args.compaction.clone());
+    let runtime = if let Some(execution) = &hosted {
+        runtime.with_execution_gate(execution.clone())?
+    } else {
+        runtime
+    };
+    let runtime = Arc::new(runtime.with_schedules(schedules));
     let host_runtime: Arc<dyn AgentRuntime> = runtime.clone();
     let host = BasicHost::with_agent_runtime_control_and_questions(
         config,
@@ -269,20 +300,31 @@ async fn run(
             "XHARNESS_BOOTSTRAP_API_KEY".to_owned(),
             args.api_key.clone(),
         );
+    let model_settings = match &hosted {
+        Some(execution) => model_settings.with_execution_gate(execution.clone()),
+        None => model_settings,
+    };
     host.install_model_settings(Arc::new(model_settings), model_settings_base)
         .await?;
     let readiness = StartupReadiness::pending();
     let terminal_registry = Arc::new(TerminalRegistry::with_defaults());
-    let backend: Arc<dyn ApiBackend> = host.clone();
+    let backend: Arc<dyn ApiBackend> = match &hosted {
+        Some(execution) => HostedBackend::new(host.clone(), execution.clone()),
+        None => host.clone(),
+    };
     let router = web_router_full(
         backend,
         args.static_dir,
         debug.clone(),
         args.desktop_token.clone(),
         readiness.clone(),
-        terminal_routes(xharness_web_terminal::TerminalRouterState::new(Some(
-            terminal_registry.clone(),
-        ))),
+        terminal_routes(xharness_web_terminal::TerminalRouterState::new(
+            if hosted.is_none() {
+                Some(terminal_registry.clone())
+            } else {
+                None
+            },
+        )),
     );
     *failure_code = Some(StartupFailureCode::NetworkBind);
     startup_progress.stage(StartupStage::NetworkBind);
@@ -313,7 +355,53 @@ async fn run(
     // Host. Every undiscovered session is treated as paused until replay.
     host.prepare_startup_basics(store.clone()).await?;
     startup_progress.stage(StartupStage::ModelReconciliation);
+    if let (Some(execution), Some(path), Some(directory)) = (
+        &hosted,
+        &args.hosted_bootstrap_file,
+        &args.hosted_permit_dir,
+    ) {
+        let bootstrap = HostedGoalBootstrap::read(path, directory)?;
+        if !runtime.can_route(&xharness_host::ModelRoute::new(
+            &bootstrap.goal.provider,
+            &bootstrap.goal.model,
+        )) {
+            return Err("hosted bootstrap model route is unavailable".into());
+        }
+        bootstrap
+            .prepare(execution.journal(), store.as_ref())
+            .await?;
+        execution.record_prepared_ready()?;
+        // Host is initialized but public mutations, models, tools and all
+        // runtime wakeups remain gated. Only the private journal activates it.
+        let activated = tokio::select! {
+            result = execution.wait_prepared_activation() => result.is_ok(),
+            signal = shutdown_signal(args.shutdown_file.clone()) => { signal?; false },
+            result = &mut server_task => { result??; false },
+        };
+        if !activated {
+            let _ = server_stop_tx.send(());
+            let report = drain_host(&host, &runtime, &terminal_registry).await;
+            if tokio::time::timeout(Duration::from_secs(1), &mut server_task)
+                .await
+                .is_err()
+            {
+                server_task.abort();
+                let _ = server_task.await;
+            }
+            debug.flush().await?;
+            execution.record_shutdown(&report)?;
+            remove_runtime_file(args.ready_file.as_deref()).await?;
+            remove_runtime_file(args.shutdown_file.as_deref()).await?;
+            if !report.is_graceful() {
+                return Err("prepared Host shutdown was not graceful".into());
+            }
+            return Ok(());
+        }
+    }
     host.start_delegation_listener();
+    if let Some(execution) = &hosted {
+        execution.record_ready()?;
+    }
     readiness.mark_ready();
     startup_progress.stage(StartupStage::Ready);
     debug
@@ -392,24 +480,17 @@ async fn run(
             signal_error = signal.err();
             None
         }
+        signal = hosted_revocation(hosted.as_deref()) => {
+            signal_error = signal.err();
+            None
+        }
     };
     // Resolve Axum's graceful-shutdown future first so its accept loop closes
     // while the backend stops new Agent admission and joins active work.
     let _ = server_stop_tx.send(());
     hydration_task.abort();
     let _ = (&mut hydration_task).await;
-    host.shutdown_auto_titles().await;
-    let mut shutdown = runtime.shutdown(Duration::from_secs(10)).await;
-    host.stop_background_listeners();
-    // Web terminals are owned by this binary, not the control-plane backend;
-    // shut them down after Agent quiescence so their PTY drain is visible in
-    // the structured report instead of racing process exit.
-    let terminal_shutdown = terminal_registry.shutdown().await;
-    if !terminal_shutdown.is_graceful() {
-        shutdown
-            .cleanup_errors
-            .push(format!("terminal registry: {terminal_shutdown:?}"));
-    }
+    let mut shutdown = drain_host(&host, &runtime, &terminal_registry).await;
     // Upgraded WebSockets are not terminated by Hyper's graceful shutdown.
     // After backend quiescence, bound transport drain and then abort only the
     // carrier task; no Provider, Tool, Process or PTY remains owned by it.
@@ -443,6 +524,11 @@ async fn run(
         ))
         .await?;
     debug.flush().await?;
+    // This proves only original Runtime cleanup, not whole-VM quiescence.
+    // A crash before this commit leaves Starting/Ready and is NOT a stop ack.
+    if let Some(execution) = &hosted {
+        execution.record_shutdown(&shutdown)?;
+    }
     if !shutdown.is_graceful() {
         return Err(std::io::Error::other(format!(
             "runtime shutdown was not graceful: {} forced worker(s), errors={:?}",
@@ -455,6 +541,31 @@ async fn run(
     }
     remove_runtime_file(args.ready_file.as_deref()).await?;
     Ok(())
+}
+
+/// Same original cleanup for Prepared and Active Host generations.
+async fn drain_host(
+    host: &BasicHost,
+    runtime: &DurableLoopAgentRuntime,
+    terminals: &TerminalRegistry,
+) -> xharness_agent::AgentShutdownReport {
+    host.shutdown_auto_titles().await;
+    let mut report = runtime.shutdown(Duration::from_secs(10)).await;
+    host.stop_background_listeners();
+    let terminal_report = terminals.shutdown().await;
+    if !terminal_report.is_graceful() {
+        report
+            .cleanup_errors
+            .push(format!("terminal registry: {terminal_report:?}"));
+    }
+    report
+}
+
+async fn hosted_revocation(hosted: Option<&HostedExecution>) -> std::io::Result<()> {
+    match hosted {
+        Some(execution) => execution.until_revoked().await,
+        None => std::future::pending().await,
+    }
 }
 
 async fn publish_ready_file(
@@ -492,11 +603,16 @@ async fn shutdown_signal(shutdown_file: Option<PathBuf>) -> std::io::Result<()> 
 }
 
 #[cfg(unix)]
-async fn os_shutdown_signal() -> std::io::Result<()> {
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    tokio::select! {
-        result = tokio::signal::ctrl_c() => result,
-        _ = terminate.recv() => Ok(()),
+fn os_shutdown_signal() -> impl std::future::Future<Output = std::io::Result<()>> {
+    // Register before synchronous hosted binary attestation. A TERM received
+    // during the hash must not be lost before the Prepared select is polled.
+    let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate());
+    async move {
+        let mut terminate = terminate?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result,
+            _ = terminate.recv() => Ok(()),
+        }
     }
 }
 
@@ -553,6 +669,8 @@ struct Args {
     ready_file: Option<PathBuf>,
     startup_progress_file: Option<PathBuf>,
     desktop_start_file: Option<PathBuf>,
+    hosted_permit_dir: Option<PathBuf>,
+    hosted_bootstrap_file: Option<PathBuf>,
 }
 
 impl Args {
@@ -600,6 +718,9 @@ impl Args {
             env::var_os("XHARNESS_STARTUP_PROGRESS_FILE").map(PathBuf::from);
         let mut desktop_start_file = None;
         let mut tool_allowlist = None;
+        let mut hosted_bootstrap_file =
+            env::var_os("XHARNESS_HOSTED_BOOTSTRAP_FILE").map(PathBuf::from);
+        let mut hosted_permit_dir = env::var_os("XHARNESS_HOSTED_PERMIT_DIR").map(PathBuf::from);
 
         while let Some(argument) = arguments.next() {
             let value = arguments
@@ -650,6 +771,8 @@ impl Args {
                 "--ready-file" => ready_file = Some(PathBuf::from(value)),
                 "--startup-progress-file" => startup_progress_file = Some(PathBuf::from(value)),
                 "--desktop-start-file" => desktop_start_file = Some(PathBuf::from(value)),
+                "--hosted-bootstrap-file" => hosted_bootstrap_file = Some(PathBuf::from(value)),
+                "--hosted-permit-dir" => hosted_permit_dir = Some(PathBuf::from(value)),
                 _ => return Err(format!("unknown argument {argument:?}")),
             }
         }
@@ -666,6 +789,14 @@ impl Args {
             .transpose()?
             .unwrap_or_default();
         validate_desktop_boundary(bind, desktop_token.as_deref())?;
+        if hosted_bootstrap_file.is_some()
+            && (hosted_permit_dir.is_none() || providers_file.is_some())
+        {
+            return Err("hosted Goal bootstrap requires a native permit and a fixed single-model CLI configuration; provider discovery must not run while Prepared".into());
+        }
+        if hosted_permit_dir.is_some() && !bind.ip().is_loopback() {
+            return Err("hosted native gate requires loopback binding; authenticated Gateway is not implemented".into());
+        }
         Ok(Self {
             tool_allowlist,
             delegation_concurrency,
@@ -691,6 +822,8 @@ impl Args {
             ready_file,
             startup_progress_file,
             desktop_start_file,
+            hosted_permit_dir,
+            hosted_bootstrap_file,
         })
     }
 }

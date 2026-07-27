@@ -1,5 +1,45 @@
 # XHarness 总任务清单
 
+## 专用 VM 托管 Runtime（2026-10-01）
+
+目标：VM 内 Full Access，完整复用 Host、Durable Runtime、Goal、Provider 和 Tool Registry。
+本机只提交与观察，退出不取消任务；不新增远程 Bash/Read，不把内部 Runtime trait 改成网络 RPC。
+详见 [v1 契约](specs/cloud-runtime.md)与[提案](plans/2026-10-01-cloud-runtime-proposal.md)。
+
+- [x] `CLOUD-00` 定义任务/环境/Goal/连接的权威边界、v1 提交与收据、CAS 状态机、执行许可、停止证明和 24 类故障验收；设计已完成，完整产品验收仍见 `CLOUD-08`。
+- [x] `CLOUD-01` 新增无内部依赖的 `xharness-cloud`：严格 DTO/指纹黄金 fixture/纯状态机/Memory Store/Fake Environment；覆盖重复提交、CAS、终态竞争、旧世代、未知结果和能力门禁。加上四环境回归，V100 定向共 56 项通过，模块 Clippy 通过；非持久基础，不代表生产 VM/Host/UI 已接入。
+- [x] `CLOUD-LAB-01` V100 上四台真实 KVM VM 部署原 Host；16 项环境/连接切换/暂停/崩溃/重启/停止核对验收，15 项实验脚本 guard 测试通过。实测四 QEMU 服务 500ms 同步采样总峰值 4.24 GiB，四 VM 均外部核实停止；盘和失败证据保留。见[四 VM 实验手册](runbooks/cloud-vm-lab.md)。仅基础设施与原 API，不是跨云厂商或运行中任务迁移，也没有真实模型/Goal 托管验收。
+- [ ] `CLOUD-02` 持久控制层整体接入。
+  - [x] `CLOUD-02a` 新增 `xharness-cloud-app`：SQLite WAL/FULL、增量事务、原子 Task/Receipt/Binding/outbox、持久序号、单本地写者；复用领域 Store 规则。损坏/空库/错误版本拒绝，写入结果不确定时 fence 到重新打开。
+  - [x] `CLOUD-02b` 可复用 `CloudController`：重启先查询原操作或重放持久收据；未知不重新执行，取消后的迟到激活只记录事实。真实进程不执行 Drop 的 WAL 验收、丢回执/阶段中取消/部分结算重启/并发核对等通过；cloud 两模块共 84 项定向测试通过。
+  - [ ] `CLOUD-02c` 将 StageExecutor 接到真实 VM 和原 Host 收据，接常驻控制服务/鉴权 Gateway；当前 CLI 只供可信本地或 SSH 管理，不提供公网任务服务。
+- [ ] `CLOUD-03` 接入已有专用 VM：能力探测、排他绑定、固定部署版本、工作区/材料准备、凭据版本注入和分阶段收据。
+  - [x] `CLOUD-03a` 将实验 VM-1 转为长期专属测试环境：复用原 UUID/盘，人工启动/停止，停止保留磁盘；2 vCPU/2 GiB 客体、4 GiB QEMU 硬内存与 128 进程上限。9 项 V100 实机验收、16 项专属脚本 guard 远程通过。修复 systemd `RuntimeMaxSec=0` 在该机立即超时，明确使用 `infinity`。
+  - [x] `CLOUD-03b` 将专属 VM 身份登记到真实控制库，重开/重放不重复登记；未接原 Host 门禁的能力保持 `unknown`，实测任务拒绝且零 Task/零凭据注入。CPU quota/宿主磁盘配额明确未实现。见[专属环境手册](runbooks/cloud-dedicated-vm.md)。
+  - [ ] `CLOUD-03c` 接真实工作区/材料校验、权限身份、凭据版本注入、任务原生 Prepare/Activate/Settle 收据；SSH 始终验证主机身份，不转发 agent。
+- [ ] `CLOUD-04` 接入 Host-app 的 prepared/active/sealed 执行许可与引导/恢复收据；复用原 Goal 输入和验收，不重复初始请求，不隐式继承旧 256 默认值而宣称无限推进。
+  - [x] `CLOUD-04a` 原 Host 可选原生门禁：中立 `ExecutionGate`，VM-local SQLite 绑定/单向许可/幂等 ack/launch generation；无 manifest 的历史休眠模式中 Prepared 不启动原 Runtime/Provider/工具/历史/listener，Active 才启动，Sealed 拒绝启动。实际二进制 SHA、固定 workspace/state、原 lease 与旧世代校验；不另造 Loop、RPC 或模型工具。
+  - [x] `CLOUD-04b1` 原 Host 根 Session/Goal 的幂等引导与 `NativeStageExecutor` 接线：先持久预留身份，再在禁止执行的 Prepared 状态下准备原 Goal，记录 PreparedReady；激活使用原 Ready 和精确操作 ack。重开控制库、激活丢回执、准备中取消和已完成 Goal 重启不重复初始任务。没有新增 Loop/Tool/RPC。
+  - [x] `CLOUD-LAB-02-fix` 真实模型发现混合 Standalone 批次导致整轮失败：保留调度器整批零执行，Core 将该明确的模型调用错误写回原 Tool 结果，让模型拆批纠正；不把内部异常/未知副作用统一吞掉。确定性回归覆盖顺序、未知 sibling、持久化和不重复执行。
+  - [ ] `CLOUD-04b2` 将可信 VM 生命周期端口接到生产服务：真实材料/模型配置/凭据版本解析和授权、任务根/子 Session 访问边界、外部 Stop/retention 与控制器终态核对。原生适配器已实现，但生产能力仍保持 unknown，不开放 Submit；测试专属 VM 不等同于完整云端接入。
+- [ ] `CLOUD-05` 终态封存与持久 Shutdown/Stop 证明：覆盖 Goal、Schedule、子 Agent、Job、PTY 与辅助模型工作；超时保持 settling，终态只读恢复不再启动执行。
+  - [x] `CLOUD-05a` 封存拒绝新 admission/自治 turn/Provider 请求及审批后实际 handler；复用原 Runtime 清理后记录原生 Stop。临时 graceful stop 可领取新 generation；异常退出、清理失败、缺少 Stop 收据拒绝自动重启。V100 独立构建目录全工作区 1041 passed / 19 ignored / 0 failed、四模块 Clippy、34 项 Python guard 和 8 项真实 VM 门禁验收通过；见[验收报告](reports/cloud-native-execution-gate-20261001.md)。
+  - [ ] `CLOUD-05b` 接可信崩溃恢复授权、外部 VM quiet/retention 核对与控制器终态 CAS、只读终态恢复。原生 Runtime Stop 不等于整台 VM 静止；Goal complete 报告也不等于云 Task Finished。
+- [ ] `CLOUD-06` TLS/任务归属 Gateway、短期连接授权、根/子 Session 访问范围、持久 cursor 校准、有界多观察者和断线不取消回归；不复制第二套 Session/Goal 状态。
+- [ ] `CLOUD-07` 客户端 RuntimeConnection 与原 Web/Tauri UI：托管入口、远程徽标、原 GoalBar、问题回答与 Steering；明确本机/VM 路径与附件映射，不新增常驻诊断页面。
+  - [x] `CLOUD-07a-ui` 新任务工作区旁的执行环境入口：按原 Slot/Locale/主题注册，产品源码、生成包、重建与 CI 单元测试一致；菜单始终可打开查看，绑定锁仅限制选项；可信空会话可选本机，旧/运行中/加载失败/未知会话保持原环境。当前仅本机可用，统一 Cloud 选项禁用且说明待接入，不展示机器名称，不伪造环境目录或云端提交。2026-10-02 已在本机独立 3083 Web 更新静态资源，未替换桌面软件；这是旧工作区的历史 UI 验收，本 PR 不携带旧 JS 补丁或生成包，迁移最新 TS 接口仍待完成。
+  - [ ] `CLOUD-07a-ts` 按最新 owned TypeScript / Slot 契约迁移已验收的环境入口；不得用旧 JS 补丁或生成包覆盖当前前端。
+  - [ ] `CLOUD-07a-routing` 接真实环境目录与 RuntimeConnection/Gateway，在新任务提交边界持久绑定环境、按环境加载工作区，并验证断线/切换/旧响应与目录缓存隔离。不能将 UI 入口已显示计为托管可用。
+- [ ] `CLOUD-08` 完成 CLOUD-T01～T24 的确定性/真实适配器对照、跨平台客户端 CI，以及专用 VM 和真实 DeepSeek 多轮验收；共享服务器不能充当 Full Access VM 边界。
+  - [x] `CLOUD-LAB-02` 专属 VM-1 内原 Host + DeepSeek 两轮真实编程：唯一 Goal、Prepared 零请求/重启、独立 unittest/语义验证、等待确认后重启不重放、seal/外部停止 7 项通过。最新全工作区 1060 passed / 19 ignored / 0 failed，六模块 Clippy、40 项实验 guard 与 5 项架构 guard 通过。仅受限私有 fixture，不是完整生产 Submit 或跨平台桌面验收。
+- [ ] `CLOUD-09` 实现静止切点收集、数据保留与环境释放；release 不删除保留对话/代码；坏包/满盘不伪报无损。
+- [ ] `CLOUD-10` 后续自动云 VM、模板、备份恢复与回收适配；跨 VM 自动接管需单独完成外部停止、所有权 fencing 和磁盘排他门禁。
+- [ ] `CLOUD-11` 实现与 CI/真实验收通过后再评审发布部署；本批不替换本机软件、不改现有 Web 或模型服务。真实模型验收只使用临时、定模型的私有通道，不把厂商 Key 放入客体、报告或安装包。
+
+`CLOUD-01` 全工作区测试、Check 与七组 UI 契约通过；全量 `--all-targets` Clippy 被已有、未跟踪的 `edit_mode_ab.rs` 中 `&PathBuf` lint 阻挡，未修改该独立实验文件，不能标成全量门禁全绿。
+
+`CLOUD-02a/b、03a/b、04a/b1、05a` 已完成持久核、专属 VM 基础设施、原 Host 门禁和唯一 Goal 引导；生产 VM 生命周期/材料与凭据授权、崩溃恢复、终态核对、Gateway 和本机 UI 仍待接入，不等于完整托管产品。本批回归与真模型证据见[Goal 引导验收](reports/cloud-goal-bootstrap-20261002.md)。2026-10-03 本 PR 将后端基础同步到私有 xharness-product master；TS UI 路由未迁移，不发布安装包或部署服务。
+
 ## 页面优先级修复（2026-10-03）
 
 - [x] `UI-LAYER-01` 设置／通用弹窗共用原生顶层；菜单只关闭自身，Tab 正反向循环，关闭后恢复焦点，嵌套确认不关闭外层。
