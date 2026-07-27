@@ -3808,10 +3808,46 @@ impl Runner {
                 .map_err(|error| RunFailure::Failed(error.to_string()))?;
             requests.push(RuntimeBatchRequest::new(*order, request));
         }
-        let mut batch = executor
+        let mut batch = match executor
             .start_batch(requests, self.request.config.max_tool_concurrency)
             .await
-            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        {
+            Ok(batch) => batch,
+            Err(error @ xharness_tools::ToolBatchError::StandaloneRequired { .. }) => {
+                // Registry preflight rejected the ENTIRE batch before any
+                // lifecycle/approval/handler started. This is a correctable
+                // model invocation error, not a failed or unknown operation.
+                // Do not silently serialize or execute a subset of the calls.
+                let error = format!(
+                    "{error}. No tools in this batch were executed. Retry the required work in separate batches; call the standalone tool only after other tool results have settled."
+                );
+                let mut completed = Vec::with_capacity(calls.len());
+                for (order, call) in calls {
+                    let mut result = ToolResult::failure(error.clone());
+                    result.metadata = Some(json!({
+                        "batchRejected": true,
+                        "executionStarted": false,
+                        "kind": "standalone_required",
+                    }));
+                    self.emit(LoopEventKind::ToolCompleted {
+                        call: call.clone(),
+                        result: result.clone(),
+                    })
+                    .await?;
+                    completed.push(ToolExecution {
+                        order,
+                        call,
+                        outcome: ToolOutcome::Error,
+                        result,
+                        model_text: String::new(),
+                    });
+                }
+                return Ok(completed);
+            }
+            // Configuration/supervisor/order failures are NOT safe model
+            // corrections and retain the original hard failure semantics.
+            Err(error) => return Err(RunFailure::Failed(error.to_string())),
+        };
         let mut completion_count = 0usize;
         let mut pending_approval_ids = Vec::<String>::new();
         let mut pending_runtime_approvals = Vec::<PendingRuntimeApproval>::new();

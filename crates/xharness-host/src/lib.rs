@@ -10,6 +10,8 @@
 type SessionGateMap =
     Arc<Mutex<std::collections::HashMap<(String, bool), std::sync::Weak<Mutex<()>>>>>;
 
+mod bootstrap;
+pub use bootstrap::{prepare_goal_session, GoalBootstrapReceipt, GoalBootstrapSpec};
 mod control;
 mod credential_processor;
 mod delegation;
@@ -24,6 +26,8 @@ pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod driver;
 mod event_gateway;
+mod execution;
+pub use execution::ExecutionGate;
 #[cfg(test)]
 mod failed_turn_projection_tests;
 mod model_processor;

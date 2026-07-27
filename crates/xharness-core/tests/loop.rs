@@ -792,6 +792,111 @@ async fn collect(mut run: LoopRun) -> (Vec<LoopEvent>, LoopResult) {
     (events, result)
 }
 
+#[tokio::test]
+async fn standalone_batch_rejection_is_ordered_durable_feedback_not_execution_or_turn_failure() {
+    // Both orders, plus an unknown sibling: the entire batch is rejected,
+    // not just the standalone call, and the model may repair its request.
+    for (number, names) in [
+        vec!["mutate", "standalone"],
+        vec!["standalone", "mutate", "missing"],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let first = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| Ok(tool_delta(i, &format!("rejected-{i}"), name, "{}")))
+            .chain([Ok(completed_for_calls())])
+            .collect::<Vec<_>>();
+        let provider = Arc::new(ScriptProvider::new([
+            first,
+            vec![
+                Ok(tool_delta(0, "fixed-mutate", "mutate", "{}")),
+                Ok(completed_for_calls()),
+            ],
+            vec![
+                Ok(tool_delta(0, "fixed-alone", "standalone", "{}")),
+                Ok(completed_for_calls()),
+            ],
+            vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+        ]));
+        let handlers = Arc::new(AtomicUsize::new(0));
+        let registry = Arc::new(RuntimeToolRegistry::new());
+        for name in ["mutate", "standalone"] {
+            let executed = handlers.clone();
+            let mut spec = RuntimeToolSpec::new(
+                RuntimeToolDefinition::new(name, "fixture", json!({"type":"object"})),
+                move |_| {
+                    let executed = executed.clone();
+                    async move {
+                        executed.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("ran"))
+                    }
+                },
+            );
+            if name == "standalone" {
+                spec = spec.requiring_standalone_batch();
+            }
+            registry.register(spec).await.unwrap();
+        }
+        let journal = Arc::new(EventMemorySessionStore::default());
+        let session_id = format!("reject-batch-{number}");
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("work")]);
+        request.session_id = Some(session_id.clone());
+        request.journal_store = Some(journal.clone());
+        request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+        let (events, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+        assert_eq!(result.final_text, "done");
+        assert_eq!(
+            handlers.load(Ordering::SeqCst),
+            2,
+            "only corrected calls may run"
+        );
+        assert!(!events.iter().any(|e| matches!(&e.kind, LoopEventKind::ToolStarted(c) if c.provider_id().starts_with("rejected-"))));
+        let messages = provider.requests()[1]
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::Tool)
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(messages.len(), names.len());
+        for (i, message) in messages.iter().enumerate() {
+            assert_eq!(
+                message.tool_call_id.as_deref(),
+                Some(format!("rejected-{i}").as_str())
+            );
+            let value: Value = serde_json::from_str(&message.content).unwrap();
+            assert_eq!(value["ok"], false);
+            assert!(value["error"]
+                .as_str()
+                .unwrap()
+                .contains("No tools in this batch were executed"));
+        }
+        let session = journal.load(&session_id).await.unwrap().unwrap();
+        let rejected = session
+            .events()
+            .iter()
+            .filter_map(|e| match e.data() {
+                SessionEventData::ToolResult { result, .. }
+                    if result
+                        .metadata
+                        .as_ref()
+                        .is_some_and(|m| m["batchRejected"] == true) =>
+                {
+                    Some(result)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rejected.len(), names.len());
+        assert!(rejected.iter().all(|r| r.outcome == ToolOutcome::Error
+            && r.metadata.as_ref().unwrap()["executionStarted"] == false));
+        assert!(!session.events().iter().any(|e| matches!(e.data(), SessionEventData::ToolResult {result,..} if result.outcome == ToolOutcome::OutcomeUnknown)));
+    }
+}
+
 async fn seed_long_compaction_history(store: &EventMemorySessionStore, session_id: &str) {
     store.create(SessionHeader::new(session_id)).await.unwrap();
     store

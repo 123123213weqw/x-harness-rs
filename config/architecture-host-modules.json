@@ -14,7 +14,7 @@
       "stateOwner": "Goal transition policy",
       "source": "goal_processor.rs",
       "entrypoint": "rpc/goal.rs",
-      "allowedConsumers": [],
+      "allowedConsumers": ["bootstrap.rs"],
       "allowedCrates": ["xharness_session"]
     },
     {
