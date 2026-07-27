@@ -751,8 +751,8 @@ function PluginOutline16({size = 16}: {size?: number}) {
   </svg>
 }
 
-/** The collapsed sidebar's session index uses the same visible sessions and open action as the wide list. */
-function CollapsedSessionRail({ useSessions, archivedSessionIds, open, t }: Pick<
+/** The session index stays available beside the wide list and inside the collapsed rail. */
+function SessionRail({ useSessions, archivedSessionIds, open, t }: Pick<
   WorkspaceBrowserProps, 'useSessions' | 'open' | 't'
 > & { archivedSessionIds: readonly SessionId[] }) {
   const list = useSessions(state => state)
@@ -1187,13 +1187,13 @@ export function WorkspaceBrowser({
           </button>
         </Tooltip>
       </div>}
-      <div className={css.listArea}>
-        {!wide && <CollapsedSessionRail
+      <div className={clsx(css.listArea, wide && railCss.wideArea)}>
+        <SessionRail
           useSessions={useSessions}
           archivedSessionIds={archivedSessionIds}
           open={open}
           t={t}
-        />}
+        />
         {wide && (normalizedQuery !== ''
           ? (
             <SearchResults
