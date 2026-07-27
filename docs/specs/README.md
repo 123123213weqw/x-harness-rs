@@ -55,6 +55,12 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 部署和故障定位见 [`../operations.md`](../operations.md)。该文档记录平台 Probe、模型真实窗口、
 当前 Web Host 边界以及 2026-08-21 的上下文超窗样本。
 
+## 专用 VM 托管 Runtime（增量实现）
+
+| 范围 | 规范 | 状态 |
+| --- | --- | --- |
+| 专用 VM 托管 Runtime | [任务契约与环境生命周期](cloud-runtime.md) | 持久控制核、专属 VM 实验、原 Host 门禁、唯一根 Goal 与 native StageExecutor；生产 VM 生命周期/材料凭据授权、Gateway/终态核对/TS UI 路由仍待接入，软件尚不提供托管 |
+
 ## 状态术语
 
 - **已实现**：公开契约已经存在，验收测试通过。

@@ -96,6 +96,7 @@ pub struct NativeModelSettings {
     /// persisted; they remain read-only, just like environment overrides.
     process_keys: BTreeMap<String, String>,
     discovery: crate::reasoning_discovery::ReasoningDiscovery,
+    execution_gate: Option<Arc<dyn xharness_host::ExecutionGate>>,
     calibration: Option<Arc<xharness_provider_openai::CalibrationStore>>,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
 }
@@ -112,9 +113,14 @@ impl NativeModelSettings {
             debug,
             process_keys: BTreeMap::new(),
             discovery: Default::default(),
+            execution_gate: None,
             calibration: None,
             attachments: None,
         }
+    }
+    pub fn with_execution_gate(mut self, gate: Arc<dyn xharness_host::ExecutionGate>) -> Self {
+        self.execution_gate = Some(gate);
+        self
     }
     pub fn with_calibration_store(
         mut self,
@@ -162,6 +168,23 @@ impl NativeModelSettings {
         force_discovery: bool,
     ) -> Result<ModelRegistry, String> {
         let mut doc = parse_model_settings(section)?;
+        if self
+            .execution_gate
+            .as_ref()
+            .is_some_and(|gate| gate.require_active().is_err())
+            && doc.providers.values().any(|profile| {
+                profile.reasoning_discovery.is_some()
+                    || profile
+                        .models
+                        .iter()
+                        .any(|model| model.context_window_capability.is_some())
+            })
+        {
+            return Err(
+                "Network capability discovery cannot run while hosted execution is Prepared".into(),
+            );
+        }
+
         let mut keys = BTreeMap::new();
         for profile in doc.providers.values() {
             if let Some(reference) = &profile.api_key_env {
