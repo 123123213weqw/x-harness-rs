@@ -33,8 +33,8 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  const newKeys=['message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'];
  const withoutNew=locale=>Object.fromEntries(Object.entries(json(locale)).filter(([key])=>!newKeys.includes(key)));
  for(const language of ['en','zh']){assert.deepEqual(withoutNew(apis[1].plugin[language]),json(apis[0].plugin[language]));for(const key of newKeys)assert.equal(typeof apis[1].plugin[language][key],'string')}
- assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'].map(key=>[key,apis[1].plugin.en[key]])),{'message.foldedTools':'{count} completed operations','message.expandedTools':'Earlier completed operations · {count}'})
- assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'].map(key=>[key,apis[1].plugin.zh[key]])),{'message.foldedTools':'已收起 {count} 个完成的操作','message.expandedTools':'较早的已完成操作 · {count}'})
+ assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.en[key]])),{'message.foldedTools':'{count} completed operations','message.expandedTools':'Earlier completed operations · {count}'})
+ assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.zh[key]])),{'message.foldedTools':'已收起 {count} 个完成的操作','message.expandedTools':'较早的已完成操作 · {count}'})
  assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react/jsx-runtime'].sort());
 });
 test('complete apply registration: keyed nodes, resident shell, overlays, docks, hooks and latest-master keyed seats',()=>{
