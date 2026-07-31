@@ -26,6 +26,18 @@ try {
  await page.evaluate(()=>window.toolRegistration=registration)
  await page.addScriptTag({content:source})
  await page.evaluate(()=>{
+  const NativeObserver=ResizeObserver
+  window.__foldObservers=new Set()
+  window.ResizeObserver=class extends NativeObserver{
+   constructor(callback){super(callback);__foldObservers.add(this)}
+   disconnect(){__foldObservers.delete(this);super.disconnect()}
+  }
+  const NativeMutation=MutationObserver
+  window.__foldMutations=new Set()
+  window.MutationObserver=class extends NativeMutation{
+   constructor(callback){super(callback);__foldMutations.add(this)}
+   disconnect(){__foldMutations.delete(this);super.disconnect()}
+  }
   const jsx=(type,props,key)=>React.createElement(type,key===undefined?props:{...props,key})
   const store=initial=>{let value=initial;const listeners=new Set();return{getSnapshot:()=>value,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},set:next=>{value=next;listeners.forEach(fn=>fn())}}}
   const runtime={isAppendSurfaceEvent:()=>true,toAssistantBlocks:x=>x,createSnapshotStore:store,defineStore:x=>x}
@@ -52,7 +64,22 @@ try {
    add(turn,'assistant-step','final1',assistant('final answer',100))
    window.publish();
   }
-  window.publish=()=>snapshot.set({...snapshot.getSnapshot(),chat:{order:[...order],nodes:new Map(nodes),timeline:{turns:new Map(turns)},locations:{getTurn:id=>order.filter(k=>nodes.get(k).location.turn.turn===id)}}})
+  window.toolFixture=(key,options={})=>{
+   const previous=nodes.get(key),root={...previous.data.root,...options}
+   nodes.set(key,{...previous,data:{root}});publish()
+  }
+  window.seedFew=()=>{
+   seed()
+   for(let i=6;i<80;i++){nodes.delete('job'+i);order.splice(order.indexOf('job'+i),1)}
+   publish()
+  }
+  window.appendTools=(count=10)=>{
+   const turn=turns.get(1),start=order.length
+   for(let i=0;i<count;i++)add(turn,'tool-call','extra'+(start+i),tool('extra bash','extra'+(start+i)))
+   publish()
+  }
+  const liveNodes={get:key=>nodes.get(key),values:()=>[...nodes.values()]}
+  window.publish=()=>snapshot.set({...snapshot.getSnapshot(),chat:{order:[...order],nodes:liveNodes,timeline:{turns:new Map(turns)},locations:{getTurn:id=>order.filter(k=>nodes.get(k).location.turn.turn===id)}}})
   window.finish=(closing=true,start=true,error=false)=>{
    const previous=turns.get(1),final=closing?nodes.get('final1').data:null
    const tail={turn:1,seq:110,time:165000,closing:final,branchUnavailable:false,ttftMs:200,tokensPerSecond:35}
@@ -106,7 +133,7 @@ try {
  await page.getByText('final answer',{exact:true}).waitFor()
  await page.mouse.move(900,10);assert.equal(await summary.evaluate(e=>getComputedStyle(e).opacity),'1')
  // Keyboard reopen and close: same footer retains focus and process stores are unchanged.
- const bytes=await page.evaluate(()=>JSON.stringify([...snapshot.getSnapshot().chat.nodes]))
+ const bytes=await page.evaluate(()=>JSON.stringify(snapshot.getSnapshot().chat.nodes.values()))
  const topBefore=await summary.evaluate(e=>e.getBoundingClientRect().top)
  await summary.focus();await summary.press('Enter');await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
  await page.waitForTimeout(150)
@@ -128,7 +155,7 @@ try {
  // Wait for native toggle delivery before the ancestor is unmounted.
  await page.waitForTimeout(40)
  await summary.press('Enter');assert.equal(await summary.getAttribute('aria-expanded'),'false')
- assert.equal(await page.evaluate(()=>JSON.stringify([...snapshot.getSnapshot().chat.nodes])),bytes)
+ assert.equal(await page.evaluate(()=>JSON.stringify(snapshot.getSnapshot().chat.nodes.values())),bytes)
  // Collapsing a short transcript must not silently re-arm bottom follow. Model
  // content/image/font reflow below the entry must not drag the reader down.
  const resizeFrames=await page.evaluate(async()=>{
@@ -188,7 +215,104 @@ try {
  await page.evaluate(()=>{setId('images');seed();setFinalImage();finish()})
  await summary.waitFor();assert.equal(await summary.getAttribute('aria-expanded'),'false')
  await page.getByText('final image',{exact:true}).waitFor();assert.equal(await page.locator('[data-tool-card]').count(),0)
+ // Adaptive live folding is presentation only, and does not require turn/end.
+ await page.evaluate(()=>{setId('adaptive');seed()})
+ const live=page.locator('[data-live-tool-summary="1"]')
+ await live.waitFor();await page.waitForTimeout(150)
+ assert.equal(await live.getAttribute('aria-expanded'),'false')
+ assert.ok(await page.locator('[data-chat-flow-kind="tool-call"]').count()<80)
+ console.log('adaptive live fold:',JSON.stringify({engine,logicalTools:80,displayedToolRows:await page.locator('[data-chat-flow-kind="tool-call"]').count(),mountedHeavyCards:await page.locator('[data-tool-card]').count()}))
+ assert.equal(await page.evaluate(()=>snapshot.getSnapshot().chat.nodes.values().length),84,'no tool/history content removed')
+ await page.locator('[data-chat-flow-key="job79"]').waitFor({state:'attached'})
+ // A previously folded root becoming pending/error must reappear immediately.
+ await page.evaluate(()=>toolFixture('job0',{isError:true}))
+ await page.locator('[data-chat-flow-key="job0"]').waitFor({state:'attached'})
+ await page.evaluate(()=>toolFixture('job1',{subCalls:[{callId:'pending',callView:null,time:1,name:'ask_question',argsRaw:'{}',turn:1,step:1,subCalls:[]}]}))
+ await page.locator('[data-chat-flow-key="job1"]').waitFor({state:'attached'})
+ // Explicit process expansion survives streaming, resize and turn/end.
+ const raw=await page.evaluate(()=>JSON.stringify(snapshot.getSnapshot().chat.nodes.values()))
+ await live.click();assert.equal(await live.getAttribute('aria-expanded'),'true')
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),80)
+ assert.equal(await page.evaluate(()=>JSON.stringify(snapshot.getSnapshot().chat.nodes.values())),raw)
+ await page.evaluate(()=>appendTools())
+ await page.setViewportSize({width:650,height:550});await page.waitForTimeout(150)
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),90)
+ await page.evaluate(()=>finish());await summary.waitFor()
+ assert.equal(await summary.getAttribute('aria-expanded'),'true','manual choice is not overridden by end')
+ await summary.click()
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),2,'failed/pending roots survive turn fold')
+ // Refresh-style remount of the same final graph defaults folded without losing work.
+ await page.evaluate(()=>setId('adaptive-replayed'))
+ assert.equal(await summary.getAttribute('aria-expanded'),'false')
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),2)
+ // An offscreen/zero-size viewport must not trigger speculative collapse.
+ await page.evaluate(()=>{document.querySelector('[data-conversation-scroll]').style.height='0px';setId('zero');seed()})
+ await page.waitForTimeout(120)
+ assert.equal(await live.count(),0)
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),80)
+ await page.evaluate(()=>document.querySelector('[data-conversation-scroll]').style.height='650px')
+ await live.waitFor()
+ assert.equal(await live.getAttribute('aria-expanded'),'false','new session does not inherit expanded choice')
+ // Protect actual focused controls, selected text and user-opened native details.
+ await page.evaluate(()=>{document.querySelector('[data-conversation-scroll]').style.height='4000px';setId('reading');seedFew()})
+ await page.waitForFunction(()=>document.querySelectorAll('[data-tool-card]').length===6)
+ assert.equal(await live.count(),0)
+ await page.locator('[data-tool-card="job0"] details summary').click()
+ await page.waitForFunction(()=>document.querySelector('[data-native-tool="job0"]').open)
+ await page.locator('[data-tool-card="job1"] button').first().focus()
+ await page.evaluate(()=>{
+  const text=document.querySelector('[data-native-tool="job2"] summary').firstChild
+  const range=document.createRange();range.selectNodeContents(text)
+  getSelection().removeAllRanges();getSelection().addRange(range)
+  document.querySelector('[data-conversation-scroll]').style.height='150px'
+ })
+ await live.waitFor();await page.waitForTimeout(180)
+ for(const key of ['job0','job1','job2','job5'])assert.equal(await page.locator('[data-chat-flow-key="'+key+'"]').count(),1,'protected '+key)
+ await page.evaluate(()=>{document.activeElement.blur();getSelection().removeAllRanges()})
+ await page.waitForFunction(()=>!document.querySelector('[data-chat-flow-key="job1"]')&&!document.querySelector('[data-chat-flow-key="job2"]'))
+ assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),1,'manual-open protection survives focus release')
+ // Offscreen reflow must not snap a reader anchor or permanently retain heavy cards.
+ await page.evaluate(()=>document.querySelector('[data-conversation-scroll]').style.height='650px')
+ await page.waitForTimeout(100)
+ // The global two-mode policy controls live folding, completed-turn visibility
+ // and individual Tool/Think disclosures, while heavy rows stay windowed.
+ await page.evaluate(()=>{
+  document.querySelector('[data-conversation-scroll]').style.height='650px'
+  setId('mode-policy');seed()
+  document.documentElement.dataset.xhProcessMode='expanded'
+  window.dispatchEvent(new Event('xh-process-mode'))
+ })
+ await page.waitForFunction(()=>document.querySelectorAll('[data-chat-flow-kind="tool-call"]').length===80)
+ assert.equal(await live.count(),0,'expanded mode disables live auto fold')
+ await scroll.evaluate(e=>{e.scrollTop=0})
+ await jobButton.waitFor()
+ await page.waitForFunction(()=>document.querySelector('[data-tool-card="job0"] [aria-expanded]')?.getAttribute('aria-expanded')==='true')
+ assert.equal(await firstThink.getAttribute('aria-expanded'),'true','expanded mode includes reasoning')
+ await jobButton.click()
+ await page.evaluate(()=>appendTools())
+ await page.setViewportSize({width:720,height:550});await page.waitForTimeout(100)
+ assert.equal(await jobButton.getAttribute('aria-expanded'),'false','manual collapse survives updates and resize')
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),90)
+ await page.evaluate(()=>finish());await summary.waitFor()
+ assert.equal(await summary.getAttribute('aria-expanded'),'true','completed work defaults expanded in expanded mode')
+ assert.ok(await page.locator('[data-tool-card]').count()<30,'expanded mode keeps viewport windowing')
+ await summary.click();assert.equal(await summary.getAttribute('aria-expanded'),'false','manual group collapse also works in expanded mode')
+ assert.equal(await page.locator('[data-tool-card]').count(),0)
+ // Switch while hidden, then back: stale manual choices cannot override a new
+ // global default, including an unmounted old tool disclosure.
+ await page.evaluate(()=>{document.documentElement.dataset.xhProcessMode='auto';window.dispatchEvent(new Event('xh-process-mode'))})
+ await page.waitForTimeout(50)
+ await page.evaluate(()=>{document.documentElement.dataset.xhProcessMode='expanded';window.dispatchEvent(new Event('xh-process-mode'))})
+ await page.waitForFunction(()=>document.querySelector('[data-turn-process-summary="1"]')?.getAttribute('aria-expanded')==='true')
+ await jobButton.waitFor();await page.waitForFunction(()=>document.querySelector('[data-tool-card="job0"] [aria-expanded]')?.getAttribute('aria-expanded')==='true')
+ await page.evaluate(()=>{document.documentElement.dataset.xhProcessMode='auto';window.dispatchEvent(new Event('xh-process-mode'))})
+ await page.waitForFunction(()=>document.querySelector('[data-turn-process-summary="1"]')?.getAttribute('aria-expanded')==='false')
+ assert.equal(await page.locator('[data-tool-card]').count(),0)
+ await page.evaluate(()=>{setId('mode-live-return');seed()})
+ await live.waitFor();assert.equal(await live.getAttribute('aria-expanded'),'false','return to auto restarts bounded live folding')
  await page.evaluate(()=>unmount())
+ assert.equal(await page.evaluate(()=>__foldObservers.size),0,'all adaptive and window resize observers disposed on unmount')
+ assert.equal(await page.evaluate(()=>__foldMutations.size),0,'adaptive mutation observer disposed on unmount')
  assert.deepEqual(errors,[])
- console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error passed`)
+ console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive height folding, latest/pending/failure protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup passed`)
 } finally {await browser.close();await new Promise(r=>server.close(r))}
