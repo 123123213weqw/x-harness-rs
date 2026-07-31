@@ -46,7 +46,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.store = exports.inject = void 0;
 exports.apply = apply;
-exports.rpc = rpc;
 exports.groupSessions = groupSessions;
 exports.normalizeTimestamp = normalizeTimestamp;
 exports.sessionTitle = sessionTitle;
@@ -54,7 +53,6 @@ exports.relativeTime = relativeTime;
 exports.groupArchived = groupArchived;
 const runtime_types_1 = require("../shared/runtime-types");
 const React = __importStar(require("react"));
-const ReactDOM = __importStar(require("react-dom"));
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
 const Tasks_css_1 = __importDefault(require("./Tasks.css"));
 const { createElement: h, useEffect, useRef, useState, useSyncExternalStore } = React;
@@ -66,17 +64,12 @@ function sessionList(value) {
         const row = (0, runtime_types_1.objectValue)(item);
         if (typeof row.sessionId !== 'string')
             return [];
-        const session = { sessionId: row.sessionId, updatedAt: row.updatedAt };
-        if (typeof row.blank === 'boolean')
-            session.blank = row.blank;
-        if (typeof row.running === 'boolean')
-            session.running = row.running;
-        if (typeof row.cwd === 'string')
-            session.cwd = row.cwd;
         const title = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(row.projections).values).title;
-        if (typeof title === 'string')
-            session.projections = { values: { title } };
-        return [session];
+        return [Object.freeze({ sessionId: row.sessionId, updatedAt: row.updatedAt,
+                ...(typeof row.blank === 'boolean' ? { blank: row.blank } : {}),
+                ...(typeof row.running === 'boolean' ? { running: row.running } : {}),
+                ...(typeof row.cwd === 'string' ? { cwd: row.cwd } : {}),
+                ...(typeof title === 'string' ? { projections: Object.freeze({ values: Object.freeze({ title }) }) } : {}) })];
     });
 }
 function archiveSnapshots(value) {
@@ -100,7 +93,7 @@ function workspaceList(value) {
     return value.flatMap((item) => {
         const row = (0, runtime_types_1.objectValue)(item);
         return typeof row.workspaceId === 'string' && typeof row.title === 'string'
-            ? [{ workspaceId: row.workspaceId, title: row.title, sessionIds: stringList(row.sessionIds) }] : [];
+            ? [Object.freeze({ workspaceId: row.workspaceId, title: row.title, sessionIds: Object.freeze(stringList(row.sessionIds)) })] : [];
     });
 }
 function archivedSessionList(value) {
@@ -115,18 +108,7 @@ const NS = 'xharness.ui.tasks';
 const STYLE_ID = 'xharness-tasks-panel-style';
 const PINNED_KEY = 'xharness.tasks.pinned.v1';
 const ARCHIVE_KEY = 'xharness.tasks.archive-snapshots.v1';
-const PANEL_WIDTH = 360;
-function panelExitWatchdogMs() {
-    const value = window.getComputedStyle?.(document.documentElement)
-        ?.getPropertyValue('--xh-duration-panel-out')?.trim() ?? '';
-    const match = /^(\d+(?:\.\d+)?|\.\d+)\s*(ms|s)$/.exec(value);
-    const durationMs = match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : 180;
-    // Keep the watchdog beyond the CSS animation, including custom token values.
-    return Math.max(1000, Math.ceil(durationMs + 500));
-}
 const zh = {
-    'panel.open': '任务',
-    'panel.close': '关闭任务面板',
     'panel.title': '任务',
     'panel.refresh': '刷新',
     'group.pinned': '置顶',
@@ -176,8 +158,6 @@ const zh = {
     'unknown.archived': '较早前归档',
 };
 const en = {
-    'panel.open': 'Tasks',
-    'panel.close': 'Close tasks panel',
     'panel.title': 'Tasks',
     'panel.refresh': 'Refresh',
     'group.pinned': 'Pinned',
@@ -226,28 +206,13 @@ const en = {
     'running': 'running',
     'unknown.archived': 'archived earlier',
 };
-// ----------------------------------------------------------------- RPC --
-let rpcCounter = 0;
-async function rpc(method, payload) {
-    const rpcId = `xharness-tasks-${++rpcCounter}`;
-    const response = await fetch(`/api/${method}`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'client-request', rpcId, method, payload: payload ?? {} }),
-    });
-    let body = null;
-    try {
-        body = await response.json();
-    }
-    catch {
-        body = null;
-    }
-    const result = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(body).result);
-    if (result?.ok !== true) {
-        throw new Error(result.error == null ? `${method} failed (${response.status})` : (0, runtime_types_1.errorText)(result.error));
-    }
-    return result.value ?? null;
+let catalog;
+let refreshGeneration = 0;
+let commandGeneration = 0;
+function workCatalog() {
+    if (catalog === undefined)
+        throw Error('Work catalog service unavailable');
+    return catalog;
 }
 // ------------------------------------------------------------- storage --
 function readJson(key, fallback) {
@@ -261,7 +226,9 @@ function readJson(key, fallback) {
 }
 function writeJson(key, value) {
     try {
-        window.localStorage.setItem(key, JSON.stringify(value));
+        const serialized = JSON.stringify(value);
+        if (window.localStorage.getItem(key) !== serialized)
+            window.localStorage.setItem(key, serialized);
     }
     catch {
         // Private-mode storage may refuse writes; the panel keeps working
@@ -375,17 +342,17 @@ function groupArchived(ids, snapshots, workspaces, query = '', workspaceId = '',
         return (leftIndex < 0 ? Infinity : leftIndex) - (rightIndex < 0 ? Infinity : rightIndex);
     });
 }
-// ------------------------------------------------------------ store --
+let projection = { sessions: [], archivedIds: [], workspaces: [] };
+// Transient UI operation label, never a source of archive membership. A live
+// update can repair it while the command is pending, including older Hosts.
+let pendingArchiveLabel;
 const store = {
-    open: false,
-    closing: false,
-    closeTimer: 0,
     loading: false,
     error: null,
     actionError: null,
-    sessions: [],
-    archivedIds: [],
-    workspaces: [],
+    get sessions() { return projection.sessions; },
+    get archivedIds() { return projection.archivedIds; },
+    get workspaces() { return projection.workspaces; },
     snapshots: archiveSnapshots(readJson(ARCHIVE_KEY, {})),
     pinned: stringList(readJson(PINNED_KEY, [])),
     busyId: null,
@@ -402,43 +369,6 @@ const store = {
         this.version += 1;
         for (const listener of this.listeners)
             listener();
-    },
-    // animationend owns unmount; the timer only prevents a stuck panel when
-    // the animation never fires (hidden tab, removed stylesheet, etc.).
-    setOpen(open) {
-        if (open) {
-            window.clearTimeout(this.closeTimer);
-            this.closeTimer = 0;
-            this.closing = false;
-            this.open = true;
-            void this.refresh();
-        }
-        else if (this.open && !this.closing) {
-            if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
-                this.open = false;
-                this.closing = false;
-                this.menuId = null;
-                this.renameId = null;
-                this.deleteConfirmId = null;
-                this.emit();
-                return;
-            }
-            this.closing = true;
-            this.closeTimer = window.setTimeout(() => this.finishClose(), panelExitWatchdogMs());
-        }
-        this.menuId = null;
-        this.renameId = null;
-        this.deleteConfirmId = null;
-        this.emit();
-    },
-    finishClose() {
-        if (!this.closing)
-            return;
-        window.clearTimeout(this.closeTimer);
-        this.closeTimer = 0;
-        this.open = false;
-        this.closing = false;
-        this.emit();
     },
     togglePinned(id) {
         this.pinned = this.pinned.includes(id)
@@ -457,183 +387,166 @@ const store = {
         };
         writeJson(ARCHIVE_KEY, this.snapshots);
     },
-    async refresh() {
+    async refresh(signal) {
+        const generation = ++refreshGeneration;
         this.loading = true;
         this.error = null;
         this.emit();
         try {
-            const [list, workspaces] = await Promise.all([
-                rpc('session.list', {}),
-                rpc('workspace.list', {}),
-            ]);
-            this.sessions = sessionList((0, runtime_types_1.objectValue)(list).items);
-            this.archivedIds = stringList((0, runtime_types_1.objectValue)(workspaces).archivedSessionIds);
-            this.workspaces = workspaceList((0, runtime_types_1.objectValue)(workspaces).items);
-            const workspaceBySession = new Map();
-            for (const workspace of this.workspaces) {
-                for (const id of workspace.sessionIds ?? [])
-                    workspaceBySession.set(id, workspace.workspaceId);
-            }
-            for (const session of archivedSessionList((0, runtime_types_1.objectValue)(workspaces).archivedSessions)) {
-                if (!this.archivedIds.includes(session.sessionId))
-                    continue;
-                const previous = this.snapshots[session.sessionId] ?? {};
-                this.snapshots[session.sessionId] = {
-                    ...previous,
-                    title: session.title || previous.title || session.sessionId,
-                    updatedAt: normalizeTimestamp(session.updatedAt),
-                    workspaceId: workspaceBySession.get(session.sessionId) ?? previous.workspaceId ?? null,
-                };
-            }
-            writeJson(ARCHIVE_KEY, this.snapshots);
-            const live = new Set(this.sessions.map((session) => session.sessionId));
-            this.archivedIds = this.archivedIds.filter((id) => !live.has(id));
-            this.pinned = this.pinned.filter((id) => live.has(id));
-            writeJson(PINNED_KEY, this.pinned);
+            await workCatalog().refresh(signal);
+            if (generation === refreshGeneration && !signal?.aborted)
+                adoptSnapshot(workCatalog().getSnapshot());
         }
         catch (error) {
-            this.error = (0, runtime_types_1.errorText)(error);
+            if (generation === refreshGeneration && !signal?.aborted)
+                this.error = (0, runtime_types_1.errorText)(error);
         }
         finally {
-            this.loading = false;
-            this.emit();
+            if (generation === refreshGeneration) {
+                this.loading = false;
+                this.emit();
+            }
         }
     },
     async rename(id, title) {
         if (this.busyId !== null)
             return;
+        const generation = commandGeneration;
         this.actionError = null;
         this.busyId = id;
         this.emit();
         try {
-            await rpc('session.rename', { sessionId: id, title });
-            const target = this.sessions.find((session) => session.sessionId === id);
-            if (target?.projections?.values) {
-                target.projections.values.title = title;
-            }
-            this.renameId = null;
-            this.emit();
+            await workCatalog().rename(id, title);
+            if (generation === commandGeneration && this.renameId === id)
+                this.renameId = null;
         }
         catch (error) {
-            this.actionError = (0, runtime_types_1.errorText)(error);
+            if (generation === commandGeneration)
+                this.actionError = (0, runtime_types_1.errorText)(error);
         }
         finally {
-            this.busyId = null;
-            this.emit();
+            if (generation === commandGeneration) {
+                this.busyId = null;
+                this.emit();
+            }
         }
     },
     async archive(id) {
         if (this.busyId !== null)
             return;
-        const target = this.sessions.find((session) => session.sessionId === id);
+        pendingArchiveLabel = this.sessions.find((session) => session.sessionId === id);
+        const generation = commandGeneration;
         this.actionError = null;
         this.busyId = id;
         this.emit();
         try {
-            await rpc('workspace.archiveSession', { sessionId: id });
-            // Persist the label only after the archive succeeded; failed RPCs
-            // must not leave a phantom archived snapshot behind.
-            if (target !== undefined)
-                this.snapshot(target, makeT());
-            this.sessions = this.sessions.filter((session) => session.sessionId !== id);
-            this.archivedIds = [...this.archivedIds, id];
-            this.pinned = this.pinned.filter((candidate) => candidate !== id);
-            writeJson(PINNED_KEY, this.pinned);
+            await workCatalog().archive(id);
         }
         catch (error) {
-            this.actionError = (0, runtime_types_1.errorText)(error);
+            if (generation === commandGeneration)
+                this.actionError = (0, runtime_types_1.errorText)(error);
         }
         finally {
-            this.busyId = null;
-            this.menuId = null;
-            this.emit();
+            if (generation === commandGeneration) {
+                pendingArchiveLabel = undefined;
+                this.busyId = null;
+                this.menuId = null;
+                this.emit();
+            }
         }
     },
     async fork(id) {
         if (this.busyId !== null)
             return;
+        const generation = commandGeneration;
         this.actionError = null;
         this.busyId = id;
         this.emit();
         try {
-            await rpc('session.fork', { sessionId: id });
-            await this.refresh();
+            await workCatalog().fork(id);
         }
         catch (error) {
-            this.actionError = (0, runtime_types_1.errorText)(error);
+            if (generation === commandGeneration)
+                this.actionError = (0, runtime_types_1.errorText)(error);
         }
         finally {
-            this.busyId = null;
-            this.menuId = null;
-            this.emit();
+            if (generation === commandGeneration) {
+                this.busyId = null;
+                this.menuId = null;
+                this.emit();
+            }
         }
     },
     async restore(id) {
         if (this.busyId !== null)
             return;
+        const generation = commandGeneration;
         this.actionError = null;
         this.busyId = id;
         this.emit();
         try {
-            await rpc('workspace.unarchiveSession', { sessionId: id });
-            this.archivedIds = this.archivedIds.filter((candidate) => candidate !== id);
-            delete this.snapshots[id];
-            writeJson(ARCHIVE_KEY, this.snapshots);
-            await this.refresh();
+            await workCatalog().unarchive(id);
         }
         catch (error) {
-            this.actionError = (0, runtime_types_1.errorText)(error);
+            if (generation === commandGeneration)
+                this.actionError = (0, runtime_types_1.errorText)(error);
         }
         finally {
-            this.busyId = null;
-            this.emit();
+            if (generation === commandGeneration) {
+                this.busyId = null;
+                this.emit();
+            }
         }
     },
     async deleteArchived(id) {
         if (this.busyId !== null || this.deleteConfirmId !== id)
             return;
+        const generation = commandGeneration;
         this.actionError = null;
         this.busyId = id;
         this.emit();
         try {
-            await rpc('session.delete', { sessionId: id });
-            this.archivedIds = this.archivedIds.filter((candidate) => candidate !== id);
-            this.pinned = this.pinned.filter((candidate) => candidate !== id);
-            delete this.snapshots[id];
-            writeJson(ARCHIVE_KEY, this.snapshots);
-            writeJson(PINNED_KEY, this.pinned);
-            this.deleteConfirmId = null;
-            await this.refresh();
+            await workCatalog().deleteArchived(id);
+            if (generation === commandGeneration && this.deleteConfirmId === id)
+                this.deleteConfirmId = null;
         }
         catch (error) {
-            this.actionError = (0, runtime_types_1.errorText)(error);
+            if (generation === commandGeneration)
+                this.actionError = (0, runtime_types_1.errorText)(error);
         }
         finally {
-            this.busyId = null;
-            this.emit();
+            if (generation === commandGeneration) {
+                this.busyId = null;
+                this.emit();
+            }
         }
     },
     async deleteArchivedBatch(ids) {
         if (this.busyId !== null || ids.length === 0 ||
             (this.deleteConfirmId !== 'all' && !this.deleteConfirmId?.startsWith('group:')))
             return;
+        const generation = commandGeneration;
         this.busyId = 'bulk';
         this.actionError = null;
         this.emit();
+        const confirmation = this.deleteConfirmId;
         let pending = ids.filter((id) => this.archivedIds.includes(id));
         let failures = [];
         try {
             // Children may need deleting before their archived parent. Retry only
             // after at least one successful deletion; stop on a no-progress pass.
             while (pending.length > 0) {
+                if (generation !== commandGeneration)
+                    return;
                 const next = [];
                 failures = [];
                 for (const id of pending) {
+                    if (generation !== commandGeneration)
+                        return;
+                    if (!this.archivedIds.includes(id))
+                        continue;
                     try {
-                        await rpc('session.delete', { sessionId: id });
-                        this.archivedIds = this.archivedIds.filter((candidate) => candidate !== id);
-                        this.pinned = this.pinned.filter((candidate) => candidate !== id);
-                        delete this.snapshots[id];
+                        await workCatalog().deleteArchived(id);
                     }
                     catch (error) {
                         next.push(id);
@@ -644,44 +557,51 @@ const store = {
                     break;
                 pending = next;
             }
-            writeJson(ARCHIVE_KEY, this.snapshots);
-            writeJson(PINNED_KEY, this.pinned);
-            this.deleteConfirmId = null;
-            await this.refresh();
+            if (generation !== commandGeneration)
+                return;
+            if (this.deleteConfirmId === confirmation)
+                this.deleteConfirmId = null;
             if (pending.length > 0)
                 this.actionError = makeT()('settings.bulkFailed', { count: pending.length, message: failures[0] ?? '' });
         }
         finally {
-            this.busyId = null;
-            this.emit();
+            if (generation === commandGeneration) {
+                this.busyId = null;
+                this.emit();
+            }
         }
     },
     async restoreArchivedBatch(ids) {
         if (this.busyId !== null || ids.length === 0)
             return;
+        const generation = commandGeneration;
         this.busyId = 'bulk';
         this.actionError = null;
         this.emit();
         const failures = [];
         try {
-            for (const id of ids.filter((candidate) => this.archivedIds.includes(candidate))) {
+            for (const id of ids) {
+                if (generation !== commandGeneration)
+                    return;
+                if (!this.archivedIds.includes(id))
+                    continue;
                 try {
-                    await rpc('workspace.unarchiveSession', { sessionId: id });
-                    this.archivedIds = this.archivedIds.filter((candidate) => candidate !== id);
-                    delete this.snapshots[id];
+                    await workCatalog().unarchive(id);
                 }
                 catch (error) {
                     failures.push((0, runtime_types_1.errorText)(error));
                 }
             }
-            writeJson(ARCHIVE_KEY, this.snapshots);
-            await this.refresh();
+            if (generation !== commandGeneration)
+                return;
             if (failures.length > 0)
                 this.actionError = makeT()('settings.bulkRestoreFailed', { count: failures.length, message: failures[0] ?? '' });
         }
         finally {
-            this.busyId = null;
-            this.emit();
+            if (generation === commandGeneration) {
+                this.busyId = null;
+                this.emit();
+            }
         }
     },
 };
@@ -703,7 +623,7 @@ function useStore() {
     useSyncExternalStore((listener) => store.subscribe(listener), () => store.version);
     return store;
 }
-function TaskRow({ session, t, pinned }) {
+function TaskRow({ session, t, pinned, openSession }) {
     const state = useStore();
     const id = session.sessionId;
     const isPinned = pinned;
@@ -752,7 +672,7 @@ function TaskRow({ session, t, pinned }) {
     }, h('span', {
         className: `xhtask-dot ${session.running ? 'xhtask-dot-running' : ''}`,
         'aria-hidden': true,
-    }), h('span', { className: 'xhtask-title', title: `${title} · ${id}` }, title), h('span', { className: 'xhtask-time' }, relativeTime(session.updatedAt, Date.now(), document.documentElement.lang.startsWith('zh'))), state.menuId === id
+    }), h('button', { type: 'button', className: 'xhtask-title xhwork-task-title', title: `${title} · ${id}`, disabled: busy, onClick: (event) => { event.stopPropagation(); openSession?.(id); } }, title), h('span', { className: 'xhtask-time' }, relativeTime(session.updatedAt, Date.now(), document.documentElement.lang.startsWith('zh'))), state.menuId === id
         ? h('div', { className: 'xhtask-menu', onClick: (event) => event.stopPropagation() }, menuItem(t(isPinned ? 'menu.unpin' : 'menu.pin'), () => state.togglePinned(id)), menuItem(t('menu.rename'), () => { state.renameId = id; state.menuId = null; state.emit(); }), menuItem(t('menu.archive'), () => void state.archive(id)), menuItem(t('menu.fork.live'), () => void state.fork(id)), menuItem(t('menu.copy'), () => {
             void navigator.clipboard?.writeText(id);
             state.menuId = null;
@@ -782,37 +702,33 @@ function ArchivedRow({ id, t }) {
         ? h('div', { className: 'xhtask-delete-confirm', role: 'alertdialog', 'aria-label': t('menu.delete') }, h('div', null, t('delete.confirm', { title })), h('div', { className: 'xhtask-delete-buttons' }, h('button', { type: 'button', disabled: busy, onClick: () => { state.deleteConfirmId = null; state.emit(); } }, t('delete.cancel')), h('button', { type: 'button', disabled: busy, className: 'xhtask-delete-final', onClick: () => void state.deleteArchived(id) }, t('menu.delete'))))
         : null);
 }
-function TasksPanel({ t }) {
+function TasksPanel({ t, openSession }) {
     const state = useStore();
     const groups = groupSessions(state.sessions, state.pinned);
-    return h('div', { className: 'xhtask-panel' }, h('div', { className: 'xhtask-head' }, h('span', { className: 'xhtask-head-title' }, t('panel.title')), h('span', { className: 'xhtask-head-count' }, String(state.sessions.length)), h('button', {
+    const visibleCount = Object.values(groups).reduce((count, rows) => count + rows.length, 0);
+    return h('div', { className: 'xhtask-panel' }, h('div', { className: 'xhtask-head' }, h('span', { className: 'xhtask-head-title' }, t('panel.title')), h('span', { className: 'xhtask-head-count' }, String(visibleCount)), h('button', {
         type: 'button',
         className: 'xhtask-head-action',
         title: t('panel.refresh'),
         onClick: () => void state.refresh(),
-    }, '⟳'), h('button', {
-        type: 'button',
-        className: 'xhtask-head-action',
-        title: t('panel.close'),
-        onClick: () => state.setOpen(false),
-    }, '×')), state.actionError !== null
+    }, '⟳')), state.actionError !== null
         ? h('div', { className: 'xhtask-action-error', role: 'alert' }, t('action.failed', { message: state.actionError }))
-        : null, state.loading && state.sessions.length === 0
+        : null, state.loading && visibleCount === 0
         ? h('div', { className: 'xhtask-empty' }, t('loading'))
-        : state.error !== null && state.sessions.length === 0
+        : state.error !== null && visibleCount === 0
             ? h('div', { className: 'xhtask-empty' }, `${t('error')}: ${state.error}`, h('button', {
                 type: 'button',
                 className: 'xhtask-head-action',
                 onClick: () => void state.refresh(),
             }, t('retry')))
-            : state.sessions.length === 0
+            : visibleCount === 0
                 ? h('div', { className: 'xhtask-empty' }, t('empty'))
                 : h('div', { className: 'xhtask-body' }, GROUP_ORDER
                     .filter((key) => groups[key].length > 0)
                     .map((key) => h('section', { className: 'xhtask-group', key }, h('div', { className: 'xhtask-group-label' }, t(`group.${key}`), h('span', { className: 'xhtask-head-count' }, String(groups[key].length))), groups[key].map((session) => h(TaskRow, {
                     key: session.sessionId,
                     session,
-                    t,
+                    t, openSession,
                     pinned: key === 'pinned',
                 }))))));
 }
@@ -823,12 +739,8 @@ function ArchivedSettings() {
     const [order, setOrder] = useState('newest');
     const [projectId, setProjectId] = useState('');
     const [menuId, setMenuId] = useState(null);
-    useEffect(() => {
-        void store.refresh();
-        return () => {
-            store.deleteConfirmId = null;
-        };
-    }, []);
+    useTaskRefresh();
+    useEffect(() => () => { store.deleteConfirmId = null; }, []);
     const groups = groupArchived(state.archivedIds, state.snapshots, state.workspaces, query, projectId, order);
     const bulkIds = state.deleteConfirmId === 'all'
         ? [...state.archivedIds]
@@ -854,47 +766,89 @@ function ArchivedSettings() {
                         : null), h('div', { className: 'xhtask-settings-list' }, group.ids.map((id) => h(ArchivedRow, { key: id, id, t }))));
                 })), h('p', { className: 'xhtask-settings-hint' }, t('group.archived.hint')));
 }
-function TasksRoot() {
-    const t = makeT();
-    const state = useStore();
+function adoptSnapshot(snapshot) {
+    store.loading = snapshot.loading;
+    store.error = snapshot.error;
+    // A not-yet-arrived baseline must not erase local pin/archive preferences.
+    if (snapshot.phase !== 'ready') {
+        store.emit();
+        return;
+    }
+    const previous = projection;
+    const sessions = sessionList(snapshot.sessions);
+    const archivedIds = stringList(snapshot.archivedSessionIds);
+    const archived = new Set(archivedIds);
+    const workspaces = workspaceList(snapshot.workspaces);
+    projection = Object.freeze({
+        sessions: Object.freeze(sessions.filter(session => !archived.has(session.sessionId))),
+        archivedIds: Object.freeze(archivedIds), workspaces: Object.freeze(workspaces),
+    });
+    // Cache only display labels; membership comes exclusively from the owner.
+    // A command acknowledgement cannot recreate a restored/deleted archive row.
+    if (pendingArchiveLabel !== undefined) {
+        pendingArchiveLabel = sessions.find(session => session.sessionId === pendingArchiveLabel?.sessionId) ?? pendingArchiveLabel;
+        if (archived.has(pendingArchiveLabel.sessionId) && !previous.archivedIds.includes(pendingArchiveLabel.sessionId)) {
+            store.snapshot(pendingArchiveLabel, makeT());
+        }
+    }
+    for (const id of previous.archivedIds) {
+        if (!archived.has(id))
+            delete store.snapshots[id];
+    }
+    const workspaceBySession = new Map();
+    for (const workspace of store.workspaces) {
+        for (const id of workspace.sessionIds ?? [])
+            workspaceBySession.set(id, workspace.workspaceId);
+    }
+    for (const session of archivedSessionList(snapshot.archivedSessions)) {
+        if (!store.archivedIds.includes(session.sessionId))
+            continue;
+        const previous = store.snapshots[session.sessionId] ?? {};
+        store.snapshots[session.sessionId] = { ...previous,
+            title: session.title || previous.title || session.sessionId,
+            updatedAt: normalizeTimestamp(session.updatedAt),
+            workspaceId: workspaceBySession.get(session.sessionId) ?? previous.workspaceId ?? null };
+    }
+    writeJson(ARCHIVE_KEY, store.snapshots);
+    const live = new Set(store.sessions.map(session => session.sessionId));
+    store.pinned = store.pinned.filter(id => live.has(id) && !archived.has(id));
+    writeJson(PINNED_KEY, store.pinned);
+    store.emit();
+}
+function useTaskRefresh() {
     useEffect(() => {
-        const escape = (event) => {
-            if (event.key === 'Escape' && state.open)
-                state.setOpen(false);
-        };
-        window.addEventListener('keydown', escape);
-        return () => window.removeEventListener('keydown', escape);
+        const controller = new AbortController();
+        void store.refresh(controller.signal);
+        return () => { controller.abort(); store.menuId = null; store.renameId = null; };
     }, []);
-    return h(React.Fragment, null, h('button', {
-        type: 'button',
-        className: 'xhtask-trigger',
-        title: state.open ? t('panel.close') : t('panel.open'),
-        onClick: () => state.setOpen(state.closing || !state.open),
-    }, h('svg', {
-        viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true,
-        fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4,
-    }, h('path', { d: 'M2.5 3.5h8M2.5 8h11M2.5 12.5h6' })), h('span', { className: 'xhtask-trigger-label' }, t('panel.open'))), state.open || state.closing
-        ? ReactDOM.createPortal(h('div', {
-            className: state.closing ? 'xhtask-scrim xhtask-scrim-closing' : 'xhtask-scrim',
-            onClick: () => state.setOpen(false),
-        }, h('div', {
-            className: state.closing
-                ? 'xhtask-panel-wrap xhtask-panel-wrap-closing'
-                : 'xhtask-panel-wrap',
-            style: { width: PANEL_WIDTH },
-            onClick: (event) => event.stopPropagation(),
-            onAnimationEnd: (event) => {
-                if (event.target === event.currentTarget && event.animationName === 'xhtask-panel-out') {
-                    state.finishClose();
-                }
-            },
-        }, h(TasksPanel, { t }))), document.body)
-        : null);
+}
+function TasksPage({ openSession }) {
+    const t = makeT();
+    useTaskRefresh();
+    return h(TasksPanel, { t, openSession });
 }
 // ---------------------------------------------------------------- CSS --
-const inject = ['slots', 'locale'];
+const inject = ['slots', 'locale', 'workCatalog'];
 exports.inject = inject;
 function apply(ctx) {
+    const service = ctx.get('workCatalog');
+    if (service === undefined)
+        throw Error('tasks: Work catalog service unavailable');
+    ctx.effect(() => {
+        catalog = service;
+        const unsubscribe = service.subscribe(() => adoptSnapshot(service.getSnapshot()));
+        adoptSnapshot(service.getSnapshot());
+        return () => { unsubscribe(); if (catalog === service) {
+            catalog = undefined;
+            pendingArchiveLabel = undefined;
+            commandGeneration++;
+            refreshGeneration++;
+            store.busyId = null;
+            store.menuId = null;
+            store.renameId = null;
+            store.deleteConfirmId = null;
+        } };
+    }, 'xharness-ui-tasks: Work catalog subscription');
     ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'xharness-ui-tasks: dictionaries');
     ctx.effect(() => {
         const existing = document.getElementById(STYLE_ID);
@@ -908,12 +862,12 @@ function apply(ctx) {
     }, 'xharness-ui-tasks: styles');
     // Keep archive management reachable even when every session is archived
     // and the conversation header is not mounted.
-    ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-        name: 'sidebar.footer.action',
+    ctx.slots.inject('work.center.tasks', () => ctx.slots.register({
+        name: 'work.center.tasks',
         id: 'tasks-panel',
         order: 15,
         locale: NS,
-    }, TasksRoot));
+    }, TasksPage));
     ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section', id: 'archived-chats', order: 35,
         label: () => makeT()('settings.archive'),
@@ -954,7 +908,7 @@ function numberValue(value, fallback = 0) {
 // source: src/modules/tasks/Tasks.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = "\n.xhtask-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhtask-trigger:hover,.xhtask-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}\n.xhtask-scrim{position:fixed;inset:0;z-index:95;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.32));animation:xhtask-scrim-in var(--xh-duration-overlay-in,200ms) var(--xh-ease-out,ease-out)}\n.xhtask-scrim-closing{animation:xhtask-scrim-out var(--xh-duration-overlay-out,150ms) var(--xh-ease-in,ease-in) forwards}\n@keyframes xhtask-scrim-in{from{opacity:0}}\n@keyframes xhtask-scrim-out{to{opacity:0}}\n.xhtask-panel-wrap{position:absolute;top:0;right:0;bottom:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-8px 0 24px rgba(0,0,0,.18);animation:xhtask-panel-in var(--xh-duration-panel-in,260ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1))}\n.xhtask-panel-wrap-closing{animation:xhtask-panel-out var(--xh-duration-panel-out,180ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1)) forwards}\n@keyframes xhtask-panel-in{from{opacity:0;transform:translate3d(24px,0,0) scale(.98)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}\n@keyframes xhtask-panel-out{to{opacity:0;transform:translate3d(24px,0,0) scale(.98)}}\n@media (prefers-reduced-motion:reduce){.xhtask-scrim,.xhtask-scrim-closing,.xhtask-panel-wrap,.xhtask-panel-wrap-closing{animation:none}}\n.xhtask-panel{display:flex;flex-direction:column;flex:1;min-height:0;width:100%}\n.xhtask-head{display:flex;align-items:center;gap:8px;flex:none;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}\n.xhtask-head-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}\n.xhtask-head-count{color:var(--dsw-alias-label-tertiary);font-size:11px}\n.xhtask-head-action{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:13px;cursor:pointer}.xhtask-head-action:first-of-type{margin-left:auto}.xhtask-head-action+.xhtask-head-action{margin-left:0}.xhtask-head-action:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhtask-action-error{flex:none;margin:8px 12px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;overflow-wrap:anywhere}\n.xhtask-body{flex:1;min-height:0;overflow:auto;padding:6px}\n.xhtask-group{margin-bottom:8px}\n.xhtask-group-label{display:flex;align-items:center;gap:6px;padding:6px 6px 4px;color:var(--dsw-alias-label-tertiary);font-size:11px;text-transform:uppercase;letter-spacing:.04em}\n.xhtask-row{position:relative;display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 8px;border-radius:8px;cursor:pointer}.xhtask-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.xhtask-row-busy{opacity:.55}.xhtask-row-archived{cursor:default}\n.xhtask-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}.xhtask-dot-running{background:var(--dsw-alias-state-business-primary,#2f7cf6);box-shadow:0 0 0 3px var(--dsw-alias-interactive-bg-hover)}\n.xhtask-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px}\n.xhtask-time{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px}\n.xhtask-row-action{flex:none;padding:2px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}.xhtask-row-action:hover{background:var(--dsw-alias-interactive-bg-hover)}\n.xhtask-menu{position:absolute;right:8px;top:calc(100% - 4px);z-index:5;display:flex;flex-direction:column;min-width:140px;padding:4px;border-radius:12px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-2));border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-elevation-prominent,0 8px 24px rgba(0,0,0,.18))}\n.xhtask-menu-item{display:block;width:100%;padding:6px 10px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-size:12px;text-align:left;cursor:pointer}.xhtask-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover)}\n.xhtask-rename{flex:1;min-width:0;padding:4px 8px;border:1px solid var(--dsw-alias-state-business-primary,#2f7cf6);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:13px;outline:none}\n.xhtask-settings-root{padding:0 0 24px;color:var(--dsw-alias-label-primary);font-size:14px}\n.xhtask-settings-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:32px}\n.xhtask-settings-head h2{margin:0;font-size:32px;font-weight:600;line-height:1.2;letter-spacing:-.035em}\n.xhtask-settings-delete-all{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:7px 12px;border:0;border-radius:10px;background:#fff0f0;color:#e12626;font:inherit;white-space:nowrap;cursor:pointer}.xhtask-settings-delete-all:hover{background:#ffe4e4}.xhtask-settings-delete-all:disabled{opacity:.45;cursor:default}\n.xhtask-settings-filters{display:grid;grid-template-columns:minmax(160px,1fr) minmax(145px,.35fr) minmax(160px,.4fr);gap:10px;margin-bottom:36px}\n.xhtask-settings-search,.xhtask-settings-select{display:flex;align-items:center;gap:10px;min-height:42px;padding:0 14px;border:1px solid var(--dsw-alias-border-l2,#e5e5e5);border-radius:12px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#717171)}\n.xhtask-settings-search{border-radius:999px}.xhtask-settings-search:focus-within,.xhtask-settings-select:focus-within{outline:2px solid var(--dsw-alias-label-tertiary,#bcbcbc);outline-offset:1px}\n.xhtask-settings-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit}.xhtask-settings-search input::placeholder{color:var(--dsw-alias-label-tertiary,#999)}\n.xhtask-settings-select select{width:100%;min-width:0;flex:1;appearance:none;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}.xhtask-settings-select svg:last-child{flex:none;pointer-events:none}\n.xhtask-settings-groups{display:flex;flex-direction:column;gap:48px}\n.xhtask-settings-group-head{position:relative;display:flex;align-items:center;gap:16px;margin-bottom:14px;min-height:27px}\n.xhtask-settings-group-name{display:flex;align-items:center;gap:10px;min-width:0;font-size:16px;font-weight:600}.xhtask-settings-group-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xhtask-settings-group-count{margin-left:auto;color:var(--dsw-alias-label-tertiary,#777);white-space:nowrap}\n.xhtask-settings-group-menu-button{display:grid;place-items:center;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#888);cursor:pointer}.xhtask-settings-group-menu-button:hover{background:var(--dsw-alias-interactive-bg-hover,#f4f4f4)}\n.xhtask-settings-group-menu{position:absolute;right:0;top:30px;z-index:6;display:grid;min-width:215px;padding:5px;border:1px solid var(--dsw-alias-border-l2,#e6e6e6);border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 8px 28px rgba(0,0,0,.12)}\n.xhtask-settings-group-menu button{padding:9px 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer}.xhtask-settings-group-menu button:hover{background:var(--dsw-alias-interactive-bg-hover,#f5f5f5)}\n.xhtask-settings-list{overflow:hidden;border:1px solid var(--dsw-alias-border-l2,#e7e7e7);border-radius:18px;padding:0 20px}\n.xhtask-archived-item+.xhtask-archived-item{border-top:1px solid var(--dsw-alias-border-l1,#ededed)}\n.xhtask-archive-line{display:flex;align-items:center;gap:15px;min-height:76px;padding:10px 0}\n.xhtask-archive-meta{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}.xhtask-archive-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--dsw-alias-label-primary)}.xhtask-archive-date{color:var(--dsw-alias-label-tertiary,#777);font-size:13px}\n.xhtask-archive-trash{display:grid;flex:none;place-items:center;width:30px;height:32px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-tertiary,#909090);cursor:pointer}.xhtask-archive-trash:hover{background:#fff0f0;color:#d32828}\n.xhtask-archive-restore{flex:none;min-height:37px;padding:5px 12px;border:0;border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}.xhtask-archive-restore:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent)}.xhtask-archive-restore:disabled,.xhtask-archive-trash:disabled{opacity:.45;cursor:default}\n.xhtask-settings-hint{margin:24px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5}\n.xhtask-settings-empty{padding:36px 12px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:14px}\n[role=\"dialog\"]:has(.xhtask-settings-root){width:min(1180px,calc(100vw - 32px));max-width:calc(100vw - 32px)}\n.xhtask-delete-confirm{margin:8px 0;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.5}\n.xhtask-delete-confirm-bulk{margin:-18px 0 24px;padding:16px}.xhtask-delete-confirm-bulk p{margin:5px 0 0;color:var(--dsw-alias-label-secondary)}\n.xhtask-delete-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}.xhtask-delete-buttons button{padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}.xhtask-delete-buttons .xhtask-delete-final{background:var(--dsw-alias-state-danger,#b83a3a);border-color:transparent;color:#fff}\n.xhtask-empty{padding:24px 16px;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center}\n@media(max-width:760px){.xhtask-settings-head h2{font-size:26px}.xhtask-settings-filters{grid-template-columns:1fr 1fr}.xhtask-settings-search{grid-column:1/-1}.xhtask-settings-group-count{font-size:12px}.xhtask-settings-list{padding:0 12px}}\n@media(max-width:480px){.xhtask-settings-filters{grid-template-columns:1fr}.xhtask-settings-search{grid-column:auto}.xhtask-archive-title{font-size:12px}.xhtask-archive-date{font-size:11px}.xhtask-archive-restore{font-size:12px;padding:5px 8px}}\n";
+exports.default = ".xhtask-panel{display:flex;flex-direction:column;flex:1;min-height:0;width:100%}\n.xhtask-head{display:flex;align-items:center;gap:8px;flex:none;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}\n.xhtask-head-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}\n.xhtask-head-count{color:var(--dsw-alias-label-tertiary);font-size:11px}\n.xhtask-head-action{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:13px;cursor:pointer}.xhtask-head-action:first-of-type{margin-left:auto}.xhtask-head-action+.xhtask-head-action{margin-left:0}.xhtask-head-action:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhtask-action-error{flex:none;margin:8px 12px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;overflow-wrap:anywhere}\n.xhtask-body{flex:1;min-height:0;overflow:auto;padding:6px}\n.xhtask-group{margin-bottom:8px}\n.xhtask-group-label{display:flex;align-items:center;gap:6px;padding:6px 6px 4px;color:var(--dsw-alias-label-tertiary);font-size:11px;text-transform:uppercase;letter-spacing:.04em}\n.xhtask-row{position:relative;display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 8px;border-radius:8px;cursor:pointer}.xhtask-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.xhtask-row-busy{opacity:.55}.xhtask-row-archived{cursor:default}\n.xhtask-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}.xhtask-dot-running{background:var(--dsw-alias-state-business-primary,#2f7cf6);box-shadow:0 0 0 3px var(--dsw-alias-interactive-bg-hover)}\n.xhtask-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px}\n.xhtask-time{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px}\n.xhtask-row-action{flex:none;padding:2px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}.xhtask-row-action:hover{background:var(--dsw-alias-interactive-bg-hover)}\n.xhtask-menu{position:absolute;right:8px;top:calc(100% - 4px);z-index:5;display:flex;flex-direction:column;min-width:140px;padding:4px;border-radius:12px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-2));border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-elevation-prominent,0 8px 24px rgba(0,0,0,.18))}\n.xhtask-menu-item{display:block;width:100%;padding:6px 10px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-size:12px;text-align:left;cursor:pointer}.xhtask-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover)}\n.xhtask-rename{flex:1;min-width:0;padding:4px 8px;border:1px solid var(--dsw-alias-state-business-primary,#2f7cf6);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:13px;outline:none}\n.xhtask-settings-root{padding:0 0 24px;color:var(--dsw-alias-label-primary);font-size:14px}\n.xhtask-settings-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:32px}\n.xhtask-settings-head h2{margin:0;font-size:32px;font-weight:600;line-height:1.2;letter-spacing:-.035em}\n.xhtask-settings-delete-all{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:7px 12px;border:0;border-radius:10px;background:#fff0f0;color:#e12626;font:inherit;white-space:nowrap;cursor:pointer}.xhtask-settings-delete-all:hover{background:#ffe4e4}.xhtask-settings-delete-all:disabled{opacity:.45;cursor:default}\n.xhtask-settings-filters{display:grid;grid-template-columns:minmax(160px,1fr) minmax(145px,.35fr) minmax(160px,.4fr);gap:10px;margin-bottom:36px}\n.xhtask-settings-search,.xhtask-settings-select{display:flex;align-items:center;gap:10px;min-height:42px;padding:0 14px;border:1px solid var(--dsw-alias-border-l2,#e5e5e5);border-radius:12px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#717171)}\n.xhtask-settings-search{border-radius:999px}.xhtask-settings-search:focus-within,.xhtask-settings-select:focus-within{outline:2px solid var(--dsw-alias-label-tertiary,#bcbcbc);outline-offset:1px}\n.xhtask-settings-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit}.xhtask-settings-search input::placeholder{color:var(--dsw-alias-label-tertiary,#999)}\n.xhtask-settings-select select{width:100%;min-width:0;flex:1;appearance:none;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}.xhtask-settings-select svg:last-child{flex:none;pointer-events:none}\n.xhtask-settings-groups{display:flex;flex-direction:column;gap:48px}\n.xhtask-settings-group-head{position:relative;display:flex;align-items:center;gap:16px;margin-bottom:14px;min-height:27px}\n.xhtask-settings-group-name{display:flex;align-items:center;gap:10px;min-width:0;font-size:16px;font-weight:600}.xhtask-settings-group-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.xhtask-settings-group-count{margin-left:auto;color:var(--dsw-alias-label-tertiary,#777);white-space:nowrap}\n.xhtask-settings-group-menu-button{display:grid;place-items:center;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#888);cursor:pointer}.xhtask-settings-group-menu-button:hover{background:var(--dsw-alias-interactive-bg-hover,#f4f4f4)}\n.xhtask-settings-group-menu{position:absolute;right:0;top:30px;z-index:6;display:grid;min-width:215px;padding:5px;border:1px solid var(--dsw-alias-border-l2,#e6e6e6);border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 8px 28px rgba(0,0,0,.12)}\n.xhtask-settings-group-menu button{padding:9px 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer}.xhtask-settings-group-menu button:hover{background:var(--dsw-alias-interactive-bg-hover,#f5f5f5)}\n.xhtask-settings-list{overflow:hidden;border:1px solid var(--dsw-alias-border-l2,#e7e7e7);border-radius:18px;padding:0 20px}\n.xhtask-archived-item+.xhtask-archived-item{border-top:1px solid var(--dsw-alias-border-l1,#ededed)}\n.xhtask-archive-line{display:flex;align-items:center;gap:15px;min-height:76px;padding:10px 0}\n.xhtask-archive-meta{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}.xhtask-archive-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--dsw-alias-label-primary)}.xhtask-archive-date{color:var(--dsw-alias-label-tertiary,#777);font-size:13px}\n.xhtask-archive-trash{display:grid;flex:none;place-items:center;width:30px;height:32px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-tertiary,#909090);cursor:pointer}.xhtask-archive-trash:hover{background:#fff0f0;color:#d32828}\n.xhtask-archive-restore{flex:none;min-height:37px;padding:5px 12px;border:0;border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}.xhtask-archive-restore:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent)}.xhtask-archive-restore:disabled,.xhtask-archive-trash:disabled{opacity:.45;cursor:default}\n.xhtask-settings-hint{margin:24px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5}\n.xhtask-settings-empty{padding:36px 12px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:14px}\n[role=\"dialog\"]:has(.xhtask-settings-root){width:min(1180px,calc(100vw - 32px));max-width:calc(100vw - 32px)}\n.xhtask-delete-confirm{margin:8px 0;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.5}\n.xhtask-delete-confirm-bulk{margin:-18px 0 24px;padding:16px}.xhtask-delete-confirm-bulk p{margin:5px 0 0;color:var(--dsw-alias-label-secondary)}\n.xhtask-delete-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}.xhtask-delete-buttons button{padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}.xhtask-delete-buttons .xhtask-delete-final{background:var(--dsw-alias-state-danger,#b83a3a);border-color:transparent;color:#fff}\n.xhtask-empty{padding:24px 16px;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center}\n@media(max-width:760px){.xhtask-settings-head h2{font-size:26px}.xhtask-settings-filters{grid-template-columns:1fr 1fr}.xhtask-settings-search{grid-column:1/-1}.xhtask-settings-group-count{font-size:12px}.xhtask-settings-list{padding:0 12px}}\n@media(max-width:480px){.xhtask-settings-filters{grid-template-columns:1fr}.xhtask-settings-search{grid-column:auto}.xhtask-archive-title{font-size:12px}.xhtask-archive-date{font-size:11px}.xhtask-archive-restore{font-size:12px;padding:5px 8px}}\n";
 
 }
 };

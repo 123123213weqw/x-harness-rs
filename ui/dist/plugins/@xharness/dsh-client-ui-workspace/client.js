@@ -17092,6 +17092,7 @@ exports.sanitizeSearchQuery = sanitizeSearchQuery;
 exports.reconciledSessionOrder = reconciledSessionOrder;
 exports.nextSessionOrderAccount = nextSessionOrderAccount;
 const jsx_runtime_1 = require("react/jsx-runtime");
+require("./WorkNavigation.styles");
 const primitives_1 = require("./primitives");
 /**
  * The workspace/session browsing region filling the sidebar shell's
@@ -17582,15 +17583,19 @@ function SearchResults({ useSessions, open, workspaces, archivedSessionIds, quer
     const failed = currentRemote.status === 'error';
     return ((0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.treeBody, WorkspaceBrowser_styles_1.default.wide), children: [(0, jsx_runtime_1.jsxs)("div", { className: WorkspaceBrowser_styles_1.default.list, children: [(0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.searchTree, role: "tree", "aria-label": t('search.results.aria'), children: results.items.map(result => ((0, jsx_runtime_1.jsx)(Rows_1.SearchResultItem, { result: result, currentId: list.current, onOpen: open, t: t }, result.id))) }), pending && ((0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.searchStatus, role: "status", children: t('search.pending') })), failed && ((0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.searchWarning, role: "status", children: t('search.unavailable') })), !pending && results.items.length === 0 && ((0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.empty, children: t('search.noMatches') })), results.hasMore && ((0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.searchStatus, children: t('search.hasMore', { n: resultLimit }) }))] }), (0, jsx_runtime_1.jsx)("span", { className: WorkspaceBrowser_styles_1.default.fade })] }));
 }
+/** Same native navigation size as Plugins; opens the shell-owned work page. */
+function WorkClock({ wide, active, buttonClassName, t }) {
+    return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('work.open'), side: "bottom", children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: buttonClassName, "data-xharness-work-nav": true, "aria-label": t('work.open'), "aria-current": active ? 'page' : undefined, style: active ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:work:open')), children: (0, jsx_runtime_1.jsxs)("svg", { width: wide ? 20 : 22, height: wide ? 20 : 22, viewBox: "2 2 20 20", fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", children: [(0, jsx_runtime_1.jsx)("path", { d: "M20 12a8 8 0 1 1-2.34-5.66" }), (0, jsx_runtime_1.jsx)("path", { d: "M14.4 6.34h3.26V3.1" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 7.5V12l3 1.8" })] }) }) });
+}
+/** Current product plugin-center navigation glyph (first-class wide/rail entry). */
+function PluginOutline16({ size = 16 }) {
+    return (0, jsx_runtime_1.jsx)("svg", { width: size, height: size, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("path", { d: "M2.4 2.5h3.05c-.15.64.26 1.18.9 1.18s1.05-.54.9-1.18h3.65v3.05c.64-.15 1.18.26 1.18.9s-.54 1.05-1.18.9v3.65H7.85c.15.64-.26 1.18-.9 1.18s-1.05-.54-.9-1.18H2.4V7.85c-.64.15-1.18-.26-1.18-.9s.54-1.05 1.18-.9V2.5Z", transform: "translate(0 -0.75) scale(1.2)", stroke: "currentColor", strokeWidth: 1.15, strokeLinecap: "round", strokeLinejoin: "round" }) });
+}
 /**
  * Render the browsing region.
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
  */
-/** Current product plugin-center navigation glyph (first-class wide/rail entry). */
-function PluginOutline16({ size = 16 }) {
-    return (0, jsx_runtime_1.jsx)("svg", { width: size, height: size, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("path", { d: "M2.4 2.5h3.05c-.15.64.26 1.18.9 1.18s1.05-.54.9-1.18h3.65v3.05c.64-.15 1.18.26 1.18.9s-.54 1.05-1.18.9v3.65H7.85c.15.64-.26 1.18-.9 1.18s-1.05-.54-.9-1.18H2.4V7.85c-.64.15-1.18-.26-1.18-.9s.54-1.05 1.18-.9V2.5Z", transform: "translate(0 -0.75) scale(1.2)", stroke: "currentColor", strokeWidth: 1.15, strokeLinecap: "round", strokeLinejoin: "round" }) });
-}
 function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, useHostDescription, renderSlot, t, }) {
     const home = useHostDescription(description => description?.home);
     const workspaces = useWorkspaces(state => state.items);
@@ -17639,6 +17644,20 @@ function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, use
             window.removeEventListener('xharness:plugins:open', opened);
             window.removeEventListener('xharness:plugins:closed', closed);
         };
+    }, []);
+    (0, react_1.useEffect)(() => {
+        const openRequestedSession = (event) => { if (event instanceof CustomEvent && typeof event.detail === 'string')
+            open(event.detail); };
+        window.addEventListener('xharness:work:open-session', openRequestedSession);
+        return () => window.removeEventListener('xharness:work:open-session', openRequestedSession);
+    }, [open]);
+    // Keep navigation state in the region owner so wide/rail remounts retain it.
+    const [workCenterOpen, setWorkCenterOpen] = (0, react_1.useState)(false);
+    (0, react_1.useEffect)(() => {
+        const opened = () => setWorkCenterOpen(true), closed = () => setWorkCenterOpen(false);
+        window.addEventListener('xharness:work:open', opened);
+        window.addEventListener('xharness:work:closed', closed);
+        return () => { window.removeEventListener('xharness:work:open', opened); window.removeEventListener('xharness:work:closed', closed); };
     }, []);
     const wsPlusRef = (0, react_1.useRef)(null);
     const composingRef = (0, react_1.useRef)(false);
@@ -17825,7 +17844,7 @@ function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, use
             setDeleteError(reason instanceof Error ? reason.message : String(reason));
         });
     };
-    return ((0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.root, !wide && WorkspaceBrowser_styles_1.default.rail), children: [(0, jsx_runtime_1.jsxs)("div", { className: WorkspaceBrowser_styles_1.default.sectionHeader, children: [wide && ((0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.sectionLabel, WorkspaceBrowser_styles_1.default.wide, searchExpanded && WorkspaceBrowser_styles_1.default.sectionLabelHidden), children: groupBy === 'flat' ? t('section.sessions') : t('section.workspaces') })), wide && ((0, jsx_runtime_1.jsx)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.searchSlot, searchExpanded && WorkspaceBrowser_styles_1.default.searchSlotExpanded), children: (0, jsx_runtime_1.jsxs)("div", { ref: searchRoot, className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.search, searchExpanded && WorkspaceBrowser_styles_1.default.searchExpanded), onClick: () => {
+    return ((0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.root, !wide && WorkspaceBrowser_styles_1.default.rail, 'xhwork-browser'), children: [(0, jsx_runtime_1.jsxs)("div", { className: WorkspaceBrowser_styles_1.default.sectionHeader, children: [wide && ((0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.sectionLabel, WorkspaceBrowser_styles_1.default.wide, searchExpanded && WorkspaceBrowser_styles_1.default.sectionLabelHidden), children: groupBy === 'flat' ? t('section.sessions') : t('section.workspaces') })), wide && ((0, jsx_runtime_1.jsx)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.searchSlot, searchExpanded && WorkspaceBrowser_styles_1.default.searchSlotExpanded), children: (0, jsx_runtime_1.jsxs)("div", { ref: searchRoot, className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.search, searchExpanded && WorkspaceBrowser_styles_1.default.searchExpanded), onClick: () => {
                                 setWsPickerOpen(false);
                                 setSearchExpanded(true);
                                 searchInput.current?.focus();
@@ -17843,14 +17862,14 @@ function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, use
                                         setSearchExpanded(false);
                                     }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCloseFill14, {}) }))] }) })), (0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.headerActions, wide && searchExpanded && WorkspaceBrowser_styles_1.default.headerActionsHidden), children: [wide && ((0, jsx_runtime_1.jsx)(ViewOptionsMenu, { groupBy: groupBy, orderBy: orderBy, onGroupPick: (mode) => { actions.setGroupBy(mode); }, onOrderPick: (mode) => { actions.setOrderBy(mode); }, t: t })), directoryFlowAvailable && ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('workspace.add'), side: "bottom", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { ref: wsPlusRef, type: "button", className: WorkspaceBrowser_styles_1.default.iconButton, "aria-label": t('workspace.add'), onClick: () => {
                                         setWsPickerOpen(v => !v);
-                                    }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconProjectAddOutline16, { size: wide ? 16 : 18 }) }) })), wide && (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), side: "bottom", children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.iconButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 20 }) }) })] }), (0, jsx_runtime_1.jsx)(WorkspacePicker_1.WorkspacePickFlow, { t: t, open: wsPickerOpen, anchorRef: wsPlusRef, useWorkspaces: useWorkspaces, createWorkspace: createWorkspace, useDirectoryFlow: useDirectoryFlow, renderDirectoryFlow: owner => renderSlot('sidebar.workspaces.directoryFlow', owner), addOnly: true, side: "right", onPick: (workspaceId) => {
+                                    }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconProjectAddOutline16, { size: wide ? 16 : 18 }) }) })), wide && (0, jsx_runtime_1.jsx)(WorkClock, { wide: wide, active: workCenterOpen, buttonClassName: WorkspaceBrowser_styles_1.default.iconButton, t: t }), wide && (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), side: "bottom", children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.iconButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 20 }) }) })] }), (0, jsx_runtime_1.jsx)(WorkspacePicker_1.WorkspacePickFlow, { t: t, open: wsPickerOpen, anchorRef: wsPlusRef, useWorkspaces: useWorkspaces, createWorkspace: createWorkspace, useDirectoryFlow: useDirectoryFlow, renderDirectoryFlow: owner => renderSlot('sidebar.workspaces.directoryFlow', owner), addOnly: true, side: "right", onPick: (workspaceId) => {
                             setWsPickerOpen(false);
                             startSession(workspaceId);
                         }, onClose: () => { setWsPickerOpen(false); } })] }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('search'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "aria-label": t('search.sessions.aria'), onClick: () => {
                             setSearchExpanded(true);
                             setSearchOnExpand(true);
                             expandSidebar();
-                        }, children: (0, jsx_runtime_1.jsx)(primitives_1.IconSearchOutline16, { size: 18 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 22 }) }) }) }), (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.listArea, children: wide && (normalizedQuery !== ''
+                        }, children: (0, jsx_runtime_1.jsx)(primitives_1.IconSearchOutline16, { size: 18 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 22 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(WorkClock, { wide: wide, active: workCenterOpen, buttonClassName: WorkspaceBrowser_styles_1.default.searchButton, t: t }) }), (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.listArea, children: wide && (normalizedQuery !== ''
                     ? ((0, jsx_runtime_1.jsx)(SearchResults, { useSessions: useSessions, open: open, workspaces: workspaces, archivedSessionIds: archivedSessionIds, query: normalizedQuery, remote: remoteSearch, resultLimit: searchResultLimit, t: t }))
                     : groupBy === 'flat'
                         ? ((0, jsx_runtime_1.jsx)(FlatList, { useSessions: useSessions, open: open, forkSession: forkSession, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, archivedSessionIds: archivedSessionIds, orderBy: orderBy, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, t: t }))
@@ -17874,6 +17893,46 @@ function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, use
                         } }), sessionRenameError !== null && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.renameError, role: "alert", children: sessionRenameError })] }), (0, jsx_runtime_1.jsxs)(primitives_1.Modal, { open: deleteTarget !== null, onClose: closeDelete, closeLabel: t('close'), title: t('delete.workspace'), ...deleteTarget === null
                     ? {}
                     : { description: t('delete.desc', { name: deleteTarget.title }) }, footer: ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "outline", disabled: deleting, onClick: closeDelete, children: t('cancel') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "outline", className: WorkspaceBrowser_styles_1.default.deleteAction, disabled: deleting, onClick: confirmDelete, children: t('delete.workspace') })] })), children: [deleting && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.deleteStatus, role: "status", children: t('delete.pending') }), deleteError !== null && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.renameError, role: "alert", children: deleteError })] })] }));
+}
+
+},
+"src/modules/workspace/WorkNavigation.styles.js": function(module, exports, require) {
+// source: src/modules/workspace/WorkNavigation.styles.ts
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const WorkNavigation_css_1 = __importDefault(require("./WorkNavigation.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)('@xharness/dsh-client-ui-workspace/WorkNavigation.css', '@xharness/dsh-client-ui-workspace', WorkNavigation_css_1.default);
+
+},
+"src/modules/workspace/WorkNavigation.css": function(module, exports, require) {
+// source: src/modules/workspace/WorkNavigation.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = "/* Reserve room for the new clock without defeating the existing search transition. */\n.xhwork-browser .w3qmIq_headerActions:not(.w3qmIq_headerActionsHidden){max-width:none}\n.xhwork-browser [data-xharness-work-nav]:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}\n";
+
+},
+"src/modules/views-types.js": function(module, exports, require) {
+// source: src/modules/views-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.classNames = classNames;
+exports.installStyles = installStyles;
+function classNames(...values) { return values.filter(Boolean).join(' '); }
+/** Exact legacy style identity, but editable source rather than compiled input. */
+function installStyles(id, plugin, css) {
+    if (typeof document === 'undefined' || document.querySelector(`style[data-plugin-css=${JSON.stringify(id)}]`) !== null)
+        return;
+    const tag = document.createElement('style');
+    tag.dataset.plugin = plugin;
+    tag.dataset.pluginCss = id;
+    tag.textContent = css;
+    document.head.appendChild(tag);
 }
 
 },
@@ -18792,6 +18851,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.en = exports.zh = void 0;
 /** Simplified Chinese dictionary (the key-set source of truth). */
 exports.zh = {
+    'work.label': '工作',
+    'work.open': '任务与自动化',
+    'work.tasks': '任务',
+    'work.automations': '自动化',
     'plugins.open': '插件',
     'group.ungrouped': '未分组',
     'session.new': '新会话',
@@ -18858,6 +18921,10 @@ exports.zh = {
 };
 /** English dictionary, checked complete against the zh key set. */
 exports.en = {
+    'work.label': 'Work',
+    'work.open': 'Tasks and automations',
+    'work.tasks': 'Tasks',
+    'work.automations': 'Automations',
     'plugins.open': 'Plugins',
     'group.ungrouped': 'Ungrouped',
     'session.new': 'New Session',
@@ -18925,7 +18992,7 @@ exports.en = {
 
 }
 };
-const __dependencies = {"src/modules/workspace/index.js":{"./stores":"src/modules/workspace/stores.js","./WorkspaceBrowser":"src/modules/workspace/WorkspaceBrowser.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./locales":"src/modules/workspace/locales.js"},"src/modules/workspace/stores.js":{"zod":"vendor/zod.js","./runtime":"src/modules/workspace/runtime.js"},"vendor/zod.js":{},"src/modules/workspace/runtime.js":{},"src/modules/workspace/WorkspaceBrowser.js":{"./primitives":"src/modules/workspace/primitives.js","./class-names":"src/modules/workspace/class-names.js","./tree":"src/modules/workspace/tree.js","./rows/Rows":"src/modules/workspace/rows/Rows.js","./stores":"src/modules/workspace/stores.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./WorkspaceBrowser.styles":"src/modules/workspace/WorkspaceBrowser.styles.js"},"src/modules/workspace/primitives.js":{},"src/modules/workspace/class-names.js":{},"src/modules/workspace/tree.js":{"./timestamp":"src/modules/workspace/timestamp.js","./runtime":"src/modules/workspace/runtime.js"},"src/modules/workspace/timestamp.js":{},"src/modules/workspace/rows/Rows.js":{"../timestamp":"src/modules/workspace/timestamp.js","../primitives":"src/modules/workspace/primitives.js","../class-names":"src/modules/workspace/class-names.js","../runtime":"src/modules/workspace/runtime.js","../tree":"src/modules/workspace/tree.js","./Rows.styles":"src/modules/workspace/rows/Rows.styles.js"},"src/modules/workspace/rows/Rows.styles.js":{"./Rows.css":"src/modules/workspace/rows/Rows.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/rows/Rows.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/workspace/WorkspacePicker.js":{"./primitives":"src/modules/workspace/primitives.js","./WorkspacePicker.styles":"src/modules/workspace/WorkspacePicker.styles.js"},"src/modules/workspace/WorkspacePicker.styles.js":{"./WorkspacePicker.css":"src/modules/workspace/WorkspacePicker.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspacePicker.css":{},"src/modules/workspace/WorkspaceBrowser.styles.js":{"./WorkspaceBrowser.css":"src/modules/workspace/WorkspaceBrowser.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspaceBrowser.css":{},"src/modules/workspace/locales.js":{}};
+const __dependencies = {"src/modules/workspace/index.js":{"./stores":"src/modules/workspace/stores.js","./WorkspaceBrowser":"src/modules/workspace/WorkspaceBrowser.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./locales":"src/modules/workspace/locales.js"},"src/modules/workspace/stores.js":{"zod":"vendor/zod.js","./runtime":"src/modules/workspace/runtime.js"},"vendor/zod.js":{},"src/modules/workspace/runtime.js":{},"src/modules/workspace/WorkspaceBrowser.js":{"./WorkNavigation.styles":"src/modules/workspace/WorkNavigation.styles.js","./primitives":"src/modules/workspace/primitives.js","./class-names":"src/modules/workspace/class-names.js","./tree":"src/modules/workspace/tree.js","./rows/Rows":"src/modules/workspace/rows/Rows.js","./stores":"src/modules/workspace/stores.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./WorkspaceBrowser.styles":"src/modules/workspace/WorkspaceBrowser.styles.js"},"src/modules/workspace/WorkNavigation.styles.js":{"./WorkNavigation.css":"src/modules/workspace/WorkNavigation.css","../views-types":"src/modules/views-types.js"},"src/modules/workspace/WorkNavigation.css":{},"src/modules/views-types.js":{},"src/modules/workspace/primitives.js":{},"src/modules/workspace/class-names.js":{},"src/modules/workspace/tree.js":{"./timestamp":"src/modules/workspace/timestamp.js","./runtime":"src/modules/workspace/runtime.js"},"src/modules/workspace/timestamp.js":{},"src/modules/workspace/rows/Rows.js":{"../timestamp":"src/modules/workspace/timestamp.js","../primitives":"src/modules/workspace/primitives.js","../class-names":"src/modules/workspace/class-names.js","../runtime":"src/modules/workspace/runtime.js","../tree":"src/modules/workspace/tree.js","./Rows.styles":"src/modules/workspace/rows/Rows.styles.js"},"src/modules/workspace/rows/Rows.styles.js":{"./Rows.css":"src/modules/workspace/rows/Rows.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/rows/Rows.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/workspace/WorkspacePicker.js":{"./primitives":"src/modules/workspace/primitives.js","./WorkspacePicker.styles":"src/modules/workspace/WorkspacePicker.styles.js"},"src/modules/workspace/WorkspacePicker.styles.js":{"./WorkspacePicker.css":"src/modules/workspace/WorkspacePicker.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspacePicker.css":{},"src/modules/workspace/WorkspaceBrowser.styles.js":{"./WorkspaceBrowser.css":"src/modules/workspace/WorkspaceBrowser.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspaceBrowser.css":{},"src/modules/workspace/locales.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

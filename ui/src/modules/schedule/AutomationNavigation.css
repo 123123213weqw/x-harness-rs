@@ -1,0 +1,10 @@
+.xhauto-page{display:flex;flex-direction:column;min-width:0;color:var(--dsw-alias-label-primary)}
+.xhauto-head{display:flex;align-items:center;gap:8px;flex:none;padding:0 0 16px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.xhauto-head h2{flex:1;margin:0;font:inherit;font-size:16px;font-weight:600}
+.xhauto-head button{width:30px;height:30px;padding:0;font-size:20px}
+.xhauto-page button{border:0;border-radius:8px;background:transparent;color:inherit;cursor:pointer}
+.xhauto-page button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.xhauto-page button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.xhauto-body{flex:1;min-height:0;overflow:visible;padding:16px 0;font-size:13px;line-height:1.6}
+.xhauto-body p{margin:0 0 12px;overflow-wrap:anywhere}.xhauto-muted{font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.xhauto-row{padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}.xhauto-row button{display:block;margin-top:8px;padding:6px 8px;text-align:left;max-width:100%;overflow-wrap:anywhere}

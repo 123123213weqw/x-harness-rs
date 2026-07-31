@@ -1,13 +1,17 @@
 /// <reference path="../shared/assets.d.ts" />
+import type {IWorkCatalog} from '../client-runtime/index'
 import CSS from './Schedule.css'
 import type { PageContext, Translation, ConversationEvents, ConversationViews, ConversationEventDefinition, ProjectionContext, ViewNode } from '../shared/runtime-types'
 import { objectValue } from '../shared/runtime-types'
+import {validRecord} from './automation-data'
+import type {ScheduleRecord} from './automation-data'
+import {AutomationPage} from './AutomationNavigation'
+import AUTOMATION_CSS from './AutomationNavigation.css'
 
-interface ScheduleRecord { id: string; prompt: string; scheduledAt: string; kind: 'after' | 'at' | 'every'; everySeconds?: number }
 interface ScheduleState { seq: number; time: number; change: unknown }
 interface ScheduleSessionSnapshot { openState: string; views: ReadonlyMap<string, readonly ScheduleRecord[]> }
 interface ScheduleProps { useSession<T>(selector: (snapshot: ScheduleSessionSnapshot) => T): T; useProjection(name: string): unknown; t: Translation }
-interface ScheduleContext extends PageContext { conversationEvents: ConversationEvents; conversationViews: ConversationViews }
+interface ScheduleContext extends PageContext { get(name: 'workCatalog'): IWorkCatalog | undefined; conversationEvents: ConversationEvents; conversationViews: ConversationViews }
 
 
 import * as React from 'react'
@@ -66,17 +70,6 @@ const en = {
   'relative.now': 'Due now',
   'relative.future': 'in {value} {unit}',
   'relative.overdue': '{value} {unit} overdue',
-}
-
-function validRecord(raw: unknown): raw is ScheduleRecord {
-  const value = objectValue(raw)
-  return value !== null
-    && typeof value === 'object'
-    && typeof value.id === 'string'
-    && typeof value.prompt === 'string'
-    && typeof value.scheduledAt === 'string'
-    && typeof value.kind === 'string' && ['after', 'at', 'every'].includes(value.kind)
-    && Number.isFinite(Date.parse(value.scheduledAt))
 }
 
 function nextEveryTarget(record: ScheduleRecord, acceptedAt: string) {
@@ -344,9 +337,11 @@ function ScheduleCatalogAction({ useSession, useProjection, t }: ScheduleProps) 
 
 
 
-const inject = ['slots', 'locale', 'conversationEvents', 'conversationViews']
+const inject = ['slots', 'locale', 'conversationEvents', 'conversationViews', 'workCatalog']
 
 function apply(ctx: ScheduleContext) {
+  const service = ctx.get('workCatalog')
+  if (service === undefined) throw Error('schedule: Work catalog service unavailable')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'xharness-ui-schedule: dictionaries')
   ctx.effect(() => {
     const existing = document.getElementById(STYLE_ID)
@@ -357,6 +352,16 @@ function apply(ctx: ScheduleContext) {
     document.head.append(style)
     return () => { style.remove() }
   }, 'xharness-ui-schedule: styles')
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.id = 'xharness-automation-navigation-style'
+    style.textContent = AUTOMATION_CSS
+    document.head.append(style)
+    return () => style.remove()
+  }, 'xharness-ui-schedule: navigation styles')
+  ctx.slots.inject('work.center.automations', () => ctx.slots.register({
+    name: 'work.center.automations', id: 'automations', order: 20,
+  }, (props: {openSession(id: string): void}) => h(AutomationPage, {...props, service})))
   ctx.conversationEvents.register(scheduleEventDefinition)
   ctx.conversationViews.register(scheduleViewDefinition)
   ctx.slots.inject(

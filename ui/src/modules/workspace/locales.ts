@@ -6,6 +6,10 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'work.label': '工作',
+  'work.open': '任务与自动化',
+  'work.tasks': '任务',
+  'work.automations': '自动化',
   'plugins.open': '插件',
   'group.ungrouped': '未分组',
   'session.new': '新会话',
@@ -76,6 +80,10 @@ export type WorkspaceKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
+  'work.label': 'Work',
+  'work.open': 'Tasks and automations',
+  'work.tasks': 'Tasks',
+  'work.automations': 'Automations',
   'plugins.open': 'Plugins',
   'group.ungrouped': 'Ungrouped',
   'session.new': 'New Session',

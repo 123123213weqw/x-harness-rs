@@ -139,7 +139,12 @@ for (const name of modules) {
     const one = context(); const two = context()
     before.apply(one.ctx); after.apply(two.ctx)
     assert.deepEqual(normalized(two.namespaces), normalized(one.namespaces))
-    assert.deepEqual(normalized(two.registrations.map(({spec}) => spec)), normalized(one.registrations.map(({spec}) => spec)))
+    const expected = normalized(one.registrations.map(({spec}) => spec))
+    if (name === 'layout') Object.assign(expected[0].children, {
+      'work.center.tasks': {kind: 'single', scope: 'root'},
+      'work.center.automations': {kind: 'single', scope: 'root'},
+    })
+    assert.deepEqual(normalized(two.registrations.map(({spec}) => spec)), expected)
   })
 }
 for (const [label, loader] of [['legacy', legacy], ['source', current]]) {
