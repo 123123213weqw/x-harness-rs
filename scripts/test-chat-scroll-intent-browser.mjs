@@ -27,7 +27,7 @@ try {
     const store = initial => { let value = initial; const listeners = new Set(); return { getSnapshot: () => value, subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) }, set: next => { value = next; listeners.forEach(fn => fn()) } } }
     const runtime = { isAppendSurfaceEvent: () => true, toAssistantBlocks: x => x, createSnapshotStore: store, defineStore: x => x }
     const primitives = new Proxy({ Tooltip: ({ children }) => children }, { get: (o, k) => o[k] ?? (() => jsx('svg', { width: 14, height: 14 })) })
-    const plugin = registration.factory(name => name === 'react' ? React : name === 'react/jsx-runtime' ? { jsx, jsxs: jsx, Fragment: React.Fragment } : name === '@xharness/dsh-client-ui-primitives' ? primitives : name === '@xharness/dsh-client-runtime/client' ? runtime : name === '@xharness/cordis' ? { Service: class {} } : {})
+    const plugin = registration.factory(name => name === 'react' ? React : name === 'react-dom' ? ReactDOM : name === 'react/jsx-runtime' ? { jsx, jsxs: jsx, Fragment: React.Fragment } : name === '@xharness/dsh-client-ui-primitives' ? primitives : name === '@xharness/dsh-client-runtime/client' ? runtime : name === '@xharness/cordis' ? { Service: class {} } : {})
     const hook = s => select => select(React.useSyncExternalStore(s.subscribe, s.getSnapshot))
     // These are valid owned Nodes: ChatNodeSeat must dispatch the real keyed
     // renderer, not silently fall back to an unknown/invalid JSON payload.
