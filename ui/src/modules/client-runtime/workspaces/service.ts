@@ -3,7 +3,7 @@ import { workspaceEpochMs } from './epoch'
 
 import type { Context } from '../context'
 import type {
-  DirectoryListing, IApiClient, RpcError,
+  ArchivedSessionSummary, DirectoryListing, IApiClient, RpcError,
   SessionId, WorkspaceId, WorkspaceView,
 } from '../../client-connection/index'
 import type { SnapshotStore } from '../contract/store'
@@ -310,10 +310,10 @@ export class WorkspaceRuntime implements IWorkspaces {
     return result.value.workspace
   }
 
-  /**
-   * Refresh the workspace baseline, reusing an in-flight pull.
-   * @returns completion of the current or newly started workspace baseline pull.
-   */
+  /** Optional Host archive labels, filtered by authoritative archive membership. */
+  archivedSummaries(): readonly ArchivedSessionSummary[] {return this.manager.archivedSummaries()}
+
+  /** Refresh the workspace baseline, reusing an in-flight pull. */
   refresh(): Promise<void> {
     return this.manager.refresh()
   }

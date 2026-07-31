@@ -1,0 +1,3 @@
+/* Reserve room for the new clock without defeating the existing search transition. */
+.xhwork-browser .w3qmIq_headerActions:not(.w3qmIq_headerActionsHidden){max-width:none}
+.xhwork-browser [data-xharness-work-nav]:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}
