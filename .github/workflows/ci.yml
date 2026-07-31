@@ -127,6 +127,7 @@ jobs:
           node scripts/test-foundation-source-modules.mjs
           node scripts/test-product-source-modules.mjs
           node --test scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
+          node --test scripts/test-code-review.mjs scripts/test-github-review.mjs
           node scripts/test-view-source-modules.mjs
           node scripts/test-model-selection-source.mjs
           node scripts/test-attachment-source.mjs
@@ -200,6 +201,7 @@ jobs:
             UI_TEST_BROWSER="$browser" node scripts/test-chat-scroll-intent-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-turn-process-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-automation-navigation-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-code-review-cache-browser.mjs
             for implementation in source legacy; do
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs
@@ -375,6 +377,12 @@ jobs:
         run: |
           cargo test --locked -p xharness-host-app --test plugin_wire_contract
           node scripts/test-plugin-wire-contract.mjs "$XHARNESS_PLUGIN_WIRE_FIXTURE"
+      - name: Native GitHub replies match checked TypeScript DTOs
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: |
+          cargo test --locked -p xharness-host-app --lib github_service
+          node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
@@ -422,6 +430,12 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Native GitHub replies match checked TypeScript DTOs
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: |
+          cargo test --locked -p xharness-host-app --lib github_service
+          node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
@@ -579,6 +593,12 @@ jobs:
         run: bash scripts/install-portable-rg.sh
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Native GitHub replies match checked TypeScript DTOs
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: |
+          cargo test --locked -p xharness-host-app --lib github_service
+          node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1

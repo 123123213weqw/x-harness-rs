@@ -7,6 +7,8 @@
 
 #[cfg(target_os = "macos")]
 mod computer_media;
+mod github_http;
+pub mod github_service;
 pub mod hosted;
 pub mod hosted_bootstrap;
 pub mod native_browser;
