@@ -41,11 +41,12 @@ function harness(source, name, options = {}) {
     setTimeout: (callback, delay) => {const id = timeouts.size + 1; timeouts.set(id, {callback, delay}); return id}, clearTimeout: id => timeouts.delete(id), confirm: () => true,
     __ModuleLoader__: {load: row => {registration = row}}}
   const react = options.react ?? {createElement: (type, props, ...children) => ({type, props: props ?? {}, children}), Fragment: 'Fragment',
-    useState: value => [typeof value === 'function' ? value() : value, () => {}], useRef: value => ({current: value}),
+    useState: value => [typeof value === 'function' ? value() : value, () => {}], useRef: value => ({current: value}), useId: () => 'automation-test-panel',
     useEffect: effect => effects.push(effect), useMemo: callback => callback(), useSyncExternalStore: (_subscribe, snapshot) => snapshot()}
   const api = {createPluginClient: () => (method, params) => {requests.push({method, params}); return Promise.resolve({})}, errorMessage: error => error?.message ?? String(error), isUnsupportedEndpoint: () => false}
   const primitives = {Button: 'Button', Modal: 'Modal', IconFolderClose16: 'Folder', IconChevronRightOutline14: 'Right', IconChevronDownOutline14: 'Down', useAnchoredPosition: () => null}
-  const externals = {react, 'react-dom': {createPortal: value => value}, '@xharness/dsh-client-ui-primitives': primitives, '@xlang/xharness-client-plugin-api': api}
+  const jsx = (type, props, key) => react.createElement(type, {...props, ...(key === undefined ? {} : {key})}, props?.children)
+  const externals = {react, 'react/jsx-runtime': {jsx, jsxs: jsx, Fragment: react.Fragment}, 'react-dom': {createPortal: value => value}, '@xharness/dsh-client-ui-primitives': primitives, '@xlang/xharness-client-plugin-api': api}
   const globals = {window, document, console, TextEncoder, AbortController, Element: ElementStub, HTMLElement: ElementStub, Node: ElementStub,
     MutationObserver: class {observe() {} disconnect() {}}, setTimeout: window.setTimeout, clearTimeout: window.clearTimeout, sessionStorage: window.localStorage,
     atob, Uint8Array, Date, Promise, setInterval: () => 1, clearInterval() {}, navigator: {clipboard: {writeText: async () => {}}}, ...options.globals}
@@ -57,7 +58,7 @@ function harness(source, name, options = {}) {
   const ctx = {effect: effect => {const cleanup = effect(); if (typeof cleanup === 'function') cleanups.push(cleanup)},
     locale: {register: (namespace, dictionaries) => locales.push({namespace, dictionaries}), bind: () => (key, values = {}) => `${key}:${Object.values(values).join(',')}`},
     slots: {inject: (_name, callback) => callback(), register: (spec, component) => slots.push({spec, component})},
-    get: () => ({rpc: {send: async () => ({result: {ok: true, value: {}}})}}),
+    get: name => name === 'workCatalog' ? {subscribe: () => () => {}, getSnapshot: () => ({phase:'pending',loading:false,error:null,sessions:[],workspaces:[],archivedSessionIds:[],archivedSessions:[]})} : ({rpc: {send: async () => ({result: {ok: true, value: {}}})}}),
     workspaces: {listDirectory: async () => ({path: '', entries: [], crumbs: []}), createDirectory: async () => '/new'},
     sessions: {list: {subscribe: () => () => {}, getSnapshot: () => ({byId: {}})}},
     conversationEvents: {register: definition => definitions.push(definition)}, conversationViews: {register: definition => views.push(definition)}}
@@ -73,15 +74,24 @@ function treeText(node) {
 for (const name of names) {
   test(`${name}: strict source exports, inject, slots, locale and styles match existing product`, () => {
     const before = harness(false, name); const after = harness(true, name)
-    assert.deepEqual(Object.keys(after.plugin).sort(), Object.keys(before.plugin).sort())
-    assert.deepEqual(normalized(after.plugin.inject), normalized(name === 'context' ? [...before.plugin.inject, 'locale'] : before.plugin.inject))
+    assert.deepEqual(Object.keys(after.plugin).sort(), Object.keys(before.plugin).filter(key => name !== 'tasks' || key !== 'rpc').sort())
+    const expectedInject = name === 'context' ? [...before.plugin.inject, 'locale']
+      : ['tasks','schedule'].includes(name) ? [...before.plugin.inject,'workCatalog'] : before.plugin.inject
+    assert.deepEqual(normalized(after.plugin.inject), normalized(expectedInject))
     before.plugin.apply(before.ctx); after.plugin.apply(after.ctx)
     if (name === 'context') {
       assert.equal(after.locales.length, 1)
       assert.equal(after.locales[0].namespace, 'xharness.harness')
       assert.deepEqual(Object.keys(after.locales[0].dictionaries.zh).sort(), Object.keys(after.locales[0].dictionaries.en).sort())
-    } else assert.deepEqual(normalized(after.locales), normalized(before.locales))
-    assert.deepEqual(normalized(after.slots.map(row => row.spec)), normalized(before.slots.filter(row => name !== 'context' || row.spec.id !== 'context').map(row => name === 'context' && row.spec.id === 'harness' ? {...row.spec, inject: () => {}} : row.spec)))
+    } else {
+      const expectedLocales = normalized(before.locales)
+      if (name === 'tasks') for (const dictionary of Object.values(expectedLocales[0].dictionaries)) { delete dictionary['panel.open']; delete dictionary['panel.close'] }
+      assert.deepEqual(normalized(after.locales), expectedLocales)
+    }
+    const expectedSlots = normalized(before.slots.filter(row => name !== 'context' || row.spec.id !== 'context').map(row => name === 'context' && row.spec.id === 'harness' ? {...row.spec, inject: () => {}} : row.spec))
+    if (name === 'tasks') expectedSlots[0].name = 'work.center.tasks'
+    if (name === 'schedule') expectedSlots.unshift({name: 'work.center.automations', id: 'automations', order: 20})
+    assert.deepEqual(normalized(after.slots.map(row => row.spec)), expectedSlots)
     if (name === 'context') {
       const current = after.styles.get('xharness-context-inspector-style').textContent
       // Context is intentionally removed; Harness retains the shared scroll
@@ -99,6 +109,8 @@ for (const name of names) {
         assert.equal(expectedStyles[0][0], 'xharness-plugin-hub-style')
         expectedStyles[0][1] += '.xhph-icon-artwork{background:transparent}.xhph-icon img{display:block;width:42px;height:42px;object-fit:contain}\n'
       }
+      if (name === 'tasks') expectedStyles[0][1] = expectedStyles[0][1].slice(expectedStyles[0][1].indexOf('.xhtask-panel{'))
+      if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')])
       assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), expectedStyles)
     }
     for (const cleanup of after.cleanups) cleanup()
@@ -163,7 +175,7 @@ test('schedule: create/delete/dispatch folding, interval jumps and read-only pro
   for (const seconds of [1, 5, 60, 3600, 86400]) assert.equal(current.formatScheduleFrequency({...record, everySeconds: seconds}, t), old.formatScheduleFrequency({...record, everySeconds: seconds}, t))
 })
 
-test('tasks: grouping, pinning, archive labels and close-animation watchdog preserve behavior', () => {
+test('tasks: grouping, pinning and archive labels preserve behavior; page has no drawer state', () => {
   const old = harness(false, 'tasks'); const current = harness(true, 'tasks')
   const rows = [{sessionId: 'a', updatedAt: Date.now(), projections: {values: {title: 'A'}}}, {sessionId: 'b', updatedAt: 0, cwd: '/a/b'}, {sessionId: 'blank', blank: true}]
   assert.deepEqual(normalized(current.plugin.groupSessions(rows, ['b'], Date.now())), normalized(old.plugin.groupSessions(rows, ['b'], Date.now())))
@@ -173,8 +185,12 @@ test('tasks: grouping, pinning, archive labels and close-animation watchdog pres
   for (const host of [old, current]) {
     const state = host.plugin.store; state.togglePinned('a'); state.togglePinned('b'); state.togglePinned('a'); assert.deepEqual(normalized(state.pinned), ['b'])
     state.snapshot(rows[0], t); assert.equal(state.snapshots.a.title, 'A')
-    state.open = true; state.setOpen(false); assert.equal(state.closing, true); assert.equal([...host.timeouts.values()].at(-1).delay, 1000)
-    state.finishClose(); assert.equal(state.open, false); assert.equal(state.closeTimer, 0)
+    if (host === old) {
+      state.open = true; state.setOpen(false); state.finishClose(); assert.equal(state.open, false)
+    } else {
+      for (const key of ['open', 'closing', 'closeTimer', 'setOpen', 'finishClose']) assert.equal(key in state, false, `removed drawer field ${key}`)
+      assert.equal(host.timeouts.size, 0, 'Tasks does not start drawer timers')
+    }
   }
 })
 

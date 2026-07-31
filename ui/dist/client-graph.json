@@ -1,5 +1,5 @@
 {
-  "rev": "927b21af82a9e869",
+  "rev": "22b96e8cc2a420ff",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -26,8 +26,8 @@
     },
     {
       "id": "@xharness/dsh-client-runtime",
-      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=30bb424015d5052b",
-      "rev": "30bb424015d5052b",
+      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=813f507a49c60d1a",
+      "rev": "813f507a49c60d1a",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-typert-registry",
@@ -142,8 +142,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-layout",
-      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=847fd50975783e08",
-      "rev": "847fd50975783e08",
+      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=72c5fa7fbe792ed6",
+      "rev": "72c5fa7fbe792ed6",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-theme"
@@ -172,8 +172,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-sidebar",
-      "url": "/plugins/@xharness/dsh-client-ui-sidebar/client.js?rev=8cbcb311fef20f6f",
-      "rev": "8cbcb311fef20f6f",
+      "url": "/plugins/@xharness/dsh-client-ui-sidebar/client.js?rev=aaedaaf482901243",
+      "rev": "aaedaaf482901243",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-layout",
@@ -254,8 +254,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-conversation",
-      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=d4fc66d682f44fb9",
-      "rev": "d4fc66d682f44fb9",
+      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=63ce8d40ae79fd3d",
+      "rev": "63ce8d40ae79fd3d",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -270,6 +270,7 @@
         "@xharness/dsh-client-ui-primitives",
         "@xharness/dsh-client-ui-slots",
         "react",
+        "react-dom",
         "react/jsx-runtime"
       ]
     },
@@ -303,8 +304,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-tool",
-      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=18824b78d3927a50",
-      "rev": "18824b78d3927a50",
+      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=fd171b6f83613acd",
+      "rev": "fd171b6f83613acd",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-runtime",
@@ -384,8 +385,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-workspace",
-      "url": "/plugins/@xharness/dsh-client-ui-workspace/client.js?rev=50ac6be0729b1ae9",
-      "rev": "50ac6be0729b1ae9",
+      "url": "/plugins/@xharness/dsh-client-ui-workspace/client.js?rev=269525a659f69834",
+      "rev": "269525a659f69834",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -664,8 +665,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-schedule",
-      "url": "/plugins/@xlang/xharness-client-ui-schedule/client.js?rev=632f0b56d8710835",
-      "rev": "632f0b56d8710835",
+      "url": "/plugins/@xlang/xharness-client-ui-schedule/client.js?rev=4d1cb670e1b39acc",
+      "rev": "4d1cb670e1b39acc",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-locale",
@@ -674,7 +675,8 @@
       "external": [
         "@xharness/dsh-client-ui-primitives",
         "react",
-        "react-dom"
+        "react-dom",
+        "react/jsx-runtime"
       ]
     },
     {
@@ -706,8 +708,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-tasks",
-      "url": "/plugins/@xlang/xharness-client-ui-tasks/client.js?rev=40c004fafb66af3c",
-      "rev": "40c004fafb66af3c",
+      "url": "/plugins/@xlang/xharness-client-ui-tasks/client.js?rev=198caeefd9915e08",
+      "rev": "198caeefd9915e08",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-locale",
@@ -716,8 +718,7 @@
       ],
       "external": [
         "@xharness/dsh-client-ui-primitives",
-        "react",
-        "react-dom"
+        "react"
       ]
     },
     {
@@ -775,8 +776,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-experience",
-      "url": "/plugins/@xlang/xharness-client-ui-experience/client.js?rev=9a839f79143b0332",
-      "rev": "9a839f79143b0332",
+      "url": "/plugins/@xlang/xharness-client-ui-experience/client.js?rev=915ae058cb467511",
+      "rev": "915ae058cb467511",
       "inject": [
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-ui-settings"

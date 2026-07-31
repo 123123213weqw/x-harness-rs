@@ -1,6 +1,5 @@
 import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 
 let registration
@@ -9,25 +8,8 @@ const sandbox = {
     __ModuleLoader__: { load(value) { registration = value } },
   },
 }
-let reducedMotion = false
-let panelExitToken = ''
-let closeDelay = 0
-let nextCloseTimer = 0
-const closeTimers = new Map()
-sandbox.window.matchMedia = () => ({ matches: reducedMotion })
-sandbox.window.getComputedStyle = () => ({ getPropertyValue: () => panelExitToken })
-sandbox.window.setTimeout = (callback, delay) => {
-  closeDelay = delay
-  const id = ++nextCloseTimer
-  closeTimers.set(id, callback)
-  return id
-}
-sandbox.window.clearTimeout = (id) => closeTimers.delete(id)
 vm.createContext(sandbox)
-vm.runInContext(
-  ownedViewModuleTestInput('@xlang/xharness-client-ui-tasks'),
-  sandbox,
-)
+vm.runInContext(ownedViewModuleTestInput('@xlang/xharness-client-ui-tasks'), sandbox)
 
 const React = {
   createElement(type, props, ...children) { return { type, props: props ?? {}, children } },
@@ -41,20 +23,9 @@ const ReactDOM = { createPortal(element) { return element } }
 
 let requests = []
 let responses = new Map()
-sandbox.fetch = async (url, options) => {
-  requests.push({ url, body: JSON.parse(options.body) })
-  const key = options.body
-  const scripted = responses.get(key)
-  if (scripted !== undefined) {
-    return { ok: true, status: 200, json: async () => scripted }
-  }
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({ type: 'server-response', result: { ok: true, value: null } }),
-  }
-}
+sandbox.fetch = async () => { throw Error('Tasks cannot access transport directly') }
 sandbox.document = {
+  getElementById() { return null },
   documentElement: { lang: 'zh-CN' },
   createElement() { return { style: {}, append() {}, remove() {} } },
   head: { append() {} },
@@ -73,7 +44,7 @@ const plugin = registration.factory((id) => {
 })
 
 assert.equal(registration.id, '@xlang/xharness-client-ui-tasks')
-assert.equal(JSON.stringify(plugin.inject), '["slots","locale"]')
+assert.equal(JSON.stringify(plugin.inject), '["slots","locale","workCatalog"]')
 assert.equal(typeof plugin.apply, 'function')
 
 // Timestamps: the host sends epoch milliseconds; a seconds-scale value is
@@ -137,82 +108,66 @@ assert.equal(JSON.stringify(archivedGroups.map((group) => group.ids)), '[["newer
 assert.equal(JSON.stringify(plugin.groupArchived(['orphan', 'older', 'newer'], archivedSnapshots, archivedWorkspaces, 'FIX', 'project-a', 'oldest').map((group) => group.ids)), '[["older","newer"]]')
 assert.equal(JSON.stringify(plugin.groupArchived(['orphan', 'older'], archivedSnapshots, archivedWorkspaces, '', '__other__').map((group) => group.ids)), '[["orphan"]]')
 
-// RPC calls use the frozen client-request envelope and surface failure text.
-requests = []
-responses = new Map([[JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-1', method: 'session.list', payload: {} }), { result: { ok: true, value: { items: [] } } }]])
-const value = await plugin.rpc('session.list', {})
-assert.deepEqual(value, { items: [] })
-assert.equal(requests[0].url, '/api/session.list')
-assert.equal(requests[0].body.type, 'client-request')
-
-responses.set(
-  JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-2', method: 'workspace.archiveSession', payload: { sessionId: 'x' } }),
-  { result: { ok: false, error: { code: 'session/not-found', message: 'session "x" was not found' } } },
-)
-await assert.rejects(
-  () => plugin.rpc('workspace.archiveSession', { sessionId: 'x' }),
-  /was not found/,
-)
-
+// UI actions call the injected runtime face, never hand-built HTTP envelopes.
+const snapshot={phase:'ready',loading:false,error:null,sessions:[],workspaces:[],archivedSessionIds:[],archivedSessions:[]}
+const command = async (method, payload) => {
+  requests.push({method,payload})
+  const failure=responses.get(method)
+  if(failure)throw Error(failure)
+}
+const subscribers=new Set()
+const publish=patch=>{Object.assign(snapshot,patch);for(const listener of subscribers)listener()}
+const service={getSnapshot:()=>snapshot,subscribe:fn=>{subscribers.add(fn);return()=>subscribers.delete(fn)},refresh:async()=>{},
+  rename:(id,title)=>command('session.rename',{sessionId:id,title}),archive:id=>command('workspace.archiveSession',{sessionId:id}),
+  unarchive:async id=>{await command('workspace.unarchiveSession',{sessionId:id});publish({sessions:[{sessionId:id,updatedAt:0}],archivedSessionIds:snapshot.archivedSessionIds.filter(value=>value!==id)})},fork:id=>command('session.fork',{sessionId:id}),deleteArchived:async id=>{await command('session.delete',{sessionId:id});publish({sessions:[],archivedSessionIds:snapshot.archivedSessionIds.filter(value=>value!==id)})}}
+const slots=[]
+const context={get:name=>name==='workCatalog'?service:undefined,effect:run=>run(),locale:{register(){}},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>slots.push({spec,component})}}
+plugin.apply(context)
+assert.equal(typeof plugin.rpc,'undefined','removed private HTTP compatibility helper')
 // Failed mutations must be visible in the panel state, never surface as an
 // unhandled rejection or create a phantom archived entry.
-plugin.store.sessions = [{
+publish({sessions:[{
   sessionId: 'x', updatedAt: 1_770_000_000_000,
   projections: { values: { title: 'Still live' } },
-}]
-responses.set(
-  JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-3', method: 'workspace.archiveSession', payload: { sessionId: 'x' } }),
-  { result: { ok: false, error: { message: 'archive denied' } } },
-)
+}]})
+responses.set('workspace.archiveSession','archive denied')
 await plugin.store.archive('x')
 assert.equal(plugin.store.actionError, 'archive denied')
 assert.equal(plugin.store.sessions.length, 1)
 assert.equal(plugin.store.snapshots.x, undefined)
 assert.equal(plugin.store.busyId, null)
 
-responses.set(
-  JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-4', method: 'session.rename', payload: { sessionId: 'x', title: 'New title' } }),
-  { result: { ok: false, error: { message: 'rename denied' } } },
-)
+responses.set('session.rename','rename denied')
 await plugin.store.rename('x', 'New title')
 assert.equal(plugin.store.actionError, 'rename denied')
 assert.equal(plugin.store.sessions[0].projections.values.title, 'Still live')
 assert.equal(plugin.store.busyId, null)
 
-responses.set(
-  JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-5', method: 'session.fork', payload: { sessionId: 'x' } }),
-  { result: { ok: false, error: { message: 'fork denied' } } },
-)
+responses.set('session.fork','fork denied')
 await plugin.store.fork('x')
 assert.equal(plugin.store.actionError, 'fork denied')
 assert.equal(plugin.store.busyId, null)
 
 // Restoring preserves the original identity; deleting requires an explicit
 // confirmation and removes the archived snapshot only after the RPC succeeds.
-plugin.store.archivedIds = ['archived']
+publish({archivedSessionIds:['archived']})
 plugin.store.snapshots.archived = { title: 'Original task' }
-responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-6', method: 'workspace.unarchiveSession', payload: { sessionId: 'archived' } }), { result: { ok: true, value: { archivedSessionIds: [] } } })
-responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-7', method: 'session.list', payload: {} }), { result: { ok: true, value: { items: [{ sessionId: 'archived' }] } } })
-responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-8', method: 'workspace.list', payload: {} }), { result: { ok: true, value: { archivedSessionIds: [] } } })
 await plugin.store.restore('archived')
 assert.equal(plugin.store.archivedIds.length, 0)
 assert.equal(plugin.store.sessions[0].sessionId, 'archived')
 assert.equal(plugin.store.snapshots.archived, undefined)
 
-plugin.store.archivedIds = ['delete-me']
+publish({archivedSessionIds:['delete-me']})
 plugin.store.snapshots['delete-me'] = { title: 'Delete me' }
 await plugin.store.deleteArchived('delete-me')
 assert.equal(plugin.store.archivedIds.length, 1, 'delete is inert before confirmation')
 plugin.store.deleteConfirmId = 'delete-me'
-responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-9', method: 'session.delete', payload: { sessionId: 'delete-me' } }), { result: { ok: true, value: { deleted: true } } })
-responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-10', method: 'session.list', payload: {} }), { result: { ok: true, value: { items: [] } } })
-responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-11', method: 'workspace.list', payload: {} }), { result: { ok: true, value: { archivedSessionIds: [] } } })
 await plugin.store.deleteArchived('delete-me')
 assert.equal(plugin.store.archivedIds.length, 0)
 assert.equal(plugin.store.snapshots['delete-me'], undefined)
 assert.equal(plugin.store.deleteConfirmId, null)
 
-plugin.store.archivedIds = ['batch-a', 'batch-b']
+publish({archivedSessionIds:['batch-a', 'batch-b']})
 plugin.store.snapshots['batch-a'] = { title: 'Batch A' }
 plugin.store.snapshots['batch-b'] = { title: 'Batch B' }
 const beforeBatch = requests.length
@@ -224,15 +179,12 @@ assert.equal(plugin.store.archivedIds.length, 0)
 assert.equal(plugin.store.snapshots['batch-a'], undefined)
 assert.equal(plugin.store.snapshots['batch-b'], undefined)
 assert.equal(plugin.store.busyId, null)
-assert.equal(requests.filter(({ body }) => body.method === 'session.delete').length, 3)
+assert.equal(requests.filter(({ method }) => method === 'session.delete').length, 3)
 
-// Exit animation completion owns unmount; reopening invalidates stale timers.
-plugin.store.open = true
-plugin.store.setOpen(false)
-assert.equal(plugin.store.closing, true)
-assert.equal(closeDelay, 1000, 'the default close watchdog keeps a one-second minimum')
+// Page registration and archive controls remain functional without a drawer.
 const slotRegistrations = []
 plugin.apply({
+  get: name => name === 'workCatalog' ? service : undefined,
   effect() {},
   locale: { register() {} },
   slots: {
@@ -258,56 +210,19 @@ function findClass(node, name) {
   }
   return null
 }
-assert.deepEqual(slotRegistrations.map(({ options }) => options.name), ['sidebar.footer.action', 'settings.section'])
+assert.deepEqual(slotRegistrations.map(({ options }) => options.name), ['work.center.tasks', 'settings.section'])
 assert.equal(slotRegistrations[1].options.id, 'archived-chats')
-plugin.store.archivedIds = ['example']
+publish({archivedSessionIds:['example']})
 plugin.store.snapshots.example = { title: 'Saved conversation', updatedAt: Date.now() }
 const archivedSettings = React.createElement(slotRegistrations[1].component)
 assert.ok(findClass(archivedSettings, 'xhtask-settings-list'))
 assert.ok(findClass(archivedSettings, 'xhtask-archived-item'))
 const archivedRow = findClass(archivedSettings, 'xhtask-archived-item')
 assert.ok(JSON.stringify(archivedRow).includes('Saved conversation'))
-const closingPanel = findClass(React.createElement(slotRegistrations[0].component), 'xhtask-panel-wrap-closing')
-assert.equal(findClass(React.createElement(slotRegistrations[0].component), 'xhtask-archived-toggle'), null)
-assert.ok(closingPanel)
-const ownTarget = {}
-closingPanel.props.onAnimationEnd({ target: {}, currentTarget: ownTarget, animationName: 'xhtask-panel-out' })
-assert.equal(plugin.store.closing, true, 'nested animation cannot unmount the panel')
-closingPanel.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhtask-panel-in' })
-assert.equal(plugin.store.closing, true, 'entry animation cannot unmount the panel')
-closingPanel.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhtask-panel-out' })
-assert.equal(plugin.store.open, false)
-assert.equal(closeTimers.size, 0)
-const originalRefresh = plugin.store.refresh
-plugin.store.refresh = async () => {}
-plugin.store.setOpen(true)
-plugin.store.setOpen(false)
-const staleClose = closeTimers.get(plugin.store.closeTimer)
-plugin.store.setOpen(true)
-staleClose()
-assert.equal(plugin.store.open, true)
-assert.equal(plugin.store.closing, false)
-reducedMotion = true
-plugin.store.setOpen(false)
-assert.equal(plugin.store.open, false, 'reduced motion closes immediately')
-assert.equal(closeTimers.size, 0)
-reducedMotion = false
-plugin.store.setOpen(true)
-plugin.store.setOpen(false)
-closeTimers.get(plugin.store.closeTimer)()
-assert.equal(plugin.store.open, false, 'watchdog prevents a stuck panel')
-panelExitToken = '2s'
-plugin.store.setOpen(true)
-plugin.store.setOpen(false)
-assert.equal(closeDelay, 2500, 'the watchdog follows longer CSS motion tokens')
-closingPanel.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhtask-panel-out' })
-assert.equal(closeTimers.size, 0, 'animation completion cancels the extended watchdog')
-panelExitToken = '1350ms'
-plugin.store.setOpen(true)
-plugin.store.setOpen(false)
-assert.equal(closeDelay, 1850, 'millisecond tokens also extend the watchdog')
-plugin.store.finishClose()
-panelExitToken = ''
-plugin.store.refresh = originalRefresh
-
+const page = React.createElement(slotRegistrations[0].component, {openSession() {}})
+assert.equal(slotRegistrations[0].options.name, 'work.center.tasks')
+assert.ok(findClass(page, 'xhtask-panel'))
+assert.equal(findClass(page, 'xhtask-trigger'), null)
+assert.equal(findClass(page, 'xhtask-panel-wrap'), null)
+for (const key of ['open','closing','closeTimer','setOpen','finishClose']) assert.equal(key in plugin.store, false)
 console.log('tasks plugin: assertions passed')
