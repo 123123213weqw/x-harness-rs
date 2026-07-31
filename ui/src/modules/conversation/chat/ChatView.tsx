@@ -269,7 +269,7 @@ export function ChatView({
     if (commit && row !== null && key !== undefined) processAnchorRef.current = { key, top: flowTop(row, port) }
     return key
   }
-  const foldedTools = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
+  const { foldedTools, invalidateFoldedTool } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
 
   const toggleTurnProcess = (turn: number): void => {
     const local = listRef.current
@@ -614,6 +614,7 @@ export function ChatView({
               nodeKey={nodeKey}
               expandedTurns={expandedTurns}
               foldedTools={foldedTools}
+              invalidateFoldedTool={invalidateFoldedTool}
               keepMounted={running && (nodeKey === lastKey || transcriptHasPendingTool(nodeStore.get(nodeKey)))}
               editMessage={editMessage}
               forkMessage={forkMessage}
