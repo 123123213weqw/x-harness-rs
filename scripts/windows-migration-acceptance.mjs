@@ -9,6 +9,7 @@ import { createServer as httpsServer } from 'node:https'
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { checkStaged } from './windows-cache-rehearsal.mjs'
 import { verifyPackage } from './verify-updater-package.mjs'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'CI only')
@@ -26,7 +27,13 @@ const baseTags = sameChannel
   ? { '0.2.2': 'friends-v0.2.3', '0.2.3': 'friends-v0.2.3', '0.2.4': 'friends-v0.2.4', '0.2.5': 'friends-v0.2.5' }
   : { '0.2.0': 'friends-v0.2.1', '0.2.1': 'friends-v0.2.1' }
 const unifiedAcceptance = e.UNIFIED_ACCEPTANCE === 'true'
-if (unifiedAcceptance) {
+const cacheRehearsal = e.WINDOWS_CACHE_REHEARSAL === 'true'
+if (cacheRehearsal) {
+  assert.equal(unifiedAcceptance, false); assert.equal(probeOnly, false)
+  assert.equal(directLatest, true); assert.equal(sameChannel, true)
+  const stage = checkStaged(root)
+  e.OLD_PUBLIC_KEY = stage.public_key; e.UPSTREAM_PUBLIC_KEY = stage.public_key
+} else if (unifiedAcceptance) {
   assert.equal(directLatest, true)
   assert.equal(sameChannel, true)
   const stage = JSON.parse(readFileSync(join(root, 'unified-stage.json'), 'utf8'))
@@ -51,6 +58,7 @@ function download(repo, tag, kind, names) {
   execFileSync('gh', ['release', 'download', tag, '--repo', repo, '--dir', dir, ...names.flatMap(n => ['--pattern', n])], { stdio: ['ignore', 'pipe', 'pipe'] })
 }
 if (process.argv[2] === 'download') {
+  assert.equal(cacheRehearsal, false, 'Rehearsals may only use local source-bound disposable artifacts')
   assert.equal(unifiedAcceptance, false, 'Unified candidates must use the validated stage wrapper')
   const base = filename(e.BASE_VERSION), bridge = filename(e.BRIDGE_VERSION), next = filename(e.UPSTREAM_VERSION)
   download(oldRepo, baseTags[e.BASE_VERSION], 'old', [base, base + '.sig'])
@@ -135,7 +143,7 @@ async function run() {
   if (!probeOnly) for (const kind of ['bridge', 'next']) assert.equal(new URL(manifest(kind).platforms['windows-x86_64'].url).hostname, 'github.com')
   const tls = httpsServer({ pfx: readFileSync(e.MIGRATION_TEST_PFX), passphrase: 'disposable-ci-only' }, (req, res) => {
     const pathname = new URL(req.url, 'https://github.com').pathname
-    requests.push({ pathname, time: new Date().toISOString() })
+    requests.push({ pathname, tampered: rejectPackage, time: new Date().toISOString() })
     const file = mappings.get(pathname)
     if (!file) { res.writeHead(404); res.end('not a migration fixture'); return }
     if (rejectPackage && pathname.endsWith('.exe')) { res.writeHead(200, { 'Content-Length': 9 }); res.end('CORRUPTED'); return }
@@ -229,7 +237,7 @@ async function run() {
     console.log('Original installer exited successfully; starting installed desktop.')
     const executable = join(installDir, 'xharness-desktop.exe')
     assert.ok(existsSync(executable))
-    spawn(executable, [], { windowsHide: true, env: childEnv, stdio: 'ignore' }).on('error', error => console.error(error.message))
+    let desktopProcess = spawn(executable, [], { windowsHide: true, env: childEnv, stdio: 'ignore' }).on('error', error => console.error(error.message))
     let page = await attached(e.BASE_VERSION)
     await rpc(page, 'session.create', { sessionId })
     await rpc(page, 'session.rename', { sessionId, title: '迁移保留测试' })
@@ -254,6 +262,38 @@ async function run() {
       }
       const downloaded = await invoke(page, 'desktop_download_update')
       assert.equal(downloaded.phase, 'downloaded')
+      if (cacheRehearsal) {
+        const cache = join(e.LOCALAPPDATA, 'com.xlang.xharness', 'updater-v1', 'current', 'package.bin')
+        assert.equal(hash(cache), hash(location('next', e.UPSTREAM_VERSION)), 'Signed payload not durably cached')
+        const packageRequests = () => requests.filter(r => r.pathname.endsWith('.exe') && !r.tampered).length
+        const before = packageRequests()
+        assert.equal(before, 1, 'Expected exactly one complete signed package download')
+        // WM_CLOSE uses the production close handler and graceful Host barrier.
+        assert.ok(Number.isInteger(desktopProcess.pid))
+        execFileSync('powershell', ['-NoLogo','-NoProfile','-NonInteractive','-Command',
+          `(Get-Process -Id ${desktopProcess.pid}).CloseMainWindow() | Out-Null`])
+        await until(() => desktopProcess.exitCode === 0, 'Graceful native close before cache reopen')
+        await connection?.close(); connection = null
+        desktopProcess = spawn(executable, [], { windowsHide: true, env: childEnv, stdio: 'ignore' })
+        page = await attached(e.BASE_VERSION)
+        const restored = await invoke(page, 'desktop_check_update')
+        assert.equal(restored.phase, 'downloaded', 'Restart did not restore and verify cached package')
+        assert.equal(packageRequests(), before, 'Cache restore downloaded the installer again')
+        const bytes = readFileSync(cache)
+        writeFileSync(cache, 'corrupted-after-download')
+        const tamperRejected = await invoke(page, 'desktop_install_update', { confirmStop: true }).then(() => false, () => true)
+        assert.ok(tamperRejected, 'Tampered cache accepted')
+        assert.ok((await invoke(page, 'desktop_status')).hostRunning, 'Tampered cache stopped Host')
+        writeFileSync(cache, bytes)
+        assert.equal((await invoke(page, 'desktop_check_update')).phase, 'downloaded')
+        assert.equal((await invoke(page, 'desktop_download_update')).phase, 'downloaded')
+        assert.equal(packageRequests(), before, 'Ready/download no-op transferred installer again')
+        writeFileSync(join(evidence, 'cache-reopen.json'), JSON.stringify({
+          cacheRestoredAfterRestart: true, noDuplicatePackageDownload: true,
+          cachedTamperRejectedBeforeHostStop: true, packageSha256: hash(cache),
+          packageDownloads: before, sourceSha: e.GITHUB_SHA,
+        }, null, 2))
+      }
       const rejected = await invoke(page, 'desktop_install_update', { confirmStop: false }).then(() => false, () => true)
       assert.ok(rejected, 'Install without confirmation must fail')
       assert.ok((await invoke(page, 'desktop_status')).hostRunning, 'Unconfirmed install stopped Host')
@@ -270,7 +310,7 @@ async function run() {
     const secondHopIntercepted = requests.some(r => r.pathname === `/${upstream}/releases/latest/download/latest.json`)
     assert.equal(checkpoints.length, directLatest ? 2 : 3)
     for (const checkpoint of checkpoints.slice(1)) assert.equal(checkpoints[0].journalSha256, checkpoint.journalSha256, 'Update rewrote the fixture journal')
-    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: !directLatest, nativeDirectLatest: directLatest,
+    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: !directLatest, nativeDirectLatest: cacheRehearsal ? false : directLatest, rehearsalOnly: cacheRehearsal,
       installCount: checkpoints.length - 1, confirmedInstall: true, corruptPackageRejected: true,
       secondHopIntercepted, upstreamEndpointAndKeyVerified: true, checkpoints }, null, 2))
   } finally {
