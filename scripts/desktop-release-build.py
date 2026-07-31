@@ -573,12 +573,15 @@ def rehearsal_init(destination):
 def rehearsal_receipt(args):
     plan = load(args.candidate / 'plan.json')
     require(plan.get('rehearsal_only') is True, 'This helper is never a production release receipt producer')
-    require(PLATFORMS.get(args.platform) == args.target and args.platform != 'windows-x86_64', 'Invalid Unix platform')
+    require(PLATFORMS.get(args.platform) == args.target, 'Invalid native rehearsal platform')
     bundle = ROOT / 'apps/desktop/src-tauri/target' / args.target / 'release/bundle'
     if args.platform.startswith('darwin-'):
         source = bundle / 'macos/XHarness.app.tar.gz'
         architecture = 'aarch64' if args.platform == 'darwin-aarch64' else 'x86_64'
         name = f'XHarness_{plan["version"]}_{architecture}.app.tar.gz'
+    elif args.platform == 'windows-x86_64':
+        name = f'XHarness_{plan["version"]}_x64-setup.exe'
+        source = bundle / 'nsis' / name
     else:
         name = f'XHarness_{plan["version"]}_amd64.AppImage'
         source = bundle / 'appimage' / name
