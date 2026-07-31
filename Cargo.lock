@@ -3832,13 +3832,13 @@ dependencies = [
 name = "xharness-plugins"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "reqwest",
  "serde",
  "serde_json",
  "sha2",
  "thiserror 2.0.20",
  "tokio",
- "xharness-web",
  "zip",
 ]
 

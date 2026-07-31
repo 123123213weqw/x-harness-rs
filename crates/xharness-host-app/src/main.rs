@@ -227,7 +227,7 @@ async fn run(
         tools.bind_native_browser(browser)?;
     }
     let plugins =
-        match xharness_plugins::PluginManager::open_product(args.state_dir.join("plugins")) {
+        match xharness_host_app::open_product_plugin_manager(args.state_dir.join("plugins")) {
             Ok(manager) => {
                 let manager = Arc::new(manager);
                 tools.bind_plugins(Arc::clone(&manager))?;
