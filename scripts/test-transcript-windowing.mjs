@@ -68,16 +68,22 @@ try {
  await page.locator('[data-row="349"] button').waitFor();
  await page.waitForTimeout(100);
  assert.ok(await scroll.evaluate(e=>e.scrollHeight)>80000,"unvisited history still has scroll extent");
- // Row-owned state survives eviction, without permanently mounting clicked rows.
+ // Row-owned state survives eviction; current focus (source UI) is temporary, never a permanent interaction pin.
  await page.locator('[data-row="349"] button').click();
+ if(implementation==='source')await page.locator('[data-row="349"] button').focus();
  await scroll.evaluate(e=>{e.scrollTop=0});
  await page.locator('[data-row="0"] button').waitFor();
+ if(implementation==='source'){
+  assert.equal(await page.locator('[data-row="349"] button').count(),1,'currently focused disclosure is protected');
+  await page.locator('[data-row="0"] button').focus();
+ }
  await page.waitForFunction(()=>document.querySelector('[data-row="349"]').dataset.transcriptMounted==='false');
  assert.equal(await page.locator('[data-expanded="349"]').count(),0);
  await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});
  await page.locator('[data-expanded="349"]').waitFor();
  await scroll.evaluate(e=>{e.scrollTop=0});
  await page.locator('[data-row="0"] button').waitFor();
+ await page.evaluate(()=>document.activeElement.blur());
  // A genuine text selection is temporarily protected, then released.
  await page.evaluate(()=>{
   const text=document.querySelector('[data-row="0"] pre span').firstChild;
@@ -173,6 +179,7 @@ try {
  await page.locator('[data-cordis=beta] [aria-expanded]').click();
  assert.equal(await page.locator('[data-cordis=beta]').getByRole('tab',{name:'body.clientCode',exact:true}).getAttribute('aria-selected'),'true','Cordis sibling source stays independent');
  // A second eviction also preserves different source tabs within the same seat.
+ await page.evaluate(()=>document.activeElement.blur());
  await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});
  await page.waitForFunction(()=>document.querySelector('[data-state-row]').dataset.transcriptMounted==='false');
  await scroll.evaluate(e=>{e.scrollTop=0});

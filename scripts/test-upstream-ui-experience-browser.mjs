@@ -32,8 +32,9 @@ try {
     window.__experienceTest = { plugin, root: ReactDOM.createRoot(document.getElementById('root')) }
     window.__experienceTest.root.render(React.createElement(Settings, { t: key => dictionaries['xharness-experience'].zh[key] || key }))
   })
-  await page.locator('.xhe-option').nth(2).click({ timeout: 5000 }).catch(async error => { console.error(await page.locator('#root').innerHTML()); throw error })
-  assert.equal(await page.evaluate(() => document.documentElement.dataset.xhProcessMode), 'detailed')
+  assert.equal(await page.locator('.xhe-option').count(), 2)
+  await page.locator('.xhe-option').nth(1).click({ timeout: 5000 }).catch(async error => { console.error(await page.locator('#root').innerHTML()); throw error })
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.xhProcessMode), 'expanded')
   await page.locator('.xhe-search').fill('聚焦')
   assert.equal(await page.locator('.xhe-shortcut').count(), 1)
   await page.locator('.xhe-key').click()
@@ -42,13 +43,28 @@ try {
   await page.getByRole('button', { name: '恢复默认' }).click()
   assert.equal(await page.locator('.xhe-key').textContent(), 'Mod+Shift+L')
   await page.locator('.xhe-option').first().click()
-  assert.equal(await page.evaluate(() => document.documentElement.dataset.xhProcessMode), 'compact')
-  assert.equal(await page.locator('#reasoning [data-state="ok"]').evaluate(element => getComputedStyle(element).display), 'none')
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.xhProcessMode), 'auto')
+  assert.notEqual(await page.locator('#reasoning [data-state="ok"]').evaluate(element => getComputedStyle(element).display), 'none')
   assert.notEqual(await page.locator('#reasoning [data-state="running"]').evaluate(element => getComputedStyle(element).display), 'none')
-  assert.equal(await page.locator('#reasoning [data-state="running"] .U8JO7q_separator').evaluate(element => getComputedStyle(element).display), 'none')
+  assert.notEqual(await page.locator('#reasoning [data-state="running"] .U8JO7q_separator').evaluate(element => getComputedStyle(element).display), 'none')
   await page.locator('.xhe-option').nth(1).click()
   assert.notEqual(await page.locator('#reasoning [data-state="ok"]').evaluate(element => getComputedStyle(element).display), 'none')
   await page.locator('.xhe-option').first().click()
+  const migration = await page.evaluate(() => {
+    const test = __experienceTest.plugin._test
+    const values = {}
+    for (const old of ['compact','standard','detailed','verbose','auto','expanded','invalid']) {
+      localStorage.setItem(test.MODE_KEY, old); values[old] = test.initialMode()
+    }
+    localStorage.removeItem(test.MODE_KEY); values.missing = test.initialMode()
+    test.setMode('auto')
+    return values
+  })
+  assert.deepEqual(migration,{compact:'auto',standard:'auto',detailed:'auto',verbose:'expanded',auto:'auto',expanded:'expanded',invalid:'auto',missing:'auto'})
+  await page.keyboard.press('Control+Shift+J')
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.xhProcessMode), 'expanded')
+  await page.keyboard.press('Control+Shift+J')
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.xhProcessMode), 'auto')
   if (engine === 'chromium') await page.locator('#root').screenshot({ path: '/tmp/xh-experience-settings.png' })
 
   const review=exposeModuleUnit(ownedViewModuleTestInput('@xharness/dsh-client-ui-tool'),'tool','tool/components/ReviewDiffBlock','XHReviewDiffBlock')
