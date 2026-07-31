@@ -26,6 +26,7 @@ SOURCE = 'https://raw.githubusercontent.com/123123213weqw/xharness-plugin-regist
 MAX_TOTAL = 128 * 1024 * 1024
 MAX_FILES = 250
 ID = re.compile(r'[a-z0-9][a-z0-9._-]{0,79}')
+NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,79}')
 SHA = re.compile(r'[a-f0-9]{64}')
 
 def require(value, message):
@@ -90,7 +91,7 @@ def prepare(registry, output):
     files = {}; names = set()
     for item in result['plugins']:
         name, version, spec = item['name'], item['version'], item['source']
-        require(ID.fullmatch(name) and ID.fullmatch(version) and name not in names, 'Invalid/duplicate plugin identity')
+        require(NAME.fullmatch(name) and ID.fullmatch(version) and name not in names, 'Invalid/duplicate plugin identity')
         names.add(name)
         relative = f'packages/{name}/{version}/plugin.zip'
         require(spec['source'] == 'url' and spec['type'] == 'zip' and spec['url'] == SOURCE + relative
@@ -143,7 +144,7 @@ def verify(root):
     require(isinstance(entries, list) and 0 < len(entries) <= 100, 'Invalid catalog count')
     for entry in entries:
         name, version, spec = entry['name'], entry['version'], entry['source']
-        require(ID.fullmatch(name) and ID.fullmatch(version) and name not in names, 'Invalid plugin identity')
+        require(NAME.fullmatch(name) and ID.fullmatch(version) and name not in names, 'Invalid plugin identity')
         names.add(name); relative = f'packages/{name}/{version}/plugin.zip'; referenced.add(relative)
         require(spec['source'] == 'url' and spec['type'] == 'zip' and spec['url'] == ORIGIN + relative
                 and files[relative]['sha256'] == spec['sha256'] and 'mirrors' not in spec, 'Catalog/package binding differs')

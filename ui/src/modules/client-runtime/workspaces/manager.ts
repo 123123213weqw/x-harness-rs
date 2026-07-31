@@ -1,7 +1,7 @@
 /** Workspace baseline, incremental-frame, and unary-action owner. */
 
 import type {
-  HostFrame, IApiClient, RpcError, RpcRequest, RpcResult, SessionId, WorkspaceId, WorkspaceView,
+  ArchivedSessionSummary, HostFrame, IApiClient, RpcError, RpcRequest, RpcResult, SessionId, WorkspaceId, WorkspaceView,
 } from '../../client-connection/index'
 import { transportError } from '../../client-connection/contracts/host/apiproxy/api/index'
 import { Notifier } from '../sessions/notifier'
@@ -38,6 +38,7 @@ export class WorkspaceManager {
   private itemViewsCache: readonly WorkspaceView[] = []
   // Full-snapshot state (list response / unary response / changed frame all
   // carry the complete set), so deltas never merge — installs replace.
+  private archivedSessions: readonly ArchivedSessionSummary[] = []
   private archivedSessionIds: readonly SessionId[] = []
   private state: WorkspaceListSnapshot['state'] = 'idle'
   private phase: WorkspaceListPhase = 'pending'
@@ -98,7 +99,10 @@ export class WorkspaceManager {
           items = items.filter(workspace => !this.removedIds.has(workspace.workspaceId))
           for (const delta of frames) items = applyWorkspaceDelta(items, delta)
           this.installViews(items)
-          if (!this.archivedSupersedesRefresh) this.installArchived(result.value.archivedSessionIds)
+          if (!this.archivedSupersedesRefresh) {
+            this.installArchived(result.value.archivedSessionIds)
+            this.archivedSessions = result.value.archivedSessions ?? []
+          }
           this.state = 'idle'
           this.phase = 'ready'
         } else {
@@ -269,6 +273,10 @@ export class WorkspaceManager {
   getSnapshot(): WorkspaceListSnapshot {
     this.notifier.ensureFresh()
     return this.snapshotCache
+  }
+
+  archivedSummaries(): readonly ArchivedSessionSummary[] {
+    return this.archivedSessions.filter(row => this.archivedSessionIds.includes(row.sessionId))
   }
 
   private buildSnapshot(): WorkspaceListSnapshot {

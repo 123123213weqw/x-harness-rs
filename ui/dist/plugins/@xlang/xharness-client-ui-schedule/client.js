@@ -51,9 +51,11 @@ exports.formatScheduleFrequency = formatScheduleFrequency;
 exports.formatScheduleRelative = formatScheduleRelative;
 exports.orderScheduleRecords = orderScheduleRecords;
 exports.scheduleRecords = scheduleRecords;
-/// <reference path="../shared/assets.d.ts" />
 const Schedule_css_1 = __importDefault(require("./Schedule.css"));
 const runtime_types_1 = require("../shared/runtime-types");
+const automation_data_1 = require("./automation-data");
+const AutomationNavigation_1 = require("./AutomationNavigation");
+const AutomationNavigation_css_1 = __importDefault(require("./AutomationNavigation.css"));
 const React = __importStar(require("react"));
 const ReactDOM = __importStar(require("react-dom"));
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
@@ -109,16 +111,6 @@ const en = {
     'relative.future': 'in {value} {unit}',
     'relative.overdue': '{value} {unit} overdue',
 };
-function validRecord(raw) {
-    const value = (0, runtime_types_1.objectValue)(raw);
-    return value !== null
-        && typeof value === 'object'
-        && typeof value.id === 'string'
-        && typeof value.prompt === 'string'
-        && typeof value.scheduledAt === 'string'
-        && typeof value.kind === 'string' && ['after', 'at', 'every'].includes(value.kind)
-        && Number.isFinite(Date.parse(value.scheduledAt));
-}
 function nextEveryTarget(record, acceptedAt) {
     const target = Date.parse(record.scheduledAt);
     const accepted = Date.parse(acceptedAt);
@@ -138,7 +130,7 @@ function foldScheduleChanges(changes) {
     const active = new Map();
     for (const rawChange of changes) {
         const change = (0, runtime_types_1.objectValue)(rawChange);
-        if (change?.operation === 'create' && validRecord(change.schedule)) {
+        if (change?.operation === 'create' && (0, automation_data_1.validRecord)(change.schedule)) {
             if (!active.has(change.schedule.id))
                 active.set(change.schedule.id, { ...change.schedule });
             continue;
@@ -263,7 +255,7 @@ function orderScheduleRecords(records, now) {
 // The host's whole-log projection is authoritative. Event-window folding
 // remains only as a compatibility fallback for an older backend.
 function scheduleRecords(projection, legacyRecords) {
-    return Array.isArray(projection) ? (projection).filter(validRecord) : legacyRecords;
+    return Array.isArray(projection) ? (projection).filter(automation_data_1.validRecord) : legacyRecords;
 }
 function ClockIcon() {
     return h('svg', {
@@ -376,9 +368,12 @@ function ScheduleCatalogAction({ useSession, useProjection, t }) {
         : null;
     return h('div', { ref: rootRef, className: 'xhsch-root', onKeyDown }, [trigger, menu]);
 }
-const inject = ['slots', 'locale', 'conversationEvents', 'conversationViews'];
+const inject = ['slots', 'locale', 'conversationEvents', 'conversationViews', 'workCatalog'];
 exports.inject = inject;
 function apply(ctx) {
+    const service = ctx.get('workCatalog');
+    if (service === undefined)
+        throw Error('schedule: Work catalog service unavailable');
     ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'xharness-ui-schedule: dictionaries');
     ctx.effect(() => {
         const existing = document.getElementById(STYLE_ID);
@@ -390,6 +385,16 @@ function apply(ctx) {
         document.head.append(style);
         return () => { style.remove(); };
     }, 'xharness-ui-schedule: styles');
+    ctx.effect(() => {
+        const style = document.createElement('style');
+        style.id = 'xharness-automation-navigation-style';
+        style.textContent = AutomationNavigation_css_1.default;
+        document.head.append(style);
+        return () => style.remove();
+    }, 'xharness-ui-schedule: navigation styles');
+    ctx.slots.inject('work.center.automations', () => ctx.slots.register({
+        name: 'work.center.automations', id: 'automations', order: 20,
+    }, (props) => h(AutomationNavigation_1.AutomationPage, { ...props, service })));
     ctx.conversationEvents.register(scheduleEventDefinition);
     ctx.conversationViews.register(scheduleViewDefinition);
     ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
@@ -436,9 +441,159 @@ function numberValue(value, fallback = 0) {
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+},
+"src/modules/schedule/automation-data.js": function(module, exports, require) {
+// source: src/modules/schedule/automation-data.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.validRecord = validRecord;
+exports.automationCatalog = automationCatalog;
+const runtime_types_1 = require("../shared/runtime-types");
+/** Same schedule record validation used by the existing conversation projection. */
+function validRecord(raw) {
+    const value = (0, runtime_types_1.objectValue)(raw);
+    return typeof value.id === 'string' && typeof value.prompt === 'string'
+        && typeof value.scheduledAt === 'string'
+        && typeof value.kind === 'string' && ['after', 'at', 'every'].includes(value.kind)
+        && Number.isFinite(Date.parse(value.scheduledAt));
+}
+/** Read only the schedules projection in listed chats; never request history bodies. */
+function automationCatalog(value) {
+    const items = (0, runtime_types_1.objectValue)(value).items;
+    if (!Array.isArray(items))
+        throw Error('Invalid session list');
+    const listed = items;
+    const entries = [];
+    let incompleteSessions = 0;
+    for (const item of listed) {
+        const session = (0, runtime_types_1.objectValue)(item);
+        if (typeof session.sessionId !== 'string') {
+            incompleteSessions++;
+            continue;
+        }
+        const projections = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(session.projections).values);
+        if (!Array.isArray(projections.schedules)) {
+            incompleteSessions++;
+            continue;
+        }
+        const records = projections.schedules;
+        const title = typeof projections.title === 'string' && projections.title.trim() !== ''
+            ? projections.title : session.sessionId;
+        const seen = new Set();
+        let incomplete = false;
+        for (const raw of records) {
+            if (!validRecord(raw)) {
+                incomplete = true;
+                continue;
+            }
+            if (seen.has(raw.id))
+                continue;
+            seen.add(raw.id);
+            const record = { id: raw.id, prompt: raw.prompt, kind: raw.kind, scheduledAt: raw.scheduledAt };
+            if (typeof raw.everySeconds === 'number' && Number.isFinite(raw.everySeconds) && raw.everySeconds > 0)
+                record.everySeconds = raw.everySeconds;
+            else if (record.kind === 'every')
+                incomplete = true;
+            entries.push({ sessionId: session.sessionId, sessionTitle: title, record });
+        }
+        if (incomplete)
+            incompleteSessions++;
+    }
+    return { entries: entries.sort((a, b) => Date.parse(a.record.scheduledAt) - Date.parse(b.record.scheduledAt)), incompleteSessions };
+}
+
+},
+"src/modules/schedule/AutomationNavigation.js": function(module, exports, require) {
+// source: src/modules/schedule/AutomationNavigation.tsx
+
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.AutomationPage = AutomationPage;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const React = __importStar(require("react"));
+const runtime_types_1 = require("../shared/runtime-types");
+const automation_data_1 = require("./automation-data");
+function AutomationPage({ openSession, service }) {
+    const snapshot = React.useSyncExternalStore(service.subscribe, service.getSnapshot);
+    const catalog = React.useMemo(() => (0, automation_data_1.automationCatalog)({ items: snapshot.sessions }), [snapshot.sessions]);
+    const zh = document.documentElement.lang.startsWith('zh');
+    const title = zh ? '自动化' : 'Automations';
+    const [refresh, setRefresh] = React.useState(0);
+    const [loading, setLoading] = React.useState(false);
+    const [error, setError] = React.useState(null);
+    React.useEffect(() => {
+        const controller = new AbortController();
+        let current = true;
+        const timeout = window.setTimeout(() => controller.abort(), 15000);
+        setLoading(true);
+        setError(null);
+        void service.refresh(controller.signal)
+            .catch((failure) => {
+            if (!current)
+                return;
+            // Owner errors are live runtime state: a reconnect can clear them without a manual click.
+            setError(controller.signal.aborted ? (zh ? '读取超时，请重试。' : 'Request timed out. Retry.')
+                : service.getSnapshot().error === null ? (0, runtime_types_1.errorText)(failure) : null);
+        })
+            .finally(() => { window.clearTimeout(timeout); if (current)
+            setLoading(false); });
+        return () => { current = false; controller.abort(); window.clearTimeout(timeout); };
+    }, [refresh, zh, service]);
+    React.useEffect(() => {
+        // A timed-out page wait does not cancel the owner. Its eventual successful
+        // baseline must clear the reader warning rather than leave a stale alert.
+        if (!snapshot.loading && snapshot.phase === 'ready' && snapshot.error === null)
+            setError(null);
+    }, [snapshot.loading, snapshot.phase, snapshot.error]);
+    const failure = error ?? snapshot.error;
+    const pending = loading || snapshot.phase === 'pending' && failure === null;
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhauto-page", "aria-label": title, children: [(0, jsx_runtime_1.jsxs)("header", { className: "xhauto-head", children: [(0, jsx_runtime_1.jsx)("h2", { children: title }), (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: loading, onClick: () => setRefresh(value => value + 1), "aria-label": zh ? '刷新自动化' : 'Refresh automations', children: "\u21BB" })] }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-body", "aria-busy": pending, children: [pending && (0, jsx_runtime_1.jsx)("p", { role: "status", children: zh ? '读取中…' : 'Loading…' }), failure && (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: failure }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRefresh(value => value + 1), children: zh ? '重试' : 'Retry' })] }), !pending && !failure && catalog.entries.length === 0 && (0, jsx_runtime_1.jsx)("p", { children: catalog.incompleteSessions ? (zh ? '暂无已加载的自动化任务' : 'No loaded automations') : (zh ? '暂无自动化任务' : 'No automations yet') }), !pending && !failure && catalog.incompleteSessions > 0 && (0, jsx_runtime_1.jsx)("p", { className: "xhauto-muted", children: zh ? '部分会话的提醒尚未加载；打开原会话后刷新。' : 'Some chats have not loaded reminders yet. Open those chats, then refresh.' }), catalog.entries.map(({ sessionId, sessionTitle, record }) => (0, jsx_runtime_1.jsxs)("article", { className: "xhauto-row", children: [(0, jsx_runtime_1.jsx)("p", { children: record.prompt }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-muted", children: [new Date(record.scheduledAt).toLocaleString(document.documentElement.lang), record.kind === 'every' ? (record.everySeconds ? ` · ${zh ? '每' : 'Every '}${record.everySeconds}${zh ? '秒' : 's'}` : (zh ? ' · 重复周期未知' : ' · Repeat interval unavailable')) : ''] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => openSession(sessionId), children: sessionTitle })] }, JSON.stringify([sessionId, record.id])))] })] });
+}
+
+},
+"src/modules/schedule/AutomationNavigation.css": function(module, exports, require) {
+// source: src/modules/schedule/AutomationNavigation.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".xhauto-page{display:flex;flex-direction:column;min-width:0;color:var(--dsw-alias-label-primary)}\n.xhauto-head{display:flex;align-items:center;gap:8px;flex:none;padding:0 0 16px;border-bottom:1px solid var(--dsw-alias-border-l1)}\n.xhauto-head h2{flex:1;margin:0;font:inherit;font-size:16px;font-weight:600}\n.xhauto-head button{width:30px;height:30px;padding:0;font-size:20px}\n.xhauto-page button{border:0;border-radius:8px;background:transparent;color:inherit;cursor:pointer}\n.xhauto-page button:hover{background:var(--dsw-alias-interactive-bg-hover)}\n.xhauto-page button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}\n.xhauto-body{flex:1;min-height:0;overflow:visible;padding:16px 0;font-size:13px;line-height:1.6}\n.xhauto-body p{margin:0 0 12px;overflow-wrap:anywhere}.xhauto-muted{font-size:12px;color:var(--dsw-alias-label-tertiary)}\n.xhauto-row{padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}.xhauto-row button{display:block;margin-top:8px;padding:6px 8px;text-align:left;max-width:100%;overflow-wrap:anywhere}\n";
+
 }
 };
-const __dependencies = {"src/modules/schedule/index.js":{"./Schedule.css":"src/modules/schedule/Schedule.css","../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/schedule/Schedule.css":{},"src/modules/shared/runtime-types.js":{}};
+const __dependencies = {"src/modules/schedule/index.js":{"./Schedule.css":"src/modules/schedule/Schedule.css","../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js","./AutomationNavigation":"src/modules/schedule/AutomationNavigation.js","./AutomationNavigation.css":"src/modules/schedule/AutomationNavigation.css"},"src/modules/schedule/Schedule.css":{},"src/modules/shared/runtime-types.js":{},"src/modules/schedule/automation-data.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/schedule/AutomationNavigation.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/schedule/AutomationNavigation.css":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
