@@ -36,3 +36,9 @@ Rust 在远程 V100 隔离源码目录验证 cache/state 与全部 desktop lib �
 本轮源码结果与边界记录见 [回归记录](../evidence/desktop-background-updates-20261003.md)。Unix 原生验收仅在隔离基础包中暂停统一后台准备入口，避免驱动和自动计时器争抢；生产候选不修改。
 
 源码回归与发布验收区分：跨平台 CI、候选安装、真实发布及本机软件升级未做时不得宣称已上线。复用原 Unix／Windows 实包验收，不修改真实会话与更新 feed。
+
+## 2026-10-04 原生验收补齐
+
+复用 Unix 原生隔离驱动，补真实进程重启后的缓存复用、正常包只下载一次和缓存篡改时不停止 Host；三个 Unix 平台各三轮通过。新增仅 GitHub-hosted Windows 可执行的 NSIS 演练，复用原生产 IPC、关闭处理与安装流程，一轮通过。目标保持原样 Updater 签名，基础测试包与合成状态隔离。
+
+临时密钥／ad-hoc 构建的收据始终非发布证明；既有正式 Windows／Unix 来源与发布门禁不放宽。具体平台、限制及哈希见 `docs/evidence/desktop-native-updates-20261004.md`。启动首屏不宣称性能收益，正式签名发布与真实安装另行授权。

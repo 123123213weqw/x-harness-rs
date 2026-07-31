@@ -1,0 +1,82 @@
+{
+  "nativeTwoHop": false,
+  "nativeDirectLatest": false,
+  "rehearsalOnly": true,
+  "installCount": 1,
+  "confirmedInstall": true,
+  "corruptPackageRejected": true,
+  "secondHopIntercepted": true,
+  "upstreamEndpointAndKeyVerified": true,
+  "checkpoints": [
+    {
+      "version": "0.0.901",
+      "status": {
+        "desktop": true,
+        "version": "0.0.901",
+        "hostRunning": true,
+        "hostEndpoint": "http://127.0.0.1:56198",
+        "updaterConfigured": true,
+        "startupError": null,
+        "startup": {
+          "windowMappedMs": null,
+          "hostReadyMs": 229,
+          "frontendHydratedMs": 1583,
+          "firstFrameMs": 1621
+        }
+      },
+      "retained": [
+        {
+          "name": "providers.json",
+          "sha256": "6a014aaf4beacbf78082967879e942c043fc2d076c6dff51bb72b7679aa4fb2d"
+        },
+        {
+          "name": "secrets/migration_fixture_key",
+          "sha256": "8cea2c3159b9045cf28e2206ed10581c7b60a0e6fb22a36e72dbf8d2e8e68f3e"
+        },
+        {
+          "name": "workspace/保留-fixture.txt",
+          "sha256": "21c959755cc887ebf59f95fb543c27a548ac5ef02e4a88941de0c4b3a47252c0"
+        }
+      ],
+      "compiledEndpoint": "https://github.com/123123213weqw/x-harness-rs/releases/latest/download/latest.json",
+      "compiledKeySha256": "9402fe18f558a16af7179ed023b4e219b1a7ccadcad45113a6058cc44b1017f4",
+      "executableSha256": "6568944826d8c2f8cea7b647dd3576ef3af1134c9e539a517110039dab23540e",
+      "journalSha256": "30ede3b658aee358f34b29952f23e399781dec4eed8091456c964160a2b51016"
+    },
+    {
+      "version": "0.0.902",
+      "status": {
+        "desktop": true,
+        "version": "0.0.902",
+        "hostRunning": true,
+        "hostEndpoint": "http://127.0.0.1:52201",
+        "updaterConfigured": true,
+        "startupError": null,
+        "startup": {
+          "windowMappedMs": 196,
+          "hostReadyMs": 306,
+          "frontendHydratedMs": 1690,
+          "firstFrameMs": 1777
+        }
+      },
+      "retained": [
+        {
+          "name": "providers.json",
+          "sha256": "6a014aaf4beacbf78082967879e942c043fc2d076c6dff51bb72b7679aa4fb2d"
+        },
+        {
+          "name": "secrets/migration_fixture_key",
+          "sha256": "8cea2c3159b9045cf28e2206ed10581c7b60a0e6fb22a36e72dbf8d2e8e68f3e"
+        },
+        {
+          "name": "workspace/保留-fixture.txt",
+          "sha256": "21c959755cc887ebf59f95fb543c27a548ac5ef02e4a88941de0c4b3a47252c0"
+        }
+      ],
+      "compiledEndpoint": "https://github.com/123123213weqw/x-harness-rs/releases/latest/download/latest.json",
+      "compiledKeySha256": "9402fe18f558a16af7179ed023b4e219b1a7ccadcad45113a6058cc44b1017f4",
+      "executableSha256": "24e297eb860972f6b0394fec2ff21951faf065d557f26e94bb6ccc2944210f37",
+      "journalSha256": "30ede3b658aee358f34b29952f23e399781dec4eed8091456c964160a2b51016"
+    }
+  ]
+}
