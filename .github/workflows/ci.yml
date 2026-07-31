@@ -183,6 +183,7 @@ jobs:
             UI_TEST_BROWSER="$browser" node scripts/test-script-assets-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-chat-scroll-intent-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-turn-process-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-conversation-message-rail-browser.mjs
             for implementation in source legacy; do
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs
