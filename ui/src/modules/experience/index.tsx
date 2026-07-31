@@ -2,25 +2,25 @@
 import * as React from "react"
 import type { PageContext, Translation } from "../shared/runtime-types"
 import CSS from "./Experience.css"
+import { normalizeProcessMode, PROCESS_MODE_KEY, type ProcessMode } from '../shared/process-display'
 const h = React.createElement
 const { useEffect, useState } = React
-const MODES = ['compact', 'standard', 'detailed', 'verbose'] as const
-type ProcessMode = typeof MODES[number]
+const MODES = ['auto', 'expanded'] as const
 function isMode(value: unknown): value is ProcessMode { return MODES.some(mode => mode === value) }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
-const MODE_KEY = 'xharness.ui.process-mode.v1'
+const MODE_KEY = PROCESS_MODE_KEY
 const SHORTCUT_KEY = 'xharness.ui.shortcuts.v1'
 const DEFAULT_SHORTCUTS = Object.freeze({ cycleMode: 'Mod+Shift+J', focusComposer: 'Mod+Shift+L' })
 const labels = {
   zh: { nav: '显示与快捷键', title: '显示与快捷键', subtitle: '只改变工作过程的呈现，不改变模型、工具或历史记录。',
-    display: '工作步骤展示', compact: '简洁', standard: '标准', detailed: '详细', verbose: '完全展开',
-    compactHint: '最少预览', standardHint: '默认密度', detailedHint: '展开运行项', verboseHint: '展开全部项',
+    display: '工作步骤展示', auto: '自动', expanded: '全部展开',
+    autoHint: '按空间折叠，保留运行与异常', expandedHint: '默认展开过程与详情，可手动收起',
     shortcut: '键盘快捷键', search: '搜索快捷键', cycleMode: '切换工作步骤展示', focusComposer: '聚焦输入框',
     record: '按下新组合键…', reset: '恢复默认', conflict: '该组合键已被其他操作使用', invalid: '请同时按修饰键',
     empty: '没有匹配的快捷键', local: '这些偏好只保存在当前设备。' },
   en: { nav: 'Display & shortcuts', title: 'Display & shortcuts', subtitle: 'Changes presentation only; model, tools and history remain intact.',
-    display: 'Work process display', compact: 'Compact', standard: 'Standard', detailed: 'Detailed', verbose: 'Fully expanded',
-    compactHint: 'Minimal preview', standardHint: 'Default density', detailedHint: 'Expand live items', verboseHint: 'Expand all items',
+    display: 'Work process display', auto: 'Automatic', expanded: 'Expand all',
+    autoHint: 'Fold by space; keep live and failed work', expandedHint: 'Expand work and details; allow manual collapse',
     shortcut: 'Keyboard shortcuts', search: 'Search shortcuts', cycleMode: 'Cycle process display', focusComposer: 'Focus composer',
     record: 'Press a new shortcut…', reset: 'Reset defaults', conflict: 'This shortcut is already in use', invalid: 'Include a modifier key',
     empty: 'No matching shortcuts', local: 'These preferences are stored on this device only.' },
@@ -28,7 +28,7 @@ const labels = {
 
 function readStorage(key: string) { try { return localStorage.getItem(key) } catch { return null } }
 function writeStorage(key: string, value: string) { try { localStorage.setItem(key, value) } catch { /* memory-only preference */ } }
-function initialMode() { const mode = readStorage(MODE_KEY); return isMode(mode) ? mode : 'standard' }
+function initialMode() { return normalizeProcessMode(readStorage(MODE_KEY)) }
 function initialShortcuts(): Record<string, string> {
   try {
     const saved: unknown = JSON.parse(readStorage(SHORTCUT_KEY) || 'null')
