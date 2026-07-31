@@ -29,6 +29,8 @@ python3 scripts/plugin-distribution.py bundle --export plugin-export --output pl
 - 若使用 WZU 跳板，同一密钥仅运行 `plugin-publish-relay.py`，接受 `forward-engine-plugins v1`，固定转发到 Engine SSH，30 秒闲置／180 秒总时限。**仍保留 `restrict`，不启用 OpenSSH 转发权限**，避免放开其他 TCP 或 Unix socket。跳板不保存发布私钥。
 - WZU 的当前地址为 Tailscale 内网；GitHub 托管 runner 不天然具有此网络。配置 SSH 权限不等于已建立 runner 网络路由：必须先在 runner 验证直连或另行配置受限网络身份，禁止自动关闭 host key 检查、增加广泛端口转发或改模型服务绕过。
 
+2026-10-04 的托管 runner 只读探针已实际收到了 Engine SSH banner。因此 CI 默认使用 `direct`，不额外授予内网访问权；本机的受限 WZU relay 已通过真实两跳发布与重放验证，留作备用。`XHARNESS_PLUGIN_PUBLISH_ROUTE=bastion` 仅在 runner 已有受控网络路由时启用，不能拿 Tailscale 私网地址当公网入口。
+
 工作流 `sync-plugin-distribution.yml` 每半小时同步已公开的目录，支持手动 dry-run。只有部署到默认主分支后定时触发才生效。PR 的独立发布契约 job 不读取密钥，不执行发布；只读探针记录 GitHub runner 到 Engine 的 SSH 握手能力。
 
 ## 验收与恢复
@@ -42,8 +44,7 @@ python3 scripts/plugin-distribution.py smoke --export plugin-export
 Rust 实际安装验收须在远端、使用临时状态目录：
 
 ```sh
-XHARNESS_TEST_MARKETPLACE="$PWD/crates/xharness-plugins/catalog.public.json" \
-  cargo test --locked -p xharness-plugins live_pinned_marketplace_package -- --ignored --nocapture
+cargo test --locked -p xharness-host-app --lib live_product_engine_package_transport -- --ignored --nocapture
 ```
 
-该测试下载 GitHub 插件并验证 Skill 能读取，不执行 Skill 内容、不读取 GitHub 登录凭据、不改现有软件状态。安装／启用是两步，安装 GitHub Skill 不代表已完成 GitHub OAuth。
+该测试使用生产组成函数及注入的共享传输，下载 GitHub 插件并验证 Skill 能读取，不执行 Skill 内容、不读取 GitHub 登录凭据、不改现有软件状态。安装／启用是两步，安装 GitHub Skill 不代表已完成 GitHub OAuth。
