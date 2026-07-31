@@ -14,3 +14,4 @@ thiserror.workspace = true
 tokio.workspace = true
 reqwest = { workspace = true, features = ["rustls-tls"] }
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
+xharness-web = { path = "../xharness-web" }

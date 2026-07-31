@@ -226,17 +226,18 @@ async fn run(
     if let Some(browser) = xharness_host_app::native_browser::NativeBrowser::from_env()? {
         tools.bind_native_browser(browser)?;
     }
-    let plugins = match xharness_plugins::PluginManager::open(args.state_dir.join("plugins")) {
-        Ok(manager) => {
-            let manager = Arc::new(manager);
-            tools.bind_plugins(Arc::clone(&manager))?;
-            Some(manager)
-        }
-        Err(error) => {
-            eprintln!("plugin store unavailable; Agent startup continues: {error}");
-            None
-        }
-    };
+    let plugins =
+        match xharness_plugins::PluginManager::open_product(args.state_dir.join("plugins")) {
+            Ok(manager) => {
+                let manager = Arc::new(manager);
+                tools.bind_plugins(Arc::clone(&manager))?;
+                Some(manager)
+            }
+            Err(error) => {
+                eprintln!("plugin store unavailable; Agent startup continues: {error}");
+                None
+            }
+        };
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     *failure_code = Some(StartupFailureCode::RuntimeInitialization);
