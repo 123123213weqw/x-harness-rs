@@ -546,7 +546,7 @@ def export_environment(values):
 
 def rehearsal_init(destination):
     hosted()
-    require(os.environ.get('GITHUB_REF') == 'refs/heads/master' or os.environ.get('GITHUB_EVENT_NAME') in {'pull_request', 'push'}, 'Rehearsals require a CI source event')
+    require(os.environ.get('GITHUB_REF') == 'refs/heads/master' or os.environ.get('GITHUB_EVENT_NAME') in {'pull_request', 'push', 'workflow_dispatch'}, 'Rehearsals require a CI source event')
     root = Path(destination)
     require(Path(os.environ['RUNNER_TEMP']).resolve() in root.resolve().parents, 'Rehearsal keys must stay in runner temporary storage')
     root.mkdir(mode=0o700)
