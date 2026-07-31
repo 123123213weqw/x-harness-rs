@@ -544,6 +544,20 @@ def export_environment(values):
             output.write(f'{key}={value}\n')
 
 
+def npm_invocation(platform=None):
+    platform = platform or sys.platform
+    npm = shutil.which('npm')
+    require(npm, 'Missing npm executable')
+    if platform != 'win32':
+        return [npm]
+    # CreateProcess does not resolve bare npm to npm.cmd. Execute the trusted
+    # Node distribution's JS entry directly; no cmd.exe quoting or shell=True.
+    node = shutil.which('node')
+    cli = Path(npm).parent / 'node_modules/npm/bin/npm-cli.js'
+    require(node and cli.is_file() and not cli.is_symlink(), 'Missing pinned Node/npm CLI')
+    return [node, str(cli)]
+
+
 def rehearsal_init(destination):
     hosted()
     require(os.environ.get('GITHUB_REF') == 'refs/heads/master' or os.environ.get('GITHUB_EVENT_NAME') in {'pull_request', 'push', 'workflow_dispatch'}, 'Rehearsals require a CI source event')
@@ -552,7 +566,7 @@ def rehearsal_init(destination):
     root.mkdir(mode=0o700)
     (root / 'release').mkdir()
     # Signer generation can print private material: capture and discard its output.
-    subprocess.run(['npm', 'exec', '--yes', '--package', '@tauri-apps/cli@2.11.4', '--',
+    subprocess.run([*npm_invocation(), 'exec', '--yes', '--package', '@tauri-apps/cli@2.11.4', '--',
                     'tauri', 'signer', 'generate', '-w', str(root / 'disposable.key'), '-p', '', '--ci'],
                    cwd=ROOT / 'apps/desktop', check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     key = (root / 'disposable.key.pub').read_text(encoding='utf-8').strip()
