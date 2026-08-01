@@ -7,6 +7,12 @@ const compiled=compile(),apis=[harness(legacyTest),harness(compiled.test)];
 const event=(type,data,seq=1)=>({type,data,seq,time:100+seq});
 const match=e=>({event:e,role:'start',location:{kind:'session'}});
 const text=value=>[{type:'text',text:value}];
+// Intentional product-copy delta; preserve the frozen reference and compare
+// every other locale field unchanged. The new value is checked, not ignored.
+function baselineWorkingCopy(language, locale) {
+ assert.equal(locale['xh.turn.working'], 'Working…');
+ return {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
+}
 function stateContext(def,state,matches){return{key:def.kind+':c',id:'c',state,matches,start:matches.find(m=>m.role==='start'),locations:[],target:'chat'}}
 
 test('fork/subagent breadcrumbs preserve source ancestry, missing parents and cycle guards',()=>{
@@ -32,7 +38,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  assert.ok(tailStyle(next).startsWith(tailStyle(old)),'existing footer styles are preserved before the new summary rules');
  const newKeys=['message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'];
  const withoutNew=locale=>Object.fromEntries(Object.entries(json(locale)).filter(([key])=>!newKeys.includes(key)));
- for(const language of ['en','zh']){assert.deepEqual(withoutNew(apis[1].plugin[language]),json(apis[0].plugin[language]));for(const key of newKeys)assert.equal(typeof apis[1].plugin[language][key],'string')}
+ for(const language of ['en','zh']){assert.deepEqual(withoutNew(baselineWorkingCopy(language, apis[1].plugin[language])),json(apis[0].plugin[language]));for(const key of newKeys)assert.equal(typeof apis[1].plugin[language][key],'string')}
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.en[key]])),{'message.foldedTools':'{count} completed operations','message.expandedTools':'Earlier completed operations · {count}'})
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.zh[key]])),{'message.foldedTools':'已收起 {count} 个完成的操作','message.expandedTools':'较早的已完成操作 · {count}'})
  assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react/jsx-runtime'].sort());
@@ -43,7 +49,7 @@ test('complete apply registration: keyed nodes, resident shell, overlays, docks,
  const ctx={effect:fn=>{const off=fn();if(typeof off==='function')effects.push(off)},locale:{register:(...args)=>dicts.push(args),bind:()=>k=>k},sessions:{provide:spec=>{events.push(['provide',spec.hooks,spec.props]);return()=>{}},list:{getSnapshot:()=>({byId:{}})},scope(){},on:()=>()=>{}},workspaces:{},layout:{},settingsScope:{bind:()=>host},conversationEvents:{register:d=>defs.push({kind:d.kind,target:d.target}),registerFallback:d=>defs.push({kind:d.kind,target:d.target,fallback:true})},conversationViews:{register:d=>views.push({target:d.target})},slots:{inject:(_n,fn)=>fn(),register:(spec,component)=>slots.push({spec,component}),entries:()=>[],subscribe:()=>()=>{},getVersion:()=>0},get:n=>ctx[n],on:(n)=>{events.push(n);return()=>{}},plugin:(plugin,config)=>{if(typeof plugin==='function')new plugin(ctx,config);else plugin.apply(ctx)}};
  api.apply(ctx);
  const normalize=slots.map(({spec})=>json({...spec,inject:undefined,select:undefined,store:undefined,label:typeof spec.label==='function'?spec.label():spec.label})).sort((a,b)=>(a.name+':'+(a.key??a.id??'')).localeCompare(b.name+':'+(b.key??b.id??'')));
- const baselineDicts=json(dicts).map(([ns,languages])=>[ns,Object.fromEntries(Object.entries(languages).map(([language,values])=>[language,Object.fromEntries(Object.entries(values).filter(([key])=>!['message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'].includes(key)))]))]);
+ const baselineDicts=json(dicts).map(([ns,languages])=>[ns,Object.fromEntries(Object.entries(languages).map(([language,values])=>[language,Object.fromEntries(Object.entries(api === apis[1].plugin ? baselineWorkingCopy(language, values) : values).filter(([key])=>!['message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'].includes(key)))]))]);
  receipts.push({slots:normalize,defs,views,dicts:baselineDicts,events});}
  assert.deepEqual(json(receipts[1]),json(receipts[0]));assert.equal(receipts[1].defs.length,13);
 });
