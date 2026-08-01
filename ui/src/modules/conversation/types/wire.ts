@@ -1,4 +1,5 @@
 /** Module-local Host protocol vocabulary; payloads are data, never service implementations. */
+import type { TurnEndDataInput } from '../../shared/generated/session-terminal'
 export type SessionId = string
 export type WorkspaceId = string
 export type MessageId = string
@@ -35,7 +36,7 @@ export type AssistantChunk =
 export interface SessionEventMap {
  'turn/start': { turn: number }
  'run/checkpoint': { turn: number; notice?: ({ kind: string; message: string }) | undefined }
- 'turn/end': { turn: number; reason: { kind: 'error'; error?: RpcError | undefined; failure?: LlmFailure | undefined } | { kind: 'max-tokens' | 'max-steps' | 'aborted' | 'completed' | 'stop' } }
+ 'turn/end': TurnEndDataInput
  'step/start': { turn: number; step: number }
  'step/end': { turn: number; step: number; reason?: (unknown) | undefined }
  'assistant/chunk': { turn: number; step: number; chunk: AssistantChunk }

@@ -1,11 +1,11 @@
 import { z } from 'zod'
+import { TurnEndDataInputSchema } from '../../shared/generated/session-terminal'
 import type { SessionWireEvent } from '../../client-connection/contracts/host/apiproxy/api/sessions'
 import type { SessionEvent, SessionEventMap, AssistantChunk } from '../types/wire'
 
 const n=z.number(), s=z.string(), content=z.array(z.unknown())
 const coords={turn:n,step:n}
 const failure=z.looseObject({message:s,code:s})
-const error=z.looseObject({code:s,message:s,details:z.record(s,z.unknown())})
 const chunk: z.ZodType<AssistantChunk> = z.union([
  z.looseObject({type:z.literal('block-start'),index:n,blockType:s}),
  z.looseObject({type:z.enum(['text-delta','reasoning-delta']),index:n,text:s}),
@@ -20,7 +20,7 @@ const retry={...coords,retryId:s,retry:n,delayMs:n,policyKey:s,provider:s,failur
 const schemas: { [K in keyof SessionEventMap]: z.ZodType<SessionEventMap[K]> } = {
  'turn/start':z.looseObject({turn:n}),
  'run/checkpoint':z.looseObject({turn:n,notice:z.object({kind:s,message:s}).optional()}),
- 'turn/end':z.looseObject({turn:n,reason:z.union([z.looseObject({kind:z.literal('error'),error:error.optional(),failure:failure.optional()}),z.looseObject({kind:z.enum(['max-tokens','max-steps','aborted','completed','stop'])})])}),
+ 'turn/end':TurnEndDataInputSchema,
  'step/start':z.looseObject(coords), 'step/end':z.looseObject({...coords,reason:z.unknown().optional()}),
  'assistant/chunk':z.looseObject({...coords,chunk}),
  'assistant/message':z.looseObject({...coords,message:z.looseObject({id:s,content}),usage:z.unknown().optional(),interrupted:z.boolean().optional()}),
