@@ -165,6 +165,20 @@ async function run() {
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1' }
   for (const name of Object.keys(childEnv)) if (/TOKEN|PASSWORD|PRIVATE_KEY|PUBLIC_KEY|DEEPSEEK|OPENAI|^XHARNESS_/i.test(name)) delete childEnv[name]
   let connection
+  // Retain bounded evidence across native/CDP process replacement. A screenshot
+  // alone cannot distinguish an old stopped Host from a broken new installation.
+  const observedPages = new WeakSet(), attachSamples = [], pageEvents = []
+  function recordPageEvent(event) {
+    if (pageEvents.length < 200) pageEvents.push({ time: new Date().toISOString(), ...event })
+  }
+  function observePage(page) {
+    if (observedPages.has(page)) return
+    observedPages.add(page)
+    page.on('pageerror', error => recordPageEvent({ kind: 'pageerror', url: page.url(), error: error.message }))
+    page.on('requestfailed', request => recordPageEvent({ kind: 'requestfailed', url: request.url(), error: request.failure()?.errorText }))
+    page.on('response', response => { if (response.status() >= 400) recordPageEvent({ kind: 'http-error', url: response.url(), status: response.status() }) })
+    page.on('close', () => recordPageEvent({ kind: 'page-closed', url: page.url() }))
+  }
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
   async function until(fn, label, timeout = 90000) {
     const start = Date.now(); let last
@@ -179,9 +193,13 @@ async function run() {
     return until(async () => {
       if (!connection?.isConnected()) connection = await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 4000 })
       for (const context of connection.contexts()) for (const page of context.pages()) {
+        observePage(page)
         writeFileSync(join(evidence, 'last-page.json'), JSON.stringify({ url: page.url(), expectedVersion: version }))
         if (!page.url().startsWith('http://127.0.0.1:')) continue
         const status = await invoke(page, 'desktop_status')
+        const sample = { time: new Date().toISOString(), url: page.url(), expectedVersion: version, status }
+        if (!status.hostRunning) sample.update = await invoke(page, 'desktop_update_status').catch(error => ({ error: error.message }))
+        if (attachSamples.length < 250) attachSamples.push(sample)
         if (status.version === version && status.hostRunning && status.updaterConfigured) {
           const notice = page.getByRole('button', { name: 'Continue', exact: true })
           if (await notice.isVisible().catch(() => false)) await notice.click()
@@ -298,7 +316,7 @@ async function run() {
       assert.ok(rejected, 'Install without confirmation must fail')
       assert.ok((await invoke(page, 'desktop_status')).hostRunning, 'Unconfirmed install stopped Host')
       // Actual native updater installs signed NSIS, stops Host, then restarts the app.
-      void invoke(page, 'desktop_install_update', { confirmStop: true }).catch(() => {})
+      void invoke(page, 'desktop_install_update', { confirmStop: true }).catch(error => recordPageEvent({ kind: 'install-ipc-ended', error: error.message }))
       page = await attached(version)
       await checkpoint(page, version)
     }
@@ -323,6 +341,16 @@ async function run() {
       }
     }
     writeFileSync(join(evidence, 'requests.json'), JSON.stringify(requests, null, 2))
+    writeFileSync(join(evidence, 'attach-samples.json'), JSON.stringify(attachSamples, null, 2))
+    writeFileSync(join(evidence, 'page-events.json'), JSON.stringify(pageEvents, null, 2))
+    try {
+      const inventory = execFileSync('powershell', ['-NoLogo','-NoProfile','-NonInteractive','-Command',
+        "Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('xharness-desktop.exe','xharness-host.exe') } | Select-Object Name,ProcessId,ParentProcessId,ExecutablePath | ConvertTo-Json -Compress"], { encoding: 'utf8', timeout: 10000 })
+      writeFileSync(join(evidence, 'native-processes.json'), inventory)
+      const executable = join(installDir, 'xharness-desktop.exe')
+      if (existsSync(executable)) writeFileSync(join(evidence, 'installed-image.json'), JSON.stringify({ sha256: hash(executable) }))
+    } catch (error) { recordPageEvent({ kind: 'inventory-error', error: error.message }) }
+
     // Only disposable CI runner processes; never used on a user's workstation.
     for (const name of ['xharness-desktop.exe', 'xharness-host.exe']) {
       try { execFileSync('taskkill', ['/IM', name, '/T', '/F'], { stdio: 'ignore' }) } catch { /* already stopped */ }
