@@ -51,6 +51,7 @@ try {
   assert.equal(await page.evaluate(() => api.normalizeAddress('example.com:8080').url), 'https://example.com:8080/')
   assert.equal(await page.getByText('浏览器', { exact: true }).count(), 0, 'do not show a vertical browser label')
   assert.equal(await page.getByRole('tab').count(), 0, 'browser content must not create nested tabs')
+  if (process.env.UI_TEST_IMPL !== 'legacy') assert.equal(await page.locator('.xhbrowser-footer, .xhbrowser-status-dot').count(), 0, 'web pane has no engine status strip or empty footer')
   const toolbar = page.locator('.xhbrowser-toolbar')
   assert.deepEqual(await toolbar.locator(':scope > *').evaluateAll(nodes => nodes.map(node => node.className)),
     ['xhbrowser-nav', 'xhbrowser-annotate', 'xhbrowser-address-form', 'xhbrowser-actions', 'xhbrowser-more'])
