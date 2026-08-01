@@ -28,12 +28,23 @@ Windows 原始 `PASS.json` 和 `cache-reopen.json` 位于同目录的 `windows/`
 
 ## 源码绑定与回归
 
-- Unix 原生包基于 `16e4d439efb38ab01c223c923ef2623832152bfe`；到 Windows 修复提交 `92d8e00c8ee042f703aaca17db86eff8a58c9cc7`，生产 Rust、UI 和 Unix 驱动源码未改变。逐文件哈希校验见 `desktop-native-updates-20261004/unix-source-binding.json`；之后只补 Windows 演练调用与报告，不拿文档 SHA 冒充安装包 SHA。
+- Unix 原生包基于 `16e4d439efb38ab01c223c923ef2623832152bfe`；到 Windows 修复提交 `92d8e00c8ee042f703aaca17db86eff8a58c9cc7`，生产 Rust、UI 和 Unix 驱动源码未改变。逐文件哈希校验见 `desktop-native-updates-20261004/unix-source-binding.json`；后续仅补验收测试和报告，不拿测试／文档 SHA 冒充安装包 SHA。
 - V100 桌面库 **46 项**、全目标 check、全目标 Clippy `-D warnings` 通过。46 是整个桌面库测试数量，不是 46 个独立缓存测试。首次隔离目录缺 Tauri sidecar 资源，按既有暂存脚本补齐后重验；该 V100 lib 测试不冒充真实安装，真实 Host 在原生 runner 从同一源码重新编译。
 - Node updater **22 组**；严格 TS、确定性构建／漂移检查、干净隔离 UI 构建通过。
 - Chromium／WebKit：启动首屏各 **30** 场景，更新器交互各 **24 + 4** 场景；完整 53 模块图启动、设置、模型强度与工作中心导航通过。
 - Unix 隔离／升级契约 **43** 项、发布构建契约 **48** 项、Windows 演练来源／隔离 **18** 项；原正式 Windows 来源、签名与发布门禁未削弱。
 - 详细本地日志保存在 `/tmp/xharness-background-20261004/`，完整 CI 和原生运行日志在上面的 Actions 及 PR #215。
+
+## 全量 UI 门禁失败的定位与测试修复
+
+最终报告提交的全量 CI [第一次](https://github.com/123123213weqw/x-harness-rs/actions/runs/37183695252/attempts/1)在 WebKit 的选区保留断言失败；未改源码的[完整复验](https://github.com/123123213weqw/x-harness-rs/actions/runs/37183695252/attempts/2)又在另一项 WebKit 工具折叠测试失败。两次失败保留，不作为通过结果，也没有继续盲目重跑。
+
+在 V100 Linux 上用 `taskset -c 0,1`、Playwright 1.61.1、Node 20.20.2 复现两个原测试：各五轮，共 10 次，3 次失败。诊断确认：
+
+1. 选区测试释放旧焦点后，仅等待一个按钮仍在 DOM，并不代表首行的测量／滚动锚点稳定；目标文本可能在选区建立前已被窗口化。修正为明确滚到首行、等连续三帧的真实几何稳定、收到原生 `selectionchange` 后才滚离；原有“不驱逐选区”断言保留，另加选中文本逐字不变断言。
+2. 折叠测试缩小视口后保留读者的焦点／选区，摘要入口的重型按钮可能正当地落在视口外被窗口化。现场工具 3／4 已折叠，0／1／2／5、焦点和选区均正常，错误来自要求屏幕外按钮必须存在。改为检查这两个实际可折叠工具消失、四个受保护工具保留、轻量摘要入口仍驻留，同时新增焦点和选中文本不变断言。前面已有的可见摘要展开／折叠测试没有删除。
+
+修复仅修改两个测试，**不修改生产 UI、Rust 或更新器**。同样 Linux 双核条件的两个测试各五轮 **10/10 通过**；Mac Chromium／WebKit 两个测试 **4/4 通过**。这是 CI 夹具正确性回归，不是性能基准；最终 Node 22 全量门禁仍以 PR 当前提交的 CI 为准。机器可读计数／日志哈希见 `desktop-native-updates-20261004/ci-fixture-regression.json`。
 
 ## 不包含的证明
 
