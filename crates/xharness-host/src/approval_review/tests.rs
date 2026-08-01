@@ -12,7 +12,7 @@ use std::sync::{
 use tokio::sync::Semaphore;
 use xharness_api::{ApiBackend, RpcMethod};
 use xharness_core::{IdentityContextPolicy, ModelProvider, ProviderError, ProviderStream};
-use xharness_session::{MemorySessionStore, Store};
+use xharness_session::{EventData, MemorySessionStore, Store};
 use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, ToolSpec};
 
 struct Fake {
@@ -614,4 +614,28 @@ async fn fallback_clears_review_phase_even_when_human_acknowledgement_is_in_flig
         deciding.load(Ordering::SeqCst),
         "phase changes must not steal a decision claim"
     );
+}
+
+#[test]
+fn empty_latest_user_request_does_not_reuse_older_authorization() {
+    let mut session = Session::new(xharness_session::SessionHeader::new("empty-request")).unwrap();
+    session
+        .append_batch(
+            xharness_session::Revision::ZERO,
+            vec![
+                EventData::TurnStart { turn: 1 }.into(),
+                EventData::UserMessage {
+                    message: AgentMessage::user("old authorization"),
+                    surface_replace: None,
+                }
+                .into(),
+                EventData::UserMessage {
+                    message: AgentMessage::user(""),
+                    surface_replace: None,
+                }
+                .into(),
+            ],
+        )
+        .unwrap();
+    assert!(request_scope(&session).is_none());
 }
