@@ -3062,12 +3062,37 @@ impl Runner {
     }
 
     fn validate_command(&self, command: &LoopCommand) -> Result<(), LoopControlError> {
-        if let LoopCommand::ApproveTool { call_id } | LoopCommand::RejectTool { call_id, .. } =
-            command
+        if let LoopCommand::ApproveTool { call_id }
+        | LoopCommand::ReviewToolDecision { call_id, .. }
+        | LoopCommand::RejectTool { call_id, .. } = command
         {
             if self.closed_approval_calls.contains(call_id) {
                 return Err(LoopControlError::Rejected(
                     "approval is no longer pending".into(),
+                ));
+            }
+        }
+        if let LoopCommand::ReviewToolDecision {
+            user_request_sha256,
+            ..
+        } = command
+        {
+            let last_user = self
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.role == Role::User);
+            if self
+                .pending_messages
+                .iter()
+                .any(|message| matches!(message.role, Role::User | Role::System))
+                || last_user.is_none_or(|message| {
+                    format!("{:x}", Sha256::digest(message.content.as_bytes()))
+                        != *user_request_sha256
+                })
+            {
+                return Err(LoopControlError::Rejected(
+                    "reviewed user request changed; manual approval required".into(),
                 ));
             }
         }
@@ -3134,6 +3159,19 @@ impl Runner {
             }
             LoopCommand::ApproveTool { call_id } => {
                 self.store_approval(call_id, ApprovalDecision::Approved);
+                Ok(false)
+            }
+            LoopCommand::ReviewToolDecision {
+                call_id, approved, ..
+            } => {
+                self.store_approval(
+                    call_id,
+                    if approved {
+                        ApprovalDecision::Approved
+                    } else {
+                        ApprovalDecision::Rejected("rejected by independent AI review".into())
+                    },
+                );
                 Ok(false)
             }
             LoopCommand::RejectTool { call_id, reason } => {
