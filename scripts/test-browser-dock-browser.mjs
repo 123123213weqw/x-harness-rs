@@ -51,6 +51,7 @@ try {
   const centerBefore = await page.locator('._84hhiq_centerCol').evaluate(element => element.getBoundingClientRect().width)
   await page.getByRole('button', { name: '展开右侧工作区' }).click()
   await page.getByRole('region', { name: '工作区' }).waitFor()
+  if (process.env.UI_TEST_IMPL !== 'legacy') assert.equal(await page.getByRole('tab', { name: '新标签页', exact: true }).locator('.xhworkspace-kind').count(), 0, 'new browser tabs have no leading icon or icon spacer')
   await page.waitForTimeout(400)
   const wide = await page.evaluate(() => {
     const frame = document.querySelector('[data-xhworkspace-open]')
@@ -111,6 +112,10 @@ try {
   await page.evaluate(() => { layoutService.attachPanels(layoutActions); layoutService.openDetails() })
   await page.getByRole('tab', { name: '工具详情' }).waitFor()
   assert.equal(await page.getByRole('tab').count(), 2, 'tool details and browser share one tab strip')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    assert.equal(await page.getByRole('tab', { name: 'example.com', exact: true }).locator('.xhworkspace-kind').count(), 0, 'navigating does not restore the browser icon')
+    assert.equal(await page.getByRole('tab', { name: '工具详情', exact: true }).locator('.xhworkspace-kind').count(), 1, 'tool tab identification is unchanged')
+  }
   await page.getByRole('tab', { name: 'example.com' }).click()
   assert.equal(await page.getByRole('textbox', { name: '网址' }).inputValue(), 'https://example.com/')
   await page.getByRole('textbox', { name: '网址' }).fill('example.org')
