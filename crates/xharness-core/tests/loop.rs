@@ -7088,3 +7088,60 @@ async fn compaction_backoff_accepts_pause_resume_steer_and_cancel_without_tools(
         assert_eq!(provider.inner.attempts(), if cancelled { 1 } else { 2 });
     }
 }
+
+#[tokio::test]
+async fn independent_review_is_fenced_against_pending_user_steering() {
+    use sha2::{Digest, Sha256};
+    for changed in [false, true] {
+        let provider = Arc::new(ScriptProvider::new([
+            vec![
+                Ok(tool_delta(0, "review-call", "guarded", "{}")),
+                Ok(completed_for_calls()),
+            ],
+            vec![Ok(completed())],
+        ]));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let count = executions.clone();
+        let tool = TestToolSpec::new("guarded", "fixture", json!({}), move |_, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("executed") }
+        })
+        .requires_approval();
+        let mut request = LoopRequest::new(provider, vec![AgentMessage::user("original task")]);
+        install_tool(&mut request, tool).await;
+        let mut run = LoopEngine.start(request);
+        let call_id = loop {
+            let event = run.next().await.unwrap();
+            if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
+                break call.id;
+            }
+        };
+        if changed {
+            run.send(LoopCommand::Steer(AgentMessage::user(
+                "do not execute the old task",
+            )))
+            .await
+            .unwrap();
+        }
+        let decision = run
+            .send(LoopCommand::ReviewToolDecision {
+                call_id: call_id.clone(),
+                approved: true,
+                user_request_sha256: format!("{:x}", Sha256::digest(b"original task")),
+            })
+            .await;
+        assert_eq!(decision.is_ok(), !changed);
+        if changed {
+            assert_eq!(executions.load(Ordering::SeqCst), 0);
+            run.send(LoopCommand::RejectTool {
+                call_id,
+                reason: "manual rejection".into(),
+            })
+            .await
+            .unwrap();
+        }
+        while run.next().await.is_some() {}
+        assert_eq!(run.result().await.status, LoopStatus::Completed);
+        assert_eq!(executions.load(Ordering::SeqCst), usize::from(!changed));
+    }
+}
