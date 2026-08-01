@@ -13,6 +13,7 @@ assert.ok(graph.entries.findIndex(value => value.id === layout) < graph.entries.
 assertRebuildInput(browser);assertRebuildInput(layout)
 assert.doesNotMatch(read(`ui/dist/plugins/${browser}/client.js`), /BrowserAccess|useBrowserAccess|xhbrowser-access-/,
   'manual browser access controls must not return in fresh builds')
+assert.doesNotMatch(read(`ui/dist/plugins/${browser}/client.js`), /xhbrowser-footer|xhbrowser-status-dot|独立网页引擎/,'the engine status strip and its reserved height must not return')
 const frozen=read(`ui/reference/master-a613970/plugins/${layout}/client.js`);assert.equal(patchBrowserDock(Buffer.from(frozen)).toString(),frozen,'historical frozen dock patch remains idempotent')
 const shippedLayout = read(`ui/dist/plugins/${layout}/client.js`)
 const previousLayers = frozen.replaceAll('isolation:isolate;z-index:0;', '')
