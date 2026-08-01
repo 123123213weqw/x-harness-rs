@@ -11,3 +11,6 @@ serde.workspace = true
 serde_json.workspace = true
 xharness-core = { path = "../xharness-core" }
 xharness-session = { path = "../xharness-session" }
+
+[dev-dependencies]
+schemars = "1"

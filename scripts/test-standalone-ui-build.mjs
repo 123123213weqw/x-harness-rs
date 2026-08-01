@@ -55,7 +55,8 @@ test('clean isolated checkout builds without dist, old builders, patch scripts o
   const good = result => assert.equal(result.status, 0, result.stdout + result.stderr)
   try {
     mkdirSync(join(repo, 'scripts'), { recursive: true })
-    for (const path of ['assemble-static-ui.mjs', 'ui-build-contract.mjs', 'build-plugin-api.mjs', 'build-source-modules.mjs', 'owned-ui-type-policy.mjs', 'build-script-assets.mjs', 'build-platform-ui.mjs', 'rebuild-ui.sh']) cpSync(join(root, 'scripts', path), join(repo, 'scripts', path))
+    for (const path of ['assemble-static-ui.mjs', 'ui-build-contract.mjs', 'build-plugin-api.mjs', 'build-source-modules.mjs', 'owned-ui-type-policy.mjs', 'build-script-assets.mjs', 'build-platform-ui.mjs', 'rebuild-ui.sh', 'generate-session-terminal-contract.mjs']) cpSync(join(root, 'scripts', path), join(repo, 'scripts', path))
+    cpSync(join(root, 'protocol'), join(repo, 'protocol'), { recursive: true })
     for (const path of ['src', 'types', 'modules.json', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.sources.json', 'source-vendors.json', 'platform-npm-provenance.json']) cpSync(join(root, 'ui', path), join(ui, path), { recursive: true })
     const productionAssets = JSON.parse(readFileSync(join(ui, 'modules.json'))).assets
     for (const {source} of productionAssets) {
@@ -78,6 +79,12 @@ test('clean isolated checkout builds without dist, old builders, patch scripts o
     good(run('npm', 'run', 'build', '--prefix', 'ui'))
     assert.deepEqual(treeHashes(output), first, 'identical inputs generate byte-identical outputs')
     good(run('npm', 'run', 'check:build', '--prefix', 'ui'))
+    const generatedContract = join(ui, 'src/modules/shared/generated/session-terminal.ts'), originalContract = readFileSync(generatedContract)
+    writeFileSync(generatedContract, originalContract + '\n// stale contract\n')
+    assert.notEqual(run('npm', 'run', 'build', '--prefix', 'ui').status, 0, 'protocol drift fails before UI publication')
+    assert.notEqual(run('node', 'scripts/assemble-static-ui.mjs').status, 0, 'direct assembly cannot bypass the same contract gate')
+    assert.deepEqual(treeHashes(output), first)
+    writeFileSync(generatedContract, originalContract)
     writeFileSync(join(output, 'index.html'), 'stale output')
     assert.notEqual(run('npm', 'run', 'check:build', '--prefix', 'ui').status, 0, 'consistency check detects stale committed output without repairing it')
     assert.equal(readFileSync(join(output, 'index.html'), 'utf8'), 'stale output')

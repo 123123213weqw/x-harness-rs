@@ -1,5 +1,15 @@
 # XHarness 总任务清单
 
+## Host → UI 契约强制对齐（2026-10-04）
+
+- [x] `WIRE-01` 第一阶段收口 turn/end：持久历史投影与旧 Core 驱动使用同一 Rust DTO；测试导出 JSON Schema，生成 TS 类型与 codec；Chat、Trajectory、Session 严格边界共用校验，保留旧别名、扩展字段与原始日志。
+- [x] `WIRE-02` 构建生成物漂移门禁、真实 Rust 输出→生产前端组装器回归、固定 v1 双向兼容语料、失败历史事务/实时恢复与浏览器终态窗口验收接入 CI；未支持的 Schema 约束直接阻断生成。
+- [x] `WIRE-03a` WZU_Server 独立目录根 Workspace 全量测试及 Clippy、56 组本机回归命令、Chromium/WebKit 各 42 个真实终态窗口通过；见 `docs/evidence/session-terminal-contract-20261004.md`。
+- [ ] `WIRE-03b` 当前提交 GitHub 跨平台 CI 全绿后才能合并；源码通过不代表 Windows 原生实机、桌面部署或全部协议迁移完成。
+- [ ] `WIRE-04` 分族迁移工具视图 discriminator、Step/Assistant、Compaction 和其余 RPC；每族加入实际输出→实际读取回归后删手写分支，保留开放插件事件及旧持久格式。
+
+规格见 `docs/specs/session-terminal-contract.md`。
+
 ## 工具空间折叠与展示档位收敛（2026-10-04）
 
 - [x] `DISPLAY-01` 运行中按可见高度 40% 折叠较早成功工具，保留最新、失败、等待、焦点和文本选择；手动展开优先，复用整轮与虚拟列表。

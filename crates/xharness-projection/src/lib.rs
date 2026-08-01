@@ -11,6 +11,7 @@ use xharness_session::{
 };
 
 pub mod metrics;
+pub mod wire;
 use metrics::web_token_usage;
 
 const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;
@@ -1058,7 +1059,8 @@ pub fn restored_web_event(
         ),
         EventData::TurnEnd { turn, reason } => (
             "turn/end".to_owned(),
-            json!({"turn": web_turn(*turn), "reason": web_turn_end(reason)}),
+            serde_json::to_value(wire::TurnEndData::from_durable(*turn, reason))
+                .expect("turn end DTO contains only serializable fields"),
             None,
         ),
         EventData::StepStart { turn, step } => (
@@ -1266,23 +1268,8 @@ fn web_turn(turn: u32) -> u32 {
 }
 
 pub fn web_turn_end(reason: &TurnEndReason) -> Value {
-    match reason {
-        TurnEndReason::Completed => json!({"kind": "completed"}),
-        TurnEndReason::MaxTokens => json!({"kind": "max-tokens"}),
-        TurnEndReason::Cancelled | TurnEndReason::UserInterrupted => json!({"kind": "cancelled"}),
-        TurnEndReason::LimitReached => json!({"kind": "max-steps"}),
-        TurnEndReason::Failed { error } => json!({
-            "kind": "error",
-            "error": {"code": "LOOP_FAILED", "message": error},
-        }),
-        TurnEndReason::Interrupted => json!({
-            "kind": "error",
-            "error": {
-                "code": "INTERRUPTED",
-                "message": "the previous Host stopped before this turn closed",
-            },
-        }),
-    }
+    serde_json::to_value(wire::TurnEndReasonWire::from(reason))
+        .expect("turn end reason DTO contains only serializable fields")
 }
 
 pub fn web_assistant_chunk(chunk: &AssistantChunk) -> Value {
