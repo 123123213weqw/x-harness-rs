@@ -197,6 +197,9 @@ export function SidebarRoot({
 
       {/* Footer actions stack above Settings in both sidebar widths. */}
       <div className={css.footArea}>
+        {/* Native bridge reserves this row only when updates are configured.
+            Its floating panel stays outside the sidebar's clipping boundary. */}
+        <div id="xharness-sidebar-updater-slot" hidden />
         <div className={css.footerActions}>
           {renderSlot('sidebar.footer.action', { wide })}
         </div>
