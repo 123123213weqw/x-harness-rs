@@ -170,7 +170,7 @@ function SidebarRoot({ collapsed, width, startSession, toggleSidebar, t, renderS
                     wide,
                     expandSidebar: () => { if (collapsed)
                         toggleSidebar(); },
-                }) }), (0, jsx_runtime_1.jsxs)("div", { className: SidebarRoot_styles_1.default.footArea, children: [(0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.footerActions, children: renderSlot('sidebar.footer.action', { wide }) }), (0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.settingsArea, children: renderSlot('sidebar.settings', { wide }) })] })] }));
+                }) }), (0, jsx_runtime_1.jsxs)("div", { className: SidebarRoot_styles_1.default.footArea, children: [(0, jsx_runtime_1.jsx)("div", { id: "xharness-sidebar-updater-slot", hidden: true }), (0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.footerActions, children: renderSlot('sidebar.footer.action', { wide }) }), (0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.settingsArea, children: renderSlot('sidebar.settings', { wide }) })] })] }));
 }
 
 },
