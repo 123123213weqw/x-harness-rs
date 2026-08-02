@@ -1,0 +1,69 @@
+{
+  "verifiedAt": "2026-10-04T11:10:32.761343+00:00",
+  "implementation": "Opt-in display-only stream smoothing in the actual production Markdown renderer. Assistant prose uses the existing incremental parser and frozen blocks; old whole-paragraph animation is excluded for this renderer.",
+  "parameters": {
+    "batchMs": 50,
+    "fadeMs": 150,
+    "largeBurstBypassCharacters": 1024,
+    "maximumRecentRanges": 4
+  },
+  "newTests": {
+    "streamPresentationAndRenderer": 10,
+    "legacyMotionExclusion": 1
+  },
+  "localRegressionGroupsPassed": [
+    46,
+    23,
+    74,
+    23
+  ],
+  "localRegressionTotalPassed": 166,
+  "localRegressionFailed": 0,
+  "build": "Strict owned UI build, deterministic output check and type policy passed. Demo typecheck uses the same ES2022/Bundler family of options as the production platform.",
+  "browser": {
+    "raw": {
+      "animated": 0,
+      "mode": "原始流式",
+      "owned": false,
+      "status": "正在输出收到即显示 · 无动画"
+    },
+    "natural": {
+      "mode": "自然淡入",
+      "owned": true,
+      "pieces": [
+        {
+          "delay": "-0.001s",
+          "duration": "0.15s",
+          "opacity": "0.990765",
+          "text": "让文字"
+        }
+      ],
+      "status": "正在输出50ms 合批 · 150ms 淡入"
+    }
+  },
+  "manualChecks": [
+    "Natural mode: running prose has 0.15s opacity animations only on recent pieces, with retained age.",
+    "Raw mode: no stream-piece wrappers and no owned renderer attribute.",
+    "Structured mode: streaming code has no animated descendants; final code text, 3 table rows and 1 KaTeX formula are present, with zero remaining animated pieces.",
+    "Burst mode: 1439 visible characters before completion, including a 1414-character paragraph. A small subsequent append was animated; the bulk was already visible. Immediate completion produced all 2451 source characters.",
+    "Actual chat on port 3266 reloaded the final platform bundle, restored 2 owned Markdown renderers and 0 stream-piece animations in old history."
+  ],
+  "cost": "No model/API calls from this work or demo. Existing paid test budget was not reset.",
+  "notPerformed": [
+    "Native desktop replacement",
+    "Native WebKit performance profiling",
+    "New real model call",
+    "Rust compilation",
+    "GitHub CI run",
+    "Commit/push/PR/merge/release"
+  ],
+  "demoUrl": "http://127.0.0.1:3267/",
+  "chatUrl": "http://127.0.0.1:3266/",
+  "logs": [
+    "/tmp/xh-stream-motion-build-20261004.log",
+    "/tmp/xh-stream-motion-tests-20261004.log",
+    "/tmp/xh-stream-motion-final-tests-20261004.log",
+    "/tmp/xh-stream-motion-demo-types-20261004.log"
+  ],
+  "screenshot": "demo.png"
+}

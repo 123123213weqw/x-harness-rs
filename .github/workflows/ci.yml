@@ -126,7 +126,9 @@ jobs:
           node --test scripts/test-ui-migration-reference.mjs scripts/test-owned-ui-type-policy.mjs scripts/test-source-module-builder.mjs scripts/test-plugin-api-types.mjs scripts/test-owned-script-assets.mjs
           node scripts/test-foundation-source-modules.mjs
           node scripts/test-product-source-modules.mjs
-          node --test scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
+          node --test scripts/test-automation-tool-card.mjs scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
+          node --test scripts/test-stream-presentation.mjs
+          node --test scripts/test-reasoning-summary.mjs
           node scripts/test-view-source-modules.mjs
           node scripts/test-model-selection-source.mjs
           node scripts/test-attachment-source.mjs

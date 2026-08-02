@@ -471,9 +471,7 @@ def write_matrix(
         "web_search",
         "web_fetch",
         "ask_user_question",
-        "schedule_create",
-        "schedule_list",
-        "schedule_delete",
+        "automation",
     }
     tool_literals = sorted({item.literal for item in tools if item.literal})
     remote_endpoints = sorted({item.endpoint for item in remotes if item.endpoint})

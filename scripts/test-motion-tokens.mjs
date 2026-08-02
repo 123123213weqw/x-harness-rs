@@ -16,7 +16,7 @@ assert.ok(JSON.parse(read('ui/modules.json')).assets.some(asset => asset.path ==
 
 for (const name of [
   'fast', 'control', 'overlay-in', 'overlay-out', 'panel-in',
-  'panel-out', 'stream-in', 'status-pulse', 'logo-cycle',
+  'panel-out', 'stream-in', 'stream-text', 'reasoning-flip', 'status-pulse', 'logo-cycle',
 ]) assert.match(source, new RegExp(`--xh-duration-${name}:`))
 for (const name of ['panel', 'stream', 'in', 'out', 'in-out', 'standard']) {
   assert.match(source, new RegExp(`--xh-ease-${name}:`))
