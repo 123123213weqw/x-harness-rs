@@ -5,6 +5,14 @@ import type { CatalogScope, CatalogEntry, InstalledPlugin, PluginUpdate } from '
 
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { createPluginClient, errorMessage } from '@xlang/xharness-client-plugin-api'
+import { Modal, Button } from '@xharness/dsh-client-ui-primitives'
+interface Confirmation {
+  key: string
+  title: string
+  message: string
+  label: string
+  action: () => Promise<unknown>
+}
 const NS = 'xharness.pluginHub'
 const zh = {
   title: '插件', search: '搜索插件', installed: '已安装', public: '公开', personal: '个人',
@@ -15,6 +23,7 @@ const zh = {
   skills: '技能', failed: '操作失败', imported: '目录已导入', confirmInstall: '确认安装此插件？将先校验 SHA-256，安装后默认停用。',
   confirmUninstall: '卸载此插件？', noSkills: '无可运行 Skill', allowMcp: '允许 MCP', stopMcp: '停用 MCP',
   confirmMcp: '允许此插件在本机启动以下 MCP 程序？只有调用时才启动。环境变量仅显示名称，不显示值。',
+  cancel: '取消', close: '关闭',
 }
 const en = {
   title: 'Plugins', search: 'Search plugins', installed: 'Installed', public: 'Public', personal: 'Personal',
@@ -25,6 +34,7 @@ const en = {
   skills: 'Skills', failed: 'Operation failed', imported: 'Catalog imported', confirmInstall: 'Install this plugin? Its SHA-256 will be verified and it will remain disabled by default.',
   confirmUninstall: 'Uninstall this plugin?', noSkills: 'No runnable Skills', allowMcp: 'Allow MCP', stopMcp: 'Disable MCP',
   confirmMcp: 'Allow this plugin to launch these local MCP programs? They start only when called. Environment variable names are shown, not values.',
+  cancel: 'Cancel', close: 'Close',
 }
 
 function PluginIcon() {
@@ -58,20 +68,49 @@ function PluginHub({ t, call }: PluginHubProps) {
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
   const [detail, setDetail] = useState<string | null>(null)
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
+  const pending = useRef<Confirmation | null>(null)
+  const life = useRef({ active: true, generation: 0, busy: false })
   const input = useRef<HTMLInputElement>(null)
-  async function reload() {
+  const current = (generation: number) => life.current.active && life.current.generation === generation
+  async function reload(generation = life.current.generation) {
     const [a, b, c] = await Promise.all([call('plugins/catalog'), call('plugins/installed'), call('plugins/updates')])
-    setCatalog(a.plugins ?? []); setInstalled(b.plugins ?? []); setUpdates(c.updates ?? [])
+    if (current(generation)) { setCatalog(a.plugins ?? []); setInstalled(b.plugins ?? []); setUpdates(c.updates ?? []) }
   }
+  useEffect(() => {
+    life.current.active = true
+    life.current.busy = false
+    pending.current = null
+    setConfirmation(null); setBusy('')
+    return () => { life.current.active = false; life.current.generation++; pending.current = null }
+  }, [call])
   useEffect(() => { let active = true; Promise.all([call('plugins/catalog'), call('plugins/installed'), call('plugins/updates')])
     .then(([a, b, c]) => { if (active) { setCatalog(a.plugins ?? []); setInstalled(b.plugins ?? []); setUpdates(c.updates ?? []) } })
     .catch((e: unknown) => { if (active) setError(errorMessage(e)) })
     return () => { active = false }
   }, [call])
-  async function run(key: string, action: () => Promise<unknown>) {
+  async function run<T>(key: string, action: () => Promise<T>, reloadAfter = true): Promise<T | undefined> {
+    if (!life.current.active || life.current.busy || pending.current) return
+    const generation = life.current.generation
+    life.current.busy = true
     setBusy(key); setError(''); setStatus('')
-    try { await action(); await reload() } catch (e) { setError(`${t('failed')}: ${errorMessage(e)}`) }
-    finally { setBusy('') }
+    try { const result = await action(); if (current(generation) && reloadAfter) await reload(generation); return result }
+    catch (e) { if (current(generation)) setError(`${t('failed')}: ${errorMessage(e)}`); return undefined }
+    finally { if (current(generation)) { life.current.busy = false; setBusy('') } }
+  }
+  function requestConfirmation(value: Confirmation) {
+    if (!life.current.active || life.current.busy || pending.current) return
+    pending.current = value
+    setConfirmation(value)
+  }
+  function cancelConfirmation() { pending.current = null; setConfirmation(null) }
+  function acceptConfirmation() {
+    const value = pending.current
+    if (!value) return
+    // Consume the acknowledgement synchronously: rapid clicks cannot enqueue
+    // a second mutation before React commits the disabled state.
+    pending.current = null; setConfirmation(null)
+    void run(value.key, value.action)
   }
   async function importFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -82,14 +121,18 @@ function PluginHub({ t, call }: PluginHubProps) {
   }
   async function toggleMcp(item: InstalledPlugin) {
     if (!item.mcpEnabled) {
-      const preview = await call('plugins/mcpPreview', { name: item.name })
+      const generation = life.current.generation
+      const preview = await run(item.name, () => call('plugins/mcpPreview', { name: item.name }), false)
+      if (!preview || !current(generation)) return
       const summary = (preview.servers ?? []).map(server => {
         const bindings = Object.entries(server.envSources ?? {}).map(([key, source]) => `${key} ← ${source}`)
         return `${server.server}: ${server.command} ${(server.args ?? []).join(' ')}\nENV: ${bindings.length ? bindings.join(', ') : (server.envKeys ?? []).join(', ')}`
       }).join('\n')
-      if (!window.confirm(`${t('confirmMcp')}\n${summary}`)) return
+      requestConfirmation({ key: item.name, title: `${t('allowMcp')}: ${item.name}`, message: `${t('confirmMcp')}\n${summary}`,
+        label: t('allowMcp'), action: () => call('plugins/mcpEnable', { name: item.name }) })
+      return
     }
-    await call(`plugins/${item.mcpEnabled ? 'mcpDisable' : 'mcpEnable'}`, { name: item.name })
+    await run(item.name, () => call('plugins/mcpDisable', { name: item.name }))
   }
   const options = ['public', 'personal'] as const
   const selectedCatalog = catalog.find(item => item.name === detail)
@@ -106,12 +149,14 @@ function PluginHub({ t, call }: PluginHubProps) {
         onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter') setDetail(item.name) } },
         h('div', { className: 'xhph-name' }, item.name),
         h('div', { className: 'xhph-desc' }, item.description || item.version)),
-      h('button', { className: 'xhph-button', disabled: !!busy, onClick: () => run(item.name, async () => {
-        if ((!isInstalled || updateAvailable) && !window.confirm(`${t('confirmInstall')}\n${item.source?.url ?? ''}\nSHA-256: ${item.source?.sha256 ?? ''}`)) return
-        if (mcpOnly && !updateAvailable && saved) { await toggleMcp(saved); return }
-        const endpoint = !saved || updateAvailable ? 'plugins/install' : saved.enabled ? 'plugins/disable' : 'plugins/enable'
-        await call(endpoint, { name: item.name })
-      }) }, busy === item.name ? t('working') : t(label)))
+      h('button', { className: 'xhph-button', disabled: !!busy || !!confirmation, onClick: () => {
+        if (!isInstalled || updateAvailable) {
+          requestConfirmation({ key: item.name, title: `${t(label)}: ${item.name}`, label: t(label),
+            message: `${t('confirmInstall')}\n${item.source?.url ?? ''}\nSHA-256: ${item.source?.sha256 ?? ''}`,
+            action: () => call('plugins/install', { name: item.name }) })
+        } else if (mcpOnly && saved) { void toggleMcp(saved) }
+        else if (saved) { void run(item.name, () => call(saved.enabled ? 'plugins/disable' : 'plugins/enable', { name: item.name })) }
+      } }, busy === item.name ? t('working') : t(label)))
   }
   return h('section', { className: 'xhph', 'data-xharness-plugin-hub': true },
     h('header', { className: 'xhph-head' }, h('h1', null, t('title')),
@@ -145,10 +190,16 @@ function PluginHub({ t, call }: PluginHubProps) {
       h('p', null, `${t('digest')}: `, h('code', null, selected.source?.sha256 ?? selected.digest ?? '')),
       h('p', null, `${t('capabilities')}: ${(selected.capabilities ?? []).join(', ') || t('noSkills')}`),
       selectedInstalled?.capabilities?.includes('mcp') && h('button', { className: 'xhph-button', type: 'button', disabled: !!busy,
-        onClick: () => run(selected.name, () => toggleMcp(selectedInstalled)) }, t(selectedInstalled.mcpEnabled ? 'stopMcp' : 'allowMcp')),
+        onClick: () => toggleMcp(selectedInstalled) }, t(selectedInstalled.mcpEnabled ? 'stopMcp' : 'allowMcp')),
       h('p', null, t('unsupported')),
       installed.some(p => p.name === selected.name) && h('button', { className: 'xhph-button', disabled: !!busy,
-        onClick: () => run(selected.name, async () => { if (window.confirm(t('confirmUninstall'))) await call('plugins/uninstall', { name: selected.name }) }) }, t('uninstall'))))
+        onClick: () => requestConfirmation({ key: selected.name, title: `${t('uninstall')}: ${selected.name}`, message: t('confirmUninstall'),
+          label: t('uninstall'), action: () => call('plugins/uninstall', { name: selected.name }) }) }, t('uninstall'))),
+    h(Modal, { open: !!confirmation, title: confirmation?.title ?? '', closeLabel: t('close'), onClose: cancelConfirmation,
+      footer: h('div', { className: 'xhph-confirm-actions' },
+        h(Button, { variant: 'outline', onClick: cancelConfirmation }, t('cancel')),
+        h(Button, { variant: 'primary', onClick: acceptConfirmation }, confirmation?.label ?? '')) },
+      h('div', { className: 'xhph-confirm-message' }, confirmation?.message)))
 }
 function apply(ctx: PluginHubContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'xharness-plugin-hub: locale')

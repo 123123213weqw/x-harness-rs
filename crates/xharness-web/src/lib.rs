@@ -66,6 +66,31 @@ impl WebConfig {
     }
 }
 
+/// Anonymous HTTPS download transport shared by WebFetch and package clients.
+/// Private destinations and literal Fake-IP addresses are never allowed. A
+/// proxy's synthetic hostname answer is independently checked through public
+/// encrypted DNS; the resulting addresses are pinned without ambient proxies.
+/// Resolution has its own bounded deadline and never blocks Host startup.
+pub async fn public_https_client(raw_url: &str, timeout: Duration) -> Result<Client, WebError> {
+    let url = parse_url(raw_url)?;
+    if url.scheme() != "https" {
+        return Err(WebError::UnsupportedUrl);
+    }
+    let config = WebConfig {
+        fetch_timeout: timeout,
+        ..WebConfig::default()
+    };
+    let runtime = WebRuntime::new(config)?;
+    let cancellation = CancellationToken::new();
+    let resolved = tokio::time::timeout(
+        timeout.min(Duration::from_secs(15)),
+        runtime.resolve_target(&url, &cancellation),
+    )
+    .await
+    .map_err(|_| WebError::TimedOut)??;
+    fetch_client(&runtime.config, &url, &resolved.addresses)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchResult {
     pub title: String,
@@ -751,7 +776,8 @@ fn is_fake_dns_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn is_public_ip(ip: IpAddr) -> bool {
+/// Shared reserved/private address boundary for anonymous downloads.
+pub fn is_public_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             !(ip.is_private()
@@ -763,17 +789,19 @@ fn is_public_ip(ip: IpAddr) -> bool {
                 || ip.octets()[0] >= 224
                 || (ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1]))
                 || (ip.octets()[0] == 192 && ip.octets()[1] == 0 && ip.octets()[2] == 0)
+                || (ip.octets()[0] == 192 && ip.octets()[1] == 0 && ip.octets()[2] == 2)
+                || (ip.octets()[0] == 198 && ip.octets()[1] == 51 && ip.octets()[2] == 100)
+                || (ip.octets()[0] == 203 && ip.octets()[1] == 0 && ip.octets()[2] == 113)
                 || (ip.octets()[0] == 198 && matches!(ip.octets()[1], 18 | 19)))
         }
         IpAddr::V6(ip) => {
             if let Some(mapped) = ip.to_ipv4_mapped() {
                 return is_public_ip(IpAddr::V4(mapped));
             }
-            !(ip.is_loopback()
-                || ip.is_unspecified()
-                || ip.is_multicast()
-                || ip.is_unique_local()
-                || ip.is_unicast_link_local())
+            let segments = ip.segments();
+            (segments[0] & 0xe000) == 0x2000
+                && !(segments[0] == 0x2001
+                    && matches!(segments[1], 0x0002 | 0x0010..=0x002f | 0x0db8))
         }
     }
 }
@@ -1080,6 +1108,56 @@ mod tests {
 
     fn address(value: &str) -> SocketAddr {
         value.parse().unwrap()
+    }
+
+    #[tokio::test]
+    async fn shared_download_transport_denies_private_fake_and_cleartext_targets() {
+        for url in [
+            "https://127.0.0.1/a.zip",
+            "https://198.18.0.1/a.zip",
+            "https://192.0.2.1/a.zip",
+            "https://[::ffff:127.0.0.1]/a.zip",
+            "http://1.1.1.1/a.zip",
+            "https://user:secret@1.1.1.1/a.zip",
+        ] {
+            assert!(
+                public_https_client(url, Duration::from_secs(1))
+                    .await
+                    .is_err(),
+                "{url}"
+            );
+        }
+        assert!(
+            public_https_client("https://1.1.1.1/a.zip", Duration::from_secs(1))
+                .await
+                .is_ok()
+        );
+        assert!(public_https_client("https://1.1.1.1/a.zip", Duration::ZERO)
+            .await
+            .is_err());
+    }
+
+    #[test]
+    fn mixed_private_and_public_resolution_never_selects_one_good_address() {
+        for denied in ["10.1.1.1:443", "192.0.2.1:443", "[2001:db8::1]:443"] {
+            assert!(classify_system_resolution(
+                "download.example.com",
+                &[address("1.1.1.1:443"), address(denied)],
+                false
+            )
+            .is_err());
+        }
+        for ip in [
+            "198.51.100.1",
+            "203.0.113.1",
+            "2001:db8::1",
+            "2001:2::1",
+            "2001:10::1",
+            "2001:20::1",
+            "::ffff:198.18.0.1",
+        ] {
+            assert!(!is_public_ip(ip.parse().unwrap()), "{ip}");
+        }
     }
 
     #[test]

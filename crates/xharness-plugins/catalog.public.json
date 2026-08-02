@@ -1,0 +1,180 @@
+{
+  "plugins": [
+    {
+      "category": "developer-tools",
+      "description": "Read OpenAPI contracts, probe HTTP endpoints and build evidence-bound API regressions. Beta; Python 3 and project-specific validators are separate prerequisites.",
+      "descriptionI18n": {
+        "zh-CN": "API 联调：契约检查、HTTP 探测与接口回归。测试版。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/0b9fd36c5c7aca3ff3bce7934dbd133da4e6022201df5129e0e0138bf7dcaa5f.svg",
+      "name": "api-testing",
+      "source": {
+        "sha256": "6fcd97e26313e8feb31ea9d92849577aaffc6f8822bcd67b5b867f1829c3ad10",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/api-testing/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "developer-tools",
+      "description": "Observed browser interaction guidance. Beta; requires an available browser automation backend, not bundled here.",
+      "descriptionI18n": {
+        "zh-CN": "浏览器助手：观察、交互与结果验证。测试版，需可用的浏览器执行后端，不内置浏览器。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/ccaa00e7da37cc5d1967fd96889d669eba6a02bf6e1aa5fa179cf79bdee1cd9a.svg",
+      "name": "browser",
+      "source": {
+        "sha256": "fb7e2bb7135ffce414ea70333d9e35f7425dc616d35412a5bb23795fb6458684",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/browser/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "developer-tools",
+      "description": "Inspect databases, diagnose queries and review migrations. Beta; bundled execution is read-only SQLite, other engines require their own clients.",
+      "descriptionI18n": {
+        "zh-CN": "数据库助手：结构查看、只读查询、执行计划与迁移审查。测试版。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/0aa83dade8a6f3e1d32cdba9375fb64f392d260536678c846a91ec53ebcaf4ff.svg",
+      "name": "database",
+      "source": {
+        "sha256": "e1dda90210d67c3654ae7bb7d574170bc7a91faa2a7d5b5d46e1125645859bf0",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/database/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "developer-tools",
+      "description": "Reproduce failures, investigate hypotheses and verify minimal repairs. Beta; root-cause reports can be wrong.",
+      "descriptionI18n": {
+        "zh-CN": "故障排查：复现、验证假设、最小修复与回归。测试版，根因结论需复核。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/00056c8495ff42c4b40584fda1263d716056a7cdf277e72728e23930030a5288.svg",
+      "name": "debugging",
+      "source": {
+        "sha256": "69a1a49ca91f195d4b662d94574f8eb0ea06e0b776166446578104378784e33b",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/debugging/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "developer-tools",
+      "description": "Inspect Compose services, diagnose container failures and verify scoped configuration changes. Beta; Docker Engine/Compose are not bundled.",
+      "descriptionI18n": {
+        "zh-CN": "Docker 助手：Compose 状态、容器排障及变更验证。测试版。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/67e87a588163f24bf1f2470a5f08c85486b43fcbbd422ed743b6e1b5f80a746a.svg",
+      "name": "docker",
+      "source": {
+        "sha256": "322e74ca7ab4b26b71429c4644f428dcafe6f19af5dae3ef1005cf550cc9a6c5",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/docker/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "productivity",
+      "description": "Bounded Word, spreadsheet, presentation and PDF workflows. Beta; Python/Node dependencies must be provisioned separately.",
+      "descriptionI18n": {
+        "zh-CN": "文档助手：Word、Excel、PowerPoint、PDF 的有限处理流程。测试版，需要另行配置 Python／Node 依赖。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/4a9f2fd06bb086fcde2794717ebd16396a764c6b850d71ca7b355f419076ef6a.svg",
+      "name": "documents",
+      "source": {
+        "sha256": "806225d13c7740b8a1d36f62a627994834ff8888ed71e3a71b744f8dcb32791e",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/documents/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "developer-tools",
+      "description": "Git change delivery and evidence-grounded PR preparation. Beta; external workflows are not fully validated.",
+      "descriptionI18n": {
+        "zh-CN": "Git／PR 工作流：整理变更、提交与 PR 证据。测试版，远端完整流程仍在验收。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/ee7efb7daff0196c6e1b4cb827163e97763ad089565ff30c0364b79c1dc2a437.svg",
+      "name": "git-pr-workflows",
+      "source": {
+        "sha256": "aedab38ac3f731485fd7062f38a7ee4f02bf68dc61db8735441facd7f8a14914",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/git-pr-workflows/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "developer-tools",
+      "description": "GitHub CLI workflows for commits, PRs, Issues, releases and Actions. Requires gh and user-owned authentication.",
+      "descriptionI18n": {
+        "zh-CN": "GitHub CLI 工作流：提交、PR、Issue、发布及 Actions。需要 gh 和用户自己的授权。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/69e0de8913ee3c8acfd77a4ef8c23d2b1c31d3f6877a68628a42ee0553e12e1c.svg",
+      "name": "github",
+      "source": {
+        "sha256": "2f1b40aadb5d8ee52af7e678f85fa7ab836f8835202e86c22ee388e3e98f9ab5",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/github/0.2.0/plugin.zip"
+      },
+      "version": "0.2.0"
+    },
+    {
+      "category": "developer-tools",
+      "description": "Review code, tests, errors, comments and types with source-located findings. Beta; review-only unless edits are requested.",
+      "descriptionI18n": {
+        "zh-CN": "代码审查：检查代码、测试、异常、注释及类型，给出有位置和证据的建议。测试版。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/c81694689b138a722c436241e089d3ed70bace729967c56d97d7e280550feddb.svg",
+      "name": "pr-review",
+      "source": {
+        "sha256": "24e690e077345d6d478078a590e49876f339a2eb3cd7395d3fcfb86eb14d70f1",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/pr-review/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "developer-tools",
+      "description": "Incremental behavior-preserving refactoring and migration planning. Beta; supported project tests remain authoritative.",
+      "descriptionI18n": {
+        "zh-CN": "代码重构：拆分职责、消除重复、渐进迁移并验证行为兼容。测试版。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/288113b54e985d121a332b8148315b44ca74a48db25d39f264c1f16d0528e975.svg",
+      "name": "refactoring",
+      "source": {
+        "sha256": "c750c4afe1898d96089bd04d79249eb9d6c5136bf38be7f575538688fb71d00e",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/refactoring/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    },
+    {
+      "category": "developer-tools",
+      "description": "Behavior-grounded test generation and failure diagnosis. Beta; test coverage and report claims require verification.",
+      "descriptionI18n": {
+        "zh-CN": "单元测试：补行为、边界和异常测试，诊断测试失败。测试版，覆盖声明需实际验证。"
+      },
+      "icon": "https://engine.xxdevs.com/plugins/icons/b7d7bfb9cb74f183248ca4c42aad2e0e464a26057ba10c49f6150cb88cad6d5b.svg",
+      "name": "unit-testing",
+      "source": {
+        "sha256": "22d8d32377684b0101ca0e9248f367103ad258780733c2475a069f5bf04314df",
+        "source": "url",
+        "type": "zip",
+        "url": "https://engine.xxdevs.com/plugins/packages/unit-testing/0.1.0-beta.1/plugin.zip"
+      },
+      "version": "0.1.0-beta.1"
+    }
+  ]
+}
