@@ -148,7 +148,7 @@ jobs:
           node scripts/test-turn-process.mjs
           node scripts/test-adaptive-tool-fold.mjs
           node --test scripts/test-session-terminal-contract.mjs
-          node --test scripts/test-chat-scroll-memory.mjs scripts/test-fork-wire-contract.mjs
+          node --test scripts/test-chat-scroll-memory.mjs scripts/test-fork-wire-contract.mjs scripts/test-history-page-intent.mjs
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
