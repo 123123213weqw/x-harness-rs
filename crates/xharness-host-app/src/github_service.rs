@@ -1,5 +1,5 @@
 //! Local read-only GitHub adapter. Reuses gh's existing credential store without
-//! forwarding tokens to UI/model/storage. Fixed GET routes only; no shell, login, mutation or model
+//! forwarding tokens to UI/model/storage. Fixed read routes/GraphQL queries only; no shell, login, mutation or model
 //! tools. The injected transport is replaceable by a GitHub App auth adapter.
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -14,6 +14,10 @@ use xharness_api::{RpcError, RpcErrorCode};
 use xharness_host::GitHubBackend;
 
 const PAGE_SIZE: usize = 50;
+#[path = "github_evidence.rs"]
+mod evidence;
+#[path = "github_review_store.rs"]
+mod review_store;
 #[cfg(test)]
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 pub(super) fn failure(kind: &str, message: &str) -> RpcError {
@@ -42,6 +46,20 @@ pub trait GitHubReader: Send + Sync {
     async fn get(&self, route: &str, cancellation: CancellationToken) -> Result<Value, RpcError>;
     /// Pin credentials once per operation. Existing injected readers keep their
     /// before/after identity checks; native HTTP sessions return a verified user.
+    async fn graphql(
+        &self,
+        _query: &str,
+        _variables: Value,
+        _cancel: CancellationToken,
+    ) -> Result<Value, RpcError> {
+        Err(failure(
+            "unsupported",
+            "GitHub thread reader is unavailable",
+        ))
+    }
+    async fn logs(&self, _route: &str, _cancel: CancellationToken) -> Result<Value, RpcError> {
+        Err(failure("unsupported", "GitHub log reader is unavailable"))
+    }
     async fn session(
         &self,
         _account: Option<&str>,
@@ -81,6 +99,7 @@ pub struct NativeGitHub {
     reader: Arc<dyn GitHubReader>,
     limit: Arc<Semaphore>,
     reads: Arc<Semaphore>,
+    review_directory: Option<std::path::PathBuf>,
 }
 impl Default for NativeGitHub {
     fn default() -> Self {
@@ -93,6 +112,7 @@ impl NativeGitHub {
             reader,
             limit: Arc::new(Semaphore::new(4)),
             reads: Arc::new(Semaphore::new(4)),
+            review_directory: None,
         }
     }
     // Bound actual transports globally, even when multiple detail operations fan out.
@@ -142,6 +162,11 @@ struct Request {
     number: Option<u64>,
     page: Option<u32>,
     sha: Option<String>,
+    cursor: Option<String>,
+    thread: Option<String>,
+    run: Option<u64>,
+    attempt: Option<u64>,
+    job: Option<u64>,
 }
 fn repository(value: Option<&str>) -> Result<&str, RpcError> {
     let value = value.ok_or_else(bad)?;
@@ -195,6 +220,7 @@ struct Pull {
     mergeable_state: Option<String>,
     comments: Option<u64>,
     review_comments: Option<u64>,
+    merge_commit_sha: Option<String>,
 }
 impl Pull {
     fn summary(&self, repo: &str) -> Value {
@@ -244,6 +270,7 @@ struct Check {
     status: String,
     conclusion: Option<String>,
     head_sha: String,
+    details_url: Option<String>,
 }
 #[derive(Deserialize)]
 struct CommitStatus {
@@ -257,12 +284,13 @@ struct Status {
     context: String,
     state: String,
     description: Option<String>,
+    target_url: Option<String>,
 }
 fn check(v: Check) -> Value {
-    json!({"id":format!("check:{}",v.id),"name":v.name,"status":v.status,"conclusion":v.conclusion,"description":""})
+    json!({"id":format!("check:{}",v.id),"name":v.name,"status":v.status,"conclusion":v.conclusion,"description":"","url":v.details_url})
 }
 fn status(v: Status) -> Value {
-    json!({"id":format!("status:{}",v.id),"name":v.context,"status":if v.state == "pending" {"in_progress"} else {"completed"},"conclusion":v.state,"description":v.description.unwrap_or_default()})
+    json!({"id":format!("status:{}",v.id),"name":v.context,"status":if v.state == "pending" {"in_progress"} else {"completed"},"conclusion":v.state,"description":v.description.unwrap_or_default(),"url":v.target_url})
 }
 
 impl NativeGitHub {
@@ -281,6 +309,11 @@ impl NativeGitHub {
                 | "github/files"
                 | "github/comments"
                 | "github/reviews"
+                | "github/threads"
+                | "github/thread-comments"
+                | "github/runs"
+                | "github/jobs"
+                | "github/logs"
         ) {
             return Err(bad());
         }
@@ -309,6 +342,24 @@ impl NativeGitHub {
                 }
             }
         }
+        if args
+            .cursor
+            .as_ref()
+            .is_some_and(|s| s.is_empty() || s.len() > 512 || s.chars().any(char::is_control))
+        {
+            return Err(bad());
+        }
+        if matches!(
+            endpoint,
+            "github/threads"
+                | "github/thread-comments"
+                | "github/runs"
+                | "github/jobs"
+                | "github/logs"
+        ) && args.sha.is_none()
+        {
+            return Err(bad());
+        }
         let _permit = tokio::select! { _ = cancel.cancelled() => return Err(failure("cancelled", "GitHub request cancelled")), permit = self.limit.acquire() => permit.map_err(|_| invalid())? };
         // Credential resolution + initial identity verification also shares the
         // global transport bound. Subsequent reads use one immutable session.
@@ -326,6 +377,7 @@ impl NativeGitHub {
                 reader,
                 limit: Arc::clone(&self.limit),
                 reads: Arc::clone(&self.reads),
+                review_directory: self.review_directory.clone(),
             };
             scoped.read_authorized(endpoint, args, cancel).await
         } else {
@@ -385,6 +437,14 @@ impl NativeGitHub {
                     }
                 }
                 let result = match endpoint {
+                    "github/threads"
+                    | "github/thread-comments"
+                    | "github/runs"
+                    | "github/jobs"
+                    | "github/logs" => {
+                        self.evidence(endpoint, &args, &pull, &root, &cancel)
+                            .await?
+                    }
                     "github/files" => {
                         let items: Vec<File> = self
                             .page(
@@ -500,6 +560,13 @@ impl NativeGitHub {
 
 #[async_trait]
 impl GitHubBackend for NativeGitHub {
+    async fn save_review(&self, target: &Value, run: &Value) -> Result<(), RpcError> {
+        self.persist_review(target, run).await
+    }
+    async fn review_history(&self, target: &Value) -> Result<Vec<Value>, RpcError> {
+        self.load_reviews(target).await
+    }
+
     async fn read(
         &self,
         endpoint: &str,
@@ -525,8 +592,8 @@ mod tests {
         users: AtomicUsize,
         pulls: AtomicUsize,
     }
-    const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    fn pull() -> Value {
+    pub(super) const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    pub(super) fn pull() -> Value {
         json!({"number":7,"title":"Real-shaped PR","body":"Description","user":{"login":"alice"},"updated_at":"2026-10-04T00:00:00Z","state":"open","draft":false,"head":{"ref":"topic","sha":SHA},"base":{"ref":"master","sha":SHA},"additions":3,"deletions":1,"changed_files":2,"mergeable":null,"mergeable_state":"unknown","comments":0,"review_comments":1})
     }
     #[async_trait]

@@ -45,7 +45,7 @@ impl ApiBackend for FixtureBackend {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
-        (endpoint == "commands/list")
+        (endpoint == "commands/list" || endpoint.starts_with("github/review-"))
             .then(|| RpcResult::success(json!({"endpoint": endpoint, "payload": payload})))
     }
 
@@ -541,4 +541,21 @@ async fn mux_websocket_is_a_real_downlink_only_server_request_stream() {
 
     let _ = shutdown_tx.send(());
     server.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn github_review_endpoints_use_the_existing_two_segment_http_surface() {
+    let app = api_router(Arc::new(FixtureBackend));
+    for action in ["models", "history", "start", "status", "cancel"] {
+        let endpoint = format!("github/review-{action}");
+        let request = Request::builder().method("POST")
+            .uri(format!("/api/{endpoint}"))
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"type":"client-request","rpcId":"review-route","method":endpoint,"payload":{"args":{}}}).to_string())).unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{action}");
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(body["result"]["value"]["endpoint"], endpoint);
+    }
 }
