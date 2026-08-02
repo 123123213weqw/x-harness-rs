@@ -6,6 +6,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build:plugin-api": "node ../scripts/assemble-static-ui.mjs",
     "check:plugin-api": "node ../scripts/build-plugin-api.mjs --check",
+    "check:protocol": "node ../scripts/generate-session-terminal-contract.mjs --check",
     "build": "node ../scripts/assemble-static-ui.mjs",
     "check:build": "node ../scripts/assemble-static-ui.mjs --check"
   },
