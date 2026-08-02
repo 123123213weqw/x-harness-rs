@@ -10,7 +10,7 @@ import type { ISessions, SessionId } from "./types/runtime"
 
 import type { ViewTab } from './contract/views'
 import type {
-  ApprovalWait, ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, ComposerBarInjected,
+  ApprovalWait, ChatNodeTurnDataInjected, ChatViewInjected, ComposerBarInjected,
   ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
   DetailsInjected,
 } from './contract/slots'
@@ -26,6 +26,7 @@ import { InputBar } from './skeleton/InputBar'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow'
 import { ChatView } from './chat/ChatView'
+import { ChatScrollMemory } from './chat/scroll-memory'
 import { StatsLine } from './chat/StatsLine'
 import { ApprovalPanel } from './skeleton/ApprovalPanel'
 import { todoDockEntry } from './skeleton/TodoPanel'
@@ -146,7 +147,8 @@ export function apply(ctx: Context): void {
   // Chat semantic reader positions by session, surviving view switches and
   // width reflow when the tab ring remounts the view. Deliberately not
   // persisted: a fresh page load keeps the open-jump-to-bottom default.
-  const chatScrollPositions = new Map<SessionId, ChatScrollPosition>()
+  const chatScrollMemory = new ChatScrollMemory()
+  ctx.effect(() => () => { chatScrollMemory.dispose() }, 'conversation reader memory')
 
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
@@ -165,7 +167,7 @@ export function apply(ctx: Context): void {
 
   // The per-session input machine registry (SessionInputResolver face; published as
   // ctx.conversation.input by the service below sharing this one instance).
-  const inputHub = new InputHub(ctx, t)
+  const inputHub = new InputHub(ctx, t, sessionId => { chatScrollMemory.requestFollow(sessionId) })
 
   // The composer-block registry: a plugin that knows a session cannot send —
   // ui-model-selection, when no adapter serves the session's route — raises a block
@@ -398,7 +400,7 @@ export function apply(ctx: Context): void {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
           return workspaces.openPath(resolveWorkspacePath(cwd, path))
         },
-        loadOlder: () => { void scoped.loadOlder() },
+        loadOlder: () => scoped.loadOlder(),
         loadImage: attachment => conversation.resolveImage(sessionId, attachment),
         // Unregistered 'trajectory' id is safe: the tab ring falls back to
         // the first view, and the untouched inspect target stays inert.
@@ -408,13 +410,7 @@ export function apply(ctx: Context): void {
           actions.setInspect({ callId })
           actions.setView('trajectory')
         },
-        chatScroll: {
-          save: (position) => {
-            if (position === null) chatScrollPositions.delete(sessionId)
-            else chatScrollPositions.set(sessionId, position)
-          },
-          read: () => chatScrollPositions.get(sessionId) ?? null,
-        },
+        chatScroll: chatScrollMemory.forSession(sessionId),
         forkAt: (seq) => {
           sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
             .then((childId) => { sessions.open(childId) })

@@ -1,0 +1,39 @@
+{
+  "manifest_sha256": "96f933a4f2ffe9705bad1d871b10a6a9cd28bbf71ec693b4379a1f08e2778eb8",
+  "checks": {
+    "signatureVerified": true,
+    "codesignVerified": true,
+    "adHocSignatureVerified": true,
+    "cacheRestoredAfterRestart": true,
+    "noDuplicatePackageDownload": true,
+    "cachedTamperRejectedBeforeHostStop": true,
+    "hostStoppedBeforeInstall": true,
+    "unavailableFeedRejected": true,
+    "concurrentCheckRejected": true,
+    "tamperedPackageRejected": true,
+    "unconfirmedInstallRejected": true,
+    "exactCandidateInstalled": true,
+    "restartVerified": true,
+    "dataPreserved": true,
+    "persistedSessionCatalogued": true,
+    "nativeLaunchVerified": true
+  },
+  "platform": "darwin-x86_64",
+  "scope": "isolated-production-handler-rehearsal",
+  "status": "passed",
+  "sha": "16e4d439efb38ab01c223c923ef2623832152bfe",
+  "provenance": {
+    "workflow": ".github/workflows/desktop-unix-update-acceptance.yml",
+    "run_id": "37182218394",
+    "run_attempt": "1",
+    "source_sha": "16e4d439efb38ab01c223c923ef2623832152bfe"
+  },
+  "version": "0.0.902",
+  "package_sha256": "a4329906abfb65fad37ac86291af0bb533413e67bd722ce5cf123e94bf8049ae",
+  "nativeUpdateAccepted": false,
+  "baseInstrumented": true,
+  "release_run_id": "37182218394",
+  "schema_version": 1,
+  "release_run_attempt": "1",
+  "base_version": "0.0.901"
+}

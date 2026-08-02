@@ -1,0 +1,87 @@
+name: Sync public plugins to engine
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/sync-plugin-distribution.yml'
+      - 'scripts/plugin-distribution.py'
+      - 'scripts/test-plugin-distribution.py'
+      - 'scripts/plugin-publish-relay.py'
+  schedule:
+    - cron: '19,49 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate and prepare without publishing
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: public-plugin-engine-publication
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -B scripts/test-plugin-distribution.py
+      - uses: actions/checkout@v6
+        with:
+          repository: 123123213weqw/xharness-plugin-registry
+          ref: main
+          path: public-registry
+          persist-credentials: false
+      - name: Validate public files and build hash-bound publication
+        run: |
+          python3 scripts/plugin-distribution.py prepare --registry public-registry --output plugin-export
+          python3 scripts/plugin-distribution.py bundle --export plugin-export --output plugin-upload.tar > plugin-upload.json
+      - name: Publish with a plugins-only forced-command key
+        if: ${{ !inputs.dry_run }}
+        env:
+          PUBLISH_KEY: ${{ secrets.XHARNESS_PLUGIN_PUBLISH_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.XHARNESS_PLUGIN_PUBLISH_KNOWN_HOSTS }}
+          PUBLISH_ROUTE: ${{ vars.XHARNESS_PLUGIN_PUBLISH_ROUTE || 'direct' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PUBLISH_KEY" && test -n "$KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/plugin-ssh"
+          trap 'rm -f "$RUNNER_TEMP/plugin-ssh/key" "$RUNNER_TEMP/plugin-ssh/known_hosts" "$RUNNER_TEMP/plugin-ssh/relay"' EXIT
+          printf '%s\n' "$PUBLISH_KEY" > "$RUNNER_TEMP/plugin-ssh/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/plugin-ssh/known_hosts"
+          manifest=$(python3 -c 'import json;print(json.load(open("plugin-upload.json"))["manifest"])')
+          archive=$(python3 -c 'import json;print(json.load(open("plugin-upload.json"))["archive"])')
+          route=()
+          if [ "$PUBLISH_ROUTE" = bastion ]; then
+            # Requires a separately provisioned runner route to the Tailscale
+            # bastion. Never copy a general-purpose SSH key or open forwarding.
+            cat > "$RUNNER_TEMP/plugin-ssh/relay" <<'PROXY'
+          #!/usr/bin/env bash
+          exec ssh -F /dev/null -i "$RUNNER_TEMP/plugin-ssh/key" -p 9022 \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ForwardAgent=no \
+            -o ClearAllForwardings=yes -o ConnectTimeout=20 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/plugin-ssh/known_hosts" \
+            wzu@100.70.188.115 'forward-engine-plugins v1'
+          PROXY
+            chmod 700 "$RUNNER_TEMP/plugin-ssh/relay"
+            route=(-o "ProxyCommand=$RUNNER_TEMP/plugin-ssh/relay")
+          elif [ "$PUBLISH_ROUTE" != direct ]; then
+            echo 'Unknown publication route; refusing unsafe fallback.' >&2
+            exit 2
+          fi
+          ssh -F /dev/null -i "$RUNNER_TEMP/plugin-ssh/key" -p 22 "${route[@]}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ForwardAgent=no \
+            -o ClearAllForwardings=yes -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/plugin-ssh/known_hosts" \
+            xs@222.186.10.53 "publish-plugins v1 $manifest $archive" < plugin-upload.tar
+      - name: Verify every published catalog, ZIP and icon
+        if: ${{ !inputs.dry_run }}
+        run: python3 scripts/plugin-distribution.py smoke --export plugin-export

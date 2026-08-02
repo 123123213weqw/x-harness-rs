@@ -1,0 +1,38 @@
+name: Plugin distribution contract
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/*plugin-distribution*.yml'
+      - 'scripts/*plugin-distribution.py'
+      - 'scripts/plugin-publish-relay.py'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/*plugin-distribution*.yml'
+      - 'scripts/*plugin-distribution.py'
+      - 'scripts/plugin-publish-relay.py'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -B scripts/test-plugin-distribution.py
+      - name: Diagnose hosted runner SSH reachability (read-only, no credentials)
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import socket
+          with socket.create_connection(('222.186.10.53', 22), timeout=10) as connection:
+              connection.settimeout(10)
+              banner = connection.recv(256)
+              assert banner.startswith(b'SSH-2.0-'), 'Engine SSH handshake unavailable from hosted runner'
+              print('Hosted runner received engine SSH banner; no authentication or publication attempted.')
+          PY

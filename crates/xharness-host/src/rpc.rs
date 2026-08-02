@@ -18,6 +18,7 @@ mod export;
 mod goal;
 mod host;
 mod interaction;
+pub(crate) use interaction::respond_review;
 mod model;
 mod preset;
 mod session;
@@ -137,6 +138,18 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint.starts_with("github/") {
+            let result = match self.github.get() {
+                Some(backend) => backend.read(endpoint, &payload, _cancellation).await,
+                None => Err(RpcError::internal(
+                    "GitHub integration is unavailable in this Host build",
+                )),
+            };
+            return Some(match result {
+                Ok(value) => RpcResult::success(value),
+                Err(error) => RpcResult::failure(error),
+            });
+        }
         if let Some(session_id) = payload.get("sessionId").and_then(Value::as_str) {
             if let Err(error) = self.hydrate_session(session_id).await {
                 return Some(RpcResult::failure(rpc_error(
@@ -215,6 +228,8 @@ impl ApiBackend for BasicHost {
                         approval_id,
                         call_id,
                         tool_name,
+                        reviewing,
+                        reason,
                         ..
                     } => frames.push(ServerRequest::new(
                         RpcId::new(rpc_id),
@@ -225,7 +240,8 @@ impl ApiBackend for BasicHost {
                             "approvalId": approval_id,
                             "toolName": tool_name,
                             "callId": call_id,
-                            "reason": "This tool requires explicit approval.",
+                            "reason": reason,
+                            "reviewing": reviewing,
                         }),
                     )),
                 }

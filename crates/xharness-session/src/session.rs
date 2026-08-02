@@ -165,6 +165,22 @@ impl Session {
         self.events.as_slice()
     }
 
+    /// Latest admitted user request from the immutable journal, not its
+    /// compacted model-facing surface. Even an empty request supersedes an
+    /// older one; callers must not fall back to stale authorization.
+    pub fn latest_user_request(&self) -> Option<(Sequence, &Message)> {
+        self.events
+            .iter()
+            .rev()
+            .find_map(|event| match event.data() {
+                EventData::UserMessage {
+                    message,
+                    surface_replace: None,
+                } => Some((event.seq, message)),
+                _ => None,
+            })
+    }
+
     pub fn next_seq(&self) -> Sequence {
         self.events.len() as Sequence
     }
@@ -547,6 +563,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut has_goal_execution_events = false;
     let mut seen_goal_ids = std::collections::HashSet::<String>::new();
     let mut active_schedules = HashMap::<String, crate::ScheduleKind>::new();
+    let mut automation_schedules = std::collections::HashSet::<String>::new();
     let mut schedule_runs = std::collections::HashSet::new();
     let mut reserved_runs = HashMap::<String, (crate::AutomationRun, Option<String>)>::new();
     let mut seen_schedule_ids = std::collections::HashSet::<String>::new();
@@ -1309,14 +1326,14 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ));
                     }
                     active_schedules.insert(schedule.id.clone(), schedule.kind);
+                    if schedule.automation.is_some() {
+                        automation_schedules.insert(schedule.id.clone());
+                    }
                 }
                 crate::ScheduleChange::Delete { version, id } => {
                     if *version != 1
                         || id.trim().is_empty()
                         || id.trim() != id
-                        || reserved_runs
-                            .values()
-                            .any(|(run, _)| run.schedule_id == *id)
                         || active_schedules.remove(id).is_none()
                     {
                         return Err(lifecycle_error(
@@ -1324,6 +1341,15 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                             "schedule delete must target one active id",
                         ));
                     }
+                    reserved_runs.retain(|run_id, (run, _)| {
+                        if run.schedule_id == *id {
+                            schedule_runs.insert(run_id.clone());
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    automation_schedules.remove(id);
                 }
                 crate::ScheduleChange::ReserveRun {
                     version,
@@ -1361,6 +1387,17 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ));
                     }
                 }
+                crate::ScheduleChange::SetPaused { version, id, .. } => {
+                    if *version != 1
+                        || !active_schedules.contains_key(id)
+                        || !automation_schedules.contains(id)
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "pause must target an active automation",
+                        ));
+                    }
+                }
                 crate::ScheduleChange::Update { version, schedule } => {
                     if *version != 1
                         || !schedule.valid_shape()
@@ -1375,6 +1412,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ));
                     }
                     active_schedules.insert(schedule.id.clone(), schedule.kind);
+                    if schedule.automation.is_some() {
+                        automation_schedules.insert(schedule.id.clone());
+                    }
                 }
                 crate::ScheduleChange::Dispatch {
                     version,

@@ -552,9 +552,25 @@
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-ui-settings"
       ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-code-review",
+      "kind": "source-module",
+      "source": "src/modules/code-review/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-ui-layout",
+        "@xharness/dsh-client-ui-sidebar",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-connection"
+      ]
     }
   ],
   "assets": [
+    {
+      "path": "desktop-bootstrap.js",
+      "source": "src/desktop/bootstrap.ts",
+      "kind": "script-ts"
+    },
     {
       "path": "app-icon-512.png",
       "source": "overrides/app-icon-512.png"
@@ -618,7 +634,7 @@
     {
       "path": "desktop-titlebar.css",
       "source": "desktop/titlebar.css",
-      "sha256": "2accb344eb74033b1af0f34c74efd49f1bce52c0f598dea0f8882851d6ac4e84"
+      "sha256": "0f47c87211771751c0499a5382882fc7d9ffb178f12d364d65b925bf7e2453a3"
     },
     {
       "path": "plugin-icons/browser.svg",

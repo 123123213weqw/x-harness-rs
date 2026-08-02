@@ -178,3 +178,14 @@ paused records do not poll. Projection changes and card mutations invalidate
 mounted views. Reads and mutations have a 15-second client deadline. Status reads retry
 without calling the model; mutations never automatically retry and instead
 read back the authoritative state after a failure or timeout.
+
+
+## PR #223 回归修复：预备任务隔离与控制语义
+
+- 目标会话创建失败按 **run_id** 单独退避：1、2、4、8、16、30 秒，最高 30 秒；不会不断选择队首的失败任务阻挡其他已到期任务。退避从失败返回时开始计时，目标创建最长等待 30 秒。
+- 预备中的同一 occurrence 不重复预留、不更换目标 ID；重启可重新尝试，但不会新增一份任务。
+- Pause/Resume 使用专用 `SetPaused` 控制事件，仅改暂停标志，不借用受限的定义 Update；Session 校验与 Schedule 回放共用这项语义。Pause 保留未入队的预留，暂停时不执行；Resume 沿用同一预留。Delete 可以取消尚未入队的预留，取消记录由原始 ReserveRun + Delete 日志恢复，View 仍显示 cancelled 收据。
+- 控制操作必须先对账：先落盘已知 Run 收据；重启丢失内存标记时，查询目标持久 inbox。已入队就补齐 Run，不能伪装成取消。查询失败时返回存储错误，不猜测“尚未执行”。
+- Update 不改写预备中的不可变 occurrence；可以先删除未入队任务再建立新规则。Pause/Delete 不终止已入队的运行。
+- 前后端实时通知和 session.list 共用同一个严格 origin Schema，允许 subagent、fork、automation 及旧数据缺省值；未知值仍拒绝。Rust 真 Host 测试可导出 automation 消息，交给生产 WebSocket/HTTP 解码路径验收。
+- 回归覆盖永久失败不饥饿、退避不热轮询、独立健康任务、暂停/恢复/重启、删除取消与收据保留、入队后收据缺失时对账不重执行。

@@ -276,6 +276,7 @@ mod tests {
         store.flush("source").await.unwrap();
         host.sync_authoritative_session("source").await.unwrap();
         let mut frames = host.event_gateway.subscribe_mux();
+        let mut announcements = host.event_gateway.subscribe_host();
         runtime
             .resume_session(AgentSessionRequest {
                 session_id: "source".into(),
@@ -300,6 +301,41 @@ mod tests {
         .await
         .unwrap();
         let target = view["runs"][0]["sessionId"].as_str().unwrap();
+        let added = loop {
+            let frame = announcements
+                .try_recv()
+                .expect("automation announcement missing");
+            if frame.method == "host/session-added" && frame.payload["sessionId"] == target {
+                break frame.payload;
+            }
+        };
+        use xharness_api::{ApiBackend, RpcId, RpcMethod, RpcResult};
+        let list = match host
+            .call(
+                RpcId::new("automation-wire"),
+                RpcMethod::SessionList,
+                json!({}),
+                CancellationToken::new(),
+            )
+            .await
+        {
+            RpcResult::Success { value: Some(value) } => value,
+            result => panic!("session.list failed: {result:?}"),
+        };
+        assert_eq!(added["origin"], "automation");
+        assert!(list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["sessionId"] == target && row["origin"] == "automation"));
+        if let Ok(path) = std::env::var("XHARNESS_AUTOMATION_WIRE_EXPORT") {
+            std::fs::write(
+                path,
+                serde_json::to_vec_pretty(&vec![json!({"added":added,"list":list})]).unwrap(),
+            )
+            .unwrap();
+        }
+
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 let frame = frames.recv().await.unwrap();

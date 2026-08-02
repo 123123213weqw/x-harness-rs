@@ -14,7 +14,7 @@ import { getStaticModules } from './seed'
 import { STATE_LABELS } from './loader-status'
 import './base.css'
 
-interface UiRenderer { mount(container: HTMLElement): () => void }
+interface UiRenderer { mount(container: HTMLElement, onReady?: () => void): () => void }
 function isUiRenderer(value: unknown): value is UiRenderer {
   return typeof value === 'object' && value !== null && 'mount' in value && typeof value.mount === 'function'
 }
@@ -62,6 +62,7 @@ export class AppWebEntry {
       const ctx = new Context()
       this.ctx = ctx
       await this.runPluginBoot(ctx, modules, prefetching)
+      this.page.prepareHandoff(this.container)
       await this.mountApp(ctx)
     } catch (reason) {
       console.error(reason)
@@ -82,7 +83,7 @@ export class AppWebEntry {
     const mounted = ctx.inject(['uiRenderer'], (scope) => {
       const renderer: unknown = scope.get('uiRenderer')
       if (!isUiRenderer(renderer)) throw new Error('web boot: uiRenderer service has no mount operation')
-      scope.effect(() => renderer.mount(this.container), 'web boot: application mount')
+      scope.effect(() => renderer.mount(this.container, () => this.page.completeHandoff()), 'web boot: application mount')
     })
     await mounted
   }

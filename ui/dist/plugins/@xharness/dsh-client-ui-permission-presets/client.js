@@ -231,7 +231,7 @@ function displayPresetName(name) {
  * @returns the Full access product label or the conventional display name.
  */
 function displayPermissionPreset(value, name) {
-    return value === exports.FULL_ACCESS_PRESET ? 'Full access' : displayPresetName(name);
+    return value === exports.FULL_ACCESS_PRESET ? 'Full access' : value === 'workspace-write-ai-review' ? 'AI 代审' : displayPresetName(name);
 }
 
 },

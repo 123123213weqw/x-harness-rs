@@ -132,7 +132,7 @@ export function compilePlatformUi(ui, spec = {source: 'src/modules/platform/main
     jsx: 'automatic', nodePaths: [join(ui, 'node_modules')], alias: platformAliases(ui),
     define: {'process.env.NODE_ENV': '"production"', 'process.versions.node': '"0.0.0"',
       'process.execArgv': '[]', 'process.env.CORDIS_SHARED': 'undefined'},
-    loader: {'.module.css': 'local-css', '.woff2': 'file', '.woff': 'file', '.ttf': 'file'},
+    loader: {'.raw.css': 'text', '.svg': 'text', '.module.css': 'local-css', '.woff2': 'file', '.woff': 'file', '.ttf': 'file'},
   })
   const boot = esbuild.buildSync({
     absWorkingDir: ui, entryPoints: [join(ui, 'src/modules/platform/bootstrap.ts')],
