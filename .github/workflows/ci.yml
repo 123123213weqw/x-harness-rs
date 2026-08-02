@@ -148,6 +148,7 @@ jobs:
           node scripts/test-turn-process.mjs
           node scripts/test-adaptive-tool-fold.mjs
           node --test scripts/test-session-terminal-contract.mjs
+          node --test scripts/test-chat-scroll-memory.mjs scripts/test-fork-wire-contract.mjs
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
@@ -293,6 +294,8 @@ jobs:
           node scripts/test-transcript-row-state.mjs
           UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
           UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
+          UI_TEST_NO_NATIVE_ANCHOR=1 UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
+          UI_TEST_NO_NATIVE_ANCHOR=1 UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
           UI_TEST_BROWSER=chromium node scripts/test-compaction-progress-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-compaction-progress-browser.mjs
           node scripts/test-question-continuation-patch.mjs
@@ -373,6 +376,12 @@ jobs:
           cargo test --locked -p xharness-projection export_session_terminal_contract
           node scripts/generate-session-terminal-contract.mjs --from "$XHARNESS_SESSION_TERMINAL_EXPORT" --check
           node --test scripts/test-session-terminal-contract.mjs
+      - name: Real Rust fork announcements and lists cross the production WebSocket and HTTP decoders
+        env:
+          XHARNESS_FORK_WIRE_EXPORT: ${{ runner.temp }}/fork-wire.json
+        run: |
+          cargo test --locked -p xharness-host export_fork_wire_contract
+          node --test scripts/test-fork-wire-contract.mjs
       - name: Goal remote HTTP replies match shipped client schemas
         env:
           XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json

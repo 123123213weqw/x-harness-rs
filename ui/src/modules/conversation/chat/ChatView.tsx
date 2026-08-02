@@ -268,8 +268,6 @@ export function ChatView({
   const anchorRef = useRef<PagingAnchor | null>(null)
   const firstSeqRef = useRef<number | null>(null)
   const openedRef = useRef(false)
-  const lastKeyRef = useRef<string | null>(null)
-  const lastSteeringIdRef = useRef<string | null>(null)
   /** Flow tip signature — follow-scroll only when this moves, never on a
    *  scroll-driven at-bottom chrome re-render (which would snap inertial
    *  scrolls the rest of the way to the floor). */
@@ -370,12 +368,12 @@ export function ChatView({
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
   const lastKey = order.at(-1) ?? null
-  const lastNode = lastKey === null ? undefined : nodeStore.get(lastKey)
   const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null
   const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ''}`
 
   const toBottom = (el: HTMLElement): void => {
     anchorRef.current = null
+    processAnchorRef.current = null
     // Explicit/programmatic return ends the previous reader gesture. Delayed
     // resize/clamp scroll events must not inherit an earlier up gesture.
     readerScrollUntilRef.current = 0
@@ -386,6 +384,11 @@ export function ChatView({
     setAtBottom(true)
     chatScroll.save(null)
   }
+
+  useLayoutEffect(() => chatScroll.subscribeFollow?.(() => {
+    const local = listRef.current
+    if (local !== null) toBottom(scrollerOf(local))
+  }), [chatScroll, sessionId])
 
   useLayoutEffect(() => {
     const local = listRef.current
@@ -419,8 +422,6 @@ export function ChatView({
         else if (normalized !== null) chatScroll.save(normalized)
       }
       firstSeqRef.current = firstSeq
-      lastKeyRef.current = lastKey
-      lastSteeringIdRef.current = lastSteeringId
       followSigRef.current = followSig
       return
     }
@@ -434,24 +435,17 @@ export function ChatView({
       if (row !== null) el.scrollTop += flowTop(row, el) - anchor.top
       observedTopRef.current = el.scrollTop
       firstSeqRef.current = firstSeq
-      /* v8 ignore next -- ?? arm: a prepend adds nodes, so the flow list here is never empty. */
-      lastKeyRef.current = lastKey
-      lastSteeringIdRef.current = lastSteeringId
       followSigRef.current = followSig
       return
     }
     firstSeqRef.current = firstSeq
-    // Own words must be visible: a new trailing user node force-scrolls
-    // (send lives in the composer, so arrival is detected here, not armed there).
-    const appendedUser = lastKey !== lastKeyRef.current && lastNode?.kind === 'user'
-    const appendedSteering = lastSteeringId !== null && lastSteeringId !== lastSteeringIdRef.current
+    // Delivery is not a local send gesture. A restored/other-observer user
+    // node or a delayed steering snapshot must not take reader ownership.
     const tipMoved = followSigRef.current !== followSig
-    lastKeyRef.current = lastKey
-    lastSteeringIdRef.current = lastSteeringId
     followSigRef.current = followSig
     // Follow new flow content while pinned; do NOT re-pin on every render
     // merely because atBottomRef is true (scroll threshold → setState → snap).
-    if (appendedUser || appendedSteering || (tipMoved && atBottomRef.current)) toBottom(el)
+    if (tipMoved && atBottomRef.current) toBottom(el)
   })
 
   const onScrollRef = useRef(() => {})
