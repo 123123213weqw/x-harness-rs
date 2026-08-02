@@ -72,14 +72,45 @@ try {
     window.pagingTrace = []
     const record = event => {
       window.pagingTrace.push({ event: event.type, top: el.scrollTop, height: el.scrollHeight,
-        viewport: el.clientHeight, delta: event.deltaY, marks: document.querySelectorAll('.xh-message-rail-item').length,
+        viewport: el.clientHeight, delta: event.deltaY, target: event.target?.tagName, marks: document.querySelectorAll('.xh-message-rail-item').length,
         busy: [...document.querySelectorAll('button')].filter(button => /Load earlier|Loading/.test(button.textContent)).map(button => ({ text: button.textContent, disabled: button.disabled })) })
       if (window.pagingTrace.length > 80) window.pagingTrace.shift()
     }
     el.addEventListener('wheel', record, { passive: true }); el.addEventListener('scroll', record, { passive: true })
   })
-  await page.mouse.wheel(0, -100000)
-  try { await page.waitForFunction(count => document.querySelectorAll('.xh-message-rail-item').length > count, initialCount) }
+  // Use ordinary viewport-sized native gestures over the transcript content.
+  // A single synthetic 100,000px wheel is not a portable page-to-top action:
+  // GTK WebKit may discard/clamp it while row measurements are settling.
+  // No scrollTop writes or Load-earlier click: pagination must still be
+  // triggered by genuine reader input through the shipped ChatView.
+  try {
+    const started = Date.now()
+    let upwardDistance = 0
+    for (let gesture = 0; gesture < 80 && await marks.count() === initialCount; gesture++) {
+      assert.ok(Date.now() - started < 25_000, 'native upward paging must finish within the bounded gesture budget')
+      const box = await page.locator('[data-conversation-scroll]').boundingBox()
+      assert.ok(box)
+      await page.mouse.move(box.x + box.width / 2, box.y + 64)
+      const before = await page.locator('[data-conversation-scroll]').evaluate(el => el.scrollTop)
+      await page.mouse.wheel(0, -Math.min(600, box.height * 0.8))
+      const after = await page.locator('[data-conversation-scroll]').evaluate(el => new Promise((resolve, reject) => {
+        const start = performance.now()
+        let previous, stableSince = start
+        const sample = now => {
+          const current = `${el.scrollTop}:${el.scrollHeight}:${el.clientHeight}`
+          if (current !== previous) stableSince = now
+          previous = current
+          if (now - stableSince >= 120) return resolve(el.scrollTop)
+          if (now - start > 3000) return reject(new Error('Native paging gesture did not settle: ' + current))
+          requestAnimationFrame(sample)
+        }
+        requestAnimationFrame(sample)
+      }))
+      upwardDistance += Math.max(0, before - after)
+    }
+    assert.ok(upwardDistance > 0, 'fixture must deliver real upward native scrolling')
+    await page.waitForFunction(count => document.querySelectorAll('.xh-message-rail-item').length > count, initialCount)
+  }
   catch (error) {
     console.error(engine + ': automatic pagination trace', await page.evaluate(() => window.pagingTrace), errors)
     throw error
