@@ -1328,6 +1328,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     active_schedules.insert(schedule.id.clone(), schedule.kind);
                     if schedule.automation.is_some() {
                         automation_schedules.insert(schedule.id.clone());
+                    } else {
+                        automation_schedules.remove(&schedule.id);
                     }
                 }
                 crate::ScheduleChange::Delete { version, id } => {
@@ -1414,6 +1416,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     active_schedules.insert(schedule.id.clone(), schedule.kind);
                     if schedule.automation.is_some() {
                         automation_schedules.insert(schedule.id.clone());
+                    } else {
+                        automation_schedules.remove(&schedule.id);
                     }
                 }
                 crate::ScheduleChange::Dispatch {

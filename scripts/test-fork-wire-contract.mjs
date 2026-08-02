@@ -32,7 +32,12 @@ test('fork, automation, delegated child and old absent origin use the same stric
   const event = hostSchema.parse(item.added), list = listSchema.parse(item.list)
   const child = list.items.find(row => row.sessionId === event.sessionId)
   assert.ok(child); assert.equal(event.origin, child.origin); assert.equal(event.parentSessionId, child.parentSessionId)
-  assert.equal(event.blank, child.blank)
+  if (item.listAfterRun) {
+   // A real automation was announced empty, then executed before the list query.
+   // Mutable lifecycle fields are not required to equal across those snapshots.
+   assert.equal(event.origin, 'automation')
+   assert.equal(event.blank, true); assert.equal(child.blank, false)
+  } else assert.equal(event.blank, child.blank)
  }
  for (const origin of ['unknown', '', null, 1, {}]) {
   assert.equal(hostSchema.safeParse(added(origin)).success, false)
