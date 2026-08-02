@@ -141,5 +141,21 @@ passes。Chromium/WebKit 的 ChatView 分页/消息定位、默认/缺属性窗�
 - `/tmp/xh-rail-history-linux-fold-stability-20261004.log`：带失败诊断后的三次完整 fold
   用例通过，不替代失败记录。
 
+### 推送前主分支集成复验
+
+以上补充分页提交为 `073c4c0`。推送前主分支新合入 #218（`03b067b`，AI 代审），
+通过 `ebf8120` 合并源代码：保留其审批字段、权限项及配对投影，三处生成元数据冲突
+只经完整源码组装解决，不用 ours/theirs 的旧 dist 覆盖组合源码。
+
+- 组合源码严格 TS、53 模块/165 资源构建与一致性检查通过。
+- gate/scroll/fork、完整 Conversation、Compact/Retry 差分、历史回滚共 34 Node 测试
+  通过，权限选择直接断言通过；Chromium/WebKit 的自动分页、左侧定位/工作区显隐、
+  上游审批卡片及整轮/工具折叠重新通过，另含 84 个真实终态 DOM 窗口。
+- 重新同步合并源码至 WZU_Server 后，根 workspace fmt、all-targets test、Clippy
+  `-D warnings` 均通过：未过滤 harness 1156 passed / 15 ignored / 0 failed，另 4 次
+  子进程过滤探针通过（1160 次通过执行）。Rust 编译全在远程，不使用本机 Rust 构建。
+- 完整输出：`/tmp/xh-rail-history-master-integrated-ui-20261004.log`、
+  `/tmp/xh-rail-history-master-integrated-rust-20261004.log`。
+
 这些是开发验收证据，不打进产品安装包。GitHub 当前 PR 跨平台 CI 必须另行全绿才能合并；
 不以 Linux 根 Workspace 回归替代 Windows/macOS 原生 cfg 测试和安装包验收。
