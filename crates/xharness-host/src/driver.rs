@@ -1294,20 +1294,15 @@ impl BasicHost {
                 PendingResponse::Approval { session_id: id, .. } => id != session_id,
             });
         }
-        let reason = match result.status {
-            LoopStatus::Completed => json!({"kind": "completed"}),
-            LoopStatus::MaxTokens => json!({"kind": "max-tokens"}),
-            LoopStatus::Cancelled => json!({"kind": "cancelled"}),
-            LoopStatus::LimitReached => json!({"kind": "max-steps"}),
-            LoopStatus::Failed => json!({
-                "kind": "error",
-                "error": {"message": result.error.unwrap_or_else(|| "loop failed".to_owned()), "code": "LOOP_FAILED"},
-            }),
-        };
+        let terminal = xharness_projection::wire::TurnEndData::from_loop(
+            turn,
+            result.status,
+            result.error.as_deref(),
+        );
         self.append_session_event(
             session_id,
             "turn/end",
-            json!({"turn": turn, "reason": reason}),
+            serde_json::to_value(terminal).expect("turn end DTO contains only serializable fields"),
             None,
         )
         .await?;
@@ -1322,36 +1317,8 @@ impl BasicHost {
         match event.kind {
             LoopEventKind::InputCommitted => self.queue_title(session_id),
             LoopEventKind::ToolApprovalRequested { approval_id, call } => {
-                let rpc_id = RpcId::new(self.mint_id("approval"));
-                let control = self
-                    .state
-                    .read()
-                    .await
-                    .sessions
-                    .get(session_id)
-                    .and_then(|session| session.control.clone())
-                    .ok_or_else(|| RpcError::internal("session control channel is unavailable"))?;
-                self.state.write().await.pending.insert(
-                    rpc_id.as_str().to_owned(),
-                    PendingResponse::Approval {
-                        session_id: session_id.to_owned(),
-                        approval_id: approval_id.clone(),
-                        call_id: call.id.clone(),
-                        tool_name: call.name.clone(),
-                        control,
-                    },
-                );
-                self.push_mux_correlated(
-                    rpc_id,
-                    json!({
-                        "type": "approval/requested",
-                        "sessionId": session_id,
-                        "approvalId": approval_id,
-                        "toolName": call.name,
-                        "callId": call.id,
-                        "reason": "This tool requires explicit approval.",
-                    }),
-                );
+                self.register_tool_approval(session_id, approval_id, call)
+                    .await?;
             }
             LoopEventKind::ToolApprovalResolved {
                 approval_id,
@@ -1541,36 +1508,8 @@ impl BasicHost {
                     None,
                 )
                 .await?;
-                let rpc_id = RpcId::new(self.mint_id("approval"));
-                let control = self
-                    .state
-                    .read()
-                    .await
-                    .sessions
-                    .get(session_id)
-                    .and_then(|session| session.control.clone())
-                    .ok_or_else(|| RpcError::internal("session control channel is unavailable"))?;
-                self.state.write().await.pending.insert(
-                    rpc_id.as_str().to_owned(),
-                    PendingResponse::Approval {
-                        session_id: session_id.to_owned(),
-                        approval_id: approval_id.clone(),
-                        call_id: call.id.clone(),
-                        tool_name: call.name.clone(),
-                        control,
-                    },
-                );
-                self.push_mux_correlated(
-                    rpc_id,
-                    json!({
-                        "type": "approval/requested",
-                        "sessionId": session_id,
-                        "approvalId": approval_id,
-                        "toolName": call.name,
-                        "callId": call.id,
-                        "reason": "This tool requires explicit approval.",
-                    }),
-                );
+                self.register_tool_approval(session_id, approval_id, call)
+                    .await?;
             }
             LoopEventKind::ToolApprovalResolved {
                 approval_id,

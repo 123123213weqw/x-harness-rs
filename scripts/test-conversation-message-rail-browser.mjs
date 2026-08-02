@@ -36,16 +36,54 @@ try {
   assert.equal(await rail.evaluate(el => el.parentElement?.hasAttribute('data-conversation-root')), true,
     'message rail belongs to the conversation, not the sidebar')
   assert.equal(await page.locator('.xh-session-rail').count(), 0, 'incorrect cross-session rail is absent')
+  const assertLeft = async () => {
+    const position = await rail.evaluate(el => {
+      const box = el.getBoundingClientRect(), parent = el.parentElement.getBoundingClientRect()
+      return { offset: box.left - parent.left, rightGap: parent.right - box.right }
+    })
+    assert.ok(Math.abs(position.offset - 8) <= 1, 'rail is at the approved left edge: ' + JSON.stringify(position))
+    assert.ok(position.rightGap > position.offset, 'right-edge placement must not pass navigation-only tests')
+  }
+  await assertLeft()
   const marks = rail.getByRole('button')
+  // Navigation is visible as soon as history data lands, before open/layout
+  // finishes. Wait for the real initial tail-follow, not a fixed sleep.
+  await page.getByText('Loading history…', { exact: true }).waitFor({ state: 'hidden' })
+  await page.locator('[data-conversation-scroll]').evaluate(el => new Promise((resolve, reject) => {
+    const start = performance.now()
+    let previous, stableSince = start
+    const sample = now => {
+      const current = `${el.scrollTop}:${el.scrollHeight}:${el.clientHeight}`
+      if (current !== previous) stableSince = now
+      previous = current
+      const gap = el.scrollHeight - el.clientHeight - el.scrollTop
+      if (gap <= 1 && now - stableSince >= 120) return resolve()
+      if (now - start > 5000) return reject(new Error('History never settles at its initial tail: ' + current))
+      requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  }))
   const initialCount = await marks.count()
   assert.ok(initialCount >= 3, 'one rail mark per loaded user message')
-  const older = page.getByRole('button', { name: 'Load earlier' })
   // A real reader first scrolls away from live bottom-follow. Programmatic
   // actionability scrolling alone does not establish that user intent in WebKit.
   await page.locator('[data-conversation-scroll]').hover()
-  await page.mouse.wheel(0, -10000)
-  await older.click()
-  await page.waitForFunction(count => document.querySelectorAll('.xh-message-rail-item').length > count, initialCount)
+  await page.locator('[data-conversation-scroll]').evaluate(el => {
+    window.pagingTrace = []
+    const record = event => {
+      window.pagingTrace.push({ event: event.type, top: el.scrollTop, height: el.scrollHeight,
+        viewport: el.clientHeight, delta: event.deltaY, marks: document.querySelectorAll('.xh-message-rail-item').length,
+        busy: [...document.querySelectorAll('button')].filter(button => /Load earlier|Loading/.test(button.textContent)).map(button => ({ text: button.textContent, disabled: button.disabled })) })
+      if (window.pagingTrace.length > 80) window.pagingTrace.shift()
+    }
+    el.addEventListener('wheel', record, { passive: true }); el.addEventListener('scroll', record, { passive: true })
+  })
+  await page.mouse.wheel(0, -100000)
+  try { await page.waitForFunction(count => document.querySelectorAll('.xh-message-rail-item').length > count, initialCount) }
+  catch (error) {
+    console.error(engine + ': automatic pagination trace', await page.evaluate(() => window.pagingTrace), errors)
+    throw error
+  }
   if (process.env.UI_TEST_SCREENSHOT) await page.screenshot({ path: process.env.UI_TEST_SCREENSHOT })
   const first = marks.first()
   const key = await first.getAttribute('data-message-key')
@@ -61,6 +99,29 @@ try {
     return Math.abs(row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top - 24) < 50
   }, key)
   assert.equal(await first.getAttribute('aria-current'), 'location')
+  // Exercise the real shell/workspace controls. Both docked and narrow drawer
+  // modes hide navigation; closing only one of two tabs cannot re-show it.
+  const loadedCount = await marks.count()
+  for (const viewport of [{ width: 1500, height: 820, drawer: false }, { width: 850, height: 660, drawer: true }]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await rail.waitFor({ state: 'visible' })
+    await assertLeft()
+    await page.getByRole('button', { name: '展开右侧工作区', exact: true }).click()
+    await rail.waitFor({ state: 'hidden' })
+    await page.waitForFunction(drawer => document.querySelector('[data-xhworkspace-open]')?.hasAttribute('data-xhworkspace-drawer') === drawer, viewport.drawer)
+    await page.getByRole('button', { name: '新建浏览器标签', exact: true }).click()
+    const close = page.getByRole('button', { name: '关闭 新标签页', exact: true })
+    assert.equal(await close.count(), 2)
+    await close.last().click()
+    assert.equal(await rail.isVisible(), false, 'another workspace tab keeps navigation hidden')
+    assert.equal(await page.locator('.xh-message-rail-item').count(), loadedCount, 'hiding navigation never changes loaded history')
+    await close.click()
+    await rail.waitFor({ state: 'visible' })
+    await assertLeft()
+    assert.equal(await marks.count(), loadedCount)
+    await first.click()
+    assert.equal(await first.getAttribute('aria-current'), 'location', 'restored navigation remains usable')
+  }
   assert.deepEqual(errors, [])
-  console.log(engine + ': PASS: message rail stays in current chat, shows user prompts, jumps to chosen message')
+  console.log(engine + ': PASS: upward input auto-pages history; message rail stays at the left edge of current chat, navigates windowed messages and hides/restores with docked/drawer workspace')
 } finally { await browser.close() }

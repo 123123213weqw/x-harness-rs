@@ -536,6 +536,22 @@ impl DurableAgentHandle {
         .await
     }
 
+    pub async fn review_tool_decision(
+        &self,
+        call_id: String,
+        approved: bool,
+        user_request_seq: Option<u64>,
+        user_request_sha256: String,
+    ) -> Result<(), AgentCommandError> {
+        self.send(DriverCommand::Control(LoopCommand::ReviewToolDecision {
+            call_id,
+            approved,
+            user_request_seq,
+            user_request_sha256,
+        }))
+        .await
+    }
+
     pub async fn reject_tool(
         &self,
         call_id: impl Into<String>,

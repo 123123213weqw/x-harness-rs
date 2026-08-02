@@ -1,0 +1,29 @@
+{
+  "candidate": {
+    "manifest_sha256": "338965be52ba6da3342fb7d1be8d50f29429f6c984e276336c54b6cb88a99664",
+    "package_sha256": "ed6d27c921e50ab38d39ed4ebb0c721218d041c4c29978b00d7c5a6de91c0936",
+    "platform": "linux-x86_64-appimage",
+    "scope": "isolated-production-handler-rehearsal",
+    "sha": "2327e575ce68d6ecf2a8f935e4dc84edbbb36f4f",
+    "version": "0.0.902"
+  },
+  "completed": [
+    {
+      "acceptance_sha256": "64fe0d9191c9f141e18f09cd229d838dd3da41f03044a28bbd1d2b4ec44a87c8",
+      "directory": ".",
+      "round": 1
+    },
+    {
+      "acceptance_sha256": "d93262f6904a0f14a3c726136a2780949975d1fd4ed4af1771c6c3333c273973",
+      "directory": "repetitions/2",
+      "round": 2
+    },
+    {
+      "acceptance_sha256": "a2570436e446c235d105404ad65fabb423726939b955143ea73b7fbc84d26971",
+      "directory": "repetitions/3",
+      "round": 3
+    }
+  ],
+  "required": 3,
+  "status": "passed"
+}

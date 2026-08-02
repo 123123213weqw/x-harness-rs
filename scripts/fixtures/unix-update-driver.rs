@@ -114,6 +114,28 @@ async fn exercise(app: AppHandle) {
         env!("CARGO_PKG_VERSION"),
         config["base_version"].as_str().unwrap()
     );
+    if root().join("cache-restart-requested").exists() {
+        mode("normal");
+        phase(updater::desktop_check_update(app.clone(), app.state()).await.unwrap(), "downloaded");
+        host_running(&app);
+        record(json!({"cacheRestoredAfterRestart":true}));
+        // Even an already-ready package must be reverified BEFORE Host shutdown.
+        let package = app.path().app_cache_dir().unwrap().join("updater-v1/current/package.bin");
+        let original = fs::read(&package).unwrap();
+        fs::write(&package, b"corrupted-after-download").unwrap();
+        assert!(updater::desktop_install_update(app.clone(), app.state(), true).await.is_err());
+        host_running(&app);
+        record(json!({"cachedTamperRejectedBeforeHostStop":true}));
+        fs::write(&package, original).unwrap();
+        phase(updater::desktop_check_update(app.clone(), app.state()).await.unwrap(), "downloaded");
+        // Download while ready is a no-op, not another HTTP package transfer.
+        phase(updater::desktop_download_update(app.clone(), app.state()).await.unwrap(), "downloaded");
+        assert!(updater::desktop_install_update(app.clone(), app.state(), false).await.is_err());
+        host_running(&app);
+        record(json!({"unconfirmedInstallRejected":true}));
+        updater::desktop_install_update(app.clone(), app.state(), true).await.unwrap();
+        panic!("successful install must restart the process");
+    }
     assert!(updater::desktop_download_update(app.clone(), app.state())
         .await
         .is_err());
@@ -175,16 +197,8 @@ async fn exercise(app: AppHandle) {
         "downloaded",
     );
     host_running(&app);
-    assert!(
-        updater::desktop_install_update(app.clone(), app.state(), false)
-            .await
-            .is_err()
-    );
-    host_running(&app);
-    record(json!({"unconfirmedInstallRejected":true}));
-    phase(updater::desktop_update_status(app.state()), "downloaded");
-    updater::desktop_install_update(app.clone(), app.state(), true)
-        .await
-        .unwrap();
-    panic!("successful install must restart the process");
+    fs::write(root().join("cache-restart-requested"), b"restart-isolated-base").unwrap();
+    record(json!({"cacheRestartRequested":true}));
+    // Actual native process restart, not an in-memory UpdateSession reset.
+    app.restart();
 }

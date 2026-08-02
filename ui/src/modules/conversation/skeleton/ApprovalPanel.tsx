@@ -66,7 +66,7 @@ function ApprovalFlow({ pending, command, t }: {
   return (
     <div className={css.root} data-approval-key={pending.key}>
       <div className={css.card}>
-        <div className={css.strip}><span className={css.dot} />{t('approval.waiting')}</div>
+        <div className={css.strip}><span className={css.dot} />{t(pending.reviewing ? 'approval.reviewing' : 'approval.waiting')}</div>
         {/* Tab stop: the region scrolls once the command passes the cap and
             holds nothing focusable of its own, so without one a keyboard-only
             user cannot reach the command's tail before answering. */}
@@ -78,7 +78,7 @@ function ApprovalFlow({ pending, command, t }: {
           <Button variant="outline" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
             {t('approval.reject')}
           </Button>
-          <Button variant="primary" disabled={answered} onClick={() => { answer('allowed-once') }}>
+          <Button variant="primary" disabled={answered || pending.reviewing} onClick={() => { answer('allowed-once') }}>
             {t('approval.allowOnce')}
           </Button>
         </div>

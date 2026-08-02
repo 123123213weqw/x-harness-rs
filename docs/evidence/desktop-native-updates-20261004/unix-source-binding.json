@@ -1,0 +1,62 @@
+{
+  "tested_sha": "16e4d439efb38ab01c223c923ef2623832152bfe",
+  "runtime_source_unchanged_at": "92d8e00c8ee042f703aaca17db86eff8a58c9cc7",
+  "checked_files": [
+    {
+      "path": "apps/desktop/src-tauri/src/updater.rs",
+      "sha256": "cfcf5ae0d1c44209c34b05948eaf28ce8563485f16b59346104c8ad7da9f9997"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/updater/cache.rs",
+      "sha256": "81f9d11498961ee2a5e57dd0728cfd9bcec721e25ed8b49e2c7b5db72cf488b2"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/updater/state.rs",
+      "sha256": "28c360e29f7b23b9815173d6882c8afe3e0d5e5bbcca2b594f84474f82ca35ff"
+    },
+    {
+      "path": "apps/desktop/src-tauri/Cargo.toml",
+      "sha256": "4a9c31e4db066893da7228f6be47cbc2a07d59f6935f9d2a89bbac5fc3b12a15"
+    },
+    {
+      "path": "apps/desktop/src-tauri/Cargo.lock",
+      "sha256": "cb6b107196dada0b7965ef0444ad4b41e4412ef2c3fe4f5161d0bbb45ff8a8ab"
+    },
+    {
+      "path": "ui/src/desktop/updater.ts",
+      "sha256": "a0cb5b645323417a2c651c3fe6c6cddad8a3c191389cbc1bf5f08c34cb533a5c"
+    },
+    {
+      "path": "ui/dist/desktop-updater.js",
+      "sha256": "f3c0bfc4ce48408761f419f349233de5f172fb2eee674c8eaee56cb3de0b5318"
+    },
+    {
+      "path": "ui/src/desktop/bootstrap.ts",
+      "sha256": "ee6cdd8638e41962d4dc733b7e0cb53108024f1ce542018d48f0b2e3ff598082"
+    },
+    {
+      "path": "ui/src/startup/surface.ts",
+      "sha256": "87a192eb5baef922bd03d9b50c08ccceb0e19eed35c2522605845e6bb2dcd015"
+    },
+    {
+      "path": "ui/src/startup/surface.raw.css",
+      "sha256": "0bf67e281a2dc6bdcc9eaaefe05e404bf556471f14cf36ae390431eb2faaed5b"
+    },
+    {
+      "path": "ui/src/startup/handoff.ts",
+      "sha256": "f648404307f540d7ac03c3e44aa926b97454d3f333816ef424729dc9b4f492b6"
+    },
+    {
+      "path": "apps/desktop/frontend/index.html",
+      "sha256": "56a2ad58e2f26fa9f390d2fb2e30ab1fa3a2368aab97030f7f0e4b1767bede94"
+    },
+    {
+      "path": "scripts/fixtures/unix-update-driver.rs",
+      "sha256": "f3206b1c013129b14ecb135e604684c8392982bf0dcac687f614dfdac7f718c0"
+    },
+    {
+      "path": "scripts/unix-update-acceptance.py",
+      "sha256": "d17098817117f0bd153fe8ef30ce2b6e2582d5ef76c7d5ef04557afd39af15e9"
+    }
+  ]
+}

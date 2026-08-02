@@ -512,7 +512,7 @@ async fn new_chat_reservation_survives_long_outage_and_prevents_overlapping_runs
     let owner = manager.owner("root").await.unwrap();
     *owner.handle.write().await = Some(source.clone());
     owner.drive_once().await;
-    assert!(matches!(owner.drive_once().await, DriveAction::Wait(_, _))); // injected failure
+    assert!(matches!(owner.drive_once().await, DriveAction::Continue)); // failed target enters per-run cooldown
     let reserved = fold_schedule_events(&store.load("root").await.unwrap().unwrap())
         .unwrap()
         .pending_runs[0]
@@ -522,10 +522,16 @@ async fn new_chat_reservation_survives_long_outage_and_prevents_overlapping_runs
     assert_eq!(preparing["runCount"], 1);
     assert_eq!(preparing["admittedRunCount"], 0);
     assert_eq!(preparing["runs"][0]["state"], "preparing");
+    assert_eq!(action(&manager, "pause", id).await["state"], "paused");
+    assert!(matches!(
+        owner.drive_once().await,
+        DriveAction::Wait(None, _)
+    ));
     assert_eq!(
-        action(&manager, "delete", id).await["code"],
-        "run_preparing"
+        action(&manager, "view", id).await["runs"][0]["runId"],
+        reserved.run_id
     );
+    assert_ne!(action(&manager, "resume", id).await["state"], "paused");
     clock.0.store(2100000, Ordering::Release); // six missed intervals, after reservation
     let restarted = ScheduleManager::with_clock(store.clone(), clock.clone());
     restarted.bind_targets(targets.clone()).unwrap();
@@ -639,6 +645,145 @@ async fn unavailable_source_does_not_trigger_or_reserve_a_task() {
     *owner.handle.write().await = Some(handle.clone());
     assert!(matches!(owner.drive_once().await, DriveAction::Wait(_, _)));
     assert_eq!(provider.calls.load(Ordering::Acquire), 0);
+    assert!(
+        fold_schedule_events(&store.load("root").await.unwrap().unwrap())
+            .unwrap()
+            .pending_runs
+            .is_empty()
+    );
+    handle.shutdown(Duration::from_secs(1)).await;
+}
+
+struct SelectivelyFailingTargets {
+    inner: TestTargets,
+    blocked: Mutex<Option<String>>,
+    attempts: AtomicUsize,
+}
+#[async_trait]
+impl AutomationTargetProvider for SelectivelyFailingTargets {
+    async fn check_source(&self, source: &str) -> Result<(), String> {
+        self.inner.check_source(source).await
+    }
+    async fn prepare(&self, source: &str, target: &str) -> Result<DurableAgentHandle, String> {
+        let mut blocked = self.blocked.lock().await;
+        let failed = blocked.get_or_insert_with(|| target.to_owned()).as_str() == target;
+        drop(blocked);
+        if failed {
+            self.attempts.fetch_add(1, Ordering::AcqRel);
+            return Err("permanent failure for this target only".into());
+        }
+        self.inner.prepare(source, target).await
+    }
+}
+
+#[tokio::test]
+async fn failed_target_is_backed_off_without_starving_other_targets_and_can_be_deleted() {
+    let (store, manager, clock) = fixture().await;
+    let provider = TestProvider::new(false, false);
+    let targets = Arc::new(SelectivelyFailingTargets {
+        inner: TestTargets {
+            store: store.clone(),
+            handles: Mutex::new(HashMap::new()),
+            provider: provider.clone(),
+            fail_prepare: AtomicBool::new(false),
+            allowed: AtomicBool::new(true),
+        },
+        blocked: Mutex::new(None),
+        attempts: AtomicUsize::new(0),
+    });
+    manager.bind_targets(targets.clone()).unwrap();
+    let source = worker(store.clone(), "root", TestProvider::new(false, false)).await;
+    let bad = create(&manager, json!({"mode":"task", "target":"new_chat"})).await;
+    clock.0.store(1000, Ordering::Release);
+    let owner = manager.owner("root").await.unwrap();
+    *owner.handle.write().await = Some(source.clone());
+    owner.drive_once().await; // reserve bad occurrence
+    assert!(matches!(owner.drive_once().await, DriveAction::Continue)); // preparation failed
+    for _ in 0..5 {
+        assert!(matches!(
+            owner.drive_once().await,
+            DriveAction::Wait(Some(2000), _)
+        ));
+    }
+    assert_eq!(targets.attempts.load(Ordering::Acquire), 1); // no hot polling
+    let good = create(
+        &manager,
+        json!({"mode":"task", "target":"new_chat", "idempotency_key":"healthy"}),
+    )
+    .await;
+    clock.0.store(2000, Ordering::Release);
+    owner.drive_once().await; // retry bad once, next deadline 4000
+    owner.drive_once().await; // reserve independent good
+    owner.drive_once().await; // admit good despite bad pending reservation
+    wait_run(&manager, good["id"].as_str().unwrap(), "completed").await;
+    assert_eq!(provider.calls.load(Ordering::Acquire), 1);
+    assert_eq!(
+        action(&manager, "view", bad["id"].as_str().unwrap()).await["admittedRunCount"],
+        0
+    );
+    assert_eq!(
+        action(&manager, "delete", bad["id"].as_str().unwrap()).await["deleted"],
+        true
+    );
+    assert_eq!(
+        action(&manager, "delete", bad["id"].as_str().unwrap()).await["deleted"],
+        false
+    );
+    let cancelled = action(&manager, "view", bad["id"].as_str().unwrap()).await;
+    assert_eq!(cancelled["runCount"], 1);
+    assert_eq!(cancelled["admittedRunCount"], 0);
+    assert_eq!(cancelled["runs"][0]["state"], "cancelled");
+
+    let restarted = ScheduleManager::with_clock(store.clone(), clock.clone());
+    restarted.bind_targets(targets.clone()).unwrap();
+    let restored = restarted.owner("root").await.unwrap();
+    *restored.handle.write().await = Some(source.clone());
+    clock.0.store(100000, Ordering::Release);
+    assert!(matches!(
+        restored.drive_once().await,
+        DriveAction::Wait(None, _)
+    ));
+    assert_eq!(provider.calls.load(Ordering::Acquire), 1);
+    assert!(
+        fold_schedule_events(&store.load("root").await.unwrap().unwrap())
+            .unwrap()
+            .pending_runs
+            .is_empty()
+    );
+    for target in targets.inner.handles.lock().await.values() {
+        target.shutdown(Duration::from_secs(1)).await;
+    }
+    source.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn control_after_restart_reconciles_already_admitted_run_before_deleting() {
+    let (store, manager, clock) = fixture().await;
+    let provider = TestProvider::new(false, false);
+    let handle = worker(store.clone(), "root", provider.clone()).await;
+    let value = create(
+        &manager,
+        json!({"mode":"task", "after_seconds":null, "every_seconds":300}),
+    )
+    .await;
+    let id = value["id"].as_str().unwrap();
+    clock.0.store(300000, Ordering::Release);
+    let owner = manager.owner("root").await.unwrap();
+    *owner.handle.write().await = Some(handle.clone());
+    owner.drive_once().await;
+    let folded = fold_schedule_events(&store.load("root").await.unwrap().unwrap()).unwrap();
+    let record = &folded.active[0];
+    let message =
+        automation::scheduled_message("root", record, &folded.pending_runs[0].0.occurrence_at);
+    handle.maintenance_followup(message).await.unwrap();
+    settle(&handle).await;
+    let restarted = ScheduleManager::with_clock(store.clone(), clock.clone());
+    assert_eq!(action(&restarted, "delete", id).await["deleted"], true);
+    let view = action(&restarted, "view", id).await;
+    assert_eq!(view["state"], "deleted");
+    assert_eq!(view["admittedRunCount"], 1);
+    assert_eq!(view["runs"][0]["state"], "completed");
+    assert_eq!(provider.calls.load(Ordering::Acquire), 1);
     assert!(
         fold_schedule_events(&store.load("root").await.unwrap().unwrap())
             .unwrap()

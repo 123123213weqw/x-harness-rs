@@ -49,13 +49,15 @@ export const sessionEventSchema = z.object({
 }) satisfies z.ZodType<SessionWireEvent>
 
 /** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
+export const sessionOriginSchema = z.enum(['subagent', 'fork', 'automation']) satisfies z.ZodType<NonNullable<SessionSummary['origin']>>
+
 export const sessionSummarySchema = z.object({
   sessionId: sessionIdSchema,
   updatedAt: z.number(),
   running: z.boolean(),
   blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
-  origin: z.literal('subagent').optional(),
+  origin: sessionOriginSchema.optional(),
   cwd: z.string().optional(),
   agentPreset: z.string().optional(),
   projections: z.lazy(() => sessionProjectionsBlockSchema).optional(),

@@ -205,7 +205,7 @@ export interface SessionSummary {
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
   parentSessionId?: SessionId | undefined
   /** Coarse durable origin used by navigation surfaces; never proves resumability. */
-  origin?: 'subagent' | 'fork' | undefined
+  origin?: 'subagent' | 'fork' | 'automation' | undefined
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string | undefined
   /**

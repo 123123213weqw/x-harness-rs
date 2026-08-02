@@ -522,6 +522,12 @@ impl ScheduleRecord {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum ScheduleChange {
+    /// A control-only change: cannot edit the immutable reserved occurrence.
+    SetPaused {
+        version: u8,
+        id: String,
+        paused: bool,
+    },
     Create {
         version: u8,
         schedule: ScheduleRecord,

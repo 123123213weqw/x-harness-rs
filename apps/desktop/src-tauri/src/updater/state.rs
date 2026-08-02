@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::path::PathBuf;
 
 use serde::Serialize;
 
@@ -40,13 +40,13 @@ pub struct Snapshot {
     pub retry_action: Action,
 }
 
-// The update descriptor and verified bytes stay paired in one session. WebView
+// The update descriptor and verified cache path stay paired in one session. WebView
 // reloads only read this state; they never reset an in-flight/ready download.
-// Bytes are intentionally process-local: after app exit re-download and verify.
+// Only a path remains in memory; restoring/reusing it requires fresh identity and signature checks.
 pub struct UpdateSession<T> {
     pub snapshot: Snapshot,
     candidate: Option<T>,
-    bytes: Option<Arc<Vec<u8>>>,
+    package: Option<PathBuf>,
 }
 
 impl<T> Default for UpdateSession<T> {
@@ -64,7 +64,7 @@ impl<T> Default for UpdateSession<T> {
                 retry_action: Action::Check,
             },
             candidate: None,
-            bytes: None,
+            package: None,
         }
     }
 }
@@ -78,7 +78,13 @@ impl<T: Clone> UpdateSession<T> {
     }
 
     pub fn has_download(&self) -> bool {
-        self.bytes.is_some()
+        self.package.is_some()
+    }
+
+    pub fn invalidate_download(&mut self) {
+        self.package = None;
+        self.snapshot.downloaded = 0;
+        self.snapshot.total = None;
     }
 
     pub fn begin_check(&mut self) -> bool {
@@ -130,9 +136,10 @@ impl<T: Clone> UpdateSession<T> {
         self.transition(Phase::Downloading, None)
     }
 
-    pub fn verified(&mut self, bytes: Vec<u8>) -> Snapshot {
-        self.snapshot.downloaded = bytes.len() as u64;
-        self.bytes = Some(Arc::new(bytes));
+    pub fn verified(&mut self, path: PathBuf, len: u64) -> Snapshot {
+        self.snapshot.downloaded = len;
+        self.snapshot.total = Some(len);
+        self.package = Some(path);
         self.snapshot.retry_action = Action::Install;
         self.transition(
             Phase::Downloaded,
@@ -140,12 +147,12 @@ impl<T: Clone> UpdateSession<T> {
         )
     }
 
-    pub fn install_payload(&self, confirm_stop: bool) -> Result<(T, Arc<Vec<u8>>), String> {
+    pub fn install_payload(&self, confirm_stop: bool) -> Result<(T, PathBuf), String> {
         if !confirm_stop {
             return Err("请先确认停止正在运行的 Agent、Tool 和 Job，再重启更新".to_owned());
         }
-        match (&self.candidate, &self.bytes) {
-            (Some(candidate), Some(bytes)) => Ok((candidate.clone(), Arc::clone(bytes))),
+        match (&self.candidate, &self.package) {
+            (Some(candidate), Some(path)) => Ok((candidate.clone(), path.clone())),
             _ => Err("更新尚未下载并验证，不能安装".to_owned()),
         }
     }
@@ -180,10 +187,10 @@ mod tests {
         state.progress(3, Some(6));
         state.progress(3, Some(6));
         assert!(state.install_payload(true).is_err());
-        state.verified(vec![1, 2, 3, 4, 5, 6]);
+        state.verified(PathBuf::from("candidate"), 6);
         assert_eq!(state.snapshot.phase, Phase::Downloaded);
         assert!(state.install_payload(false).is_err());
-        assert_eq!(state.install_payload(true).unwrap().1.len(), 6);
+        assert_eq!(state.snapshot.downloaded, 6);
     }
 
     #[test]
@@ -203,19 +210,19 @@ mod tests {
     fn reload_or_check_cannot_replace_verified_candidate() {
         let mut state = available();
         state.begin_download().unwrap();
-        state.verified(vec![7, 8]);
+        state.verified(PathBuf::from("candidate"), 2);
         let snapshot = state.snapshot.clone();
         assert!(!state.begin_check());
         assert_eq!(snapshot.seq, state.snapshot.seq);
-        let (candidate, bytes) = state.install_payload(true).unwrap();
+        let (candidate, path) = state.install_payload(true).unwrap();
         assert_eq!(candidate, "v2 descriptor");
-        assert_eq!(bytes.as_slice(), &[7, 8]);
+        assert_eq!(path, PathBuf::from("candidate"));
     }
 
     #[test]
     fn failed_install_preserves_verified_package_for_explicit_retry() {
         let mut state = available();
-        state.verified(vec![1]);
+        state.verified(PathBuf::from("candidate"), 1);
         state.transition(Phase::StoppingHost, None);
         state.transition(Phase::Installing, None);
         state.transition(Phase::RecoveringHost, None);
@@ -223,6 +230,29 @@ mod tests {
         assert!(state.install_payload(true).is_ok());
         assert!(state.install_payload(false).is_err());
         assert_eq!(state.snapshot.retry_action, Action::Install);
+    }
+
+    #[test]
+    fn cache_invalidation_requires_redownload_but_keeps_live_candidate() {
+        let mut state = available();
+        state.verified(PathBuf::from("candidate"), 64);
+        state.invalidate_download();
+        state.fail(
+            Action::Download,
+            "cached package changed before Host stop".into(),
+        );
+        assert!(!state.has_download());
+        assert!(state.install_payload(true).is_err());
+        assert_eq!(state.snapshot.downloaded, 0);
+        assert_eq!(state.snapshot.total, None);
+        assert_eq!(state.snapshot.retry_action, Action::Download);
+        assert_eq!(state.begin_download().unwrap(), "v2 descriptor");
+        state.verified(PathBuf::from("replacement"), 128);
+        assert!(state.install_payload(false).is_err());
+        assert_eq!(
+            state.install_payload(true).unwrap().1,
+            PathBuf::from("replacement")
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@
 type SessionGateMap =
     Arc<Mutex<std::collections::HashMap<(String, bool), std::sync::Weak<Mutex<()>>>>>;
 
+mod approval_review;
 mod automation;
 mod bootstrap;
 pub use bootstrap::{prepare_goal_session, GoalBootstrapReceipt, GoalBootstrapSpec};
@@ -31,11 +32,13 @@ mod execution;
 pub use execution::ExecutionGate;
 #[cfg(test)]
 mod failed_turn_projection_tests;
+mod github_backend;
 mod model_processor;
 mod model_settings;
 #[cfg(test)]
 mod permission_tests;
 mod plugin_backend;
+pub use github_backend::GitHubBackend;
 mod preference_settings;
 mod preset_processor;
 mod questions;
@@ -215,6 +218,7 @@ pub struct BasicHost {
     pub(crate) questions: Arc<DurableQuestionHub>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     pub(crate) plugins: Arc<std::sync::OnceLock<Arc<dyn PluginBackend>>>,
+    pub(crate) github: Arc<std::sync::OnceLock<Arc<dyn GitHubBackend>>>,
     admission_gates: SessionGateMap,
     projection_gates: Arc<Mutex<std::collections::HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     background_listener_started: Arc<AtomicBool>,
@@ -222,6 +226,8 @@ pub struct BasicHost {
     next_id: Arc<AtomicU64>,
     delegation_listener_started: Arc<AtomicBool>,
     title_work: Arc<titles::TitleWork>,
+    self_ref: Arc<std::sync::OnceLock<std::sync::Weak<BasicHost>>>,
+    approval_review_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl BasicHost {
@@ -312,6 +318,7 @@ impl BasicHost {
             questions,
             model_settings: Arc::new(std::sync::OnceLock::new()),
             plugins: Arc::new(std::sync::OnceLock::new()),
+            github: Arc::new(std::sync::OnceLock::new()),
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             projection_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             background_listener_started: Arc::new(AtomicBool::new(false)),
@@ -319,7 +326,10 @@ impl BasicHost {
             next_id: Arc::new(AtomicU64::new(1)),
             delegation_listener_started: Arc::new(AtomicBool::new(false)),
             title_work: Arc::new(titles::TitleWork::default()),
+            self_ref: Arc::new(std::sync::OnceLock::new()),
+            approval_review_slots: Arc::new(tokio::sync::Semaphore::new(4)),
         });
+        let _ = host.self_ref.set(Arc::downgrade(&host));
         host.questions.bind_host(Arc::downgrade(&host));
         host.agent_runtime.bind_host(Arc::downgrade(&host));
         host

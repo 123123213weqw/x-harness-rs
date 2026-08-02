@@ -104,7 +104,9 @@ function updateChunk(state: AssistantState, match: ConversationMatch): Assistant
       blocks[chunk.index] = {
         kind: 'tool-call',
         callId: base.callId || String(chunk.id),
-        name: chunk.name ?? base.name,
+        // Argument-only continuation chunks may carry an empty name.
+        // Preserve the tool identity already received for this block.
+        name: chunk.name || base.name,
         argsRaw: base.argsRaw + chunk.argumentsDelta,
       }
       break
@@ -303,7 +305,10 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
       const state = context.state ?? fallbackState(context)
       if (state === undefined) return null
       const current = context.current.get('chat')
-      if (!state.hidden || current === undefined || current === null) return null
+      // A preparing tool call can materialize a row without text/reasoning.
+      // Once arguments complete or retry clears content, hide that same key
+      // rather than withdrawing an already materialized target.
+      if (current === undefined || current === null) return null
     }
     return chatNode(context, 'assistant-step', projected.anchorSeq, projected.data, {
       visibility: projected.settled?.interrupted === true || projected.visible ? 'visible' : 'hidden',
