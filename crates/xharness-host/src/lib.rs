@@ -10,6 +10,7 @@
 type SessionGateMap =
     Arc<Mutex<std::collections::HashMap<(String, bool), std::sync::Weak<Mutex<()>>>>>;
 
+mod approval_review;
 mod bootstrap;
 pub use bootstrap::{prepare_goal_session, GoalBootstrapReceipt, GoalBootstrapSpec};
 mod control;
@@ -226,6 +227,8 @@ pub struct BasicHost {
     delegation_listener_started: Arc<AtomicBool>,
     title_work: Arc<titles::TitleWork>,
     review_work: Arc<github_review::ReviewWork>,
+    self_ref: Arc<std::sync::OnceLock<std::sync::Weak<BasicHost>>>,
+    approval_review_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl BasicHost {
@@ -325,7 +328,10 @@ impl BasicHost {
             next_id: Arc::new(AtomicU64::new(1)),
             delegation_listener_started: Arc::new(AtomicBool::new(false)),
             title_work: Arc::new(titles::TitleWork::default()),
+            self_ref: Arc::new(std::sync::OnceLock::new()),
+            approval_review_slots: Arc::new(tokio::sync::Semaphore::new(4)),
         });
+        let _ = host.self_ref.set(Arc::downgrade(&host));
         host.questions.bind_host(Arc::downgrade(&host));
         host.agent_runtime.bind_host(Arc::downgrade(&host));
         host

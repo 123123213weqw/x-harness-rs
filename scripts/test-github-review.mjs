@@ -2,13 +2,19 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
+import {fileURLToPath} from 'node:url'
+import {dirname,resolve} from 'node:path'
 import {createRequire} from 'node:module'
 import vm from 'node:vm'
 const require=createRequire(new URL('../ui/package.json',import.meta.url));const {buildSync}=require('esbuild')
-function load(path){const module={exports:{}};vm.runInNewContext(buildSync({entryPoints:[new URL(path,import.meta.url).pathname],bundle:true,write:false,format:'cjs',platform:'node'}).outputFiles[0].text,{module,exports:module.exports,AbortController,Date,Set,Map,URL,setTimeout,clearTimeout});return module.exports}
+const sourcePath=path=>fileURLToPath(new URL(path,import.meta.url))
+function load(path){const module={exports:{}};vm.runInNewContext(buildSync({entryPoints:[sourcePath(path)],bundle:true,write:false,format:'cjs',platform:'node'}).outputFiles[0].text,{module,exports:module.exports,AbortController,Date,Set,Map,URL,setTimeout,clearTimeout});return module.exports}
 const client=load('../ui/src/modules/code-review/client.ts'),data=load('../ui/src/modules/code-review/data.ts')
 const {ReviewCache}=load('../ui/src/modules/code-review/cache.ts')
 const record={id:7,repository:'alice/project',title:'read-only PR',author:'alice',updatedAt:'2026-10-04T00:00:00Z',state:'open',draft:false,headSha:'a'.repeat(40),branch:'topic',body:'<script>nothing runs</script>',baseBranch:'master',additions:3,deletions:1,changedFiles:2,mergeable:null,mergeableState:'unknown',files:[{path:'image.png',status:'added',patch:null,additions:0,deletions:0}],comments:[],reviews:[],checks:[{id:'check:1',name:'CI',status:'in_progress',conclusion:null,description:''}],filesHasMore:false,commentsHasMore:false,reviewsHasMore:false,checksTruncated:false,inlineCommentCount:0,commentCount:0}
+test('file URL entrypoints use native decoded paths for spaces and Unicode',()=>{
+ for(const name of ['client.ts','directory with spaces/模型.ts']) assert.equal(sourcePath('./fixtures/'+name),resolve(dirname(fileURLToPath(import.meta.url)),'fixtures',name))
+})
 test('strict decoder preserves unknown mergeability, missing binary patch and pending CI',()=>{const v=client.detail(record);assert.equal(v.mergeable,null);assert.equal(v.files[0].patch,null);assert.equal(data.checkState(v.checks[0]),'pending')})
 test('invalid fields, contradictory envelope, invalid dates and coercions are rejected',()=>{
  for(const [field,value] of [['id','7'],['files',{}],['mergeable','true'],['additions',-1],['updatedAt','oops'],['checks',null],['body',null],['headSha',42]])assert.throws(()=>client.detail({...record,[field]:value}),/Invalid GitHub response/)
