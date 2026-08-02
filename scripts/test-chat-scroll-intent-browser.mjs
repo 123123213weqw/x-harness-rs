@@ -55,11 +55,40 @@ try {
       ReactDOM.flushSync(() => snapshot.set({ ...snap, chat: { ...snap.chat, order: snap.chat.order.slice(-10) } }))
     }
     const props = { sessionId: 'scroll-fixture', useSession: hook(snapshot), useSessions: hook(summaries), useStore: hook(details),
-      t: k => k === 'chat.toBottom' ? 'Back to bottom' : k, openFile: async () => {}, loadOlder: () => {}, loadImage: async () => '', inspectCall: () => {}, forkAt: () => {}, fileMentions: () => undefined, editMessage: () => {}, forkMessage: () => {},
+      t: k => k === 'chat.toBottom' ? 'Back to bottom' : k, openFile: async () => {}, loadOlder: () => window.pageUp?.(), loadImage: async () => '', inspectCall: () => {}, forkAt: () => {}, fileMentions: () => undefined, editMessage: () => {}, forkMessage: () => {},
       chatScroll: scrollMemory.forSession('scroll-fixture'),
       renderSlot: (_key, owner) => owner.node === undefined ? null : jsx('div', { style: { height: owner.node.data.height, borderBottom: '1px solid #ddd' }, children: ['Message ' + owner.node.key, owner.node.key === '0' && jsx('textarea', { 'aria-label': 'Fixture draft' })] }) }
-    const root = ReactDOM.createRoot(document.getElementById('root'))
-    ReactDOM.flushSync(() => root.render(jsx('div', { 'data-conversation-scroll': '', tabIndex: 0, style: { height: 650, overflowY: 'auto', overflowAnchor: 'none' }, children: jsx(plugin.ChatView, props) })))
+    let root = ReactDOM.createRoot(document.getElementById('root'))
+    const render = () => ReactDOM.flushSync(() => root.render(jsx('div', { 'data-conversation-scroll': '', tabIndex: 0, style: { height: 650, overflowY: 'auto', overflowAnchor: 'none' }, children: jsx(plugin.ChatView, props) })))
+    render()
+    window.mountHistory = () => {
+      root.unmount()
+      const make = seq => ({ key: 'history-' + seq, anchorSeq: seq, kind: 'user', data: { kind: 'user', seq, time: seq, source: { kind: 'user' }, content: [], height: 140 } })
+      const nodes = new Map(Array.from({ length: 50 }, (_, i) => { const node = make(100 + i); return [node.key, node] }))
+      scrollMemory.requestFollow('scroll-fixture')
+      snapshot.set({ ...snapshot.getSnapshot(), running: false, queue: [], openState: 'loading', openError: null,
+        loadingOlder: false, hasMore: true, chat: { order: [...nodes.keys()], nodes, timeline: { turns: new Map() } } })
+      window.historyRequests = 0
+      window.pageUp = () => {
+        historyRequests++
+        ReactDOM.flushSync(() => snapshot.set({ ...snapshot.getSnapshot(), loadingOlder: true }))
+        return new Promise((resolve, reject) => {
+          window.finishPage = (fail = false, end = false) => {
+            const snap = snapshot.getSnapshot()
+            if (fail) {
+              ReactDOM.flushSync(() => snapshot.set({ ...snap, loadingOlder: false, openState: 'error', openError: { code: 'network', message: 'page failed' } }))
+              reject(new Error('expected rejected page')); return
+            }
+            const head = snap.chat.nodes.get(snap.chat.order[0]).anchorSeq, nodes = new Map(snap.chat.nodes), older = []
+            for (let seq = head - 50; seq < head; seq++) { const node = make(seq); nodes.set(node.key, node); older.push(node.key) }
+            ReactDOM.flushSync(() => snapshot.set({ ...snap, loadingOlder: false, openState: 'open', openError: null, hasMore: !end,
+              chat: { ...snap.chat, nodes, order: [...older, ...snap.chat.order] } }))
+            resolve()
+          }
+        })
+      }
+      root = ReactDOM.createRoot(document.getElementById('root')); render()
+    }
     window.unmount = () => root.unmount()
   })
   const scroll = page.locator('[data-conversation-scroll]'), jump = page.getByRole('button', { name: 'Back to bottom', exact: true })
@@ -245,7 +274,64 @@ try {
   const lateAfter = await settledGeometry()
   assert.ok(Math.abs(lateAfter.top - lateBefore.top) < 2, 'Late local prompt echo does not re-arm follow')
   assert.ok(lateAfter.gap >= 100)
+  // Fresh-page restoration opens only the tail. Reading up, not mount/resize
+  // or page completion, admits a page through the maintained anchor path.
+  await page.evaluate(() => mountHistory())
+  await page.evaluate(() => ReactDOM.flushSync(() => snapshot.set({ ...snapshot.getSnapshot(), openState: 'open' })))
+  assert.ok((await settledGeometry()).gap <= 1)
+  assert.equal(await page.evaluate(() => historyRequests), 0, 'reload never drains history automatically')
+  const readNearHead = () => scroll.evaluate(e => {
+    e.scrollTop = 180
+    e.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -180 }))
+    e.dispatchEvent(new Event('scroll'))
+  })
+  await scroll.evaluate(e => {
+    e.scrollTop = 800
+    e.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -180 }))
+    e.dispatchEvent(new Event('scroll'))
+    e.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 1 }))
+    e.scrollTop = 180
+    e.dispatchEvent(new Event('scroll'))
+  })
+  assert.equal(await page.evaluate(() => historyRequests), 0, 'a newer downward gesture cancels earlier page intent')
+  await readNearHead()
+  assert.equal(await page.evaluate(() => historyRequests), 1, 'upward reader near head loads without a button')
+  await readNearHead(); await readNearHead()
+  assert.equal(await page.evaluate(() => historyRequests), 1, 'pending page cannot be double-admitted')
+  await scroll.evaluate(e => {
+    e.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 500 }))
+    e.scrollTop = 680
+    e.dispatchEvent(new Event('scroll'))
+  })
+  await settledGeometry()
+  const historyAnchor = await scroll.evaluate(e => {
+    const top = e.getBoundingClientRect().top
+    const row = [...e.querySelectorAll('[data-chat-anchor-key]')].find(row => row.getBoundingClientRect().bottom > top)
+    return { key: row.dataset.chatAnchorKey, offset: row.getBoundingClientRect().top - top }
+  })
+  await page.evaluate(() => finishPage())
+  await settledGeometry()
+  const historyOffset = await scroll.evaluate((e, key) => {
+    const row = [...e.querySelectorAll('[data-chat-anchor-key]')].find(row => row.dataset.chatAnchorKey === key)
+    return row.getBoundingClientRect().top - e.getBoundingClientRect().top
+  }, historyAnchor.key)
+  assert.ok(Math.abs(historyOffset - historyAnchor.offset) <= 2, 'automatic prepend preserves the same message and offset')
+  assert.equal(await page.evaluate(() => snapshot.getSnapshot().chat.order.length), 100)
+  assert.equal(await page.evaluate(() => historyRequests), 1, 'arrival/reflow never starts a second page')
+  await readNearHead()
+  assert.equal(await page.evaluate(() => historyRequests), 2)
+  await page.evaluate(() => finishPage(true))
+  await readNearHead(); await settledGeometry()
+  assert.equal(await page.evaluate(() => historyRequests), 2, 'network failure cannot enter an auto-retry loop')
+  await page.getByRole('button', { name: 'retry', exact: true }).click()
+  assert.equal(await page.evaluate(() => historyRequests), 3, 'manual retry remains available after failure')
+  await page.getByRole('button', { name: 'retry', exact: true }).click()
+  await readNearHead()
+  assert.equal(await page.evaluate(() => historyRequests), 3, 'manual retry and automatic input share the pending gate')
+  await page.evaluate(() => finishPage(false, true))
+  await readNearHead(); await settledGeometry()
+  assert.equal(await page.evaluate(() => historyRequests), 3, 'EOF stops automatic requests')
   await page.evaluate(() => unmount())
   assert.deepEqual(errors, [])
-  console.log(`${engine}: real ChatView gesture/resize/windowing, passive user/steering, session isolation, explicit local dispatch and late prompt echo passed`)
+  console.log(`${engine}: real ChatView gestures, passive arrival, explicit send, reload-tail-only and anchored auto-pagination/single-flight/error-retry/EOF passed`)
 } finally { await browser.close() }
