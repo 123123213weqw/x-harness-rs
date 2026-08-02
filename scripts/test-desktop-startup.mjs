@@ -5,11 +5,11 @@ import vm from 'node:vm'
 
 const source = scriptAsset('desktop-startup.js')
 
-function fixture({ desktop = true, mounted = false } = {}) {
+function fixture({ desktop = true, mounted = false, booting = false } = {}) {
   const calls = []
   const frames = []
   const listeners = new Map()
-  const root = { childElementCount: mounted ? 1 : 0 }
+  const root = { childElementCount: mounted || booting ? 1 : 0, booting, querySelector() { return this.booting ? {} : null } }
   let observer
   class MutationObserver {
     constructor(callback) { this.callback = callback; observer = this }
@@ -65,4 +65,10 @@ assert.deepEqual(late.calls.map(call => call[1].phase), ['frontend_hydrated', 'f
 const early = fixture({ mounted: true })
 await new Promise(resolve => setImmediate(resolve))
 assert.equal(early.calls[0][1].phase, 'frontend_hydrated')
+const loading = fixture({ booting: true })
+assert.deepEqual(loading.calls, [], 'the boot animation is not application hydration')
+loading.root.booting = false
+loading.mutate()
+await new Promise(resolve => setImmediate(resolve))
+assert.equal(loading.calls[0][1].phase, 'frontend_hydrated')
 console.log('Desktop startup milestones are desktop-only, ordered and idempotent.')

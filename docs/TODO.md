@@ -1,5 +1,14 @@
 # XHarness 总任务清单
 
+## 桌面后台准备更新（2026-10-03）
+
+- [x] `UPDATE-PREPARE-01` 复用原 Tauri controller，自动检查后准备新版，不弹出面板、不自动安装；重启需确认，恢复网络与最多三次退避重试，页面退出取消后续动作。
+- [x] `UPDATE-PREPARE-02` 完整候选落盘、按实时清单精确身份复用并重新验签；停止 Host 前再次验签，Ready 不再常驻完整包字节；缓存独立、暂存发布、容量上限、损坏／身份漂移兜底。见 `docs/specs/desktop-background-updates.md`。
+- [x] `UPDATE-PREPARE-03` 本机 Node 22 项／严格 TS 与构建一致性、V100 Rust desktop lib 46 项／check／Clippy、Chromium／WebKit 各 28 个浏览器场景通过；Unix 更新验收隔离与发布契约回归通过。见 `docs/evidence/desktop-background-updates-20261003.md`；不以这些回归代替真正更新安装。
+- [x] `UPDATE-PREPARE-04` Linux AppImage／macOS arm64／macOS x64 各三轮、Windows NSIS 一轮真实隔离升级通过；含进程重开复用缓存、重验签、篡改拒绝、显式安装、Host 生命周期与合成数据保留。验收见 `docs/evidence/desktop-native-updates-20261004.md`；PR #215 记录源码绑定、原生升级和全量 CI 门禁，不发布或替换应用。
+- [ ] `UPDATE-RELEASE-01` 正式签名渠道发布与真实用户安装／首次下载 OS 门禁验收；不是临时密钥演练收据，不改现有 feed 或自动重启软件。
+- [ ] `UPDATE-PREPARE-05` HTTP Range 续传、用户自动下载偏好、原生更新启动健康收据／崩溃恢复独立设计与验收；不在本轮冒充已经完成。
+
 ## 工具空间折叠与展示档位收敛（2026-10-04）
 
 - [x] `DISPLAY-01` 运行中按可见高度 40% 折叠较早成功工具，保留最新、失败、等待、焦点和文本选择；手动展开优先，复用整轮与虚拟列表。
@@ -1506,6 +1515,16 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] V100 静态及 Chromium 八组关联回归、本机 macOS WebKit 窗口化回归；350 行首次重组件挂载 0，五轮宽度变化峰值 1（模拟用例，不代表真实进程 footprint）。
 - [ ] Linux WebKit 回归：V100 缺失测试库已补齐；Safari 26.4 的既有测高滚动补偿缺口已复现并单列 `UI-LINUX-ANCHOR-01`，不使用强制点击/等待绕过失败。最新 GitHub CI 与原生 WebView 结果不冒充该版本通过。
 - [ ] 发布后对真实 macOS WKWebView footprint／启动峰值验收；源码修改不代表本机已升级。
+
+## 2026-10-03 统一桌面与 Web 启动加载页
+
+- [x] 本地离线 Bootstrap 与插件 BootPage 共用 framework-free StartupSurface、金属 X、布局和主题；原旋转圆环／蓝色滑条移除。
+- [x] 桌面仅第一段播放有限收缩动画，第二段保持静态；浏览器独立入口播放一次。界面交接、失败、隐藏和卸载立即取消入场，不等待动画。
+- [x] 实际应用 commit 后原位轻微展开、180ms 淡出，与入场收拢呼应；不是 Host Ready 或固定计时触发。小型快照位于 React 容器外、inert／aria-hidden／鼠标穿透，不拦截点击、不延迟挂载；失败不退场，减少动态效果立即交接。
+- [x] 同一个源构建同时生成 Web 与本地 HTML，check:build 检测任一输出漂移；保留订阅后快照读取、插件错误明细与真实加载状态。
+- [x] 启动打点不把加载页当作 frontend_hydrated；Chromium／WebKit 各 30 项启动回归、真实 React commit 一次性通知及完整 UI 旧／新像素对照通过。覆盖退场完成／取消释放、隐藏、resize、卸载、异常动画降级、重复通知与即时点击。
+- [x] 新版四平台原生打包与隔离升级／重启验证；Windows 原生 WebView 已记录真实 hydration 与 first frame，浏览器启动各 30 场景。见 `docs/evidence/desktop-native-updates-20261004.md`，未替换本机软件。
+- [ ] 原生 WebView 两段动画轨迹专项验收与启动速度 A/B；不把生命周期正确或一次启动打点解释为更快。
 
 ## job_output 等待超时：隔离实验（2026-10-03）
 

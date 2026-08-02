@@ -1,0 +1,8 @@
+{
+  "cacheRestoredAfterRestart": true,
+  "noDuplicatePackageDownload": true,
+  "cachedTamperRejectedBeforeHostStop": true,
+  "packageSha256": "5a64503ea74289d76177037117857ac16c6059958716c056a4786f9918111ce2",
+  "packageDownloads": 1,
+  "sourceSha": "8cd6305c0584f770170ff92e9d98f22f9cca24a5"
+}
