@@ -147,6 +147,7 @@ jobs:
           node scripts/test-tool-source-module.mjs
           node scripts/test-conversation-source.mjs
           node scripts/test-turn-process.mjs
+          node scripts/test-adaptive-tool-fold.mjs
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
@@ -200,6 +201,7 @@ jobs:
             UI_TEST_BROWSER="$browser" node scripts/test-script-assets-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-chat-scroll-intent-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-turn-process-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-conversation-message-rail-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-automation-navigation-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-code-review-cache-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-code-review-filters-browser.mjs

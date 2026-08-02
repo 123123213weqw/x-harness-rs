@@ -17,6 +17,13 @@ const layoutClasses = shippedUnitValue(layout, 'src/modules/layout/AppFrame.styl
 const conversation = verifyArtifact('@xharness/dsh-client-ui-conversation')
 const composerCss = shippedUnitValue(conversation, 'src/modules/conversation/skeleton/ConversationRoot.css')
 const composerClasses = shippedUnitValue(conversation, 'src/modules/conversation/skeleton/ConversationRoot.styles.js')
+const sidebarArtifact = verifyArtifact('@xharness/dsh-client-ui-sidebar')
+const sidebarCss = shippedUnitValue(sidebarArtifact, 'src/modules/sidebar/SidebarRoot.css')
+const sidebarClasses = shippedUnitValue(sidebarArtifact, 'src/modules/sidebar/SidebarRoot.styles.js')
+const tasksCss = readFileSync(join(repo, 'ui/src/modules/tasks/Tasks.css'), 'utf8')
+assert.match(readFileSync(join(repo, 'ui/src/modules/sidebar/SidebarRoot.tsx'), 'utf8'),
+  /<div id="xharness-sidebar-updater-slot" hidden \/>/,
+  'Production sidebar must provide the same initially empty reserved row as this fixture')
 assert.ok(css.includes('overlayLayer') && composerCss.includes('position:sticky'), 'Real shell and composer layers required')
 // Baseline override lets the regression demonstrate failure against an installed old bridge.
 const source = process.env.UI_TEST_UPDATER_SOURCE
@@ -40,9 +47,9 @@ try {
       await page.setContent(`<style>
         html,body{height:100%;margin:0;font:15px system-ui;background:#f6f7f8}
         :root{--dsw-alias-bg-base:#f6f7f8;--dsw-specific-sidebar-fill:#e8eaed}
-        ${css} ${composerCss}
+        ${css} ${composerCss} ${sidebarCss} ${tasksCss}
         .${layoutClasses.sidebarCol}{position:relative}
-        #settings{position:absolute;left:8px;bottom:12px}
+        #settings{height:40px}
         .${composerClasses.viewArea}{min-height:1200px!important;padding:24px}
         .${composerClasses.composerSeat}{min-height:200px;padding:40px 16px 16px;box-sizing:border-box}
         textarea{width:100%;height:120px;box-sizing:border-box}
@@ -50,7 +57,16 @@ try {
         #shell-scrim{position:absolute;inset:0;background:#ffffffee}
       </style>
       <div class="${layoutClasses.frame}" style="grid-template-columns:${sidebar}px 1fr">
-        <aside class="${layoutClasses.sidebarCol}"><button id="settings">设置</button></aside>
+        <aside class="${layoutClasses.sidebarCol}">
+          <div class="${sidebarClasses.root} ${sidebar === 56 ? sidebarClasses.collapsed : ''}">
+            <div class="${sidebarClasses.regionArea}"></div>
+            <div class="${sidebarClasses.footArea}">
+              <div id="xharness-sidebar-updater-slot" hidden></div>
+              <div class="${sidebarClasses.footerActions}"><button id="tasks" class="xhtask-trigger">Tasks</button></div>
+              <div class="${sidebarClasses.settingsArea}"><button id="settings">设置</button></div>
+            </div>
+          </div>
+        </aside>
         <main class="${layoutClasses.centerCol}">
           <div class="${composerClasses.root}" data-phase="active">
             <div class="${composerClasses.scrollBody}">
@@ -96,6 +112,11 @@ try {
           emitUpdate({ payload: remote })
         }, { seq: ++seq, phase })
         await assertReachable(toggle, 'Collapsed updater icon remains reachable')
+        const updateBox = await toggle.boundingBox(), taskBox = await page.locator('#tasks').boundingBox()
+        assert.ok(updateBox.y + updateBox.height <= taskBox.y, 'Reserved row keeps updater above Tasks with no overlapping hit targets')
+        const taskPoint = {x: taskBox.x + taskBox.width / 2, y: taskBox.y + taskBox.height / 2}
+        assert.equal(await page.evaluate(p => document.elementFromPoint(p.x, p.y)?.id, taskPoint), 'tasks', 'Tasks is not covered by updater')
+        await page.locator('#tasks').click()
         await toggle.click()
         await panel.waitFor({ state: 'visible' })
         // Check actual buttons, not just the panel centre: the gradient covers its bottom.

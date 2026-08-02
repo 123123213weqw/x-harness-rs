@@ -158,10 +158,8 @@ export function ToolRow({
   useEffect(() => {
     if (appliedMode === processMode) return
     setAppliedMode(processMode)
-    if (processMode === 'verbose') setExpanded(true)
-    else if (processMode === 'compact') setExpanded(false)
-    else if (processMode === 'detailed' && (state === 'running' || state === 'preparing') && (body?.length ?? 0) < 4096) setExpanded(true)
-  }, [processMode, state, appliedMode])
+    setExpanded(processMode === 'expanded')
+  }, [processMode, appliedMode, setAppliedMode, setExpanded])
   const terminalBody = terminal ?? null
   const diffBody = diff ?? null
   const readBody = read ?? null
