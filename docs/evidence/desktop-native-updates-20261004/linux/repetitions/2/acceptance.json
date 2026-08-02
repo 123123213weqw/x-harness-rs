@@ -1,0 +1,37 @@
+{
+  "release_run_attempt": "1",
+  "release_run_id": "37182218394",
+  "scope": "isolated-production-handler-rehearsal",
+  "base_version": "0.0.901",
+  "platform": "linux-x86_64-appimage",
+  "sha": "16e4d439efb38ab01c223c923ef2623832152bfe",
+  "schema_version": 1,
+  "provenance": {
+    "workflow": ".github/workflows/desktop-unix-update-acceptance.yml",
+    "run_id": "37182218394",
+    "run_attempt": "1",
+    "source_sha": "16e4d439efb38ab01c223c923ef2623832152bfe"
+  },
+  "nativeUpdateAccepted": false,
+  "version": "0.0.902",
+  "checks": {
+    "signatureVerified": true,
+    "cacheRestoredAfterRestart": true,
+    "noDuplicatePackageDownload": true,
+    "cachedTamperRejectedBeforeHostStop": true,
+    "hostStoppedBeforeInstall": true,
+    "unavailableFeedRejected": true,
+    "concurrentCheckRejected": true,
+    "tamperedPackageRejected": true,
+    "unconfirmedInstallRejected": true,
+    "exactCandidateInstalled": true,
+    "restartVerified": true,
+    "dataPreserved": true,
+    "persistedSessionCatalogued": true,
+    "nativeLaunchVerified": true
+  },
+  "package_sha256": "d7815a2080435d195ae70daba52fa488c75e2a0e571edb9f4257e512fa97f9aa",
+  "manifest_sha256": "2443cb1fd4d6bebd57191eae414ebf17945fe00fabf1bbfd0c600abfc2eb3130",
+  "baseInstrumented": true,
+  "status": "passed"
+}

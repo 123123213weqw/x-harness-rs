@@ -1,0 +1,4 @@
+{
+  "message": "App 0.0.902 with running Host timed out: no result",
+  "stack": "Error: App 0.0.902 with running Host timed out: no result\n    at until (file:///D:/a/x-harness-rs/x-harness-rs/scripts/windows-migration-acceptance.mjs:175:11)\n    at async run (file:///D:/a/x-harness-rs/x-harness-rs/scripts/windows-migration-acceptance.mjs:302:14)\n    at async file:///D:/a/x-harness-rs/x-harness-rs/scripts/windows-migration-acceptance.mjs:115:3"
+}

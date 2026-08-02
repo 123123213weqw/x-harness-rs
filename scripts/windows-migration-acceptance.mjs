@@ -9,6 +9,8 @@ import { createServer as httpsServer } from 'node:https'
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { checkStaged } from './windows-cache-rehearsal.mjs'
+import { attachmentState } from './native-desktop-attachment.mjs'
 import { verifyPackage } from './verify-updater-package.mjs'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'CI only')
@@ -26,7 +28,13 @@ const baseTags = sameChannel
   ? { '0.2.2': 'friends-v0.2.3', '0.2.3': 'friends-v0.2.3', '0.2.4': 'friends-v0.2.4', '0.2.5': 'friends-v0.2.5' }
   : { '0.2.0': 'friends-v0.2.1', '0.2.1': 'friends-v0.2.1' }
 const unifiedAcceptance = e.UNIFIED_ACCEPTANCE === 'true'
-if (unifiedAcceptance) {
+const cacheRehearsal = e.WINDOWS_CACHE_REHEARSAL === 'true'
+if (cacheRehearsal) {
+  assert.equal(unifiedAcceptance, false); assert.equal(probeOnly, false)
+  assert.equal(directLatest, true); assert.equal(sameChannel, true)
+  const stage = checkStaged(root)
+  e.OLD_PUBLIC_KEY = stage.public_key; e.UPSTREAM_PUBLIC_KEY = stage.public_key
+} else if (unifiedAcceptance) {
   assert.equal(directLatest, true)
   assert.equal(sameChannel, true)
   const stage = JSON.parse(readFileSync(join(root, 'unified-stage.json'), 'utf8'))
@@ -51,6 +59,7 @@ function download(repo, tag, kind, names) {
   execFileSync('gh', ['release', 'download', tag, '--repo', repo, '--dir', dir, ...names.flatMap(n => ['--pattern', n])], { stdio: ['ignore', 'pipe', 'pipe'] })
 }
 if (process.argv[2] === 'download') {
+  assert.equal(cacheRehearsal, false, 'Rehearsals may only use local source-bound disposable artifacts')
   assert.equal(unifiedAcceptance, false, 'Unified candidates must use the validated stage wrapper')
   const base = filename(e.BASE_VERSION), bridge = filename(e.BRIDGE_VERSION), next = filename(e.UPSTREAM_VERSION)
   download(oldRepo, baseTags[e.BASE_VERSION], 'old', [base, base + '.sig'])
@@ -135,7 +144,7 @@ async function run() {
   if (!probeOnly) for (const kind of ['bridge', 'next']) assert.equal(new URL(manifest(kind).platforms['windows-x86_64'].url).hostname, 'github.com')
   const tls = httpsServer({ pfx: readFileSync(e.MIGRATION_TEST_PFX), passphrase: 'disposable-ci-only' }, (req, res) => {
     const pathname = new URL(req.url, 'https://github.com').pathname
-    requests.push({ pathname, time: new Date().toISOString() })
+    requests.push({ pathname, tampered: rejectPackage, time: new Date().toISOString() })
     const file = mappings.get(pathname)
     if (!file) { res.writeHead(404); res.end('not a migration fixture'); return }
     if (rejectPackage && pathname.endsWith('.exe')) { res.writeHead(200, { 'Content-Length': 9 }); res.end('CORRUPTED'); return }
@@ -157,6 +166,20 @@ async function run() {
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1' }
   for (const name of Object.keys(childEnv)) if (/TOKEN|PASSWORD|PRIVATE_KEY|PUBLIC_KEY|DEEPSEEK|OPENAI|^XHARNESS_/i.test(name)) delete childEnv[name]
   let connection
+  // Retain bounded evidence across native/CDP process replacement. A screenshot
+  // alone cannot distinguish an old stopped Host from a broken new installation.
+  const observedPages = new WeakSet(), attachSamples = [], pageEvents = []
+  function recordPageEvent(event) {
+    if (pageEvents.length < 200) pageEvents.push({ time: new Date().toISOString(), ...event })
+  }
+  function observePage(page) {
+    if (observedPages.has(page)) return
+    observedPages.add(page)
+    page.on('pageerror', error => recordPageEvent({ kind: 'pageerror', url: page.url(), error: error.message }))
+    page.on('requestfailed', request => recordPageEvent({ kind: 'requestfailed', url: request.url(), error: request.failure()?.errorText }))
+    page.on('response', response => { if (response.status() >= 400) recordPageEvent({ kind: 'http-error', url: response.url(), status: response.status() }) })
+    page.on('close', () => recordPageEvent({ kind: 'page-closed', url: page.url() }))
+  }
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
   async function until(fn, label, timeout = 90000) {
     const start = Date.now(); let last
@@ -170,18 +193,31 @@ async function run() {
   async function attached(version) {
     return until(async () => {
       if (!connection?.isConnected()) connection = await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 4000 })
+      let retired = false
       for (const context of connection.contexts()) for (const page of context.pages()) {
+        observePage(page)
         writeFileSync(join(evidence, 'last-page.json'), JSON.stringify({ url: page.url(), expectedVersion: version }))
         if (!page.url().startsWith('http://127.0.0.1:')) continue
         const status = await invoke(page, 'desktop_status')
-        if (status.version === version && status.hostRunning && status.updaterConfigured) {
+        const sample = { time: new Date().toISOString(), url: page.url(), expectedVersion: version, status }
+        if (!status.hostRunning) sample.update = await invoke(page, 'desktop_update_status').catch(error => ({ error: error.message }))
+        if (attachSamples.length < 250) attachSamples.push(sample)
+        const attachment = attachmentState(version, status, cacheRehearsal)
+        retired ||= attachment.retired
+        if (attachment.ready) {
           const notice = page.getByRole('button', { name: 'Continue', exact: true })
           if (await notice.isVisible().catch(() => false)) await notice.click()
           return page
         }
       }
+      if (retired) {
+        // A connected CDP transport may outlive the retired native WebView.
+        // Rescan the real debugging endpoint, never relaunch or repair the app.
+        recordPageEvent({ kind: 'retired-cdp-disconnect', expectedVersion: version })
+        await connection.close(); connection = null
+      }
       return null
-    }, `App ${version} with running Host`)
+    }, `App ${version} with running Host${cacheRehearsal ? ' and committed native frontend' : ''}`)
   }
   async function rpc(page, method, payload) {
     const result = await page.evaluate(async ({ method, payload, rpcId }) => {
@@ -229,7 +265,7 @@ async function run() {
     console.log('Original installer exited successfully; starting installed desktop.')
     const executable = join(installDir, 'xharness-desktop.exe')
     assert.ok(existsSync(executable))
-    spawn(executable, [], { windowsHide: true, env: childEnv, stdio: 'ignore' }).on('error', error => console.error(error.message))
+    let desktopProcess = spawn(executable, [], { windowsHide: true, env: childEnv, stdio: 'ignore' }).on('error', error => console.error(error.message))
     let page = await attached(e.BASE_VERSION)
     await rpc(page, 'session.create', { sessionId })
     await rpc(page, 'session.rename', { sessionId, title: '迁移保留测试' })
@@ -254,11 +290,43 @@ async function run() {
       }
       const downloaded = await invoke(page, 'desktop_download_update')
       assert.equal(downloaded.phase, 'downloaded')
+      if (cacheRehearsal) {
+        const cache = join(e.LOCALAPPDATA, 'com.xlang.xharness', 'updater-v1', 'current', 'package.bin')
+        assert.equal(hash(cache), hash(location('next', e.UPSTREAM_VERSION)), 'Signed payload not durably cached')
+        const packageRequests = () => requests.filter(r => r.pathname.endsWith('.exe') && !r.tampered).length
+        const before = packageRequests()
+        assert.equal(before, 1, 'Expected exactly one complete signed package download')
+        // WM_CLOSE uses the production close handler and graceful Host barrier.
+        assert.ok(Number.isInteger(desktopProcess.pid))
+        execFileSync('powershell', ['-NoLogo','-NoProfile','-NonInteractive','-Command',
+          `(Get-Process -Id ${desktopProcess.pid}).CloseMainWindow() | Out-Null`])
+        await until(() => desktopProcess.exitCode === 0, 'Graceful native close before cache reopen')
+        await connection?.close(); connection = null
+        desktopProcess = spawn(executable, [], { windowsHide: true, env: childEnv, stdio: 'ignore' })
+        page = await attached(e.BASE_VERSION)
+        const restored = await invoke(page, 'desktop_check_update')
+        assert.equal(restored.phase, 'downloaded', 'Restart did not restore and verify cached package')
+        assert.equal(packageRequests(), before, 'Cache restore downloaded the installer again')
+        const bytes = readFileSync(cache)
+        writeFileSync(cache, 'corrupted-after-download')
+        const tamperRejected = await invoke(page, 'desktop_install_update', { confirmStop: true }).then(() => false, () => true)
+        assert.ok(tamperRejected, 'Tampered cache accepted')
+        assert.ok((await invoke(page, 'desktop_status')).hostRunning, 'Tampered cache stopped Host')
+        writeFileSync(cache, bytes)
+        assert.equal((await invoke(page, 'desktop_check_update')).phase, 'downloaded')
+        assert.equal((await invoke(page, 'desktop_download_update')).phase, 'downloaded')
+        assert.equal(packageRequests(), before, 'Ready/download no-op transferred installer again')
+        writeFileSync(join(evidence, 'cache-reopen.json'), JSON.stringify({
+          cacheRestoredAfterRestart: true, noDuplicatePackageDownload: true,
+          cachedTamperRejectedBeforeHostStop: true, packageSha256: hash(cache),
+          packageDownloads: before, sourceSha: e.GITHUB_SHA,
+        }, null, 2))
+      }
       const rejected = await invoke(page, 'desktop_install_update', { confirmStop: false }).then(() => false, () => true)
       assert.ok(rejected, 'Install without confirmation must fail')
       assert.ok((await invoke(page, 'desktop_status')).hostRunning, 'Unconfirmed install stopped Host')
       // Actual native updater installs signed NSIS, stops Host, then restarts the app.
-      void invoke(page, 'desktop_install_update', { confirmStop: true }).catch(() => {})
+      void invoke(page, 'desktop_install_update', { confirmStop: true }).catch(error => recordPageEvent({ kind: 'install-ipc-ended', error: error.message }))
       page = await attached(version)
       await checkpoint(page, version)
     }
@@ -270,7 +338,7 @@ async function run() {
     const secondHopIntercepted = requests.some(r => r.pathname === `/${upstream}/releases/latest/download/latest.json`)
     assert.equal(checkpoints.length, directLatest ? 2 : 3)
     for (const checkpoint of checkpoints.slice(1)) assert.equal(checkpoints[0].journalSha256, checkpoint.journalSha256, 'Update rewrote the fixture journal')
-    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: !directLatest, nativeDirectLatest: directLatest,
+    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: !directLatest, nativeDirectLatest: cacheRehearsal ? false : directLatest, rehearsalOnly: cacheRehearsal,
       installCount: checkpoints.length - 1, confirmedInstall: true, corruptPackageRejected: true,
       secondHopIntercepted, upstreamEndpointAndKeyVerified: true, checkpoints }, null, 2))
   } finally {
@@ -283,6 +351,16 @@ async function run() {
       }
     }
     writeFileSync(join(evidence, 'requests.json'), JSON.stringify(requests, null, 2))
+    writeFileSync(join(evidence, 'attach-samples.json'), JSON.stringify(attachSamples, null, 2))
+    writeFileSync(join(evidence, 'page-events.json'), JSON.stringify(pageEvents, null, 2))
+    try {
+      const inventory = execFileSync('powershell', ['-NoLogo','-NoProfile','-NonInteractive','-Command',
+        "Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('xharness-desktop.exe','xharness-host.exe') } | Select-Object Name,ProcessId,ParentProcessId,ExecutablePath | ConvertTo-Json -Compress"], { encoding: 'utf8', timeout: 10000 })
+      writeFileSync(join(evidence, 'native-processes.json'), inventory)
+      const executable = join(installDir, 'xharness-desktop.exe')
+      if (existsSync(executable)) writeFileSync(join(evidence, 'installed-image.json'), JSON.stringify({ sha256: hash(executable) }))
+    } catch (error) { recordPageEvent({ kind: 'inventory-error', error: error.message }) }
+
     // Only disposable CI runner processes; never used on a user's workstation.
     for (const name of ['xharness-desktop.exe', 'xharness-host.exe']) {
       try { execFileSync('taskkill', ['/IM', name, '/T', '/F'], { stdio: 'ignore' }) } catch { /* already stopped */ }
