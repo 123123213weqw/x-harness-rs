@@ -5,7 +5,7 @@
 - [x] `UPDATE-PREPARE-01` 复用原 Tauri controller，自动检查后准备新版，不弹出面板、不自动安装；重启需确认，恢复网络与最多三次退避重试，页面退出取消后续动作。
 - [x] `UPDATE-PREPARE-02` 完整候选落盘、按实时清单精确身份复用并重新验签；停止 Host 前再次验签，Ready 不再常驻完整包字节；缓存独立、暂存发布、容量上限、损坏／身份漂移兜底。见 `docs/specs/desktop-background-updates.md`。
 - [x] `UPDATE-PREPARE-03` 本机 Node 22 项／严格 TS 与构建一致性、V100 Rust desktop lib 46 项／check／Clippy、Chromium／WebKit 各 28 个浏览器场景通过；Unix 更新验收隔离与发布契约回归通过。见 `docs/evidence/desktop-background-updates-20261003.md`；不以这些回归代替真正更新安装。
-- [x] `UPDATE-PREPARE-04` Linux AppImage／macOS arm64／macOS x64 各三轮、Windows NSIS 一轮真实隔离升级通过；含进程重开复用缓存、重验签、篡改拒绝、显式安装、Host 生命周期与合成数据保留。验收见 `docs/evidence/desktop-native-updates-20261004.md`；PR #215 等最终 CI 全绿合入，不发布或替换应用。
+- [x] `UPDATE-PREPARE-04` Linux AppImage／macOS arm64／macOS x64 各三轮、Windows NSIS 一轮真实隔离升级通过；含进程重开复用缓存、重验签、篡改拒绝、显式安装、Host 生命周期与合成数据保留。验收见 `docs/evidence/desktop-native-updates-20261004.md`；PR #215 记录源码绑定、原生升级和全量 CI 门禁，不发布或替换应用。
 - [ ] `UPDATE-RELEASE-01` 正式签名渠道发布与真实用户安装／首次下载 OS 门禁验收；不是临时密钥演练收据，不改现有 feed 或自动重启软件。
 - [ ] `UPDATE-PREPARE-05` HTTP Range 续传、用户自动下载偏好、原生更新启动健康收据／崩溃恢复独立设计与验收；不在本轮冒充已经完成。
 
@@ -1560,3 +1560,14 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] 独立 PR 的 CI／审查与 Windows/macOS 验收；依赖 #196，软件不替换。
 
 见 [实验规范](specs/bash-timeout-ab.md)及[双模型结果](reports/bash-timeout-ab-20261003.md)。
+
+## AI 代审（本次新增）
+
+- [x] 独立单次审核请求与现有审批/工具链路接线，零新工具，工作区沙箱不变。
+- [x] 会话及默认权限菜单、审核状态、异常回退人工、取消与 Loop Steering 围栏。
+- [x] WZU_Server：Host 217、Core Loop 117、Host App 44、Tools 29、Agent 13，共 420 项通过，原有 6 项诊断压力测试 ignored；五 crate 全目标 Clippy 严格通过。
+- [x] Chromium/WebKit 源码与冻结基线审批卡片、权限选择、设置保存、实时/历史/Compact/Retry 投影及架构边界回归通过；UI 严格构建通过。
+- [ ] PR CI、Windows/macOS 原生验收与真实模型误判率评估；本次未安装或重启软件。
+- [ ] 独立审核模型选择、辅助调用成本统计及真实多模型判断质量评估。
+
+规范：[AI 代审](specs/ai-approval.md)。
