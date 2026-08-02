@@ -1,0 +1,108 @@
+name: Desktop Windows Cache Rehearsal
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Disposable Windows NSIS cache upgrade
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --prefix ui --ignore-scripts
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Install pinned portable search dependency
+        run: |
+          $version = '15.2.0'
+          $archive = Join-Path $env:RUNNER_TEMP 'rg.zip'
+          Invoke-WebRequest "https://github.com/BurntSushi/ripgrep/releases/download/$version/ripgrep-$version-x86_64-pc-windows-msvc.zip" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5') { throw 'ripgrep hash mismatch' }
+          Expand-Archive $archive (Join-Path $env:RUNNER_TEMP 'rg')
+          "XHARNESS_RG=$env:RUNNER_TEMP/rg/ripgrep-$version-x86_64-pc-windows-msvc/rg.exe" >> $env:GITHUB_ENV
+      - name: Build native Host and sandbox sidecars remotely
+        run: |
+          cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
+          if ($LASTEXITCODE) { throw 'Native sidecar compilation failed' }
+          python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Host staging failed' }
+          python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG x86_64-pc-windows-msvc --name rg
+          if ($LASTEXITCODE) { throw 'Search staging failed' }
+          python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
+          if ($LASTEXITCODE) { throw 'Sandbox staging failed' }
+      - name: Create runner-local signing key (never publishable)
+        run: |
+          "CANDIDATE=$env:RUNNER_TEMP/windows-cache-candidate" >> $env:GITHUB_ENV
+          python -B scripts/desktop-release-build.py rehearsal-init --output "$env:RUNNER_TEMP/windows-cache-candidate"
+          if ($LASTEXITCODE) { throw 'Disposable key initialization failed' }
+      - name: Build untouched signed target NSIS installer
+        working-directory: apps/desktop
+        run: |
+          npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target x86_64-pc-windows-msvc --bundles nsis
+          if ($LASTEXITCODE) { throw 'Target NSIS build failed' }
+      - name: Verify and seal exact target receipt; delete private key
+        run: |
+          python -B scripts/desktop-release-build.py rehearsal-receipt --candidate "$env:CANDIDATE" --platform windows-x86_64 --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Target receipt verification failed' }
+      - name: Prepare disposable base only; target remains unchanged
+        run: |
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          python -B scripts/prepare-desktop-test-version.py 0.0.901
+          if ($LASTEXITCODE) { throw 'Base version preparation failed' }
+          python -B -c "import importlib.util,pathlib; p=pathlib.Path('scripts/unix-update-acceptance.py'); s=importlib.util.spec_from_file_location('fixture',p); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.isolate_base_updater_timers(pathlib.Path('ui/dist/desktop-updater.js'))"
+          if ($LASTEXITCODE) { throw 'Base timer isolation failed' }
+      - name: Build unsigned disposable base NSIS (not a release artifact)
+        working-directory: apps/desktop
+        run: |
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target x86_64-pc-windows-msvc --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          if ($LASTEXITCODE) { throw 'Base NSIS build failed' }
+      - name: Stage local signed target and synthetic test configuration
+        run: |
+          node scripts/windows-cache-rehearsal.mjs stage
+          if ($LASTEXITCODE) { throw 'Source-bound local staging failed' }
+          npm install --prefix "$env:RUNNER_TEMP/migration-deps" --no-save --package-lock=false playwright@1.61.1
+          if ($LASTEXITCODE) { throw 'Playwright installation failed' }
+          "MIGRATION_TEST_DEPS=$env:RUNNER_TEMP/migration-deps/node_modules/playwright/index.mjs" >> $env:GITHUB_ENV
+          "WINDOWS_CACHE_REHEARSAL=true" >> $env:GITHUB_ENV
+          "DIRECT_LATEST=true" >> $env:GITHUB_ENV
+          "BASE_VERSION=0.0.901" >> $env:GITHUB_ENV
+          "BRIDGE_VERSION=0.0.902" >> $env:GITHUB_ENV
+          "UPSTREAM_VERSION=0.0.902" >> $env:GITHUB_ENV
+          "UPSTREAM_REPOSITORY=$env:GITHUB_REPOSITORY" >> $env:GITHUB_ENV
+      - name: Real download, cache reopen, tamper rejection, Host stop, install, restart and data retention
+        run: ./scripts/windows-migration-acceptance.ps1
+      - name: Upload synthetic evidence only (no installers, HOME or keys)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-rehearsal-windows-cache
+          path: dist/migration-acceptance/evidence/
+          if-no-files-found: warn
+      - name: Remove runner-local signing remnants
+        if: always()
+        run: |
+          Remove-Item -LiteralPath "$env:CANDIDATE/disposable.key", "$env:CANDIDATE/disposable.key.pub" -ErrorAction SilentlyContinue

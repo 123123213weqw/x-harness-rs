@@ -556,6 +556,11 @@
   ],
   "assets": [
     {
+      "path": "desktop-bootstrap.js",
+      "source": "src/desktop/bootstrap.ts",
+      "kind": "script-ts"
+    },
+    {
       "path": "app-icon-512.png",
       "source": "overrides/app-icon-512.png"
     },
@@ -618,7 +623,7 @@
     {
       "path": "desktop-titlebar.css",
       "source": "desktop/titlebar.css",
-      "sha256": "2accb344eb74033b1af0f34c74efd49f1bce52c0f598dea0f8882851d6ac4e84"
+      "sha256": "e603785ab902c935a5a38ec19def0f598558fe109d96be2f09f519911a04bfa9"
     },
     {
       "path": "plugin-icons/browser.svg",
