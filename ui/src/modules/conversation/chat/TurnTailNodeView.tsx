@@ -24,6 +24,15 @@ export function TurnProcessSummary({ turn, data, t, collapsed, onToggle }: {
     onClick={onToggle}><span>{label}</span><IconChevronRightOutline14 /></button>
 }
 
+/** Active work folds only settled successful roots; pending/error rows stay outside. */
+export function AdaptiveToolSummary({ turn, count, t, expanded, onToggle }: {
+  turn: number; count: number; t: ChatNodeViewProps['t']; expanded: boolean; onToggle: () => void
+}) {
+  return <button type="button" className={css.summary} data-live-tool-summary={turn}
+    aria-expanded={expanded} aria-label={t(expanded ? 'message.collapseProcess' : 'message.expandProcess')}
+    onClick={onToggle}><span>{t(expanded ? 'message.expandedTools' : 'message.foldedTools', { count })}</span><IconChevronRightOutline14 /></button>
+}
+
 type TurnTailNodeViewProps = ChatNodeViewProps<'turn-tail'>
   & PropsRenderSlots<'conversation.chat.turnTail' | 'conversation.chat.assistant-actions'>
 

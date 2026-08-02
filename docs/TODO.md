@@ -1,5 +1,12 @@
 # XHarness 总任务清单
 
+## 工具空间折叠与展示档位收敛（2026-10-04）
+
+- [x] `DISPLAY-01` 运行中按可见高度 40% 折叠较早成功工具，保留最新、失败、等待、焦点和文本选择；手动展开优先，复用整轮与虚拟列表。
+- [x] `DISPLAY-02` 四档收敛为自动／全部展开，共用策略，迁移旧偏好；整轮、Tool、Think 一致，全部展开仍保留离屏窗口化。
+- [x] `DISPLAY-03` 单元、Chromium／WebKit 设置／工具／过程、350 行窗口化、滚动意图及严格构建回归。规格见 `docs/specs/adaptive-tool-fold.md`。
+- [ ] `DISPLAY-04` 已确认回到公开 `123123213weqw/x-harness-rs`；推送 PR、CI 全绿后合并；本轮不发布或替换应用。
+
 ## 专用 VM 托管 Runtime（2026-10-01）
 
 目标：VM 内 Full Access，完整复用 Host、Durable Runtime、Goal、Provider 和 Tool Registry。
@@ -1557,3 +1564,13 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] Independent cold-load description/files/comments/check sections; aggregated backend endpoint remains unchanged.
 - [ ] Independent GitHub authorization onboarding, native installed-App validation and GitHub CI/release remain separate.
 - [x] Code Review cooperative idle queue: quiet-frame/visible/online gate, one active speculative job, two automatic first-page details, foreground/input cancellation, bounded queue, no blind rate-limit retries, WebKit fallback.
+## AI 代审（本次新增）
+
+- [x] 独立单次审核请求与现有审批/工具链路接线，零新工具，工作区沙箱不变。
+- [x] 会话及默认权限菜单、审核状态、异常回退人工、取消与 Loop Steering 围栏。
+- [x] WZU_Server：Host 217、Core Loop 117、Host App 44、Tools 29、Agent 13，共 420 项通过，原有 6 项诊断压力测试 ignored；五 crate 全目标 Clippy 严格通过。
+- [x] Chromium/WebKit 源码与冻结基线审批卡片、权限选择、设置保存、实时/历史/Compact/Retry 投影及架构边界回归通过；UI 严格构建通过。
+- [ ] PR CI、Windows/macOS 原生验收与真实模型误判率评估；本次未安装或重启软件。
+- [ ] 独立审核模型选择、辅助调用成本统计及真实多模型判断质量评估。
+
+规范：[AI 代审](specs/ai-approval.md)。
