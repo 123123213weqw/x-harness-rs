@@ -146,7 +146,9 @@ try {
  await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
  await page.evaluate(()=>finish())
  const summary=page.locator('[data-turn-process-summary="1"]')
- await summary.waitFor();assert.equal(await summary.innerText(),'Ran for 2m 45s')
+ // Linux WebKit may serialize the decorative SVG's final line break in
+ // innerText. Compare the complete label, without that browser-only suffix.
+ await summary.waitFor();assert.equal((await summary.innerText()).trim(),'Ran for 2m 45s')
  assert.equal(await summary.getAttribute('aria-expanded'),'false')
  assert.equal(await page.locator('[data-tool-card]').count(),0)
  assert.equal(await page.getByText('intermediate reply',{exact:true}).count(),0)
@@ -213,7 +215,7 @@ try {
  assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),0)
  await page.evaluate(()=>{setId('no-answer');seed();finish(false,false,true)})
  await page.getByRole('button',{name:/Show this turn's work/}).waitFor()
- assert.equal(await summary.innerText(),'Turn finished')
+ assert.equal((await summary.innerText()).trim(),'Turn finished')
  await page.getByText('network failed',{exact:true}).waitFor()
  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),0)
  await summary.click();await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
@@ -380,7 +382,7 @@ try {
  for (const item of realWindows) {
   await page.evaluate(item=>installRealWindow(item.chat,'wire-'+item.name),item)
   const footer=page.locator('[data-turn-process-summary="1"]')
-  await footer.waitFor();assert.equal(await footer.innerText(),'Ran for 2m 45s',item.name)
+  await footer.waitFor();assert.equal((await footer.innerText()).trim(),'Ran for 2m 45s',item.name)
   assert.equal(await footer.getAttribute('aria-expanded'),'false')
   await page.getByText('answer',{exact:true}).waitFor()
   assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),item.outcome==='success'?0:1,item.name)
