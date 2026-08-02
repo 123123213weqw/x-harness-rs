@@ -29,8 +29,25 @@ const helper=readFileSync(resolve(root,'ui/overrides/transcript-windowing.js'),'
 assert.ok(golden.toString().includes(helper), 'shipped implementation must match maintained source');
 try {
  const page=await browser.newPage({viewport:{width:1100,height:850}});
+ if (process.env.UI_TEST_NO_NATIVE_ANCHOR === '1') {
+  assert.equal(implementation, 'source', 'unsupported anchor regression is not a frozen-baseline rewrite');
+  await page.addInitScript(() => {
+   const native = window.getComputedStyle;
+   window.getComputedStyle = (...args) => new Proxy(native(...args), {
+    get: (style, key) => {
+     if (key === 'overflowAnchor') return undefined;
+     const value = Reflect.get(style, key, style);
+     return typeof value === 'function' ? value.bind(style) : value;
+    },
+   });
+  });
+ }
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await installOwnedViewPlatform(page,shipped.toString().startsWith('// Generated from src/modules/conversation/')?'source':'legacy');
+ if (process.env.UI_TEST_NO_NATIVE_ANCHOR === '1') assert.equal(
+  await page.evaluate(() => getComputedStyle(document.body).overflowAnchor === undefined), true,
+  'the unsupported-property branch must actually be exercised',
+ );
  await page.addStyleTag({content:'.fixture-row:empty{display:none}'});
  await page.evaluate(()=>{window.registrations={};window.__ModuleLoader__={load:r=>{registrations[r.id]=r}}});
  for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
@@ -296,5 +313,5 @@ try {
  assert.ok(Math.abs(after-anchor.top)<2,'prepend preserves real ChatView anchor');
  await page.evaluate(()=>fixtureRoot.unmount());
  assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
- console.log(JSON.stringify({engine,implementation,baseline,optimized,firstWindowed, resizePeak, checks:'bounded first mount/resize, tool/reasoning/native-details/draft state, call isolation, focus/selection protection and release, live tip, cleanup, real ChatView anchors',note:'synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint'}));
+ console.log(JSON.stringify({engine,implementation,noNativeAnchor:process.env.UI_TEST_NO_NATIVE_ANCHOR==='1',baseline,optimized,firstWindowed, resizePeak, checks:'bounded first mount/resize, tool/reasoning/native-details/draft state, call isolation, focus/selection protection and release, live tip, cleanup, real ChatView anchors',note:'synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint'}));
 } finally {await browser.close()}

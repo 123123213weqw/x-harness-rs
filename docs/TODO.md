@@ -8,6 +8,22 @@
 - [x] `UPDATE-PREPARE-04` Linux AppImage／macOS arm64／macOS x64 各三轮、Windows NSIS 一轮真实隔离升级通过；含进程重开复用缓存、重验签、篡改拒绝、显式安装、Host 生命周期与合成数据保留。验收见 `docs/evidence/desktop-native-updates-20261004.md`；PR #215 记录源码绑定、原生升级和全量 CI 门禁，不发布或替换应用。
 - [ ] `UPDATE-RELEASE-01` 正式签名渠道发布与真实用户安装／首次下载 OS 门禁验收；不是临时密钥演练收据，不改现有 feed 或自动重启软件。
 - [ ] `UPDATE-PREPARE-05` HTTP Range 续传、用户自动下载偏好、原生更新启动健康收据／崩溃恢复独立设计与验收；不在本轮冒充已经完成。
+## Host → UI 契约强制对齐（2026-10-04）
+
+- [x] `WIRE-01` 第一阶段收口 turn/end：持久历史投影与旧 Core 驱动使用同一 Rust DTO；测试导出 JSON Schema，生成 TS 类型与 codec；Chat、Trajectory、Session 严格边界共用校验，保留旧别名、扩展字段与原始日志。
+- [x] `WIRE-02` 构建生成物漂移门禁、真实 Rust 输出→生产前端组装器回归、固定 v1 双向兼容语料、失败历史事务/实时恢复与浏览器终态窗口验收接入 CI；未支持的 Schema 约束直接阻断生成。
+- [x] `WIRE-03a` WZU_Server 独立目录根 Workspace 全量测试及 Clippy、56 组本机回归命令、Chromium/WebKit 各 42 个真实终态窗口通过；见 `docs/evidence/session-terminal-contract-20261004.md`。
+- [ ] `WIRE-03b` 当前提交 GitHub 跨平台 CI 全绿后才能合并；源码通过不代表 Windows 原生实机、桌面部署或全部协议迁移完成。
+- [ ] `WIRE-04` 分族迁移工具视图 discriminator、Step/Assistant、Compaction 和其余 RPC；每族加入实际输出→实际读取回归后删手写分支，保留开放插件事件及旧持久格式。
+
+规格见 `docs/specs/session-terminal-contract.md`。
+
+## 滚动意图、Fork 网络契约与 Linux 测高补偿（2026-10-04）
+
+- [x] `UI-SCROLL-INTENT-01` 删除 user/steering 到达即强制到底部；底部跟随只由已有跟随状态、当前会话本地发送意图或明确回到底部恢复。发送意图在 RPC 前同步发出，迟到成功/失败/历史回声不能覆盖更新的上滑意图；会话隔离、隐藏视图和订阅释放有回归。
+- [x] `UI-FORK-WIRE-01` host/session-added 与 session.list 共用 subagent/fork 来源校验；保持缺省来源兼容，继续拒绝非法来源。真实 Rust SessionFork 的三种切点输出经生产 WebSocket/HTTP 解码回归，不借用 FixtureApiClient 绕过验证。
+- [x] `UI-LINUX-ANCHOR-01` 仅明确支持 overflow-anchor:auto 时使用原生补偿；属性缺失/空值/none 走维护的可见行锚点与实时跟随所有权。V100 真实 Linux WebKit、两本机浏览器及强制缺属性分支通过；旧失败证据保留。
+- [ ] 本批 PR 跨平台 CI 全绿后才可合并；源码、生成 UI 与浏览器回归不等于已安装桌面升级或 Windows 原生崩溃已验收。见 `docs/evidence/ui-scroll-fork-regression-20261004.md`。
 
 ## 工具空间折叠与展示档位收敛（2026-10-04）
 
@@ -84,7 +100,7 @@
 - [x] `UI-SOURCE-06` 干净完整构建、重复字节一致、损坏／失败保留旧产物，冻结主分支／新源码全部业务 A/B 与 canonical Node／Chromium／WebKit 回归。
 - [x] `UI-SOURCE-07a` WZU_Server 远程真实 Rust Host 响应与 TS DTO 对照通过；不在本机编译 Rust。
 - [ ] `UI-SOURCE-07b` 当前提交的 GitHub CI 全绿后合并；桌面安装和发布仍需独立授权及验收。
-- [ ] `UI-LINUX-ANCHOR-01` 既有 Linux WebKit Safari 26.4 不支持 `overflow-anchor` 时，窗口化测高未补偿滚动位置，尾行离开视口。V100 172 个补充入口首次 169 通过、checkpoint 两项独立修正后累计 171；剩余此项 source/frozen 均复现，不能记为全绿或迁移回归。单独修能力判断与测高补偿，保留真实点击、锚点、展开状态和 active-row 回归。见 `docs/evidence/ui-source-v100-browser-matrix-20261003.json`。
+- [x] 既有 Linux WebKit 测高补偿缺口 `UI-LINUX-ANCHOR-01` 已于 2026-10-04 修复并在 V100 复验。2026-10-03 的 172 入口旧矩阵仍保留其 source/frozen 失败，不改写为当时全绿；新证据见 `docs/evidence/ui-scroll-fork-regression-20261004.md`，原失败见 `docs/evidence/ui-source-v100-browser-matrix-20261003.json`。
 
 ## 旧公开接口清理（2026-09-30）
 
@@ -1392,7 +1408,7 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 高度占位、前后各一屏缓冲、共享观察器、按帧更新；2026-10-01 改为临时焦点／选区保护、live tip 与未结算工具保留。
 - [x] 接入真实 ChatView 和静态 UI 重建流程，保留原锚点与滚动逻辑。
 - [x] 服务器 Chromium 三次 DOM/JS 堆 A/B、真实 ChatView 滚动回归；本机 WebKit 通过，详见 `reports/transcript-windowing-20260913.md`。
-- [ ] Linux WebKit 服务器回归：2026-10-03 已补齐 V100 测试系统依赖，172 入口补充矩阵完成；滚动测高真实点击在旧/新实现均失败，见 `UI-LINUX-ANCHOR-01`。不能继续归因于浏览器无法启动；最新 CI 和原生 WebView 验收另行核实。
+- [x] Linux WebKit 服务器回归：2026-10-03 的旧/新测高失败保留；2026-10-04 修复 `UI-LINUX-ANCHOR-01` 后，V100 真实点击、展开状态、锚点与跟随回归通过。最新 CI 和原生 WebView 验收仍另行核实。
 - [x] 首次加载／宽度变化不再全量挂载；真实 macOS 安装包 footprint 对照仍待发布后验收。
 - [x] 跨组件轻量交互状态外置，已交互的历史行可离屏卸载并恢复展示状态。
 - [ ] 数据层全文检索替代依赖所有消息 DOM 的原生查找。
@@ -1513,7 +1529,7 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 行外轻量展示状态、按 callId／思考块隔离；取消点击永久固定，输入与选区仅临时保护。
 - [x] 接入原工具呈现注册与静态 UI 重建路径，不修改模型输入、工具执行和磁盘历史。
 - [x] V100 静态及 Chromium 八组关联回归、本机 macOS WebKit 窗口化回归；350 行首次重组件挂载 0，五轮宽度变化峰值 1（模拟用例，不代表真实进程 footprint）。
-- [ ] Linux WebKit 回归：V100 缺失测试库已补齐；Safari 26.4 的既有测高滚动补偿缺口已复现并单列 `UI-LINUX-ANCHOR-01`，不使用强制点击/等待绕过失败。最新 GitHub CI 与原生 WebView 结果不冒充该版本通过。
+- [x] Linux WebKit 回归：V100 依赖已补齐；2026-10-04 修复并实测 `UI-LINUX-ANCHOR-01`，不改写旧失败、不用强制点击绕过验收。最新 GitHub CI 与原生 WebView 仍需独立验证。
 - [ ] 发布后对真实 macOS WKWebView footprint／启动峰值验收；源码修改不代表本机已升级。
 
 ## 2026-10-03 统一桌面与 Web 启动加载页

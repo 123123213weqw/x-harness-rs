@@ -37,7 +37,7 @@ try {
     const nodes = new Map(Array.from({ length: 80 }, (_, i) => [String(i), node(i)]))
     window.snapshot = store({ running: true, queue: [], openState: 'open', openError: null, hasMore: false, loadingOlder: false, chat: { order: [...nodes.keys()], nodes, timeline: { turns: new Map() }, locations: { getTurn: () => [] } } })
     const summaries = store({ byId: {} }), details = store({})
-    window.saved = null
+    window.scrollMemory = new plugin.ChatScrollMemory()
     window.grow = (append = false) => {
       const snap = snapshot.getSnapshot(), nodes = new Map(snap.chat.nodes), key = snap.chat.order.at(-1)
       const node = nodes.get(key)
@@ -56,8 +56,8 @@ try {
     }
     const props = { sessionId: 'scroll-fixture', useSession: hook(snapshot), useSessions: hook(summaries), useStore: hook(details),
       t: k => k === 'chat.toBottom' ? 'Back to bottom' : k, openFile: async () => {}, loadOlder: () => {}, loadImage: async () => '', inspectCall: () => {}, forkAt: () => {}, fileMentions: () => undefined, editMessage: () => {}, forkMessage: () => {},
-      chatScroll: { read: () => saved, save: value => { saved = value } },
-      renderSlot: (_key, owner) => jsx('div', { style: { height: owner.node.data.height, borderBottom: '1px solid #ddd' }, children: ['Message ' + owner.node.key, owner.node.key === '0' && jsx('textarea', { 'aria-label': 'Fixture draft' })] }) }
+      chatScroll: scrollMemory.forSession('scroll-fixture'),
+      renderSlot: (_key, owner) => owner.node === undefined ? null : jsx('div', { style: { height: owner.node.data.height, borderBottom: '1px solid #ddd' }, children: ['Message ' + owner.node.key, owner.node.key === '0' && jsx('textarea', { 'aria-label': 'Fixture draft' })] }) }
     const root = ReactDOM.createRoot(document.getElementById('root'))
     ReactDOM.flushSync(() => root.render(jsx('div', { 'data-conversation-scroll': '', tabIndex: 0, style: { height: 650, overflowY: 'auto', overflowAnchor: 'none' }, children: jsx(plugin.ChatView, props) })))
     window.unmount = () => root.unmount()
@@ -89,10 +89,10 @@ try {
     frame = requestAnimationFrame(sample)
   }))
   await page.waitForFunction(() => { const e = document.querySelector('[data-conversation-scroll]'); return e.scrollTop > 9000 })
-  await page.waitForTimeout(100)
+  await settledGeometry()
   await page.evaluate(() => grow())
-  await page.waitForTimeout(100)
-  assert.ok((await geometry()).gap <= 1, 'Ordinary streaming stays pinned')
+  const streamed = await settledGeometry()
+  assert.ok(streamed.gap <= 1, 'Ordinary streaming stays pinned: ' + JSON.stringify(streamed))
   assert.ok((await page.locator('[data-chat-flow-key="79"]').boundingBox()).height >= 190, 'stream fixture retains valid Assistant DTO and actual height growth')
   // Just 4px upward, still inside the old 25px threshold. A same-node delta
   // activates ResizeObserver, not a newly appended row or a turn boundary.
@@ -208,7 +208,44 @@ try {
   assert.ok(wheelAfter.maxTop - wheelBefore.top < 2, 'Append never pulls the reader downward, even transiently: ' + diagnostic)
   assert.ok(wheelAfter.gap >= 100, 'Append does not re-pin the reader: ' + diagnostic)
   assert.equal(await jump.isVisible(), true, 'Actual wheel preserves the explicit return-to-bottom control')
+  // No local send gesture. History/another observer and delayed steering may
+  // deliver the same nodes as a local submit, but cannot own reader position.
+  for (const kind of ['user', 'steering']) {
+    const before = await settledGeometry()
+    await page.evaluate(kind => {
+      const snap = snapshot.getSnapshot()
+      if (kind === 'user') {
+        const nodes = new Map(snap.chat.nodes), key = 'passive-user'
+        nodes.set(key, { key, anchorSeq: nodes.size, kind: 'user', data: { kind: 'user', seq: nodes.size, time: 1, source: { kind: 'user' }, content: [], height: 140 } })
+        ReactDOM.flushSync(() => snapshot.set({ ...snap, chat: { ...snap.chat, nodes, order: [...snap.chat.order, key] } }))
+      } else ReactDOM.flushSync(() => snapshot.set({ ...snap, queue: [{ id: 'delayed-steering', placement: 'steering', content: [{ type: 'text', text: 'remote arrival' }] }] }))
+    }, kind)
+    const after = await settledGeometry()
+    assert.ok(Math.abs(after.top - before.top) < 2, `Passive ${kind} cannot move the reader: ${JSON.stringify({ before, after })}`)
+    assert.ok(after.gap >= 100); assert.equal(await jump.isVisible(), true)
+  }
+  const otherBefore = await geometry()
+  await page.evaluate(() => scrollMemory.requestFollow('another-session'))
+  assert.deepEqual(await geometry(), otherBefore, 'Submit in another session cannot move this view')
+  await page.evaluate(() => scrollMemory.requestFollow('scroll-fixture'))
+  await page.evaluate(() => grow())
+  assert.ok((await settledGeometry()).gap <= 1, 'Explicit local prompt dispatch immediately resumes follow')
+  // A newer reader gesture wins over the late receipt/durable echo of that
+  // dispatch. No second intent is sent when a network request settles.
+  await scroll.evaluate(e => {
+    e.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -180 }))
+    e.scrollTop -= 180; e.dispatchEvent(new Event('scroll'))
+  })
+  const lateBefore = await settledGeometry()
+  await page.evaluate(() => {
+    const snap = snapshot.getSnapshot(), nodes = new Map(snap.chat.nodes), key = 'late-prompt-echo'
+    nodes.set(key, { key, anchorSeq: nodes.size, kind: 'user', data: { kind: 'user', seq: nodes.size, time: 2, source: { kind: 'user' }, content: [], height: 140 } })
+    ReactDOM.flushSync(() => snapshot.set({ ...snap, queue: [], chat: { ...snap.chat, nodes, order: [...snap.chat.order, key] } }))
+  })
+  const lateAfter = await settledGeometry()
+  assert.ok(Math.abs(lateAfter.top - lateBefore.top) < 2, 'Late local prompt echo does not re-arm follow')
+  assert.ok(lateAfter.gap >= 100)
   await page.evaluate(() => unmount())
   assert.deepEqual(errors, [])
-  console.log(`${engine}: real ChatView tiny-up/resize, pre-scroll append race, persistent reader intent, keyboard/touch/native wheel/long scrollbar drag, jump/down re-entry, compaction and non-scroll input passed`)
+  console.log(`${engine}: real ChatView gesture/resize/windowing, passive user/steering, session isolation, explicit local dispatch and late prompt echo passed`)
 } finally { await browser.close() }

@@ -1,4 +1,5 @@
 import {z} from 'zod'
+import { TurnEndDataInputSchema } from '../shared/generated/session-terminal'
 import type {SessionWireEvent} from '../client-connection/contracts/host/apiproxy/api/sessions'
 
 const s=z.string(), n=z.number(), content=z.array(z.unknown())
@@ -30,7 +31,7 @@ const schemas={
  'compaction/end':z.looseObject({compactionId:s,error:s.optional()}),
  'agent/inbox/spliced':z.looseObject({target:s,start:n,removedCount:n.optional(),inserted:z.array(z.looseObject({id:s})),outcome:z.literal('canceled').optional()}),
  'llm/retry':z.union([z.looseObject({...coords,mode:z.literal('normal'),retry:n,maxRetries:n,delayMs:n,failure:z.unknown()}),z.looseObject({...coords,mode:z.literal('always'),retry:n,delayMs:n,failure:z.unknown()})]),
- 'turn/end':z.looseObject({turn:n,reason:z.looseObject({kind:s,error:z.unknown().optional()})}),
+ 'turn/end':TurnEndDataInputSchema,
  'request/header':z.looseObject({header:z.looseObject({config:requestConfigSchema,system:s.nullable().optional(),tools:promptSchema.shape.tools.optional()}),reason:s}),
 }
 type TrajectoryEventMap={ [K in keyof typeof schemas]: z.infer<typeof schemas[K]> }
