@@ -331,7 +331,10 @@ mod tests {
         if let Ok(path) = std::env::var("XHARNESS_AUTOMATION_WIRE_EXPORT") {
             std::fs::write(
                 path,
-                serde_json::to_vec_pretty(&vec![json!({"added":added,"list":list})]).unwrap(),
+                serde_json::to_vec_pretty(&vec![
+                    json!({"added":added,"list":list,"listAfterRun":true}),
+                ])
+                .unwrap(),
             )
             .unwrap();
         }

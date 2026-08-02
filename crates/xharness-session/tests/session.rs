@@ -934,6 +934,21 @@ fn automation_reservation_is_immutable_and_receipt_identity_is_exact() {
         ));
         assert_eq!(session.revision(), revision);
     }
+    for invalid in [
+        ScheduleChange::SetPaused {
+            version: 2,
+            id: record.id.clone(),
+            paused: true,
+        },
+        ScheduleChange::SetPaused {
+            version: 1,
+            id: "missing".into(),
+            paused: true,
+        },
+    ] {
+        assert!(session.append(revision, change(invalid)).is_err());
+        assert_eq!(session.revision(), revision);
+    }
     let mut cancelled = session.clone();
     cancelled
         .append(
