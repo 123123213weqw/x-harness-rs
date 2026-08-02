@@ -39,6 +39,7 @@ function apply(ctx) {
                 'sidebar': { kind: 'single', scope: 'root' },
                 'conversation': { kind: 'single', scope: 'session-maybe' },
                 'plugins.center': { kind: 'single', scope: 'root' },
+                'review.center': { kind: 'single', scope: 'root' },
                 'work.center.tasks': { kind: 'single', scope: 'root' },
                 'work.center.automations': { kind: 'single', scope: 'root' },
                 'details': { kind: 'single', scope: 'session' },
@@ -167,13 +168,16 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
         setCenterPage('chat');
         window.dispatchEvent(new Event('xharness:plugins:closed'));
         window.dispatchEvent(new Event('xharness:work:closed'));
+        window.dispatchEvent(new Event('xharness:review:closed'));
     };
     (0, react_1.useEffect)(() => {
-        const openPlugins = () => { setCenterPage('plugins'); window.dispatchEvent(new Event('xharness:work:closed')); };
-        const openWork = () => { setCenterPage('work'); window.dispatchEvent(new Event('xharness:plugins:closed')); };
+        const openPlugins = () => { setCenterPage('plugins'); window.dispatchEvent(new Event('xharness:review:closed')); window.dispatchEvent(new Event('xharness:work:closed')); };
+        const openWork = () => { setCenterPage('work'); window.dispatchEvent(new Event('xharness:review:closed')); window.dispatchEvent(new Event('xharness:plugins:closed')); };
+        const openReview = () => { setCenterPage('review'); window.dispatchEvent(new Event('xharness:work:closed')); window.dispatchEvent(new Event('xharness:plugins:closed')); };
+        window.addEventListener('xharness:review:open', openReview);
         window.addEventListener('xharness:plugins:open', openPlugins);
         window.addEventListener('xharness:work:open', openWork);
-        return () => { window.removeEventListener('xharness:plugins:open', openPlugins); window.removeEventListener('xharness:work:open', openWork); };
+        return () => { window.removeEventListener('xharness:review:open', openReview); window.removeEventListener('xharness:plugins:open', openPlugins); window.removeEventListener('xharness:work:open', openWork); };
     }, []);
     const openWorkSession = (id) => {
         window.dispatchEvent(new CustomEvent('xharness:work:open-session', { detail: id }));
@@ -287,10 +291,11 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
     // the solver keeps the control rail reserved and never squeezes the center.
     const narrow = viewport < columns_1.SIDEBAR_AUTO_COLLAPSE;
     (0, react_1.useEffect)(() => { actions.setNarrow(narrow); }, [actions, narrow]);
-    const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0;
+    // Review borrows the compact rail without changing the user's saved panel preference.
+    const sidebarCollapsed = centerPage === 'review' || (narrow ? !panels.narrowExpanded : panels.sidebar === 0);
     const sidebarDrawer = narrow && !sidebarCollapsed;
     const sidebarWidth = sidebarCollapsed || sidebarDrawer ? 56 : panels.sidebar === 0 ? columns_1.SIDEBAR_DEFAULT : (0, columns_1.clampWidth)(panels.sidebar, 264, 420);
-    const workspaceOpen = space.items.length > 0;
+    const workspaceOpen = centerPage !== 'review' && space.items.length > 0;
     const workspaceAvailable = viewport - sidebarWidth - 480;
     const workspaceDrawer = workspaceOpen && workspaceAvailable < 360;
     const workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, workspaceAvailable) : 0;
@@ -322,9 +327,11 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
     const updateItem = (id, patch) => updateSpace(value => ({ ...value, items: value.items.map(item => item.id === id ? { ...item, ...patch } : item) }));
     return ((0, jsx_runtime_1.jsxs)("div", { ref: frameRef, className: AppFrame_styles_1.default.frame, style: { gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${workspaceDockWidth}px`, ...{ '--xh-region-inset': `${regionInset}px` } }, "data-xhworkspace-open": workspaceOpen || undefined, "data-xhworkspace-drawer": workspaceDrawer || undefined, "data-sidebar-collapsed": sidebarCollapsed || undefined, "data-sidebar-drawer": sidebarDrawer || undefined, "data-details-collapsed": !workspaceOpen || undefined, "data-dragging": dragging || undefined, children: [sidebarDrawer && (0, jsx_runtime_1.jsx)("button", { type: "button", className: "xh-sidebar-scrim", "aria-label": navigator.language.startsWith('zh') ? '关闭侧栏' : 'Close sidebar', onClick: actions.toggleSidebar }), (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.sidebarCol, style: sidebarDrawer ? { width: sidebarDrawerWidth } : undefined, onClickCapture: event => {
                     const target = event.target;
+                    if (centerPage === 'review' && (!(target instanceof Element) || !target.closest('[data-xharness-review-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]')))
+                        closeCenterPage();
                     if (centerPage === 'plugins' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]')))
                         closeCenterPage();
-                    if (centerPage === 'work' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav],[data-xharness-work-nav],[data-sidebar-toggle]')))
+                    if (centerPage === 'work' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav],[data-xharness-work-nav],[data-xharness-review-nav],[data-sidebar-toggle]')))
                         closeCenterPage();
                 }, onClick: event => {
                     // Row actions stop propagation; dismiss only a completed navigation
@@ -335,7 +342,7 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
                 }, children: (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.regionSurface, children: renderSlot('sidebar', {
                         collapsed: sidebarCollapsed,
                         width: sidebarContentWidth,
-                    }) }) }), (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)(CenterColumn, { children: [(0, jsx_runtime_1.jsx)("div", { className: "xhwork-conversation", hidden: centerPage !== 'chat', children: renderSlot('conversation', {}) }), centerPage === 'plugins' && (0, jsx_runtime_1.jsxs)("main", { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)' }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", style: { cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit' }, "aria-label": "Back to chat", onClick: closeCenterPage, children: ["\u2190 ", navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'] }), renderSlot('plugins.center', {})] }), centerPage === 'work' && (0, jsx_runtime_1.jsx)(WorkCenter_1.WorkCenter, { close: closeCenterPage, renderTasks: () => renderSlot('work.center.tasks', { openSession: openWorkSession }), renderAutomations: () => renderSlot('work.center.automations', { openSession: openWorkSession }) })] }), workspaceDrawer && (0, jsx_runtime_1.jsx)("button", { type: "button", className: AppFrame_styles_1.default.workspaceScrim, "aria-label": "\u5173\u95ED\u5DE5\u4F5C\u533A", onClick: () => closeWorkspace(space.activeId) }), (0, jsx_runtime_1.jsx)(DetailsColumn, { children: (0, jsx_runtime_1.jsx)(workspace_pane_1.XhWorkspacePane, { space: space, sessionId: spaceKey === '__global__' ? null : spaceKey, renderSlot: renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: updateItem, onNewBrowser: () => openWorkspace('browser', true) }) })] }), (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.overlayLayer, "data-shell-overlay": true, children: renderSlot('shell.overlay', {}) }), !sidebarCollapsed && !sidebarDrawer && (0, jsx_runtime_1.jsx)(DragHandle, { side: "sidebar", left: cols.sidebar, onStart: onSidebarStart, onDrag: onSidebarDrag, onEnd: onDragEnd }), workspaceDockWidth > 0 && (0, jsx_runtime_1.jsx)(DragHandle, { side: "details", left: viewport - workspaceDockWidth, onStart: onWorkspaceStart, onDrag: onWorkspaceDrag, onEnd: onDragEnd })] }));
+                    }) }) }), (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)(CenterColumn, { children: [(0, jsx_runtime_1.jsx)("div", { className: "xhwork-conversation", hidden: centerPage !== 'chat', children: renderSlot('conversation', {}) }), centerPage === 'plugins' && (0, jsx_runtime_1.jsxs)("main", { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)' }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", style: { cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit' }, "aria-label": "Back to chat", onClick: closeCenterPage, children: ["\u2190 ", navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'] }), renderSlot('plugins.center', {})] }), centerPage === 'work' && (0, jsx_runtime_1.jsx)(WorkCenter_1.WorkCenter, { close: closeCenterPage, renderTasks: () => renderSlot('work.center.tasks', { openSession: openWorkSession }), renderAutomations: () => renderSlot('work.center.automations', { openSession: openWorkSession }) }), centerPage === 'review' && renderSlot('review.center', { close: closeCenterPage })] }), workspaceDrawer && (0, jsx_runtime_1.jsx)("button", { type: "button", className: AppFrame_styles_1.default.workspaceScrim, "aria-label": "\u5173\u95ED\u5DE5\u4F5C\u533A", onClick: () => closeWorkspace(space.activeId) }), (0, jsx_runtime_1.jsx)(DetailsColumn, { children: (0, jsx_runtime_1.jsx)(workspace_pane_1.XhWorkspacePane, { space: space, sessionId: spaceKey === '__global__' ? null : spaceKey, renderSlot: renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: updateItem, onNewBrowser: () => openWorkspace('browser', true) }) })] }), (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.overlayLayer, "data-shell-overlay": true, children: renderSlot('shell.overlay', {}) }), !sidebarCollapsed && !sidebarDrawer && (0, jsx_runtime_1.jsx)(DragHandle, { side: "sidebar", left: cols.sidebar, onStart: onSidebarStart, onDrag: onSidebarDrag, onEnd: onDragEnd }), workspaceDockWidth > 0 && (0, jsx_runtime_1.jsx)(DragHandle, { side: "details", left: viewport - workspaceDockWidth, onStart: onWorkspaceStart, onDrag: onWorkspaceDrag, onEnd: onDragEnd })] }));
 }
 
 },
