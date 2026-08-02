@@ -1,4 +1,6 @@
 import { transcriptHasPendingTool } from './pending-tool'
+import { useAdaptiveToolFold } from './use-adaptive-tool-fold'
+import { useProcessMode } from './process-mode'
 // ChatView: the default conversation view — one stable keyed parent list over
 // final business Nodes, plus paging, pending steering and bottom-follow.
 // Each row dispatches through 'conversation.chat.node'; ui-tool owns the
@@ -15,17 +17,20 @@ import { transcriptHasPendingTool } from './pending-tool'
 // lifecycle updates replace only their own row without remounting it.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ConversationTimelineSnapshot } from "../types/runtime"
-import { Button, IconChevronDownOutline14, Modal } from '../primitives'
+import { Button, IconChevronDownOutline14, Modal, Tooltip } from '../primitives'
 import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots'
 import { PendingSteeringBubble } from './MessageItem'
 import { ChatNodeSeat, TurnProcessSummarySeat } from './ChatNodeSeat'
 import { bindTranscriptFollow } from './TranscriptWindowRow'
 import { formatRunDuration } from './message-chrome'
+import { isObjectRecord } from '../../shared/runtime-types'
+import { isChatNode } from '../contract/chat-node-codec'
 import css from './ChatView.styles'
+import railCss from './MessageRail.styles'
 
 const FOLLOW_THRESHOLD = 24
-const NO_EXPANDED_TURNS: ReadonlySet<number> = new Set()
 
 /** Active column host when present; otherwise the view-local scroller. */
 function scrollerOf(from: HTMLElement): HTMLElement {
@@ -176,13 +181,23 @@ export function ChatView({
   const selectedCallId = useStore(s => s.selection?.callId)
   const [fileOpenError, setFileOpenError] = useState<{ path: string; message: string } | null>(null)
   const [fileOpenBusy, setFileOpenBusy] = useState(false)
-  const [processState, setProcessState] = useState<{ sessionId: string; expanded: ReadonlySet<number> }>(
-    () => ({ sessionId, expanded: NO_EXPANDED_TURNS }),
+  const processMode = useProcessMode()
+  const [processState, setProcessState] = useState<{ sessionId: string; mode: string; choices: ReadonlyMap<number, boolean> }>(
+    () => ({ sessionId, mode: processMode, choices: new Map() }),
   )
-  // Display state belongs to one session. Reusing the view for another session
-  // must not apply its numeric turn IDs (or later resurrect stale choices).
-  if (processState.sessionId !== sessionId) setProcessState({ sessionId, expanded: NO_EXPANDED_TURNS })
-  const expandedTurns = processState.sessionId === sessionId ? processState.expanded : NO_EXPANDED_TURNS
+  // A global mode change deliberately reapplies defaults. Manual group choices
+  // win until then, stay turn/session-local and do not disable windowing.
+  if (processState.sessionId !== sessionId || processState.mode !== processMode) {
+    setProcessState({ sessionId, mode: processMode, choices: new Map() })
+  }
+  const expandedTurns = useMemo(() => {
+    const result = new Set<number>()
+    const choices = processState.sessionId === sessionId && processState.mode === processMode ? processState.choices : undefined
+    for (const turn of timeline.turns.keys()) {
+      if (choices?.get(turn) ?? processMode === 'expanded') result.add(turn)
+    }
+    return result
+  }, [timeline, processState, sessionId, processMode])
   // Close/retry must ignore a settlement that started before the latest
   // gesture; otherwise a cancelled in-flight refusal reopens the dialog.
   const fileOpenRequest = useRef(0)
@@ -220,6 +235,16 @@ export function ChatView({
     () => inbox.filter(item => item.placement === 'steering'),
     [inbox],
   )
+  const messageMarkers = useMemo(() => order.flatMap(key => {
+    const node = nodeStore.get(key)
+    if (!isChatNode(node) || (node.kind !== 'user' && node.kind !== 'steering')) return []
+    const snippets: string[] = []
+    for (const block of node.data.content) {
+      if (isObjectRecord(block) && block.type === 'text' && typeof block.text === 'string') snippets.push(block.text)
+    }
+    const preview = snippets.join(' ').replace(/\s+/g, ' ').trim().slice(0, 80)
+    return [{ key, preview }]
+  }), [order, nodeStore])
   const renderMessageImages = useCallback<RenderMessageImages>(
     owner => renderSlot('conversation.message.images', { ...owner, loadImage }),
     [loadImage, renderSlot],
@@ -227,6 +252,8 @@ export function ChatView({
   const runningTurnStart = useMemo(() => runningTurnStartTime(timeline), [timeline])
 
   const listRef = useRef<HTMLDivElement | null>(null)
+  const [railHost, setRailHost] = useState<HTMLElement | null>(null)
+  const [activeMarker, setActiveMarker] = useState<string | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
@@ -249,6 +276,45 @@ export function ChatView({
   const followSigRef = useRef<string | null>(null)
   const processAnchorRef = useRef<PagingAnchor | null>(null)
 
+  useLayoutEffect(() => {
+    const local = listRef.current
+    setRailHost(local?.closest<HTMLElement>('[data-conversation-root]') ?? local?.closest<HTMLElement>('[data-chat-view-root]') ?? null)
+  }, [sessionId])
+
+  useEffect(() => {
+    const local = listRef.current
+    if (local === null || messageMarkers.length === 0) { setActiveMarker(null); return }
+    const scrollport = scrollerOf(local)
+    let frame = 0
+    const update = (): void => {
+      frame = 0
+      const threshold = scrollport.getBoundingClientRect().top + 48
+      let current = messageMarkers[0]?.key ?? null
+      for (const row of local.querySelectorAll<HTMLElement>('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]')) {
+        if (row.getBoundingClientRect().top > threshold) break
+        current = row.dataset.chatAnchorKey ?? current
+      }
+      setActiveMarker(previous => previous === current ? previous : current)
+    }
+    const schedule = (): void => { if (frame === 0) frame = window.requestAnimationFrame(update) }
+    schedule()
+    scrollport.addEventListener('scroll', schedule, { passive: true })
+    return () => {
+      scrollport.removeEventListener('scroll', schedule)
+      if (frame !== 0) window.cancelAnimationFrame(frame)
+    }
+  }, [messageMarkers, sessionId])
+  const captureAutoFoldAnchor = (commit: boolean): string | undefined => {
+    const local = listRef.current
+    if (local === null || atBottomRef.current) return undefined
+    const port = scrollerOf(local)
+    const row = pagingAnchor(local, port)
+    const key = row?.dataset.chatAnchorKey
+    if (commit && row !== null && key !== undefined) processAnchorRef.current = { key, top: flowTop(row, port) }
+    return key
+  }
+  const { foldedTools, invalidateFoldedTool } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
+
   const toggleTurnProcess = (turn: number): void => {
     const local = listRef.current
     if (local !== null) {
@@ -264,10 +330,9 @@ export function ChatView({
       readerDirectionRef.current = 0
     }
     setProcessState(previous => {
-      const expanded = new Set(previous.sessionId === sessionId ? previous.expanded : NO_EXPANDED_TURNS)
-      if (expanded.has(turn)) expanded.delete(turn)
-      else expanded.add(turn)
-      return { sessionId, expanded }
+      const choices = new Map(previous.sessionId === sessionId && previous.mode === processMode ? previous.choices : [])
+      choices.set(turn, !(choices.get(turn) ?? processMode === 'expanded'))
+      return { sessionId, mode: processMode, choices }
     })
   }
 
@@ -282,7 +347,7 @@ export function ChatView({
     observedTopRef.current = scrollport.scrollTop
     const position = scrollPosition(local, scrollport)
     if (position !== null) chatScroll.save(position)
-  }, [expandedTurns, chatScroll])
+  }, [expandedTurns, foldedTools, chatScroll])
 
   // One independently subscribed resident entry per loaded turn, including
   // partial history pages without the original user/start event. No full-turn
@@ -560,8 +625,45 @@ export function ChatView({
     loadOlder()
   }
 
+  const scrollToMessage = (key: string): void => {
+    const local = listRef.current
+    if (local === null) return
+    const row = anchorElement(local, key)
+    if (row === null) return
+    const scrollport = scrollerOf(local)
+    atBottomRef.current = false
+    setAtBottom(false)
+    readerScrollUntilRef.current = 0
+    readerDirectionRef.current = 0
+    scrollport.scrollTop += flowTop(row, scrollport) - 24
+    observedTopRef.current = scrollport.scrollTop
+    setActiveMarker(key)
+    const position = scrollPosition(local, scrollport)
+    if (position !== null) chatScroll.save(position)
+  }
+
   return (
-    <div className={css.root}>
+    <div className={css.root} data-chat-view-root="">
+      {railHost !== null && messageMarkers.length > 1 && createPortal(
+        <nav className={railCss.root} aria-label={t('chat.messageRail')}>
+          {messageMarkers.map((marker, index) => {
+            const label = marker.preview === ''
+              ? t('chat.messageRail.message', { n: index + 1 })
+              : `${t('chat.messageRail.message', { n: index + 1 })}: ${marker.preview}`
+            return <Tooltip key={marker.key} label={label} side="right" delayMs={300}>
+              <button
+                type="button"
+                className={railCss.item}
+                data-message-key={marker.key}
+                aria-label={label}
+                aria-current={activeMarker === marker.key ? 'location' : undefined}
+                onClick={() => { scrollToMessage(marker.key) }}
+              ><span className={railCss.mark} aria-hidden="true" /></button>
+            </Tooltip>
+          })}
+        </nav>,
+        railHost,
+      )}
       <div ref={listRef} className={css.scroll}>
         <div ref={columnRef} className={css.column} data-chat-flow="">
           {openState === 'loading' && <div className={css.hint}>{t('chat.loadingHistory')}</div>}
@@ -584,6 +686,7 @@ export function ChatView({
               nodeKey={nodeKey}
               useSession={useSession}
               expandedTurns={expandedTurns}
+              foldedTools={foldedTools}
               toggleTurnProcess={toggleTurnProcess}
               t={t}
             />] : []),
@@ -591,6 +694,8 @@ export function ChatView({
               key={`${sessionId}:node:${nodeKey}`}
               nodeKey={nodeKey}
               expandedTurns={expandedTurns}
+              foldedTools={foldedTools}
+              invalidateFoldedTool={invalidateFoldedTool}
               keepMounted={running && (nodeKey === lastKey || transcriptHasPendingTool(nodeStore.get(nodeKey)))}
               editMessage={editMessage}
               forkMessage={forkMessage}

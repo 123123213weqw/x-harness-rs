@@ -33,10 +33,8 @@ export function ReasoningRow({ text, running, t, stateKey = 0 }: { text: string;
   useEffect(() => {
     if (appliedMode === processMode) return
     setAppliedMode(processMode)
-    if (processMode === 'verbose') setExpanded(true)
-    else if (processMode === 'compact') setExpanded(false)
-    else if (processMode === 'detailed' && running && text.length < 8192) setExpanded(true)
-  }, [processMode, running, appliedMode])
+    setExpanded(processMode === 'expanded')
+  }, [processMode, appliedMode, setAppliedMode, setExpanded])
   const summaryRef = useRef<HTMLSpanElement>(null)
   const summary = running ? latestLine(text) : firstLine(text)
   const scheduleSummaryScroll = useThrottledVisualUpdate(() => {

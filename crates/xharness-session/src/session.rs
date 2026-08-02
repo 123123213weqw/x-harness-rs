@@ -165,6 +165,22 @@ impl Session {
         self.events.as_slice()
     }
 
+    /// Latest admitted user request from the immutable journal, not its
+    /// compacted model-facing surface. Even an empty request supersedes an
+    /// older one; callers must not fall back to stale authorization.
+    pub fn latest_user_request(&self) -> Option<(Sequence, &Message)> {
+        self.events
+            .iter()
+            .rev()
+            .find_map(|event| match event.data() {
+                EventData::UserMessage {
+                    message,
+                    surface_replace: None,
+                } => Some((event.seq, message)),
+                _ => None,
+            })
+    }
+
     pub fn next_seq(&self) -> Sequence {
         self.events.len() as Sequence
     }
