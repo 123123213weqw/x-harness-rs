@@ -303,8 +303,14 @@ try {
   getSelection().removeAllRanges();getSelection().addRange(range)
   document.querySelector('[data-conversation-scroll]').style.height='150px'
  })
- await live.waitFor();await page.waitForTimeout(180)
+ // A focused/selected reader can be scrolled far enough that the process
+ // summary's heavy button is legitimately windowed out. Assert the actual
+ // fold here; do not demand an unrelated offscreen button to be mounted.
+ await page.waitForFunction(()=>!document.querySelector('[data-chat-flow-key="job3"]')&&!document.querySelector('[data-chat-flow-key="job4"]'))
  for(const key of ['job0','job1','job2','job5'])assert.equal(await page.locator('[data-chat-flow-key="'+key+'"]').count(),1,'protected '+key)
+ assert.equal(await page.locator('[data-tool-card="job1"] button').first().evaluate(e=>e===document.activeElement),true,'fold does not steal the reader focus')
+ assert.equal(await page.evaluate(()=>getSelection().toString()),'Native details','fold does not remove the selected text')
+ assert.equal(await page.locator('[data-chat-anchor-key="turn-process:1"]').count(),1,'lightweight process entry remains resident when its button is windowed')
  await page.evaluate(()=>{document.activeElement.blur();getSelection().removeAllRanges()})
  await page.waitForFunction(()=>!document.querySelector('[data-chat-flow-key="job1"]')&&!document.querySelector('[data-chat-flow-key="job2"]'))
  assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),1,'manual-open protection survives focus release')
