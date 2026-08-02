@@ -129,6 +129,7 @@ jobs:
           node scripts/test-product-source-modules.mjs
           node --test scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
           node scripts/test-view-source-modules.mjs
+          node scripts/test-desktop-sidebar-toggle.mjs
           node scripts/test-model-selection-source.mjs
           node scripts/test-attachment-source.mjs
           node scripts/test-settings-models-source.mjs
@@ -147,6 +148,7 @@ jobs:
           node scripts/test-tool-source-module.mjs
           node scripts/test-conversation-source.mjs
           node scripts/test-turn-process.mjs
+          node scripts/test-product-brand-copy.mjs
           node scripts/test-adaptive-tool-fold.mjs
           node --test scripts/test-session-terminal-contract.mjs
           node --test scripts/test-chat-scroll-memory.mjs scripts/test-fork-wire-contract.mjs
