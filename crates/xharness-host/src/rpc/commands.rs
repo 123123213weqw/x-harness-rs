@@ -104,7 +104,7 @@ pub(super) async fn execute(host: &BasicHost, payload: &Value) -> Result<Option<
         let view = session.permission_projection();
         json!({
             "kind":"success",
-            "text":format!("selected preset {}; active this turn: {}; pending: {} (available: workspace-write, danger-full-access)",
+            "text":format!("selected preset {}; active this turn: {}; pending: {} (available: workspace-write, workspace-write-ai-review, danger-full-access)",
                 session.permission_preset.as_str(), view["activeValue"].as_str().unwrap_or("none"), view["pending"]),
         })
     } else if let Some(preset) = crate::PermissionPreset::parse(raw_input.trim()) {
@@ -128,7 +128,7 @@ pub(super) async fn execute(host: &BasicHost, payload: &Value) -> Result<Option<
         json!({
             "kind": "error",
             "text": format!(
-                "unknown preset {:?} (available: workspace-write, danger-full-access)",
+                "unknown preset {:?} (available: workspace-write, workspace-write-ai-review, danger-full-access)",
                 raw_input.trim()
             ),
         })
