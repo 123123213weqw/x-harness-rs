@@ -173,7 +173,8 @@ export function SidebarRoot({
         </Tooltip>
       </div>
 
-      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
+      <div className="xhsidebar-primary-actions" data-wide={wide}>
+      {/* Vertically stacked peer actions; equal width and height, no nested hierarchy. */}
       <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
         <button
           type="button"
@@ -181,10 +182,13 @@ export function SidebarRoot({
           aria-label={t('session.new.label')}
           onClick={() => { startSession() }}
         >
-          <IconNewChatOutline16 size={wide ? 14 : 18} />
+          <IconNewChatOutline16 size={wide ? 16 : 18} />
           {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
         </button>
       </Tooltip>
+
+      {renderSlot('sidebar.primary.action', {wide})}
+      </div>
 
       {/* The browsing region fills the column between the controls and the
           foot in both states; its rail icon column rides the same slot. */}
