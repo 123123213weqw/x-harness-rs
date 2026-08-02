@@ -40,7 +40,9 @@ function controller(root: HTMLElement): Controller {
     }
   }
   function compensate(): void {
-    if (getComputedStyle(root).overflowAnchor === 'none') {
+    // Only an explicitly supported native 'auto' anchor can compensate for
+    // us. WebKit may omit this property altogether; omission is not support.
+    if (getComputedStyle(root).overflowAnchor !== 'auto') {
       // Read the live ref here too: upward intent may arrive after remember(),
       // before ResizeObserver. Geometry alone must not take ownership back.
       if (followOwners.get(root)?.current ?? following) root.scrollTop = root.scrollHeight

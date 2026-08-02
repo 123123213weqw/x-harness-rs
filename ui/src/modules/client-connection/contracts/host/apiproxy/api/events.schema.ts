@@ -11,7 +11,7 @@ import type { Wire } from './rpc.schema'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema'
 import { approvalRequestIdSchema } from './approvals.schema'
 import {
-  contentBlockSchema, messageIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
+  contentBlockSchema, messageIdSchema, sessionEventSchema, sessionIdSchema, sessionOriginSchema, toolEventViewSchema,
 } from './sessions.schema'
 import { taskViewSchema } from './jobs.schema'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema'
@@ -73,7 +73,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
     sessionId: sessionIdSchema,
     blank: z.boolean(),
     parentSessionId: sessionIdSchema.optional(),
-    origin: z.literal('subagent').optional(),
+    origin: sessionOriginSchema.optional(),
     cwd: z.string().optional(),
     agentPreset: z.string().optional(),
   }),
