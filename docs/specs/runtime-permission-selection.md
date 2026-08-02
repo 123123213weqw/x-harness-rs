@@ -2,7 +2,7 @@
 
 ## 产品契约
 
-用户可在运行中选择 workspace-write / danger-full-access。选择被持久化，但不会改写
+用户可在运行中选择 workspace-write / workspace-write-ai-review / danger-full-access。选择被持久化，但不会改写
 已经构建的沙箱、工具执行器或已发出的系统提示词。新权限在**下一个 turn 准备快照点**
 生效，不是在当前 turn 的下一个模型 step 生效。
 
@@ -14,6 +14,9 @@
   空闲时 activeValue 为 null；运行中不同于选中项则 pending=true。
 - 当前会话继续复用 `/permission` 命令入口；没有新增模型工具或第二套权限写入协议。
   单独查询 `/permission` 同时返回选中值、当前轮生效值和 pending 状态。
+
+新增的 workspace-write-ai-review 仅替换审批决定来源，不改变 workspace-write 沙箱。
+代审状态、异常回退及旧结果围栏见 [AI 代审](ai-approval.md)；以下切换/持久化契约继续适用。
 
 ## 实现边界
 

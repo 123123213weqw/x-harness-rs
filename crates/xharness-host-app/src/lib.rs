@@ -190,7 +190,9 @@ impl NativeToolFactory {
             return Ok(platform);
         }
         let mut config = match permission {
-            PermissionPreset::WorkspaceWrite => PlatformConfig::new(cwd),
+            PermissionPreset::WorkspaceWrite | PermissionPreset::WorkspaceWriteAiReview => {
+                PlatformConfig::new(cwd)
+            }
             PermissionPreset::DangerFullAccess => PlatformConfig::new(cwd).full_access(),
         };
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
@@ -804,6 +806,51 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[tokio::test]
+    async fn ai_review_preserves_workspace_sandbox_and_tool_approval_flags() {
+        let workspace = TempWorkspace::new();
+        let factory = NativeToolFactory::new(WebRuntime::default());
+        let cwd = workspace.0.to_string_lossy();
+        let manual = factory
+            .executor("manual", &cwd, PermissionPreset::WorkspaceWrite)
+            .await
+            .unwrap();
+        let review = factory
+            .executor("review", &cwd, PermissionPreset::WorkspaceWriteAiReview)
+            .await
+            .unwrap();
+        let manual_definitions = manual.registry().definitions().await;
+        let review_definitions = review.registry().definitions().await;
+        assert_eq!(
+            manual_definitions, review_definitions,
+            "no new model-visible tool or widened permissions"
+        );
+        assert_eq!(
+            PermissionPreset::WorkspaceWriteAiReview.sandbox_mode(),
+            PermissionPreset::WorkspaceWrite.sandbox_mode()
+        );
+        assert!(PermissionPreset::WorkspaceWriteAiReview.sandbox_enabled());
+        for definition in &manual_definitions {
+            assert_eq!(
+                manual
+                    .registry()
+                    .get(&definition.name)
+                    .await
+                    .unwrap()
+                    .requires_approval,
+                review
+                    .registry()
+                    .get(&definition.name)
+                    .await
+                    .unwrap()
+                    .requires_approval
+            );
+        }
+        assert!(review_definitions
+            .iter()
+            .all(|definition| definition.name != "computer"));
     }
 
     #[tokio::test]

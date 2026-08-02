@@ -681,6 +681,9 @@ export class PendingApproval {
     return this.wait.payload.reason
   }
 
+  /** AI review is transient; failures return this same carrier to manual approval. */
+  get reviewing(): boolean { return this.wait.payload.reviewing === true }
+
   /** The paired tool call's id when the ask names one (command-line lookup key), forwarded from the carrier payload. */
   get callId(): string | undefined {
     return this.wait.payload.callId
