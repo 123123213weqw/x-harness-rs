@@ -23,6 +23,8 @@ import {
 import type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownRenderContext, ReferenceTargets } from './render'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
+import { useStreamPresentation } from './use-stream-presentation'
+import type { StreamFrame } from './stream-presentation'
 
 export type { MarkdownCodeLabels, MarkdownFileMentions } from './render'
 
@@ -66,6 +68,7 @@ class StreamingRenderer {
   private frozenFootnoteOrder: string[] = []
   private frozenFootnoteCounts = new Map<string, number>()
   private lastText: string | null = null
+  private lastMotion: StreamFrame | undefined
   private lastRendered: ReactNode[] = []
 
   /** @param codeLabels - Fence copy labels baked into cached elements; the owner replaces the renderer when they change. */
@@ -77,8 +80,8 @@ class StreamingRenderer {
    * @param text - The full accumulated markdown source.
    * @returns Frozen elements, re-rendered tail, and the footnote section.
    */
-  render(text: string): ReactNode[] {
-    if (text === this.lastText) return this.lastRendered
+  render(text: string, motion?: StreamFrame): ReactNode[] {
+    if (text === this.lastText && motion === this.lastMotion) return this.lastRendered
     const { frozen, tail, generation } = this.parser.update(text)
     if (generation !== this.generation) {
       this.generation = generation
@@ -118,6 +121,7 @@ class StreamingRenderer {
       this.frozenCount = frozen.length
     }
     const tailContext: MarkdownRenderContext = {
+      streamMotion: motion,
       streaming: true,
       codeLabels: this.codeLabels,
       fileMentions: undefined,
@@ -133,6 +137,7 @@ class StreamingRenderer {
     const section = renderFootnoteSection(tailContext)
     if (section !== null) children.push('\n', section)
     this.lastText = text
+    this.lastMotion = motion
     this.lastRendered = children
     return this.lastRendered
   }
@@ -154,14 +159,19 @@ class StreamingRenderer {
  * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
  * images render directly.
  */
-export const MarkdownText = memo(function MarkdownText({ text, streaming = false, codeLabels, fileMentions }: {
+export const MarkdownText = memo(function MarkdownText({ text, streaming = false, smoothStreaming = false, codeLabels, fileMentions }: {
   text: string
   streaming?: boolean
+  /** Opt-in live prose smoothing; history, finish and generic renderers stay immediate. */
+  smoothStreaming?: boolean
   codeLabels?: MarkdownCodeLabels | undefined
   fileMentions?: MarkdownFileMentions | undefined
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
   const streamLabelsRef = useRef<MarkdownCodeLabels | undefined>(codeLabels)
+  const frame = useStreamPresentation(text, streaming && smoothStreaming)
+  const visibleText = smoothStreaming && streaming ? frame.text : text
+  const motion = smoothStreaming && streaming ? frame : undefined
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null
@@ -171,7 +181,7 @@ export const MarkdownText = memo(function MarkdownText({ text, streaming = false
       streamRef.current = new StreamingRenderer(codeLabels)
       streamLabelsRef.current = codeLabels
     }
-    return streamRef.current.render(text)
-  }, [text, streaming, codeLabels, fileMentions])
-  return <div className={css.markdown}>{children}</div>
+    return streamRef.current.render(visibleText, motion)
+  }, [visibleText, streaming, motion, codeLabels, fileMentions])
+  return <div className={css.markdown} data-xh-stream-owned={smoothStreaming || undefined}>{children}</div>
 })

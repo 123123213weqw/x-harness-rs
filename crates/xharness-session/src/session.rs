@@ -547,6 +547,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut has_goal_execution_events = false;
     let mut seen_goal_ids = std::collections::HashSet::<String>::new();
     let mut active_schedules = HashMap::<String, crate::ScheduleKind>::new();
+    let mut schedule_runs = std::collections::HashSet::new();
+    let mut reserved_runs = HashMap::<String, (crate::AutomationRun, Option<String>)>::new();
     let mut seen_schedule_ids = std::collections::HashSet::<String>::new();
     for (position, logged) in events.iter().enumerate() {
         let expected_seq = position as Sequence;
@@ -1297,26 +1299,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
             },
             EventData::ScheduleChange { change } => match change {
                 crate::ScheduleChange::Create { version, schedule } => {
-                    let valid_shape = match schedule.kind {
-                        crate::ScheduleKind::After => {
-                            schedule.after_seconds.is_some_and(|seconds| seconds > 0)
-                                && schedule.every_seconds.is_none()
-                        }
-                        crate::ScheduleKind::At => {
-                            schedule.after_seconds.is_none() && schedule.every_seconds.is_none()
-                        }
-                        crate::ScheduleKind::Every => {
-                            schedule.after_seconds.is_none()
-                                && schedule.every_seconds.is_some_and(|seconds| seconds >= 300)
-                        }
-                    };
                     if *version != 1
-                        || schedule.id.trim().is_empty()
-                        || schedule.id.trim() != schedule.id
-                        || schedule.prompt.trim().is_empty()
-                        || schedule.prompt.trim() != schedule.prompt
-                        || schedule.scheduled_at.trim().is_empty()
-                        || !valid_shape
+                        || !schedule.valid_shape()
                         || !seen_schedule_ids.insert(schedule.id.clone())
                     {
                         return Err(lifecycle_error(
@@ -1330,6 +1314,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     if *version != 1
                         || id.trim().is_empty()
                         || id.trim() != id
+                        || reserved_runs
+                            .values()
+                            .any(|(run, _)| run.schedule_id == *id)
                         || active_schedules.remove(id).is_none()
                     {
                         return Err(lifecycle_error(
@@ -1338,11 +1325,91 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ));
                     }
                 }
+                crate::ScheduleChange::ReserveRun {
+                    version,
+                    run,
+                    accepted_at,
+                } => {
+                    if *version != 1
+                        || !active_schedules.contains_key(&run.schedule_id)
+                        || run.run_id.trim().is_empty()
+                        || run.run_id.trim() != run.run_id
+                        || run.session_id.trim().is_empty()
+                        || run.session_id.trim() != run.session_id
+                        || run.occurrence_at.trim().is_empty()
+                        || run.occurrence_at.trim() != run.occurrence_at
+                        || !match active_schedules.get(&run.schedule_id) {
+                            Some(crate::ScheduleKind::Every) => accepted_at
+                                .as_ref()
+                                .is_some_and(|at| !at.trim().is_empty() && at.trim() == at),
+                            Some(crate::ScheduleKind::After | crate::ScheduleKind::At) => {
+                                accepted_at.is_none()
+                            }
+                            None => false,
+                        }
+                        || reserved_runs
+                            .values()
+                            .any(|(prior, _)| prior.schedule_id == run.schedule_id)
+                        || schedule_runs.contains(&run.run_id)
+                        || reserved_runs
+                            .insert(run.run_id.clone(), (run.clone(), accepted_at.clone()))
+                            .is_some()
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "invalid or repeated automation reservation",
+                        ));
+                    }
+                }
+                crate::ScheduleChange::Update { version, schedule } => {
+                    if *version != 1
+                        || !schedule.valid_shape()
+                        || !active_schedules.contains_key(&schedule.id)
+                        || reserved_runs
+                            .values()
+                            .any(|(run, _)| run.schedule_id == schedule.id)
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "schedule update must target a valid active record",
+                        ));
+                    }
+                    active_schedules.insert(schedule.id.clone(), schedule.kind);
+                }
                 crate::ScheduleChange::Dispatch {
                     version,
                     id,
                     accepted_at,
+                }
+                | crate::ScheduleChange::Run {
+                    version,
+                    run:
+                        crate::AutomationRun {
+                            schedule_id: id, ..
+                        },
+                    accepted_at,
                 } => {
+                    if matches!(change, crate::ScheduleChange::Dispatch { .. })
+                        && reserved_runs
+                            .values()
+                            .any(|(run, _)| run.schedule_id == *id)
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "legacy dispatch cannot bypass an automation reservation",
+                        ));
+                    }
+                    if let crate::ScheduleChange::Run { run, .. } = change {
+                        if reserved_runs.remove(&run.run_id)
+                            != Some((run.clone(), accepted_at.clone()))
+                            || !schedule_runs.insert(run.run_id.clone())
+                        {
+                            return Err(lifecycle_error(
+                                logged.seq,
+                                "schedule run receipt has invalid or reused identity",
+                            ));
+                        }
+                    }
                     let Some(kind) = active_schedules.get(id).copied() else {
                         return Err(lifecycle_error(
                             logged.seq,

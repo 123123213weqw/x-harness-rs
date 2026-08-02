@@ -25408,7 +25408,7 @@ init_define_process_execArgv();
 
 // src/modules/platform/primitives/markdown/MarkdownText.tsx
 init_define_process_execArgv();
-var import_react20 = __toESM(require_react());
+var import_react22 = __toESM(require_react());
 
 // src/modules/platform/primitives/markdown/incremental.ts
 init_define_process_execArgv();
@@ -48359,7 +48359,7 @@ function parseStreamingMath(text6) {
 
 // src/modules/platform/primitives/markdown/render.tsx
 init_define_process_execArgv();
-var import_react19 = __toESM(require_react());
+var import_react20 = __toESM(require_react());
 
 // src/modules/platform/primitives/markdown/CodeBlock.tsx
 init_define_process_execArgv();
@@ -48465,14 +48465,75 @@ function renderTexToReact(value, displayMode) {
 // src/modules/platform/primitives/markdown/MarkdownText.module.css
 var MarkdownText_default = {
   markdown: "MarkdownText_markdown",
+  "stream-prose-in": "MarkdownText_stream-prose-in",
+  streamPiece: "MarkdownText_streamPiece",
   tableScroll: "MarkdownText_tableScroll",
   imageAlt: "MarkdownText_imageAlt",
   image: "MarkdownText_image",
   fileMention: "MarkdownText_fileMention"
 };
 
-// src/modules/platform/primitives/markdown/render.tsx
+// src/modules/platform/primitives/markdown/StreamText.tsx
+init_define_process_execArgv();
+var import_react19 = __toESM(require_react());
+
+// src/modules/platform/primitives/markdown/stream-presentation.ts
+init_define_process_execArgv();
+var STREAM_BATCH_MS = 50;
+var STREAM_FADE_MS = 150;
+var STREAM_BURST_LIMIT = 1024;
+var MAX_RECENT_BATCHES = 4;
+var StreamPresentation = class {
+  constructor(text6) {
+    this.frame = { text: text6, ranges: [] };
+  }
+  commit(text6, now, animate) {
+    const old = this.frame;
+    if (text6 === old.text && (animate || old.ranges.length === 0)) return old;
+    const appended = text6.length - old.text.length;
+    const ranges = animate && appended > 0 && appended <= STREAM_BURST_LIMIT && text6.startsWith(old.text) ? [...old.ranges.filter((range2) => now - range2.at < STREAM_FADE_MS), { start: old.text.length, end: text6.length, at: now }].slice(-MAX_RECENT_BATCHES) : [];
+    return this.frame = { text: text6, ranges };
+  }
+};
+function safeBoundary(text6, offset) {
+  if (offset === 0 || offset === text6.length) return true;
+  const before = text6.slice(0, offset).match(/.$/u)?.[0] ?? "";
+  const after = text6.slice(offset).match(/^./u)?.[0] ?? "";
+  return !(/[\uD800-\uDBFF]$/.test(before) && /^[\uDC00-\uDFFF]/.test(after)) && !/^[\p{M}\u200d\ufe0e\ufe0f\u{1f3fb}-\u{1f3ff}]/u.test(after) && before !== "\u200D" && !(/[\u{1f1e6}-\u{1f1ff}]/u.test(before) && /[\u{1f1e6}-\u{1f1ff}]/u.test(after));
+}
+function streamPieces(value, offset, frame, now, end = offset + value.length) {
+  const plain = [{ text: value, start: offset }];
+  if (offset < 0 || end - offset !== value.length || frame.text.slice(offset, end) !== value) return plain;
+  const ranges = frame.ranges.filter((range2) => range2.end > offset && range2.start < end && now - range2.at < STREAM_FADE_MS);
+  if (ranges.length === 0) return plain;
+  const pieces = [];
+  let cursor = offset;
+  for (const range2 of ranges) {
+    const start = Math.max(range2.start, offset);
+    const stop = Math.min(range2.end, end);
+    if (!safeBoundary(value, start - offset) || !safeBoundary(value, stop - offset)) return plain;
+    if (start > cursor) pieces.push({ text: value.slice(cursor - offset, start - offset), start: cursor });
+    pieces.push({ text: value.slice(start - offset, stop - offset), start, at: range2.at });
+    cursor = stop;
+  }
+  if (cursor < end) pieces.push({ text: value.slice(cursor - offset), start: cursor });
+  return pieces;
+}
+
+// src/modules/platform/primitives/markdown/StreamText.tsx
 var import_jsx_runtime25 = __toESM(require_jsx_runtime());
+function FadePiece({ text: text6, at }) {
+  const delay = (0, import_react19.useRef)(-Math.max(0, Date.now() - at));
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: MarkdownText_default.streamPiece, "data-xh-stream-piece": true, style: { animationDelay: `${delay.current}ms` }, children: text6 });
+}
+function renderStreamText(value, offset, end, frame) {
+  const pieces = streamPieces(value, offset, frame, Date.now(), end);
+  if (pieces.every((piece) => piece.at === void 0)) return value;
+  return pieces.map((piece) => piece.at === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: piece.text }, piece.start) : /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(FadePiece, { text: piece.text, at: piece.at }, piece.start));
+}
+
+// src/modules/platform/primitives/markdown/render.tsx
+var import_jsx_runtime26 = __toESM(require_jsx_runtime());
 function sanitizeUrl(url) {
   try {
     switch (new URL(url).protocol) {
@@ -48511,7 +48572,10 @@ function collectReferenceTargets(nodes, targets) {
   }
 }
 function renderBlocks(blocks, context) {
-  return blocks.map((block) => renderNode(block.node, block.key, context)).filter((element3) => element3 !== null);
+  return blocks.map((block) => renderNode(block.node, block.key, context.streamMotion === void 0 ? context : {
+    ...context,
+    sourceBase: block.key - (block.node.position?.start.offset ?? block.key)
+  })).filter((element3) => element3 !== null);
 }
 function wrapBlockChildren(elements, edges) {
   const wrapped = [];
@@ -48540,33 +48604,33 @@ function renderChildren(nodes, context) {
 function renderNode(node2, key2, context) {
   switch (node2.type) {
     case "text":
-      return node2.value;
+      return context.streamMotion === void 0 || node2.position?.start.offset === void 0 || node2.position.end.offset === void 0 ? node2.value : renderStreamText(node2.value, (context.sourceBase ?? 0) + node2.position.start.offset, (context.sourceBase ?? 0) + node2.position.end.offset, context.streamMotion);
     case "paragraph":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("p", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("p", { children: renderChildren(node2.children, context) }, key2);
     case "heading":
-      return (0, import_react19.createElement)(`h${node2.depth}`, { key: key2 }, ...renderChildren(node2.children, context));
+      return (0, import_react20.createElement)(`h${node2.depth}`, { key: key2 }, ...renderChildren(node2.children, context));
     case "blockquote":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("blockquote", { children: wrapBlockChildren(renderChildren(node2.children, context).filter((child) => child !== null), true) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("blockquote", { children: wrapBlockChildren(renderChildren(node2.children, context).filter((child) => child !== null), true) }, key2);
     case "thematicBreak":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("hr", {}, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("hr", {}, key2);
     case "break":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_react19.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("br", {}),
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(import_react20.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("br", {}),
         "\n"
       ] }, key2);
     case "strong":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("strong", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("strong", { children: renderChildren(node2.children, context) }, key2);
     case "emphasis":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("em", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("em", { children: renderChildren(node2.children, context) }, key2);
     case "delete":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("del", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("del", { children: renderChildren(node2.children, context) }, key2);
     case "inlineCode": {
       const value = node2.value.replace(/\r?\n|\r/g, " ");
       const href = inlineCodeHttpUrl(value);
-      if (href !== void 0) return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: renderSafeLink(href, [value], "link") }, key2);
+      if (href !== void 0) return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("code", { children: renderSafeLink(href, [value], "link") }, key2);
       const mention = context.inLink === true ? void 0 : context.fileMentions?.resolve(value);
       if (mention !== void 0) {
-        return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("code", { children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
           "button",
           {
             type: "button",
@@ -48578,22 +48642,22 @@ function renderNode(node2, key2, context) {
           }
         ) }, key2);
       }
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: value }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("code", { children: value }, key2);
     }
     case "html":
       return node2.value;
     case "code":
       return renderCode(node2, key2, context);
     case "math":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(node2.value, true) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: renderTexToReact(node2.value, true) }, key2);
     case "inlineMath":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(node2.value, false) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: renderTexToReact(node2.value, false) }, key2);
     case "list":
       return renderList(node2, key2, context);
     case "listItem":
       return renderListItem(node2, listItemLoose(node2), key2, context);
     case "table":
-      return renderTable(node2, key2, context);
+      return renderTable(node2, key2, { ...context, streamMotion: void 0 });
     case "link":
       return renderAnchor(node2.url, renderChildren(node2.children, { ...context, inLink: true }), key2);
     case "linkReference":
@@ -48614,14 +48678,14 @@ function renderNode(node2, key2, context) {
 function renderCode(node2, key2, context) {
   const language = node2.lang ?? void 0;
   if (node2.value === "") {
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { className: language === void 0 ? void 0 : `language-${language}` }) }, key2);
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("code", { className: language === void 0 ? void 0 : `language-${language}` }) }, key2);
   }
   const lang = language === void 0 ? void 0 : /^[\w-]+/.exec(language)?.[0];
   if (!context.streaming && lang === "math") {
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(`${node2.value}
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: renderTexToReact(`${node2.value}
 `, true) }, key2);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
     CodeBlock,
     {
       code: `${node2.value}
@@ -48646,7 +48710,7 @@ function renderList(node2, key2, context) {
   if (node2.children.some((item) => typeof item.checked === "boolean")) {
     properties.className = "contains-task-list";
   }
-  return (0, import_react19.createElement)(
+  return (0, import_react20.createElement)(
     node2.ordered === true ? "ol" : "ul",
     { key: key2, ...properties },
     ...node2.children.map((item, index2) => renderListItem(item, loose, index2, context))
@@ -48656,7 +48720,7 @@ function renderListItem(item, loose, key2, context) {
   const entries = renderBlockEntries(item.children, context);
   const task = typeof item.checked === "boolean";
   if (task) {
-    const checkbox = /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("input", { type: "checkbox", checked: item.checked === true, disabled: true }, "task-checkbox");
+    const checkbox = /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("input", { type: "checkbox", checked: item.checked === true, disabled: true }, "task-checkbox");
     const head2 = entries[0];
     if (head2 !== void 0 && "paragraph" in head2) {
       head2.paragraph = head2.paragraph.length > 0 ? [checkbox, " ", ...head2.paragraph] : [checkbox];
@@ -48669,19 +48733,19 @@ function renderListItem(item, loose, key2, context) {
     const isParagraph = "paragraph" in entry;
     if (loose || index2 !== 0 || !isParagraph) parts.push("\n");
     if (!isParagraph) parts.push(entry.element);
-    else if (loose) parts.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)("p", { children: entry.paragraph }, `p-${index2}`));
-    else parts.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: entry.paragraph }, `p-${index2}`));
+    else if (loose) parts.push(/* @__PURE__ */ (0, import_jsx_runtime26.jsx)("p", { children: entry.paragraph }, `p-${index2}`));
+    else parts.push(/* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: entry.paragraph }, `p-${index2}`));
   }
   const tail = entries[entries.length - 1];
   if (tail !== void 0 && (loose || !("paragraph" in tail))) parts.push("\n");
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("li", { className: task ? "task-list-item" : void 0, children: parts }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("li", { className: task ? "task-list-item" : void 0, children: parts }, key2);
 }
 function renderTable(node2, key2, context) {
   const align = node2.align ?? null;
   const [headRow, ...bodyRows] = node2.children;
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { className: MarkdownText_default.tableScroll, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("table", { children: [
-    headRow !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("thead", { children: renderTableRow(headRow, "th", align, 0, context) }),
-    bodyRows.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("tbody", { children: bodyRows.map((row, index2) => renderTableRow(row, "td", align, index2 + 1, context)) })
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: MarkdownText_default.tableScroll, children: /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("table", { children: [
+    headRow !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("thead", { children: renderTableRow(headRow, "th", align, 0, context) }),
+    bodyRows.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("tbody", { children: bodyRows.map((row, index2) => renderTableRow(row, "td", align, index2 + 1, context)) })
   ] }) }, key2);
 }
 function renderTableRow(row, cellTag, align, key2, context) {
@@ -48690,7 +48754,7 @@ function renderTableRow(row, cellTag, align, key2, context) {
   for (let index2 = 0; index2 < length; index2++) {
     const cell = row.children[index2];
     const alignValue = align?.[index2];
-    cells2.push((0, import_react19.createElement)(
+    cells2.push((0, import_react20.createElement)(
       cellTag,
       // hast-util-to-jsx-runtime's default tableCellAlignToStyle turned the
       // deprecated align attribute into an inline style; keep that DOM.
@@ -48698,13 +48762,13 @@ function renderTableRow(row, cellTag, align, key2, context) {
       ...cell === void 0 ? [] : renderChildren(cell.children, context)
     ));
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("tr", { children: cells2 }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("tr", { children: cells2 }, key2);
 }
 function renderSafeLink(href, children, key2) {
   const safeHref2 = sanitizeUrl(href);
-  if (safeHref2 === "") return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children }, key2);
+  if (safeHref2 === "") return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children }, key2);
   const external = ["http:", "https:"].includes(new URL(safeHref2).protocol);
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
     "a",
     {
       href: safeHref2,
@@ -48729,9 +48793,9 @@ function inlineCodeHttpUrl(value) {
 function renderImage(url, alt, key2) {
   const imageSrc = remoteImageUrl(sanitizeUrl(normalizeUri(url)));
   if (imageSrc === void 0) {
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: MarkdownText_default.imageAlt, children: alt }, key2);
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("span", { className: MarkdownText_default.imageAlt, children: alt }, key2);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
     "img",
     {
       className: MarkdownText_default.image,
@@ -48752,7 +48816,7 @@ function referenceSuffix(node2) {
 function renderLinkReference(node2, key2, context) {
   const definition2 = context.targets.definitions.get(node2.identifier.toUpperCase());
   if (definition2 === void 0) {
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_react19.Fragment, { children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(import_react20.Fragment, { children: [
       "[",
       renderChildren(node2.children, context),
       referenceSuffix(node2)
@@ -48770,7 +48834,7 @@ function renderFootnoteReference(node2, key2, context) {
   const seen = context.footnoteCounts.get(id);
   if (seen === void 0) context.footnoteOrder.push(id);
   context.footnoteCounts.set(id, (seen ?? 0) + 1);
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("sup", { children: String(context.footnoteOrder.indexOf(id) + 1) }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("sup", { children: String(context.footnoteOrder.indexOf(id) + 1) }, key2);
 }
 function renderFootnoteSection(context) {
   const items = [];
@@ -48782,31 +48846,82 @@ function renderFootnoteSection(context) {
     for (let reference = 1; reference <= count; reference++) {
       if (backrefs.length > 0) backrefs.push(" ");
       backrefs.push("\u21A9");
-      if (reference > 1) backrefs.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)("sup", { children: String(reference) }, `re-${reference}`));
+      if (reference > 1) backrefs.push(/* @__PURE__ */ (0, import_jsx_runtime26.jsx)("sup", { children: String(reference) }, `re-${reference}`));
     }
     const entries = renderBlockEntries(definition2.children, context);
     const tail = entries[entries.length - 1];
-    const body3 = entries.map((entry, index2) => "paragraph" in entry ? /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("p", { children: [
+    const body3 = entries.map((entry, index2) => "paragraph" in entry ? /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("p", { children: [
       entry.paragraph,
-      entry === tail && /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_jsx_runtime25.Fragment, { children: [
+      entry === tail && /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(import_jsx_runtime26.Fragment, { children: [
         " ",
         backrefs
       ] })
     ] }, `p-${index2}`) : entry.element);
     if (tail === void 0 || !("paragraph" in tail)) body3.push(...backrefs);
     items.push(
-      /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("li", { id: `user-content-fn-${normalizeUri(id.toLowerCase())}`, children: wrapBlockChildren(body3, true) }, id)
+      /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("li", { id: `user-content-fn-${normalizeUri(id.toLowerCase())}`, children: wrapBlockChildren(body3, true) }, id)
     );
   }
   if (items.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("section", { "data-footnotes": true, className: "footnotes", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("h2", { id: "footnote-label", className: "sr-only", children: "Footnotes" }),
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("ol", { children: items })
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("section", { "data-footnotes": true, className: "footnotes", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("h2", { id: "footnote-label", className: "sr-only", children: "Footnotes" }),
+    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("ol", { children: items })
   ] }, "footnotes");
 }
 
+// src/modules/platform/primitives/markdown/use-stream-presentation.ts
+init_define_process_execArgv();
+var import_react21 = __toESM(require_react());
+function useStreamPresentation(text6, enabled) {
+  const model = (0, import_react21.useRef)(null);
+  if (model.current === null) model.current = new StreamPresentation(text6);
+  const [frame, setFrame] = (0, import_react21.useState)(model.current.frame);
+  const latest = (0, import_react21.useRef)({ text: text6, enabled });
+  latest.current = { text: text6, enabled };
+  const timer = (0, import_react21.useRef)(null);
+  const reduced = (0, import_react21.useRef)(false);
+  const alive = (0, import_react21.useRef)(false);
+  const flush = (animate) => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    if (!alive.current || model.current === null) return;
+    const next = model.current.commit(latest.current.text, Date.now(), animate);
+    setFrame(next);
+  };
+  (0, import_react21.useLayoutEffect)(() => {
+    alive.current = true;
+    if (!enabled) return () => {
+      alive.current = false;
+    };
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    reduced.current = media?.matches === true;
+    const bypass = () => {
+      reduced.current = media?.matches === true;
+      flush(false);
+    };
+    document.addEventListener("visibilitychange", bypass);
+    media?.addEventListener("change", bypass);
+    return () => {
+      alive.current = false;
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+      document.removeEventListener("visibilitychange", bypass);
+      media?.removeEventListener("change", bypass);
+    };
+  }, [enabled]);
+  (0, import_react21.useLayoutEffect)(() => {
+    const previous4 = model.current?.frame.text ?? "";
+    if (!enabled || document.hidden || reduced.current || !text6.startsWith(previous4) || text6.length - previous4.length > STREAM_BURST_LIMIT) {
+      flush(false);
+    } else if (text6 !== previous4 && timer.current === null) {
+      timer.current = setTimeout(() => flush(latest.current.enabled && !document.hidden && !reduced.current), STREAM_BATCH_MS);
+    }
+  }, [text6, enabled]);
+  return !enabled || !text6.startsWith(frame.text) || text6.length - frame.text.length > STREAM_BURST_LIMIT ? { text: text6, ranges: [] } : frame;
+}
+
 // src/modules/platform/primitives/markdown/MarkdownText.tsx
-var import_jsx_runtime26 = __toESM(require_jsx_runtime());
+var import_jsx_runtime27 = __toESM(require_jsx_runtime());
 function renderSettled(text6, codeLabels, fileMentions) {
   const root2 = parseGfmWithMath(text6);
   const targets = createReferenceTargets();
@@ -48846,8 +48961,8 @@ var StreamingRenderer = class {
    * @param text - The full accumulated markdown source.
    * @returns Frozen elements, re-rendered tail, and the footnote section.
    */
-  render(text6) {
-    if (text6 === this.lastText) return this.lastRendered;
+  render(text6, motion) {
+    if (text6 === this.lastText && motion === this.lastMotion) return this.lastRendered;
     const { frozen, tail, generation } = this.parser.update(text6);
     if (generation !== this.generation) {
       this.generation = generation;
@@ -48882,6 +48997,7 @@ var StreamingRenderer = class {
       this.frozenCount = frozen.length;
     }
     const tailContext = {
+      streamMotion: motion,
       streaming: true,
       codeLabels: this.codeLabels,
       fileMentions: void 0,
@@ -48897,14 +49013,18 @@ var StreamingRenderer = class {
     const section = renderFootnoteSection(tailContext);
     if (section !== null) children.push("\n", section);
     this.lastText = text6;
+    this.lastMotion = motion;
     this.lastRendered = children;
     return this.lastRendered;
   }
 };
-var MarkdownText = (0, import_react20.memo)(function MarkdownText2({ text: text6, streaming = false, codeLabels, fileMentions }) {
-  const streamRef = (0, import_react20.useRef)(null);
-  const streamLabelsRef = (0, import_react20.useRef)(codeLabels);
-  const children = (0, import_react20.useMemo)(() => {
+var MarkdownText = (0, import_react22.memo)(function MarkdownText2({ text: text6, streaming = false, smoothStreaming = false, codeLabels, fileMentions }) {
+  const streamRef = (0, import_react22.useRef)(null);
+  const streamLabelsRef = (0, import_react22.useRef)(codeLabels);
+  const frame = useStreamPresentation(text6, streaming && smoothStreaming);
+  const visibleText = smoothStreaming && streaming ? frame.text : text6;
+  const motion = smoothStreaming && streaming ? frame : void 0;
+  const children = (0, import_react22.useMemo)(() => {
     if (!streaming) {
       streamRef.current = null;
       return renderSettled(text6, codeLabels, fileMentions);
@@ -48913,9 +49033,9 @@ var MarkdownText = (0, import_react20.memo)(function MarkdownText2({ text: text6
       streamRef.current = new StreamingRenderer(codeLabels);
       streamLabelsRef.current = codeLabels;
     }
-    return streamRef.current.render(text6);
-  }, [text6, streaming, codeLabels, fileMentions]);
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: MarkdownText_default.markdown, children });
+    return streamRef.current.render(visibleText, motion);
+  }, [visibleText, streaming, motion, codeLabels, fileMentions]);
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: MarkdownText_default.markdown, "data-xh-stream-owned": smoothStreaming || void 0, children });
 });
 
 // src/modules/platform/primitives/WebBlock.module.css
@@ -48936,7 +49056,7 @@ var WebBlock_default = {
 };
 
 // src/modules/platform/primitives/WebBlock.tsx
-var import_jsx_runtime27 = __toESM(require_jsx_runtime());
+var import_jsx_runtime28 = __toESM(require_jsx_runtime());
 function safeHref(url) {
   try {
     const { protocol } = new URL(url);
@@ -48956,43 +49076,43 @@ function linkLabel(url, title) {
 }
 function SafeLink({ url, label, className }) {
   const href = safeHref(url);
-  if (href === void 0) return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className, children: label });
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("a", { className, href, target: "_blank", rel: "noopener noreferrer", children: label });
+  if (href === void 0) return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className, children: label });
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("a", { className, href, target: "_blank", rel: "noopener noreferrer", children: label });
 }
 function SourceItem({ source, ordinal }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("li", { className: WebBlock_default.source, value: ordinal, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SafeLink, { url: source.url, label: linkLabel(source.url, source.title), className: WebBlock_default.sourceLink }),
-    source.snippet !== void 0 && source.snippet !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.snippet, children: source.snippet }),
-    source.publishedAt !== void 0 && source.publishedAt !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.published, children: source.publishedAt })
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("li", { className: WebBlock_default.source, value: ordinal, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SafeLink, { url: source.url, label: linkLabel(source.url, source.title), className: WebBlock_default.sourceLink }),
+    source.snippet !== void 0 && source.snippet !== "" && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.snippet, children: source.snippet }),
+    source.publishedAt !== void 0 && source.publishedAt !== "" && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.published, children: source.publishedAt })
   ] });
 }
 function WebSearchBlock({ answer, sources, truncated, className }) {
   const empty3 = (answer === void 0 || answer === "") && sources.length === 0;
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: clsx_default(WebBlock_default.block, className), "data-web": "search", children: [
-    answer !== void 0 && answer !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.answer, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(MarkdownText, { text: answer }) }),
-    empty3 ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.empty, children: "\u672A\u627E\u5230\u7ED3\u679C" }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("ol", { className: WebBlock_default.sources, children: sources.map((source, index2) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SourceItem, { source, ordinal: index2 + 1 }, index2)) }),
-    truncated && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.truncated, children: "\u6765\u6E90\u5217\u8868\u5DF2\u622A\u65AD" })
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: clsx_default(WebBlock_default.block, className), "data-web": "search", children: [
+    answer !== void 0 && answer !== "" && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.answer, children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(MarkdownText, { text: answer }) }),
+    empty3 ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.empty, children: "\u672A\u627E\u5230\u7ED3\u679C" }) : /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("ol", { className: WebBlock_default.sources, children: sources.map((source, index2) => /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SourceItem, { source, ordinal: index2 + 1 }, index2)) }),
+    truncated && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.truncated, children: "\u6765\u6E90\u5217\u8868\u5DF2\u622A\u65AD" })
   ] });
 }
 function WebFetchBlock({ url, statusCode, truncated, className }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: clsx_default(WebBlock_default.block, WebBlock_default.fetch, className), "data-web": "fetch", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SafeLink, { url, label: url, className: WebBlock_default.fetchUrl }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: WebBlock_default.fetchMeta, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("span", { className: WebBlock_default.status, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: clsx_default(WebBlock_default.block, WebBlock_default.fetch, className), "data-web": "fetch", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SafeLink, { url, label: url, className: WebBlock_default.fetchUrl }),
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: WebBlock_default.fetchMeta, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("span", { className: WebBlock_default.status, children: [
         "HTTP ",
         statusCode
       ] }),
-      truncated && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: WebBlock_default.truncated, children: "\u5185\u5BB9\u5DF2\u622A\u65AD" })
+      truncated && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: WebBlock_default.truncated, children: "\u5185\u5BB9\u5DF2\u622A\u65AD" })
     ] })
   ] });
 }
 function WebBlock(props) {
-  return props.kind === "search" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(WebSearchBlock, { ...props }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(WebFetchBlock, { ...props });
+  return props.kind === "search" ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(WebSearchBlock, { ...props }) : /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(WebFetchBlock, { ...props });
 }
 
 // src/modules/platform/primitives/markdown/JsonBlock.tsx
 init_define_process_execArgv();
-var import_react21 = __toESM(require_react());
+var import_react23 = __toESM(require_react());
 
 // src/modules/platform/primitives/markdown/JsonBlock.module.css
 var JsonBlock_default = {
@@ -49002,14 +49122,14 @@ var JsonBlock_default = {
 };
 
 // src/modules/platform/primitives/markdown/JsonBlock.tsx
-var import_jsx_runtime28 = __toESM(require_jsx_runtime());
+var import_jsx_runtime29 = __toESM(require_jsx_runtime());
 var MAX_CHARS = 2e4;
 function defaultTruncatedLabel(total) {
   return `\u2026 \u5DF2\u622A\u65AD\uFF0C\u5171 ${total} \u5B57\u7B26`;
 }
 function JsonBlock({ label, payload, defaultOpen = false, truncatedLabel = defaultTruncatedLabel }) {
-  const [open2, setOpen] = (0, import_react21.useState)(defaultOpen);
-  const body3 = (0, import_react21.useMemo)(() => {
+  const [open2, setOpen] = (0, import_react23.useState)(defaultOpen);
+  const body3 = (0, import_react23.useMemo)(() => {
     if (!open2) return "";
     let s2;
     try {
@@ -49020,15 +49140,15 @@ function JsonBlock({ label, payload, defaultOpen = false, truncatedLabel = defau
     return s2.length > MAX_CHARS ? `${s2.slice(0, MAX_CHARS)}
 ${truncatedLabel(s2.length)}` : s2;
   }, [open2, payload, truncatedLabel]);
-  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: JsonBlock_default.root, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("button", { type: "button", className: JsonBlock_default.toggle, onClick: () => {
+  return /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("div", { className: JsonBlock_default.root, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("button", { type: "button", className: JsonBlock_default.toggle, onClick: () => {
       setOpen((v2) => !v2);
     }, children: [
       open2 ? "\u25BE" : "\u25B8",
       " ",
       label
     ] }),
-    open2 && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("pre", { className: JsonBlock_default.body, children: body3 })
+    open2 && /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("pre", { className: JsonBlock_default.body, children: body3 })
   ] });
 }
 
@@ -49041,9 +49161,9 @@ var MessageText_default = {
 };
 
 // src/modules/platform/primitives/markdown/MessageText.tsx
-var import_jsx_runtime29 = __toESM(require_jsx_runtime());
+var import_jsx_runtime30 = __toESM(require_jsx_runtime());
 function MessageText({ text: text6 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("div", { className: MessageText_default.text, children: text6 });
+  return /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("div", { className: MessageText_default.text, children: text6 });
 }
 
 // src/modules/platform/primitives/markdown/plain-text.ts
@@ -49273,4 +49393,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-7ZVBPEQN.js.map
+//# sourceMappingURL=platform-4A3DAV62.js.map

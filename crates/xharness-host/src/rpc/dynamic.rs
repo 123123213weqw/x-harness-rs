@@ -5,7 +5,7 @@ use xharness_api::{RpcError, RpcId};
 
 use crate::BasicHost;
 
-use super::{commands, goal, host};
+use super::{automation, commands, goal, host};
 
 pub(super) async fn call(
     host_backend: &BasicHost,
@@ -14,6 +14,9 @@ pub(super) async fn call(
     payload: &Value,
 ) -> Option<Result<Option<Value>, RpcError>> {
     let result = match endpoint {
+        "automation/manage" => automation::manage(host_backend, rpc_id, payload)
+            .await
+            .map(Some),
         "session.requestSnapshot" => host::request_snapshot(host_backend, payload)
             .await
             .map(Some),

@@ -13,6 +13,20 @@
   font-weight: 600;
 }
 
+/* Only new prose batches fade. No transform, blur, stagger queue or permanent layer. */
+@keyframes stream-prose-in {
+  from { opacity: .45; }
+  to { opacity: 1; }
+}
+
+.streamPiece {
+  animation: stream-prose-in var(--xh-duration-stream-text, 150ms) var(--xh-ease-stream, ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streamPiece { animation: none; }
+}
+
 .markdown h1 {
   font: var(--dsw-font-markdown-h1);
   margin: 32px 0 16px;
