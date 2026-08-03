@@ -359,7 +359,6 @@ function fixtureModelGroups(): ModelProviderGroup[] {
 }
 
 declare module './contracts/core/session/types' {
-  interface TurnEndReasonMap { cancelled: { kind: 'cancelled' } }
   interface SessionEventMap {
     'session/title': { title: string; messageSeqs?: number[]; source?: unknown }
     'plan/mode': { active: boolean }

@@ -1,15 +1,55 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import { compile, harness, json } from './conversation-test-harness.mjs'
 import { testHooks, descendants } from './conversation-test-hooks.mjs'
 
 const hooks = testHooks()
-const { plugin } = harness(compile().test, hooks)
+const compiled = compile()
+const { plugin, context } = harness(compiled.test, hooks)
+// The current ChatView reads the persisted process-display mode from the DOM.
+context.document.documentElement = { dataset: {} }
 const t = (key, args) => plugin.en[key]?.replace(/\{(\w+)\}/g, (_, k) => args[k]) ?? key
 const blocks=[{kind:'reasoning',text:'reasoning'},{kind:'text',text:'answer'}]
 const answer={status:'settled',turn:1,step:1,blocks,finalNode:{kind:'assistant',turn:1,step:1,seq:20,time:2000,blocks},time:2000}
 const tail = { turn:1,seq:25,time:165000,closing:answer,branchUnavailable:false }
 const node = (kind,data={}) => ({key:kind,kind,data})
+
+test('running status uses Working in both locales, keeps the elapsed clock, and disappears when idle', () => {
+  for (const language of ['en', 'zh']) {
+    assert.equal(plugin[language]['xh.turn.working'], 'Working…')
+    const localized = (key, args = {}) => (plugin[language][key] ?? key).replace(/\{(\w+)\}/g, (_, k) => args[k])
+    for (const running of [true, false]) for (const start of [null, Date.now() - 20_000]) {
+      hooks.reset()
+      const state = {
+        running, queue: [], openState: 'open', openError: null, hasMore: false, loadingOlder: false,
+        chat: { order: [], nodes: new Map(), timeline: { turns: new Map(start === null ? [] : [[1, { status: 'open', start: { time: start } }]]) } },
+      }
+      const tree = hooks.render(() => plugin.ChatView({
+        sessionId: 'working-copy', useSession: select => select(state),
+        useSessions: select => select({ byId: {} }), useStore: select => select({}),
+        renderSlot: () => null, chatScroll: { read: () => null, save: () => {} }, t: localized,
+      }))
+      const statuses = descendants(tree, n => typeof n.type === 'function' && n.type.name === 'TurnStatus')
+      assert.equal(statuses.length, running ? 1 : 0)
+      if (!running) continue
+      hooks.reset()
+      const status = hooks.render(() => statuses[0].type(statuses[0].props))
+      assert.equal(status.props.role, 'status')
+      assert.equal(status.props['aria-live'], 'polite')
+      assert.equal(status.props.children[0], 'Working…')
+      const clocks = descendants(status, n => n.type === 'span')
+      assert.equal(clocks.length, start === null ? 0 : 1)
+      if (start !== null) assert.match(clocks[0].props.children, language === 'en' ? /^\d+s$/ : /^\d+秒$/)
+    }
+  }
+})
+
+test('shipped running status is rebuilt from owned source, not a post-build brand replacement', () => {
+  const artifact = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js', import.meta.url), 'utf8')
+  assert.equal(artifact === compiled.entry, true, 'the checked-in bundle must match current TypeScript source')
+  assert.equal(/Deep diving/i.test(artifact), false, 'legacy activity copy must not return after rebuilding')
+})
 
 test('only turn/end tail folds work; step completion and session idle do not', () => {
   for (const kind of ['tool-call','model-retry','assistant-step','context','compaction']) {

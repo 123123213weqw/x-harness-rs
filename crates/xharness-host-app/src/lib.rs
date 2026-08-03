@@ -7,6 +7,8 @@
 
 #[cfg(target_os = "macos")]
 mod computer_media;
+mod github_http;
+pub mod github_service;
 pub mod hosted;
 pub mod hosted_bootstrap;
 pub mod native_browser;
@@ -15,7 +17,7 @@ mod plugin_mcp;
 mod plugin_service;
 mod read_media;
 pub mod tool_allowlist;
-pub use plugin_service::NativePluginBackend;
+pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
 pub mod reasoning_discovery;
 
 use std::{
