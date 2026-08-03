@@ -71,6 +71,12 @@ try {
   await page.locator('[data-conversation-scroll]').evaluate(el => {
     window.pagingTrace = []
     const record = event => {
+      const first = window.firstWheelGeometry
+      if (first && event.type === 'scroll') {
+        const floor = Math.max(0, el.scrollHeight - el.clientHeight)
+        if (el.scrollTop < Math.min(first.observed, floor) - 0.5) first.readUp = true
+        first.observed = el.scrollTop
+      }
       window.pagingTrace.push({ event: event.type, top: el.scrollTop, height: el.scrollHeight,
         viewport: el.clientHeight, delta: event.deltaY, target: event.target?.tagName, marks: document.querySelectorAll('.xh-message-rail-item').length,
         busy: [...document.querySelectorAll('button')].filter(button => /Load earlier|Loading/.test(button.textContent)).map(button => ({ text: button.textContent, disabled: button.disabled })) })
@@ -78,9 +84,26 @@ try {
     }
     el.addEventListener('wheel', record, { passive: true }); el.addEventListener('scroll', record, { passive: true })
   })
-  // Use ordinary viewport-sized native gestures over the transcript content.
-  // A single synthetic 100,000px wheel is not a portable page-to-top action:
-  // GTK WebKit may discard/clamp it while row measurements are settling.
+  // The FIRST ordinary native gesture must work while the initial row
+  // measurements may still be settling. Repeating input until one is accepted
+  // would hide a cold-open race; a layout shrink at the floor is not movement.
+  const firstBox = await page.locator('[data-conversation-scroll]').boundingBox()
+  assert.ok(firstBox)
+  await page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + 64)
+  await page.locator('[data-conversation-scroll]').evaluate(el => {
+    window.firstWheelGeometry = { observed: el.scrollTop, readUp: false }
+  })
+  await page.mouse.wheel(0, -180)
+  try {
+    await page.waitForFunction(() => {
+      const el = document.querySelector('[data-conversation-scroll]')
+      return window.firstWheelGeometry.readUp && el.scrollHeight - el.clientHeight - el.scrollTop >= 60
+    }, null, { timeout: 3000 })
+  } catch (error) {
+    console.error(engine + ': first ordinary upward wheel was lost', await page.evaluate(() => window.pagingTrace))
+    throw error
+  }
+  // Then use ordinary viewport-sized native gestures to reach the head.
   // No scrollTop writes or Load-earlier click: pagination must still be
   // triggered by genuine reader input through the shipped ChatView.
   try {
