@@ -25,6 +25,8 @@ import { CodeBlock } from './CodeBlock'
 import { renderTexToReact } from './katex'
 import type { PositionedBlock } from './incremental'
 import css from './MarkdownText.module.css'
+import { renderStreamText } from './StreamText'
+import type { StreamFrame } from './stream-presentation'
 
 /** Copy-button labels forwarded to fence CodeBlocks (this package is cordis-free, so copy arrives via props). */
 export interface MarkdownCodeLabels {
@@ -119,6 +121,9 @@ export interface MarkdownFileMentions {
  * numbering accumulated in document order while references render.
  */
 export interface MarkdownRenderContext {
+  /** Optional display-only motion, never active in the settled/parity arm. */
+  readonly streamMotion?: StreamFrame | undefined
+  readonly sourceBase?: number | undefined
   /** Streaming arm: fences render plain and TeX stays literal. */
   readonly streaming: boolean
   /** Localized fence copy-button labels. */
@@ -148,7 +153,9 @@ export function renderBlocks(
   context: MarkdownRenderContext,
 ): ReactNode[] {
   return blocks
-    .map(block => renderNode(block.node, block.key, context))
+    .map(block => renderNode(block.node, block.key, context.streamMotion === undefined ? context : {
+      ...context, sourceBase: block.key - (block.node.position?.start.offset ?? block.key),
+    }))
     .filter(element => element !== null)
 }
 
@@ -205,7 +212,8 @@ function renderChildren(
 function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderContext): ReactNode {
   switch (node.type) {
     case 'text':
-      return node.value
+      return context.streamMotion === undefined || node.position?.start.offset === undefined || node.position.end.offset === undefined ? node.value
+        : renderStreamText(node.value, (context.sourceBase ?? 0) + node.position.start.offset, (context.sourceBase ?? 0) + node.position.end.offset, context.streamMotion)
     case 'paragraph':
       return <p key={key}>{renderChildren(node.children, context)}</p>
     case 'heading':
@@ -273,7 +281,7 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
       // Reachable only in hand-built trees: the grammar emits items inside lists.
       return renderListItem(node, listItemLoose(node), key, context)
     case 'table':
-      return renderTable(node, key, context)
+      return renderTable(node, key, { ...context, streamMotion: undefined })
     case 'link':
       return renderAnchor(node.url, renderChildren(node.children, { ...context, inLink: true }), key)
     case 'linkReference':

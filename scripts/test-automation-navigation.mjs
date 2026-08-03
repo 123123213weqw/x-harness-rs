@@ -23,3 +23,13 @@ test('automation: projection codec has no transport or request id authority',()=
   assert.match(view,/service.refresh\(controller.signal\)/)
 })
 test('automation: approved clock geometry is exact and legacy Tasks footer registration removed',()=>{const svg=readFileSync(new URL('../ui/src/assets/navigation/automation.svg',import.meta.url),'utf8'),component=readFileSync(new URL('../ui/src/modules/workspace/WorkspaceBrowser.tsx',import.meta.url),'utf8');const paths=source=>[...source.matchAll(/<path d="([^"]+)"/g)].map(row=>row[1]).filter(path=>path.startsWith("M20 12")||path.startsWith("M14.4")||path.startsWith("M12 7.5"));assert.deepEqual(paths(component),paths(svg));assert.match(component,/strokeWidth="1\.5"/);const tasks=readFileSync(new URL('../ui/src/modules/tasks/index.tsx',import.meta.url),'utf8');assert.ok(!tasks.includes("'sidebar.footer.action'"));assert.ok(tasks.includes("'work.center.tasks'"))})
+
+test('automation: explicit mode, chat target and pause survive the catalogue projection',()=>{
+ const a=api(), automation={mode:'task',target:'new_chat',paused:true,creationFingerprint:'not for UI',secret:'omit'}
+ const row=a.automationCatalog({items:[session('a',[record('x',{automation})])]}).entries[0]
+ assert.deepEqual(plain(row.record.automation),{mode:'task',target:'new_chat',paused:true})
+ for(const invalid of [{...automation,mode:'shell'},{...automation,target:'arbitrary'},{...automation,paused:'true'}]){
+  const value=a.automationCatalog({items:[session('a',[record('x',{automation:invalid})])]})
+  assert.equal(value.entries.length,0);assert.equal(value.incompleteSessions,1)
+ }
+})

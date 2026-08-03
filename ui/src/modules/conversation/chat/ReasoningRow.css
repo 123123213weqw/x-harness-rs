@@ -1,1 +1,11 @@
 .U8JO7q_root{flex-direction:column;display:flex}.U8JO7q_row{position:relative;overflow:hidden}.U8JO7q_root[data-state=running] .U8JO7q_row:after{content:"";inset-block:0;background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:300px;animation:2.6s ease-out infinite U8JO7q_dsh-reasoning-row-sweep;position:absolute;left:0}@keyframes U8JO7q_dsh-reasoning-row-sweep{0%{left:-300px}90%,to{left:100%}}.U8JO7q_leading{flex-shrink:0}.U8JO7q_chevron{color:var(--dsw-alias-label-secondary)}.U8JO7q_title{font-weight:400}.U8JO7q_separator{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.U8JO7q_summary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.U8JO7q_summary[data-follow-end]{text-overflow:clip}.U8JO7q_thinkBody{color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;word-break:break-word;padding:4px 0 4px 22px;font-size:14px;line-height:24px}@media (prefers-reduced-motion:reduce){.U8JO7q_root[data-state=running] .U8JO7q_row:after{animation:none}}
+/* Fast collapsed reasoning: one fixed-height page, never a per-token queue. */
+.U8JO7q_root[data-preview=paged] .U8JO7q_row:after{content:none}
+.U8JO7q_summary[data-paging]{height:24px;position:relative;overflow:hidden}
+.U8JO7q_page{position:relative;display:block;width:100%;height:24px}
+.U8JO7q_pageIn,.U8JO7q_pageOut{position:absolute;inset:0;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.U8JO7q_page[data-flipping] .U8JO7q_pageIn{animation:U8JO7q_page-enter var(--xh-duration-reasoning-flip,180ms) var(--xh-ease-stream,cubic-bezier(.16,1,.3,1)) both}
+.U8JO7q_page[data-flipping] .U8JO7q_pageOut{animation:U8JO7q_page-leave var(--xh-duration-reasoning-flip,180ms) var(--xh-ease-stream,cubic-bezier(.16,1,.3,1)) both}
+@keyframes U8JO7q_page-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes U8JO7q_page-leave{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}
+@media(prefers-reduced-motion:reduce){.U8JO7q_pageIn,.U8JO7q_pageOut{animation:none!important}.U8JO7q_pageOut{display:none}}
