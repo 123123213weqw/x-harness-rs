@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-04T08:20:22.625713+00:00",
+  "branch": "feat/automation-tool-runtime-20261004",
+  "baseCommit": "c8440aec11969c1bae1a9c90881e128336f80459",
+  "publication": {
+    "committed": false,
+    "pushed": false,
+    "githubCiRun": false,
+    "merged": false,
+    "released": false,
+    "localAppReplaced": false
+  },
+  "environment": {
+    "rustHost": "WZU_Server (V100, Linux)",
+    "remoteSnapshot": "~/codex-build/x-harness-rs/.verification/automation-20261004",
+    "targetDirectory": "~/codex-build/x-harness-rs/target-automation-20261004",
+    "localRustCompilation": false,
+    "apiSpendCny": 0,
+    "compilerEnvironment": "source ~/.cargo/env; export PATH=\"$HOME/.cargo/bin:/usr/bin:/bin:$PATH\"; test \"$(command -v cc)\" = /usr/bin/cc"
+  },
+  "source": {
+    "verifiedFiles": 2565,
+    "mismatches": [],
+    "manifestSha256": "2f3c5a3e0c4e0c929ab651d0c42e48d53f099db5ca1a753638b26e12b9981b67",
+    "manifestLocalPath": "/tmp/xharness-automation-all-source-manifest-20261004.json",
+    "changedFileSha256": {
+      "Cargo.lock": "7b888d193c7283796570c9e57beec68ca992d70e43a29c1a2986181bef5f0f48",
+      "crates/xharness-coding-tools/src/lib.rs": "56d9d9a89c3176043206af60947c969992490a89b5973ed6897af20e96814434",
+      "crates/xharness-core/tests/loop.rs": "b53bc1d128345bd556fb72dfcb2bae3e21afab6dea3956799eb6e18a414774e0",
+      "crates/xharness-host-app/src/lib.rs": "9fd219b746d1adae44bb3e50012d1609de3cc179fa4d3dcd4948293948cde571",
+      "crates/xharness-host/src/automation.rs": "674fd657ce5242a3666a13ef2405c908b51d1264a2f78c198791cb70c819a185",
+      "crates/xharness-host/src/lib.rs": "3261ddf5ad261b7fc82a7ac3b3f48ab78d03f2bee2151f86e5cb164c3081146f",
+      "crates/xharness-host/src/projection_publication_tests.rs": "75bc805cea906ff2a44b9220a779466c66598b03747980d4a4842f3968c8b2c2",
+      "crates/xharness-host/src/restore.rs": "480589ce3ecfa553faae6eaa58bf39c0df01477d8e399c255f834db4ffc33a4c",
+      "crates/xharness-host/src/runtime.rs": "590965013252702779d4cf9f9251445762c9892757c6da1f8b6a0b5d3a8e471d",
+      "crates/xharness-host/src/state.rs": "a3708b675d98fb590604f33e2c97584299453fcfb8941db445efe8b0db28ddca",
+      "crates/xharness-schedule/Cargo.toml": "f3f612fc21a01bf9a28a3cbfba069e02e918daf5e3798007852e79b9eb7d8eff",
+      "crates/xharness-schedule/src/automation.rs": "4783600241b57cf10156ef369c9bddf203f019e1514a259d08e3a5e33c8abb19",
+      "crates/xharness-schedule/src/automation_tests.rs": "7c30d041e4184ca3bd6cc9b25d61416bfc2ec67349c274c2ab567403f32a2b77",
+      "crates/xharness-schedule/src/lib.rs": "5879ef7543eb0ac4233e775951fc04c9e2edcda7f0511672d858046d188c27f7",
+      "crates/xharness-session/src/event.rs": "2ef4309585ed867af073074829e649672790a4824e2eba8e5d23afca8c1e8a1c",
+      "crates/xharness-session/src/session.rs": "833708cbd2ec644dad43066145b205da7881656323fe988ba2fcddffe51640b5",
+      "crates/xharness-session/tests/session.rs": "d674a94fc3a695b7b774410da5ced4f41d496d8bb8f550976e7bab900c085a74",
+      "docs/architecture.md": "0c9d944d6584a9e86e26bfdfb896af28a42dcd51de0d73caf97fe619a8098d58",
+      "docs/specs/coding-tools.md": "d4e746d7dfac802cde2e50e933fbe12a168df8fbccd717f538f7a32a27313018",
+      "docs/specs/schedule.md": "810139097824ef70ec5f58581216864d7e0bc576c4226ba20fd0089241e26548",
+      "scripts/sync_upstream_catalog.py": "f80a2dd478cab90cb21fbdec5b76aa4b2efebf07d67f592343c56a9489834d03",
+      "scripts/test-automation-navigation.mjs": "cb3f851b06440881c5e1395b186ba706c824ee9ea3c1b12f37d25c69a5bbf7ea",
+      "scripts/test-schedule-plugin.mjs": "4032baada975d7b22b249fb64940207ffb865d758199a1cb6e788512da3d1f11",
+      "ui/dist/asset-manifest.json": "b602f2d51aa20e40651214fcb7426471321a530373edc51fc0986a2bba945d40",
+      "ui/dist/client-graph.json": "c23a16db7aa2910edd14b1d8228ed9a8ab496ec05e50f09b667a7633fde77d40",
+      "ui/dist/index.html": "b3d414765595d27091fbcdc0e2fb752c8ff6f1d68783e3ccc191ed38712c5d10",
+      "ui/dist/plugins/@xlang/xharness-client-ui-schedule/client.js": "6c700fe9e756915558addd6422dfea4ffe30b2c6c6d3dcb45d56cbe73c9c5b6f",
+      "ui/src/modules/schedule/AutomationNavigation.tsx": "f671469c54d0e8ccb5476bdbdc010633e897850a0023dd09e8f657766c05d671",
+      "ui/src/modules/schedule/automation-data.ts": "c1ba1a1e8b13ba6a6dce7fd03db7931b64b1c09a7809f11b50aae2e58b6eabe6",
+      "ui/src/modules/schedule/index.tsx": "5787f05d6bf39d62d7c5de06414b9577fae9e2d8f401bd8d85559314e744b17f"
+    },
+    "note": "This evidence-only JSON was generated after the source manifest and is not included in its digest."
+  },
+  "rustRegression": {
+    "passed": 695,
+    "failed": 0,
+    "ignored": 13,
+    "exitCode": 0,
+    "command": "cargo test --locked -p xharness-schedule -p xharness-session -p xharness-host -p xharness-host-app -p xharness-agent -p xharness-core -p xharness-projection -p xharness-session-jsonl -p xharness-coding-tools --lib --tests",
+    "ignoredFacts": [
+      "test live_model_calls_real_tool_and_finishes_the_loop ... ignored, requires a live OpenAI-compatible model endpoint",
+      "test live_model_continues_coding_across_execution_checkpoints ... ignored, requires an explicitly configured live model endpoint",
+      "test live_model_repairs_code_and_emits_complete_debug_evidence ... ignored, requires a live OpenAI-compatible endpoint (XHARNESS_LIVE_BASE_URL/_API_KEY)",
+      "test live_model_uses_managed_jobs_instead_of_pty_or_nohup ... ignored, requires a live OpenAI-compatible endpoint (XHARNESS_LIVE_BASE_URL/_API_KEY)",
+      "test restore::dynamic_projection_tests::offline_dynamic_projection_stress ... ignored, bounded dynamic replay; explicit CI/local incident investigation only",
+      "test restore::tests::offline_authoritative_restore_100_cold_starts ... ignored, explicit isolated cold-start acceptance; run in diagnostics CI",
+      "test restore::tests::offline_journal_projection_stress ... ignored, explicit offline projection experiment; private journals stay local",
+      "test restore::tests::offline_reasoning_projection_stress ... ignored, offline crash-reproduction stress; run explicitly in CI",
+      "test restore_checkpoint::tests::recovery_checkpoint_performance_acceptance ... ignored, explicit remote cold-recovery performance acceptance",
+      "test runtime::tests::max_tokens_diagnostic::diagnostic_max_tokens_notice_survives_next_turn_start ... ignored, diagnostic of known notice mismatch; run explicitly, remove when fixed",
+      "test crash_cut_worker ... ignored, subprocess helper; invoked by durable_sigkill_matrix_recovers_exactly_once",
+      "ignored, requires live CDN, npm and an isolated test machine",
+      "test history_index_performance_acceptance ... ignored, explicit remote history paging performance acceptance"
+    ]
+  },
+  "clippy": {
+    "passed": true,
+    "exitCode": 0,
+    "command": "cargo clippy --locked -p xharness-schedule -p xharness-session -p xharness-host -p xharness-host-app -p xharness-coding-tools --all-targets -- -D warnings"
+  },
+  "stability": {
+    "rounds": [
+      {
+        "round": 1,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 2,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 3,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 4,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 5,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 6,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 7,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 8,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 9,
+        "passed": 22,
+        "failed": 0
+      },
+      {
+        "round": 10,
+        "passed": 22,
+        "failed": 0
+      }
+    ],
+    "totalPassExecutions": 220,
+    "commands": [
+      "cargo test --locked -p xharness-schedule --lib",
+      "cargo test --locked -p xharness-host --lib automation::tests::",
+      "cargo test --locked -p xharness-session --test session automation_reservation_is_immutable_and_receipt_identity_is_exact -- --exact"
+    ],
+    "coverage": [
+      "one production automation tool, closed arguments, source ownership",
+      "32 concurrent same-key creates, conflicting key reuse, delete/replay",
+      "legacy semantics and phase-preserving edits",
+      "pause/resume and durable restart",
+      "current-chat idle boundary and independent-chat deadline fairness",
+      "stable reservation across multiple missed periods",
+      "admission-before-receipt crash reconciles without second model invocation",
+      "non-overlapping independent runs",
+      "terminal failure is distinct from admitted/completed",
+      "archived or unavailable source does not call the model",
+      "fork keeps history without rearming source automations",
+      "real Host live projection, policy inheritance and JSONL reopen",
+      "immutable reservation and exact receipt identity",
+      "worker crash recovery and transient storage contention"
+    ]
+  },
+  "uiAndArchitecture": {
+    "typecheck": "passed",
+    "deterministicBuild": "passed (53 modules, 165 assets)",
+    "navigationAndWorkCatalogTests": {
+      "passed": 19,
+      "failed": 0
+    },
+    "scheduleColdProjectionAssertions": "passed",
+    "architectureDependencyGate": "passed (38 crates, 8 extracted processors)",
+    "cargoFmt": "passed (format-only, local)",
+    "gitDiffCheck": "passed"
+  },
+  "scopeLimits": [
+    "Scripted model with real Linux Schedule/Agent/Host/ToolExecutor/JSONL paths. No real DeepSeek tool-selection or endurance benchmark in this turn.",
+    "No native macOS/Windows execution or app replacement.",
+    "13 explicitly ignored tests are not claimed as passed.",
+    "Full UI create/edit/detail preview is not production-wired; existing overview projects mode, target and paused metadata.",
+    "Host must be running; no powered-off machine wake support or calendar/cron RRULE implementation.",
+    "Admission de-duplication is not universal exactly-once execution of external side effects."
+  ],
+  "resolvedVerificationEnvironmentFailures": [
+    "Initial recheck used ~/.local/bin/cc, a terminal-script name collision. Final process PATH selected /usr/bin/cc; server-global files were not changed.",
+    "Fresh SSH connections closed or timed out during banner exchange. Final combined regression/clippy/repeats and full source verification completed with exit code 0 over configured SSH.",
+    "An architecture invocation used a nonexistent script path. Final complete UI verification reran scripts/regression/check-architecture.py and exited 0."
+  ],
+  "rawEvidence": [
+    {
+      "path": "/tmp/xharness-automation-final-verified-20261004.log",
+      "sha256": "5276b45d368396d875e9ad9f916c4982ce2524560c781494f1f7ef64b5cf2494"
+    },
+    {
+      "path": "/tmp/xharness-automation-final-ui-verified-20261004.log",
+      "sha256": "ba0f2beb7688262adc5761b145cca0cc2e0ef3af4a8ef72477c333f677021056"
+    },
+    {
+      "path": "/tmp/xharness-automation-all-source-verification-20261004.json",
+      "sha256": "889ce3f229d2c8c10bc453b76e689f70be7631890a0ea7949c51493747e54330"
+    }
+  ]
+}

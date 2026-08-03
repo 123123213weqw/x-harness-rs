@@ -7,6 +7,9 @@ export default {
 			"row": "U8JO7q_row",
 			"separator": "U8JO7q_separator",
 			"summary": "U8JO7q_summary",
+			"page": "U8JO7q_page",
+			"pageIn": "U8JO7q_pageIn",
+			"pageOut": "U8JO7q_pageOut",
 			"thinkBody": "U8JO7q_thinkBody",
 			"title": "U8JO7q_title"
 		}

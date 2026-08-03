@@ -12,6 +12,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt;
+use serde_json::Value;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use xharness_agent::{
     AgentCommandError, AgentEvent, AgentRegistry, AgentShutdownReport, AgentSupervisor,
@@ -528,6 +529,29 @@ pub struct AuxiliaryModel {
 pub trait AgentRuntime: Send + Sync + 'static {
     /// Bind host-owned tools without a strong runtime/Host reference cycle.
     fn bind_host(&self, _host: std::sync::Weak<crate::BasicHost>) {}
+
+    /// Prepare an independent automation worker without waking pending input.
+    /// Schedule installs its observer before it admits the saved user task.
+    async fn prepare_automation_worker(
+        &self,
+        _request: AgentSessionRequest,
+    ) -> Result<DurableAgentHandle, AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "independent automation chats are unavailable".into(),
+        })
+    }
+
+    /// Schedule owns automation transitions; Host exposes this shared seam to UI.
+    async fn automation_command(
+        &self,
+        _session_id: &str,
+        _invocation: &str,
+        _command: xharness_schedule::AutomationCommand,
+    ) -> Result<Value, AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "automation management is unavailable".into(),
+        })
+    }
 
     fn auxiliary_model(&self, _route: &ModelRoute) -> Option<AuxiliaryModel> {
         None
@@ -1333,7 +1357,58 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             })
     }
     fn bind_host(&self, host: std::sync::Weak<crate::BasicHost>) {
+        if let Some(schedules) = &self.schedules {
+            let _ = schedules.bind_targets(Arc::new(crate::automation::HostAutomationTargets(
+                host.clone(),
+            )));
+        }
         let _ = self.goals.host.set(host);
+    }
+
+    async fn automation_command(
+        &self,
+        session_id: &str,
+        invocation: &str,
+        command: xharness_schedule::AutomationCommand,
+    ) -> Result<Value, AgentRuntimeError> {
+        let schedules = self
+            .schedules
+            .as_ref()
+            .ok_or_else(|| AgentRuntimeError::Preparation {
+                message: "automation management is unavailable".into(),
+            })?;
+        Ok(schedules.execute(session_id, invocation, command).await)
+    }
+
+    async fn prepare_automation_worker(
+        &self,
+        request: AgentSessionRequest,
+    ) -> Result<DurableAgentHandle, AgentRuntimeError> {
+        self.require_execution()?;
+        if !self.can_route(&request.route) {
+            return Err(AgentRuntimeError::ModelUnavailable {
+                provider: request.route.provider,
+                model: request.route.model,
+            });
+        }
+        self.sessions.write().await.insert(
+            request.session_id.clone(),
+            DurableSessionConfig {
+                cwd: request.cwd.clone(),
+                permission: request.permission,
+                prompt: request.prompt,
+                route: request.route,
+            },
+        );
+        let mut header = SessionHeader::new(request.session_id);
+        header.cwd = Some(request.cwd);
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
+        self.attach_schedules(&handle).await?;
+        Ok(handle)
     }
 
     fn auxiliary_model(&self, route: &ModelRoute) -> Option<AuxiliaryModel> {
@@ -2262,6 +2337,7 @@ mod tests {
                     change: ScheduleChange::Create {
                         version: 1,
                         schedule: ScheduleRecord {
+                            automation: None,
                             id: "schedule-1".to_owned(),
                             kind: ScheduleKind::After,
                             prompt: "runtime reminder".to_owned(),

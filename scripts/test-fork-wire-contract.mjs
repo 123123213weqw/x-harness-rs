@@ -22,16 +22,22 @@ const summary = origin => ({ sessionId: 'child', parentSessionId: 'parent', blan
 const added = origin => ({ type: 'host/session-added', sessionId: 'child', parentSessionId: 'parent', blank: false,
  ...origin === undefined ? {} : { origin } })
 const json = x => JSON.parse(JSON.stringify(x))
-const corpus = process.env.XHARNESS_FORK_WIRE_EXPORT
- ? JSON.parse(readFileSync(process.env.XHARNESS_FORK_WIRE_EXPORT, 'utf8'))
- : [undefined, 'subagent', 'fork'].map(origin => ({ added: added(origin), list: { items: [summary(origin)] } }))
+const corpus = [undefined, 'subagent', 'fork', 'automation'].map(origin => ({ added: added(origin), list: { items: [summary(origin)] } }))
+for (const path of [process.env.XHARNESS_FORK_WIRE_EXPORT, process.env.XHARNESS_AUTOMATION_WIRE_EXPORT]) {
+ if (path) corpus.push(...JSON.parse(readFileSync(path, 'utf8')))
+}
 
-test('fork, delegated child and old absent origin use the same strict lineage vocabulary in live and list decoders', () => {
+test('fork, automation, delegated child and old absent origin use the same strict lineage vocabulary in live and list decoders', () => {
  for (const item of corpus) {
   const event = hostSchema.parse(item.added), list = listSchema.parse(item.list)
   const child = list.items.find(row => row.sessionId === event.sessionId)
   assert.ok(child); assert.equal(event.origin, child.origin); assert.equal(event.parentSessionId, child.parentSessionId)
-  assert.equal(event.blank, child.blank)
+  if (item.listAfterRun) {
+   // A real automation was announced empty, then executed before the list query.
+   // Mutable lifecycle fields are not required to equal across those snapshots.
+   assert.equal(event.origin, 'automation')
+   assert.equal(event.blank, true); assert.equal(child.blank, false)
+  } else assert.equal(event.blank, child.blank)
  }
  for (const origin of ['unknown', '', null, 1, {}]) {
   assert.equal(hostSchema.safeParse(added(origin)).success, false)
@@ -41,7 +47,7 @@ test('fork, delegated child and old absent origin use the same strict lineage vo
  assert.equal(listSchema.safeParse({ items: [{ ...summary('fork'), sessionId: '' }] }).success, false)
 })
 
-test('production WebSocket and unary HTTP paths accept real fork carriers, without fixture bypass', { timeout: 10000 }, async () => {
+test('production WebSocket and unary HTTP paths accept real lineage carriers, without fixture bypass', { timeout: 10000 }, async () => {
  let socket, list, malformed = false
  class Socket extends EventTarget {
   static CONNECTING = 0; static OPEN = 1

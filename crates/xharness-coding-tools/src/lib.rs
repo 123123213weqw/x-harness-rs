@@ -999,12 +999,12 @@ const fn native_shell_name() -> &'static str {
 
 #[cfg(unix)]
 const fn native_shell_description() -> &'static str {
-    "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use schedule_create for future reminders and delayed requests. Native session tools may suit genuinely interactive or existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls."
+    "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use automation for user-requested future reminders (mode=reminder) and delayed tasks (mode=task). Native session tools may suit genuinely interactive or existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls."
 }
 
 #[cfg(windows)]
 const fn native_shell_description() -> &'static str {
-    "Run one fresh PowerShell 7 command under the active session permission policy. Use native Windows paths and $env:NAME environment variables. Native-command and PowerShell errors fail the command. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use schedule_create for future reminders and delayed requests. Native process or session tools may suit existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls."
+    "Run one fresh PowerShell 7 command under the active session permission policy. Use native Windows paths and $env:NAME environment variables. Native-command and PowerShell errors fail the command. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use automation for user-requested future reminders (mode=reminder) and delayed tasks (mode=task). Native process or session tools may suit existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls."
 }
 
 #[cfg(unix)]
@@ -1205,7 +1205,8 @@ mod tests {
         assert!(description.contains("prefer run_in_background=true"));
         assert!(description.contains("job_output"));
         assert!(description.contains("job_kill"));
-        assert!(description.contains("schedule_create"));
+        assert!(description.contains("automation"));
+        assert!(!description.contains("schedule_create"));
         assert!(description.contains("Native "));
         assert!(description.contains("status, logs, and stop method"));
         assert!(!description.contains("Never emulate"));

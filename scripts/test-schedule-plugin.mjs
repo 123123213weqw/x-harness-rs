@@ -25,6 +25,7 @@ const React = {
 }
 const plugin = registration.factory((id) => {
   if (id === 'react') return React
+  if (id === 'react/jsx-runtime') return {jsx() {}, jsxs() {}}
   if (id === 'react-dom') return { createPortal() {} }
   if (id === '@xharness/dsh-client-ui-primitives') {
     return { IconChevronDownOutline14() {}, useAnchoredPosition() {} }
@@ -76,7 +77,18 @@ assert.deepEqual(plugin.scheduleRecords([], [once]), [])
 assert.deepEqual(plugin.scheduleRecords(undefined, [once]), [once])
 assert.deepEqual(
   JSON.parse(JSON.stringify(plugin.inject)),
-  ['slots', 'locale', 'conversationEvents', 'conversationViews'],
+  ['slots', 'locale', 'conversationEvents', 'conversationViews', 'workCatalog', 'connection'],
 )
 
 console.log('schedule component projection tests passed')
+
+const configured = {...every, automation:{mode:'task',target:'current_chat',paused:true}}
+assert.deepEqual(JSON.parse(JSON.stringify(plugin.foldScheduleChanges([
+ {operation:'create',schedule:every},{operation:'update',schedule:configured},
+ {operation:'reserve_run',run:{scheduleId:every.id,runId:'r1'}},
+]))),[configured])
+assert.deepEqual(JSON.parse(JSON.stringify(plugin.foldScheduleChanges([
+ {operation:'create',schedule:configured},
+ Object.freeze({operation:'run',run:Object.freeze({scheduleId:every.id,runId:'r1'}),acceptedAt:'2026-09-02T00:11:00.000Z'}),
+]))),[{...configured,scheduledAt:'2026-09-02T00:15:00.000Z'}])
+console.log('automation update/reservation/run cold projection tests passed')

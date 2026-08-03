@@ -13,6 +13,9 @@ export async function installWorkCatalogFixture(page) {
     const [{WorkCatalog},{SessionManager},{WorkspaceManager},connection]=modules
     class FixtureCarrier extends connection.AbstractApiClient {doFetch(input, options){return fetch(input,options)}}
     const api=new FixtureCarrier()
+    // Publish the actual Connection handle without starting a second stream pump.
+    // Schedule's tool-card contribution now consumes the same RPC owner as production.
+    connection.apply({provide:(name, handle)=>{if(name==='connection')window.workConnection=handle}})
     const sessions=new SessionManager(api,{}),workspaces=new WorkspaceManager(api)
     const sessionList={subscribe:fn=>sessions.subscribe(fn),getSnapshot:()=>{
       const snap=sessions.getListSnapshot(),byId={}
