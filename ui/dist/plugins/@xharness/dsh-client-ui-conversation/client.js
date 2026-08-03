@@ -23821,6 +23821,7 @@ exports.TranscriptWindowRow = TranscriptWindowRow;
 exports.createTranscriptWindowing = createTranscriptWindowing;
 const jsx_runtime_1 = require("react/jsx-runtime");
 const React = __importStar(require("react"));
+const react_dom_1 = require("react-dom");
 const transcript_state_1 = require("./transcript-state");
 const roots = new WeakMap();
 const followOwners = new WeakMap();
@@ -23886,13 +23887,26 @@ function controller(root) {
             return;
         frame = requestAnimationFrame(() => {
             frame = 0;
+            const changes = [];
             for (const row of rows.values()) {
                 const show = row.near || row.focused || row.selected || row.keep;
                 if (show === row.mounted)
                     continue;
-                row.mounted = show;
-                row.update({ mounted: show, height: row.height });
+                changes.push({ row, mounted: show });
             }
+            if (changes.length === 0)
+                return;
+            // This is a bounded viewport transaction, not a full-history render.
+            // Do not publish controller state before its DOM exists: concurrent
+            // React can otherwise leave a resize queued beyond a settled frame.
+            // GTK WebKit then applies the first native wheel against the old range;
+            // a later placeholder shrink clamps that gesture back to the new floor.
+            (0, react_dom_1.flushSync)(() => {
+                for (const { row, mounted } of changes) {
+                    row.mounted = mounted;
+                    row.update({ mounted, height: row.height });
+                }
+            });
         });
     }
     function observe() {
