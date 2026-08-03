@@ -38,8 +38,9 @@ function retryTurn(event: Parameters<ConversationNodeDefinition['match']>[0]): n
 
 function failureFrom(match: ConversationMatch): TurnErrorState['failure'] | undefined {
   if (!isSessionEvent(match.event, 'turn/end') || match.event.data.reason.kind !== 'error') return undefined
-  const failure = match.event.data.reason.error ?? match.event.data.reason.failure
-  if (failure === undefined) return undefined
+  const reason = match.event.data.reason
+  const failure = reason.error ?? ('failure' in reason ? reason.failure : undefined)
+  if (failure === undefined || failure === null) return undefined
   return {
     seq: match.event.seq,
     time: match.event.time,

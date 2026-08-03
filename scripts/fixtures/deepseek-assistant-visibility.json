@@ -1,0 +1,26 @@
+{
+  "provenance": {
+    "provider": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "capturedLocalDate": "2026-10-03",
+    "source": "isolated synthetic coding acceptance, turn 1 step 3 first write",
+    "normalization": "Host tool_delta index+2/camelCase mapping; nonempty provider call ID replaced by captured-call; tool name and argument fragments unchanged",
+    "privateUserHistory": false
+  },
+  "chunks": [
+    {
+      "type": "tool-call-delta",
+      "index": 2,
+      "id": "captured-call",
+      "name": "write",
+      "argumentsDelta": "{\"path\": \"line_stats.py\", \"content\": \"\\\"\\\"\\\"Small text statistics helper built on the Python standard library.\\\"\\\"\\\"\\n\\n\\ndef analyze(text):\\n    \\\"\\\"\\\"Return line, word and character counts for ``text``.\\n\\n    lines uses ``str.splitlines()``, words uses ``str.split()"
+    },
+    {
+      "type": "tool-call-delta",
+      "index": 2,
+      "id": "",
+      "name": "",
+      "argumentsDelta": "`` and\\n    characters uses ``len``.\\n    \\\"\\\"\\\"\\n    return {\\n        \\\"lines\\\": len(text.splitlines()),\\n        \\\"words\\\": len(text.split()),\\n        \\\"characters\\\": len(text),\\n    }\\n\"}"
+    }
+  ]
+}

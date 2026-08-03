@@ -3418,7 +3418,7 @@ function isUnknownArray(value) { return Array.isArray(value); }
  * with no field-level passthrough. SessionId brand cast point: sessionIdSchema, and only there.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sessionDeleteValueSchema = exports.sessionDeleteRequestSchema = exports.sessionCancelValueSchema = exports.sessionCancelRequestSchema = exports.sessionUpdateQueueValueSchema = exports.sessionUpdateQueueRequestSchema = exports.sessionAttachmentValueSchema = exports.sessionAttachmentRequestSchema = exports.imageAttachmentRefSchema = exports.attachmentIdSchema = exports.sessionPromptValueSchema = exports.sessionPromptRequestSchema = exports.promptContentPartSchema = exports.imageMediaTypeSchema = exports.contentBlockSchema = exports.sessionSelectModelValueSchema = exports.sessionSelectModelRequestSchema = exports.sessionModelsValueSchema = exports.sessionModelsRequestSchema = exports.sessionHistoryValueSchema = exports.imageLimitsProjectionSchema = exports.sessionListMetadataProjectionSchema = exports.sessionProjectionsBlockSchema = exports.historyEntrySchema = exports.toolEventViewSchema = exports.modelCatalogFailureSchema = exports.modelProviderGroupSchema = exports.modelCatalogModelSchema = exports.modelReasoningSchema = exports.modelReasoningEffortSchema = exports.modelSelectionSchema = exports.sessionHistoryRequestSchema = exports.sessionForkValueSchema = exports.sessionForkRequestSchema = exports.sessionRenameValueSchema = exports.sessionRenameRequestSchema = exports.sessionCreateValueSchema = exports.sessionCreateRequestSchema = exports.sessionSearchValueSchema = exports.sessionSearchItemSchema = exports.sessionSearchRequestSchema = exports.sessionListValueSchema = exports.sessionListRequestSchema = exports.sessionSummarySchema = exports.sessionEventSchema = exports.workspaceIdSchema = exports.messageIdSchema = exports.sessionIdSchema = void 0;
+exports.sessionDeleteValueSchema = exports.sessionDeleteRequestSchema = exports.sessionCancelValueSchema = exports.sessionCancelRequestSchema = exports.sessionUpdateQueueValueSchema = exports.sessionUpdateQueueRequestSchema = exports.sessionAttachmentValueSchema = exports.sessionAttachmentRequestSchema = exports.imageAttachmentRefSchema = exports.attachmentIdSchema = exports.sessionPromptValueSchema = exports.sessionPromptRequestSchema = exports.promptContentPartSchema = exports.imageMediaTypeSchema = exports.contentBlockSchema = exports.sessionSelectModelValueSchema = exports.sessionSelectModelRequestSchema = exports.sessionModelsValueSchema = exports.sessionModelsRequestSchema = exports.sessionHistoryValueSchema = exports.imageLimitsProjectionSchema = exports.sessionListMetadataProjectionSchema = exports.sessionProjectionsBlockSchema = exports.historyEntrySchema = exports.toolEventViewSchema = exports.modelCatalogFailureSchema = exports.modelProviderGroupSchema = exports.modelCatalogModelSchema = exports.modelReasoningSchema = exports.modelReasoningEffortSchema = exports.modelSelectionSchema = exports.sessionHistoryRequestSchema = exports.sessionForkValueSchema = exports.sessionForkRequestSchema = exports.sessionRenameValueSchema = exports.sessionRenameRequestSchema = exports.sessionCreateValueSchema = exports.sessionCreateRequestSchema = exports.sessionSearchValueSchema = exports.sessionSearchItemSchema = exports.sessionSearchRequestSchema = exports.sessionListValueSchema = exports.sessionListRequestSchema = exports.sessionSummarySchema = exports.sessionOriginSchema = exports.sessionEventSchema = exports.workspaceIdSchema = exports.messageIdSchema = exports.sessionIdSchema = void 0;
 const zod_1 = require("zod");
 const session_search_1 = require("./session-search");
 /** SessionId: one brand cast after schema validation (the only cast point in this domain). */
@@ -3443,13 +3443,14 @@ exports.sessionEventSchema = zod_1.z.object({
     ignorable: zod_1.z.literal(true).optional(),
 });
 /** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
+exports.sessionOriginSchema = zod_1.z.enum(['subagent', 'fork']);
 exports.sessionSummarySchema = zod_1.z.object({
     sessionId: exports.sessionIdSchema,
     updatedAt: zod_1.z.number(),
     running: zod_1.z.boolean(),
     blank: zod_1.z.boolean(),
     parentSessionId: exports.sessionIdSchema.optional(),
-    origin: zod_1.z.literal('subagent').optional(),
+    origin: exports.sessionOriginSchema.optional(),
     cwd: zod_1.z.string().optional(),
     agentPreset: zod_1.z.string().optional(),
     projections: zod_1.z.lazy(() => exports.sessionProjectionsBlockSchema).optional(),
@@ -21837,7 +21838,7 @@ exports.hostFrameSchema = zod_1.z.discriminatedUnion('type', [
         sessionId: sessions_schema_1.sessionIdSchema,
         blank: zod_1.z.boolean(),
         parentSessionId: sessions_schema_1.sessionIdSchema.optional(),
-        origin: zod_1.z.literal('subagent').optional(),
+        origin: sessions_schema_1.sessionOriginSchema.optional(),
         cwd: zod_1.z.string().optional(),
         agentPreset: zod_1.z.string().optional(),
     }),

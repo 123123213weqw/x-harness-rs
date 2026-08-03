@@ -16,6 +16,7 @@ const units={
  compactBlocks:['conversation-nodes/assistant','compactBlocks'],hasVisibleContent:['conversation-nodes/assistant','hasVisibleContent'],hasInterruptionEvidence:['conversation-nodes/assistant','hasInterruptionEvidence'],updateChunk:['conversation-nodes/assistant','updateChunk'],finalNode:['conversation-nodes/assistant','finalNode'],
  contextLocation:['conversation-nodes/common','contextLocation'],chatNode:['conversation-nodes/common','chatNode'],
  turnErrorDefinition:['conversation-nodes/turn-error','turnErrorDefinition'],turnMaxTokensDefinition:['conversation-nodes/turn-max-tokens','turnMaxTokensDefinition'],
+ chatViewDefinition:['conversation-nodes/chat-snapshot-builder','chatViewDefinition'],
  assistantDefinition:['conversation-nodes/assistant','assistantDefinition'],compactSource:['conversation-nodes/command','compactSource'],
  compactProgress:['conversation-nodes/compaction-lifecycle','compactProgress'],compactLifecycle:['conversation-nodes/compaction-lifecycle','compactLifecycle'],
  commandDefinition:['conversation-nodes/command','commandDefinition'],compactionDefinition:['conversation-nodes/compaction','compactionDefinition'],compactSummary:['conversation-nodes/command','compactSummary'],CompactionItem:['chat/CompactionItem','CompactionItem'],TurnMaxTokensItem:['chat/MessageItem','TurnMaxTokensItem'],

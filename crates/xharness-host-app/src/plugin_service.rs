@@ -6,6 +6,29 @@ use xharness_host::PluginBackend;
 use xharness_mcp::McpRuntime;
 use xharness_plugins::PluginManager;
 
+struct VerifiedPackageClient;
+#[async_trait]
+impl xharness_plugins::PackageClient for VerifiedPackageClient {
+    async fn client(&self, url: &str) -> Result<reqwest::Client, xharness_plugins::PluginError> {
+        xharness_web::public_https_client(url, std::time::Duration::from_secs(90))
+            .await
+            .map_err(|error| {
+                xharness_plugins::PluginError::Operation(format!(
+                    "package target validation failed: {error}"
+                ))
+            })
+    }
+}
+
+/// Product composition owns the shared WebFetch transport; plugin storage has
+/// only an injected interface, no dependency on the WebFetch domain/runtime.
+pub fn open_product_plugin_manager(
+    root: std::path::PathBuf,
+) -> Result<PluginManager, xharness_plugins::PluginError> {
+    PluginManager::open_product(root)
+        .map(|manager| manager.with_package_client(Arc::new(VerifiedPackageClient)))
+}
+
 pub struct NativePluginBackend {
     manager: Arc<PluginManager>,
     mcp: Arc<McpRuntime>,
@@ -100,6 +123,40 @@ mod tests {
     use super::*;
     use xharness_api::{ApiBackend, RpcId};
     use xharness_host::{BasicHost, HostConfig, NoTools};
+
+    #[tokio::test]
+    async fn product_download_transport_remains_strict_without_startup_network() {
+        use xharness_plugins::PackageClient;
+        let root =
+            std::env::temp_dir().join(format!("xh-plugin-composition-{}", std::process::id()));
+        let manager = open_product_plugin_manager(root.clone()).unwrap();
+        assert!(manager.catalog().await.iter().all(|entry| entry
+            .source
+            .url
+            .starts_with("https://engine.xxdevs.com/plugins/")));
+        assert!(manager.installed().await.is_empty());
+        assert!(VerifiedPackageClient
+            .client("https://127.0.0.1/private.zip")
+            .await
+            .is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "explicit engine HTTPS download; temporary state, no model or GitHub account"]
+    async fn live_product_engine_package_transport() {
+        let id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("xh-plugin-product-live-{id}"));
+        let manager = open_product_plugin_manager(root.clone()).unwrap();
+        let installed = manager.install("github").await.unwrap();
+        assert!(!installed.enabled && !installed.mcp_enabled);
+        manager.set_enabled("github", true).await.unwrap();
+        assert!(!manager.read_skill("github", "pr").await.unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test]
     async fn mounted_dynamic_plugin_routes_read_and_mutate_catalog() {

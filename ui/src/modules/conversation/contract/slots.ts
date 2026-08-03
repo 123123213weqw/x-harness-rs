@@ -744,7 +744,9 @@ export interface ChatViewInjected {
    * hand the path off (the chat view shows that reason and a retry).
    */
   openFile: (path: string) => Promise<void>
-  loadOlder: () => void
+  /** One page; production resolves after admission/installation so the view
+   * can share a single-flight gate. Legacy synchronous providers still work. */
+  loadOlder: () => void | Promise<void>
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */
@@ -759,6 +761,9 @@ export interface ChatViewInjected {
     save: (position: ChatScrollPosition | null) => void
     /** Last reader position, or null when pinned or never recorded. */
     read: () => ChatScrollPosition | null
+    /** Explicit local send/jump intent. Optional for older view providers;
+     * neither live delivery nor history recovery may fire this signal. */
+    subscribeFollow?: ((listener: () => void) => () => void) | undefined
   }
   /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void

@@ -1294,20 +1294,15 @@ impl BasicHost {
                 PendingResponse::Approval { session_id: id, .. } => id != session_id,
             });
         }
-        let reason = match result.status {
-            LoopStatus::Completed => json!({"kind": "completed"}),
-            LoopStatus::MaxTokens => json!({"kind": "max-tokens"}),
-            LoopStatus::Cancelled => json!({"kind": "cancelled"}),
-            LoopStatus::LimitReached => json!({"kind": "max-steps"}),
-            LoopStatus::Failed => json!({
-                "kind": "error",
-                "error": {"message": result.error.unwrap_or_else(|| "loop failed".to_owned()), "code": "LOOP_FAILED"},
-            }),
-        };
+        let terminal = xharness_projection::wire::TurnEndData::from_loop(
+            turn,
+            result.status,
+            result.error.as_deref(),
+        );
         self.append_session_event(
             session_id,
             "turn/end",
-            json!({"turn": turn, "reason": reason}),
+            serde_json::to_value(terminal).expect("turn end DTO contains only serializable fields"),
             None,
         )
         .await?;
