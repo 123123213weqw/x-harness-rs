@@ -470,6 +470,7 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         self.assertEqual(config['version'], '0.0.901')
         updater = (desktop / 'src/updater.rs').read_text()
         self.assertIn('configure_client(crate::rehearsal::tls_client)', updater)
+        self.assertEqual(updater.count('.on_before_exit('), (source / 'apps/desktop/src-tauri/src/updater.rs').read_text().count('.on_before_exit('))
         self.assertEqual(updater.count('crate::rehearsal::snapshot_before_install();'), 1)
         self.assertLess(updater.index('sidecar::graceful_stop(&app).await'), updater.index('crate::rehearsal::snapshot_before_install();'))
         self.assertLess(updater.index('crate::rehearsal::snapshot_before_install();'), updater.index('update.install(bytes.as_slice())'))
