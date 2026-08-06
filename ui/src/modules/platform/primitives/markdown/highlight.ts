@@ -5,52 +5,35 @@
  * theme package's token sheets as `--shiki-*` custom properties (light and
  * dark blocks), never here — the repo's tokens-only styling rule.
  *
- * Only the three markdown-fence and `run_code` grammars (TypeScript, shell,
- * JSON) load into the singleton at boot — the set every session renders. The
+ * Every grammar, including common fences, loads only when rendered. The
  * read card's wider extension set (the file-extension language hints the read
  * tool's `langFromPath` emits — `packages/fs/tool-fs`: python, rust, yaml,
  * markup, …) is imported lazily and registered the first time such a language
  * is requested, so a session that never opens a read card in one of those
  * languages pays neither the ~1.6 MB of grammar modules nor their synchronous
  * init. The first render of a lazy language falls back to plain text while its
- * grammar loads, then {@link onGrammarLoaded} notifies subscribers to re-render
+ * grammar loads, then {@link subscribeGrammarLoaded} notifies subscribers to re-render
  * with highlighting. An unknown or absent language falls back to plain text (no
  * highlighting, still monospace) — never an error.
  */
 
-import { createHighlighterCoreSync, createCssVariablesTheme } from 'shiki/core'
-import { createJavaScriptRegexEngine, defaultJavaScriptRegexConstructor } from 'shiki/engine/javascript'
-import langTs from '@shikijs/langs/typescript'
-import langBash from '@shikijs/langs/shellscript'
-import langJson from '@shikijs/langs/json'
 import type { HighlighterCore } from 'shiki/core'
+import type { LanguageRegistration } from '@shikijs/types'
 import type { CSSProperties } from 'react'
+import type { CompiledPattern } from './regex-cache/types'
 
-/** A shiki grammar module's default export (a `LanguageRegistration[]`), taken
- *  from a boot grammar so no direct `@shikijs/types` dependency is needed. */
-type LangModule = { default: typeof langTs }
+type LangModule = { default: LanguageRegistration[] }
 
-/**
- * Grammars the singleton loads at boot; each entry's own `name` is the id
- * `codeToTokens`/`codeToHtml` resolve. The JS-family aliases (js/jsx/ts/tsx)
- * resolve to the TypeScript grammar rather than a separate one: it tokenizes
- * plain TS/JS exactly, and JSX/TSX approximately (shiki's TS grammar is not the
- * dedicated TSX grammar, so JSX elements tokenize imperfectly) — an accepted
- * trade to keep the boot set to one JS-family grammar. The read card's wider
- * set loads lazily through {@link LAZY_GRAMMARS}.
+const BUNDLED_EMBEDDED = new Set(['typescript', 'shellscript', 'json'])
+
+/** Original pinned grammars load only when requested. Build-time regex caches
+ * accelerate common code fences without rewriting the TextMate patterns or
+ * losing dynamic backreferences. Unknown patterns still use the same engine.
  */
-const LANGS = [langTs, langBash, langJson]
-
-/**
- * The read card's extension grammars, each behind a dynamic import so its
- * module stays out of the boot chunk until a read of that language renders.
- * Keyed by the grammar id (`LanguageRegistration.name`) the aliases resolve to.
- * `@shikijs/langs`' default export is a `LanguageRegistration[]`; the loader
- * hands the whole array to `loadLanguageSync`, which registers each entry
- * (including embedded sub-grammars). The three boot grammars are absent —
- * already loaded, so no alias value ever points at a missing entry here.
- */
-const LAZY_GRAMMARS = new Map<string, () => Promise<LangModule>>([
+const GRAMMARS = new Map<string, () => Promise<LangModule>>([
+  ['typescript', () => import('@shikijs/langs/typescript')],
+  ['shellscript', () => import('@shikijs/langs/shellscript')],
+  ['json', () => import('@shikijs/langs/json')],
   ['python', () => import('@shikijs/langs/python')],
   ['ruby', () => import('@shikijs/langs/ruby')],
   ['go', () => import('@shikijs/langs/go')],
@@ -83,9 +66,8 @@ const LAZY_GRAMMARS = new Map<string, () => Promise<LangModule>>([
  * inherited property and crashing the renderer inside shiki. Keys cover both
  * the markdown-fence aliases `CodeBlock` uses and the file-extension hint ids
  * the read tool's `langFromPath` emits, so both callers resolve the same
- * grammars. The JS family maps to the TypeScript grammar (see {@link LANGS} for
- * the JSX/TSX approximation). A value not in {@link LANGS} names a
- * {@link LAZY_GRAMMARS} entry loaded on first use.
+ * grammars. The JS family maps to the TypeScript grammar (see {@link GRAMMARS} for
+ * the JSX/TSX approximation). Each value names a grammar loaded on first use.
  */
 const LANG_ALIASES = new Map<string, string>([
   ['typescript', 'typescript'],
@@ -132,61 +114,59 @@ const LANG_ALIASES = new Map<string, string>([
   ['lua', 'lua'],
 ])
 
-/** All token colors resolve through `--shiki-*` custom properties (theme package sheets). */
-const cssVariablesTheme = createCssVariablesTheme({
-  name: 'css-variables',
-  variablePrefix: '--shiki-',
-  fontStyle: true,
-})
-
-/**
- * The client regex engine compiles each TextMate pattern when its scanner is
- * created. Shiki otherwise defers patterns longer than 3,000 characters until
- * their first match; that compilation counts against Shiki's 500 ms per-line
- * budget and can return a partial token stream under host contention. Eager
- * compilation leaves the same budget in place for scanning user content.
+/** The engine sees the exact original pattern strings. The cache only saves
+ * conversion work; a missing pattern (including a dynamic end delimiter)
+ * always goes through the original forgiving converter.
  */
-const regexEngine = createJavaScriptRegexEngine({
-  forgiving: true,
-  regexConstructor: pattern => defaultJavaScriptRegexConstructor(pattern, {
-    lazyCompileLength: Number.POSITIVE_INFINITY,
-  }),
-})
+const regexCache = new Map<string, RegExp | Error>()
+/** Pinned conversion caches target ES2018: WebKit compiles its `u` patterns
+ * much faster than equivalent `v` patterns. Original TextMate strings stay
+ * intact; patterns not expressible at that target are omitted and use the
+ * original auto-target converter. These are data strings, not grammar rewrites.
+ */
+const PREPARED_CACHES = new Map<string, () => Promise<{entries: readonly CompiledPattern[]}>>([
+  ['typescript', () => import('./regex-cache/typescript-es2018')],
+  ['shellscript', () => import('./regex-cache/shellscript-es2018')],
+  ['json', () => import('./regex-cache/json-es2018')],
+])
 
 let singleton: HighlighterCore | undefined
+let creating: Promise<HighlighterCore> | undefined
 
-/** Representative paths through every boot grammar, compiled before user content is timed. */
-const BOOT_GRAMMAR_WARMUPS = [
-  { lang: 'typescript', code: 'const answer: number = 42' },
-  { lang: 'shellscript', code: 'printf \'%s\\n\' "$HOME"' },
-  { lang: 'json', code: '{"ready":true}' },
-] as const
+/** Representative paths compiled only when that grammar is requested. */
+const GRAMMAR_WARMUPS = new Map<string, string>([
+  ['typescript', 'const answer: number = 42'],
+  ['shellscript', 'printf \'%s\\n\' "$HOME"'],
+  ['json', '{"ready":true}'],
+])
 
-/** Construct and pre-tokenize the boot grammars outside the user-content scan budget. */
-function createHighlighter(): HighlighterCore {
-  const instance = createHighlighterCoreSync({
-    themes: [cssVariablesTheme],
-    langs: LANGS,
-    engine: regexEngine,
-  })
-  for (const sample of BOOT_GRAMMAR_WARMUPS) {
-    instance.codeToTokens(sample.code, {
-      lang: sample.lang,
-      theme: 'css-variables',
-      tokenizeTimeLimit: 0,
+/** Even SDK parsing/theme/core construction waits for a real code read.
+ * No speculative warm-up runs while the first screen is mounting.
+ */
+function highlighter(): Promise<HighlighterCore> {
+  creating ??= (async () => {
+    const [{ createHighlighterCoreSync, createCssVariablesTheme },
+      { createJavaScriptRegexEngine, defaultJavaScriptRegexConstructor }] = await Promise.all([
+      import('shiki/core'), import('shiki/engine/javascript'),
+    ])
+    const instance = createHighlighterCoreSync({
+      themes: [createCssVariablesTheme({name: 'css-variables', variablePrefix: '--shiki-', fontStyle: true})],
+      langs: [],
+      engine: createJavaScriptRegexEngine({
+        forgiving: true, cache: regexCache,
+        regexConstructor: pattern => defaultJavaScriptRegexConstructor(pattern, {
+          lazyCompileLength: Number.POSITIVE_INFINITY,
+        }),
+      }),
     })
-  }
-  return instance
-}
-
-/** The synchronous highlighter (one instance per document); pre-warmed below, lazy as the fallback. */
-function highlighter(): HighlighterCore {
-  singleton ??= createHighlighter()
-  return singleton
+    singleton = instance
+    return instance
+  })()
+  return creating
 }
 
 /** Grammar ids whose lazy import is in flight or done, so it is requested once. */
-const requested = new Set<string>()
+const pending = new Map<string, Promise<void>>()
 /** Subscribers re-rendered after a lazy grammar registers (React callers). */
 const listeners = new Set<() => void>()
 /** Bumped on each lazy-grammar load; the `useSyncExternalStore` snapshot. */
@@ -194,7 +174,7 @@ let loadCount = 0
 
 /**
  * Subscribe to lazy-grammar load completions; `listener` fires after a
- * {@link LAZY_GRAMMARS} grammar finishes registering on the singleton, so a
+ * {@link GRAMMARS} grammar finishes registering on the singleton, so a
  * caller that rendered its plain fallback while the grammar loaded can
  * re-highlight. Uses the `useSyncExternalStore` subscribe signature; pair it with
  * {@link grammarLoadCount} as the snapshot. Returns an unsubscribe function.
@@ -216,49 +196,66 @@ export function grammarLoadCount(): number {
   return loadCount
 }
 
-/**
- * Ensure the grammar `resolved` names is registered. A boot grammar (not in
- * {@link LAZY_GRAMMARS}) and an already-loaded lazy grammar report ready
- * synchronously; a lazy grammar not yet loaded starts its import (once) and
- * reports not-ready, so the caller renders plain until a
- * {@link subscribeGrammarLoaded} listener fires.
- * @param resolved - the grammar id an alias resolved to.
- * @returns whether the grammar is registered and ready to tokenize now.
+/** Load once, including the bundled scopes that were previously available
+ * for a Markdown/MDX read. Metadata, not extensions, declares that dependency.
+ */
+function loadGrammar(resolved: string): Promise<void> {
+  const existing = pending.get(resolved)
+  if (existing !== undefined) return existing
+  const load = GRAMMARS.get(resolved)
+  if (load === undefined) return Promise.resolve()
+  const prepared = PREPARED_CACHES.get(resolved)
+  const promise = Promise.all([load(), prepared?.().catch((error: unknown) => {
+    // Optional acceleration must not disable a readable/highlightable grammar.
+    console.warn('Syntax cache unavailable:', resolved, error)
+    return undefined
+  })]).then(async ([mod, cache]) => {
+    if (cache !== undefined) {
+      const { EmulatedRegExp } = await import('oniguruma-to-es')
+      for (const [pattern, source, flags, options] of cache.entries) {
+        if (!regexCache.has(pattern)) regexCache.set(pattern, new EmulatedRegExp(source, flags, options))
+      }
+    }
+    const dependencies = new Set<string>()
+    for (const grammar of mod.default) {
+      for (const embedded of grammar.embeddedLangsLazy ?? []) {
+        if (BUNDLED_EMBEDDED.has(embedded) && embedded !== resolved) dependencies.add(embedded)
+      }
+    }
+    await Promise.all([...dependencies].map(loadGrammar))
+    const instance = await highlighter()
+    instance.loadLanguageSync(mod.default)
+    const sample = GRAMMAR_WARMUPS.get(resolved)
+    if (sample !== undefined) {
+      instance.codeToTokens(sample, {lang: resolved, theme: 'css-variables', tokenizeTimeLimit: 0})
+    }
+    loadCount += 1
+    for (const listener of listeners) listener()
+  })
+  pending.set(resolved, promise)
+  return promise
+}
+
+/** Plain text immediately, then re-highlight through the existing store
+ * subscription. A missing grammar remains readable and does not reject app
+ * boot or repeatedly request a failed asset on every streaming render.
  */
 function ensureGrammar(resolved: string): boolean {
-  const load = LAZY_GRAMMARS.get(resolved)
-  // A boot grammar (already registered) has no lazy loader; it is always ready.
-  if (load === undefined) return true
-  if (highlighter().getLoadedLanguages().includes(resolved)) return true
-  if (!requested.has(resolved)) {
-    requested.add(resolved)
-    void load().then((mod) => {
-      highlighter().loadLanguageSync(mod.default)
-      loadCount += 1
-      for (const listener of listeners) listener()
+  if (singleton?.getLoadedLanguages().includes(resolved)) return true
+  if (!pending.has(resolved)) {
+    void loadGrammar(resolved).catch((error: unknown) => {
+      console.warn('Syntax grammar unavailable:', resolved, error)
     })
   }
   return false
 }
-
-// Engine + grammar construction costs a long task (~120-175ms); building it
-// during the first finalized fence's render would jank exactly when a stream
-// completes. Warm the singleton in a deferred task at module load (= plugin
-// boot) instead; the lazy path above stays as the correctness fallback for a
-// fence that renders before the timer fires. `unref` (Node-only) keeps a
-// non-browser import from pinning the event loop.
-const warmupTimer = setTimeout(() => { highlighter() }, 0)
-function hasUnref(timer: unknown): timer is { unref(): void } {
-  return typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function'
-}
-if (hasUnref(warmupTimer)) warmupTimer.unref()
 
 /**
  * Highlight `code` into shiki's HTML (a single `<pre class="shiki">` tree)
  * when `lang` maps to a registered grammar; `undefined` means the caller
  * renders its plain fallback. A lazy grammar not yet loaded returns `undefined`
  * for this call and loads in the background; subscribe with
- * {@link onGrammarLoaded} to re-highlight once it registers.
+ * {@link subscribeGrammarLoaded} to re-highlight once it registers.
  * @param code - the source text.
  * @param lang - the language hint (a markdown fence info string or a fixed caller id).
  * @returns the highlighted HTML, or `undefined` for unknown or not-yet-loaded languages.
@@ -267,7 +264,7 @@ export function highlightToHtml(code: string, lang: string | undefined): string 
   const resolved = lang === undefined ? undefined : LANG_ALIASES.get(lang.toLowerCase())
   if (resolved === undefined) return undefined
   if (!ensureGrammar(resolved)) return undefined
-  return highlighter().codeToHtml(code, { lang: resolved, theme: 'css-variables' })
+  return singleton?.codeToHtml(code, { lang: resolved, theme: 'css-variables' })
 }
 
 /**
@@ -300,7 +297,9 @@ export function highlightLines(code: string, lang: string | undefined): Highligh
   const resolved = lang === undefined ? undefined : LANG_ALIASES.get(lang.toLowerCase())
   if (resolved === undefined) return undefined
   if (!ensureGrammar(resolved)) return undefined
-  const { tokens } = highlighter().codeToTokens(code, { lang: resolved, theme: 'css-variables' })
+  const instance = singleton
+  if (instance === undefined) return undefined
+  const { tokens } = instance.codeToTokens(code, { lang: resolved, theme: 'css-variables' })
   // shiki tokenizes `a\nb` into two lines; a trailing newline (`a\n`) adds a
   // third, empty line the caller's own line array does not carry. Drop that
   // one terminator line so the two structures stay in step. The explicit
