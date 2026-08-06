@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -30,7 +30,7 @@ const HOST_START_MAX_TIMEOUT: Duration = Duration::from_secs(120);
 const HOST_STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct DesktopState {
-    pub(crate) diagnostics: crate::diagnostics::Diagnostics,
+    pub(crate) diagnostics: Arc<crate::diagnostics::Diagnostics>,
     pub(crate) startup: crate::startup::StartupTimeline,
     stop_requested: AtomicBool,
     #[cfg(windows)]
@@ -113,10 +113,10 @@ impl DesktopState {
             }
         }
         Ok(Self {
-            diagnostics: crate::diagnostics::Diagnostics::new(
+            diagnostics: Arc::new(crate::diagnostics::Diagnostics::new(
                 app_cache.join("diagnostics"),
                 app_config.join("diagnostics.json"),
-            ),
+            )),
             startup: crate::startup::StartupTimeline::new(),
             stop_requested: AtomicBool::new(false),
             #[cfg(windows)]
@@ -221,7 +221,6 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     };
     if let Err(error) = &result {
         state.diagnostics.mark_incident();
-        let _ = crate::diagnostics::open(app);
         *state
             .startup_error
             .lock()
@@ -439,8 +438,16 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
                             "后台异常退出，已尝试保存诊断记录。请打开运行诊断；不会自动重跑工具。"
                                 .to_owned(),
                         );
-                        if !state.closing.load(Ordering::SeqCst) {
-                            let _ = crate::diagnostics::open(&event_app);
+                        // Startup failures already have a bootstrap error surface.
+                        // Only a new unexpected exit of the ready Host interrupts UI.
+                        if !state.closing.load(Ordering::SeqCst)
+                            && state
+                                .endpoint
+                                .lock()
+                                .expect("endpoint mutex poisoned")
+                                .is_some()
+                        {
+                            crate::diagnostics::open_automatically(&event_app);
                         }
                     }
                     *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
