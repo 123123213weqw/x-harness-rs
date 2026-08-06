@@ -2,6 +2,8 @@
 /ui/** text=auto eol=lf
 /scripts/*.mjs text eol=lf
 /scripts/rebuild-ui.sh text eol=lf
+# The offline startup document embeds the exact LF source bundle and stylesheet.
+/apps/desktop/frontend/** text eol=lf
 
 # Generated JS can contain vendor code-generation templates whose literal
 # trailing spaces are data. The source emitter trims code trivia only; do not
