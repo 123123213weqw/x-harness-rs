@@ -5,6 +5,16 @@ diagnostic window, independently of the failed loopback server. The chat page
 and unsent draft are not navigated away from. Closing this diagnostic window
 does not close the application.
 
+## 自动提示与历史记录（2026-10-05）
+
+- 正常启动、正常关闭和成功更新重启不自动打开诊断窗口。
+- 历史 `unacknowledged-exit` 只用于诊断状态展示；未点击确认也不在每次启动重复弹窗，不删除既有记录。
+- 新的运行中 Host 异常退出，或启动时检测到上一轮桌面未正常结束，才自动提示；同一桌面进程最多自动提示一次，避免重复抢焦点。
+- 初始化／配置错误使用现有启动失败页面，不额外打开诊断窗口；不会隐藏失败原因。
+- 更新过程中 Host 已确认退出后，在重新启动前写入正常结束标记；Windows 通过安装器退出回调覆盖直接 `process::exit`，安装器启动失败时重新恢复运行标记。回调使用弱引用，不引入所有权环。
+- 无法仅凭未正常结束标记区分崩溃、外部强杀和断电；其含义是“异常中断”，不是已证实内存崩溃。
+- 用户仍可随时手动打开、导出、确认诊断。诊断写入失败不阻止更新，错误状态仍可查看。
+
 ## Tier 1: permanent lightweight evidence
 
 - Desktop lifecycle, exit code/signal, expected/unexpected classification,
