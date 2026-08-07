@@ -114,9 +114,11 @@ class AuditTests(unittest.TestCase):
     def test_installer_plugins_are_not_app_runtime(self):
         (self.root / '$PLUGINSDIR').mkdir()
         self.write('$PLUGINSDIR/System.dll', machine=0x14c, pe32=True)
+        self.write('$PLUGINSDIR/NSISdl.dll', machine=0x14c, pe32=True,
+                   imports=('WSOCK32.dll', 'KERNEL32.dll'))
         report = audit.audit(self.root, installer_tools=True)
         self.assertEqual(len(report['modules']), 4)
-        self.assertEqual(len(report['installer_modules']), 1)
+        self.assertEqual(len(report['installer_modules']), 2)
 
     def test_x86_nsis_uninstaller_has_a_separate_audited_loader(self):
         self.write('uninstall.exe', machine=0x14c, pe32=True)
