@@ -27,7 +27,7 @@ cfgmgr32.dll clbcatq.dll comctl32.dll comdlg32.dll crypt32.dll cryptbase.dll cry
  powrprof.dll propsys.dll psapi.dll rpcrt4.dll secur32.dll setupapi.dll shcore.dll
  shell32.dll shlwapi.dll sspicli.dll ucrtbase.dll urlmon.dll user32.dll userenv.dll
  usp10.dll uxtheme.dll version.dll wevtapi.dll winhttp.dll wininet.dll winmm.dll
- winspool.drv wintrust.dll wldap32.dll ws2_32.dll wtsapi32.dll'''.split())
+ winspool.drv wintrust.dll wldap32.dll ws2_32.dll wsock32.dll wtsapi32.dll'''.split())
 MSVC = re.compile(r'^(?:vcruntime\d+[^/]*|msvcp\d+[^/]*|concrt\d+[^/]*|msvcr\d+[^/]*)\.dll$')
 NAME = re.compile(r'^[a-zA-Z0-9_.+-]+\.(?:dll|drv)$')
 MAX_MODULE = 256 * 1024 * 1024
