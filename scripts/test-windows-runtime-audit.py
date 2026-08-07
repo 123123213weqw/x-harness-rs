@@ -11,7 +11,7 @@ audit = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit)
 
 
-def fixture(imports=('kernel32.dll',), *, delay=False, machine=0x8664):
+def fixture(imports=('kernel32.dll',), *, delay=False, machine=0x8664, pe32=False):
     data = bytearray(4096)
     data[:2] = b'MZ'
     struct.pack_into('<I', data, 60, 128)
@@ -19,13 +19,16 @@ def fixture(imports=('kernel32.dll',), *, delay=False, machine=0x8664):
     struct.pack_into('<HH', data, 132, machine, 1)
     struct.pack_into('<H', data, 148, 240)
     opt = 152
-    struct.pack_into('<H', data, opt, 0x20b)
-    struct.pack_into('<Q', data, opt + 24, 0x140000000)
+    struct.pack_into('<H', data, opt, 0x10b if pe32 else 0x20b)
+    if pe32:
+        struct.pack_into('<I', data, opt + 28, 0x400000)
+    else:
+        struct.pack_into('<Q', data, opt + 24, 0x140000000)
     struct.pack_into('<I', data, opt + 60, 512)
-    struct.pack_into('<I', data, opt + 108, 16)
+    struct.pack_into('<I', data, opt + (92 if pe32 else 108), 16)
     struct.pack_into('<IIII', data, opt + 240 + 8, 3584, 4096, 3584, 512)
     width, index = (32, 13) if delay else (20, 1)
-    struct.pack_into('<II', data, opt + 112 + index * 8, 4096, width * (len(imports) + 1))
+    struct.pack_into('<II', data, opt + (96 if pe32 else 112) + index * 8, 4096, width * (len(imports) + 1))
     name_pos = 768
     for i, name in enumerate(imports):
         rva = 4096 + name_pos - 512
@@ -110,8 +113,21 @@ class AuditTests(unittest.TestCase):
 
     def test_installer_plugins_are_not_app_runtime(self):
         (self.root / '$PLUGINSDIR').mkdir()
-        self.write('$PLUGINSDIR/System.dll', machine=0x14c)
-        self.assertEqual(len(audit.audit(self.root)['modules']), 4)
+        self.write('$PLUGINSDIR/System.dll', machine=0x14c, pe32=True)
+        report = audit.audit(self.root, installer_tools=True)
+        self.assertEqual(len(report['modules']), 4)
+        self.assertEqual(len(report['installer_modules']), 1)
+
+    def test_x86_nsis_uninstaller_has_a_separate_audited_loader(self):
+        self.write('uninstall.exe', machine=0x14c, pe32=True)
+        with self.assertRaisesRegex(ValueError, 'Non-x64'):
+            audit.audit(self.root)
+        report = audit.audit(self.root, installer_tools=True)
+        self.assertEqual(len(report['modules']), 4)
+        self.assertEqual(report['installer_modules'][0]['machine'], 'I386')
+        self.write('uninstall.exe', machine=0x14c, pe32=True, imports=('VCRUNTIME140.dll',))
+        with self.assertRaisesRegex(ValueError, 'installer tool dependency'):
+            audit.audit(self.root, installer_tools=True)
 
     def test_malformed_pe_fails_closed(self):
         for data in (b'', b'MZ', fixture()[:600]):

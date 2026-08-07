@@ -472,16 +472,41 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         {
             // Losing the event stream is not proof the process exited. Keep
             // ownership/running intact; readiness fails and start() requests kill.
-            let mut error = state
-                .startup_error
-                .lock()
-                .expect("startup error mutex poisoned");
-            if error.is_none() {
-                *error = Some(
-                    "Host 启动状态通道提前关闭，请重新安装完整安装包并检查运行诊断".to_owned(),
-                );
-                state.diagnostics.record(Record::new(Phase::HostIoError));
-                state.diagnostics.mark_incident();
+            {
+                let mut error = state
+                    .startup_error
+                    .lock()
+                    .expect("startup error mutex poisoned");
+                if error.is_none() {
+                    *error = Some(
+                        "Host 启动状态通道提前关闭，请重新安装完整安装包并检查运行诊断".to_owned(),
+                    );
+                    state.diagnostics.record(Record::new(Phase::HostIoError));
+                    state.diagnostics.mark_incident();
+                }
+            }
+            // The lost stream cannot deliver Terminated after cleanup. On
+            // Windows the private Job provides an independent, non-PID-based
+            // exit proof. Without it, retain running and deny restart/update.
+            #[cfg(windows)]
+            if state.host_job.terminate(1).is_ok() {
+                let deadline = Instant::now() + HOST_STOP_TIMEOUT;
+                loop {
+                    if state
+                        .host_job
+                        .accounting()
+                        .is_ok_and(|value| value.active_processes == 0)
+                    {
+                        *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
+                        state.child.lock().expect("child mutex poisoned").take();
+                        state.running.store(false, Ordering::SeqCst);
+                        break;
+                    }
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    time::sleep(Duration::from_millis(100)).await;
+                }
             }
         }
     });
