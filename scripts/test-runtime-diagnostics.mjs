@@ -73,3 +73,8 @@ console.log('Runtime diagnostics lifecycle routing: clean restart, history and s
 
 assert.ok(updater.includes('.on_before_exit(app.state::<DesktopState>().diagnostics.update_exit_hook())'), 'Windows direct installer exit owns a clean boundary')
 assert.ok(updater.includes('state.diagnostics.resume_after_failed_update();'), 'failed Windows installer restores crash detection')
+
+const lostStream = sidecar.slice(sidecar.indexOf('if !terminated'), sidecar.indexOf('let (endpoint, address'))
+assert.match(lostStream, /host_job\.terminate\(1\)/)
+assert.match(lostStream, /active_processes == 0[\s\S]*?running\.store\(false, Ordering::SeqCst\)/)
+assert.match(lostStream, /Instant::now\(\) >= deadline/)
