@@ -54,6 +54,35 @@ function Assert-Payload {
         Assert-That ((Get-FileHash -LiteralPath (Join-Path $install $m.path)).Hash.ToLowerInvariant() -eq $m.sha256) "Stale upgraded module: $($m.path)"
     }
 }
+function Assert-ReadOnlyTool {
+    $workspace = Join-Path $root 'workspace'
+    $tempRoot = Join-Path $root 'sandbox-temp'
+    New-Item -ItemType Directory -Path $workspace, $tempRoot | Out-Null
+    $probe = @'
+$ErrorActionPreference='Stop'
+Write-Output ('CWD=' + (Get-Location).Path)
+try { [IO.File]::WriteAllText((Join-Path (Get-Location).Path 'must-not-write.txt'), 'unexpected'); exit 41 }
+catch [UnauthorizedAccessException] { Write-Output 'READ_ONLY_DENIED' }
+'@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
+    $out = Join-Path $root 'tool.stdout.txt'
+    $err = Join-Path $root 'tool.stderr.txt'
+    $shell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+    $args = @('--workspace', ('"' + $workspace + '"'), '--temp-root', ('"' + $tempRoot + '"'), '--cwd', ('"' + $workspace + '"'), '--mode', 'read-only', '--', ('"' + $shell + '"'), '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
+    $p = Start-Process -FilePath (Join-Path $install 'xharness-windows-sandbox-runner.exe') -ArgumentList $args -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+    try {
+        $null = $p.Handle
+        $ended = $p.WaitForExit(30000)
+        $p.Refresh()
+        $stdout = [IO.File]::ReadAllText($out)
+        $stderr = [IO.File]::ReadAllText($err)
+        $cwd = @($stdout -split "`r?`n" | Where-Object { $_.StartsWith('CWD=') })
+        $matchesCwd = $cwd.Count -eq 1 -and $cwd[0].Substring(4).Replace('\\?\', '') -ieq $workspace
+        $passed = $ended -and $p.ExitCode -eq 0 -and $matchesCwd -and $stdout.Contains('READ_ONLY_DENIED') -and -not (Test-Path (Join-Path $workspace 'must-not-write.txt'))
+        Record 'final-installer-read-only-tool' @{passed=$passed; ended=$ended; stdout=$stdout; stderr=$stderr; cwdMatches=$matchesCwd; exitCode=$(if ($ended) {$p.ExitCode} else {$null})}
+        Assert-That $passed 'Read-only tool / working-directory acceptance failed'
+    } finally { if (-not $p.HasExited) { Stop-Process -Id $p.Id -ErrorAction SilentlyContinue } }
+}
 $desktop = $null
 try {
     Stop-Owned
@@ -97,7 +126,8 @@ try {
     Start-Sleep -Seconds 3
     Assert-That (-not (Get-Process -Id $hostId -ErrorAction SilentlyContinue)) 'Host survived desktop crash'
     Record 'final-installer-crash-cleanup' @{passed=$true; hostReaped=$true}
-    Record 'clean-vm-acceptance' @{passed=$true; uiScreenshotAcceptance='separate'; toolExecutionAcceptance='separate'; installerSha256=$audit.installer_sha256}
+    Assert-ReadOnlyTool
+    Record 'clean-vm-acceptance' @{passed=$true; uiScreenshotAcceptance='separate'; toolExecutionAcceptance='read-only-powershell-cwd-and-write-denial'; installerSha256=$audit.installer_sha256}
 } catch {
     Record 'clean-vm-acceptance' @{passed=$false; error=$_.Exception.Message}
     throw

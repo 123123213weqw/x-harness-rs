@@ -59,6 +59,7 @@ class PE:
         opt = pe + 24
         self.slice(opt, size)
         magic = self.u16(opt)
+        self.magic = magic
         if magic == 0x20b:
             base_offset, number_offset, directory_offset = 24, 108, 112
             self.image_base = self.u64(opt + base_offset)
@@ -167,7 +168,7 @@ def audit(root, *, desktop_required=True, expected=None):
         relative = path.relative_to(root).as_posix()
         key = relative.lower()
         require(key not in by_path, 'Case-colliding PE paths')
-        require(pe.machine == 0x8664, 'Non-x64 application module: ' + relative)
+        require(pe.machine == 0x8664 and pe.magic == 0x20b, 'Non-x64 application module: ' + relative)
         record = {'path': relative, 'sha256': digest(path), 'machine': 'AMD64', 'imports': pe.imports()}
         by_path[key] = record
         modules.append(record)
