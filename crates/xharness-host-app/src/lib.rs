@@ -330,18 +330,27 @@ impl SessionToolFactory for NativeToolFactory {
         // sandbox. It is registered as one provider-neutral tool only after
         // the user selected the existing full-access preset. macOS permission
         // probes still fail closed inside the adapter.
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         if permission == PermissionPreset::DangerFullAccess {
-            let mut tool = xharness_computer::ComputerTool::new(Arc::new(
-                xharness_computer_macos::MacComputer::new(),
-            ));
+            #[cfg(target_os = "macos")]
+            let driver: Arc<dyn xharness_computer::ComputerDriver> =
+                Arc::new(xharness_computer_macos::MacComputer::new());
+            #[cfg(windows)]
+            let driver: Arc<dyn xharness_computer::ComputerDriver> = Arc::new(
+                xharness_computer_windows::WindowsComputer::new()
+                    .map_err(|error| error.to_string())?,
+            );
+            let mut tool = xharness_computer::ComputerTool::new(driver);
             if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
                 tool = tool.with_media_sink(Arc::new(computer_media::Sink {
                     host: Arc::downgrade(&host),
                     session: session_id.into(),
                 }));
             }
-            specs.push(tool.spec());
+            let mut spec = tool.spec();
+            #[cfg(windows)]
+            spec.definition.description.push_str(" Windows: coordinates and screenshot bounds are physical virtual-desktop pixels. Each dispatched action consumes its frame; observe again unless the result returns a new frame_id. UIA snapshots cover the foreground window. Scroll deltas use wheel units (120 per detent), positive y scrolls down and positive x scrolls right. Fullscreen is application-specific; use its observed controls. No automatic elevation or secure-desktop control.");
+            specs.push(spec);
         }
         if let Some(schedules) = &self.schedules {
             specs.extend(schedules.specs(session_id));

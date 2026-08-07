@@ -1,0 +1,318 @@
+//! Safe Host side. Each request owns one suspended, Job-contained worker.
+use crate::wire::{self, Frame, NodeTarget, Reply, Request, Surface};
+use async_trait::async_trait;
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    process::Stdio,
+    sync::OnceLock,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    process::Command,
+    sync::Mutex,
+};
+use tokio_util::sync::CancellationToken;
+use xharness_computer::{
+    ComputerAction, ComputerDriver, ComputerError, ComputerOutput, ComputerRequest, Screenshot,
+};
+use xharness_win32::{
+    resume_suspended_process, Job, WINDOWS_CREATE_NO_WINDOW, WINDOWS_CREATE_SUSPENDED,
+};
+
+static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+static NEXT_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+const FRAME_TTL: Duration = Duration::from_secs(30);
+const WORKER_LIMIT: Duration = Duration::from_secs(45);
+
+#[derive(Default)]
+struct State {
+    id: Option<String>,
+    captured: Option<Instant>,
+    frame: Option<Frame>,
+    nodes: BTreeMap<String, NodeTarget>,
+    surfaces: BTreeMap<String, Surface>,
+}
+
+pub struct WindowsComputer {
+    executable: PathBuf,
+    state: Mutex<State>,
+}
+impl WindowsComputer {
+    pub fn new() -> Result<Self, ComputerError> {
+        Ok(Self::with_worker_executable(
+            std::env::current_exe().map_err(|_| {
+                ComputerError::unavailable("cannot locate the packaged Host worker")
+            })?,
+        ))
+    }
+    /// Dependency injection for a controlled native acceptance fixture; never
+    /// exposed in a model schema, RPC or plugin argument.
+    pub fn with_worker_executable(executable: PathBuf) -> Self {
+        Self {
+            executable,
+            state: Mutex::new(State::default()),
+        }
+    }
+    async fn exchange(
+        &self,
+        request: Request,
+        token: &CancellationToken,
+    ) -> Result<(Reply, Vec<u8>), ComputerError> {
+        let bytes = serde_json::to_vec(&request)
+            .map_err(|_| ComputerError::invalid("cannot encode computer request"))?;
+        if bytes.len() > wire::MAX_REQUEST {
+            return Err(ComputerError::invalid(
+                "computer request exceeds transport budget",
+            ));
+        }
+        let job = Job::new_kill_on_close().map_err(|_| {
+            ComputerError::unavailable("cannot create computer worker ownership Job")
+        })?;
+        let mut command = Command::new(&self.executable);
+        command
+            .arg("--computer-worker")
+            .env_clear()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .creation_flags(WINDOWS_CREATE_NO_WINDOW | WINDOWS_CREATE_SUSPENDED)
+            .kill_on_drop(true);
+        for name in [
+            "SystemRoot",
+            "WINDIR",
+            "USERPROFILE",
+            "TEMP",
+            "TMP",
+            "LOCALAPPDATA",
+        ] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        let mut child = command.spawn().map_err(|_| {
+            ComputerError::unavailable("cannot launch the packaged computer worker")
+        })?;
+        let pid = child
+            .id()
+            .ok_or_else(|| ComputerError::unavailable("computer worker has no process identity"))?;
+        if job
+            .assign_pid(pid)
+            .and_then(|_| resume_suspended_process(pid))
+            .is_err()
+        {
+            let _ = child.kill().await;
+            return Err(ComputerError::unavailable(
+                "cannot establish computer worker ownership",
+            ));
+        }
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ComputerError::unavailable("computer worker input pipe is missing"))?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ComputerError::unavailable("computer worker output pipe is missing"))?;
+        let operation = async {
+            stdin.write_all(&(bytes.len() as u32).to_le_bytes()).await?;
+            stdin.write_all(&bytes).await?;
+            stdin.flush().await?;
+            let length = stdout.read_u32_le().await? as usize;
+            if length == 0 || length > wire::MAX_METADATA {
+                return Err(std::io::Error::other("invalid computer metadata length"));
+            }
+            let mut metadata = vec![0; length];
+            stdout.read_exact(&mut metadata).await?;
+            let reply: Reply = serde_json::from_slice(&metadata).map_err(std::io::Error::other)?;
+            if reply.schema != 1
+                || reply.png_len > wire::MAX_PNG
+                || (reply.error.is_some() && reply.png_len != 0)
+            {
+                return Err(std::io::Error::other("invalid computer reply contract"));
+            }
+            let mut png = vec![0; reply.png_len];
+            stdout.read_exact(&mut png).await?;
+            let mut extra = [0];
+            if stdout.read(&mut extra).await? != 0 {
+                return Err(std::io::Error::other("trailing computer reply data"));
+            }
+            Ok((reply, png))
+        };
+        let result = tokio::select! {
+            biased;
+            _ = token.cancelled() => None,
+            _ = tokio::time::sleep(WORKER_LIMIT) => None,
+            result = operation => Some(result),
+        };
+        // EOF tells the native input guard to release held input cooperatively.
+        // Hung COM is then killed as a whole process, not an abandoned thread.
+        drop(stdin);
+        let status = match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
+            Ok(status) => status,
+            Err(_) => {
+                let _ = job.terminate(1);
+                let _ = child.start_kill();
+                child.wait().await
+            }
+        };
+        match result {
+            Some(Ok(value)) if status.is_ok_and(|s| s.success()) => Ok(value),
+            _ => Err(ComputerError { code: "outcome_unknown".into(), message: "computer worker was cancelled, timed out or lost; observe actual UI state before deciding what to do next; do not automatically replay input".into(), retryable: false }),
+        }
+    }
+}
+
+#[async_trait]
+impl ComputerDriver for WindowsComputer {
+    async fn execute(
+        &self,
+        request: ComputerRequest,
+        token: CancellationToken,
+    ) -> Result<ComputerOutput, ComputerError> {
+        request.validate()?;
+        let _serial = tokio::select! {
+            biased;
+            _ = token.cancelled() => return Err(ComputerError::retryable("cancelled", "computer request cancelled before dispatch")),
+            guard = SERIAL.get_or_init(|| Mutex::new(())).lock() => guard,
+        };
+        let mut state = self.state.lock().await;
+        let observing = request.action == ComputerAction::Observe
+            || (request.action == ComputerAction::Window
+                && request.operation.as_deref() == Some("list"));
+        let mut wire = Request {
+            schema: 1,
+            request,
+            frame: None,
+            node: None,
+            surface: None,
+        };
+        if !observing && wire.request.action != ComputerAction::Wait {
+            if state.captured.is_none_or(|t| t.elapsed() > FRAME_TTL)
+                || state.id.is_none()
+                || wire
+                    .request
+                    .frame_id
+                    .as_ref()
+                    .is_some_and(|id| Some(id) != state.id.as_ref())
+            {
+                return Err(ComputerError::retryable(
+                    "stale_frame",
+                    "observe again before operating the desktop",
+                ));
+            }
+            wire.frame = state.frame.clone();
+            if let Some(id) = &wire.request.node_id {
+                wire.node = Some(state.nodes.get(id).cloned().ok_or_else(|| {
+                    ComputerError::retryable(
+                        "stale_node",
+                        "node does not belong to the current observation",
+                    )
+                })?);
+            }
+            if let Some(id) = &wire.request.surface_id {
+                wire.surface = Some(state.surfaces.get(id).cloned().ok_or_else(|| {
+                    ComputerError::retryable(
+                        "stale_surface",
+                        "window does not belong to the current observation",
+                    )
+                })?);
+            }
+        }
+        let result = self.exchange(wire, &token).await;
+        // Any native dispatch consumes the old frame, even if the worker fails.
+        *state = State::default();
+        let (mut reply, png) = result?;
+        if let Some(error) = reply.error {
+            return Err(error.into());
+        }
+        if let Some(frame) = reply.frame.take() {
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let id = format!(
+                "win:{}:{stamp}:{}",
+                std::process::id(),
+                NEXT_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
+            reply.value["frame_id"] = serde_json::Value::String(id.clone());
+            state.id = Some(id);
+            state.captured = Some(Instant::now());
+            state.frame = Some(frame);
+            state.nodes = reply.nodes.into_iter().collect();
+            state.surfaces = reply.surfaces.into_iter().collect();
+        }
+        Ok(ComputerOutput {
+            value: reply.value,
+            screenshot: (!png.is_empty()).then(|| Screenshot {
+                png,
+                label: "Windows desktop observation".into(),
+            }),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn request(value: serde_json::Value) -> ComputerRequest {
+        serde_json::from_value(value).unwrap()
+    }
+    #[tokio::test]
+    async fn no_input_before_observation() {
+        let driver = WindowsComputer::with_worker_executable(PathBuf::from("does-not-exist.exe"));
+        for value in [
+            serde_json::json!({"action":"type","text":"must not send"}),
+            serde_json::json!({"action":"keypress","keys":["a"]}),
+            serde_json::json!({"action":"click","frame_id":"foreign","x":0,"y":0}),
+        ] {
+            let error = driver
+                .execute(request(value), CancellationToken::new())
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "stale_frame");
+        }
+    }
+    #[tokio::test]
+    async fn cancelled_wait_never_starts_a_worker() {
+        let driver = WindowsComputer::with_worker_executable(PathBuf::from("does-not-exist.exe"));
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = driver
+            .execute(
+                request(serde_json::json!({"action":"wait","duration_ms":1})),
+                token,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "cancelled");
+    }
+    #[tokio::test]
+    async fn old_and_foreign_frames_fail_before_spawn() {
+        let driver = WindowsComputer::with_worker_executable(PathBuf::from("does-not-exist.exe"));
+        {
+            let mut state = driver.state.lock().await;
+            state.id = Some("owned".into());
+            state.captured = Some(Instant::now() - Duration::from_secs(31));
+        }
+        let error = driver
+            .execute(
+                request(serde_json::json!({"action":"click","frame_id":"owned","x":1,"y":1})),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "stale_frame");
+        driver.state.lock().await.captured = Some(Instant::now());
+        let error = driver
+            .execute(
+                request(serde_json::json!({"action":"click","frame_id":"foreign","x":1,"y":1})),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "stale_frame");
+    }
+}
