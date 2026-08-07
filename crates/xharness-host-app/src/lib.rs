@@ -347,9 +347,13 @@ impl SessionToolFactory for NativeToolFactory {
                     session: session_id.into(),
                 }));
             }
-            let mut spec = tool.spec();
+            let spec = tool.spec();
             #[cfg(windows)]
-            spec.definition.description.push_str(" Windows: coordinates and screenshot bounds are physical virtual-desktop pixels. Each dispatched action consumes its frame; observe again unless the result returns a new frame_id. UIA snapshots cover the foreground window. Scroll deltas use wheel units (120 per detent), positive y scrolls down and positive x scrolls right. Fullscreen is application-specific; use its observed controls. No automatic elevation or secure-desktop control.");
+            let spec = {
+                let mut spec = spec;
+                spec.definition.description.push_str(" Windows: coordinates and screenshot bounds are physical virtual-desktop pixels. Each dispatched action consumes its frame; observe again unless the result returns a new frame_id. UIA snapshots cover the foreground window. Scroll deltas use wheel units (120 per detent), positive y scrolls down and positive x scrolls right. Fullscreen is application-specific; use its observed controls. No automatic elevation or secure-desktop control.");
+                spec
+            };
             specs.push(spec);
         }
         if let Some(schedules) = &self.schedules {
