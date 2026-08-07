@@ -203,7 +203,16 @@ def audit(root, *, desktop_required=True, expected=None, installer_tools=False):
 def expected_build(desktop, sidecars, target):
     result = {}
     if desktop:
-        result['xharness-desktop.exe'] = digest(Path(desktop))
+        # Tauri patches the first bundle marker for NSIS, then restores the
+        # standalone executable. Compare against precisely that transformation,
+        # not a loose normalized hash or the extracted executable itself.
+        data = Path(desktop).read_bytes()
+        require(len(data) <= MAX_MODULE, 'Expected desktop exceeds size limit')
+        raw, nsis = b'__TAURI_BUNDLE_TYPE_VAR_UNK', b'__TAURI_BUNDLE_TYPE_VAR_NSS'
+        if raw in data:
+            require(data.count(raw) == 1 and nsis not in data, 'Ambiguous Tauri bundle marker')
+            data = data.replace(raw, nsis, 1)
+        result['xharness-desktop.exe'] = hashlib.sha256(data).hexdigest()
     for name in REQUIRED - {'xharness-desktop.exe'}:
         path = Path(sidecars) / (Path(name).stem + '-' + target + '.exe')
         require(path.is_file(), 'Missing staged sidecar: ' + name)

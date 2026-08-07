@@ -25,7 +25,12 @@ clean-machine test.
    are also audited, without imposing the AMD64 app policy on NSIS itself. Every
    application PE is checked; all four root executables are mandatory.
 3. Build collection compares extracted Desktop/Host/runner/rg SHA256 with the
-   freshly built/staged files. A stale sidecar or mixed installer fails before a
+   freshly built/staged files. For Desktop only, it applies the exact single
+   `__TAURI_BUNDLE_TYPE_VAR_UNK` → `__TAURI_BUNDLE_TYPE_VAR_NSS` byte replacement
+   that Tauri's NSIS bundler performs before restoring the standalone executable
+   ([bundler implementation](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri-bundler/src/bundle.rs)).
+   No other bytes, sidecars, signatures or timestamps are ignored. Ambiguous
+   markers fail closed. A stale sidecar or mixed installer fails before a
    signed platform receipt is created. Aggregate independently re-audits NSIS.
    The cryptographic receipt schema and native updater acceptance stay unchanged.
 4. Hosted install ownership acceptance compares every installed application PE

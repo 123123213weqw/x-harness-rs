@@ -102,6 +102,28 @@ class AuditTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Incomplete'):
             audit.audit(self.root, expected={})
 
+    def test_only_exact_tauri_nsis_marker_transform_is_allowed(self):
+        sidecars = self.root / 'staged'
+        sidecars.mkdir()
+        target = 'x86_64-pc-windows-msvc'
+        for name in audit.REQUIRED - {'xharness-desktop.exe'}:
+            (sidecars / (Path(name).stem + '-' + target + '.exe')).write_bytes(fixture())
+        source = self.root / 'raw-desktop.bin'
+        data = bytes(fixture()) + b'__TAURI_BUNDLE_TYPE_VAR_UNK'
+        source.write_bytes(data)
+        payload = self.root / 'xharness-desktop.exe'
+        payload.write_bytes(data.replace(b'_VAR_UNK', b'_VAR_NSS'))
+        expected = audit.expected_build(source, sidecars, target)
+        audit.audit(self.root, expected=expected)
+        # Exact hash also works when the build tool leaves a patched binary.
+        self.assertEqual(audit.expected_build(payload, sidecars, target), expected)
+        payload.write_bytes(payload.read_bytes() + b'stale')
+        with self.assertRaisesRegex(ValueError, 'Stale or mixed'):
+            audit.audit(self.root, expected=expected)
+        source.write_bytes(data + b'__TAURI_BUNDLE_TYPE_VAR_UNK')
+        with self.assertRaisesRegex(ValueError, 'Ambiguous'):
+            audit.expected_build(source, sidecars, target)
+
     def test_case_collision(self):
         # A case-insensitive filesystem cannot create this fixture; skip there.
         path = self.root / 'RG.EXE'
