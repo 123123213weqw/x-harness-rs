@@ -1,8 +1,12 @@
 # Real NSIS/desktop test. Not a substitute for signed two-hop updater acceptance.
-param([Parameter(Mandatory)][string]$Installer)
+param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$RuntimeAudit)
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows') {
     throw 'Installation ownership acceptance requires a disposable GitHub-hosted Windows runner'
+}
+$audit = Get-Content -LiteralPath $RuntimeAudit -Raw | ConvertFrom-Json
+if ($audit.schema -ne 1 -or $audit.passed -ne $true -or $audit.installer_sha256 -ne (Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash.ToLowerInvariant()) {
+    throw 'Dependency audit is not for this exact installer'
 }
 . "$PSScriptRoot/../apps/desktop/src-tauri/windows/install-ownership.ps1"
 $fixture = Join-Path $env:RUNNER_TEMP ('xharness-install-' + [guid]::NewGuid().ToString('N'))
@@ -40,6 +44,12 @@ function Install-TestCopy([bool]$ExpectedSuccess) {
     if (-not $process.WaitForExit(90000)) { throw 'NSIS installation timed out' }
     Assert-That (($process.ExitCode -eq 0) -eq $ExpectedSuccess) "Unexpected installer exit: $($process.ExitCode)"
 }
+function Assert-InstalledPayload {
+    foreach ($module in $audit.modules) {
+        $path = Join-Path $canonical $module.path
+        Assert-That ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -eq $module.sha256) "Installed payload is stale or mixed: $($module.path)"
+    }
+}
 function Start-TestCopy([string]$Directory) {
     $process = Start-Process -FilePath (Join-Path $Directory 'xharness-desktop.exe') -WindowStyle Hidden -PassThru
     $owned.Add($process.Id)
@@ -62,6 +72,7 @@ function Host-Ready {
 }
 try {
     Install-TestCopy $true
+    Assert-InstalledPayload
     Assert-That (Test-Path -LiteralPath (Join-Path $canonical 'xharness-desktop.exe')) 'Custom installation path changed'
     # Inspect installed payload: Start-Process -WindowStyle Hidden alone would
     # mask an accidental console-subsystem regression in the desktop executable.
@@ -103,6 +114,7 @@ try {
     Wait-Until { -not (Get-Process -Id $hostPid -ErrorAction SilentlyContinue) } 'Host survived desktop crash'
 
     Install-TestCopy $true
+    Assert-InstalledPayload
     Assert-That ([XHarnessInstaller.Shortcuts]::Read($legacyLink).TargetPath -ieq (Join-Path $canonical 'xharness-desktop.exe')) 'Old shortcut was not reconciled'
     foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe')) {
         Assert-That (-not (Test-Path -LiteralPath (Join-Path $legacy $name))) 'Legacy executable remains launchable'
@@ -113,7 +125,7 @@ try {
     Wait-Until { Host-Ready } 'Replacement Host failed readiness'
     Assert-That ((Get-FileHash -LiteralPath $sentinel).Hash -eq $before) 'Reinstall changed data'
     @{ passed = $true; signedUpdaterTest = $false; customPath = $canonical; duplicateLaunch = $true;
-       desktopGuiSubsystem = $true; hostCliSubsystem = $true;
+       installedPayloadHashes = $true; installerSha256 = $audit.installer_sha256; desktopGuiSubsystem = $true; hostCliSubsystem = $true;
        liveInstallBlocked = $true; hostReapedOnCrash = $true; shortcutRetargeted = $true;
        legacyRetiredRecoverably = $true; retainedHash = $before } | ConvertTo-Json | Set-Content -LiteralPath $evidence
     Get-Content -LiteralPath $evidence

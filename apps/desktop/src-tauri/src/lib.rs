@@ -52,8 +52,12 @@ pub fn run() {
             app.manage(browser::BrowserState::default());
             app.manage(browser_bridge::BrowserBridge::default());
             configure_linux_webview(app.handle());
-            if app.state::<DesktopState>().diagnostics.incident() {
-                let _ = diagnostics::open(app.handle());
+            if app
+                .state::<DesktopState>()
+                .diagnostics
+                .previous_run_interrupted()
+            {
+                diagnostics::open_automatically(app.handle());
             }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
