@@ -56,7 +56,8 @@ python3 -B scripts/release.py NEW_VERSION --repo 123123213weqw/x-harness-rs \
 
 - 规划只使用公开 pin；私钥只进入受保护的 macOS 构建/正式验收 worker。
 - 自签 P12 导入 runner 临时钥匙串，密码不写进 GITHUB_ENV、收据或 artifact。
-- macOS 签名需要信任签名身份：仅在一次性的 GitHub-hosted macOS runner 为精确匹配 pin 的证书添加 `codeSign` 用途的临时信任；不是客户端信任配置，也不是放开 Gatekeeper。`always()` 清理信任与钥匙串；清理失败必须报错。
+- 不修改任何系统证书信任域，也不调用 `sudo` / `add-trusted-cert`。固定 DR 使用精确 leaf pin，而非 `anchor trusted`；签名后仍执行完整 codesign、证书有效期、各组件 pin 与新旧 DR 连续性验证，签不出来就阻断。参见 [Apple 的签名要求说明](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html)。
+- 仅一次性的 GitHub-hosted macOS runner 将临时钥匙串加入 user search list，以便构建嵌入的证书链；先写恢复收据，`always()` 恢复原 search list 并删除私钥钥匙串。不替换默认钥匙串；恢复失败仍尝试删除私钥、保留收据并报告失败。
 - 不替换默认钥匙串、不修改客户端信任、不去除 quarantine。密钥不装进 App，不交给用户，不提供关闭系统安全的安装脚本。
 - 初始构建可为临时 ad-hoc；随后对 `rg`、Host、主程序及整个 App 按固定标识逐层重签，验证后重新打包，再生成最终包 `.sig`。
 - 每个组件的 DR 为固定 identifier 与发布者 leaf certificate 指纹，不依赖每版变化的代码哈希或证书名称。
@@ -75,7 +76,7 @@ python3 -B scripts/test-unix-update-acceptance.py
 python3 -B scripts/test-release-orchestrator.py
 ```
 
-CI 新增无生产密钥的原生 macOS 门禁：临时证书、两个 C fixture App 版本，逐个验证 leaf pin、固定 DR 以及新版本满足旧版本身份；全程无 Rust 编译。由于需要临时 codeSign 信任，该 fixture 明确拒绝在用户本机运行。
+CI 新增无生产密钥的原生 macOS 门禁：临时证书、两个 C fixture App 版本，逐个验证 leaf pin、固定 DR 以及新版本满足旧版本身份；全程无 Rust 编译。由于需要临时钥匙串及可恢复的 search-list 变更，该 fixture 明确拒绝在用户本机运行。签名和清理失败同时发生时，保留两个阶段的错误，不让清理错误覆盖原始签名错误。
 
 正式升级验收将仪器化旧版 BASE 用同一证书签名，再由生产更新处理器安装未改动的正式候选；校验所有嵌套组件的新旧身份连续性、重启、数据保留及包签名。仍声明 BASE 是测试构建，不冒充真实历史安装包。
 
