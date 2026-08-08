@@ -7,6 +7,7 @@
 mod adapter;
 #[cfg(windows)]
 mod native;
+mod observation;
 mod wire;
 #[cfg(windows)]
 pub use adapter::WindowsComputer;
