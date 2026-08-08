@@ -10,6 +10,7 @@ import { localPath, OUTPUT_MARKER, orderModules, readInput, renderBoot, revision
 import { compileSourceModules } from './build-source-modules.mjs'
 import { compileScriptAssets } from './build-script-assets.mjs'
 import { compilePlatformUi } from './build-platform-ui.mjs'
+import { verifyPreparedCaches } from './prepare-platform-regex-cache.mjs'
 import { run as checkSessionTerminalContract } from './generate-session-terminal-contract.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -35,6 +36,7 @@ if (!check && output !== join(ui, 'dist') && existsSync(output)) {
 // Mandatory at the assembly boundary, including direct CLI / plugin-api builds;
 // an npm wrapper alone can be bypassed by packaging or a custom output path.
 checkSessionTerminalContract(['--check'])
+await verifyPreparedCaches()
 const manifest = JSON.parse(readInput(ui, { source: 'modules.json' }).toString('utf8'))
 if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.modules) || !manifest.modules.length || !Array.isArray(manifest.assets)) throw Error('Invalid repository UI manifest')
 if (manifest.modules.some(row => !['source-module', 'plugin-api-ts'].includes(row.kind))) throw Error('Production modules must compile from owned TypeScript source')

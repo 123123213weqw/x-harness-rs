@@ -105,6 +105,13 @@ for(const engine of engines){
     await page.evaluate(({text,key})=>renderMath(text,false,key),{text,key:name})
     const finalCount=await page.locator('.katex').count()
     if(name!=='escaped closing')assert.equal(finalCount,count,implementation+'/'+name+' final count')
+    // Streaming fences intentionally have no language. Once settled, common
+    // fences now share the lazy/read lifecycle: immediate exact text, then
+    // the same colored DOM. Do not make a network timing race the oracle.
+    if(name==='mixed'){
+     assert.equal(await page.locator('.md-code-block pre').textContent(),'const x="$y$";')
+     await page.waitForFunction(()=>document.querySelector('.md-code-block .shiki'))
+    }
     const settled=await page.evaluate(()=>normalize(document.getElementById('root')))
     projection.push({name,streaming,settled})
    }
@@ -123,6 +130,24 @@ for(const engine of engines){
    const brand=await page.evaluate(()=>({svg:[...document.querySelectorAll('#root svg')].map(el=>({viewBox:el.getAttribute('viewBox'),width:el.getAttribute('width'),height:el.getAttribute('height'),paths:[...el.querySelectorAll('path')].map(p=>[p.getAttribute('d'),p.getAttribute('fill-opacity')]),text:el.textContent})),code:normalize(document.querySelector('.md-code-block pre'))}))
    assert.equal(brand.svg[0].viewBox,'0 0 64 64');assert.equal(brand.svg[0].paths.length,2)
    assert.ok(requests.some(path=>/python/.test(path)),'actual dynamic Shiki grammar request')
+   const shiki=[]
+   for(const [lang,code] of [
+    ['typescript','export async function main<T>(x: T) { return await Promise.resolve(x) }'],
+    ['typescript','const s = `a${1+2}b`;\n// 中文\nconst rx = /(?<n>\\d+)/giu;'],
+    ['typescript','const x = "unfinished'],
+    ['shellscript',`printf '%s\\n' "$HOME"`],
+    ['shellscript',`cat <<'EOF'\nhello $HOME\nEOF\necho done`],
+    ['shellscript','cat <<END\nhello $HOME\nEND\necho done'],
+    ['json','{"text":"中文","nested":[true,null],"value":1.2e-3}'],
+    ['json','{"stream":"unfinished'],
+   ]){
+    await page.evaluate(({lang,code})=>{
+     const R=staticModules.react,D=staticModules['react-dom'],P=staticModules['@xharness/dsh-client-ui-primitives']
+     D.flushSync(()=>mount.render(R.createElement(P.CodeBlock,{key:lang+code,code,lang})))
+    },{lang,code})
+    await page.waitForFunction(()=>document.querySelector('.md-code-block .shiki'))
+    shiki.push({lang,code,html:await page.evaluate(()=>normalize(document.querySelector('.md-code-block pre')))})
+   }
    const coreAbi=await page.evaluate(async()=>{
     const C=staticModules['@xharness/cordis'],S=staticModules['@xharness/dsh-client-ui-slots']
     class Fixture extends C.Service {
@@ -191,13 +216,13 @@ for(const engine of engines){
     if(kind==='modal'){await page.keyboard.press('Escape');assert.ok(await page.evaluate(()=>fixtureCloseCount>0),'actual modal Escape routes onClose')}
    }
    assert.deepEqual(errors,[])
-   results.push({keys,singleton,projection,brand,coreAbi,surfaces,screenshots});await page.close()
+   results.push({keys,singleton,projection,brand,shiki,coreAbi,surfaces,screenshots});await page.close()
   }
   writeFileSync(join(evidence,`${engine}-results.json`),JSON.stringify(results,null,2)+'\n')
   const {screenshots:expectedPixels,...expected}=results[0],{screenshots:actualPixels,...actual}=results[1]
   assert.deepEqual(actual,expected,`${engine}: exact semantic math/brand/Shiki DOM and singleton ABI`)
   assert.deepEqual(actualPixels,expectedPixels,`${engine}: exact pixels; see dist/platform-source-evidence/ for both PNGs and layout records`)
-  console.log(`${engine}: frozen/source platform keys, singleton, 10 streamed math scenarios, partial/frozen/retry, brand/lazy Shiki, tracked Core Service, SlotCore lifecycle and 12 computed-layout/pixel snapshots passed`)
+  console.log(`${engine}: frozen/source platform keys, singleton, 10 streamed math scenarios, partial/frozen/retry, brand/lazy Shiki, 8 exact on-demand/common grammar scenes, tracked Core Service, SlotCore lifecycle and 12 computed-layout/pixel snapshots passed`)
  }finally{await browser.close()}
 }
 console.log(`typed HTML queue/live bootstrap and 59 frozen / ${sourceFonts.length} npm KaTeX font byte pins passed; ${built.files.length} emitted platform assets`)
