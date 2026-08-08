@@ -16,7 +16,7 @@ use windows::{
     Win32::{
         Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
         System::LibraryLoader::GetModuleHandleW,
-        UI::{Input::KeyboardAndMouse::GetAsyncKeyState, WindowsAndMessaging::*},
+        UI::{HiDpi::*, Input::KeyboardAndMouse::GetAsyncKeyState, WindowsAndMessaging::*},
     },
 };
 use xharness_computer::{ComputerDriver, ComputerRequest};
@@ -66,6 +66,12 @@ impl Fixture {
         std::thread::spawn(move || {
             let result = (|| -> Result<(usize, usize), Box<dyn std::error::Error>> {
                 unsafe {
+                    if SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+                        .0
+                        .is_null()
+                    {
+                        return Err("cannot establish fixture-window DPI context".into());
+                    }
                     let module = api(GetModuleHandleW(None))?;
                     let instance = HINSTANCE(module.0);
                     let class = WNDCLASSW {
@@ -185,6 +191,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("acceptance requires the authorized disposable VM guard".into());
     }
+    let prior = unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    if prior.0.is_null() {
+        return Err("cannot establish fixture physical-pixel DPI context".into());
+    }
     let fixture = Fixture::open()?;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let driver = Arc::new(WindowsComputer::new()?);
@@ -229,7 +239,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .execute(stale, CancellationToken::new())
         .await
         .expect_err("stale frame must fail");
-    if e.code != "stale_frame" {
+    if e.code != "stale_frame" || fixture.text() != "XHarness 中文🙂" {
         return Err("wrong stale frame error".into());
     }
     record(

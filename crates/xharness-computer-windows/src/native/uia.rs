@@ -115,19 +115,6 @@ impl Automation {
             }
         }
         cancel.check()?;
-        // A slow snapshot must not become a frame of a different foreground app.
-        if foreground().map(|s| (s.handle, s.pid, s.bounds))
-            != frame
-                .foreground
-                .as_ref()
-                .map(|s| (s.handle, s.pid, s.bounds))
-            || desktop() != frame.desktop
-        {
-            return Err(error(
-                "stale_frame",
-                "desktop changed during observation; observe again",
-            ));
-        }
         let region = request.region.unwrap_or(desktop_bounds);
         if ![region.x, region.y, region.width, region.height]
             .iter()
@@ -146,6 +133,21 @@ impl Automation {
         } else {
             vec![]
         };
+        cancel.check()?;
+        // Validate after PNG encoding too: tree, image and action frame must
+        // not refer to different foreground windows or display geometries.
+        if foreground().map(|s| (s.handle, s.pid, s.bounds))
+            != frame
+                .foreground
+                .as_ref()
+                .map(|s| (s.handle, s.pid, s.bounds))
+            || desktop() != frame.desktop
+        {
+            return Err(error(
+                "stale_frame",
+                "desktop changed during observation; observe again",
+            ));
+        }
         let value = json!({"platform":"windows","coordinate_space":"physical_desktop_pixels","displays":screen::displays()?,"surfaces":window_values,"permissions":{"interactive_desktop":true,"elevation":"unchanged","secure_desktop":false},"accessibility":{"nodes":traversal.nodes,"truncated":traversal.truncated,"visited":traversal.visited,"max_nodes":max_nodes,"max_depth":max_depth,"scope":"foreground_window"},"screenshot_included":!png.is_empty(),"screenshot_bounds":region});
         Ok((
             Reply {

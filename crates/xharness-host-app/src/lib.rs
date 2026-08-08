@@ -5,7 +5,7 @@
 //! independent from Linux/macOS/Windows process, filesystem, sandbox, jobs and Web
 //! implementations.
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 mod computer_media;
 mod github_http;
 pub mod github_service;
