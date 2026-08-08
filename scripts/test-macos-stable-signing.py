@@ -120,6 +120,8 @@ class StableSigning(unittest.TestCase):
                     Path(values[values.index('-out')+1]).write_text('public fixture certificate')
                 if '-outform' in values: return DER
                 if '-subject' in values: return b'subject=CN=fixture\nissuer=CN=fixture\n'
+                if 'trust-settings-export' in values:
+                    Path(values[-1]).write_bytes(plistlib.dumps({'trustVersion':1, 'trustList':{}}))
                 if 'find-identity' in values: return PIN.upper().encode()
                 return b''
             with patch.dict(os.environ,env), patch.object(m.sys,'platform','darwin'), patch.object(m,'command',side_effect=fake) as run:
@@ -134,7 +136,8 @@ class StableSigning(unittest.TestCase):
                 self.assertFalse(keychain.parent.exists())
                 commands=[[str(a) for a in c.args[0]] for c in run.call_args_list]
                 self.assertTrue(any('add-trusted-cert' in c and 'codeSign' in c for c in commands))
-                self.assertTrue(any('remove-trusted-cert' in c for c in commands))
+                self.assertEqual(sum('trust-settings-import' in c for c in commands),2)
+                self.assertFalse(any('remove-trusted-cert' in c or ('add-trusted-cert' in c and '-d' in c) for c in commands))
                 self.assertFalse(any('default-keychain' in c or 'list-keychains' in c for c in commands))
 
     def test_local_trust_and_forged_certificate_are_refused(self):
@@ -151,11 +154,35 @@ class StableSigning(unittest.TestCase):
             work=Path(folder)/'xharness-publisher-signing-fixture';work.mkdir()
             keychain=work/'publisher.keychain-db';keychain.touch();(work/'trust-intent').touch()
             def fake(args,**kwargs):
-                if 'remove-trusted-cert' in args: raise ValueError('injected native failure')
+                if 'trust-settings-import' in args: raise ValueError('injected native failure')
             with patch.object(m,'command',side_effect=fake) as run:
                 with self.assertRaisesRegex(ValueError,'temporary code-signing trust'): m.cleanup_path(keychain)
                 self.assertTrue(any('delete-keychain' in c.args[0] for c in run.call_args_list))
                 self.assertTrue(work.exists())
+
+    def test_absent_trust_fallback_does_not_swallow_other_errors(self):
+        absent = subprocess.CalledProcessError(1, ['security'], stderr=b'No Trust Settings were found')
+        with patch.object(m.subprocess, 'run', side_effect=absent):
+            self.assertIsNone(m.command(['security','trust-settings-export','-d','fixture'], allow_absent_trust=True))
+            with self.assertRaises(ValueError): m.command(['security','delete-keychain','fixture'], allow_absent_trust=True)
+        for error in [subprocess.CalledProcessError(1,['security'],stderr=b'permission denied'),
+                      subprocess.TimeoutExpired(['security'],90)]:
+            with patch.object(m.subprocess,'run',side_effect=error), self.assertRaises(ValueError):
+                m.command(['security','trust-settings-export','-d','fixture'],allow_absent_trust=True)
+
+    def test_cleanup_reports_primary_and_secondary_failures(self):
+        with patch.object(m,'cleanup_path',side_effect=ValueError('temporary trust restore failed')):
+            with self.assertRaisesRegex(ValueError,'original signing stage.*cleanup also failed.*trust restore'):
+                m.cleanup_after_failure('fixture',ValueError('original signing stage failed'))
+        with patch.object(m,'cleanup_path') as cleanup:
+            m.cleanup_after_failure('fixture',ValueError('original signing stage failed'))
+            cleanup.assert_called_once_with('fixture')
+
+    def test_native_fixture_reuses_production_trust_cleanup(self):
+        source=Path(__file__).read_text().split('\ndef native_fixture():\n',1)[1]
+        self.assertIn('m.cleanup_after_failure(keychain, original)',source)
+        self.assertIn('m.cleanup_path(keychain)',source)
+        self.assertNotIn('remove-trusted-cert',source)
 
     def test_native_failure_never_prints_secret_stderr_or_argv(self):
         with patch.object(m.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, ['secret-password'], stderr=b'private-key')):
@@ -183,8 +210,8 @@ class StableSigning(unittest.TestCase):
 def native_fixture():
     if sys.platform != 'darwin' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted':
         raise ValueError('Disposable native fixture requires hosted macOS CI; it never changes local trust')
-    with tempfile.TemporaryDirectory(prefix='xharness-native-signing-') as folder:
-        root = Path(folder); identity = root / 'identity'; keychain = root / 'test.keychain-db'
+    with tempfile.TemporaryDirectory(prefix='xharness-publisher-signing-native-', dir=os.environ['RUNNER_TEMP']) as folder:
+        root = Path(folder); identity = root / 'identity'; keychain = root / 'publisher.keychain-db'
         password = secrets.token_urlsafe(32)
         env = {**os.environ, 'XHARNESS_MACOS_PREVIEW_P12_PASSWORD':password}
         with patch.dict(os.environ, env), patch('sys.stdout', new=io.StringIO()): m.create_identity(identity)
@@ -194,7 +221,8 @@ def native_fixture():
             m.command(['security','unlock-keychain','-p',password,keychain])
             m.command(['security','import',identity/'publisher.p12','-k',keychain,'-P',password,'-T','/usr/bin/codesign'])
             m.command(['security','set-key-partition-list','-S','apple-tool:,apple:','-s','-k',password,keychain])
-            m.trust_runner_certificate(identity/'certificate.pem', pin)
+            certificate=root/'certificate.pem'; certificate.write_bytes((identity/'certificate.pem').read_bytes())
+            m.trust_runner_certificate(certificate, pin)
             source = root / 'fixture.c'; source.write_text('int main(void) { return 0; }\n')
             apps = []
             for version in ['1.0.0','1.0.1']:
@@ -215,11 +243,11 @@ def native_fixture():
                     m.sign_app(app, pin, keychain)
             m.policy.verify_continuity(*apps, pin)
             print('PASS: native old/new fixed certificate and all component DR continuity (not TCC/Gatekeeper acceptance)')
-        finally:
-            try:
-                if (identity/'trust-intent').exists(): m.command(['sudo','-n','security','remove-trusted-cert','-d',identity/'certificate.pem'])
-            finally:
-                if keychain.exists(): m.command(['security','delete-keychain',keychain])
+        except Exception as original:
+            m.cleanup_after_failure(keychain, original)
+            raise
+        else:
+            m.cleanup_path(keychain)
 
 
 if __name__ == '__main__':

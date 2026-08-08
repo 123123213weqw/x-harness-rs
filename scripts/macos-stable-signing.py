@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import plistlib
 import secrets
 import shutil
 import subprocess
@@ -28,13 +29,32 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def command(args, *, env=None):
+def command(args, *, env=None, allow_absent_trust=False):
     try:
         return subprocess.run([str(a) for a in args], check=True, capture_output=True, timeout=90,
                               env=env).stdout
     except (OSError, subprocess.SubprocessError) as error:
+        if (allow_absent_trust and list(args[:3]) == ['security', 'trust-settings-export', '-d']
+                and isinstance(error, subprocess.CalledProcessError) and error.returncode == 1
+                and b'No Trust Settings were found' in (error.stderr or b'')):
+            return None
         # Never reproduce argv, arbitrary stderr or private environment values.
-        raise ValueError('Native signing operation failed: ' + type(error).__name__) from None
+        raise ValueError('Native signing operation failed (' + operation(args) + '): ' + type(error).__name__) from None
+
+
+def operation(args):
+    # Only a fixed public stage name is allowed into errors, never paths/argv.
+    stages = {'openssl': 'certificate conversion', 'codesign': 'code signing',
+              'security': 'keychain operation', 'sudo': 'admin trust operation'}
+    return stages.get(str(args[0]), 'native operation')
+
+
+def cleanup_after_failure(keychain, original):
+    try:
+        cleanup_path(keychain)
+    except Exception as cleanup:
+        # Both helper errors contain only public stages, not private argv/stderr.
+        raise ValueError(str(original) + '; cleanup also failed: ' + str(cleanup)) from None
 
 
 def fingerprint(value):
@@ -111,8 +131,8 @@ def import_identity():
         with Path(os.environ['GITHUB_ENV']).open('a') as output:
             output.write('XHARNESS_MACOS_PREVIEW_KEYCHAIN=' + str(keychain) + '\n')
         # No default-keychain replacement. Temporary codeSign-only trust is removed during cleanup.
-    except Exception:
-        cleanup_path(keychain)
+    except Exception as original:
+        cleanup_after_failure(keychain, original)
         raise
     finally:
         p12.unlink(missing_ok=True)
@@ -128,9 +148,30 @@ def trust_runner_certificate(certificate, pin):
     require(len(names) == 2 and names[0].removeprefix('subject=') == names[1].removeprefix('issuer='),
             'Preview publisher must use the explicit self-signed policy')
     command(['openssl', 'x509', '-in', certificate, '-checkend', '0', '-noout'])
-    # Write ahead of native mutation so a failed/unknown outcome is cleaned up too.
-    Path(certificate).with_name('trust-intent').write_text(pin + '\n')
-    command(['sudo', '-n', 'security', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'codeSign', certificate])
+    certificate = Path(certificate)
+    baseline = certificate.with_name('trust-baseline.plist')
+    modified = certificate.with_name('trust-signing.plist')
+    # SetTrustSettings/RemoveTrustSettings can invoke SecurityAgent even under
+    # sudo. Build the codeSign-only constraint offline, then import the admin
+    # representation as root. Never change trust on the user's machine.
+    export_admin_trust(baseline)
+    require(pin.upper() not in plistlib.loads(baseline.read_bytes()).get('trustList', {}),
+            'Temporary publisher already exists in runner trust settings')
+    command(['security', 'add-trusted-cert', '-r', 'trustRoot', '-p', 'codeSign',
+             '-i', baseline, '-o', modified, certificate])
+    # Write ahead of native mutation so a failed/unknown outcome is restored too.
+    certificate.with_name('trust-intent').write_text(pin + '\n')
+    command(['sudo', '-n', 'security', 'trust-settings-import', '-d', modified])
+
+
+def export_admin_trust(destination):
+    result = command(['security', 'trust-settings-export', '-d', destination], allow_absent_trust=True)
+    if result is None:
+        # Offline output construction, not a domain mutation or a blanket retry.
+        command(['security', 'add-trusted-cert', '-o', destination])
+    value = plistlib.loads(Path(destination).read_bytes())
+    require(isinstance(value, dict) and isinstance(value.get('trustList'), dict),
+            'Invalid runner admin trust representation')
 
 
 def cleanup_path(keychain):
@@ -142,7 +183,7 @@ def cleanup_path(keychain):
     certificate = keychain.parent / 'certificate.pem'
     if (keychain.parent / 'trust-intent').exists():
         try:
-            command(['sudo', '-n', 'security', 'remove-trusted-cert', '-d', certificate])
+            command(['sudo', '-n', 'security', 'trust-settings-import', '-d', keychain.parent / 'trust-baseline.plist'])
         except ValueError:
             failures.append('Failed to remove temporary code-signing trust')
     if keychain.exists():
