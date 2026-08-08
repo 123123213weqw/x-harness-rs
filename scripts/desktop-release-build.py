@@ -45,7 +45,8 @@ RUNNERS = {
 def platform_matrix(plan, unix_only=False):
     return {'include': [
         {'platform': p, 'runner': RUNNERS[p][0], 'target': PLATFORMS[p], 'bundles': RUNNERS[p][1],
-         **({'macos_preview': True} if p.startswith('darwin-') and _contract.macos_preview(plan) else {})}
+         **({'macos_preview': True} if p.startswith('darwin-') and _contract.macos_preview(plan) else {}),
+         **({'macos_selfsigned': True} if p.startswith('darwin-') and _contract.macos_selfsigned(plan) else {})}
         for p in release_platforms(plan) if not unix_only or p != 'windows-x86_64'
     ]}
 
@@ -58,7 +59,7 @@ def write_matrix(plan, unix_only=False):
 def signing_plan(plan, environment=None):
     _contract.validate_plan(plan)
     for platform in release_platforms(plan):
-        signing_gate(platform, environment, plan=plan)
+        signing_gate(platform, environment, plan=plan, private=False)
 
 
 ACCEPTANCE_WORKFLOWS = {
@@ -147,20 +148,28 @@ def public_key(path):
         stream.write(value + '\n')
 
 
-def signing_gate(platform, environment=None, *, plan=None):
+def signing_gate(platform, environment=None, *, plan=None, private=True):
     e = os.environ if environment is None else environment
     preview = False
+    selfsigned = False
     if plan is not None:
         _contract.validate_plan(plan)
         require(platform in release_platforms(plan), 'Unselected signing platform')
         preview = _contract.macos_preview(plan)
+        selfsigned = _contract.macos_selfsigned(plan)
     names = ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD', 'XHARNESS_UPDATER_PUBKEY']
-    if platform.startswith('darwin-') and not preview:
+    if platform.startswith('darwin-') and selfsigned:
+        names += ['XHARNESS_MACOS_PREVIEW_CERT_SHA1']
+        if private:
+            names += ['XHARNESS_MACOS_PREVIEW_P12', 'XHARNESS_MACOS_PREVIEW_P12_PASSWORD']
+        require(e.get('XHARNESS_MACOS_PREVIEW_CERT_SHA1', '').lower() == plan['macos_signing_fingerprint'],
+                'Protected publisher identity differs from the immutable plan')
+    if platform.startswith('darwin-') and not preview and not selfsigned:
         names += ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_SIGNING_IDENTITY',
                   'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID']
     require(all(e.get(name, '').strip() for name in names),
             'Missing required signing/notarization configuration; no implicit ad-hoc fallback is allowed')
-    if platform.startswith('darwin-') and not preview:
+    if platform.startswith('darwin-') and not preview and not selfsigned:
         require(e['APPLE_SIGNING_IDENTITY'].startswith('Developer ID Application:'),
                 'A Developer ID Application identity is required for the stable channel')
         require(re.fullmatch(r'[A-Z0-9]{10}', e['APPLE_TEAM_ID']), 'Invalid Apple team identity')
@@ -185,7 +194,10 @@ def collect(args):
         binary = app / 'Contents/MacOS/xharness-desktop'
         package = root / 'bundle/macos/XHarness.app.tar.gz'
         preview = _contract.macos_preview(plan)
-        _macos_signing.verify(app, preview=preview, team=None if preview else os.environ.get('APPLE_TEAM_ID', ''))
+        if _contract.macos_selfsigned(plan):
+            _macos_signing.verify(app, fingerprint=plan['macos_signing_fingerprint'])
+        else:
+            _macos_signing.verify(app, preview=preview, team=None if preview else os.environ.get('APPLE_TEAM_ID', ''))
         run(sys.executable, '-B', ROOT / 'scripts/test-desktop-assets.py', '--app', app)
     elif args.platform == 'windows-x86_64':
         package = root / 'bundle/nsis' / f'XHarness_{plan["version"]}_x64-setup.exe'
@@ -209,6 +221,37 @@ def verify_tag(repo, tag, sha):
         obj = api(f'repos/{repo}/git/tags/{obj["sha"]}')['object']
     raise ValueError('Annotated tag nesting exceeds the safe limit')
 
+def publisher_pin():
+    if os.environ.get('RELEASE_SCOPE_INPUT', 'all') != _contract.MACOS_SELFSIGNED_SCOPE:
+        require(not os.environ.get('EXPECTED_MACOS_SIGNING_FINGERPRINT'), 'Unexpected signer pin outside self-signed policy')
+        return None
+    pin = _contract.signing_fingerprint(os.environ.get('XHARNESS_MACOS_PREVIEW_CERT_SHA1', '').lower())
+    expected = os.environ.get('EXPECTED_MACOS_SIGNING_FINGERPRINT', '')
+    require(not expected or expected == pin, 'Publisher identity changed after release task preparation')
+    return pin
+
+
+def sign_stable_preview(args):
+    plan = _contract.validate_plan(load(args.plan))
+    require(_contract.macos_selfsigned(plan) and args.target in ('aarch64-apple-darwin', 'x86_64-apple-darwin'),
+            'Explicit fixed publisher Mac plan required')
+    require(os.environ.get('XHARNESS_MACOS_PREVIEW_CERT_SHA1', '').lower() == plan['macos_signing_fingerprint'],
+            'Signing key pin differs from the plan')
+    bundle = ROOT / 'apps/desktop/src-tauri/target' / args.target / 'release/bundle/macos'
+    run(sys.executable, '-B', ROOT / 'scripts/macos-stable-signing.py', 'sign', '--app', bundle / 'XHarness.app')
+    package = bundle / 'XHarness.app.tar.gz'
+    # Replace only unpublished build outputs; never mutate candidate/release or a published asset.
+    temporary = bundle / 'XHarness.fixed.app.tar.gz'
+    require(not temporary.exists(), 'Fixed-signing archive already exists')
+    subprocess.run(['tar', '-czf', str(temporary), '-C', str(bundle), 'XHarness.app'],
+                   check=True, env={**os.environ, 'COPYFILE_DISABLE': '1'})
+    os.replace(temporary, package)
+    Path(str(package) + '.sig').unlink(missing_ok=True)
+    subprocess.run(npm_invocation(sys.platform) + ['exec', '--yes', '--package', '@tauri-apps/cli@2.11.4', '--',
+                                                  'tauri', 'signer', 'sign', str(package)], check=True)
+    require(Path(str(package) + '.sig').is_file(), 'Final publisher-signed archive lacks updater signature')
+
+
 def prepare_tag():
     # GITHUB_TOKEN-created refs do not launch push workflows. The same dispatched
     # build proceeds through the existing exact-SHA/signing/draft gates below.
@@ -225,7 +268,8 @@ def prepare_tag():
     releases = [{'tagName': r['tag_name'], 'isDraft': r['draft']} for page in pages for r in page]
     _contract.make_plan(repo, repo, tag, sha, os.environ['GITHUB_RUN_ID'],
                         os.environ['GITHUB_RUN_ATTEMPT'], releases,
-                        _contract.fetch_ci(repo, sha), os.environ.get('RELEASE_SCOPE_INPUT', 'all'))
+                        _contract.fetch_ci(repo, sha), os.environ.get('RELEASE_SCOPE_INPUT', 'all'),
+                        macos_signing_fingerprint=publisher_pin())
     refs = api(f'repos/{repo}/git/matching-refs/tags/{tag}')
     exact = [ref for ref in refs if ref.get('ref') == f'refs/tags/{tag}']
     require(len(exact) <= 1, 'Ambiguous release tag')
@@ -652,6 +696,10 @@ def native_run(args):
     target = PLATFORMS[platform]
     bundle = native_target_dir(args.candidate) / target / 'release/bundle'
     if platform.startswith('darwin-'):
+        if _contract.macos_selfsigned(load(receipt)):
+            require(os.environ.get('XHARNESS_MACOS_PREVIEW_CERT_SHA1', '').lower() == load(receipt)['macos_signing_fingerprint'],
+                    'Base signing certificate differs from candidate')
+            run(sys.executable, '-B', ROOT / 'scripts/macos-stable-signing.py', 'sign', '--app', bundle / 'macos/XHarness.app')
         base = args.root / 'base.app.tar.gz'
         subprocess.run(['tar', '-czf', str(base), '-C', str(bundle / 'macos'), 'XHarness.app'],
                        check=True, env={**os.environ, 'COPYFILE_DISABLE': '1'})
@@ -741,6 +789,7 @@ def main():
     p.add_argument('--plan', type=Path)
     p = sub.add_parser('stage'); p.add_argument('--platform', choices=PLATFORMS, required=True); p.add_argument('--target', required=True)
     p = sub.add_parser('configure'); p.add_argument('--plan', type=Path, required=True); p.add_argument('--public-key', type=Path, required=True)
+    p = sub.add_parser('sign-stable-preview'); p.add_argument('--plan', type=Path, required=True); p.add_argument('--target', required=True)
     p = sub.add_parser('collect')
     for name in ['plan', 'public-key', 'output']: p.add_argument('--' + name, type=Path, required=True)
     p.add_argument('--platform', choices=PLATFORMS, required=True); p.add_argument('--target', required=True)
@@ -769,6 +818,7 @@ def main():
         tag = os.environ.get('RELEASE_TAG_INPUT', '')
         require(re.fullmatch(r'desktop-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag), 'Invalid release tag')
         args.output.parent.mkdir(parents=True, exist_ok=True)
+        publisher_pin()
         contract('plan', tag, '--release-scope', os.environ.get('RELEASE_SCOPE_INPUT', 'all'), '--output', args.output)
         write_matrix(load(args.output))
     elif args.command == 'signing-plan': signing_plan(load(args.plan))
@@ -783,6 +833,7 @@ def main():
         require(plan['endpoint'] == os.environ.get('XHARNESS_UPDATER_ENDPOINT'), 'Plan/build endpoint mismatch')
         public_key(args.public_key)
         run(sys.executable, '-B', ROOT / 'scripts/prepare-desktop-test-version.py', plan['version'])
+    elif args.command == 'sign-stable-preview': sign_stable_preview(args)
     elif args.command == 'collect': collect(args)
     elif args.command == 'aggregate':
         plan = _contract.validate_plan(load(args.plan))

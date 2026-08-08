@@ -1613,3 +1613,11 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] 独立审核模型选择、辅助调用成本统计及真实多模型判断质量评估。
 
 规范：[AI 代审](specs/ai-approval.md)。
+
+## 固定 macOS 发布者预览签名
+
+- [ ] 完成受保护 Environment 的生产证书配置（私钥不入仓库）。
+- [ ] 新旧版本原生签名连续性 CI 门禁通过。
+- [ ] ARM64 / Intel 的 Homebrew 两版本升级、首次 Gatekeeper 放行及 TCC 保留交互验收；不承诺只授权一次。
+- [ ] 新版本显式启用 all-macos-selfsigned；现有 0.2.35 候选不重绑。
+- 设计及操作步骤：[macos-fixed-publisher-signing.md](macos-fixed-publisher-signing.md)。
