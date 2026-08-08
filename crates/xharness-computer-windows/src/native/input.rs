@@ -188,7 +188,7 @@ fn require_foreground(request: &Request) -> Result<()> {
     if current.handle != expected.handle || current.pid != expected.pid {
         return Err(error(
             "user_interrupted",
-            "foreground changed during input; no further input sent",
+            &format!("foreground changed during input; expected pid={} hwnd={:x} class={}; actual pid={} hwnd={:x} class={}; no further input sent", expected.pid, expected.handle, expected.class, current.pid, current.handle, current.class),
         ));
     }
     Ok(())

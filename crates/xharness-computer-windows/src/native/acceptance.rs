@@ -161,9 +161,19 @@ async fn execute(
     driver: &WindowsComputer,
     value: Value,
 ) -> Result<xharness_computer::ComputerOutput, Box<dyn std::error::Error>> {
-    Ok(driver
+    match driver
         .execute(serde_json::from_value(value)?, CancellationToken::new())
-        .await?)
+        .await
+    {
+        Ok(output) => Ok(output),
+        Err(error) => {
+            println!(
+                "{}",
+                json!({"case":"native_action_failure","passed":false,"detail":{"code":error.code,"message":error.message,"retryable":error.retryable,"foreground":super::foreground()}})
+            );
+            Err(error.into())
+        }
+    }
 }
 fn frame(output: &xharness_computer::ComputerOutput) -> Result<String, Box<dyn std::error::Error>> {
     Ok(output.value["frame_id"]
