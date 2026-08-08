@@ -23,6 +23,22 @@ pub fn intersection(a: Region, b: Region) -> Option<Region> {
         height: bottom - y,
     })
 }
+pub fn contained(inner: Region, outer: Region) -> bool {
+    // Do not compare an intersection rectangle for float equality: recomputing
+    // (x + width) - x can reject a valid fractional-pixel region.
+    intersection(inner, outer).is_some()
+        && inner.x >= outer.x
+        && inner.y >= outer.y
+        && inner.x + inner.width <= outer.x + outer.width
+        && inner.y + inner.height <= outer.y + outer.height
+}
+pub fn bounded_value(value: &str) -> (String, bool) {
+    let mut chars = value
+        .chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\r' | '\t'));
+    let text: String = chars.by_ref().take(240).collect();
+    (text, chars.next().is_some())
+}
 #[derive(Clone, Debug)]
 pub struct Metadata {
     pub parent: Option<usize>,
@@ -144,6 +160,28 @@ mod tests {
         ] {
             assert!(intersection(a, b).is_none());
         }
+    }
+    #[test]
+    fn fractional_regions_are_valid_without_roundtrip_equality() {
+        assert!(contained(
+            region(0.1, 0.2, 0.2, 0.3),
+            region(0.0, 0.0, 100.0, 100.0)
+        ));
+        assert!(!contained(
+            region(-0.1, 0.2, 0.2, 0.3),
+            region(0.0, 0.0, 100.0, 100.0)
+        ));
+        assert!(!contained(
+            region(0.0, 0.0, -1.0, 2.0),
+            region(0.0, 0.0, 100.0, 100.0)
+        ));
+    }
+    #[test]
+    fn bounded_values_distinguish_empty_and_preserve_input_whitespace() {
+        assert_eq!(bounded_value(""), (String::new(), false));
+        assert_eq!(bounded_value("a\n\tb\r\u{0}c"), ("a\n\tb\rc".into(), false));
+        assert_eq!(bounded_value(&"🙂".repeat(241)), ("🙂".repeat(240), true));
+        assert_eq!(bounded_value(&"x".repeat(240)), ("x".repeat(240), false));
     }
     #[test]
     fn long_offscreen_sidebar_cannot_spend_output_budget() {
