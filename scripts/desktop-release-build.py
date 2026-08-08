@@ -190,6 +190,10 @@ def collect(args):
     elif args.platform == 'windows-x86_64':
         package = root / 'bundle/nsis' / f'XHarness_{plan["version"]}_x64-setup.exe'
         run(sys.executable, '-B', ROOT / 'scripts/test-windows-desktop-bundle.py')
+        run(sys.executable, '-B', ROOT / 'scripts/audit-windows-runtime.py',
+            '--installer', package, '--expected-desktop', binary,
+            '--sidecars', ROOT / 'apps/desktop/src-tauri/binaries',
+            '--output', ROOT / 'dist/windows-runtime-audit/collect.json')
     else:
         package = root / 'bundle/appimage' / f'XHarness_{plan["version"]}_amd64.AppImage'
     contract('receipt', '--plan', args.plan, '--platform', args.platform, '--target', args.target,
@@ -792,6 +796,10 @@ def main():
         normalized.mkdir()
         for platform in release_platforms(plan):
             shutil.copytree(args.artifacts / f'desktop-package-{platform}', normalized / platform, symlinks=True)
+            if platform == 'windows-x86_64':
+                run(sys.executable, '-B', ROOT / 'scripts/audit-windows-runtime.py',
+                    '--installer', normalized / platform / _contract.package_name(plan, platform),
+                    '--output', args.output.parent / 'windows-runtime-audit/aggregate.json')
         key = args.output.parent / 'aggregate-trusted.pub'
         public_key(key)
         contract('aggregate', '--plan', args.plan, '--artifacts', normalized, '--public-key', key, '--output', args.output)
