@@ -250,7 +250,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         "native_keypress",
         json!({"ctrl_a_replacement_matches":true}),
     );
-    output = execute(
+    execute(
         &driver,
         json!({"action":"click","node_id":node(&output,"button")?,"frame_id":frame(&output)?}),
     )
