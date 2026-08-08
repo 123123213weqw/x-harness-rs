@@ -7,6 +7,8 @@ on:
       - 'crates/xharness-sandbox/**'
       - 'crates/xharness-win32/**'
       - 'crates/xharness-terminal/**'
+      - 'crates/xharness-coding-tools/**'
+      - 'crates/xharness-web-terminal/**'
       - 'scripts/fixtures/windows-no-console.ps1'
       - '.github/workflows/windows-console.yml'
 
@@ -33,3 +35,14 @@ jobs:
           }
       - name: Native console, pipe, ACL, cancellation and ConPTY regressions
         run: cargo test --locked -p xharness-process -p xharness-sandbox -p xharness-terminal --all-targets -- --nocapture
+      - name: Shell discovery and real command contracts (including forced no-PS7 search)
+        run: |
+          cargo test --locked -p xharness-coding-tools --test shell_resolution -- --nocapture
+          if ($LASTEXITCODE) { throw 'Native shell resolver/tool contracts failed' }
+      - name: Full coding and Web terminal regressions with built-in Windows PowerShell 5.1
+        run: |
+          $env:XHARNESS_SHELL = "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe"
+          try {
+            cargo test --locked -p xharness-coding-tools -p xharness-web-terminal --all-targets -- --nocapture
+            if ($LASTEXITCODE) { throw 'Windows PowerShell 5.1 fallback regression failed' }
+          } finally { Remove-Item Env:XHARNESS_SHELL }

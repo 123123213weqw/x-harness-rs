@@ -22,6 +22,7 @@ use xharness_jobs::{
     KillResult,
 };
 use xharness_platform::NativePlatform;
+use xharness_process::shell::{executable_search_path, Shell, ShellError};
 use xharness_process::{
     scrub_secret_env, ProcessHandle, ProcessOutput, ProcessOutputCursor, ProcessOutputObserver,
     SpawnSpec, TerminationReason,
@@ -88,6 +89,7 @@ pub struct CodingToolBundle {
     session_id: Arc<str>,
     owner_id: Arc<str>,
     media_reader: Option<Arc<dyn MediaReader>>,
+    shell: Result<Shell, ShellError>,
 }
 
 impl CodingToolBundle {
@@ -105,7 +107,14 @@ impl CodingToolBundle {
             session_id: Arc::from(session_id.into()),
             owner_id: Arc::from(owner_id.into()),
             media_reader: None,
+            shell: Shell::discover(),
         }
+    }
+
+    /// Pin a pre-resolved shell. The description and handler use the same selection.
+    pub fn with_shell(mut self, shell: Shell) -> Self {
+        self.shell = Ok(shell);
+        self
     }
 
     pub fn with_media_reader(mut self, reader: Arc<dyn MediaReader>) -> Self {
@@ -146,14 +155,17 @@ impl CodingToolBundle {
         let platform = Arc::clone(&self.platform);
         let jobs = Arc::clone(&self.jobs);
         let owner = Arc::clone(&self.owner_id);
+        let shell = self.shell.clone();
         ToolSpec::new(
             definition(
                 native_shell_name(),
-                native_shell_description(),
+                &native_shell_description(&shell),
                 json!({
                     "type": "object",
                     "properties": {
-                        "command": {"type": "string"},
+                        "command": {"type": "string", "description": "Script in the selected shell dialect. Mutually exclusive with program/args."},
+                        "program": {"type": "string", "description": "Executable to launch directly without a shell. Mutually exclusive with command."},
+                        "args": {"type": "array", "items": {"type": "string"}, "description": "Literal argument vector for program; no shell expansion."},
                         "description": {"type": "string"},
                         "timeout_ms": {"type": "integer"},
                         "cwd": {"type": "string"},
@@ -162,7 +174,7 @@ impl CodingToolBundle {
                             "description": "Run as a managed background job. Returns immediately and has no command timeout."
                         }
                     },
-                    "required": ["command"],
+                    "description": "Provide exactly one of command or program. args is only valid with program.",
                     "additionalProperties": false
                 }),
             ),
@@ -170,8 +182,9 @@ impl CodingToolBundle {
                 let platform = Arc::clone(&platform);
                 let jobs = Arc::clone(&jobs);
                 let owner = Arc::clone(&owner);
+                let shell = shell.clone();
                 async move {
-                    let command = required_string(&context, "command")?;
+                    let invocation = process_invocation(&context.arguments, &shell)?;
                     let cwd = resolve_cwd(&platform, optional_string(&context, "cwd"))?;
                     let background = optional_bool(&context, "run_in_background").unwrap_or(false);
                     if background && context.arguments.get("timeout_ms").is_some() {
@@ -179,9 +192,9 @@ impl CodingToolBundle {
                             "timeout_ms cannot be combined with run_in_background=true; manage the job with job_output/job_kill",
                         ));
                     }
-                    let mut spec = SpawnSpec::new(native_shell_program(), cwd)
+                    let mut spec = SpawnSpec::new(invocation.program, cwd)
                         .debug_parent(context.execution_id.as_str())
-                        .args(native_shell_args(&command))
+                        .args(invocation.args)
                         .envs(managed_environment());
                     if !background {
                         spec = spec.timeout(command_timeout_argument(&context)?);
@@ -191,7 +204,7 @@ impl CodingToolBundle {
                             .reserve(
                                 owner.to_string(),
                                 native_shell_name(),
-                                command.clone(),
+                                invocation.label,
                                 None,
                             )
                             .map_err(handler_error)?;
@@ -215,7 +228,8 @@ impl CodingToolBundle {
                             "kind": "background",
                             "job_id": job_id,
                             "status": "running",
-                            "pid": pid
+                            "pid": pid,
+                            "execution": invocation.metadata
                         })));
                     }
                     let output = run_process(platform, spec, &context.cancellation).await?;
@@ -238,6 +252,7 @@ impl CodingToolBundle {
                     };
                     let mut value = process_output_value(output);
                     value["kind"] = Value::String("foreground".to_owned());
+                    value["execution"] = invocation.metadata;
                     let mut result = json_output(value);
                     result.command_failure = command_failure;
                     Ok(result)
@@ -925,6 +940,7 @@ fn managed_environment() -> BTreeMap<OsString, OsString> {
             .to_ascii_uppercase()
             .starts_with("XHARNESS_")
     });
+    environment.retain(|name, _| !name.eq_ignore_ascii_case("PATH"));
     environment.insert(OsString::from("PATH"), managed_path());
     #[cfg(unix)]
     environment.insert(OsString::from("LANG"), OsString::from("C.UTF-8"));
@@ -951,40 +967,7 @@ fn managed_environment() -> BTreeMap<OsString, OsString> {
 /// Release archives place helper binaries such as `rg` beside the Host, so
 /// the current executable directory must win over inherited system paths.
 fn managed_path() -> OsString {
-    let mut paths = Vec::<PathBuf>::new();
-    let mut push = |path: PathBuf| {
-        if !path.as_os_str().is_empty() && !paths.contains(&path) {
-            paths.push(path);
-        }
-    };
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(parent) = executable.parent() {
-            push(parent.to_owned());
-        }
-    }
-    if let Some(inherited) = std::env::var_os("PATH") {
-        for path in std::env::split_paths(&inherited) {
-            push(path);
-        }
-    }
-    #[cfg(unix)]
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        push(home.join(".local/bin"));
-        push(home.join(".cargo/bin"));
-    }
-    #[cfg(unix)]
-    for path in [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-    ] {
-        push(PathBuf::from(path));
-    }
-    std::env::join_paths(paths).unwrap_or_else(|_| default_native_path())
+    executable_search_path()
 }
 
 #[cfg(unix)]
@@ -997,66 +980,85 @@ const fn native_shell_name() -> &'static str {
     "pwsh"
 }
 
-#[cfg(unix)]
-const fn native_shell_description() -> &'static str {
-    "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use automation for user-requested future reminders (mode=reminder) and delayed tasks (mode=task). Native session tools may suit genuinely interactive or existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls."
+fn native_shell_description(shell: &Result<Shell, ShellError>) -> String {
+    let selection = match shell {
+        Ok(shell) => format!(
+            "Selected shell: {} at {:?}. {}",
+            shell.kind.label(),
+            shell.program,
+            shell.syntax_hint()
+        ),
+        Err(error) => format!(
+            "Shell unavailable: {error}. Direct program + args execution remains available."
+        ),
+    };
+    format!("Run one managed process under the active session permission policy. Provide exactly one of command (shell script) or program (direct executable with literal args). {selection} For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use automation for user-requested future reminders (mode=reminder) and delayed tasks (mode=task). Native session tools may suit interactive or existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls. A failed invocation is never replayed in another interpreter.")
 }
 
-#[cfg(windows)]
-const fn native_shell_description() -> &'static str {
-    "Run one fresh PowerShell 7 command under the active session permission policy. Use native Windows paths and $env:NAME environment variables. Native-command and PowerShell errors fail the command. For long-running non-interactive work that begins now prefer run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use automation for user-requested future reminders (mode=reminder) and delayed tasks (mode=task). Native process or session tools may suit existing external sessions; keep their status, logs, and stop method trackable, and do not assume detached processes survive Host shutdown or cancellation. No shell state persists between calls."
+struct ProcessInvocation {
+    program: OsString,
+    args: Vec<OsString>,
+    label: String,
+    metadata: Value,
 }
 
-#[cfg(unix)]
-fn native_shell_program() -> OsString {
-    OsString::from("/bin/bash")
-}
-
-#[cfg(windows)]
-fn native_shell_program() -> OsString {
-    let program_files = std::env::var_os("ProgramFiles")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
-    let installed = program_files.join("PowerShell").join("7").join("pwsh.exe");
-    if installed.is_file() {
-        installed.into_os_string()
-    } else {
-        OsString::from("pwsh.exe")
+fn process_invocation(
+    arguments: &Value,
+    shell: &Result<Shell, ShellError>,
+) -> Result<ProcessInvocation, ToolHandlerError> {
+    match (arguments.get("command"), arguments.get("program")) {
+        (Some(command), None) if arguments.get("args").is_none() => {
+            let command = command
+                .as_str()
+                .filter(|v| !v.trim().is_empty())
+                .ok_or_else(|| ToolHandlerError::new("command must be a non-empty string"))?;
+            let shell = shell.as_ref().map_err(handler_error)?;
+            Ok(ProcessInvocation {
+                program: shell.program.clone().into_os_string(),
+                args: shell.command_args(command),
+                label: command.to_owned(),
+                metadata: json!({"mode":"shell", "shell":shell.kind.label(), "program":shell.program}),
+            })
+        }
+        (None, Some(program)) => {
+            let program = program
+                .as_str()
+                .filter(|v| !v.trim().is_empty() && !v.contains('\0'))
+                .ok_or_else(|| {
+                    ToolHandlerError::new("program must be a non-empty executable name or path")
+                })?;
+            let args = arguments
+                .get("args")
+                .map(|value| {
+                    value
+                        .as_array()
+                        .ok_or_else(|| ToolHandlerError::new("args must be an array of strings"))?
+                        .iter()
+                        .map(|arg| {
+                            arg.as_str()
+                                .filter(|v| !v.contains('\0'))
+                                .map(OsString::from)
+                                .ok_or_else(|| {
+                                    ToolHandlerError::new(
+                                        "args must contain only strings without NUL",
+                                    )
+                                })
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            Ok(ProcessInvocation {
+                program: program.into(),
+                args,
+                label: program.to_owned(),
+                metadata: json!({"mode":"direct", "program":program}),
+            })
+        }
+        _ => Err(ToolHandlerError::new(
+            "provide exactly one of command or program; args is only valid with program",
+        )),
     }
-}
-
-#[cfg(unix)]
-fn native_shell_args(command: &str) -> Vec<OsString> {
-    ["--noprofile", "--norc", "-o", "pipefail", "-lc", command]
-        .into_iter()
-        .map(OsString::from)
-        .collect()
-}
-
-#[cfg(windows)]
-fn native_shell_args(command: &str) -> Vec<OsString> {
-    let script = format!(
-        "$ErrorActionPreference='Stop'; $PSNativeCommandUseErrorActionPreference=$true; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::Error.Write(''); {command}"
-    );
-    [
-        OsString::from("-NoLogo"),
-        OsString::from("-NoProfile"),
-        OsString::from("-NonInteractive"),
-        OsString::from("-Command"),
-        OsString::from(script),
-    ]
-    .into_iter()
-    .collect()
-}
-
-#[cfg(unix)]
-fn default_native_path() -> OsString {
-    OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
-}
-
-#[cfg(windows)]
-fn default_native_path() -> OsString {
-    OsString::from(r"C:\Windows\System32;C:\Windows")
 }
 
 fn resolve_cwd(
@@ -1201,7 +1203,7 @@ mod tests {
 
     #[test]
     fn shell_description_prefers_managed_jobs_without_banning_native_sessions() {
-        let description = super::native_shell_description();
+        let description = super::native_shell_description(&super::Shell::discover());
         assert!(description.contains("prefer run_in_background=true"));
         assert!(description.contains("job_output"));
         assert!(description.contains("job_kill"));
