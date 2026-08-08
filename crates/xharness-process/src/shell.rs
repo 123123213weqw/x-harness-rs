@@ -127,7 +127,7 @@ impl Shell {
         match self.kind {
             ShellKind::WindowsPowerShell => "Use Windows PowerShell 5.1-compatible syntax: no &&/|| or Bash heredocs; use $env:NAME. Check $LASTEXITCODE after each native command when later commands could mask failure. The wrapper propagates the last native exit code.",
             ShellKind::PowerShellCore => "Use PowerShell syntax and $env:NAME, not Bash heredocs. The Core version is not assumed; prefer syntax compatible with 5.1 or inspect $PSVersionTable. Native-command errors terminate on Core 7.3+; otherwise check $LASTEXITCODE after native commands.",
-            ShellKind::Cmd => "Use CMD syntax and %NAME%, not PowerShell or Bash syntax. CMD /D disables AutoRun. Explicitly propagate failing exit codes in multi-command scripts.",
+            ShellKind::Cmd => "Use CMD syntax and %NAME%, not PowerShell or Bash syntax. CMD /D disables AutoRun. Use ordinary drive/relative paths, not verbatim \\\\?\\ paths; prefer direct program + args for those. Explicitly propagate failing exit codes in multi-command scripts.",
             ShellKind::Sh => "Use POSIX sh syntax, not Bash-specific arrays or [[. Pipeline exit status follows POSIX sh; pipefail is not assumed.",
             ShellKind::Bash | ShellKind::Zsh => "Pipeline failures propagate because pipefail is enabled. Use the selected shell's syntax. No login/profile startup is loaded for batch commands.",
         }
