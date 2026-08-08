@@ -100,8 +100,11 @@ pub(super) fn verify_surface(expected: &Surface, geometry: bool) -> Result<HWND>
     Ok(hwnd(actual.handle))
 }
 pub(super) fn foreground() -> Option<Surface> {
-    // SAFETY: GetForegroundWindow returns a borrowed handle validated above.
-    surface(unsafe { GetForegroundWindow() })
+    // UIA SetFocus can transiently expose a child Edit as the foreground
+    // HWND. Normalize only child ancestry, NOT owner ancestry: another popup
+    // or top-level window still invalidates the observed frame.
+    // SAFETY: both HWNDs are borrowed, and surface validates the root.
+    surface(unsafe { GetAncestor(GetForegroundWindow(), GA_ROOT) })
 }
 pub(super) fn desktop() -> Region {
     // SAFETY: metrics are process-independent virtual-desktop dimensions.
