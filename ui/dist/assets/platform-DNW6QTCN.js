@@ -10787,15 +10787,312 @@ init_define_process_execArgv();
 
 // src/modules/platform/web/boot-page.module.css
 var boot_page_default = {
-  boot: "boot_page_boot",
-  card: "boot_page_card",
-  wordmark: "boot_page_wordmark",
-  hint: "boot_page_hint",
-  spinner: "boot_page_spinner",
-  spin: "boot_page_spin",
-  failed: "boot_page_failed",
-  failedTitle: "boot_page_failedTitle",
-  failedItem: "boot_page_failedItem"
+  boot: "boot_page_boot"
+};
+
+// src/startup/surface.ts
+init_define_process_execArgv();
+
+// src/startup/surface.raw.css
+var surface_raw_default = `/* One geometry/palette for both documents; no React/theme plugin is required. */
+:root {
+  --xh-startup-bg: #fafafa;
+  --xh-startup-text: #232427;
+  --xh-startup-muted: #75777d;
+  --xh-startup-error: #b42332;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --xh-startup-bg: #101113; --xh-startup-text: #eeeff1; --xh-startup-muted: #989ba2; --xh-startup-error: #ff9b9b; }
+}
+body[data-ds-dark-theme] [data-xh-startup] {
+  --xh-startup-bg: #101113; --xh-startup-text: #eeeff1; --xh-startup-muted: #989ba2; --xh-startup-error: #ff9b9b;
+}
+html[data-xh-startup-document], html[data-xh-startup-document] body, html[data-xh-startup-document] #state {
+  height: 100%; margin: 0; background: var(--xh-startup-bg); color-scheme: light dark;
+}
+/* The Host document initially has an empty root. Match the local document
+   before ESM execution instead of painting the browser's default white. */
+body:has(> #root:empty) { background: var(--xh-startup-bg); }
+html[data-xh-startup-document][data-xh-mac-titlebar="overlay"] #state {
+  position: relative; top: 32px; height: calc(100% - 32px);
+}
+html[data-xh-startup-document] .titlebar-drag { display: none; }
+html[data-xh-startup-document][data-xh-mac-titlebar="overlay"] .titlebar-drag {
+  display: block; position: absolute; top: 0; left: 80px; right: 0; height: 32px; z-index: 1;
+}
+[data-xh-startup] {
+  height: 100%; min-height: 180px; display: grid; place-items: center; overflow: hidden;
+  color: var(--dsw-alias-label-primary, var(--xh-startup-text));
+  background: var(--dsw-alias-bg-base, var(--xh-startup-bg));
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+[data-xh-startup] .xh-startup-cluster {
+  width: min(560px, calc(100% - 48px)); display: flex; flex-direction: column; align-items: center;
+  text-align: center; transform: translateY(-12px);
+}
+[data-xh-startup] .xh-startup-mark { width: 94px; height: 94px; display: block; flex: none; }
+[data-xh-startup][data-motion="pending"] .xh-startup-mark { transform: scale(5); }
+[data-xh-startup][data-motion="pending"] .xh-startup-copy { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  [data-xh-startup][data-motion="pending"] .xh-startup-mark { transform: none; }
+  [data-xh-startup][data-motion="pending"] .xh-startup-copy { opacity: 1; }
+}
+[data-xh-startup][data-motion="playing"] .xh-startup-mark { will-change: transform; }
+[data-xh-startup] .xh-startup-copy { width: 100%; margin-top: 10px; }
+[data-xh-startup] h1 { margin: 0; font-size: 18px; line-height: 1.4; font-weight: 500; letter-spacing: -.025em; }
+[data-xh-startup] .xh-startup-message { margin: 11px 0 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-tertiary, var(--xh-startup-muted)); overflow-wrap: anywhere; }
+[data-xh-startup][data-failed] .xh-startup-message { color: var(--xh-startup-error); }
+[data-xh-startup] .xh-startup-report {
+  margin-top: 16px; max-height: 40vh; overflow: auto; text-align: left; font: 12px/1.5 ui-monospace, 'SF Mono', Consolas, monospace;
+  color: var(--dsw-alias-label-secondary, var(--xh-startup-muted)); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+[data-xh-startup] .xh-startup-report[hidden] { display: none; }
+[data-xh-startup] .xh-startup-report > div + div { margin-top: 8px; }
+/* Outside the React mount point: no hydration mismatch or input interception.
+   Scope to the actual content bounds so the native titlebar remains usable. */
+[data-xh-startup][data-xh-startup-exit] {
+  position: fixed; min-height: 0; z-index: 2147483000; pointer-events: none;
+  user-select: none; contain: paint;
+}
+[data-xh-startup][data-xh-startup-exit] .xh-startup-mark { will-change: transform; }
+@media (forced-colors: active) {
+  [data-xh-startup] { color: CanvasText; background: Canvas; }
+  [data-xh-startup] .xh-startup-message, [data-xh-startup] .xh-startup-report { color: CanvasText; }
+}
+`;
+
+// src/startup/mark.svg
+var mark_default = '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">\n  <defs>\n    <linearGradient id="under" x1="864" y1="136" x2="160" y2="888" gradientUnits="userSpaceOnUse">\n      <stop stop-color="#E7E8EB"/>\n      <stop offset="0.16" stop-color="#777A82"/>\n      <stop offset="0.44" stop-color="#292B31"/>\n      <stop offset="0.56" stop-color="#1B1D22"/>\n      <stop offset="0.84" stop-color="#62656D"/>\n      <stop offset="1" stop-color="#C6C8CD"/>\n    </linearGradient>\n    <linearGradient id="over" x1="160" y1="136" x2="864" y2="888" gradientUnits="userSpaceOnUse">\n      <stop stop-color="#DDE0E4"/>\n      <stop offset="0.16" stop-color="#6E7179"/>\n      <stop offset="0.43" stop-color="#303238"/>\n      <stop offset="0.51" stop-color="#15171B"/>\n      <stop offset="0.59" stop-color="#24262B"/>\n      <stop offset="0.84" stop-color="#62656D"/>\n      <stop offset="1" stop-color="#BFC2C8"/>\n    </linearGradient>\n    <filter id="shadow" x="86" y="66" width="852" height="902" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">\n      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#000" flood-opacity="0.72"/>\n    </filter>\n  </defs>\n  <g filter="url(#shadow)">\n    <path d="M864 136H678L160 776V888H346L864 248V136Z" fill="url(#under)"/>\n    <path d="M160 136H346L864 776V888H678L160 248V136Z" fill="url(#over)"/>\n    <path d="M160 136H346L398 198H212L160 136Z" fill="#FFF" fill-opacity="0.1"/>\n    <path d="M864 888H678L626 826H812L864 888Z" fill="#FFF" fill-opacity="0.065"/>\n  </g>\n  <path d="M160 136H346" stroke="#FFF" stroke-opacity="0.66" stroke-width="2"/>\n  <path d="M678 136H864" stroke="#FFF" stroke-opacity="0.72" stroke-width="2"/>\n</svg>\n';
+
+// src/startup/handoff.ts
+init_define_process_execArgv();
+var StartupHandoff = class {
+  constructor(surface, container) {
+    this.container = container;
+    this.animations = [];
+    this.started = false;
+    this.disposed = false;
+    this.onHidden = () => {
+      if (document.hidden) this.dispose();
+    };
+    this.onPageHide = () => {
+      this.dispose();
+    };
+    this.onResize = () => {
+      this.dispose();
+    };
+    const snapshot = surface.cloneNode(true);
+    if (!(snapshot instanceof HTMLElement)) throw new Error("startup: invalid loading snapshot");
+    this.root = snapshot;
+    this.root.dataset.xhStartupExit = "";
+    this.root.dataset.motion = "idle";
+    this.root.setAttribute("aria-hidden", "true");
+    this.root.inert = true;
+    const colors = getComputedStyle(surface);
+    this.root.style.backgroundColor = colors.backgroundColor;
+    this.root.style.color = colors.color;
+    this.mark = this.root.querySelector("img");
+    this.copy = this.root.querySelector(".xh-startup-copy");
+    const originalMessage = surface.querySelector(".xh-startup-message");
+    const message = this.root.querySelector(".xh-startup-message");
+    if (originalMessage !== null && message !== null) message.style.color = getComputedStyle(originalMessage).color;
+    this.root.removeAttribute("id");
+    this.root.querySelectorAll("[id]").forEach((element3) => element3.removeAttribute("id"));
+  }
+  /** Called by the renderer's commit callback, never by Host Ready. */
+  play() {
+    if (this.started || this.disposed) return;
+    this.started = true;
+    const bounds = this.container.getBoundingClientRect();
+    if (!this.container.isConnected || bounds.width <= 0 || bounds.height <= 0 || document.hidden || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches || this.mark === null || typeof this.root.animate !== "function" || typeof this.mark.animate !== "function") {
+      this.dispose();
+      return;
+    }
+    this.root.style.left = `${bounds.left}px`;
+    this.root.style.top = `${bounds.top}px`;
+    this.root.style.width = `${bounds.width}px`;
+    this.root.style.height = `${bounds.height}px`;
+    document.body.append(this.root);
+    document.addEventListener("visibilitychange", this.onHidden);
+    window.addEventListener("pagehide", this.onPageHide);
+    window.addEventListener("resize", this.onResize);
+    try {
+      this.animations.push(this.mark.animate([
+        { transform: "scale(1)", filter: "brightness(1)" },
+        { transform: "scale(1.18)", filter: "brightness(1.14)" }
+      ], { duration: 180, easing: "cubic-bezier(.2,.7,.25,1)", fill: "both" }));
+      this.animations.push(this.root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: "ease-out", fill: "both" }));
+      if (this.copy !== null) this.animations.push(this.copy.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, fill: "both" }));
+      void Promise.all(this.animations.map((animation) => animation.finished)).then(() => this.dispose(), () => this.dispose());
+    } catch {
+      this.dispose();
+    }
+  }
+  /** Cancel on teardown/hidden/resize, including a prepared but unplayed exit. */
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const animation of this.animations) animation.cancel();
+    this.animations = [];
+    this.root.remove();
+    document.removeEventListener("visibilitychange", this.onHidden);
+    window.removeEventListener("pagehide", this.onPageHide);
+    window.removeEventListener("resize", this.onResize);
+  }
+};
+
+// src/startup/surface.ts
+var StartupSurface = class {
+  constructor(container, options) {
+    this.animations = [];
+    this.stopped = false;
+    this.failed = false;
+    this.onHidden = () => {
+      if (document.hidden) this.finish();
+    };
+    this.onPageHide = () => {
+      this.finish();
+    };
+    if (document.getElementById("xh-startup-style") === null) {
+      const style = document.createElement("style");
+      style.id = "xh-startup-style";
+      style.textContent = surface_raw_default;
+      document.head.append(style);
+    }
+    this.root = document.createElement("div");
+    this.root.dataset.xhStartup = "";
+    this.root.dataset.motion = "idle";
+    const cluster = document.createElement("div");
+    cluster.className = "xh-startup-cluster";
+    this.image = document.createElement("img");
+    this.image.className = "xh-startup-mark";
+    this.image.alt = "";
+    this.image.draggable = false;
+    this.image.src = `data:image/svg+xml,${encodeURIComponent(mark_default)}`;
+    if (options.intro && !document.hidden && typeof this.image.animate === "function") this.root.dataset.motion = "pending";
+    this.copy = document.createElement("div");
+    this.copy.className = "xh-startup-copy";
+    const title = document.createElement("h1");
+    title.textContent = "XHarness";
+    this.message = document.createElement("p");
+    this.message.className = "xh-startup-message";
+    this.message.setAttribute("role", "status");
+    this.message.setAttribute("aria-live", "polite");
+    this.message.textContent = options.message;
+    this.report = document.createElement("div");
+    this.report.className = "xh-startup-report";
+    this.report.setAttribute("role", "alert");
+    this.report.hidden = true;
+    this.copy.append(title, this.message, this.report);
+    cluster.append(this.image, this.copy);
+    this.root.append(cluster);
+    container.append(this.root);
+    if (options.intro) {
+      document.addEventListener("visibilitychange", this.onHidden);
+      window.addEventListener("pagehide", this.onPageHide);
+      const decoded = typeof this.image.decode === "function" ? this.image.decode() : Promise.resolve();
+      void decoded.catch(() => {
+      }).then(() => {
+        if (!this.stopped && this.root.isConnected && !document.hidden) this.play();
+        else this.finish();
+      });
+    }
+  }
+  /** A live specific failure takes precedence over generic transport errors. */
+  get hasFailed() {
+    return this.failed;
+  }
+  /** Native phases may update the message, but never overwrite a failure. */
+  setMessage(message) {
+    if (!this.failed) this.message.textContent = message;
+  }
+  /** A loader fiber may recover before boot fails; restore its original ABI.
+   * No entrance is replayed after a transient plugin failure. */
+  resetLoading(message) {
+    this.failed = false;
+    delete this.root.dataset.failed;
+    this.report.hidden = true;
+    this.report.replaceChildren();
+    this.message.textContent = message;
+  }
+  /** Activation counts are diagnostic data, not overall startup percentages. */
+  setProgress(active, total) {
+    this.root.dataset.loaded = String(active);
+    this.root.dataset.total = String(total);
+  }
+  /** Failure is terminal for this surface and cancels motion immediately. */
+  fail(title, details = []) {
+    this.finish();
+    this.handoff?.dispose();
+    this.handoff = void 0;
+    this.failed = true;
+    this.root.dataset.failed = "";
+    this.message.textContent = title;
+    this.report.replaceChildren();
+    for (const detail of details) {
+      const row = document.createElement("div");
+      row.textContent = detail;
+      this.report.append(row);
+    }
+    this.report.hidden = details.length === 0;
+  }
+  /** Cancel without delaying renderer handoff or changing the loading DOM. */
+  finish() {
+    this.stopped = true;
+    for (const animation of this.animations) animation.cancel();
+    this.animations = [];
+    this.root.dataset.motion = "idle";
+    document.removeEventListener("visibilitychange", this.onHidden);
+    window.removeEventListener("pagehide", this.onPageHide);
+  }
+  /** Freeze before hydration; keep only this small snapshot, never the app. */
+  prepareHandoff(container) {
+    this.finish();
+    this.handoff?.dispose();
+    this.handoff = void 0;
+    if (!this.failed && this.root.isConnected) {
+      try {
+        this.handoff = new StartupHandoff(this.root, container);
+      } catch {
+      }
+    }
+  }
+  /** The application is committed and clickable; the exit is purely visual. */
+  completeHandoff() {
+    if (!this.failed) this.handoff?.play();
+  }
+  dispose() {
+    this.finish();
+    this.handoff?.dispose();
+    this.handoff = void 0;
+    this.root.remove();
+  }
+  play() {
+    if (typeof this.image.animate !== "function") {
+      this.finish();
+      return;
+    }
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.root.dataset.motion = "playing";
+    const duration = reduced ? 120 : 480;
+    this.animations = [
+      this.image.animate(reduced ? [{ opacity: 0 }, { opacity: 1 }] : [
+        { offset: 0, transform: "scale(5)", filter: "brightness(1)", easing: "cubic-bezier(.18,.8,.2,1)" },
+        { offset: 0.82, transform: "scale(1)", filter: "brightness(1.42)", easing: "ease-out" },
+        { offset: 1, transform: "scale(1)", filter: "brightness(1)" }
+      ], { duration, fill: "both" }),
+      this.copy.animate(reduced ? [{ opacity: 0 }, { opacity: 1 }] : [
+        { offset: 0, opacity: 0 },
+        { offset: 0.58, opacity: 0 },
+        { offset: 1, opacity: 1 }
+      ], { duration, fill: "both" })
+    ];
+    void Promise.all(this.animations.map((animation) => animation.finished)).then(() => {
+      this.finish();
+    }).catch(() => {
+    });
+  }
 };
 
 // src/modules/platform/web/boot-page.ts
@@ -10816,18 +11113,15 @@ var BootPage = class {
     this.total = 0;
     this.root = div(boot_page_default.boot);
     this.root.dataset.dshBoot = "";
-    this.card = div(boot_page_default.card);
-    this.wordmark = div(boot_page_default.wordmark, "HARNESS");
-    this.spinner = div(boot_page_default.spinner);
-    this.spinner.dataset.dshBootSpinner = "";
-    this.hint = div(boot_page_default.hint, "Loading plugins\u2026");
-    this.card.append(this.wordmark, this.spinner, this.hint);
-    this.root.append(this.card);
     container.append(this.root);
+    this.surface = new StartupSurface(this.root, {
+      message: "\u6B63\u5728\u52A0\u8F7D\u754C\u9762\u2026",
+      intro: typeof window.__TAURI__?.core?.invoke !== "function"
+    });
     this.updateProgress();
   }
   /**
-   * Set the number of loader entries represented by the progress arc.
+   * Set the number of loader entries retained as diagnostic counts.
    * @param total - Complete boot roster size.
    */
   setTotal(total) {
@@ -10855,27 +11149,33 @@ var BootPage = class {
   }
   /** Detach the page before or after the UI renderer takes the mount point. */
   dispose() {
+    this.surface.dispose();
     this.root.remove();
+  }
+  /** Stop motion/listeners before hydration snapshots the framework-free DOM. */
+  finish() {
+    this.surface.finish();
+  }
+  /** Capture before hydration removes this DOM; do not start an exit yet. */
+  prepareHandoff(container) {
+    this.surface.prepareHandoff(container);
+  }
+  /** Only the UI renderer's actual commit can reveal the decorative exit. */
+  completeHandoff() {
+    this.surface.completeHandoff();
   }
   /** Redraw the state-dependent content below the wordmark. */
   render() {
     const failed = [...this.states].filter(([, state]) => state === "failed").map(([id]) => id);
     if (this.failure === void 0 && failed.length === 0) {
-      if (this.spinner.parentElement !== this.card) {
-        this.card.replaceChildren(this.wordmark, this.spinner, this.hint);
-      }
+      if (this.surface.hasFailed) this.surface.resetLoading("\u6B63\u5728\u52A0\u8F7D\u754C\u9762\u2026");
       return;
     }
-    const report = div(boot_page_default.failed);
-    report.append(div(boot_page_default.failedTitle, "Failed to load plugins"));
-    for (const id of failed) report.append(div(boot_page_default.failedItem, id));
-    if (this.failure !== void 0) report.append(div(boot_page_default.failedItem, this.failure));
-    this.card.replaceChildren(this.wordmark, report);
+    this.surface.fail("Failed to load plugins", [...failed, ...this.failure === void 0 ? [] : [this.failure]]);
   }
-  /** Grow the rotating arc monotonically as loader entries activate. */
+  /** Retain real loader counts without inventing an overall boot percentage. */
   updateProgress() {
-    const ratio = this.total === 0 ? 0 : Math.min(this.active.size / this.total, 1);
-    this.spinner.style.setProperty("--dsh-boot-arc", `${String(Math.round(72 + ratio * 216))}deg`);
+    this.surface.setProgress(this.active.size, this.total);
   }
 };
 
@@ -25408,7 +25708,7 @@ init_define_process_execArgv();
 
 // src/modules/platform/primitives/markdown/MarkdownText.tsx
 init_define_process_execArgv();
-var import_react20 = __toESM(require_react());
+var import_react22 = __toESM(require_react());
 
 // src/modules/platform/primitives/markdown/incremental.ts
 init_define_process_execArgv();
@@ -48359,7 +48659,7 @@ function parseStreamingMath(text6) {
 
 // src/modules/platform/primitives/markdown/render.tsx
 init_define_process_execArgv();
-var import_react19 = __toESM(require_react());
+var import_react20 = __toESM(require_react());
 
 // src/modules/platform/primitives/markdown/CodeBlock.tsx
 init_define_process_execArgv();
@@ -48465,14 +48765,75 @@ function renderTexToReact(value, displayMode) {
 // src/modules/platform/primitives/markdown/MarkdownText.module.css
 var MarkdownText_default = {
   markdown: "MarkdownText_markdown",
+  "stream-prose-in": "MarkdownText_stream-prose-in",
+  streamPiece: "MarkdownText_streamPiece",
   tableScroll: "MarkdownText_tableScroll",
   imageAlt: "MarkdownText_imageAlt",
   image: "MarkdownText_image",
   fileMention: "MarkdownText_fileMention"
 };
 
-// src/modules/platform/primitives/markdown/render.tsx
+// src/modules/platform/primitives/markdown/StreamText.tsx
+init_define_process_execArgv();
+var import_react19 = __toESM(require_react());
+
+// src/modules/platform/primitives/markdown/stream-presentation.ts
+init_define_process_execArgv();
+var STREAM_BATCH_MS = 50;
+var STREAM_FADE_MS = 150;
+var STREAM_BURST_LIMIT = 1024;
+var MAX_RECENT_BATCHES = 4;
+var StreamPresentation = class {
+  constructor(text6) {
+    this.frame = { text: text6, ranges: [] };
+  }
+  commit(text6, now, animate) {
+    const old = this.frame;
+    if (text6 === old.text && (animate || old.ranges.length === 0)) return old;
+    const appended = text6.length - old.text.length;
+    const ranges = animate && appended > 0 && appended <= STREAM_BURST_LIMIT && text6.startsWith(old.text) ? [...old.ranges.filter((range2) => now - range2.at < STREAM_FADE_MS), { start: old.text.length, end: text6.length, at: now }].slice(-MAX_RECENT_BATCHES) : [];
+    return this.frame = { text: text6, ranges };
+  }
+};
+function safeBoundary(text6, offset) {
+  if (offset === 0 || offset === text6.length) return true;
+  const before = text6.slice(0, offset).match(/.$/u)?.[0] ?? "";
+  const after = text6.slice(offset).match(/^./u)?.[0] ?? "";
+  return !(/[\uD800-\uDBFF]$/.test(before) && /^[\uDC00-\uDFFF]/.test(after)) && !/^[\p{M}\u200d\ufe0e\ufe0f\u{1f3fb}-\u{1f3ff}]/u.test(after) && before !== "\u200D" && !(/[\u{1f1e6}-\u{1f1ff}]/u.test(before) && /[\u{1f1e6}-\u{1f1ff}]/u.test(after));
+}
+function streamPieces(value, offset, frame, now, end = offset + value.length) {
+  const plain = [{ text: value, start: offset }];
+  if (offset < 0 || end - offset !== value.length || frame.text.slice(offset, end) !== value) return plain;
+  const ranges = frame.ranges.filter((range2) => range2.end > offset && range2.start < end && now - range2.at < STREAM_FADE_MS);
+  if (ranges.length === 0) return plain;
+  const pieces = [];
+  let cursor = offset;
+  for (const range2 of ranges) {
+    const start = Math.max(range2.start, offset);
+    const stop = Math.min(range2.end, end);
+    if (!safeBoundary(value, start - offset) || !safeBoundary(value, stop - offset)) return plain;
+    if (start > cursor) pieces.push({ text: value.slice(cursor - offset, start - offset), start: cursor });
+    pieces.push({ text: value.slice(start - offset, stop - offset), start, at: range2.at });
+    cursor = stop;
+  }
+  if (cursor < end) pieces.push({ text: value.slice(cursor - offset), start: cursor });
+  return pieces;
+}
+
+// src/modules/platform/primitives/markdown/StreamText.tsx
 var import_jsx_runtime25 = __toESM(require_jsx_runtime());
+function FadePiece({ text: text6, at }) {
+  const delay = (0, import_react19.useRef)(-Math.max(0, Date.now() - at));
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: MarkdownText_default.streamPiece, "data-xh-stream-piece": true, style: { animationDelay: `${delay.current}ms` }, children: text6 });
+}
+function renderStreamText(value, offset, end, frame) {
+  const pieces = streamPieces(value, offset, frame, Date.now(), end);
+  if (pieces.every((piece) => piece.at === void 0)) return value;
+  return pieces.map((piece) => piece.at === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: piece.text }, piece.start) : /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(FadePiece, { text: piece.text, at: piece.at }, piece.start));
+}
+
+// src/modules/platform/primitives/markdown/render.tsx
+var import_jsx_runtime26 = __toESM(require_jsx_runtime());
 function sanitizeUrl(url) {
   try {
     switch (new URL(url).protocol) {
@@ -48511,7 +48872,10 @@ function collectReferenceTargets(nodes, targets) {
   }
 }
 function renderBlocks(blocks, context) {
-  return blocks.map((block) => renderNode(block.node, block.key, context)).filter((element3) => element3 !== null);
+  return blocks.map((block) => renderNode(block.node, block.key, context.streamMotion === void 0 ? context : {
+    ...context,
+    sourceBase: block.key - (block.node.position?.start.offset ?? block.key)
+  })).filter((element3) => element3 !== null);
 }
 function wrapBlockChildren(elements, edges) {
   const wrapped = [];
@@ -48540,33 +48904,33 @@ function renderChildren(nodes, context) {
 function renderNode(node2, key2, context) {
   switch (node2.type) {
     case "text":
-      return node2.value;
+      return context.streamMotion === void 0 || node2.position?.start.offset === void 0 || node2.position.end.offset === void 0 ? node2.value : renderStreamText(node2.value, (context.sourceBase ?? 0) + node2.position.start.offset, (context.sourceBase ?? 0) + node2.position.end.offset, context.streamMotion);
     case "paragraph":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("p", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("p", { children: renderChildren(node2.children, context) }, key2);
     case "heading":
-      return (0, import_react19.createElement)(`h${node2.depth}`, { key: key2 }, ...renderChildren(node2.children, context));
+      return (0, import_react20.createElement)(`h${node2.depth}`, { key: key2 }, ...renderChildren(node2.children, context));
     case "blockquote":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("blockquote", { children: wrapBlockChildren(renderChildren(node2.children, context).filter((child) => child !== null), true) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("blockquote", { children: wrapBlockChildren(renderChildren(node2.children, context).filter((child) => child !== null), true) }, key2);
     case "thematicBreak":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("hr", {}, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("hr", {}, key2);
     case "break":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_react19.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("br", {}),
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(import_react20.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("br", {}),
         "\n"
       ] }, key2);
     case "strong":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("strong", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("strong", { children: renderChildren(node2.children, context) }, key2);
     case "emphasis":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("em", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("em", { children: renderChildren(node2.children, context) }, key2);
     case "delete":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("del", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("del", { children: renderChildren(node2.children, context) }, key2);
     case "inlineCode": {
       const value = node2.value.replace(/\r?\n|\r/g, " ");
       const href = inlineCodeHttpUrl(value);
-      if (href !== void 0) return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: renderSafeLink(href, [value], "link") }, key2);
+      if (href !== void 0) return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("code", { children: renderSafeLink(href, [value], "link") }, key2);
       const mention = context.inLink === true ? void 0 : context.fileMentions?.resolve(value);
       if (mention !== void 0) {
-        return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("code", { children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
           "button",
           {
             type: "button",
@@ -48578,22 +48942,22 @@ function renderNode(node2, key2, context) {
           }
         ) }, key2);
       }
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: value }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("code", { children: value }, key2);
     }
     case "html":
       return node2.value;
     case "code":
       return renderCode(node2, key2, context);
     case "math":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(node2.value, true) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: renderTexToReact(node2.value, true) }, key2);
     case "inlineMath":
-      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(node2.value, false) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: renderTexToReact(node2.value, false) }, key2);
     case "list":
       return renderList(node2, key2, context);
     case "listItem":
       return renderListItem(node2, listItemLoose(node2), key2, context);
     case "table":
-      return renderTable(node2, key2, context);
+      return renderTable(node2, key2, { ...context, streamMotion: void 0 });
     case "link":
       return renderAnchor(node2.url, renderChildren(node2.children, { ...context, inLink: true }), key2);
     case "linkReference":
@@ -48614,14 +48978,14 @@ function renderNode(node2, key2, context) {
 function renderCode(node2, key2, context) {
   const language = node2.lang ?? void 0;
   if (node2.value === "") {
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { className: language === void 0 ? void 0 : `language-${language}` }) }, key2);
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("code", { className: language === void 0 ? void 0 : `language-${language}` }) }, key2);
   }
   const lang = language === void 0 ? void 0 : /^[\w-]+/.exec(language)?.[0];
   if (!context.streaming && lang === "math") {
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(`${node2.value}
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: renderTexToReact(`${node2.value}
 `, true) }, key2);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
     CodeBlock,
     {
       code: `${node2.value}
@@ -48646,7 +49010,7 @@ function renderList(node2, key2, context) {
   if (node2.children.some((item) => typeof item.checked === "boolean")) {
     properties.className = "contains-task-list";
   }
-  return (0, import_react19.createElement)(
+  return (0, import_react20.createElement)(
     node2.ordered === true ? "ol" : "ul",
     { key: key2, ...properties },
     ...node2.children.map((item, index2) => renderListItem(item, loose, index2, context))
@@ -48656,7 +49020,7 @@ function renderListItem(item, loose, key2, context) {
   const entries = renderBlockEntries(item.children, context);
   const task = typeof item.checked === "boolean";
   if (task) {
-    const checkbox = /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("input", { type: "checkbox", checked: item.checked === true, disabled: true }, "task-checkbox");
+    const checkbox = /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("input", { type: "checkbox", checked: item.checked === true, disabled: true }, "task-checkbox");
     const head2 = entries[0];
     if (head2 !== void 0 && "paragraph" in head2) {
       head2.paragraph = head2.paragraph.length > 0 ? [checkbox, " ", ...head2.paragraph] : [checkbox];
@@ -48669,19 +49033,19 @@ function renderListItem(item, loose, key2, context) {
     const isParagraph = "paragraph" in entry;
     if (loose || index2 !== 0 || !isParagraph) parts.push("\n");
     if (!isParagraph) parts.push(entry.element);
-    else if (loose) parts.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)("p", { children: entry.paragraph }, `p-${index2}`));
-    else parts.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: entry.paragraph }, `p-${index2}`));
+    else if (loose) parts.push(/* @__PURE__ */ (0, import_jsx_runtime26.jsx)("p", { children: entry.paragraph }, `p-${index2}`));
+    else parts.push(/* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: entry.paragraph }, `p-${index2}`));
   }
   const tail = entries[entries.length - 1];
   if (tail !== void 0 && (loose || !("paragraph" in tail))) parts.push("\n");
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("li", { className: task ? "task-list-item" : void 0, children: parts }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("li", { className: task ? "task-list-item" : void 0, children: parts }, key2);
 }
 function renderTable(node2, key2, context) {
   const align = node2.align ?? null;
   const [headRow, ...bodyRows] = node2.children;
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { className: MarkdownText_default.tableScroll, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("table", { children: [
-    headRow !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("thead", { children: renderTableRow(headRow, "th", align, 0, context) }),
-    bodyRows.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("tbody", { children: bodyRows.map((row, index2) => renderTableRow(row, "td", align, index2 + 1, context)) })
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: MarkdownText_default.tableScroll, children: /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("table", { children: [
+    headRow !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("thead", { children: renderTableRow(headRow, "th", align, 0, context) }),
+    bodyRows.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("tbody", { children: bodyRows.map((row, index2) => renderTableRow(row, "td", align, index2 + 1, context)) })
   ] }) }, key2);
 }
 function renderTableRow(row, cellTag, align, key2, context) {
@@ -48690,7 +49054,7 @@ function renderTableRow(row, cellTag, align, key2, context) {
   for (let index2 = 0; index2 < length; index2++) {
     const cell = row.children[index2];
     const alignValue = align?.[index2];
-    cells2.push((0, import_react19.createElement)(
+    cells2.push((0, import_react20.createElement)(
       cellTag,
       // hast-util-to-jsx-runtime's default tableCellAlignToStyle turned the
       // deprecated align attribute into an inline style; keep that DOM.
@@ -48698,13 +49062,13 @@ function renderTableRow(row, cellTag, align, key2, context) {
       ...cell === void 0 ? [] : renderChildren(cell.children, context)
     ));
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("tr", { children: cells2 }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("tr", { children: cells2 }, key2);
 }
 function renderSafeLink(href, children, key2) {
   const safeHref2 = sanitizeUrl(href);
-  if (safeHref2 === "") return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children }, key2);
+  if (safeHref2 === "") return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children }, key2);
   const external = ["http:", "https:"].includes(new URL(safeHref2).protocol);
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
     "a",
     {
       href: safeHref2,
@@ -48729,9 +49093,9 @@ function inlineCodeHttpUrl(value) {
 function renderImage(url, alt, key2) {
   const imageSrc = remoteImageUrl(sanitizeUrl(normalizeUri(url)));
   if (imageSrc === void 0) {
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: MarkdownText_default.imageAlt, children: alt }, key2);
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("span", { className: MarkdownText_default.imageAlt, children: alt }, key2);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
     "img",
     {
       className: MarkdownText_default.image,
@@ -48752,7 +49116,7 @@ function referenceSuffix(node2) {
 function renderLinkReference(node2, key2, context) {
   const definition2 = context.targets.definitions.get(node2.identifier.toUpperCase());
   if (definition2 === void 0) {
-    return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_react19.Fragment, { children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(import_react20.Fragment, { children: [
       "[",
       renderChildren(node2.children, context),
       referenceSuffix(node2)
@@ -48770,7 +49134,7 @@ function renderFootnoteReference(node2, key2, context) {
   const seen = context.footnoteCounts.get(id);
   if (seen === void 0) context.footnoteOrder.push(id);
   context.footnoteCounts.set(id, (seen ?? 0) + 1);
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("sup", { children: String(context.footnoteOrder.indexOf(id) + 1) }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("sup", { children: String(context.footnoteOrder.indexOf(id) + 1) }, key2);
 }
 function renderFootnoteSection(context) {
   const items = [];
@@ -48782,31 +49146,82 @@ function renderFootnoteSection(context) {
     for (let reference = 1; reference <= count; reference++) {
       if (backrefs.length > 0) backrefs.push(" ");
       backrefs.push("\u21A9");
-      if (reference > 1) backrefs.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)("sup", { children: String(reference) }, `re-${reference}`));
+      if (reference > 1) backrefs.push(/* @__PURE__ */ (0, import_jsx_runtime26.jsx)("sup", { children: String(reference) }, `re-${reference}`));
     }
     const entries = renderBlockEntries(definition2.children, context);
     const tail = entries[entries.length - 1];
-    const body3 = entries.map((entry, index2) => "paragraph" in entry ? /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("p", { children: [
+    const body3 = entries.map((entry, index2) => "paragraph" in entry ? /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("p", { children: [
       entry.paragraph,
-      entry === tail && /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_jsx_runtime25.Fragment, { children: [
+      entry === tail && /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(import_jsx_runtime26.Fragment, { children: [
         " ",
         backrefs
       ] })
     ] }, `p-${index2}`) : entry.element);
     if (tail === void 0 || !("paragraph" in tail)) body3.push(...backrefs);
     items.push(
-      /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("li", { id: `user-content-fn-${normalizeUri(id.toLowerCase())}`, children: wrapBlockChildren(body3, true) }, id)
+      /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("li", { id: `user-content-fn-${normalizeUri(id.toLowerCase())}`, children: wrapBlockChildren(body3, true) }, id)
     );
   }
   if (items.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("section", { "data-footnotes": true, className: "footnotes", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("h2", { id: "footnote-label", className: "sr-only", children: "Footnotes" }),
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("ol", { children: items })
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("section", { "data-footnotes": true, className: "footnotes", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("h2", { id: "footnote-label", className: "sr-only", children: "Footnotes" }),
+    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("ol", { children: items })
   ] }, "footnotes");
 }
 
+// src/modules/platform/primitives/markdown/use-stream-presentation.ts
+init_define_process_execArgv();
+var import_react21 = __toESM(require_react());
+function useStreamPresentation(text6, enabled) {
+  const model = (0, import_react21.useRef)(null);
+  if (model.current === null) model.current = new StreamPresentation(text6);
+  const [frame, setFrame] = (0, import_react21.useState)(model.current.frame);
+  const latest = (0, import_react21.useRef)({ text: text6, enabled });
+  latest.current = { text: text6, enabled };
+  const timer = (0, import_react21.useRef)(null);
+  const reduced = (0, import_react21.useRef)(false);
+  const alive = (0, import_react21.useRef)(false);
+  const flush = (animate) => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    if (!alive.current || model.current === null) return;
+    const next = model.current.commit(latest.current.text, Date.now(), animate);
+    setFrame(next);
+  };
+  (0, import_react21.useLayoutEffect)(() => {
+    alive.current = true;
+    if (!enabled) return () => {
+      alive.current = false;
+    };
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    reduced.current = media?.matches === true;
+    const bypass = () => {
+      reduced.current = media?.matches === true;
+      flush(false);
+    };
+    document.addEventListener("visibilitychange", bypass);
+    media?.addEventListener("change", bypass);
+    return () => {
+      alive.current = false;
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+      document.removeEventListener("visibilitychange", bypass);
+      media?.removeEventListener("change", bypass);
+    };
+  }, [enabled]);
+  (0, import_react21.useLayoutEffect)(() => {
+    const previous4 = model.current?.frame.text ?? "";
+    if (!enabled || document.hidden || reduced.current || !text6.startsWith(previous4) || text6.length - previous4.length > STREAM_BURST_LIMIT) {
+      flush(false);
+    } else if (text6 !== previous4 && timer.current === null) {
+      timer.current = setTimeout(() => flush(latest.current.enabled && !document.hidden && !reduced.current), STREAM_BATCH_MS);
+    }
+  }, [text6, enabled]);
+  return !enabled || !text6.startsWith(frame.text) || text6.length - frame.text.length > STREAM_BURST_LIMIT ? { text: text6, ranges: [] } : frame;
+}
+
 // src/modules/platform/primitives/markdown/MarkdownText.tsx
-var import_jsx_runtime26 = __toESM(require_jsx_runtime());
+var import_jsx_runtime27 = __toESM(require_jsx_runtime());
 function renderSettled(text6, codeLabels, fileMentions) {
   const root2 = parseGfmWithMath(text6);
   const targets = createReferenceTargets();
@@ -48846,8 +49261,8 @@ var StreamingRenderer = class {
    * @param text - The full accumulated markdown source.
    * @returns Frozen elements, re-rendered tail, and the footnote section.
    */
-  render(text6) {
-    if (text6 === this.lastText) return this.lastRendered;
+  render(text6, motion) {
+    if (text6 === this.lastText && motion === this.lastMotion) return this.lastRendered;
     const { frozen, tail, generation } = this.parser.update(text6);
     if (generation !== this.generation) {
       this.generation = generation;
@@ -48882,6 +49297,7 @@ var StreamingRenderer = class {
       this.frozenCount = frozen.length;
     }
     const tailContext = {
+      streamMotion: motion,
       streaming: true,
       codeLabels: this.codeLabels,
       fileMentions: void 0,
@@ -48897,14 +49313,18 @@ var StreamingRenderer = class {
     const section = renderFootnoteSection(tailContext);
     if (section !== null) children.push("\n", section);
     this.lastText = text6;
+    this.lastMotion = motion;
     this.lastRendered = children;
     return this.lastRendered;
   }
 };
-var MarkdownText = (0, import_react20.memo)(function MarkdownText2({ text: text6, streaming = false, codeLabels, fileMentions }) {
-  const streamRef = (0, import_react20.useRef)(null);
-  const streamLabelsRef = (0, import_react20.useRef)(codeLabels);
-  const children = (0, import_react20.useMemo)(() => {
+var MarkdownText = (0, import_react22.memo)(function MarkdownText2({ text: text6, streaming = false, smoothStreaming = false, codeLabels, fileMentions }) {
+  const streamRef = (0, import_react22.useRef)(null);
+  const streamLabelsRef = (0, import_react22.useRef)(codeLabels);
+  const frame = useStreamPresentation(text6, streaming && smoothStreaming);
+  const visibleText = smoothStreaming && streaming ? frame.text : text6;
+  const motion = smoothStreaming && streaming ? frame : void 0;
+  const children = (0, import_react22.useMemo)(() => {
     if (!streaming) {
       streamRef.current = null;
       return renderSettled(text6, codeLabels, fileMentions);
@@ -48913,9 +49333,9 @@ var MarkdownText = (0, import_react20.memo)(function MarkdownText2({ text: text6
       streamRef.current = new StreamingRenderer(codeLabels);
       streamLabelsRef.current = codeLabels;
     }
-    return streamRef.current.render(text6);
-  }, [text6, streaming, codeLabels, fileMentions]);
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: MarkdownText_default.markdown, children });
+    return streamRef.current.render(visibleText, motion);
+  }, [visibleText, streaming, motion, codeLabels, fileMentions]);
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: MarkdownText_default.markdown, "data-xh-stream-owned": smoothStreaming || void 0, children });
 });
 
 // src/modules/platform/primitives/WebBlock.module.css
@@ -48936,7 +49356,7 @@ var WebBlock_default = {
 };
 
 // src/modules/platform/primitives/WebBlock.tsx
-var import_jsx_runtime27 = __toESM(require_jsx_runtime());
+var import_jsx_runtime28 = __toESM(require_jsx_runtime());
 function safeHref(url) {
   try {
     const { protocol } = new URL(url);
@@ -48956,43 +49376,43 @@ function linkLabel(url, title) {
 }
 function SafeLink({ url, label, className }) {
   const href = safeHref(url);
-  if (href === void 0) return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className, children: label });
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("a", { className, href, target: "_blank", rel: "noopener noreferrer", children: label });
+  if (href === void 0) return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className, children: label });
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("a", { className, href, target: "_blank", rel: "noopener noreferrer", children: label });
 }
 function SourceItem({ source, ordinal }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("li", { className: WebBlock_default.source, value: ordinal, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SafeLink, { url: source.url, label: linkLabel(source.url, source.title), className: WebBlock_default.sourceLink }),
-    source.snippet !== void 0 && source.snippet !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.snippet, children: source.snippet }),
-    source.publishedAt !== void 0 && source.publishedAt !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.published, children: source.publishedAt })
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("li", { className: WebBlock_default.source, value: ordinal, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SafeLink, { url: source.url, label: linkLabel(source.url, source.title), className: WebBlock_default.sourceLink }),
+    source.snippet !== void 0 && source.snippet !== "" && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.snippet, children: source.snippet }),
+    source.publishedAt !== void 0 && source.publishedAt !== "" && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.published, children: source.publishedAt })
   ] });
 }
 function WebSearchBlock({ answer, sources, truncated, className }) {
   const empty3 = (answer === void 0 || answer === "") && sources.length === 0;
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: clsx_default(WebBlock_default.block, className), "data-web": "search", children: [
-    answer !== void 0 && answer !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.answer, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(MarkdownText, { text: answer }) }),
-    empty3 ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.empty, children: "\u672A\u627E\u5230\u7ED3\u679C" }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("ol", { className: WebBlock_default.sources, children: sources.map((source, index2) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SourceItem, { source, ordinal: index2 + 1 }, index2)) }),
-    truncated && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.truncated, children: "\u6765\u6E90\u5217\u8868\u5DF2\u622A\u65AD" })
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: clsx_default(WebBlock_default.block, className), "data-web": "search", children: [
+    answer !== void 0 && answer !== "" && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.answer, children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(MarkdownText, { text: answer }) }),
+    empty3 ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.empty, children: "\u672A\u627E\u5230\u7ED3\u679C" }) : /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("ol", { className: WebBlock_default.sources, children: sources.map((source, index2) => /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SourceItem, { source, ordinal: index2 + 1 }, index2)) }),
+    truncated && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: WebBlock_default.truncated, children: "\u6765\u6E90\u5217\u8868\u5DF2\u622A\u65AD" })
   ] });
 }
 function WebFetchBlock({ url, statusCode, truncated, className }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: clsx_default(WebBlock_default.block, WebBlock_default.fetch, className), "data-web": "fetch", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SafeLink, { url, label: url, className: WebBlock_default.fetchUrl }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: WebBlock_default.fetchMeta, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("span", { className: WebBlock_default.status, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: clsx_default(WebBlock_default.block, WebBlock_default.fetch, className), "data-web": "fetch", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SafeLink, { url, label: url, className: WebBlock_default.fetchUrl }),
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: WebBlock_default.fetchMeta, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("span", { className: WebBlock_default.status, children: [
         "HTTP ",
         statusCode
       ] }),
-      truncated && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: WebBlock_default.truncated, children: "\u5185\u5BB9\u5DF2\u622A\u65AD" })
+      truncated && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("span", { className: WebBlock_default.truncated, children: "\u5185\u5BB9\u5DF2\u622A\u65AD" })
     ] })
   ] });
 }
 function WebBlock(props) {
-  return props.kind === "search" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(WebSearchBlock, { ...props }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(WebFetchBlock, { ...props });
+  return props.kind === "search" ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(WebSearchBlock, { ...props }) : /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(WebFetchBlock, { ...props });
 }
 
 // src/modules/platform/primitives/markdown/JsonBlock.tsx
 init_define_process_execArgv();
-var import_react21 = __toESM(require_react());
+var import_react23 = __toESM(require_react());
 
 // src/modules/platform/primitives/markdown/JsonBlock.module.css
 var JsonBlock_default = {
@@ -49002,14 +49422,14 @@ var JsonBlock_default = {
 };
 
 // src/modules/platform/primitives/markdown/JsonBlock.tsx
-var import_jsx_runtime28 = __toESM(require_jsx_runtime());
+var import_jsx_runtime29 = __toESM(require_jsx_runtime());
 var MAX_CHARS = 2e4;
 function defaultTruncatedLabel(total) {
   return `\u2026 \u5DF2\u622A\u65AD\uFF0C\u5171 ${total} \u5B57\u7B26`;
 }
 function JsonBlock({ label, payload, defaultOpen = false, truncatedLabel = defaultTruncatedLabel }) {
-  const [open2, setOpen] = (0, import_react21.useState)(defaultOpen);
-  const body3 = (0, import_react21.useMemo)(() => {
+  const [open2, setOpen] = (0, import_react23.useState)(defaultOpen);
+  const body3 = (0, import_react23.useMemo)(() => {
     if (!open2) return "";
     let s2;
     try {
@@ -49020,15 +49440,15 @@ function JsonBlock({ label, payload, defaultOpen = false, truncatedLabel = defau
     return s2.length > MAX_CHARS ? `${s2.slice(0, MAX_CHARS)}
 ${truncatedLabel(s2.length)}` : s2;
   }, [open2, payload, truncatedLabel]);
-  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: JsonBlock_default.root, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("button", { type: "button", className: JsonBlock_default.toggle, onClick: () => {
+  return /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("div", { className: JsonBlock_default.root, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)("button", { type: "button", className: JsonBlock_default.toggle, onClick: () => {
       setOpen((v2) => !v2);
     }, children: [
       open2 ? "\u25BE" : "\u25B8",
       " ",
       label
     ] }),
-    open2 && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("pre", { className: JsonBlock_default.body, children: body3 })
+    open2 && /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("pre", { className: JsonBlock_default.body, children: body3 })
   ] });
 }
 
@@ -49041,9 +49461,9 @@ var MessageText_default = {
 };
 
 // src/modules/platform/primitives/markdown/MessageText.tsx
-var import_jsx_runtime29 = __toESM(require_jsx_runtime());
+var import_jsx_runtime30 = __toESM(require_jsx_runtime());
 function MessageText({ text: text6 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("div", { className: MessageText_default.text, children: text6 });
+  return /* @__PURE__ */ (0, import_jsx_runtime30.jsx)("div", { className: MessageText_default.text, children: text6 });
 }
 
 // src/modules/platform/primitives/markdown/plain-text.ts
@@ -49193,6 +49613,7 @@ var AppWebEntry = class {
       const ctx = new Context();
       this.ctx = ctx;
       await this.runPluginBoot(ctx, modules, prefetching);
+      this.page.prepareHandoff(this.container);
       await this.mountApp(ctx);
     } catch (reason) {
       console.error(reason);
@@ -49211,7 +49632,7 @@ var AppWebEntry = class {
     const mounted = ctx.inject(["uiRenderer"], (scope) => {
       const renderer = scope.get("uiRenderer");
       if (!isUiRenderer(renderer)) throw new Error("web boot: uiRenderer service has no mount operation");
-      scope.effect(() => renderer.mount(this.container), "web boot: application mount");
+      scope.effect(() => renderer.mount(this.container, () => this.page.completeHandoff()), "web boot: application mount");
     });
     await mounted;
   }
@@ -49273,4 +49694,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-7ZVBPEQN.js.map
+//# sourceMappingURL=platform-DNW6QTCN.js.map

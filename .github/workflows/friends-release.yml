@@ -20,6 +20,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 60
     env:
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
       XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
     defaults:
       run:
@@ -76,11 +77,11 @@ jobs:
         run: |
           cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
           if ($LASTEXITCODE) { throw 'Host build failed' }
-          python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe x86_64-pc-windows-msvc
+          python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-host.exe x86_64-pc-windows-msvc
           if ($LASTEXITCODE) { throw 'Host stage failed' }
           python scripts/stage-tauri-sidecar.py "$env:XHARNESS_RG" x86_64-pc-windows-msvc --name rg
           if ($LASTEXITCODE) { throw 'rg stage failed' }
-          python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
+          python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
           if ($LASTEXITCODE) { throw 'ACL runner stage failed' }
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           if ($LASTEXITCODE) { throw 'Desktop tests failed' }
@@ -109,6 +110,8 @@ jobs:
             $installer = "apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/XHarness_${version}_x64-setup.exe"
             node scripts/verify-updater-package.mjs $installer "$installer.sig" "$output/updater.pub"
             if ($LASTEXITCODE) { throw 'Independent installer verification failed' }
+            python -B scripts/audit-windows-runtime.py --installer $installer --expected-desktop apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe --sidecars apps/desktop/src-tauri/binaries --output "dist/windows-runtime-audit/$version.json"
+            if ($LASTEXITCODE) { throw 'Final friends installer dependency audit failed' }
             Copy-Item -LiteralPath $installer,"$installer.sig" -Destination $output
           }
           python scripts/friends-release.py manifest $env:GITHUB_REF_NAME $output
@@ -128,7 +131,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Final manifest generation failed' }
       - name: Native signed installer ownership and crash acceptance
         run: |
-          ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path "dist/friends-windows/XHarness_$($env:RELEASE_VERSION)_x64-setup.exe").Path
+          ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path "dist/friends-windows/XHarness_$($env:RELEASE_VERSION)_x64-setup.exe").Path -RuntimeAudit "dist/windows-runtime-audit/$($env:RELEASE_VERSION).json"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

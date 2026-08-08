@@ -413,6 +413,10 @@ impl BasicHost {
                                 matches!(event.data(), EventData::SessionForkOrigin { .. })
                             })
                             .then(|| "fork".to_owned())
+                    })
+                    .or_else(|| {
+                        crate::automation::restored_origin(&session)
+                            .then(|| "automation".to_owned())
                     }),
                 cwd: cwd.clone(),
                 agent_preset: restored_agent_preset(&session),

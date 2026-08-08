@@ -40,7 +40,8 @@ def archive_fixture(path, source='a' * 40):
 class Symbols(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('XHARNESS_TEST_NATIVE_SYMBOLS') == '1', 'native build artifacts required (CI only)')
     def test_actual_windows_test_binary_matches_its_pdb(self):
-        directory = Path(__file__).parents[1] / 'target/debug/deps'
+        target = os.environ.get('CARGO_BUILD_TARGET', '')
+        directory = Path(__file__).parents[1] / 'target' / target / 'debug/deps'
         pairs = [(exe, exe.with_suffix('.pdb')) for exe in directory.glob('xharness_win32-*.exe') if exe.with_suffix('.pdb').is_file()]
         self.assertTrue(pairs, 'native Rust test EXE/PDB pair missing')
         for exe, pdb in pairs:

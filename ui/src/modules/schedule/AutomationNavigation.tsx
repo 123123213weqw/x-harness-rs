@@ -45,7 +45,8 @@ export function AutomationPage({openSession, service}: {openSession(id: string):
       {!pending && !failure && catalog.entries.length === 0 && <p>{catalog.incompleteSessions ? (zh ? '暂无已加载的自动化任务' : 'No loaded automations') : (zh ? '暂无自动化任务' : 'No automations yet')}</p>}
       {!pending && !failure && catalog.incompleteSessions > 0 && <p className="xhauto-muted">{zh ? '部分会话的提醒尚未加载；打开原会话后刷新。' : 'Some chats have not loaded reminders yet. Open those chats, then refresh.'}</p>}
       {catalog.entries.map(({sessionId, sessionTitle, record}) => <article key={JSON.stringify([sessionId, record.id])} className="xhauto-row">
-        <p>{record.prompt}</p><div className="xhauto-muted">{new Date(record.scheduledAt).toLocaleString(document.documentElement.lang)}{record.kind === 'every' ? (record.everySeconds ? ` · ${zh ? '每' : 'Every '}${record.everySeconds}${zh ? '秒' : 's'}` : (zh ? ' · 重复周期未知' : ' · Repeat interval unavailable')) : ''}</div>
+        <p>{record.prompt}</p><div className="xhauto-muted">
+          {record.automation !== undefined && <span>{record.automation.mode === 'task' ? (zh ? '执行任务' : 'Task') : (zh ? '提醒' : 'Reminder')} · {record.automation.target === 'new_chat' ? (zh ? '独立聊天' : 'New chat') : (zh ? '原聊天' : 'Current chat')} · {record.automation.paused ? (zh ? '已暂停' : 'Paused') : (zh ? '已启用' : 'Active')} · </span>}{new Date(record.scheduledAt).toLocaleString(document.documentElement.lang)}{record.kind === 'every' ? (record.everySeconds ? ` · ${zh ? '每' : 'Every '}${record.everySeconds}${zh ? '秒' : 's'}` : (zh ? ' · 重复周期未知' : ' · Repeat interval unavailable')) : ''}</div>
         <button type="button" onClick={() => openSession(sessionId)}>{sessionTitle}</button>
       </article>)}
     </div>

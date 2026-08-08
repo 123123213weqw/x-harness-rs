@@ -5,11 +5,16 @@
 //! rule or delivers an overdue rule. Delivery enters the ordinary durable
 //! Agent inbox only at an idle actor boundary.
 
+mod automation;
+#[cfg(test)]
+mod automation_tests;
+pub use automation::{AutomationCommand, AutomationTargetProvider};
+
 use std::{
     collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
     time::Duration,
 };
@@ -23,24 +28,28 @@ use tokio::sync::{broadcast, Mutex, Notify, RwLock};
 use tokio_util::sync::CancellationToken;
 use xharness_agent::{AgentCommandError, AgentEvent, DurableAgentHandle};
 use xharness_session::{
-    EventData, InboxMessage, Message, ScheduleChange, ScheduleKind, ScheduleRecord, Session,
-    SessionEvent, Store, StoreError,
+    AutomationMode, AutomationRun, AutomationTarget, EventData, InboxMessage, Message,
+    ScheduleChange, ScheduleKind, ScheduleRecord, Session, SessionEvent, Store, StoreError,
 };
-use xharness_tools::{
-    ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolHandlerError, ToolOutput, ToolSpec,
-};
+use xharness_tools::{ToolConcurrency, ToolDefinition, ToolHandlerError, ToolOutput, ToolSpec};
+
+#[cfg(test)]
+use xharness_tools::ToolExecutionContext;
 
 pub const MIN_EVERY_INTERVAL_SECONDS: u64 = 300;
 pub const MAX_TIMER_DELAY_MS: u64 = 2_147_483_647;
 const MAX_CAS_RETRIES: usize = 16;
 const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
+// Independent runs can have large journals. A five-minute-or-longer interval
+// does not justify replaying that journal every second while it is still busy.
+const RUN_SETTLEMENT_RECHECK_MS: i64 = 30_000;
 
 /// Whether a validated Session owns at least one active Schedule rule.
 /// Hosts use this during startup so timer-only sessions are activated even
 /// when their ordinary durable inbox is empty.
 pub fn has_active_schedules(session: &Session) -> Result<bool, String> {
     fold_schedule_events(session)
-        .map(|folded| !folded.active.is_empty())
+        .map(|folded| folded.active.iter().any(|r| !automation::paused(r)))
         .map_err(|error| error.to_string())
 }
 
@@ -82,6 +91,9 @@ enum ScheduleError {
 struct FoldedSchedules {
     active: Vec<ScheduleRecord>,
     seen_ids: HashSet<String>,
+    runs: Vec<AutomationRun>,
+    pending_runs: Vec<(AutomationRun, Option<String>)>,
+    cancelled_runs: Vec<AutomationRun>,
 }
 
 #[derive(Clone, Debug)]
@@ -103,7 +115,7 @@ enum DueDecision {
 enum DriveAction {
     Continue,
     Wait(Option<i64>, DurableAgentHandle),
-    Busy(DurableAgentHandle),
+    Busy(DurableAgentHandle, Option<i64>),
     Dormant,
 }
 
@@ -130,6 +142,7 @@ pub struct ScheduleManager {
     deliveries: Arc<Mutex<HashMap<(String, String), PreparedScheduleDelivery>>>,
     delivery_tx: broadcast::Sender<ScheduleDeliveryNotice>,
     closed: AtomicBool,
+    targets: Arc<OnceLock<Arc<dyn AutomationTargetProvider>>>,
 }
 
 struct ScheduleOwner {
@@ -144,8 +157,11 @@ struct ScheduleOwner {
     /// A follow-up may already be durable when its dispatch marker cannot be
     /// appended. Retry only the marker; never enqueue the same reminder again.
     pending_dispatches: Mutex<Option<Vec<ScheduleChange>>>,
+    /// Per-reservation retry deadlines; never let one target starve other rules.
+    preparation_retries: Mutex<HashMap<String, (u32, i64)>>,
     deliveries: Arc<Mutex<HashMap<(String, String), PreparedScheduleDelivery>>>,
     delivery_tx: broadcast::Sender<ScheduleDeliveryNotice>,
+    targets: Arc<OnceLock<Arc<dyn AutomationTargetProvider>>>,
 }
 
 impl ScheduleManager {
@@ -158,6 +174,7 @@ impl ScheduleManager {
             deliveries: Arc::new(Mutex::new(HashMap::new())),
             delivery_tx,
             closed: AtomicBool::new(false),
+            targets: Arc::new(OnceLock::new()),
         })
     }
 
@@ -171,6 +188,7 @@ impl ScheduleManager {
             deliveries: Arc::new(Mutex::new(HashMap::new())),
             delivery_tx,
             closed: AtomicBool::new(false),
+            targets: Arc::new(OnceLock::new()),
         })
     }
 
@@ -191,8 +209,10 @@ impl ScheduleManager {
                     stop: CancellationToken::new(),
                     task: Mutex::new(None),
                     pending_dispatches: Mutex::new(None),
+                    preparation_retries: Mutex::new(HashMap::new()),
                     deliveries: Arc::clone(&self.deliveries),
                     delivery_tx: self.delivery_tx.clone(),
+                    targets: Arc::clone(&self.targets),
                 })
             }),
         ))
@@ -266,17 +286,21 @@ impl ScheduleManager {
         Ok(())
     }
 
-    /// Build the three upstream-compatible model-facing management tools for
-    /// one exact durable session.
+    /// Register a single model-visible adapter. Old event logs remain readable;
+    /// legacy tool names are deliberately not projected into new requests.
     pub fn specs(self: &Arc<Self>, session_id: impl Into<String>) -> Vec<ToolSpec> {
-        let session_id = Arc::<str>::from(session_id.into());
+        vec![self.automation_spec(Arc::<str>::from(session_id.into()))]
+    }
+    #[cfg(test)]
+    fn legacy_specs(self: &Arc<Self>, session_id: &str) -> Vec<ToolSpec> {
+        let id = Arc::<str>::from(session_id);
         vec![
-            self.schedule_create_spec(Arc::clone(&session_id)),
-            self.schedule_list_spec(Arc::clone(&session_id)),
-            self.schedule_delete_spec(session_id),
+            self.schedule_create_spec(id.clone()),
+            self.schedule_list_spec(id.clone()),
+            self.schedule_delete_spec(id),
         ]
     }
-
+    #[cfg(test)]
     fn schedule_create_spec(self: &Arc<Self>, session_id: Arc<str>) -> ToolSpec {
         let manager = Arc::clone(self);
         ToolSpec::new(
@@ -327,6 +351,7 @@ impl ScheduleManager {
         .with_timeout(TOOL_TIMEOUT)
     }
 
+    #[cfg(test)]
     fn schedule_list_spec(self: &Arc<Self>, session_id: Arc<str>) -> ToolSpec {
         let manager = Arc::clone(self);
         ToolSpec::new(
@@ -350,6 +375,7 @@ impl ScheduleManager {
         .with_timeout(TOOL_TIMEOUT)
     }
 
+    #[cfg(test)]
     fn schedule_delete_spec(self: &Arc<Self>, session_id: Arc<str>) -> ToolSpec {
         let manager = Arc::clone(self);
         ToolSpec::new(
@@ -379,6 +405,7 @@ impl ScheduleManager {
         .with_timeout(TOOL_TIMEOUT)
     }
 
+    #[cfg(test)]
     async fn create_value(&self, session_id: &str, prompt: String, selector: Selector) -> Value {
         let owner = match self.owner(session_id).await {
             Ok(owner) => owner,
@@ -428,6 +455,7 @@ impl ScheduleManager {
         internal_error(ScheduleError::Contended)
     }
 
+    #[cfg(test)]
     async fn list_value(&self, session_id: &str) -> Value {
         let owner = match self.owner(session_id).await {
             Ok(owner) => owner,
@@ -454,6 +482,7 @@ impl ScheduleManager {
         )
     }
 
+    #[cfg(test)]
     async fn delete_value(&self, session_id: &str, id: String) -> Value {
         if id.is_empty() || id.trim() != id {
             return public_error(
@@ -550,11 +579,19 @@ impl ScheduleOwner {
                         _ = self.notify.notified() => {}
                     }
                 }
-                DriveAction::Busy(handle) => {
+                DriveAction::Busy(handle, deadline) => {
                     tokio::select! {
                         _ = self.stop.cancelled() => return,
                         _ = self.notify.notified() => {},
                         _ = handle.when_idle() => {},
+                        _ = async {
+                            if let Some(deadline) = deadline {
+                                let delay = deadline.saturating_sub(self.clock.now_ms()).clamp(1, MAX_TIMER_DELAY_MS as i64);
+                                tokio::time::sleep(Duration::from_millis(delay as u64)).await;
+                            } else {
+                                std::future::pending::<()>().await;
+                            }
+                        } => {},
                     }
                 }
                 DriveAction::Wait(target, handle) => {
@@ -615,83 +652,264 @@ impl ScheduleOwner {
             Err(_) => return DriveAction::Dormant,
         };
         let now = self.clock.now_ms();
-        let decision = match due_decision(&folded, now) {
-            Ok(decision) => decision,
-            Err(_) => return DriveAction::Dormant,
-        };
-        let (message, changes) = match decision {
-            DueDecision::Wait(target) => return DriveAction::Wait(target, handle),
-            DueDecision::OneShot(record) => {
-                let message = reminder_message(&self.session_id, &record, &record.scheduled_at);
-                let change = ScheduleChange::Dispatch {
-                    version: 1,
-                    id: record.id,
-                    accepted_at: None,
+        if let Some(targets) = self.targets.get() {
+            if targets.check_source(&self.session_id).await.is_err() {
+                // Archived/parked sources are not storage failures. Do not hot
+                // poll a long journal; attachment/mutations notify immediately.
+                return DriveAction::Wait(Some(now.saturating_add(30_000)), handle);
+            }
+        }
+        let mut eligible = folded.clone();
+        let mut blocked = false;
+        let mut current_chat_busy = false;
+        // New-chat runs can outlive their source worker's idle status. Never
+        // infer success from dispatch or overlap the same automation's runs.
+        for record in &folded.active {
+            if automation::paused(record)
+                || parse_canonical_instant(&record.scheduled_at).is_ok_and(|at| at > now)
+            {
+                continue;
+            }
+            if handle.status() != xharness_agent::AgentStatus::Idle
+                && record
+                    .automation
+                    .as_ref()
+                    .map(|a| a.target)
+                    .unwrap_or_default()
+                    == AutomationTarget::CurrentChat
+            {
+                // Waiting for this chat must not starve an independent task.
+                eligible.active.retain(|r| r.id != record.id);
+                current_chat_busy = true;
+                continue;
+            }
+            if let Some(run) = folded
+                .runs
+                .iter()
+                .rev()
+                .find(|r| r.schedule_id == record.id)
+            {
+                if !automation::terminal(automation::run_state(&self.store, run).await) {
+                    eligible.active.retain(|r| r.id != record.id);
+                    blocked = true;
+                }
+            }
+        }
+        let mut retries = self.preparation_retries.lock().await;
+        retries.retain(|id, _| folded.pending_runs.iter().any(|(run, _)| &run.run_id == id));
+        let mut retry_at: Option<i64> = None;
+        let pending = folded
+            .pending_runs
+            .iter()
+            .find(|(run, _)| {
+                let Some(record) = eligible.active.iter().find(|r| r.id == run.schedule_id) else {
+                    return false;
                 };
-                (message, vec![change])
+                if automation::paused(record) {
+                    return false;
+                }
+                if let Some((_, deadline)) = retries.get(&run.run_id) {
+                    if *deadline > now {
+                        retry_at = Some(retry_at.unwrap_or(i64::MAX).min(*deadline));
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned();
+        drop(retries);
+        // A reserved occurrence must not be reserved a second time while cooling down.
+        eligible.active.retain(|record| {
+            !folded
+                .pending_runs
+                .iter()
+                .any(|(run, _)| run.schedule_id == record.id)
+        });
+        let decision = if let Some((run, accepted_at)) = &pending {
+            let Some(record) = folded.active.iter().find(|r| r.id == run.schedule_id) else {
+                return DriveAction::Dormant;
+            };
+            if let Some(at) = accepted_at {
+                DueDecision::Every {
+                    accepted_at: at.clone(),
+                    reminders: vec![(record.clone(), run.occurrence_at.clone())],
+                }
+            } else {
+                DueDecision::OneShot(record.clone())
+            }
+        } else {
+            match due_decision(&eligible, now) {
+                Ok(d) => d,
+                Err(_) => return DriveAction::Dormant,
+            }
+        };
+        let current_chat_due = match &decision {
+            DueDecision::OneShot(r) => r
+                .automation
+                .as_ref()
+                .is_some_and(|a| a.target == AutomationTarget::CurrentChat),
+            DueDecision::Every { reminders, .. } => reminders.iter().any(|(r, _)| {
+                r.automation
+                    .as_ref()
+                    .is_some_and(|a| a.target == AutomationTarget::CurrentChat)
+            }),
+            _ => false,
+        };
+        if current_chat_due && handle.status() != xharness_agent::AgentStatus::Idle {
+            return DriveAction::Busy(handle, None);
+        }
+        let (message, changes, target_handle) = match decision {
+            DueDecision::Wait(target) => {
+                let target = match (target, retry_at) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
+                if current_chat_busy {
+                    let deadline = if blocked {
+                        Some(
+                            target
+                                .unwrap_or(i64::MAX)
+                                .min(now.saturating_add(RUN_SETTLEMENT_RECHECK_MS)),
+                        )
+                    } else {
+                        target
+                    };
+                    return DriveAction::Busy(handle, deadline);
+                }
+                return DriveAction::Wait(
+                    if blocked {
+                        Some(
+                            target
+                                .unwrap_or(i64::MAX)
+                                .min(now.saturating_add(RUN_SETTLEMENT_RECHECK_MS)),
+                        )
+                    } else {
+                        target
+                    },
+                    handle,
+                );
+            }
+            DueDecision::OneShot(record) => {
+                if record.automation.is_some() {
+                    match self
+                        .prepare_run(
+                            &record,
+                            &record.scheduled_at,
+                            None,
+                            pending.as_ref(),
+                            &handle,
+                        )
+                        .await
+                    {
+                        Ok(Some(v)) => v,
+                        Ok(None) => return DriveAction::Continue,
+                        Err(_) => {
+                            if let Some((run, _)) = &pending {
+                                self.defer_preparation(&run.run_id, self.clock.now_ms())
+                                    .await;
+                                return DriveAction::Continue;
+                            }
+                            return DriveAction::Wait(Some(now.saturating_add(1000)), handle);
+                        }
+                    }
+                } else {
+                    let message = reminder_message(&self.session_id, &record, &record.scheduled_at);
+                    (
+                        message,
+                        vec![ScheduleChange::Dispatch {
+                            version: 1,
+                            id: record.id,
+                            accepted_at: None,
+                        }],
+                        handle.clone(),
+                    )
+                }
             }
             DueDecision::Every {
                 accepted_at,
                 reminders,
             } => {
-                let message = reminder_batch_message(&self.session_id, &accepted_at, &reminders);
-                let changes = reminders
-                    .iter()
-                    .map(|(record, _)| ScheduleChange::Dispatch {
-                        version: 1,
-                        id: record.id.clone(),
-                        accepted_at: Some(accepted_at.clone()),
-                    })
-                    .collect();
-                (message, changes)
+                if reminders.len() == 1 && reminders[0].0.automation.is_some() {
+                    match self
+                        .prepare_run(
+                            &reminders[0].0,
+                            &reminders[0].1,
+                            Some(accepted_at),
+                            pending.as_ref(),
+                            &handle,
+                        )
+                        .await
+                    {
+                        Ok(Some(v)) => v,
+                        Ok(None) => return DriveAction::Continue,
+                        Err(_) => {
+                            if let Some((run, _)) = &pending {
+                                self.defer_preparation(&run.run_id, self.clock.now_ms())
+                                    .await;
+                                return DriveAction::Continue;
+                            }
+                            return DriveAction::Wait(Some(now.saturating_add(1000)), handle);
+                        }
+                    }
+                } else {
+                    let message =
+                        reminder_batch_message(&self.session_id, &accepted_at, &reminders);
+                    let changes = reminders
+                        .iter()
+                        .map(|(record, _)| ScheduleChange::Dispatch {
+                            version: 1,
+                            id: record.id.clone(),
+                            accepted_at: Some(accepted_at.clone()),
+                        })
+                        .collect();
+                    (message, changes, handle.clone())
+                }
             }
         };
-
-        // A Host restart can lose the in-memory pending marker after the
-        // follow-up was durably admitted. Its deterministic ID proves delivery;
-        // reconcile the schedule marker without creating a second follow-up.
-        if message_seen(&session, &message.id) {
+        let target_id = target_handle.id().to_owned();
+        let target_session = if target_id == self.session_id {
+            session
+        } else {
+            match load_session(&self.store, &target_id).await {
+                Ok(s) => s,
+                Err(_) => return DriveAction::Wait(Some(now.saturating_add(1000)), handle),
+            }
+        };
+        // The reservation pins occurrence before admission. A long outage or
+        // restart cannot shift it to a newer tick and create a second run.
+        if message_seen(&target_session, &message.id) {
             *self.pending_dispatches.lock().await = Some(changes);
             return DriveAction::Continue;
         }
-
-        let delivery_key = (self.session_id.clone(), message.id.clone());
+        let delivery_key = (target_id.clone(), message.id.clone());
         self.deliveries.lock().await.insert(
             delivery_key.clone(),
             PreparedScheduleDelivery {
-                handle: handle.clone(),
-                events: handle.subscribe(),
+                handle: target_handle.clone(),
+                events: target_handle.subscribe(),
                 input_id: message.id.clone(),
             },
         );
-        match handle.maintenance_followup(message.clone()).await {
-            Ok(()) => {
-                let _ = self.delivery_tx.send(ScheduleDeliveryNotice {
-                    session_id: self.session_id.clone(),
-                    work_id: message.id.clone(),
-                });
-            }
+        match target_handle.maintenance_followup(message.clone()).await {
+            Ok(()) => {}
             Err(AgentCommandError::Busy) => {
                 self.deliveries.lock().await.remove(&delivery_key);
-                return DriveAction::Busy(handle);
+                return DriveAction::Busy(target_handle, None);
             }
             Err(_) => {
-                let delivered = load_session(&self.store, &self.session_id)
+                if !load_session(&self.store, &target_id)
                     .await
-                    .is_ok_and(|session| message_seen(&session, &message.id));
-                if !delivered {
+                    .is_ok_and(|s| message_seen(&s, &message.id))
+                {
                     self.deliveries.lock().await.remove(&delivery_key);
-                    return DriveAction::Wait(
-                        Some(self.clock.now_ms().saturating_add(1000)),
-                        handle,
-                    );
+                    return DriveAction::Wait(Some(now.saturating_add(1000)), handle);
                 }
-                let _ = self.delivery_tx.send(ScheduleDeliveryNotice {
-                    session_id: self.session_id.clone(),
-                    work_id: message.id.clone(),
-                });
             }
         }
+        let _ = self.delivery_tx.send(ScheduleDeliveryNotice {
+            session_id: target_id,
+            work_id: message.id.clone(),
+        });
 
         // Once delivery is known, retain only the dispatch marker as pending.
         // Retrying this marker is safe; repeating maintenance_followup is not.
@@ -703,6 +921,81 @@ impl ScheduleOwner {
             }
             Err(_) => DriveAction::Wait(Some(self.clock.now_ms().saturating_add(1000)), handle),
         }
+    }
+
+    async fn defer_preparation(&self, run_id: &str, now: i64) {
+        let mut retries = self.preparation_retries.lock().await;
+        let (failures, deadline) = retries.entry(run_id.to_owned()).or_insert((0, now));
+        *failures = failures.saturating_add(1);
+        let delay = 1_000_i64
+            .saturating_mul(1_i64 << (*failures - 1).min(5))
+            .min(30_000);
+        *deadline = now.saturating_add(delay);
+    }
+
+    async fn prepare_run(
+        &self,
+        record: &ScheduleRecord,
+        occurrence: &str,
+        accepted_at: Option<String>,
+        pending: Option<&(AutomationRun, Option<String>)>,
+        handle: &DurableAgentHandle,
+    ) -> Result<Option<(InboxMessage, Vec<ScheduleChange>, DurableAgentHandle)>, ScheduleError>
+    {
+        let message = automation::scheduled_message(&self.session_id, record, occurrence);
+        let target = record
+            .automation
+            .as_ref()
+            .map(|a| a.target)
+            .unwrap_or_default();
+        let target_id = if target == AutomationTarget::NewChat {
+            format!("automation-run-{}", automation::digest(&message.id))
+        } else {
+            self.session_id.clone()
+        };
+        let run = AutomationRun {
+            schedule_id: record.id.clone(),
+            run_id: message.id.clone(),
+            session_id: target_id.clone(),
+            occurrence_at: occurrence.to_owned(),
+        };
+        if pending.is_none() {
+            self.append_dispatches(vec![ScheduleChange::ReserveRun {
+                version: 1,
+                run,
+                accepted_at,
+            }])
+            .await?;
+            return Ok(None);
+        }
+        let run = &pending.unwrap().0;
+        // Reserved runs are immutable even when later wall-clock ticks pass.
+        if run.run_id != message.id || run.session_id != target_id {
+            return Err(ScheduleError::Corrupt("reserved target changed".into()));
+        }
+        let target_handle = if target == AutomationTarget::NewChat {
+            let targets = self
+                .targets
+                .get()
+                .ok_or_else(|| ScheduleError::Corrupt("independent target unavailable".into()))?;
+            // Target preparation is idempotent and never starts model work. Bound
+            // it so controls are not locked forever by an unresponsive provider.
+            tokio::time::timeout(TOOL_TIMEOUT, targets.prepare(&self.session_id, &target_id))
+                .await
+                .map_err(|_| ScheduleError::Store("target preparation timed out".into()))?
+                .map_err(ScheduleError::Store)?
+        } else {
+            handle.clone()
+        };
+        Ok(Some((
+            message,
+            vec![ScheduleChange::Run {
+                version: 1,
+                run: run.clone(),
+                accepted_at,
+            }],
+            target_handle,
+        )))
     }
 
     async fn append_dispatches(&self, changes: Vec<ScheduleChange>) -> Result<(), ScheduleError> {
@@ -762,6 +1055,7 @@ enum Selector {
     Every(u64),
 }
 
+#[cfg(test)]
 fn parse_selector(context: &ToolExecutionContext) -> Result<Selector, Value> {
     let arguments = context
         .arguments
@@ -785,6 +1079,7 @@ fn parse_selector(context: &ToolExecutionContext) -> Result<Selector, Value> {
     }
 }
 
+#[cfg(test)]
 fn string_argument(context: &ToolExecutionContext, name: &str) -> Result<String, ToolHandlerError> {
     context
         .arguments
@@ -794,6 +1089,7 @@ fn string_argument(context: &ToolExecutionContext, name: &str) -> Result<String,
         .ok_or_else(|| ToolHandlerError::new(format!("{name} must be a string")))
 }
 
+#[cfg(test)]
 fn selector_integer(context: &ToolExecutionContext, name: &str) -> Result<u64, Value> {
     context
         .arguments
@@ -834,6 +1130,7 @@ fn create_record(
                 .ok_or_else(time_out_of_range)?;
             let target = now.checked_add(delay).ok_or_else(time_out_of_range)?;
             Ok(ScheduleRecord {
+                automation: None,
                 id,
                 kind: ScheduleKind::After,
                 prompt,
@@ -843,6 +1140,7 @@ fn create_record(
             })
         }
         Selector::At(value) => Ok(ScheduleRecord {
+            automation: None,
             id,
             kind: ScheduleKind::At,
             prompt,
@@ -863,6 +1161,7 @@ fn create_record(
                 .ok_or_else(time_out_of_range)?;
             let target = now.checked_add(interval).ok_or_else(time_out_of_range)?;
             Ok(ScheduleRecord {
+                automation: None,
                 id,
                 kind: ScheduleKind::Every,
                 prompt,
@@ -1056,12 +1355,33 @@ fn resolve_every_occurrence(
 }
 
 fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleError> {
+    let inherited = inherited_automation_ids(session);
     let mut active = Vec::<ScheduleRecord>::new();
     let mut seen_ids = HashSet::new();
+    let mut runs = Vec::new();
+    let mut pending_runs = Vec::new();
+    let mut cancelled_runs = Vec::new();
     for logged in session.events() {
         let EventData::ScheduleChange { change } = logged.data() else {
             continue;
         };
+        let id = match change {
+            ScheduleChange::Create { schedule, .. } | ScheduleChange::Update { schedule, .. } => {
+                &schedule.id
+            }
+            ScheduleChange::Delete { id, .. }
+            | ScheduleChange::Dispatch { id, .. }
+            | ScheduleChange::SetPaused { id, .. } => id,
+            ScheduleChange::ReserveRun { run, .. } | ScheduleChange::Run { run, .. } => {
+                &run.schedule_id
+            }
+        };
+        if inherited.contains(id) {
+            // A fork copies history, not permission to create another timer.
+            // Retain identity tombstones, but do not execute its source's work.
+            seen_ids.insert(id.clone());
+            continue;
+        }
         match change {
             ScheduleChange::Create { version, schedule } => {
                 if *version != 1
@@ -1076,6 +1396,52 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
                 parse_canonical_instant(&schedule.scheduled_at)?;
                 active.push(schedule.clone());
             }
+            ScheduleChange::ReserveRun {
+                version,
+                run,
+                accepted_at,
+            } => {
+                if *version != 1
+                    || !active.iter().any(|r| r.id == run.schedule_id)
+                    || pending_runs.iter().any(|(r, _)| r == run)
+                {
+                    return Err(ScheduleError::Corrupt(
+                        "invalid automation reservation".into(),
+                    ));
+                }
+                pending_runs.push((run.clone(), accepted_at.clone()));
+            }
+            ScheduleChange::SetPaused {
+                version,
+                id,
+                paused,
+            } => {
+                let record = active
+                    .iter_mut()
+                    .find(|r| r.id == *id)
+                    .ok_or_else(|| ScheduleError::Corrupt("pause targets inactive id".into()))?;
+                let config = record
+                    .automation
+                    .as_mut()
+                    .ok_or_else(|| ScheduleError::Corrupt("pause targets legacy rule".into()))?;
+                if *version != 1 {
+                    return Err(ScheduleError::Corrupt(
+                        "unsupported schedule version".into(),
+                    ));
+                }
+                config.paused = *paused;
+            }
+            ScheduleChange::Update { version, schedule } => {
+                if *version != 1 || !schedule.valid_shape() {
+                    return Err(ScheduleError::Corrupt("invalid schedule update".into()));
+                }
+                parse_canonical_instant(&schedule.scheduled_at)?;
+                let record = active
+                    .iter_mut()
+                    .find(|r| r.id == schedule.id)
+                    .ok_or_else(|| ScheduleError::Corrupt("update targets inactive id".into()))?;
+                *record = schedule.clone();
+            }
             ScheduleChange::Delete { version, id } => {
                 if *version != 1 {
                     return Err(ScheduleError::Corrupt(
@@ -1089,12 +1455,39 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
                         ScheduleError::Corrupt("delete targets inactive id".to_owned())
                     })?;
                 active.remove(position);
+                // Delete cancels only reservations that have not been admitted.
+                // The mutation owner reconciles durable admission before deleting.
+                pending_runs.retain(|(run, _)| {
+                    if run.schedule_id == *id {
+                        cancelled_runs.push(run.clone());
+                        false
+                    } else {
+                        true
+                    }
+                });
             }
             ScheduleChange::Dispatch {
                 version,
                 id,
                 accepted_at,
+            }
+            | ScheduleChange::Run {
+                version,
+                run: AutomationRun {
+                    schedule_id: id, ..
+                },
+                accepted_at,
             } => {
+                if let ScheduleChange::Run { run, .. } = change {
+                    let position = pending_runs
+                        .iter()
+                        .position(|(r, a)| r == run && a == accepted_at)
+                        .ok_or_else(|| {
+                            ScheduleError::Corrupt("unreserved automation run".into())
+                        })?;
+                    pending_runs.remove(position);
+                    runs.push(run.clone());
+                }
                 if *version != 1 {
                     return Err(ScheduleError::Corrupt(
                         "unsupported schedule version".to_owned(),
@@ -1131,9 +1524,16 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
             }
         }
     }
-    Ok(FoldedSchedules { active, seen_ids })
+    Ok(FoldedSchedules {
+        active,
+        seen_ids,
+        runs,
+        pending_runs,
+        cancelled_runs,
+    })
 }
 
+#[cfg(test)]
 fn allocate_id(folded: &FoldedSchedules) -> String {
     let mut sequence = folded.seen_ids.len().saturating_add(1);
     loop {
@@ -1145,12 +1545,27 @@ fn allocate_id(folded: &FoldedSchedules) -> String {
     }
 }
 
+fn inherited_automation_ids(session: &Session) -> HashSet<String> {
+    let Some(fork_seq) = session
+        .events()
+        .iter()
+        .rev()
+        .find_map(|e| matches!(e.data(), EventData::SessionForkOrigin { .. }).then_some(e.seq))
+    else {
+        return HashSet::new();
+    };
+    session.events().iter().take_while(|e| e.seq < fork_seq).filter_map(|e| match e.data() {
+        EventData::ScheduleChange { change: ScheduleChange::Create { schedule, .. } | ScheduleChange::Update { schedule, .. } } if schedule.automation.is_some() => Some(schedule.id.clone()),
+        _ => None,
+    }).collect()
+}
+
 fn due_decision(folded: &FoldedSchedules, now: i64) -> Result<DueDecision, ScheduleError> {
     let mut due_one_shot = folded
         .active
         .iter()
         .enumerate()
-        .filter(|(_, record)| record.kind != ScheduleKind::Every)
+        .filter(|(_, record)| record.kind != ScheduleKind::Every && !automation::paused(record))
         .map(|(index, record)| {
             parse_canonical_instant(&record.scheduled_at).map(|target| (target, index, record))
         })
@@ -1165,7 +1580,7 @@ fn due_decision(folded: &FoldedSchedules, now: i64) -> Result<DueDecision, Sched
         .active
         .iter()
         .enumerate()
-        .filter(|(_, record)| record.kind == ScheduleKind::Every)
+        .filter(|(_, record)| record.kind == ScheduleKind::Every && !automation::paused(record))
         .map(|(index, record)| {
             parse_canonical_instant(&record.scheduled_at).map(|target| (target, index, record))
         })
@@ -1175,6 +1590,15 @@ fn due_decision(folded: &FoldedSchedules, now: i64) -> Result<DueDecision, Sched
     if !due_every.is_empty() {
         let accepted_at = canonical_instant_from_ms(now)
             .ok_or_else(|| ScheduleError::Corrupt("wall clock is out of range".to_owned()))?;
+        // Executable tasks have individual run receipts, never share a batch.
+        // Keep the legacy reminder batching contract for old journals.
+        if let Some((_, _, record)) = due_every.iter().find(|(_, _, r)| r.automation.is_some()) {
+            let occurrence = resolve_every_occurrence(record, now)?;
+            return Ok(DueDecision::Every {
+                accepted_at,
+                reminders: vec![((*record).clone(), occurrence.occurrence_at)],
+            });
+        }
         let reminders = due_every
             .into_iter()
             .map(|(_, _, record)| {
@@ -1191,6 +1615,7 @@ fn due_decision(folded: &FoldedSchedules, now: i64) -> Result<DueDecision, Sched
     let target = folded
         .active
         .iter()
+        .filter(|record| !automation::paused(record))
         .map(|record| parse_canonical_instant(&record.scheduled_at))
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
@@ -1317,7 +1742,7 @@ fn persistence_error(operation: &str, id: Option<&str>, _error: StoreError) -> V
         (
             "message".to_owned(),
             Value::String(
-                "Schedule persistence is uncertain; retry with schedule_list before relying on this result."
+                "Schedule persistence is uncertain; retry with automation action=list/view before relying on this result."
                     .to_owned(),
             ),
         ),
@@ -1333,6 +1758,7 @@ fn json_output(value: Value) -> ToolOutput {
     ToolOutput::text(serde_json::to_string(&value).expect("schedule tool value is serializable"))
 }
 
+#[cfg(test)]
 fn empty_schema() -> Value {
     json!({"type": "object", "properties": {}, "additionalProperties": false})
 }
@@ -1380,7 +1806,11 @@ mod tests {
 
     async fn executor(manager: Arc<ScheduleManager>, session_id: &str) -> ToolExecutor {
         let registry = Arc::new(ToolRegistry::new());
-        for spec in manager.specs(session_id) {
+        for spec in manager
+            .legacy_specs(session_id)
+            .into_iter()
+            .chain(manager.specs(session_id))
+        {
             registry.register(spec).await.unwrap();
         }
         ToolExecutor::new(registry)
@@ -1505,6 +1935,7 @@ mod tests {
         let target = "2026-09-02T00:05:00.000Z";
         let target_ms = parse_canonical_instant(target).unwrap();
         let record = ScheduleRecord {
+            automation: None,
             id: "schedule-1".to_owned(),
             kind: ScheduleKind::Every,
             prompt: "tick".to_owned(),
@@ -1569,6 +2000,7 @@ mod tests {
                     change: ScheduleChange::Create {
                         version: 1,
                         schedule: ScheduleRecord {
+                            automation: None,
                             id: "schedule-1".to_owned(),
                             kind: ScheduleKind::After,
                             prompt: "喝水".to_owned(),
@@ -1792,6 +2224,7 @@ mod tests {
                     change: ScheduleChange::Create {
                         version: 1,
                         schedule: ScheduleRecord {
+                            automation: None,
                             id: "schedule-1".to_owned(),
                             kind: ScheduleKind::After,
                             prompt: "喝水".to_owned(),
@@ -1856,28 +2289,24 @@ mod tests {
             .unwrap();
         let owner = manager.owner("worker-death").await.unwrap();
         *owner.handle.write().await = Some(handle.clone());
-        // Both an idle waiter and a schedule command are already pending when
-        // the worker dies. Neither is allowed to strand the timer owner.
+        // Idle-first delivery must not queue a maintenance command behind the
+        // busy actor. The live timer owner and an existing idle waiter must
+        // both recover from the worker's death without an unrelated prompt.
         let idle = handle.when_idle();
         tokio::pin!(idle);
         assert!(futures::poll!(&mut idle).is_pending());
-        let delivery = owner.drive_once();
-        tokio::pin!(delivery);
-        assert!(futures::poll!(&mut delivery).is_pending());
+        assert!(matches!(
+            owner.drive_once().await,
+            DriveAction::Busy(_, None)
+        ));
+        let runtime = owner.clone();
+        *owner.task.lock().await = Some(tokio::spawn(async move { runtime.run().await }));
+        tokio::task::yield_now().await;
         release.notify_one();
         assert!(tokio::time::timeout(Duration::from_secs(2), &mut idle)
             .await
             .unwrap()
             .is_err());
-        assert!(matches!(
-            tokio::time::timeout(Duration::from_secs(2), &mut delivery)
-                .await
-                .unwrap(),
-            DriveAction::Wait(_, _)
-        ));
-        let runtime = owner.clone();
-        *owner.task.lock().await = Some(tokio::spawn(async move { runtime.run().await }));
-
         let notice = tokio::time::timeout(Duration::from_secs(2), deliveries.recv())
             .await
             .expect("delivery notice was not published")
@@ -1984,6 +2413,7 @@ mod tests {
                     change: ScheduleChange::Create {
                         version: 1,
                         schedule: ScheduleRecord {
+                            automation: None,
                             id: "schedule-1".to_owned(),
                             kind: ScheduleKind::After,
                             prompt: "first".to_owned(),
@@ -2040,6 +2470,7 @@ mod tests {
                     change: ScheduleChange::Create {
                         version: 1,
                         schedule: ScheduleRecord {
+                            automation: None,
                             id: "schedule-2".to_owned(),
                             kind: ScheduleKind::After,
                             prompt: "second".to_owned(),
@@ -2134,6 +2565,7 @@ mod tests {
                     change: ScheduleChange::Create {
                         version: 1,
                         schedule: ScheduleRecord {
+                            automation: None,
                             id: "schedule-1".into(),
                             kind: ScheduleKind::After,
                             prompt: "once".into(),

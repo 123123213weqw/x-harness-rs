@@ -57,7 +57,7 @@ export interface SessionSummary {
   agentPreset?: string
   parentId?: SessionId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
-  origin?: 'subagent' | 'fork'
+  origin?: 'subagent' | 'fork' | 'automation'
   running: boolean
   /** User interaction currently blocking this session (sidebar amber-dot state). */
   pendingInteraction?: PendingInteractionStatus

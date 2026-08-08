@@ -3,7 +3,13 @@
 use serde::Serialize;
 #[cfg(windows)]
 use std::time::Duration;
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use xharness_diagnostics::{DeepLease, DeepPreferences, Phase, Record, Recorder, PERSISTENT_DEEP};
 
@@ -12,6 +18,8 @@ pub struct Diagnostics {
     pub(crate) root: PathBuf,
     pub(crate) control: PathBuf,
     preferences: PathBuf,
+    previous_run_interrupted: bool,
+    auto_notice_shown: AtomicBool,
 }
 struct Inner {
     recorder: Option<Recorder>,
@@ -61,8 +69,17 @@ impl Diagnostics {
             let _ = std::fs::write(&control, b"0");
             let _ = std::fs::write(control.with_extension("heap"), b"0");
         }
-        let begin = recorder.as_mut().map(Recorder::begin_run);
-        let incident = matches!(begin, Some(Ok(true)));
+        let begin = recorder.as_mut().map(Recorder::begin_run_status);
+        let incident = begin.as_ref().is_some_and(|result| {
+            result
+                .as_ref()
+                .is_ok_and(|start| start.unacknowledged_incident)
+        });
+        let previous_run_interrupted = begin.as_ref().is_some_and(|result| {
+            result
+                .as_ref()
+                .is_ok_and(|start| start.previous_run_interrupted)
+        });
         let storage_error = !matches!(begin, Some(Ok(_))) || reset.is_err() || loaded.is_err();
         Self {
             inner: Mutex::new(Inner {
@@ -76,6 +93,8 @@ impl Diagnostics {
             root,
             control,
             preferences,
+            previous_run_interrupted,
+            auto_notice_shown: AtomicBool::new(false),
         }
     }
     pub fn record(&self, mut record: Record) {
@@ -92,11 +111,11 @@ impl Diagnostics {
             }
         }
     }
-    pub fn incident(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|state| state.incident)
-            .unwrap_or(true)
+    pub fn previous_run_interrupted(&self) -> bool {
+        self.previous_run_interrupted
+    }
+    fn claim_auto_notice(&self) -> bool {
+        !self.auto_notice_shown.swap(true, Ordering::SeqCst)
     }
     pub fn mark_incident(&self) {
         if let Ok(mut state) = self.inner.lock() {
@@ -116,6 +135,28 @@ impl Diagnostics {
                 .recorder
                 .as_mut()
                 .is_some_and(|r| r.finish_run().is_err())
+            {
+                state.storage_error = true;
+            }
+        }
+    }
+    /// Tauri's Windows installer bypasses RunEvent::Exit. A Weak reference
+    /// avoids UpdateSession -> callback -> DesktopState ownership cycles.
+    pub fn update_exit_hook(self: &Arc<Self>) -> impl Fn() + Send + Sync + 'static {
+        let diagnostics = Arc::downgrade(self);
+        move || {
+            if let Some(diagnostics) = diagnostics.upgrade() {
+                diagnostics.finish();
+            }
+        }
+    }
+    #[cfg(any(windows, test))]
+    pub fn resume_after_failed_update(&self) {
+        if let Ok(mut state) = self.inner.lock() {
+            if state
+                .recorder
+                .as_ref()
+                .is_some_and(|r| r.resume_run().is_err())
             {
                 state.storage_error = true;
             }
@@ -173,6 +214,14 @@ pub fn desktop_diagnostics_status(state: State<'_, crate::DesktopState>) -> Resu
 #[tauri::command]
 pub async fn desktop_open_diagnostics(app: AppHandle) -> Result<(), String> {
     open(&app)
+}
+/// Automatic notices are independent of history acknowledgement and manual access.
+pub fn open_automatically(app: &AppHandle) {
+    let state = app.state::<crate::DesktopState>();
+    let diagnostics = &state.diagnostics;
+    if diagnostics.claim_auto_notice() && open(app).is_err() {
+        diagnostics.auto_notice_shown.store(false, Ordering::SeqCst);
+    }
 }
 pub fn open(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("diagnostics") {
@@ -346,6 +395,53 @@ pub fn desktop_set_deep_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installer_exit_hook_is_weak_and_failed_install_rearms_crash_detection() {
+        let root = tempfile::tempdir().unwrap();
+        let logs = root.path().join("logs");
+        let settings = root.path().join("settings.json");
+        let diagnostics = Arc::new(Diagnostics::new(logs.clone(), settings.clone()));
+        let hook = diagnostics.update_exit_hook();
+        assert_eq!(Arc::strong_count(&diagnostics), 1);
+        diagnostics.mark_incident();
+        hook();
+        assert!(!logs.join("active-run").exists());
+        assert!(logs.join("unacknowledged-exit").exists());
+        diagnostics.resume_after_failed_update();
+        assert!(logs.join("active-run").exists());
+        drop(diagnostics); // installer failed; later desktop crashed
+        hook(); // stale callback must not write to the next generation
+        let recovered = Diagnostics::new(logs, settings);
+        assert!(recovered.previous_run_interrupted());
+        recovered.finish();
+    }
+
+    #[test]
+    fn normal_restart_keeps_history_without_reopening_notice() {
+        let root = tempfile::tempdir().unwrap();
+        let logs = root.path().join("logs");
+        let settings = root.path().join("settings.json");
+        let first = Diagnostics::new(logs.clone(), settings.clone());
+        assert!(!first.previous_run_interrupted());
+        first.mark_incident();
+        assert!(first.claim_auto_notice());
+        assert!(!first.claim_auto_notice());
+        first.finish();
+        drop(first);
+        let restarted = Diagnostics::new(logs.clone(), settings.clone());
+        assert!(!restarted.previous_run_interrupted());
+        assert!(restarted.inner.lock().unwrap().incident);
+        restarted.finish();
+        drop(restarted);
+        let crashed = Diagnostics::new(logs.clone(), settings.clone());
+        drop(crashed); // no finish: simulate abnormal desktop termination
+        let recovered = Diagnostics::new(logs, settings);
+        assert!(recovered.previous_run_interrupted());
+        assert!(recovered.claim_auto_notice());
+        assert!(!recovered.claim_auto_notice());
+        recovered.finish();
+    }
+
     #[test]
     fn persistent_options_restore_but_invalid_preferences_fail_closed() {
         let root = std::env::temp_dir().join(format!(

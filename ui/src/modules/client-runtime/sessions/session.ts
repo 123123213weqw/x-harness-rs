@@ -1,4 +1,5 @@
 import { readChatSnapshot } from './chat-snapshot-codec'
+import { validateSessionTerminal } from '../../shared/session-terminal'
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { Context } from '../context'
@@ -711,11 +712,12 @@ export class Session implements SessionFace {
   private appendLive(event: SessionWireEvent, view?: ToolEventView): ConversationPublication {
     const tailSeq = this.windowTailSeq()
     if (tailSeq !== null && event.seq <= tailSeq) return 'none' // replay overlap, drop
+    const input = conversationInput({ event, view })
     this.events.push(event)
     this.views.push(view)
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
     const queueChanged = this.queueMirror.acceptDurable(event)
-    const publication = this.conversation.append({ event, view })
+    const publication = this.conversation.append(input)
     this.xhHistoryOwner?.changed(this)
     return queueChanged ? 'immediate' : publication
   }
@@ -732,9 +734,20 @@ export class Session implements SessionFace {
     }
     if (this.openState !== 'open') return // cold/error: no window upkeep (history fully backfills on open)
     const tailSeq = this.windowTailSeq()
+    if (tailSeq !== null && event.seq <= tailSeq) return // an already committed seq cannot mutate or poison the view
     if (tailSeq !== null && event.seq > tailSeq + 1) {
       this.liveBuffer.push({ event, view })
       void this.repairGap()
+      return
+    }
+    try {
+      validateSessionTerminal(event)
+    } catch (error) {
+      // A terminal protocol failure cannot close only half of the UI. Preserve
+      // the last window, retain the carrier for history reconciliation, and
+      // reuse the existing visible/retryable history error path.
+      this.liveBuffer.push({ event, view })
+      this.failHistory(error)
       return
     }
     this.scheduleConversation(this.appendLive(event, view))
@@ -946,6 +959,7 @@ export class Session implements SessionFace {
 
 /** Convert one wire history row into the assembler's transport-neutral input. */
 function conversationInput(entry: WindowEntry): ConversationEventInput {
+  validateSessionTerminal(entry.event)
   return { event: entry.event, view: entry.view }
 }
 
