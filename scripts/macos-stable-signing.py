@@ -43,6 +43,7 @@ def fingerprint(value):
 
 
 def create_identity(output):
+    require(os.name == 'posix', 'Publisher identity creation requires POSIX private-file permissions')
     password = os.environ.get('XHARNESS_MACOS_PREVIEW_P12_PASSWORD', '')
     require(len(password) >= 16, 'Provide a strong P12 password via environment, not command line')
     output = Path(output).absolute()
