@@ -273,7 +273,9 @@ pub(super) fn perform(
     if r.action == ComputerAction::Type {
         if let Some(element) = &element {
             // Provider calls can hang: complete them before holding any input.
-            api(unsafe { element.SetFocus() })?;
+            if !api(unsafe { element.CurrentHasKeyboardFocus() })?.as_bool() {
+                api(unsafe { element.SetFocus() })?;
+            }
             cancel.check()?;
             require_foreground(request)?;
         }
