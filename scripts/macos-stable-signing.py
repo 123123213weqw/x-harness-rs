@@ -10,7 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shlex
 import secrets
@@ -157,12 +157,19 @@ def owned_runner_keychain(keychain):
     return keychain
 
 
+def macos_keychain_path(value):
+    # These strings come from macOS `security`, not from the host filesystem
+    # running the portable policy tests. Never reinterpret a Mac absolute path
+    # using Windows drive/UNC semantics.
+    return isinstance(value, str) and PurePosixPath(value).is_absolute()
+
+
 def attach_runner_keychain(keychain):
     keychain = owned_runner_keychain(keychain)
     receipt = keychain.parent / 'search-list.json'
     require(not receipt.exists(), 'Never overwrite runner keychain search-list receipt')
     previous = shlex.split(command(['security', 'list-keychains', '-d', 'user']).decode())
-    require(all(Path(path).is_absolute() for path in previous), 'Invalid runner keychain search list')
+    require(all(macos_keychain_path(path) for path in previous), 'Invalid runner keychain search list')
     # Write-ahead receipt covers a timeout/unknown outcome of the native mutation.
     receipt.write_text(json.dumps(previous)); receipt.chmod(0o600)
     command(['security', 'list-keychains', '-d', 'user', '-s', keychain, *previous])
@@ -175,7 +182,7 @@ def cleanup_path(keychain):
     if receipt.exists():
         try:
             previous = json.loads(receipt.read_text())
-            require(isinstance(previous, list) and all(isinstance(path, str) and Path(path).is_absolute() for path in previous),
+            require(isinstance(previous, list) and all(macos_keychain_path(path) for path in previous),
                     'Invalid runner keychain search-list receipt')
             command(['security', 'list-keychains', '-d', 'user', '-s', *previous])
         except (ValueError, OSError):
