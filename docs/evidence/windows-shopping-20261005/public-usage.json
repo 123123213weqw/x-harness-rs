@@ -1,0 +1,426 @@
+{
+  "source_sha": "520586324f4592d446919be11ede1217e858f66a",
+  "model": "deepseek-flash",
+  "usage": [
+    {
+      "prompt_tokens": 1024,
+      "completion_tokens": 82,
+      "total_tokens": 1106,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 12
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 1024
+    },
+    {
+      "prompt_tokens": 18810,
+      "completion_tokens": 131,
+      "total_tokens": 18941,
+      "prompt_tokens_details": {
+        "cached_tokens": 896
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 44
+      },
+      "prompt_cache_hit_tokens": 896,
+      "prompt_cache_miss_tokens": 17914
+    },
+    {
+      "prompt_tokens": 19003,
+      "completion_tokens": 114,
+      "total_tokens": 19117,
+      "prompt_tokens_details": {
+        "cached_tokens": 18816
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 17
+      },
+      "prompt_cache_hit_tokens": 18816,
+      "prompt_cache_miss_tokens": 187
+    },
+    {
+      "prompt_tokens": 36820,
+      "completion_tokens": 129,
+      "total_tokens": 36949,
+      "prompt_tokens_details": {
+        "cached_tokens": 19072
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 23
+      },
+      "prompt_cache_hit_tokens": 19072,
+      "prompt_cache_miss_tokens": 17748
+    },
+    {
+      "prompt_tokens": 57517,
+      "completion_tokens": 125,
+      "total_tokens": 57642,
+      "prompt_tokens_details": {
+        "cached_tokens": 36864
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 23
+      },
+      "prompt_cache_hit_tokens": 36864,
+      "prompt_cache_miss_tokens": 20653
+    },
+    {
+      "prompt_tokens": 75198,
+      "completion_tokens": 100,
+      "total_tokens": 75298,
+      "prompt_tokens_details": {
+        "cached_tokens": 57600
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 32
+      },
+      "prompt_cache_hit_tokens": 57600,
+      "prompt_cache_miss_tokens": 17598
+    },
+    {
+      "prompt_tokens": 92854,
+      "completion_tokens": 392,
+      "total_tokens": 93246,
+      "prompt_tokens_details": {
+        "cached_tokens": 75264
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 275
+      },
+      "prompt_cache_hit_tokens": 75264,
+      "prompt_cache_miss_tokens": 17590
+    },
+    {
+      "prompt_tokens": 110801,
+      "completion_tokens": 412,
+      "total_tokens": 111213,
+      "prompt_tokens_details": {
+        "cached_tokens": 93184
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 308
+      },
+      "prompt_cache_hit_tokens": 93184,
+      "prompt_cache_miss_tokens": 17617
+    },
+    {
+      "prompt_tokens": 120268,
+      "completion_tokens": 321,
+      "total_tokens": 120589,
+      "prompt_tokens_details": {
+        "cached_tokens": 111104
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 239
+      },
+      "prompt_cache_hit_tokens": 111104,
+      "prompt_cache_miss_tokens": 9164
+    },
+    {
+      "prompt_tokens": 120634,
+      "completion_tokens": 93,
+      "total_tokens": 120727,
+      "prompt_tokens_details": {
+        "cached_tokens": 120448
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 39
+      },
+      "prompt_cache_hit_tokens": 120448,
+      "prompt_cache_miss_tokens": 186
+    },
+    {
+      "prompt_tokens": 128414,
+      "completion_tokens": 543,
+      "total_tokens": 128957,
+      "prompt_tokens_details": {
+        "cached_tokens": 120704
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 454
+      },
+      "prompt_cache_hit_tokens": 120704,
+      "prompt_cache_miss_tokens": 7710
+    },
+    {
+      "prompt_tokens": 136644,
+      "completion_tokens": 618,
+      "total_tokens": 137262,
+      "prompt_tokens_details": {
+        "cached_tokens": 128896
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 505
+      },
+      "prompt_cache_hit_tokens": 128896,
+      "prompt_cache_miss_tokens": 7748
+    },
+    {
+      "prompt_tokens": 169845,
+      "completion_tokens": 200,
+      "total_tokens": 170045,
+      "prompt_tokens_details": {
+        "cached_tokens": 137216
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 80
+      },
+      "prompt_cache_hit_tokens": 137216,
+      "prompt_cache_miss_tokens": 32629
+    },
+    {
+      "prompt_tokens": 202637,
+      "completion_tokens": 130,
+      "total_tokens": 202767,
+      "prompt_tokens_details": {
+        "cached_tokens": 169984
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 27
+      },
+      "prompt_cache_hit_tokens": 169984,
+      "prompt_cache_miss_tokens": 32653
+    },
+    {
+      "prompt_tokens": 235436,
+      "completion_tokens": 142,
+      "total_tokens": 235578,
+      "prompt_tokens_details": {
+        "cached_tokens": 202752
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 42
+      },
+      "prompt_cache_hit_tokens": 202752,
+      "prompt_cache_miss_tokens": 32684
+    },
+    {
+      "prompt_tokens": 268093,
+      "completion_tokens": 202,
+      "total_tokens": 268295,
+      "prompt_tokens_details": {
+        "cached_tokens": 235520
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 136
+      },
+      "prompt_cache_hit_tokens": 235520,
+      "prompt_cache_miss_tokens": 32573
+    },
+    {
+      "prompt_tokens": 268340,
+      "completion_tokens": 61,
+      "total_tokens": 268401,
+      "prompt_tokens_details": {
+        "cached_tokens": 268160
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 7
+      },
+      "prompt_cache_hit_tokens": 268160,
+      "prompt_cache_miss_tokens": 180
+    },
+    {
+      "prompt_tokens": 300916,
+      "completion_tokens": 523,
+      "total_tokens": 301439,
+      "prompt_tokens_details": {
+        "cached_tokens": 268288
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 398
+      },
+      "prompt_cache_hit_tokens": 268288,
+      "prompt_cache_miss_tokens": 32628
+    },
+    {
+      "prompt_tokens": 333953,
+      "completion_tokens": 163,
+      "total_tokens": 334116,
+      "prompt_tokens_details": {
+        "cached_tokens": 301312
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 66
+      },
+      "prompt_cache_hit_tokens": 301312,
+      "prompt_cache_miss_tokens": 32641
+    },
+    {
+      "prompt_tokens": 366722,
+      "completion_tokens": 142,
+      "total_tokens": 366864,
+      "prompt_tokens_details": {
+        "cached_tokens": 334080
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 34
+      },
+      "prompt_cache_hit_tokens": 334080,
+      "prompt_cache_miss_tokens": 32642
+    },
+    {
+      "prompt_tokens": 399378,
+      "completion_tokens": 529,
+      "total_tokens": 399907,
+      "prompt_tokens_details": {
+        "cached_tokens": 366848
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 400
+      },
+      "prompt_cache_hit_tokens": 366848,
+      "prompt_cache_miss_tokens": 32530
+    },
+    {
+      "prompt_tokens": 432421,
+      "completion_tokens": 168,
+      "total_tokens": 432589,
+      "prompt_tokens_details": {
+        "cached_tokens": 399872
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 49
+      },
+      "prompt_cache_hit_tokens": 399872,
+      "prompt_cache_miss_tokens": 32549
+    },
+    {
+      "prompt_tokens": 465080,
+      "completion_tokens": 112,
+      "total_tokens": 465192,
+      "prompt_tokens_details": {
+        "cached_tokens": 432512
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 13
+      },
+      "prompt_cache_hit_tokens": 432512,
+      "prompt_cache_miss_tokens": 32568
+    },
+    {
+      "prompt_tokens": 497705,
+      "completion_tokens": 129,
+      "total_tokens": 497834,
+      "prompt_tokens_details": {
+        "cached_tokens": 465152
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 49
+      },
+      "prompt_cache_hit_tokens": 465152,
+      "prompt_cache_miss_tokens": 32553
+    },
+    {
+      "prompt_tokens": 540447,
+      "completion_tokens": 791,
+      "total_tokens": 541238,
+      "prompt_tokens_details": {
+        "cached_tokens": 497792
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 650
+      },
+      "prompt_cache_hit_tokens": 497792,
+      "prompt_cache_miss_tokens": 42655
+    },
+    {
+      "prompt_tokens": 541298,
+      "completion_tokens": 66,
+      "total_tokens": 541364,
+      "prompt_tokens_details": {
+        "cached_tokens": 541056
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 12
+      },
+      "prompt_cache_hit_tokens": 541056,
+      "prompt_cache_miss_tokens": 242
+    },
+    {
+      "prompt_tokens": 572966,
+      "completion_tokens": 156,
+      "total_tokens": 573122,
+      "prompt_tokens_details": {
+        "cached_tokens": 541312
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 28
+      },
+      "prompt_cache_hit_tokens": 541312,
+      "prompt_cache_miss_tokens": 31654
+    },
+    {
+      "prompt_tokens": 604689,
+      "completion_tokens": 666,
+      "total_tokens": 605355,
+      "prompt_tokens_details": {
+        "cached_tokens": 573056
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 544
+      },
+      "prompt_cache_hit_tokens": 573056,
+      "prompt_cache_miss_tokens": 31633
+    },
+    {
+      "prompt_tokens": 605420,
+      "completion_tokens": 398,
+      "total_tokens": 605818,
+      "prompt_tokens_details": {
+        "cached_tokens": 605184
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 332
+      },
+      "prompt_cache_hit_tokens": 605184,
+      "prompt_cache_miss_tokens": 236
+    },
+    {
+      "prompt_tokens": 637361,
+      "completion_tokens": 884,
+      "total_tokens": 638245,
+      "prompt_tokens_details": {
+        "cached_tokens": 605696
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 768
+      },
+      "prompt_cache_hit_tokens": 605696,
+      "prompt_cache_miss_tokens": 31665
+    },
+    {
+      "prompt_tokens": 669868,
+      "completion_tokens": 345,
+      "total_tokens": 670213,
+      "prompt_tokens_details": {
+        "cached_tokens": 638208
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 237
+      },
+      "prompt_cache_hit_tokens": 638208,
+      "prompt_cache_miss_tokens": 31660
+    },
+    {
+      "prompt_tokens": 712663,
+      "completion_tokens": 1527,
+      "total_tokens": 714190,
+      "prompt_tokens_details": {
+        "cached_tokens": 670208
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 1411
+      },
+      "prompt_cache_hit_tokens": 670208,
+      "prompt_cache_miss_tokens": 42455
+    }
+  ],
+  "native_calls": 48,
+  "elapsed_s": 111.289546667,
+  "model_turn_limit": 32,
+  "actual_cost_not_reported": true
+}
