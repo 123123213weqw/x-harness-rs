@@ -1,0 +1,218 @@
+[
+  {
+    "turn": 0,
+    "model_elapsed_s": 0.9936200832016766,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "auto"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "model_elapsed_s": 2.3774718325585127,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "click",
+          "frame_id": "win:7076:1791176107401117100:12",
+          "node_id": "uia:win:1272:f0396:64"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 2,
+    "model_elapsed_s": 2.124013749882579,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "click",
+          "frame_id": "win:7076:1791176121295921900:13",
+          "node_id": "uia:win:1272:f0396:76"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 3,
+    "model_elapsed_s": 1.146676667034626,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "auto",
+          "region": {
+            "x": 0,
+            "y": 80,
+            "width": 1024,
+            "height": 200
+          }
+        }
+      }
+    ]
+  },
+  {
+    "turn": 4,
+    "model_elapsed_s": 1.8157665827311575,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "click",
+          "frame_id": "win:7076:1791176145456682900:14",
+          "node_id": "uia:win:1272:f0396:736"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 5,
+    "model_elapsed_s": 1.7486209170892835,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "keypress",
+          "frame_id": "win:7076:1791176158961813300:15",
+          "keys": [
+            "Ctrl",
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "turn": 6,
+    "model_elapsed_s": 1.7256967090070248,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "type",
+          "frame_id": "win:7076:1791176191212349200:16",
+          "text": "2TB NVMe SSD"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 7,
+    "model_elapsed_s": 1.9699284578673542,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "keypress",
+          "frame_id": "win:7076:1791176207599425100:17",
+          "keys": [
+            "Enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "turn": 8,
+    "model_elapsed_s": 2.0550014581531286,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "wait",
+          "duration_ms": 3000
+        }
+      }
+    ]
+  },
+  {
+    "turn": 9,
+    "model_elapsed_s": 1.2427823338657618,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "auto"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 10,
+    "model_elapsed_s": 2.578304000198841,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "scroll",
+          "frame_id": "win:7076:1791176268943419500:19",
+          "delta_x": 0,
+          "delta_y": -300,
+          "x": 500,
+          "y": 400
+        }
+      }
+    ]
+  },
+  {
+    "turn": 11,
+    "model_elapsed_s": 3.4425042499788105,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "scroll",
+          "frame_id": "win:7076:1791176283967019800:20",
+          "delta_x": 0,
+          "delta_y": -600,
+          "x": 660,
+          "y": 500
+        }
+      }
+    ]
+  },
+  {
+    "turn": 12,
+    "model_elapsed_s": 5.525873125065118,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "keypress",
+          "frame_id": "win:7076:1791176298136413000:21",
+          "keys": [
+            "PageDown"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "turn": 13,
+    "model_elapsed_s": 5.444321333896369,
+    "finish_reason": "stop",
+    "calls": []
+  }
+]

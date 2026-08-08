@@ -49,3 +49,11 @@ Earlier baseline and original real-site failure are retained in
   TTL and `finally` cleanup. Do not claim the remote probe was already stopped.
 - No original VM, user software, UAC, credentials or production deployment
   changed. No real cart/checkout/purchase, main merge or release.
+
+## Follow-up after connectivity returned
+
+See `reconnection-20261005/README.md`. Prior pending input and process termination
+were reconciled. A new real DeepSeek strict **site-search / two-price** task
+passed with independent screenshots; the native latency remains about 9 seconds.
+This supersedes the *current* connection-blocked status above, not the recorded
+historical failure or untested installed-Host/vision scope.

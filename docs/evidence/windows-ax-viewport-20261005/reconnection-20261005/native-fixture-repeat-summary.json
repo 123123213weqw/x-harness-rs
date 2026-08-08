@@ -1,0 +1,12 @@
+{
+  "case": "native_acceptance",
+  "passed": true,
+  "detail": {
+    "cases": 14,
+    "elapsed_ms": 18543,
+    "fixture_closed_on_return": true,
+    "model_calls": 0
+  },
+  "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+  "source": "latest persisted guest-results.jsonl aggregate retrieved via SSH after resumed experiment"
+}
