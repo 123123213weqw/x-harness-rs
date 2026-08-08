@@ -16,12 +16,17 @@ use windows::{
     Win32::{
         Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
         System::LibraryLoader::GetModuleHandleW,
-        UI::{HiDpi::*, Input::KeyboardAndMouse::GetAsyncKeyState, WindowsAndMessaging::*},
+        UI::{
+            HiDpi::*,
+            Input::KeyboardAndMouse::{GetAsyncKeyState, GetKeyState},
+            WindowsAndMessaging::*,
+        },
     },
 };
 use xharness_computer::{ComputerDriver, ComputerRequest};
 
 static CLICKS: AtomicU32 = AtomicU32::new(0);
+static CONTROL_A: AtomicU32 = AtomicU32::new(0);
 static WHEELS: AtomicU32 = AtomicU32::new(0);
 unsafe extern "system" fn procedure(
     window: HWND,
@@ -136,6 +141,15 @@ impl Fixture {
             let _ = tx.send(Some(handles));
             let mut message = MSG::default();
             while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
+                // Observe delivered input independently; don't implement a
+                // fake Ctrl+A shortcut in the classic Edit control.
+                if message.hwnd == HWND(handles.1 as *mut _)
+                    && message.message == WM_KEYDOWN
+                    && message.wParam.0 == 0x41
+                    && unsafe { GetKeyState(0x11) } < 0
+                {
+                    CONTROL_A.fetch_add(1, Ordering::Relaxed);
+                }
                 unsafe {
                     let _ = TranslateMessage(&message);
                     DispatchMessageW(&message);
@@ -261,14 +275,44 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         json!({"action":"keypress","keys":["a"],"modifiers":["ctrl"],"frame_id":frame(&output)?}),
     )
     .await?;
-    output=execute(&driver,json!({"action":"type","node_id":node(&output,"edit")?,"frame_id":frame(&output)?,"text":"replacement"})).await?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    if CONTROL_A.load(Ordering::Relaxed) != 1 {
+        return Err("Ctrl+A keydown/modifier did not reach the fixture exactly once".into());
+    }
+    record(
+        "native_ctrl_a_delivery",
+        json!({"independent_keydown_count":1}),
+    );
+    // Classic multiline Edit is not required to implement Ctrl+A. Exercise
+    // documented navigation/selection rather than changing the driver or
+    // synthesizing an app shortcut to make the assertion pass.
+    output = execute(&driver, json!({"action":"keypress","keys":["home"],"modifiers":["ctrl"],"frame_id":frame(&output)?})).await?;
+    output = execute(&driver, json!({"action":"keypress","keys":["end"],"modifiers":["ctrl","shift"],"frame_id":frame(&output)?})).await?;
+    let mut start = 0u32;
+    let mut end = 0u32;
+    unsafe {
+        SendMessageW(
+            HWND(fixture.edit as *mut _),
+            0x00b0,
+            WPARAM((&mut start as *mut u32) as usize),
+            LPARAM((&mut end as *mut u32) as isize),
+        );
+    }
+    if start != 0 || end as usize != fixture.text().encode_utf16().count() {
+        return Err(format!("native selection mismatch: start={start}, end={end}").into());
+    }
+    output = execute(
+        &driver,
+        json!({"action":"type","node_id":node(&output,"edit")?,"frame_id":frame(&output)?,"text":"replacement"}),
+    )
+    .await?;
     tokio::time::sleep(Duration::from_millis(150)).await;
     if fixture.text() != "replacement" {
         return Err("keypress/selection replacement mismatch".into());
     }
     record(
         "native_keypress",
-        json!({"ctrl_a_replacement_matches":true}),
+        json!({"ctrl_home_shift_end_replacement_matches":true}),
     );
     execute(
         &driver,
@@ -384,7 +428,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     record(
         "native_acceptance",
-        json!({"cases":11,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
+        json!({"cases":12,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
     );
     Ok(())
 }
