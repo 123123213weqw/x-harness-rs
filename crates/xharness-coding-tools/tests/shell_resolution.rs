@@ -330,7 +330,12 @@ async fn cmd_fallback_preserves_a_quoted_executable_and_native_exit_code() {
     let shell = Shell::configured(path).unwrap();
     assert_eq!(shell.kind, ShellKind::Cmd);
     let workspace = Workspace::new();
-    let child = workspace.0.join("child tool.exe");
+    // fs::canonicalize produces a verbatim \\?\ path on Windows. CMD is a
+    // legacy interpreter, not the Win32 path parser; use a normal absolute
+    // spelling for its script while retaining the canonical workspace policy.
+    let child = std::env::temp_dir()
+        .join(workspace.0.file_name().unwrap())
+        .join("child tool.exe");
     fs::copy(std::env::current_exe().unwrap(), &child).unwrap();
     let executor = executor(&workspace, shell.clone()).await;
     let result = executor
