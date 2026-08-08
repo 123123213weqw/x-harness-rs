@@ -97,6 +97,19 @@ class PlanTests(unittest.TestCase):
         for platform in ('windows-x86_64', 'linux-x86_64-appimage'):
             self.assertEqual(contract.acceptance_checks(preview, platform), contract.PLATFORM_CHECKS[platform])
 
+    def test_fixed_selfsigned_scope_requires_an_immutable_pin_and_distinct_native_checks(self):
+        fixed = plan(release_scope='all-macos-selfsigned', macos_signing_fingerprint='c'*40)
+        self.assertEqual(fixed['macos_signing_fingerprint'], 'c'*40)
+        self.assertEqual(set(contract.release_platforms(fixed)), set(contract.PLATFORMS))
+        for platform in ['darwin-aarch64','darwin-x86_64']:
+            self.assertEqual(contract.acceptance_checks(fixed, platform), contract.UNIX_CHECKS |
+                             {'codesignVerified','fixedCertificateVerified','designatedRequirementVerified','signingIdentityContinuityVerified'})
+            self.assertNotIn('gatekeeperAccepted', contract.acceptance_checks(fixed, platform))
+        for pin in [None, '', 'A'*40, 'c'*39, 'c'*41, 'z'*40]:
+            with self.subTest(pin=pin), self.assertRaises(ValueError):
+                plan(release_scope='all-macos-selfsigned', macos_signing_fingerprint=pin)
+        with self.assertRaises(ValueError): plan(macos_signing_fingerprint='c'*40)
+
     def test_release_scope_is_explicit_allowlisted_and_legacy_defaults_to_all(self):
         self.assertEqual(set(contract.release_platforms(plan())), set(contract.PLATFORMS))
         scoped = plan(release_scope='windows-linux')
@@ -536,6 +549,57 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
         for platform in contract.PLATFORMS:
             path = self.artifacts / platform / 'receipt.json'
             save(path, dict(contract.read_json(path), release_scope='all-macos-preview'))
+
+    def fixed_artifacts(self):
+        self.plan = plan(release_scope='all-macos-selfsigned', macos_signing_fingerprint='c'*40)
+        for platform in contract.PLATFORMS:
+            path = self.artifacts / platform / 'receipt.json'
+            save(path, dict(contract.read_json(path), release_scope='all-macos-selfsigned', macos_signing_fingerprint='c'*40))
+
+    def test_fixed_signer_manifest_and_receipt_are_bound_to_the_plan(self):
+        self.fixed_artifacts(); self.assemble()
+        manifest, _ = contract.validate_release(self.plan, self.output, self.pub)
+        self.assertEqual(manifest['macos_distribution'], 'self-signed-unnotarized-preview')
+        self.assertEqual(manifest['macos_signing_fingerprint'], 'c'*40)
+        self.assertIn('not notarized', manifest['notes'])
+        for field, value in [('macos_signing_fingerprint', 'd'*40), ('macos_distribution','ad-hoc-unnotarized-preview')]:
+            bad = copy.deepcopy(manifest); bad[field] = value
+            save(self.output/'latest.json',bad); self.refresh_output_hashes()
+            with self.assertRaises(ValueError): contract.validate_release(self.plan,self.output,self.pub)
+        save(self.output/'latest.json',manifest); self.refresh_output_hashes()
+        receipt = self.output/'darwin-aarch64.receipt.json'
+        bad = contract.read_json(receipt); bad['macos_signing_fingerprint'] = 'd'*40; save(receipt,bad)
+        with self.assertRaises(ValueError):
+            contract.validate_receipt(self.plan,'darwin-aarch64',self.output,self.pub, receipt_name=receipt.name, strict_tree=False)
+
+    def test_fixed_signer_cannot_change_or_downgrade_but_can_enroll_from_adhoc(self):
+        self.fixed_artifacts(); self.assemble()
+        manifest, _ = contract.validate_release(self.plan,self.output,self.pub)
+        live = self.live(all_platforms=True)
+        with self.assertRaisesRegex(ValueError,'downgrade'): contract.validate_live(self.plan,live,manifest,self.pub)
+        prior = contract.read_json(live/'latest.json'); prior['macos_distribution']='ad-hoc-unnotarized-preview'
+        save(live/'latest.json',prior); contract.validate_live(self.plan,live,manifest,self.pub)
+        prior.update(macos_distribution='self-signed-unnotarized-preview',macos_signing_fingerprint='c'*40)
+        save(live/'latest.json',prior); contract.validate_live(self.plan,live,manifest,self.pub)
+        changed = {**self.plan, 'macos_signing_fingerprint':'d'*40}
+        with self.assertRaisesRegex(ValueError,'fixed Mac signer'): contract.validate_live(changed,live,manifest,self.pub)
+        with self.assertRaisesRegex(ValueError,'fixed Mac signer'): contract.validate_live(plan(release_scope='all-macos-preview'),live,manifest,self.pub)
+        contract.validate_live(plan(),live,manifest,self.pub)  # later Developer ID adoption still allowed
+
+    def test_fixed_signer_acceptance_cannot_claim_apple_approval_or_omit_continuity(self):
+        self.fixed_artifacts(); self.assemble(); accepted = self.acceptances()
+        for platform in ['darwin-aarch64','darwin-x86_64']:
+            path = accepted/platform/'acceptance.json'; value=contract.read_json(path)
+            value['checks']={key:True for key in contract.acceptance_checks(self.plan,platform)};save(path,value)
+        contract.promotion(self.plan,self.output,accepted,self.live(),self.pub,[CI])
+        path=accepted/'darwin-aarch64/acceptance.json'; original=contract.read_json(path)
+        for check in original['checks']:
+            bad=copy.deepcopy(original);bad['checks'][check]=False;save(path,bad)
+            with self.assertRaisesRegex(ValueError,'native checks'):
+                contract.validate_acceptance(self.plan,accepted,self.output,contract.sha256(self.output/'latest.json'))
+        bad=copy.deepcopy(original);bad['checks']['gatekeeperAccepted']=True;save(path,bad)
+        with self.assertRaisesRegex(ValueError,'native checks'):
+            contract.validate_acceptance(self.plan,accepted,self.output,contract.sha256(self.output/'latest.json'))
 
     def test_preview_manifest_policy_cannot_be_hidden_even_with_refreshed_hashes(self):
         self.preview_artifacts()
