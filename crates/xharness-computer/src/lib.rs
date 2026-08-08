@@ -456,7 +456,7 @@ fn validate_argument_shape(value: &Value) -> Result<(), ToolHandlerError> {
             "modifiers",
         ],
         "type" => &["text", "node_id", "frame_id"],
-        "keypress" => &["keys", "modifiers"],
+        "keypress" => &["keys", "modifiers", "frame_id"],
         "wait" => &["duration_ms"],
         "window" => &["surface_id", "operation", "x", "y", "width", "height"],
         _ => return Ok(()), // The registry's enum validation reports this case.
@@ -580,6 +580,15 @@ mod tests {
         let result = execute(r#"{"action":"observe","detail":"semantic"}"#).await;
         assert!(result.is_ok(), "{:?}", result.failure);
         assert!(result.output.unwrap().content.contains("observe"));
+    }
+
+    #[tokio::test]
+    async fn keypress_accepts_observed_frame_through_tool_registry() {
+        let result = execute(
+            r#"{"action":"keypress","keys":["a"],"modifiers":["ctrl"],"frame_id":"observed"}"#,
+        )
+        .await;
+        assert!(result.is_ok(), "{:?}", result.failure);
     }
 
     #[tokio::test]
