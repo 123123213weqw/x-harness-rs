@@ -60,6 +60,11 @@ impl WindowsComputer {
         request: Request,
         token: &CancellationToken,
     ) -> Result<(Reply, Vec<u8>), ComputerError> {
+        let may_have_sent_input = !matches!(
+            request.request.action,
+            ComputerAction::Observe | ComputerAction::Wait
+        ) && !(request.request.action == ComputerAction::Window
+            && request.request.operation.as_deref() == Some("list"));
         let bytes = serde_json::to_vec(&request)
             .map_err(|_| ComputerError::invalid("cannot encode computer request"))?;
         if bytes.len() > wire::MAX_REQUEST {
@@ -165,8 +170,16 @@ impl WindowsComputer {
         };
         match result {
             Some(Ok(value)) if status.is_ok_and(|s| s.success()) => Ok(value),
-            _ => Err(ComputerError { code: "outcome_unknown".into(), message: "computer worker was cancelled, timed out or lost; observe actual UI state before deciding what to do next; do not automatically replay input".into(), retryable: false }),
+            _ => Err(lost_worker_error(may_have_sent_input, token.is_cancelled())),
         }
+    }
+}
+
+fn lost_worker_error(may_have_sent_input: bool, cancelled: bool) -> ComputerError {
+    if may_have_sent_input {
+        ComputerError { code: "outcome_unknown".into(), message: "computer worker was cancelled, timed out or lost; observe actual UI state before deciding what to do next; do not automatically replay input".into(), retryable: false }
+    } else {
+        ComputerError { code: if cancelled { "cancelled" } else { "worker_unavailable" }.into(), message: "read-only computer worker was cancelled, timed out or lost; no input action was dispatched".into(), retryable: !cancelled }
     }
 }
 
@@ -263,6 +276,23 @@ impl ComputerDriver for WindowsComputer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lost_input_is_never_automatically_replayed() {
+        for cancelled in [false, true] {
+            let error = lost_worker_error(true, cancelled);
+            assert_eq!(error.code, "outcome_unknown");
+            assert!(!error.retryable);
+        }
+    }
+    #[test]
+    fn read_only_loss_is_not_a_side_effect_uncertainty() {
+        let error = lost_worker_error(false, false);
+        assert_eq!(error.code, "worker_unavailable");
+        assert!(error.retryable);
+        let error = lost_worker_error(false, true);
+        assert_eq!(error.code, "cancelled");
+        assert!(!error.retryable);
+    }
     fn request(value: serde_json::Value) -> ComputerRequest {
         serde_json::from_value(value).unwrap()
     }
