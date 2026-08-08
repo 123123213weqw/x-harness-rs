@@ -47,6 +47,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Preserve trusted master publication controls separately from candidate source
+        run: |
+          mkdir "$RUNNER_TEMP/desktop-promotion-controls"
+          cp scripts/desktop-release.py scripts/desktop-release-build.py "$RUNNER_TEMP/desktop-promotion-controls/"
       - name: Resolve the candidate source from the trusted master control workflow
         id: source
         env:
@@ -57,6 +61,8 @@ jobs:
         with:
           ref: ${{ steps.source.outputs.source_sha }}
           persist-credentials: false
+      - name: Restore trusted publication controls without rebuilding or changing the immutable candidate
+        run: cp "$RUNNER_TEMP/desktop-promotion-controls/"*.py scripts/
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
