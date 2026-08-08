@@ -1,0 +1,55 @@
+{
+  "scope": "Frontend presentation only; no Rust or model calls in this change",
+  "branch": "feat/automation-tool-runtime-20261004",
+  "threshold": {
+    "enterCharactersPerSecond": 120,
+    "exitCharactersPerSecond": 80,
+    "sampleWindowMs": 1000,
+    "minimumSampleMs": 200,
+    "note": "UTF-16 character growth visual proxy, not measured model TPS"
+  },
+  "presentation": {
+    "pageMs": 800,
+    "flipMs": 180,
+    "rowHeightPx": 24,
+    "maximumLines": 2,
+    "maximumRateBuckets": 11,
+    "noPageQueue": true,
+    "expandedBody": "Unmodified complete text"
+  },
+  "checks": {
+    "newDeterministicTests": 12,
+    "conversationStreamProductViewTypePolicyTests": 169,
+    "automationRegressionTests": 44,
+    "failures": 0,
+    "strictOwnedBuild": "passed",
+    "demoStrictTypes": "passed",
+    "deterministicBuild": "passed",
+    "motionTokenLifecycle": "passed",
+    "gitDiffCheck": "passed"
+  },
+  "browser": "Actual production ReasoningRow + MarkdownText in Codex in-app browser. Simulated chunks, not real model inference.",
+  "browserPassed": [
+    "three consecutive flips with 0.18s CSS animation and 24px height",
+    "two visual lines at most and outgoing line aria-hidden",
+    "expanded complete live text: 5436 received / 5436 displayed characters",
+    "immediate completion: no paging, no outgoing animation, static summary and full reply",
+    "low-speed ordinary preview and original sweep",
+    "emulated reduced motion: pacing retained, no animation, override cleared",
+    "narrow current viewport: no horizontal overflow"
+  ],
+  "notRun": [
+    "new paid DeepSeek request",
+    "native macOS or Linux WebView runtime test",
+    "GitHub CI execution",
+    "desktop rebuild/replacement"
+  ],
+  "logs": [
+    "/tmp/xh-reasoning-pager-build-20261004.log",
+    "/tmp/xh-reasoning-pager-regression-20261004.log",
+    "/tmp/xh-reasoning-pager-automation-regression-20261004.log",
+    "/tmp/xh-reasoning-pager-demo-types-20261004.log",
+    "/tmp/xh-reasoning-pager-determinism-20261004.log"
+  ],
+  "demo": "http://127.0.0.1:3267/"
+}

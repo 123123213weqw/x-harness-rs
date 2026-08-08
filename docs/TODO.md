@@ -1,5 +1,34 @@
 # XHarness 总任务清单
 
+## 桌面后台准备更新（2026-10-03）
+
+- [x] `UPDATE-PREPARE-01` 复用原 Tauri controller，自动检查后准备新版，不弹出面板、不自动安装；重启需确认，恢复网络与最多三次退避重试，页面退出取消后续动作。
+- [x] `UPDATE-PREPARE-02` 完整候选落盘、按实时清单精确身份复用并重新验签；停止 Host 前再次验签，Ready 不再常驻完整包字节；缓存独立、暂存发布、容量上限、损坏／身份漂移兜底。见 `docs/specs/desktop-background-updates.md`。
+- [x] `UPDATE-PREPARE-03` 本机 Node 22 项／严格 TS 与构建一致性、V100 Rust desktop lib 46 项／check／Clippy、Chromium／WebKit 各 28 个浏览器场景通过；Unix 更新验收隔离与发布契约回归通过。见 `docs/evidence/desktop-background-updates-20261003.md`；不以这些回归代替真正更新安装。
+- [x] `UPDATE-PREPARE-04` Linux AppImage／macOS arm64／macOS x64 各三轮、Windows NSIS 一轮真实隔离升级通过；含进程重开复用缓存、重验签、篡改拒绝、显式安装、Host 生命周期与合成数据保留。验收见 `docs/evidence/desktop-native-updates-20261004.md`；PR #215 记录源码绑定、原生升级和全量 CI 门禁，不发布或替换应用。
+- [ ] `UPDATE-RELEASE-01` 正式签名渠道发布与真实用户安装／首次下载 OS 门禁验收；不是临时密钥演练收据，不改现有 feed 或自动重启软件。
+- [ ] `UPDATE-PREPARE-05` HTTP Range 续传、用户自动下载偏好、原生更新启动健康收据／崩溃恢复独立设计与验收；不在本轮冒充已经完成。
+## Host → UI 契约强制对齐（2026-10-04）
+
+- [x] `WIRE-01` 第一阶段收口 turn/end：持久历史投影与旧 Core 驱动使用同一 Rust DTO；测试导出 JSON Schema，生成 TS 类型与 codec；Chat、Trajectory、Session 严格边界共用校验，保留旧别名、扩展字段与原始日志。
+- [x] `WIRE-02` 构建生成物漂移门禁、真实 Rust 输出→生产前端组装器回归、固定 v1 双向兼容语料、失败历史事务/实时恢复与浏览器终态窗口验收接入 CI；未支持的 Schema 约束直接阻断生成。
+- [x] `WIRE-03a` WZU_Server 独立目录根 Workspace 全量测试及 Clippy、56 组本机回归命令、Chromium/WebKit 各 42 个真实终态窗口通过；见 `docs/evidence/session-terminal-contract-20261004.md`。
+- [ ] `WIRE-03b` 当前提交 GitHub 跨平台 CI 全绿后才能合并；源码通过不代表 Windows 原生实机、桌面部署或全部协议迁移完成。
+- [ ] `WIRE-04` 分族迁移工具视图 discriminator、Step/Assistant、Compaction 和其余 RPC；每族加入实际输出→实际读取回归后删手写分支，保留开放插件事件及旧持久格式。
+
+规格见 `docs/specs/session-terminal-contract.md`。
+
+## 滚动意图、Fork 网络契约与 Linux 测高补偿（2026-10-04）
+
+- [x] `UI-SCROLL-INTENT-01` 删除 user/steering 到达即强制到底部；底部跟随只由已有跟随状态、当前会话本地发送意图或明确回到底部恢复。发送意图在 RPC 前同步发出，迟到成功/失败/历史回声不能覆盖更新的上滑意图；会话隔离、隐藏视图和订阅释放有回归。
+- [x] `UI-FORK-WIRE-01` host/session-added 与 session.list 共用 subagent/fork 来源校验；保持缺省来源兼容，继续拒绝非法来源。真实 Rust SessionFork 的三种切点输出经生产 WebSocket/HTTP 解码回归，不借用 FixtureApiClient 绕过验证。
+- [x] `UI-LINUX-ANCHOR-01` 仅明确支持 overflow-anchor:auto 时使用原生补偿；属性缺失/空值/none 走维护的可见行锚点与实时跟随所有权。V100 真实 Linux WebKit、两本机浏览器及强制缺属性分支通过；旧失败证据保留。
+- [x] `UI-RAIL-LEFT-01` 补回此前仅留在旧工作目录的左侧消息定位栏样式；右侧工作区 dock/drawer 展开时隐藏，全部关闭后恢复。浏览器回归新增实际左边距、宽/窄屏、两个工作区标签及恢复后定位断言，不再只测“按钮能点击”。
+- [x] `UI-HISTORY-READ-UP-01` 复用 Session 单页加载与现有可见行锚点；首次/刷新仍自动加载最近 50 条，上滑接近顶部自动取一页。手动/自动/重试共享同步单飞门禁，下滑/消息定位/回到底部取消旧分页意图；到达、重排和分页完成不继续全量排空历史。错误保留手动重试、EOF 停止，旧同步注入兼容；真实 ChatView 与生产 apply 接线在两浏览器和 V100 Linux WebKit 验收。
+- [x] `UI-LINUX-COLD-WHEEL-01` 窗口计划／DOM 同帧原子提交；新增首个普通原生滚轮不能丢失及同帧收据回归，保留有界窗口化、旧锚点与冻结基线。Mac 两引擎与 Linux 最终严格版 3/3 定向验收通过；当前 SHA 全量 CI 仍是合并门禁。见 `docs/evidence/webkit-cold-wheel-20261004.md`。
+- [ ] `UI-LINUX-FOLD-FLAKE-01` V100 的 Playwright 1.59.1 WebKit 曾在保护焦点/选区后的 live-summary 可见等待出现一次 10s 超时；新增失败时的真实高度/焦点/选区诊断，后续三次完整用例通过，但尚未确定原因，不能用重复通过宣称该异常已修复。自动分页/左侧栏/默认与缺属性窗口化均通过；不改产品折叠算法或放宽等待上限掩盖此项。
+- [ ] 本批 PR 跨平台 CI 全绿后才可合并；源码、生成 UI 与浏览器回归不等于已安装桌面升级或 Windows 原生崩溃已验收。见 `docs/evidence/ui-scroll-fork-regression-20261004.md`。
+
 ## 工具空间折叠与展示档位收敛（2026-10-04）
 
 - [x] `DISPLAY-01` 运行中按可见高度 40% 折叠较早成功工具，保留最新、失败、等待、焦点和文本选择；手动展开优先，复用整轮与虚拟列表。
@@ -75,7 +104,7 @@
 - [x] `UI-SOURCE-06` 干净完整构建、重复字节一致、损坏／失败保留旧产物，冻结主分支／新源码全部业务 A/B 与 canonical Node／Chromium／WebKit 回归。
 - [x] `UI-SOURCE-07a` WZU_Server 远程真实 Rust Host 响应与 TS DTO 对照通过；不在本机编译 Rust。
 - [ ] `UI-SOURCE-07b` 当前提交的 GitHub CI 全绿后合并；桌面安装和发布仍需独立授权及验收。
-- [ ] `UI-LINUX-ANCHOR-01` 既有 Linux WebKit Safari 26.4 不支持 `overflow-anchor` 时，窗口化测高未补偿滚动位置，尾行离开视口。V100 172 个补充入口首次 169 通过、checkpoint 两项独立修正后累计 171；剩余此项 source/frozen 均复现，不能记为全绿或迁移回归。单独修能力判断与测高补偿，保留真实点击、锚点、展开状态和 active-row 回归。见 `docs/evidence/ui-source-v100-browser-matrix-20261003.json`。
+- [x] 既有 Linux WebKit 测高补偿缺口 `UI-LINUX-ANCHOR-01` 已于 2026-10-04 修复并在 V100 复验。2026-10-03 的 172 入口旧矩阵仍保留其 source/frozen 失败，不改写为当时全绿；新证据见 `docs/evidence/ui-scroll-fork-regression-20261004.md`，原失败见 `docs/evidence/ui-source-v100-browser-matrix-20261003.json`。
 
 ## 旧公开接口清理（2026-09-30）
 
@@ -1383,7 +1412,7 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 高度占位、前后各一屏缓冲、共享观察器、按帧更新；2026-10-01 改为临时焦点／选区保护、live tip 与未结算工具保留。
 - [x] 接入真实 ChatView 和静态 UI 重建流程，保留原锚点与滚动逻辑。
 - [x] 服务器 Chromium 三次 DOM/JS 堆 A/B、真实 ChatView 滚动回归；本机 WebKit 通过，详见 `reports/transcript-windowing-20260913.md`。
-- [ ] Linux WebKit 服务器回归：2026-10-03 已补齐 V100 测试系统依赖，172 入口补充矩阵完成；滚动测高真实点击在旧/新实现均失败，见 `UI-LINUX-ANCHOR-01`。不能继续归因于浏览器无法启动；最新 CI 和原生 WebView 验收另行核实。
+- [x] Linux WebKit 服务器回归：2026-10-03 的旧/新测高失败保留；2026-10-04 修复 `UI-LINUX-ANCHOR-01` 后，V100 真实点击、展开状态、锚点与跟随回归通过。最新 CI 和原生 WebView 验收仍另行核实。
 - [x] 首次加载／宽度变化不再全量挂载；真实 macOS 安装包 footprint 对照仍待发布后验收。
 - [x] 跨组件轻量交互状态外置，已交互的历史行可离屏卸载并恢复展示状态。
 - [ ] 数据层全文检索替代依赖所有消息 DOM 的原生查找。
@@ -1504,8 +1533,18 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 行外轻量展示状态、按 callId／思考块隔离；取消点击永久固定，输入与选区仅临时保护。
 - [x] 接入原工具呈现注册与静态 UI 重建路径，不修改模型输入、工具执行和磁盘历史。
 - [x] V100 静态及 Chromium 八组关联回归、本机 macOS WebKit 窗口化回归；350 行首次重组件挂载 0，五轮宽度变化峰值 1（模拟用例，不代表真实进程 footprint）。
-- [ ] Linux WebKit 回归：V100 缺失测试库已补齐；Safari 26.4 的既有测高滚动补偿缺口已复现并单列 `UI-LINUX-ANCHOR-01`，不使用强制点击/等待绕过失败。最新 GitHub CI 与原生 WebView 结果不冒充该版本通过。
+- [x] Linux WebKit 回归：V100 依赖已补齐；2026-10-04 修复并实测 `UI-LINUX-ANCHOR-01`，不改写旧失败、不用强制点击绕过验收。最新 GitHub CI 与原生 WebView 仍需独立验证。
 - [ ] 发布后对真实 macOS WKWebView footprint／启动峰值验收；源码修改不代表本机已升级。
+
+## 2026-10-03 统一桌面与 Web 启动加载页
+
+- [x] 本地离线 Bootstrap 与插件 BootPage 共用 framework-free StartupSurface、金属 X、布局和主题；原旋转圆环／蓝色滑条移除。
+- [x] 桌面仅第一段播放有限收缩动画，第二段保持静态；浏览器独立入口播放一次。界面交接、失败、隐藏和卸载立即取消入场，不等待动画。
+- [x] 实际应用 commit 后原位轻微展开、180ms 淡出，与入场收拢呼应；不是 Host Ready 或固定计时触发。小型快照位于 React 容器外、inert／aria-hidden／鼠标穿透，不拦截点击、不延迟挂载；失败不退场，减少动态效果立即交接。
+- [x] 同一个源构建同时生成 Web 与本地 HTML，check:build 检测任一输出漂移；保留订阅后快照读取、插件错误明细与真实加载状态。
+- [x] 启动打点不把加载页当作 frontend_hydrated；Chromium／WebKit 各 30 项启动回归、真实 React commit 一次性通知及完整 UI 旧／新像素对照通过。覆盖退场完成／取消释放、隐藏、resize、卸载、异常动画降级、重复通知与即时点击。
+- [x] 新版四平台原生打包与隔离升级／重启验证；Windows 原生 WebView 已记录真实 hydration 与 first frame，浏览器启动各 30 场景。见 `docs/evidence/desktop-native-updates-20261004.md`，未替换本机软件。
+- [ ] 原生 WebView 两段动画轨迹专项验收与启动速度 A/B；不把生命周期正确或一次启动打点解释为更快。
 
 ## job_output 等待超时：隔离实验（2026-10-03）
 

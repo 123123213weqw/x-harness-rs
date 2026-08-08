@@ -1,3 +1,4 @@
+mod cache;
 #[cfg(target_os = "macos")]
 mod local_signing;
 mod state;
@@ -71,7 +72,47 @@ pub async fn desktop_check_update(
                 .update_session
                 .lock()
                 .expect("update session mutex poisoned")
-                .checked(update, version, notes);
+                .checked(update.clone(), version, notes);
+            // A fresh live manifest chooses the candidate. A cache never gets
+            // to choose a version, platform, download URL or signing key.
+            if let Some(update) = update {
+                let root = match cache_root(&app) {
+                    Ok(root) => root,
+                    Err(error) => return fail(&app, &state, Action::Check, error),
+                };
+                let identity = match cache_identity(&update) {
+                    Ok(id) => id,
+                    Err(error) => return fail(&app, &state, Action::Check, error),
+                };
+                let restored =
+                    match tokio::task::spawn_blocking(move || cache::restore(&root, &identity))
+                        .await
+                    {
+                        Ok(result) => result,
+                        Err(error) => {
+                            return fail(
+                                &app,
+                                &state,
+                                Action::Check,
+                                format!("更新缓存检查失败：{error}"),
+                            )
+                        }
+                    };
+                match restored {
+                    Ok(Some(package)) => {
+                        state
+                            .update_session
+                            .lock()
+                            .expect("update session mutex poisoned")
+                            .verified(package.directory(), package.len);
+                    }
+                    Ok(None) => {}
+                    Err(_) => { /* Corrupt/partial/stale cache is a miss, never a Host startup failure. */
+                    }
+                }
+            } else if let Ok(root) = cache_root(&app) {
+                let _ = tokio::task::spawn_blocking(move || cache::discard(&root)).await;
+            }
             Ok(publish(&app, snapshot(&state)))
         }
         Err(error) => fail(&app, &state, Action::Check, error),
@@ -89,7 +130,8 @@ async fn check(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Update>, 
         .endpoints(vec![endpoint])
         .map_err(|error| format!("无法配置更新地址：{error}"))?
         .pubkey(UPDATE_PUBLIC_KEY.ok_or_else(not_configured)?)
-        .timeout(Duration::from_secs(30));
+        .timeout(Duration::from_secs(30))
+        .on_before_exit(app.state::<DesktopState>().diagnostics.update_exit_hook());
     // NSIS otherwise consults the last registered installation, which may be a
     // different copy. /D must be the final, unquoted NSIS argument (spaces allowed).
     #[cfg(windows)]
@@ -155,11 +197,40 @@ pub async fn desktop_download_update(
     .await;
     match result {
         Ok(bytes) => {
+            let root = match cache_root(&app) {
+                Ok(root) => root,
+                Err(error) => return fail(&app, &state, Action::Download, error),
+            };
+            let identity = match cache_identity(&update) {
+                Ok(id) => id,
+                Err(error) => return fail(&app, &state, Action::Download, error),
+            };
+            let result =
+                tokio::task::spawn_blocking(move || cache::save(&root, identity, &bytes)).await;
+            let package = match result {
+                Ok(Ok(package)) => package,
+                Ok(Err(error)) => {
+                    return fail(
+                        &app,
+                        &state,
+                        Action::Download,
+                        format!("无法保存更新包：{error}"),
+                    )
+                }
+                Err(error) => {
+                    return fail(
+                        &app,
+                        &state,
+                        Action::Download,
+                        format!("保存更新包任务失败：{error}"),
+                    )
+                }
+            };
             let ready = state
                 .update_session
                 .lock()
                 .expect("update session mutex poisoned")
-                .verified(bytes);
+                .verified(package.directory(), package.len);
             // Deliberately no Host shutdown, installation or restart here.
             Ok(publish(&app, ready))
         }
@@ -174,11 +245,45 @@ pub async fn desktop_install_update(
     confirm_stop: bool,
 ) -> Result<(), String> {
     let _guard = acquire(&state.update_busy, &state.closing)?;
-    let (update, bytes) = state
+    let (update, path) = state
         .update_session
         .lock()
         .expect("update session mutex poisoned")
         .install_payload(confirm_stop)?;
+    let identity = cache_identity(&update)?;
+    let root = cache_root(&app)?;
+    let verified = tokio::task::spawn_blocking(move || {
+        let (package, bytes) = cache::load(&root, &identity)?
+            .ok_or_else(|| "更新缓存已丢失或版本已改变，请重新下载".to_owned())?;
+        if package.directory() != path {
+            return Err("更新缓存路径不匹配".to_owned());
+        }
+        Ok(bytes)
+    })
+    .await;
+    let bytes = match verified {
+        Ok(Ok(bytes)) => bytes,
+        other => {
+            // Reset only the candidate cache; leave Host and all user data running.
+            state
+                .update_session
+                .lock()
+                .expect("update session mutex poisoned")
+                .invalidate_download();
+            let error = match other {
+                Ok(Err(e)) => e,
+                Err(e) => e.to_string(),
+                _ => unreachable!(),
+            };
+            return fail(
+                &app,
+                &state,
+                Action::Download,
+                format!("更新包需要重新下载：{error}"),
+            )
+            .map(|_| ());
+        }
+    };
     // A locally distributed, unnotarized macOS build may use a persistent
     // self-signed identity. Tauri's downloaded archive is signature-verified,
     // but CI cannot hold this machine's private key: prepare a rollback copy
@@ -211,6 +316,10 @@ pub async fn desktop_install_update(
     }
     transition(&app, &state, Phase::Installing, None);
     if let Err(error) = update.install(bytes.as_slice()) {
+        // Windows can invoke its exit hook before ShellExecute fails. Restore
+        // crash detection while the existing app and recovered Host keep running.
+        #[cfg(windows)]
+        state.diagnostics.resume_after_failed_update();
         #[cfg(target_os = "macos")]
         if let Some(local_signing) = &local_signing {
             local_signing.discard();
@@ -248,6 +357,10 @@ pub async fn desktop_install_update(
         }
     }
     transition(&app, &state, Phase::Installed, None);
+    // restart may bypass RunEvent::Exit on some platforms. Host shutdown and
+    // installation have succeeded: persist the clean boundary before relaunch.
+    // Do not acknowledge or delete earlier crash evidence.
+    state.diagnostics.finish();
     app.restart();
 }
 
@@ -335,6 +448,24 @@ fn fail(
 
 fn not_configured() -> String {
     "此开发构建未配置签名更新源；请安装带 HTTPS 更新源和公钥的正式版本".to_owned()
+}
+
+fn cache_root(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_cache_dir()
+        .map(|p| p.join("updater-v1"))
+        .map_err(|e| format!("无法定位更新缓存：{e}"))
+}
+
+fn cache_identity(update: &tauri_plugin_updater::Update) -> Result<cache::Identity, String> {
+    Ok(cache::Identity {
+        endpoint: UPDATE_ENDPOINT.ok_or_else(not_configured)?.to_owned(),
+        public_key: UPDATE_PUBLIC_KEY.ok_or_else(not_configured)?.to_owned(),
+        version: update.version.clone(),
+        target: update.target.clone(),
+        url: update.download_url.to_string(),
+        signature: update.signature.clone(),
+    })
 }
 
 #[cfg(test)]

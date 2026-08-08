@@ -132,7 +132,7 @@ export type HostFrame =
     sessionId: SessionId
     blank: boolean
     parentSessionId?: SessionId | undefined
-    origin?: 'subagent' | 'fork' | undefined
+    origin?: 'subagent' | 'fork' | 'automation' | undefined
     cwd?: string | undefined
     agentPreset?: string | undefined
   }

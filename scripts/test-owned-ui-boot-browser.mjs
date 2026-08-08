@@ -45,6 +45,9 @@ try{
  await page.goto('http://127.0.0.1:39187/?fixture=1')
  try{await page.waitForFunction(()=>document.querySelector('textarea,[contenteditable="true"]')||document.body.innerText.includes('Failed to load plugins'),{},{timeout:60000})}catch(error){console.error(JSON.stringify({engine,implementation,errors,consoleErrors,failed,requests,text:await page.locator('body').innerText()}));throw error}
  if(errors.length)console.error(JSON.stringify({errors,consoleErrors,text:await page.locator('body').innerText()}))
+ // Compare the settled UI, not the optional 180ms decorative loading exit.
+ // This is a lifecycle condition, not a fixed sleep or an animation gate.
+ await page.locator('[data-xh-startup-exit]').waitFor({state:'detached'})
  if(process.env.UI_BOOT_RECEIPT_DIR){
   await page.evaluate(()=>document.fonts.ready);mkdirSync(process.env.UI_BOOT_RECEIPT_DIR,{recursive:true});
   await page.screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-layout.png':'-full-boot.png')),animations:'disabled',caret:'hide'})
@@ -55,13 +58,15 @@ try{
   const navigation=document.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger')
   const sidebarSearch=document.querySelectorAll('button[aria-label="Search sessions"]')
   const sidebarSearchInput=document.querySelectorAll('input[placeholder="Search sessions..."]')
-  // Explicit product deltas: Tasks navigation and removed sidebar search.
+  const codeReviewEntry=document.querySelectorAll('button[data-xharness-review-nav][aria-label="Code Review"]')
+  // Explicit product deltas: Tasks navigation, Code Review entry and removed sidebar search.
   // Count the removed controls independently; all other controls and exact
   // conversation pixels continue to use the untouched frozen reference.
   const copy=document.body.cloneNode(true)
-  copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"]').forEach(node=>node.remove())
-  return {text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,stableButtons:document.querySelectorAll('button').length-navigation.length-sidebarSearch.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
+  copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"],button[data-xharness-review-nav][aria-label="Code Review"]').forEach(node=>node.remove())
+  return {text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,stableButtons:document.querySelectorAll('button').length-navigation.length-sidebarSearch.length-codeReviewEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
  })
+ assert.equal(early.codeReviewEntryCount,implementation==='source'?1:0,'reviewed navigation is one exact owned control; frozen positive control stays immutable')
  assert.equal(early.sidebarSearchEntryCount,implementation==='source'?0:1,'removed search versus intact frozen positive control')
  assert.equal(early.sidebarSearchInputCount,implementation==='source'?0:1,'removed search field versus intact frozen positive control')
  assert.deepEqual(errors,[],'whole boot must not fail factory registration or real Core service injection')
@@ -100,5 +105,5 @@ try{
  assert.deepEqual(staticFailures,[],'all full graph static requests complete')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
- console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,workCenterNavigation:implementation==='source',buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
+ console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,workCenterNavigation:implementation==='source',codeReviewEntryCount:early.codeReviewEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
 }finally{await browser.close()}

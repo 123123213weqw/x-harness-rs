@@ -61,6 +61,8 @@ function decodeState(value: unknown): UpdateState | undefined {
     let state: UpdateState = { seq: -1, phase: 'idle' }
     let pending = false
     let confirming = false
+    let disposed = false
+    let automaticAttempts = 0
     function notify() { changed(state, { pending, confirming }) }
     function accept(value: unknown) {
       const next = decodeState(value)
@@ -70,7 +72,7 @@ function decodeState(value: unknown): UpdateState | undefined {
       notify()
     }
     async function execute(action: UpdateAction) {
-      if (pending || busyPhases.has(state.phase ?? '')) return
+      if (disposed || pending || busyPhases.has(state.phase ?? '')) return
       pending = true
       confirming = false
       const before = state.seq
@@ -92,13 +94,31 @@ function decodeState(value: unknown): UpdateState | undefined {
     return {
       get state() { return state },
       get confirming() { return confirming },
+      get retryDelay() {
+        if (disposed || pending || confirming || state.phase !== 'error' || state.retryAction === 'install') return
+        return [30_000, 120_000, 600_000][automaticAttempts - 1]
+      },
       accept,
       async restore() { accept(await invoke('desktop_update_status')) },
+      async prepare() {
+        // Background preparation can only check/download. Never infer installation
+        // consent from a timer, an online event, a restored cache or a UI reload.
+        if (disposed || pending || confirming || busyPhases.has(state.phase ?? '') || automaticAttempts >= 4) return
+        if (state.phase === 'downloaded' || (state.phase === 'error' && state.retryAction === 'install')) return
+        automaticAttempts++
+        if (state.phase !== 'available' && !(state.phase === 'error' && state.retryAction === 'download')) await execute('check')
+        if (disposed) return
+        if (state.phase === 'available' || (state.phase === 'error' && state.retryAction === 'download')) await execute('download')
+        if (state.phase === 'downloaded' || state.phase === 'up-to-date') automaticAttempts = 0
+        notify()
+      },
+      dispose() { disposed = true },
       check() {
         // Never replace a verified download or accidentally erase an install error.
         if (['idle', 'up-to-date', 'available'].includes(state.phase ?? '') || (state.phase === 'error' && state.retryAction === 'check')) return execute('check')
       },
       act() {
+        automaticAttempts = 0
         if (pending || busyPhases.has(state.phase ?? '')) return
         const action = state.phase === 'error' ? (state.retryAction ?? 'check')
           : state.phase === 'downloaded' ? 'install' : state.phase === 'available' ? 'download' : 'check'
@@ -116,6 +136,9 @@ function decodeState(value: unknown): UpdateState | undefined {
   if (typeof invoke !== 'function' || typeof listen !== 'function' || typeof document === 'undefined' || !document.body) return
 
   let expanded = false
+  let disposed = false
+  let retryTimer: number | undefined
+  let scheduledRetry: string | undefined
   let bootError: string | null = null
   const host = document.createElement('div')
   host.id = 'xharness-desktop-updater'
@@ -253,7 +276,21 @@ function decodeState(value: unknown): UpdateState | undefined {
     progress.hidden = state.phase !== 'downloading'
     if (typeof state.total === 'number' && state.total > 0) { progress.max = state.total; progress.value = Math.min(state.downloaded ?? 0, state.total) }
     else progress.removeAttribute('value')
+    const delay = controller.retryDelay
+    // A disconnected IPC can produce a local error without advancing native seq.
+    // Include the attempt's backoff, and cancel stale timers on success/consent.
+    const retryKey = !disposed && delay !== undefined ? `${state.seq}:${state.retryAction}:${delay}` : undefined
+    if (retryKey !== scheduledRetry) {
+      window.clearTimeout(retryTimer)
+      retryTimer = undefined
+      scheduledRetry = retryKey
+      if (retryKey !== undefined && delay !== undefined) retryTimer = window.setTimeout(() => { retryTimer = undefined; return prepare() }, delay)
+    }
   })
+  const prepare = () => {
+    if (disposed || (typeof navigator !== 'undefined' && navigator.onLine === false)) return
+    return controller.prepare()
+  }
   function collapse() { expanded = false; controller.dismiss() }
   toggle.addEventListener('click', () => { expanded = !expanded; controller.dismiss() })
   $('.close').addEventListener('click', collapse)
@@ -268,10 +305,12 @@ function decodeState(value: unknown): UpdateState | undefined {
     }
   })
 
-  let disposed = false
   let unlisten: NativeUnlisten | undefined, initialTimer: number | undefined, periodicTimer: number | undefined
+  const online = () => { if (!disposed && document.visibilityState === 'visible') prepare() }
+  window.addEventListener('online', online)
   window.addEventListener('pagehide', () => {
     disposed = true
+    controller.dispose()
     anchorMount.disconnect()
     anchorSize.disconnect()
     if (anchorFrame !== undefined) window.cancelAnimationFrame(anchorFrame)
@@ -280,6 +319,8 @@ function decodeState(value: unknown): UpdateState | undefined {
     unlisten?.()
     window.clearTimeout(initialTimer)
     window.clearInterval(periodicTimer)
+    window.clearTimeout(retryTimer)
+    window.removeEventListener('online', online)
   }, { once: true })
   const boot = async () => {
     const status = await invoke('desktop_status')
@@ -291,10 +332,10 @@ function decodeState(value: unknown): UpdateState | undefined {
     await controller.restore()
     if (disposed) return
     showAnchor()
-    // Silent checks only light up the icon; never expand a panel over a conversation.
-    initialTimer = window.setTimeout(() => controller.check(), 1500)
+    // Silent preparation only lights up the icon; never expand over a conversation.
+    initialTimer = window.setTimeout(prepare, 1500)
     periodicTimer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') controller.check()
+      if (document.visibilityState === 'visible') prepare()
     }, 6 * 60 * 60 * 1000)
   }
   boot().catch((error: unknown) => {

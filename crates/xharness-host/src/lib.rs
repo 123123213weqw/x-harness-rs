@@ -11,6 +11,7 @@ type SessionGateMap =
     Arc<Mutex<std::collections::HashMap<(String, bool), std::sync::Weak<Mutex<()>>>>>;
 
 mod approval_review;
+mod automation;
 mod bootstrap;
 pub use bootstrap::{prepare_goal_session, GoalBootstrapReceipt, GoalBootstrapSpec};
 mod control;

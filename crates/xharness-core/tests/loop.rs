@@ -4946,6 +4946,7 @@ async fn active_loop_adopts_intervening_durable_control_appends() {
                     change: ScheduleChange::Create {
                         version: 1,
                         schedule: ScheduleRecord {
+                            automation: None,
                             id: "schedule-1".to_owned(),
                             kind: ScheduleKind::After,
                             prompt: "remind later".to_owned(),

@@ -26,7 +26,10 @@ exports.inject = ['slots', 'sessions'];
 /** Hydrate the kernel-owned loading DOM before replacing it with the application. */
 function BootHandoff(props) {
     const [ready, setReady] = (0, react_1.useState)(false);
-    (0, react_1.useLayoutEffect)(() => { setReady(true); }, []);
+    (0, react_1.useLayoutEffect)(() => { if (ready)
+        props.onReady();
+    else
+        setReady(true); }, [ready]);
     if (ready)
         return props.app();
     return (0, react_1.createElement)('div', {
@@ -36,16 +39,25 @@ function BootHandoff(props) {
     });
 }
 /** Mount React while preserving the framework-free boot DOM through hydration. */
-function mountApp(container, app) {
+function mountApp(container, app, onReady) {
+    let notified = false;
+    const notifyReady = () => {
+        if (notified)
+            return;
+        notified = true;
+        onReady?.();
+    };
     const boot = container.querySelector(':scope > [data-dsh-boot]');
     if (boot !== null) {
         return (0, client_1.hydrateRoot)(container, (0, react_1.createElement)(BootHandoff, {
             app,
             boot: { className: boot.className, html: boot.innerHTML },
+            onReady: notifyReady,
         }));
     }
     const root = (0, client_1.createRoot)(container);
     (0, react_dom_1.flushSync)(() => { root.render(app()); });
+    notifyReady();
     return root;
 }
 /**
@@ -55,8 +67,8 @@ function mountApp(container, app) {
 function apply(ctx) {
     ctx.slots.install((0, scoped_slots_1.createSlotRenderer)());
     ctx.reflect.provide('uiRenderer', {
-        mount: (container) => {
-            const root = mountApp(container, (0, app_1.buildRenderApp)({ ctx }));
+        mount: (container, onReady) => {
+            const root = mountApp(container, (0, app_1.buildRenderApp)({ ctx }), onReady);
             return () => { root.unmount(); };
         },
     });

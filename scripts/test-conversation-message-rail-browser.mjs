@@ -36,31 +36,193 @@ try {
   assert.equal(await rail.evaluate(el => el.parentElement?.hasAttribute('data-conversation-root')), true,
     'message rail belongs to the conversation, not the sidebar')
   assert.equal(await page.locator('.xh-session-rail').count(), 0, 'incorrect cross-session rail is absent')
+  const assertLeft = async () => {
+    const position = await rail.evaluate(el => {
+      const box = el.getBoundingClientRect(), parent = el.parentElement.getBoundingClientRect()
+      return { offset: box.left - parent.left, rightGap: parent.right - box.right }
+    })
+    assert.ok(Math.abs(position.offset - 8) <= 1, 'rail is at the approved left edge: ' + JSON.stringify(position))
+    assert.ok(position.rightGap > position.offset, 'right-edge placement must not pass navigation-only tests')
+  }
+  await assertLeft()
   const marks = rail.getByRole('button')
+  const assertPreviews = async () => {
+    const labels = await marks.evaluateAll(elements => elements.map(el => el.getAttribute('aria-label')))
+    for (const label of labels) {
+      assert.equal(typeof label, 'string')
+      const match = /^Message \d+(?:: ([\s\S]*))?$/.exec(label)
+      assert.ok(match, 'navigation keeps its accessible message label: ' + label)
+      const preview = match[1] ?? ''
+      assert.ok(preview.length <= 80, 'navigation preview is bounded, not the message body')
+      assert.equal(preview.replace(/\s+/g, ' '), preview, 'preview normalizes whitespace')
+    }
+  }
+  const assertTarget = async targetKey => {
+    await page.waitForFunction(key => {
+      const scrollport = document.querySelector('[data-conversation-scroll]')
+      const row = [...document.querySelectorAll('[data-chat-anchor-key]')]
+        .find(element => element.getAttribute('data-chat-anchor-key') === key)
+      return scrollport && row && row.dataset.transcriptMounted === 'true'
+        && Math.abs(row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top - 24) < 50
+    }, targetKey)
+  }
+  // Navigation is visible as soon as history data lands, before open/layout
+  // finishes. Wait for the real initial tail-follow, not a fixed sleep.
+  await page.getByText('Loading history…', { exact: true }).waitFor({ state: 'hidden' })
+  await page.locator('[data-conversation-scroll]').evaluate(el => new Promise((resolve, reject) => {
+    const start = performance.now()
+    let previous, stableSince = start
+    const sample = now => {
+      const current = `${el.scrollTop}:${el.scrollHeight}:${el.clientHeight}`
+      if (current !== previous) stableSince = now
+      previous = current
+      const gap = el.scrollHeight - el.clientHeight - el.scrollTop
+      if (gap <= 1 && now - stableSince >= 120) return resolve()
+      if (now - start > 5000) return reject(new Error('History never settles at its initial tail: ' + current))
+      requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  }))
   const initialCount = await marks.count()
   assert.ok(initialCount >= 3, 'one rail mark per loaded user message')
-  const older = page.getByRole('button', { name: 'Load earlier' })
   // A real reader first scrolls away from live bottom-follow. Programmatic
   // actionability scrolling alone does not establish that user intent in WebKit.
   await page.locator('[data-conversation-scroll]').hover()
-  await page.mouse.wheel(0, -10000)
-  await older.click()
-  await page.waitForFunction(count => document.querySelectorAll('.xh-message-rail-item').length > count, initialCount)
+  await page.locator('[data-conversation-scroll]').evaluate(el => {
+    window.pagingTrace = []
+    const record = event => {
+      const first = window.firstWheelGeometry
+      if (first && event.type === 'scroll') {
+        const floor = Math.max(0, el.scrollHeight - el.clientHeight)
+        if (el.scrollTop < Math.min(first.observed, floor) - 0.5) first.readUp = true
+        first.observed = el.scrollTop
+      }
+      window.pagingTrace.push({ event: event.type, top: el.scrollTop, height: el.scrollHeight,
+        viewport: el.clientHeight, delta: event.deltaY, target: event.target?.tagName, marks: document.querySelectorAll('.xh-message-rail-item').length,
+        busy: [...document.querySelectorAll('button')].filter(button => /Load earlier|Loading/.test(button.textContent)).map(button => ({ text: button.textContent, disabled: button.disabled })) })
+      if (window.pagingTrace.length > 80) window.pagingTrace.shift()
+    }
+    el.addEventListener('wheel', record, { passive: true }); el.addEventListener('scroll', record, { passive: true })
+  })
+  // The FIRST ordinary native gesture must work while the initial row
+  // measurements may still be settling. Repeating input until one is accepted
+  // would hide a cold-open race; a layout shrink at the floor is not movement.
+  const firstBox = await page.locator('[data-conversation-scroll]').boundingBox()
+  assert.ok(firstBox)
+  await page.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + 64)
+  await page.locator('[data-conversation-scroll]').evaluate(el => {
+    window.firstWheelGeometry = { observed: el.scrollTop, readUp: false }
+  })
+  await page.mouse.wheel(0, -180)
+  try {
+    await page.waitForFunction(() => {
+      const el = document.querySelector('[data-conversation-scroll]')
+      return window.firstWheelGeometry.readUp && el.scrollHeight - el.clientHeight - el.scrollTop >= 60
+    }, null, { timeout: 3000 })
+  } catch (error) {
+    console.error(engine + ': first ordinary upward wheel was lost', await page.evaluate(() => window.pagingTrace))
+    throw error
+  }
+  // Then use ordinary viewport-sized native gestures to reach the head.
+  // No scrollTop writes or Load-earlier click: pagination must still be
+  // triggered by genuine reader input through the shipped ChatView.
+  try {
+    const started = Date.now()
+    let upwardDistance = 0
+    for (let gesture = 0; gesture < 80 && await marks.count() === initialCount; gesture++) {
+      assert.ok(Date.now() - started < 25_000, 'native upward paging must finish within the bounded gesture budget')
+      const box = await page.locator('[data-conversation-scroll]').boundingBox()
+      assert.ok(box)
+      await page.mouse.move(box.x + box.width / 2, box.y + 64)
+      const before = await page.locator('[data-conversation-scroll]').evaluate(el => el.scrollTop)
+      await page.mouse.wheel(0, -Math.min(600, box.height * 0.8))
+      const after = await page.locator('[data-conversation-scroll]').evaluate(el => new Promise((resolve, reject) => {
+        const start = performance.now()
+        let previous, stableSince = start
+        const sample = now => {
+          const current = `${el.scrollTop}:${el.scrollHeight}:${el.clientHeight}`
+          if (current !== previous) stableSince = now
+          previous = current
+          if (now - stableSince >= 120) return resolve(el.scrollTop)
+          if (now - start > 3000) return reject(new Error('Native paging gesture did not settle: ' + current))
+          requestAnimationFrame(sample)
+        }
+        requestAnimationFrame(sample)
+      }))
+      upwardDistance += Math.max(0, before - after)
+    }
+    assert.ok(upwardDistance > 0, 'fixture must deliver real upward native scrolling')
+    await page.waitForFunction(count => document.querySelectorAll('.xh-message-rail-item').length > count, initialCount)
+  }
+  catch (error) {
+    console.error(engine + ': automatic pagination trace', await page.evaluate(() => window.pagingTrace), errors)
+    throw error
+  }
   if (process.env.UI_TEST_SCREENSHOT) await page.screenshot({ path: process.env.UI_TEST_SCREENSHOT })
+  await assertPreviews()
   const first = marks.first()
   const key = await first.getAttribute('data-message-key')
   assert.ok(key)
   await first.hover()
-  await page.getByRole('tooltip', { name: /^Message 1/ }).waitFor()
+  const tooltip = page.getByRole('tooltip', { name: /^Message 1/ })
+  await tooltip.waitFor()
+  assert.equal(await tooltip.textContent(), await first.getAttribute('aria-label'), 'tooltip and accessible preview agree')
   await first.click()
-  await page.waitForFunction(targetKey => {
-    const scrollport = document.querySelector('[data-conversation-scroll]')
-    const row = [...document.querySelectorAll('[data-chat-anchor-key]')]
-      .find(element => element.getAttribute('data-chat-anchor-key') === targetKey)
-    if (!scrollport || !row) return false
-    return Math.abs(row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top - 24) < 50
-  }, key)
+  await assertTarget(key)
   assert.equal(await first.getAttribute('aria-current'), 'location')
+  // The fixture also opens a foreground question card which covers the lower
+  // rail. Dismiss it through the normal UI before exercising
+  // distant marks; do not force clicks through a higher-priority interaction.
+  const foregroundQuestion = page.locator('[data-question-key]')
+  if (await foregroundQuestion.count()) {
+    await foregroundQuestion.getByRole('button', { name: 'Dismiss all questions', exact: true }).click()
+    await foregroundQuestion.waitFor({ state: 'hidden' })
+  }
+  // Rapidly moving between distant marks must still mount and align the final
+  // target. Preview optimization must not become a history/loading policy.
+  const countBeforeJumps = await marks.count()
+  for (const target of [marks.last(), first, marks.last(), first]) await target.click()
+  await assertTarget(key)
+  assert.equal(await marks.count(), countBeforeJumps, 'navigation does not drain additional history')
+  // Exercise the real shell/workspace controls. Both docked and narrow drawer
+  // modes hide navigation; closing only one of two tabs cannot re-show it.
+  const loadedCount = await marks.count()
+  for (const viewport of [{ width: 1500, height: 820, drawer: false }, { width: 850, height: 660, drawer: true }]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await rail.waitFor({ state: 'visible' })
+    await assertLeft()
+    await page.getByRole('button', { name: '展开右侧工作区', exact: true }).click()
+    await rail.waitFor({ state: 'hidden' })
+    await page.waitForFunction(drawer => document.querySelector('[data-xhworkspace-open]')?.hasAttribute('data-xhworkspace-drawer') === drawer, viewport.drawer)
+    await page.getByRole('button', { name: '新建浏览器标签', exact: true }).click()
+    const close = page.getByRole('button', { name: '关闭 新标签页', exact: true })
+    assert.equal(await close.count(), 2)
+    await close.last().click()
+    assert.equal(await rail.isVisible(), false, 'another workspace tab keeps navigation hidden')
+    assert.equal(await page.locator('.xh-message-rail-item').count(), loadedCount, 'hiding navigation never changes loaded history')
+    await close.click()
+    await rail.waitFor({ state: 'visible' })
+    await assertLeft()
+    assert.equal(await marks.count(), loadedCount)
+    await first.click()
+    assert.equal(await first.getAttribute('aria-current'), 'location', 'restored navigation remains usable')
+  }
+  // Rebuild the real Runtime and UI from fixture history, not a saved React
+  // tree, to verify the same preview and navigation path after a refresh.
+  // Restore the wide viewport: the preceding drawer scenario hides the left
+  // session picker at mobile width, independently of history readiness.
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await page.reload()
+  await history.waitFor()
+  await history.click()
+  await rail.waitFor()
+  await page.getByText('Loading history…', { exact: true }).waitFor({ state: 'hidden' })
+  await assertLeft()
+  await assertPreviews()
+  const refreshedKey = await marks.first().getAttribute('data-message-key')
+  assert.ok(refreshedKey)
+  await marks.first().click()
+  await assertTarget(refreshedKey)
   assert.deepEqual(errors, [])
-  console.log(engine + ': PASS: message rail stays in current chat, shows user prompts, jumps to chosen message')
+  console.log(engine + ': PASS: bounded accessible previews, tooltip agreement, rapid navigation, refresh recovery, upward paging, left rail and workspace hide/restore')
 } finally { await browser.close() }
