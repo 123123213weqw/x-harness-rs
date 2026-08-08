@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in fixed publisher signing. Never compiles Rust. Code-signing trust is scoped to disposable hosted CI.
+"""Opt-in fixed publisher signing. Never compiles Rust. The system certificate trust stores are never modified.
 
 Private certificate bytes live only in protected CI Secrets / a temporary
 runner-owned keychain. This is NOT Developer ID signing or notarization.
@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
-import plistlib
+import shlex
 import secrets
 import shutil
 import subprocess
@@ -29,15 +29,11 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def command(args, *, env=None, allow_absent_trust=False):
+def command(args, *, env=None):
     try:
         return subprocess.run([str(a) for a in args], check=True, capture_output=True, timeout=90,
                               env=env).stdout
     except (OSError, subprocess.SubprocessError) as error:
-        if (allow_absent_trust and list(args[:3]) == ['security', 'trust-settings-export', '-d']
-                and isinstance(error, subprocess.CalledProcessError) and error.returncode == 1
-                and b'No Trust Settings were found' in (error.stderr or b'')):
-            return None
         # Never reproduce argv, arbitrary stderr or private environment values.
         raise ValueError('Native signing operation failed (' + operation(args) + '): ' + type(error).__name__) from None
 
@@ -124,13 +120,14 @@ def import_identity():
         certificate = work / 'certificate.pem'
         command(['openssl', 'pkcs12', '-in', p12, '-clcerts', '-nokeys', '-out', certificate,
                  '-passin', 'env:XHARNESS_MACOS_PREVIEW_P12_PASSWORD'])
-        trust_runner_certificate(certificate, pin)
-        identities = command(['security', 'find-identity', '-v', '-p', 'codesigning', keychain]).decode()
+        validate_publisher_certificate(certificate, pin)
+        attach_runner_keychain(keychain)
+        identities = command(['security', 'find-identity', '-p', 'codesigning', keychain]).decode()
         require(re.search(r'\b' + re.escape(pin) + r'\b', identities, re.I) is not None,
-                'Imported valid code-signing identity does not match the pinned certificate')
+                'Imported code-signing identity does not match the pinned certificate')
         with Path(os.environ['GITHUB_ENV']).open('a') as output:
             output.write('XHARNESS_MACOS_PREVIEW_KEYCHAIN=' + str(keychain) + '\n')
-        # No default-keychain replacement. Temporary codeSign-only trust is removed during cleanup.
+        # The search-list addition is restored during cleanup; default keychain and trust stores stay untouched.
     except Exception as original:
         cleanup_after_failure(keychain, original)
         raise
@@ -138,9 +135,9 @@ def import_identity():
         p12.unlink(missing_ok=True)
 
 
-def trust_runner_certificate(certificate, pin):
+def validate_publisher_certificate(certificate, pin):
     require(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
-            and sys.platform == 'darwin', 'Code-signing trust changes are allowed only in disposable hosted macOS CI')
+            and sys.platform == 'darwin', 'Publisher validation requires disposable hosted macOS CI')
     pin = fingerprint(pin)
     der = command(['openssl', 'x509', '-in', certificate, '-outform', 'DER'])
     require(hashlib.sha1(der).hexdigest() == pin, 'P12 leaf certificate differs from pinned publisher')
@@ -148,44 +145,41 @@ def trust_runner_certificate(certificate, pin):
     require(len(names) == 2 and names[0].removeprefix('subject=') == names[1].removeprefix('issuer='),
             'Preview publisher must use the explicit self-signed policy')
     command(['openssl', 'x509', '-in', certificate, '-checkend', '0', '-noout'])
-    certificate = Path(certificate)
-    baseline = certificate.with_name('trust-baseline.plist')
-    modified = certificate.with_name('trust-signing.plist')
-    # SetTrustSettings/RemoveTrustSettings can invoke SecurityAgent even under
-    # sudo. Build the codeSign-only constraint offline, then import the admin
-    # representation as root. Never change trust on the user's machine.
-    export_admin_trust(baseline)
-    require(pin.upper() not in plistlib.loads(baseline.read_bytes()).get('trustList', {}),
-            'Temporary publisher already exists in runner trust settings')
-    command(['security', 'add-trusted-cert', '-r', 'trustRoot', '-p', 'codeSign',
-             '-i', baseline, '-o', modified, certificate])
-    # Write ahead of native mutation so a failed/unknown outcome is restored too.
-    certificate.with_name('trust-intent').write_text(pin + '\n')
-    command(['sudo', '-n', 'security', 'trust-settings-import', '-d', modified])
 
 
-def export_admin_trust(destination):
-    result = command(['security', 'trust-settings-export', '-d', destination], allow_absent_trust=True)
-    if result is None:
-        # Offline output construction, not a domain mutation or a blanket retry.
-        command(['security', 'add-trusted-cert', '-o', destination])
-    value = plistlib.loads(Path(destination).read_bytes())
-    require(isinstance(value, dict) and isinstance(value.get('trustList'), dict),
-            'Invalid runner admin trust representation')
-
-
-def cleanup_path(keychain):
+def owned_runner_keychain(keychain):
+    require(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
+            and sys.platform == 'darwin', 'Keychain search changes require disposable hosted macOS CI')
     keychain = Path(keychain)
     root = Path(os.environ['RUNNER_TEMP']).resolve()
     require(keychain.name == 'publisher.keychain-db' and keychain.parent.name.startswith('xharness-publisher-signing-')
             and keychain.parent.parent.resolve() == root and not keychain.parent.is_symlink(), 'Unsafe keychain cleanup path')
+    return keychain
+
+
+def attach_runner_keychain(keychain):
+    keychain = owned_runner_keychain(keychain)
+    receipt = keychain.parent / 'search-list.json'
+    require(not receipt.exists(), 'Never overwrite runner keychain search-list receipt')
+    previous = shlex.split(command(['security', 'list-keychains', '-d', 'user']).decode())
+    require(all(Path(path).is_absolute() for path in previous), 'Invalid runner keychain search list')
+    # Write-ahead receipt covers a timeout/unknown outcome of the native mutation.
+    receipt.write_text(json.dumps(previous)); receipt.chmod(0o600)
+    command(['security', 'list-keychains', '-d', 'user', '-s', keychain, *previous])
+
+
+def cleanup_path(keychain):
+    keychain = owned_runner_keychain(keychain)
     failures = []
-    certificate = keychain.parent / 'certificate.pem'
-    if (keychain.parent / 'trust-intent').exists():
+    receipt = keychain.parent / 'search-list.json'
+    if receipt.exists():
         try:
-            command(['sudo', '-n', 'security', 'trust-settings-import', '-d', keychain.parent / 'trust-baseline.plist'])
-        except ValueError:
-            failures.append('Failed to remove temporary code-signing trust')
+            previous = json.loads(receipt.read_text())
+            require(isinstance(previous, list) and all(isinstance(path, str) and Path(path).is_absolute() for path in previous),
+                    'Invalid runner keychain search-list receipt')
+            command(['security', 'list-keychains', '-d', 'user', '-s', *previous])
+        except (ValueError, OSError):
+            failures.append('Failed to restore runner keychain search list')
     if keychain.exists():
         try:
             command(['security', 'delete-keychain', keychain])
