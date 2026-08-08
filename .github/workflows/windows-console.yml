@@ -35,6 +35,24 @@ jobs:
           }
       - name: Native console, pipe, ACL, cancellation and ConPTY regressions
         run: cargo test --locked -p xharness-process -p xharness-sandbox -p xharness-terminal --all-targets -- --nocapture
+      - name: Install pinned ripgrep for full coding-tool regressions
+        run: |
+          $version = '15.2.0'
+          $archive = Join-Path $env:RUNNER_TEMP "ripgrep-$version.zip"
+          $extract = Join-Path $env:RUNNER_TEMP "ripgrep-$version"
+          Invoke-WebRequest -Uri "https://github.com/BurntSushi/ripgrep/releases/download/$version/ripgrep-$version-x86_64-pc-windows-msvc.zip" -OutFile $archive
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          $expectedHash = '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'
+          if ($actualHash -ne $expectedHash) {
+            throw "ripgrep archive hash mismatch: $actualHash"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $rg = Join-Path $extract "ripgrep-$version-x86_64-pc-windows-msvc/rg.exe"
+          if (-not (Test-Path -LiteralPath $rg -PathType Leaf)) {
+            throw 'Pinned ripgrep archive did not contain rg.exe.'
+          }
+          "XHARNESS_RG=$rg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Split-Path -Parent $rg) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Shell discovery and real command contracts (including forced no-PS7 search)
         run: |
           cargo test --locked -p xharness-coding-tools --test shell_resolution -- --nocapture

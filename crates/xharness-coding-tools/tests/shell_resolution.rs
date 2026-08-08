@@ -320,3 +320,28 @@ async fn no_ps7_search_runs_real_builtin_51_with_unicode_and_native_exit_7() {
         .await;
     assert!(!result.is_ok());
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn cmd_fallback_preserves_a_quoted_executable_and_native_exit_code() {
+    let path = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+        .join("System32")
+        .join("cmd.exe");
+    let shell = Shell::configured(path).unwrap();
+    assert_eq!(shell.kind, ShellKind::Cmd);
+    let workspace = Workspace::new();
+    let executor = executor(&workspace, shell.clone()).await;
+    let result = executor
+        .execute(ToolRequest::new(
+            tool_name(),
+            json!({"command":fixture_script(&shell, "shell_native_failure_fixture")}).to_string(),
+        ))
+        .await;
+    assert!(!result.is_ok(), "{result:?}");
+    let output: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+    assert_eq!(output["exit_code"], 7, "{output}");
+    assert_eq!(
+        fs::read_to_string(workspace.0.join("invocations.txt")).unwrap(),
+        "once\n"
+    );
+}
