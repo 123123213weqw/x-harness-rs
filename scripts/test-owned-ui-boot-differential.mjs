@@ -20,7 +20,8 @@ try{
    assert.equal(receipt.fullGraph,true);assert.equal(receipt.fixtureTransport,true)
    assert.deepEqual(receipt.errors,[]);assert.deepEqual(receipt.staticFailures,[])
    assert.equal(receipt.settingsProviders,true);assert.equal(receipt.modelEffortAndContextControls,true);assert.equal(receipt.effortChange,true)
-   assert.equal(receipt.loadedPlugins,implementation==='source'?54:52,'source adds only the reviewed Plugin API helper and Code Review module')
+   assert.equal(receipt.loadedPlugins,implementation==='source'?55:52,'source adds only the reviewed Plugin API helper, Code Review and Little X modules')
+   assert.equal(receipt.assistantEntryCount,implementation==='source'?1:0,'one reviewed Little X entry; frozen control stays unchanged')
    assert.equal(receipt.codeReviewEntryCount,implementation==='source'?1:0,'only the reviewed Code Review navigation is projected out of old/new text and button parity')
    assert.equal(receipt.sidebarSearchEntryCount,implementation==='source'?0:1,'source removes only the requested search entry; frozen positive control retains it')
    assert.equal(receipt.sidebarSearchInputCount,implementation==='source'?0:1,'source removes the search field; frozen reference stays immutable')
@@ -29,6 +30,7 @@ try{
   assert.deepEqual(outputs[0].loadedPluginPaths,[...outputs[1].loadedPluginPaths,
    '/plugins/@xlang/xharness-client-plugin-api/client.js',
    '/plugins/@xlang/xharness-client-ui-code-review/client.js',
+   '/plugins/@xlang/xharness-client-ui-assistant/client.js',
   ].sort(),`${browser}: exact reviewed plugin additions; no missing, duplicate or unreviewed modules`)
   for(const receipt of outputs) assert.equal(receipt.navigationCount,1,'exactly one work navigation, legacy footer or new clock')
   for(const key of ['stableText','stableButtons','inputs'])assert.deepEqual(outputs[0][key],outputs[1][key],`${browser}: full UI ${key} parity`)
@@ -44,6 +46,7 @@ try{
   const projectedReceipt=JSON.parse(projected.stdout.trim().split('\n').at(-1))
   assert.equal(projectedReceipt.sidebarSearchEntryCount,0)
   assert.equal(projectedReceipt.sidebarSearchInputCount,0)
+  assert.equal(projectedReceipt.assistantEntryCount,1)
   for(const key of ['stableText','stableButtons','inputs'])assert.deepEqual(projectedReceipt[key],outputs[1][key],`${browser}: projected full UI ${key} parity`)
   const source=readFileSync(join(directory,browser+'-source-reference-chat-boot.png'))
   const old=readFileSync(join(directory,browser+'-legacy-chat-boot.png'))
