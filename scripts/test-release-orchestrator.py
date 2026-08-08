@@ -74,6 +74,19 @@ class TaskTests(unittest.TestCase):
         self.complete('unix'); self.complete('windows')
         self.assertEqual(self.task.advance(), 'awaiting_confirmation')
 
+    def test_fixed_signer_is_durable_and_dispatch_pin_cannot_change_on_resume(self):
+        pin = 'c'*40
+        state = release.new_task(REPO, '0.2.20', 'all-macos-selfsigned', SHA, pin)
+        task = release.ReleaseTask(self.client, state, lambda _: None)
+        task.advance()
+        self.assertEqual(self.client.posts[0][1]['expected_macos_signing_fingerprint'], pin)
+        self.assertEqual(state['macos_signing_fingerprint'], pin)
+        state['macos_signing_fingerprint'] = 'd'*40
+        with self.assertRaisesRegex(release.TaskError, 'inputs changed'): task.advance()
+        self.assertEqual(len(self.client.posts), 1)
+        with self.assertRaises(ValueError): release.new_task(REPO, '0.2.20', 'all-macos-selfsigned', SHA)
+        with self.assertRaises(ValueError): release.new_task(REPO, '0.2.20', 'all-macos-preview', SHA, pin)
+
     def test_entire_task_stops_before_publish_then_confirms_once(self):
         self.ready()
         for _ in range(5): self.task.advance()
