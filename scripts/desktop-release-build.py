@@ -346,7 +346,7 @@ def check_run(run_data, repo, sha, path, *, event=None):
             require(run_data['head_branch'] == 'master', 'Release dispatch was not on master')
 
 
-def successful_run(repo, run_id, sha, path, *, event=None):
+def successful_run(repo, run_id, sha, path, *, event=None, unix_platforms=None):
     require(re.fullmatch(r'[1-9][0-9]*', str(run_id)), 'Invalid workflow run id')
     value = api(f'repos/{repo}/actions/runs/{run_id}')
     check_run(value, repo, sha, path, event=event)
@@ -355,7 +355,7 @@ def successful_run(repo, run_id, sha, path, *, event=None):
     pages = json.loads(run('gh', 'api', '--paginate', '--slurp',
                           f'repos/{repo}/actions/runs/{run_id}/attempts/{value["run_attempt"]}/jobs?per_page=100', capture=True))
     jobs = [job for page in pages for job in page['jobs']]
-    require(jobs and all(j['status'] == 'completed' and j['conclusion'] == 'success' for j in jobs),
+    require(_contract.passing_workflow_jobs(jobs, path, unix_platforms),
             'Every native/matrix gate in the latest attempt must pass; skipped gates do not count')
     return value
 
@@ -423,8 +423,9 @@ def fetch_promotion(args):
     plan = load(root / 'candidate/plan.json')
     runs = {'release': {'run': build, 'artifact': build_artifact}}
     for kind, run_id in [('unix', args.unix_run_id), ('windows', args.windows_run_id)]:
-        value = successful_run(repo, run_id, None, ACCEPTANCE_WORKFLOWS[kind], event='workflow_dispatch')
         platforms = [p for p in release_platforms(plan) if (p == 'windows-x86_64') == (kind == 'windows')]
+        value = successful_run(repo, run_id, None, ACCEPTANCE_WORKFLOWS[kind], event='workflow_dispatch',
+                               unix_platforms=platforms if kind == 'unix' else None)
         artifacts = []
         for platform in platforms:
             dest = root / 'native-evidence' / platform
@@ -459,7 +460,9 @@ def publish(args):
     require(plan['sha'] == sha and plan['repository'] == repo, 'Promotion checkout changed')
     for kind, entry in provenance.items():
         path = '.github/workflows/desktop-release.yml' if kind == 'release' else ACCEPTANCE_WORKFLOWS[kind]
-        fresh = successful_run(repo, entry['run']['id'], sha if kind == 'release' else None, path, event=None if kind == 'release' else 'workflow_dispatch')
+        fresh = successful_run(repo, entry['run']['id'], sha if kind == 'release' else None, path,
+                               event=None if kind == 'release' else 'workflow_dispatch',
+                               unix_platforms=[p for p in release_platforms(plan) if p != 'windows-x86_64'] if kind == 'unix' else None)
         require(fresh['run_attempt'] == entry['run']['run_attempt'] and fresh['updated_at'] == entry['run']['updated_at'],
                 'A build/acceptance run changed or was rerun during promotion')
     verify_tag(repo, plan['tag'], sha)
