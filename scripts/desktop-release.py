@@ -71,6 +71,32 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def passing_workflow_jobs(jobs, workflow, unix_platforms=None):
+    """Candidate mode intentionally excludes the disposable Windows rehearsal.
+
+    Never ignore arbitrary skipped jobs: only that exact inactive branch may
+    be skipped. All selected native jobs must still be present and successful.
+    """
+    if not jobs:
+        return False
+    required = jobs
+    if workflow == '.github/workflows/desktop-unix-update-acceptance.yml':
+        names = [job.get('name') for job in jobs]
+        if any(not isinstance(name, str) for name in names) or len(set(names)) != len(names):
+            return False
+        optional = [job for job in jobs if job['name'] == 'windows-cache-rehearsal']
+        if any(job.get('status') != 'completed' or job.get('conclusion') != 'skipped' for job in optional):
+            return False
+        required = [job for job in jobs if job['name'] != 'windows-cache-rehearsal']
+        actual = {job['name'] for job in required}
+        allowed = {'candidate ' + p for p in PLATFORMS if p != 'windows-x86_64'}
+        expected = {'candidate ' + p for p in unix_platforms} if unix_platforms is not None else actual - {'select'}
+        if not expected or not expected <= allowed or actual != {'select'} | expected:
+            return False
+    return bool(required) and all(job.get('status') == 'completed' and job.get('conclusion') == 'success'
+                                  for job in required)
+
+
 def fields(value, expected, label):
     require(isinstance(value, dict) and set(value) == expected, f'Unexpected {label} schema')
 

@@ -1,0 +1,109 @@
+name: Windows runtime gates (build only)
+on:
+  push:
+    branches: [fix/windows-runtime-gates-20261005]
+permissions:
+  contents: read
+concurrency:
+  group: windows-runtime-gates-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-static-crt-experiment
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Portable runtime contracts
+        run: |
+          python -B scripts/test-windows-runtime-audit.py
+          if ($LASTEXITCODE) { throw 'PE parser contracts failed' }
+          python -B scripts/test-windows-desktop-bundle.py
+          if ($LASTEXITCODE) { throw 'Windows bundle contracts failed' }
+          python -B scripts/test-desktop-release-build.py
+          if ($LASTEXITCODE) { throw 'Release gate contracts failed' }
+      - name: Build repository UI and disposable version (never a release)
+        run: |
+          npm ci --prefix ui --ignore-scripts
+          if ($LASTEXITCODE) { throw 'UI toolchain failed' }
+          npm run build --prefix ui
+          if ($LASTEXITCODE) { throw 'UI build failed' }
+          python -c "import runpy; runpy.run_path('scripts/prepare-desktop-test-version.py')['prepare']('0.2.35')"
+          if ($LASTEXITCODE) { throw 'Disposable version failed' }
+      - name: Install pinned ripgrep
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'rg.zip'
+          Invoke-WebRequest 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip' -OutFile $archive
+          if ((Get-FileHash $archive).Hash -ne '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5') { throw 'ripgrep checksum mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath "$env:RUNNER_TEMP/rg"
+          "XHARNESS_RG=$env:RUNNER_TEMP/rg/ripgrep-15.2.0-x86_64-pc-windows-msvc/rg.exe" >> $env:GITHUB_ENV
+      - name: Build and stage owned static-CRT sidecars
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-msvc -p xharness-host-app -p xharness-sandbox --bin xharness-host --bin xharness-windows-sandbox-runner
+          if ($LASTEXITCODE) { throw 'Host/runner build failed' }
+          python -B scripts/desktop-release-build.py stage --platform windows-x86_64 --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Host staging failed' }
+          python -B scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
+          if ($LASTEXITCODE) { throw 'Runner staging failed' }
+      - name: Desktop readiness and error unit tests
+        run: |
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --lib sidecar::tests
+          if ($LASTEXITCODE) { throw 'Desktop startup tests failed' }
+          cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+          if ($LASTEXITCODE) { throw 'Desktop clippy failed' }
+      - uses: tauri-apps/tauri-action@v0.6.2
+        with:
+          projectPath: apps/desktop
+          args: --target x86_64-pc-windows-msvc --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Audit final extracted package and copy private acceptance artifact
+        run: |
+          $installer = 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/XHarness_0.2.35_x64-setup.exe'
+          python -B scripts/audit-windows-runtime.py --installer $installer --expected-desktop apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe --sidecars apps/desktop/src-tauri/binaries --output dist/windows-runtime-audit/installer.json
+          if ($LASTEXITCODE) { throw 'Final installer dependency audit failed' }
+          New-Item -ItemType Directory -Force dist/runtime-gates | Out-Null
+          Copy-Item $installer dist/runtime-gates/
+          Copy-Item dist/windows-runtime-audit/installer.json dist/runtime-gates/
+          Copy-Item scripts/test-windows-clean-vm.ps1 dist/runtime-gates/
+          Copy-Item .cargo/config.toml dist/runtime-gates/cargo-config.toml
+          $audit = Get-Content dist/runtime-gates/installer.json -Raw | ConvertFrom-Json
+          @{schema=1; source_sha=$env:GITHUB_SHA; version='0.2.35'; installer_sha256=$audit.installer_sha256} | ConvertTo-Json | Set-Content dist/runtime-gates/provenance.json
+      - name: Native installation, retained data, replacement hashes and crash cleanup
+        run: |
+          ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/XHarness_0.2.35_x64-setup.exe).Path -RuntimeAudit dist/windows-runtime-audit/installer.json
+          if ($LASTEXITCODE) { throw 'Native ownership acceptance failed' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-runtime-gates
+          path: |
+            dist/runtime-gates/
+            dist/windows-runtime-audit/
+            dist/install-ownership-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: windows-runtime-gates-unaccepted-diagnostics
+          path: apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: ignore
+          retention-days: 3

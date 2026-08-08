@@ -240,7 +240,9 @@ class ReleaseTask:
                 return self.stage(name, inputs, dispatch=True, retry=False)
             raise TaskError(f'{name} failed (run {run["id"]}); use --retry after inspecting the failure')
         jobs = self.client.jobs(run['id'], run['run_attempt'])
-        require(jobs and all(j['status'] == 'completed' and j['conclusion'] == 'success' for j in jobs),
+        unix_platforms = [p for p in contract.release_platforms({'release_scope': self.state['scope']})
+                         if p != 'windows-x86_64'] if name == 'unix' else None
+        require(contract.passing_workflow_jobs(jobs, run['path'], unix_platforms),
                 f'{name}: every required job must pass; skipped/cancelled jobs do not count')
         intent['verified_attempt'] = run['run_attempt']
         self.persist(self.state)
