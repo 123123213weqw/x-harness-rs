@@ -36,6 +36,8 @@ jobs:
       matrix:
         os: [windows-2025, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.os == 'windows-2025' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -63,8 +65,8 @@ jobs:
         with:
           name: diagnostics-windows-host-symbols
           path: |
-            target/release/xharness-host.exe
-            target/release/xharness_host.pdb
+            target/x86_64-pc-windows-msvc/release/xharness-host.exe
+            target/x86_64-pc-windows-msvc/release/xharness_host.pdb
           if-no-files-found: error
           retention-days: 30
 
@@ -108,6 +110,7 @@ jobs:
       run:
         shell: pwsh
     env:
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
       CARGO_PROFILE_RELEASE_DEBUG: '2'
       CARGO_PROFILE_RELEASE_STRIP: none
       XHARNESS_UPDATER_ENDPOINT: ${{ inputs.updater_endpoint }}
@@ -163,7 +166,9 @@ jobs:
           if ($LASTEXITCODE) { throw 'Symbol identity verification failed' }
           $installer = @(Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe)
           if ($installer.Count -ne 1) { throw 'Expected one installer' }
-          ./scripts/test-windows-install-ownership.ps1 -Installer $installer[0].FullName
+          python -B scripts/audit-windows-runtime.py --installer $installer[0].FullName --expected-desktop apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe --sidecars apps/desktop/src-tauri/binaries --output dist/windows-runtime-audit/installer.json
+          if ($LASTEXITCODE) { throw 'Final diagnostic installer dependency audit failed' }
+          ./scripts/test-windows-install-ownership.ps1 -Installer $installer[0].FullName -RuntimeAudit dist/windows-runtime-audit/installer.json
           if ($LASTEXITCODE) { throw 'Native installer acceptance failed' }
           $hash = (Get-FileHash -LiteralPath $installer[0].FullName).Hash
           "$hash  $($installer[0].Name)" | Set-Content "$($installer[0].FullName).sha256" -Encoding ascii

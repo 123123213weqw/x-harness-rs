@@ -190,6 +190,42 @@ class ScopeMatrix(unittest.TestCase):
 
 
 class Provenance(unittest.TestCase):
+    def test_candidate_jobs_only_exclude_the_exact_inactive_rehearsal_branch(self):
+        path = build.ACCEPTANCE_WORKFLOWS['unix']
+        platforms = ['linux-x86_64-appimage', 'darwin-aarch64', 'darwin-x86_64']
+        jobs = [{'name': name, 'status': 'completed', 'conclusion': 'success'}
+                for name in ['select', *['candidate ' + p for p in platforms]]]
+        optional = {'name': 'windows-cache-rehearsal', 'status': 'completed', 'conclusion': 'skipped'}
+        valid = [*jobs, optional]
+        self.assertTrue(build._contract.passing_workflow_jobs(valid, path, platforms))
+        self.assertTrue(build._contract.passing_workflow_jobs(jobs, path, platforms))
+        self.assertTrue(build._contract.passing_workflow_jobs(jobs[:2] + [optional], path, platforms[:1]))
+        cases = [[], [optional], valid[1:], valid[:-2] + [optional], valid + [optional],
+                 valid + [{**optional, 'name': 'unknown-job'}],
+                 [{**job, 'conclusion': 'skipped'} if job['name'] == 'select' else job for job in valid],
+                 [{**job, 'conclusion': 'skipped'} if job['name'] == 'candidate darwin-aarch64' else job for job in valid]]
+        cases += [[*jobs, {**optional, 'conclusion': conclusion}]
+                  for conclusion in ['success', 'failure', 'cancelled', 'timed_out', 'neutral', None]]
+        cases.append([*jobs, {**optional, 'status': 'in_progress'}])
+        for case in cases:
+            with self.subTest(jobs=case):
+                self.assertFalse(build._contract.passing_workflow_jobs(case, path, platforms))
+        for workflow in ['.github/workflows/desktop-release.yml', build.ACCEPTANCE_WORKFLOWS['windows']]:
+            self.assertFalse(build._contract.passing_workflow_jobs(valid, workflow))
+
+    def test_hosted_candidate_validation_uses_the_shared_job_contract(self):
+        path = build.ACCEPTANCE_WORKFLOWS['unix']
+        value = successful(path, 'workflow_dispatch')
+        jobs = [{'name': name, 'status': 'completed', 'conclusion': 'success'}
+                for name in ['select', 'candidate linux-x86_64-appimage']] + [
+                    {'name': 'windows-cache-rehearsal', 'status': 'completed', 'conclusion': 'skipped'}]
+        with patch.object(build, 'api', return_value=value), patch.object(build, 'ancestor'), \
+                patch.object(build, 'run', return_value=json.dumps([{'jobs': jobs}])):
+            self.assertEqual(build.successful_run(REPO, '42', SHA, path,
+                                                 unix_platforms=['linux-x86_64-appimage'])['id'], 42)
+            with self.assertRaises(ValueError):
+                build.successful_run(REPO, '42', SHA, path, unix_platforms=['darwin-aarch64'])
+
     def test_release_push_and_dispatch_supported(self):
         for event in ['push', 'workflow_dispatch']:
             build.check_run(successful(event=event), REPO, SHA, '.github/workflows/desktop-release.yml')
@@ -747,6 +783,14 @@ class WorkflowGuard(unittest.TestCase):
         promote = (ROOT / '.github/workflows/desktop-promote.yml').read_text(encoding='utf-8')
         for guard in ['refs/heads/master', 'resolve-source', 'fetch-promotion', 'publish --workspace']:
             self.assertIn(guard, promote)
+        preserve = promote.index('Preserve trusted master publication controls')
+        candidate = promote.index('ref: ${{ steps.source.outputs.source_sha }}')
+        restore = promote.index('Restore trusted publication controls')
+        fetch = promote.index('Fetch and authenticate exact successful build')
+        self.assertLess(preserve, candidate)
+        self.assertLess(candidate, restore)
+        self.assertLess(restore, fetch)
+        self.assertIn('cp scripts/desktop-release.py scripts/desktop-release-build.py', promote)
 
     def test_rehearsal_cannot_be_mistaken_for_formal_acceptance(self):
         text = (ROOT / '.github/workflows/desktop-unix-update-acceptance.yml').read_text(encoding='utf-8')
@@ -792,6 +836,44 @@ class NpmInvocationTests(unittest.TestCase):
     def test_missing_npm_fails_closed(self):
         with patch.object(build.shutil, 'which', return_value=None), self.assertRaisesRegex(ValueError, 'Missing npm'):
             build.npm_invocation('win32')
+
+
+class WindowsRuntimeGates(unittest.TestCase):
+    def test_final_nsis_is_audited_before_receipt_and_failure_stops_receipt(self):
+        import types
+        ci = dict(id=1, run_attempt=1, head_sha=SHA, head_branch='master', event='push',
+                  status='completed', conclusion='success', path='.github/workflows/ci.yml')
+        plan = build._contract.make_plan(REPO, REPO, 'desktop-v0.2.10', SHA, '1', '1', [], [ci],
+                                         release_scope='windows-linux')
+        args = types.SimpleNamespace(platform='windows-x86_64', target='x86_64-pc-windows-msvc',
+                                     plan=Path('plan.json'), public_key=Path('key.pub'), output=Path('receipt'))
+        calls = []
+        def run(*values, **kwargs):
+            calls.append([str(value) for value in values])
+            if any('audit-windows-runtime.py' in str(value) for value in values):
+                raise ValueError('injected unpackaged DLL')
+        with patch.object(build, 'load', return_value=plan), patch.object(build, 'run', side_effect=run), patch.object(build, 'contract') as receipt:
+            with self.assertRaisesRegex(ValueError, 'unpackaged DLL'):
+                build.collect(args)
+            receipt.assert_not_called()
+        audit_call = calls[-1]
+        self.assertIn('--installer', audit_call)
+        self.assertIn('--expected-desktop', audit_call)
+        self.assertIn('--sidecars', audit_call)
+
+    def test_every_install_owner_call_has_exact_payload_audit(self):
+        for name in ['ci.yml', 'desktop-release.yml', 'friends-release.yml', 'runtime-diagnostics.yml', 'windows-runtime-gates.yml']:
+            lines = (ROOT / '.github/workflows' / name).read_text(encoding='utf-8').splitlines()
+            calls = [line for line in lines if 'test-windows-install-ownership.ps1 -Installer' in line]
+            self.assertTrue(calls, name)
+            for call in calls:
+                self.assertIn('-RuntimeAudit', call, name)
+
+    def test_target_config_is_not_a_global_rustflag(self):
+        text = (ROOT / '.cargo/config.toml').read_text(encoding='utf-8')
+        self.assertIn('[target.x86_64-pc-windows-msvc]', text)
+        self.assertIn('target-feature=+crt-static', text)
+        self.assertNotIn('[build]', text)
 
 
 if __name__ == '__main__':

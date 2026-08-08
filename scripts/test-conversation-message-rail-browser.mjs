@@ -46,6 +46,26 @@ try {
   }
   await assertLeft()
   const marks = rail.getByRole('button')
+  const assertPreviews = async () => {
+    const labels = await marks.evaluateAll(elements => elements.map(el => el.getAttribute('aria-label')))
+    for (const label of labels) {
+      assert.equal(typeof label, 'string')
+      const match = /^Message \d+(?:: ([\s\S]*))?$/.exec(label)
+      assert.ok(match, 'navigation keeps its accessible message label: ' + label)
+      const preview = match[1] ?? ''
+      assert.ok(preview.length <= 80, 'navigation preview is bounded, not the message body')
+      assert.equal(preview.replace(/\s+/g, ' '), preview, 'preview normalizes whitespace')
+    }
+  }
+  const assertTarget = async targetKey => {
+    await page.waitForFunction(key => {
+      const scrollport = document.querySelector('[data-conversation-scroll]')
+      const row = [...document.querySelectorAll('[data-chat-anchor-key]')]
+        .find(element => element.getAttribute('data-chat-anchor-key') === key)
+      return scrollport && row && row.dataset.transcriptMounted === 'true'
+        && Math.abs(row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top - 24) < 50
+    }, targetKey)
+  }
   // Navigation is visible as soon as history data lands, before open/layout
   // finishes. Wait for the real initial tail-follow, not a fixed sleep.
   await page.getByText('Loading history…', { exact: true }).waitFor({ state: 'hidden' })
@@ -139,20 +159,31 @@ try {
     throw error
   }
   if (process.env.UI_TEST_SCREENSHOT) await page.screenshot({ path: process.env.UI_TEST_SCREENSHOT })
+  await assertPreviews()
   const first = marks.first()
   const key = await first.getAttribute('data-message-key')
   assert.ok(key)
   await first.hover()
-  await page.getByRole('tooltip', { name: /^Message 1/ }).waitFor()
+  const tooltip = page.getByRole('tooltip', { name: /^Message 1/ })
+  await tooltip.waitFor()
+  assert.equal(await tooltip.textContent(), await first.getAttribute('aria-label'), 'tooltip and accessible preview agree')
   await first.click()
-  await page.waitForFunction(targetKey => {
-    const scrollport = document.querySelector('[data-conversation-scroll]')
-    const row = [...document.querySelectorAll('[data-chat-anchor-key]')]
-      .find(element => element.getAttribute('data-chat-anchor-key') === targetKey)
-    if (!scrollport || !row) return false
-    return Math.abs(row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top - 24) < 50
-  }, key)
+  await assertTarget(key)
   assert.equal(await first.getAttribute('aria-current'), 'location')
+  // The fixture also opens a foreground question card which covers the lower
+  // rail. Dismiss it through the normal UI before exercising
+  // distant marks; do not force clicks through a higher-priority interaction.
+  const foregroundQuestion = page.locator('[data-question-key]')
+  if (await foregroundQuestion.count()) {
+    await foregroundQuestion.getByRole('button', { name: 'Dismiss all questions', exact: true }).click()
+    await foregroundQuestion.waitFor({ state: 'hidden' })
+  }
+  // Rapidly moving between distant marks must still mount and align the final
+  // target. Preview optimization must not become a history/loading policy.
+  const countBeforeJumps = await marks.count()
+  for (const target of [marks.last(), first, marks.last(), first]) await target.click()
+  await assertTarget(key)
+  assert.equal(await marks.count(), countBeforeJumps, 'navigation does not drain additional history')
   // Exercise the real shell/workspace controls. Both docked and narrow drawer
   // modes hide navigation; closing only one of two tabs cannot re-show it.
   const loadedCount = await marks.count()
@@ -176,6 +207,22 @@ try {
     await first.click()
     assert.equal(await first.getAttribute('aria-current'), 'location', 'restored navigation remains usable')
   }
+  // Rebuild the real Runtime and UI from fixture history, not a saved React
+  // tree, to verify the same preview and navigation path after a refresh.
+  // Restore the wide viewport: the preceding drawer scenario hides the left
+  // session picker at mobile width, independently of history readiness.
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await page.reload()
+  await history.waitFor()
+  await history.click()
+  await rail.waitFor()
+  await page.getByText('Loading history…', { exact: true }).waitFor({ state: 'hidden' })
+  await assertLeft()
+  await assertPreviews()
+  const refreshedKey = await marks.first().getAttribute('data-message-key')
+  assert.ok(refreshedKey)
+  await marks.first().click()
+  await assertTarget(refreshedKey)
   assert.deepEqual(errors, [])
-  console.log(engine + ': PASS: upward input auto-pages history; message rail stays at the left edge of current chat, navigates windowed messages and hides/restores with docked/drawer workspace')
+  console.log(engine + ': PASS: bounded accessible previews, tooltip agreement, rapid navigation, refresh recovery, upward paging, left rail and workspace hide/restore')
 } finally { await browser.close() }
