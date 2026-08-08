@@ -55,7 +55,9 @@ def verify(app, *, preview=False, evidence=None, team=None, fingerprint=None):
                 raise ValueError('Designated requirement differs from the fixed publisher policy')
             with tempfile.TemporaryDirectory(prefix='xharness-public-certificate-') as folder:
                 prefix = Path(folder) / 'certificate'
-                inspect(f'component-{index}-certificate', ['codesign', '-d', '--extract-certificates', prefix, target])
+                # codesign uses an optional long-option argument: a separate
+                # prefix is parsed as a signing target, not as the output path.
+                inspect(f'component-{index}-certificate', ['codesign', '-d', '--extract-certificates=' + str(prefix), target])
                 certificate = Path(str(prefix) + '0')
                 if hashlib.sha1(certificate.read_bytes()).hexdigest() != fingerprint:
                     raise ValueError('Code-signing leaf certificate differs from the pinned publisher')

@@ -40,8 +40,9 @@ class StableSigning(unittest.TestCase):
         if '-r-' in args:
             relative = next((r for r in m.policy.COMPONENT_IDENTIFIERS if r != '.' and args[-1].endswith(r)), '.')
             result = ('designated => ' + m.policy.requirement(m.policy.COMPONENT_IDENTIFIERS[relative], PIN) + '\n').encode()
-        if '--extract-certificates' in args:
-            Path(args[args.index('--extract-certificates') + 1] + '0').write_bytes(DER)
+        for arg in args:
+            if arg.startswith('--extract-certificates='):
+                Path(arg.split('=', 1)[1] + '0').write_bytes(DER)
         return subprocess.CompletedProcess(args, 0, b'', result)
 
     def test_all_components_verify_pin_and_designated_requirement_without_apple_claims(self):
@@ -49,7 +50,11 @@ class StableSigning(unittest.TestCase):
             checks = m.policy.verify(self.app(folder), fingerprint=PIN)
         self.assertEqual(checks, {'codesignVerified': True, 'fixedCertificateVerified': True, 'designatedRequirementVerified': True})
         commands = [c.args[0] for c in run.call_args_list]
-        self.assertEqual(sum('--extract-certificates' in c for c in commands), 4)
+        extracts = [c for c in commands if any(a.startswith('--extract-certificates=') for a in c)]
+        self.assertEqual(len(extracts), 4)
+        for command in extracts:
+            self.assertEqual(len(command), 4)
+            self.assertNotIn('--extract-certificates', command)
         self.assertFalse(any(c[0] in ['spctl', 'xcrun'] for c in commands))
 
     def test_invalid_pin_policy_mix_missing_components_and_symlinks_fail_closed(self):
