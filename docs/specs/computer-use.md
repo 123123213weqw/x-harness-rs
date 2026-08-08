@@ -93,7 +93,7 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 4. 本机人工验收：分别撤销/开启 Accessibility 和 Screen Recording，验证 fail-closed；随后覆盖九类动作、Retina、多屏、取消拖动和用户接管，并确认原生提示在其他 App、全屏 Space 中可见且不进入截图。
 5. 视觉模型真实验收：`observe → click/type → observe`，确认截图以附件块传输而不是写入文本历史。
 
-## Windows 适配（开发分支，原生验收前不视为已发布）
+## Windows 适配（开发分支，未发布）
 
 - 复用相同 `ComputerDriver` / 单一 `computer` / 附件投影与工具卡；仅
   `danger-full-access` 注册。macOS API 与调用方式不改变。
@@ -125,7 +125,8 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 - 不提权，不申请 UIAccess，不切换安全桌面，不关闭 UAC。锁屏、无交互
   桌面或管理员窗口造成的 API/输入拒绝明确失败。SendInput 不能可靠判定
   UIPI 是唯一原因，因此只报告实际插入事件数，不臆测原因。
-- worker 失联、部分输入、取消、输入后的观察失败都是 non-retryable；
+- 输入操作的 worker 失联、部分输入、取消、输入后的观察失败都是 non-retryable；
+  纯观察失联可重新观察，取消仍不自动重试；
   不自动重放 GUI 副作用。合作取消释放本次持有的输入；进程被外部强杀
   的时刻不能承诺系统输入状态已恢复，必须单独验收异常回收行为。
 - 私有协议限制请求 128 KiB、元数据 1 MiB、PNG 16 MiB/16 MP。PNG 二进制
@@ -142,3 +143,5 @@ DPI/多屏、锁屏/UAC、用户接管和 UIA 卡死，再考虑安装包发布�
 Windows monitor scale is reported by `GetScaleFactorForMonitor` (null on unavailable metadata), not `GetDpiForMonitor` on a PMv2 thread. UIA focus calls complete before owned modifiers are held; foreground and display geometry are revalidated after capture.
 
 Windows foreground identity is normalized with `GetAncestor(..., GA_ROOT)`. UIA focus on an Edit child must not look like an app switch; a different top-level window or popup is still rejected. The disposable-VM regression reproduced the old false interruption with the same PID and child class `Edit`.
+
+原生用例及未验收边界见 [2026-10-05 Windows 验收记录](../evidence/windows-computer-20261005/README.md)。
