@@ -165,7 +165,8 @@ only means no observed limit/error, not that UIA exposes canvas or every DOM nod
 Selected visible edit/combobox values are read lazily via ValuePattern, never
 cached for the entire tree. `value_state` is `known`, `unknown`, `redacted` or
 `not_applicable`; an empty known value is distinct from an unreadable input.
-Output values are bounded to 240 non-control characters (`value_truncated`).
+Output values are bounded to 240 characters (`value_truncated`); input newline,
+carriage return and tab are preserved.
 Password checks fail closed and are repeated after provider reads. Values remain
 external untrusted content, not instructions. No new tools, permission elevation
 or Host/RPC/business-state changes are introduced.

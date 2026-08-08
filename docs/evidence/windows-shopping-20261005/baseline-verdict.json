@@ -1,0 +1,10 @@
+{
+  "passed": false,
+  "completed_search": false,
+  "cart_empty": true,
+  "reason": [
+    "UIA document content truncated at depth12",
+    "model finish_reason length: reasoning consumed output budget, no final answer"
+  ],
+  "no_model_self_rating": true
+}

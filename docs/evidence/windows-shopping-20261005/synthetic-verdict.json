@@ -1,0 +1,72 @@
+{
+  "checks": {
+    "heavy_initial_dom": true,
+    "search": true,
+    "tlc": true,
+    "sort": true,
+    "compare": true,
+    "correct_cart": true
+  },
+  "event_oracle_passed": true,
+  "source_sha": "520586324f4592d446919be11ede1217e858f66a",
+  "model": "deepseek-flash",
+  "initial_run": "2026-10-05T11:01:15.113630+00:00",
+  "full_host_runtime_tested": false,
+  "report_search_count_correct": false,
+  "report_search_count_expected": 8,
+  "report_search_count_observed": 808,
+  "report_product_specs_and_cart_correct": true,
+  "model_turns": 17,
+  "native_calls": 16,
+  "native_failures": [
+    {
+      "id": 1,
+      "failure": {
+        "kind": "handler",
+        "message": "invalid_request: node_id requires the frame_id returned by observe",
+        "retryable": false
+      }
+    },
+    {
+      "id": 3,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 4,
+      "failure": {
+        "kind": "handler",
+        "message": "field \"frame_id\" is not valid for computer action \"observe\"",
+        "retryable": false
+      }
+    }
+  ],
+  "native_success_latency_ms": {
+    "min": 1998,
+    "median": 3728,
+    "max": 6543
+  },
+  "resource_samples_count": 418,
+  "sampled_resource_peaks_mib": {
+    "edge_rss_bytes": 1009.6640625,
+    "edge_private_bytes": 486.41015625,
+    "native_rss_bytes": 32.421875,
+    "native_private_bytes": 7.0078125
+  },
+  "rss_scope": "sum working sets, not unique PSS; entire Edge including preexisting test/first-run tabs; native probe and workers; samples are only during tool operations",
+  "prompt_tokens_sum": 2962892,
+  "completion_tokens_sum": 5543,
+  "prompt_cache_hit_tokens_sum": 2624768,
+  "prompt_cache_miss_tokens_sum": 338124,
+  "last_prompt_tokens": 342639,
+  "model_api_elapsed_s_sum": 42.22007162199996,
+  "native_elapsed_s_sum": 52.073,
+  "original_max_completion_tokens": 2048,
+  "retry_max_completion_tokens": 8192,
+  "controlled_single_factor_ab": false,
+  "no_snapshot_retirement": true,
+  "exact_rmb_cost_not_reported": true
+}

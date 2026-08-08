@@ -1,0 +1,88 @@
+{
+  "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+  "model": "deepseek-flash",
+  "usage": [
+    {
+      "prompt_tokens": 1113,
+      "completion_tokens": 77,
+      "total_tokens": 1190,
+      "prompt_tokens_details": {
+        "cached_tokens": 384
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 12
+      },
+      "prompt_cache_hit_tokens": 384,
+      "prompt_cache_miss_tokens": 729
+    },
+    {
+      "prompt_tokens": 24061,
+      "completion_tokens": 491,
+      "total_tokens": 24552,
+      "prompt_tokens_details": {
+        "cached_tokens": 1152
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 357
+      },
+      "prompt_cache_hit_tokens": 1152,
+      "prompt_cache_miss_tokens": 22909
+    },
+    {
+      "prompt_tokens": 47422,
+      "completion_tokens": 372,
+      "total_tokens": 47794,
+      "prompt_tokens_details": {
+        "cached_tokens": 24448
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 263
+      },
+      "prompt_cache_hit_tokens": 24448,
+      "prompt_cache_miss_tokens": 22974
+    },
+    {
+      "prompt_tokens": 66822,
+      "completion_tokens": 298,
+      "total_tokens": 67120,
+      "prompt_tokens_details": {
+        "cached_tokens": 47744
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 198
+      },
+      "prompt_cache_hit_tokens": 47744,
+      "prompt_cache_miss_tokens": 19078
+    },
+    {
+      "prompt_tokens": 67193,
+      "completion_tokens": 77,
+      "total_tokens": 67270,
+      "prompt_tokens_details": {
+        "cached_tokens": 66944
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 22
+      },
+      "prompt_cache_hit_tokens": 66944,
+      "prompt_cache_miss_tokens": 249
+    },
+    {
+      "prompt_tokens": 77159,
+      "completion_tokens": 1152,
+      "total_tokens": 78311,
+      "prompt_tokens_details": {
+        "cached_tokens": 67200
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 1028
+      },
+      "prompt_cache_hit_tokens": 67200,
+      "prompt_cache_miss_tokens": 9959
+    }
+  ],
+  "native_calls": 7,
+  "elapsed_s": 213.19066720781848,
+  "model_turn_limit": 18,
+  "actual_cost_not_reported": true
+}
