@@ -1,0 +1,110 @@
+[
+  {
+    "id": 15,
+    "ok": true,
+    "elapsed_ms": 8916,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:55:09.183840+00:00"
+  },
+  {
+    "id": 16,
+    "ok": true,
+    "elapsed_ms": 9299,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:55:22.859379+00:00"
+  },
+  {
+    "id": 17,
+    "ok": false,
+    "elapsed_ms": 776,
+    "failure": {
+      "kind": "handler",
+      "message": "stale_node: UIA GetNextSiblingElement could not resolve recorded node path: 0x00000000; observe again",
+      "retryable": false
+    },
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:55:32.074885+00:00"
+  },
+  {
+    "id": 18,
+    "ok": true,
+    "elapsed_ms": 8933,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:55:47.154772+00:00"
+  },
+  {
+    "id": 19,
+    "ok": true,
+    "elapsed_ms": 9671,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:56:00.678491+00:00"
+  },
+  {
+    "id": 20,
+    "ok": true,
+    "elapsed_ms": 8905,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:56:32.888799+00:00"
+  },
+  {
+    "id": 21,
+    "ok": true,
+    "elapsed_ms": 9148,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:56:49.406816+00:00"
+  },
+  {
+    "id": 22,
+    "ok": true,
+    "elapsed_ms": 7780,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:57:07.034047+00:00"
+  },
+  {
+    "id": 23,
+    "ok": true,
+    "elapsed_ms": 3306,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:57:36.145784+00:00"
+  },
+  {
+    "id": 24,
+    "ok": true,
+    "elapsed_ms": 9013,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:57:50.615714+00:00"
+  },
+  {
+    "id": 25,
+    "ok": true,
+    "elapsed_ms": 8820,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:58:05.693750+00:00"
+  },
+  {
+    "id": 26,
+    "ok": true,
+    "elapsed_ms": 8777,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:58:19.661878+00:00"
+  },
+  {
+    "id": 27,
+    "ok": true,
+    "elapsed_ms": 8946,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:58:38.798033+00:00"
+  }
+]
