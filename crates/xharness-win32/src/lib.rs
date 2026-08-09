@@ -47,7 +47,7 @@ pub use handle::OwnedWin32Handle;
 #[cfg(windows)]
 pub use job::{Job, JobAccounting};
 #[cfg(windows)]
-pub use restricted_process::RestrictedChild;
+pub use restricted_process::{cmd_script_arguments, RestrictedChild};
 #[cfg(windows)]
 pub use suspended::{resume_suspended_process, WINDOWS_CREATE_NO_WINDOW, WINDOWS_CREATE_SUSPENDED};
 #[cfg(windows)]
