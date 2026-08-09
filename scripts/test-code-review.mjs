@@ -40,7 +40,7 @@ test('feature is repository-built and contributes slots; it adds no remote or mu
 test('frame retains conversation identity and borrows rather than overwrites saved panel width',()=>{
  const frame=readFileSync(new URL('../ui/src/modules/layout/AppFrame.tsx',import.meta.url),'utf8')
  assert.match(frame,/centerPage === 'review' \|\|/);assert.match(frame,/workspaceOpen=centerPage !== 'review'/)
- assert.match(frame,/hidden=\{centerPage !== 'chat'\}/);assert.match(frame,/renderSlot\('review.center', \{close: closeCenterPage\}\)/)
+ assert.ok(!frame.includes('reviewChat'));assert.match(frame,/assistantVisible/);assert.equal((frame.match(/renderSlot\('conversation', \{\}\)/g)??[]).length,1);assert.match(frame,/showConversation:setAssistantVisible/)
  assert.ok(!frame.includes('setSidebar(56)'))
  assert.match(frame,/centerPage === 'review'.*closest\('\[data-xharness-review-nav\],\[data-xharness-plugin-nav\],\[data-xharness-work-nav\]'\)/)
  const layout=readFileSync(new URL('../ui/src/modules/layout/index.ts',import.meta.url),'utf8');assert.match(layout,/'review.center': \{ kind: 'single', scope: 'root' \}/)

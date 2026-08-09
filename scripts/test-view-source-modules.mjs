@@ -144,6 +144,10 @@ for (const name of modules) {
       'work.center.tasks': {kind: 'single', scope: 'root'},
       'work.center.automations': {kind: 'single', scope: 'root'},
       'review.center': {kind: 'single', scope: 'root'},
+      'assistant.center': {kind: 'single', scope: 'root'},
+    })
+    if (name === 'sidebar') Object.assign(expected[0].children, {
+      'sidebar.primary.action': {kind: 'list', scope: 'root'},
     })
     assert.deepEqual(normalized(two.registrations.map(({spec}) => spec)), expected)
   })
@@ -254,7 +258,7 @@ for (const [label, loader] of [['legacy', legacy], ['source', current]]) {
     const actions = env.registrations[0].spec.inject()
     actions.startSession('workspace'); actions.toggleSidebar()
     assert.deepEqual(normalized(env.trace), [{workspace: 'workspace'}, 'toggleSidebar'])
-    assert.deepEqual(Object.keys(env.registrations[0].spec.children), ['sidebar.brand.mark', 'sidebar.brand.name', 'sidebar.workspaces', 'sidebar.settings', 'sidebar.footer.action'])
+    assert.deepEqual(Object.keys(env.registrations[0].spec.children), ['sidebar.brand.mark', 'sidebar.brand.name', 'sidebar.workspaces', 'sidebar.settings', 'sidebar.footer.action', ...(label==='source'?['sidebar.primary.action']:[])])
   })
   test(`${label}: goal dock preserves completion/budget verbs, reads fresh CAS and projects command bubble`, async () => {
     const env = context(); loader.entry('goal').apply(env.ctx)
