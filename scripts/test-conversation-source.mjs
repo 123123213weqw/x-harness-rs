@@ -38,7 +38,15 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  const oldCss=css(old),nextCss=css(next),reasoningId='@xharness/dsh-client-ui-conversation/ReasoningRow.module.css';
  assert.equal(nextCss[reasoningId],readFileSync(new URL('../ui/src/modules/conversation/chat/ReasoningRow.css',import.meta.url),'utf8'),'the emitted reasoning stylesheet is exactly its maintained source');
  assert.ok(nextCss[reasoningId].startsWith(oldCss[reasoningId]),'existing reasoning styles and sweep are preserved before the page rules');
- assert.deepEqual({...nextCss,[reasoningId]:oldCss[reasoningId]},oldCss,'every other stylesheet and tag remains exactly unchanged');
+ // Explicit product delta: theme foreground on the primary Send/Stop glyph.
+ // Keep the frozen reference intact; only this exact declaration may differ.
+ const inputId='@xharness/dsh-client-ui-conversation/InputBar.module.css';
+ const oldPrimary='._7yzX1q_primary{background:var(--dsw-alias-button-info-fill);color:#fff;';
+ const newPrimary='._7yzX1q_primary{background:var(--dsw-alias-button-info-fill);color:var(--dsw-alias-label-primary-foreground);';
+ assert.equal(oldCss[inputId].split(oldPrimary).length,2,'frozen primary rule is an exact positive control');
+ const expectedCss={...oldCss,[inputId]:oldCss[inputId].replace(oldPrimary,newPrimary)};
+ assert.equal(nextCss[inputId],readFileSync(new URL('../ui/src/modules/conversation/skeleton/InputBar.css',import.meta.url),'utf8'));
+ assert.deepEqual({...nextCss,[reasoningId]:oldCss[reasoningId]},expectedCss,'every stylesheet and tag preserves its frozen bytes except the explicit reasoning and primary-foreground deltas');
  const tailStyle=h=>h.styles.find(s=>s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')).textContent;
  assert.ok(tailStyle(next).startsWith(tailStyle(old)),'existing footer styles are preserved before the new summary rules');
  const newKeys=['approval.reviewing','message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'];
