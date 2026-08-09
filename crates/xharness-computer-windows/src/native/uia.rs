@@ -16,6 +16,7 @@ use windows::Win32::{
     System::{
         Com::{CoCreateInstance, CLSCTX_INPROC_SERVER, SAFEARRAY},
         Ole::{SafeArrayDestroy, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound},
+        Variant::VT_BOOL,
     },
     UI::Accessibility::*,
 };
@@ -44,7 +45,7 @@ impl Automation {
                 UIA_HasKeyboardFocusPropertyId,
                 UIA_IsOffscreenPropertyId,
                 UIA_BoundingRectanglePropertyId,
-                UIA_AutomationIdPropertyId,
+                UIA_IsInvokePatternAvailablePropertyId,
             ] {
                 api(cache.AddProperty(id))?;
             }
@@ -209,11 +210,20 @@ impl Automation {
             let mut actions = vec![];
             if runtime.is_some() && candidate.enabled && in_region && !password {
                 actions.push("focus");
-                if unsafe {
-                    element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+                if candidate.invoke_available.is_some() {
+                    traversal.metrics.invoke_cache_hits += 1;
+                } else {
+                    traversal.metrics.invoke_live_fallbacks += 1;
                 }
-                .is_ok()
-                {
+                // Availability is snapshot metadata, not permission to invoke.
+                // The input path still resolves identity and obtains the live
+                // pattern immediately before dispatch. Unknown cache entries
+                // fall back to the old live query, never to a guessed false.
+                if invoke_available(candidate.invoke_available, || unsafe {
+                    element
+                        .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+                        .is_ok()
+                }) {
                     actions.push("invoke");
                 }
             }
@@ -256,7 +266,7 @@ impl Automation {
             ));
         }
         let validation_ms = validation_started.elapsed().as_millis();
-        let timings = json!({"window_ms":window_ms,"discovery_ms":discovery_ms,"root_ms":traversal.metrics.root_us/1000,"child_navigation_ms":traversal.metrics.child_navigation_us/1000,"cached_metadata_ms":traversal.metrics.cached_metadata_us/1000,"selection_ms":selection_ms,"materialization_ms":materialization_ms,"password_check_ms":traversal.metrics.password_check_us/1000,"runtime_id_ms":traversal.metrics.runtime_id_us/1000,"pattern_ms":traversal.metrics.pattern_us/1000,"value_ms":traversal.metrics.value_us/1000,"screenshot_ms":screenshot_ms,"validation_ms":validation_ms,"total_ms":started.elapsed().as_millis(),"first_child_calls":traversal.metrics.first_child_calls,"next_sibling_calls":traversal.metrics.next_sibling_calls});
+        let timings = json!({"window_ms":window_ms,"discovery_ms":discovery_ms,"root_ms":traversal.metrics.root_us/1000,"child_navigation_ms":traversal.metrics.child_navigation_us/1000,"cached_metadata_ms":traversal.metrics.cached_metadata_us/1000,"selection_ms":selection_ms,"materialization_ms":materialization_ms,"password_check_ms":traversal.metrics.password_check_us/1000,"runtime_id_ms":traversal.metrics.runtime_id_us/1000,"pattern_ms":traversal.metrics.pattern_us/1000,"value_ms":traversal.metrics.value_us/1000,"screenshot_ms":screenshot_ms,"validation_ms":validation_ms,"total_ms":started.elapsed().as_millis(),"first_child_calls":traversal.metrics.first_child_calls,"next_sibling_calls":traversal.metrics.next_sibling_calls,"invoke_cache_hits":traversal.metrics.invoke_cache_hits,"invoke_live_fallbacks":traversal.metrics.invoke_live_fallbacks});
         let value = json!({"platform":"windows","coordinate_space":"physical_desktop_pixels","displays":screen::displays()?,"surfaces":window_values,"permissions":{"interactive_desktop":true,"elevation":"unchanged","secure_desktop":false},"accessibility":{"nodes":nodes,"truncated":!traversal.reasons.is_empty(),"truncation_reasons":traversal.reasons,"visited":traversal.candidates.len(),"max_visited":max_nodes*5,"returned":nodes.len(),"selected":selection.indices.len(),"eligible":selection.eligible,"omitted":selection.omitted,"max_nodes":max_nodes,"max_depth":max_depth,"scope":"foreground_window","selection_policy":"visible_breadth_first","timings":timings,"region":region,"viewport":viewport},"screenshot_included":!png.is_empty(),"screenshot_bounds":region});
         Ok((
             Reply {
@@ -354,8 +364,12 @@ struct Candidate {
     metadata: Metadata,
     password: bool,
     enabled: bool,
+    invoke_available: Option<bool>,
     label: String,
     role: &'static str,
+}
+fn invoke_available(cached: Option<bool>, live: impl FnOnce() -> bool) -> bool {
+    cached.unwrap_or_else(live)
 }
 #[derive(Default)]
 struct Metrics {
@@ -368,6 +382,8 @@ struct Metrics {
     pattern_us: u128,
     first_child_calls: usize,
     next_sibling_calls: usize,
+    invoke_cache_hits: usize,
+    invoke_live_fallbacks: usize,
 }
 struct Traversal<'a> {
     metrics: Metrics,
@@ -426,6 +442,11 @@ impl Traversal<'_> {
                 .CachedControlType()
                 .map(|v| role_name(v.0))
                 .unwrap_or("unknown");
+            let invoke_available = element
+                .GetCachedPropertyValueEx(UIA_IsInvokePatternAvailablePropertyId, true)
+                .ok()
+                .filter(|value| value.vt() == VT_BOOL)
+                .and_then(|value| bool::try_from(&value).ok());
             let label = if password {
                 "<redacted>".into()
             } else {
@@ -471,6 +492,7 @@ impl Traversal<'_> {
                 metadata,
                 password,
                 enabled: false,
+                invoke_available,
                 label,
                 role,
             });
@@ -603,3 +625,33 @@ fn role_name(value: i32) -> &'static str {
     }
 }
 use xharness_computer::ComputerError;
+
+#[cfg(test)]
+mod tests {
+    use super::invoke_available;
+
+    #[test]
+    fn known_availability_does_not_contact_provider_again() {
+        for expected in [true, false] {
+            assert_eq!(
+                invoke_available(Some(expected), || panic!("redundant live read")),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_availability_retains_live_query_semantics() {
+        for expected in [true, false] {
+            let mut calls = 0;
+            assert_eq!(
+                invoke_available(None, || {
+                    calls += 1;
+                    expected
+                }),
+                expected
+            );
+            assert_eq!(calls, 1);
+        }
+    }
+}
