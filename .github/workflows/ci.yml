@@ -116,7 +116,11 @@ jobs:
       - name: Strict platform pixel parity (early failure evidence)
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
-        run: node scripts/test-platform-source-browser.mjs
+        run: |
+          node scripts/test-platform-source-browser.mjs
+          # Check the exact complete plugin graph before the long UI suite.
+          # The later generated-artifact and browser gates remain mandatory.
+          node scripts/test-owned-ui-boot-differential.mjs
       - name: Check repository UI build and types
         run: |
           npm run typecheck --prefix ui
@@ -132,7 +136,7 @@ jobs:
           node --test scripts/test-automation-tool-card.mjs scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
           node --test scripts/test-stream-presentation.mjs
           node --test scripts/test-reasoning-summary.mjs
-          node --test scripts/test-code-review.mjs scripts/test-github-review.mjs
+          node --test scripts/test-code-review.mjs scripts/test-github-review.mjs scripts/test-code-review-filters.mjs scripts/test-code-review-structured.mjs scripts/test-code-review-p0.mjs scripts/test-global-assistant.mjs
           node scripts/test-view-source-modules.mjs
           node scripts/test-desktop-sidebar-toggle.mjs
           node scripts/test-model-selection-source.mjs
@@ -216,6 +220,9 @@ jobs:
             UI_TEST_BROWSER="$browser" node scripts/test-conversation-message-rail-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-automation-navigation-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-code-review-cache-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-code-review-filters-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-code-review-p0-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-global-assistant-browser.mjs
             for implementation in source legacy; do
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs

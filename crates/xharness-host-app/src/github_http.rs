@@ -147,18 +147,23 @@ fn route_url(origin: &Url, route: &str) -> Result<Url, RpcError> {
     }
     Ok(url)
 }
-async fn http_json(
+async fn http_value(
     client: &Client,
     url: Url,
     token: &HeaderValue,
     cancel: CancellationToken,
+    body: Option<Value>,
 ) -> Result<Value, RpcError> {
     if cancel.is_cancelled() {
         return Err(failure("cancelled", "GitHub request cancelled"));
     }
     let run = async {
-        let mut response = client
-            .get(url)
+        let request = if let Some(body) = body {
+            client.post(url).json(&body)
+        } else {
+            client.get(url)
+        };
+        let mut response = request
             .header(reqwest::header::AUTHORIZATION, token.clone())
             .header(reqwest::header::ACCEPT, "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
@@ -225,6 +230,124 @@ async fn http_json(
     };
     tokio::select! { _ = cancel.cancelled() => Err(failure("cancelled", "GitHub request cancelled")), value = run => value }
 }
+async fn http_json(
+    client: &Client,
+    url: Url,
+    token: &HeaderValue,
+    cancel: CancellationToken,
+) -> Result<Value, RpcError> {
+    http_value(client, url, token, cancel, None).await
+}
+fn log_destination(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.port_or_known_default() == Some(443)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none()
+        && url.host_str().is_some_and(|h| {
+            h.ends_with(".blob.core.windows.net")
+                || h == "results-receiver.actions.githubusercontent.com"
+                || h == "productionresultssa0.blob.core.windows.net"
+        })
+}
+fn public_address(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v) => {
+            !(v.is_private()
+                || v.is_loopback()
+                || v.is_link_local()
+                || v.is_unspecified()
+                || v.is_multicast()
+                || v.is_broadcast()
+                || v.octets()[0] == 0
+                || v.octets()[0] >= 240)
+        }
+        std::net::IpAddr::V6(v) => v
+            .to_ipv4_mapped()
+            .map(|v| public_address(v.into()))
+            .unwrap_or_else(|| {
+                !v.is_loopback()
+                    && !v.is_unspecified()
+                    && !v.is_multicast()
+                    && (v.segments()[0] & 0xfe00) != 0xfc00
+                    && (v.segments()[0] & 0xffc0) != 0xfe80
+            }),
+    }
+}
+async fn http_logs(
+    session: &HttpSession,
+    route: &str,
+    cancel: CancellationToken,
+) -> Result<Value, RpcError> {
+    let work = async {
+        let response = session
+            .client
+            .get(route_url(&session.origin, route)?)
+            .header(reqwest::header::AUTHORIZATION, session.token.clone())
+            .send()
+            .await
+            .map_err(|_| failure("transport", "GitHub log request failed"))?;
+        if response.status() != reqwest::StatusCode::FOUND {
+            return Err(failure(
+                "logs_unavailable",
+                "Job logs are not available or access was denied",
+            ));
+        }
+        let destination = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| Url::parse(v).ok())
+            .filter(log_destination)
+            .ok_or_else(|| failure("logs_unavailable", "GitHub log destination is unsupported"))?;
+        let host = destination.host_str().ok_or_else(invalid)?;
+        let addresses: Vec<_> = tokio::net::lookup_host((host, 443))
+            .await
+            .map_err(|_| failure("transport", "Log host resolution failed"))?
+            .collect();
+        if addresses.is_empty() || addresses.iter().any(|a| !public_address(a.ip())) {
+            return Err(failure("logs_unavailable", "Log destination is not public"));
+        }
+        // Pin the vetted DNS result and never send GitHub Authorization to a second host.
+        let client = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .resolve_to_addrs(host, &addresses)
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(45))
+            .build()
+            .map_err(|_| invalid())?;
+        let mut response = client
+            .get(destination)
+            .send()
+            .await
+            .map_err(|_| failure("transport", "Job log download failed"))?;
+        if !response.status().is_success() {
+            return Err(failure(
+                "logs_unavailable",
+                "Job log download expired or failed",
+            ));
+        }
+        const LIMIT: usize = 2 * 1024 * 1024;
+        let mut bytes = Vec::new();
+        let mut truncated = false;
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| failure("transport", "Job log stream interrupted"))?
+        {
+            let room = LIMIT - bytes.len();
+            if chunk.len() > room {
+                bytes.extend_from_slice(&chunk[..room]);
+                truncated = true;
+                break;
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(serde_json::json!({"text":String::from_utf8_lossy(&bytes),"truncated":truncated}))
+    };
+    tokio::select! {_=cancel.cancelled()=>Err(failure("cancelled","Log request cancelled")), r=tokio::time::timeout(Duration::from_secs(60),work)=>r.unwrap_or_else(|_|Err(failure("timeout","Job log request timed out")))}
+}
 struct HttpSession {
     client: Client,
     origin: Url,
@@ -233,6 +356,24 @@ struct HttpSession {
 }
 #[async_trait]
 impl GitHubReader for HttpSession {
+    async fn graphql(
+        &self,
+        query: &str,
+        variables: Value,
+        cancel: CancellationToken,
+    ) -> Result<Value, RpcError> {
+        http_value(
+            &self.client,
+            route_url(&self.origin, "/graphql")?,
+            &self.token,
+            cancel,
+            Some(serde_json::json!({"query":query,"variables":variables})),
+        )
+        .await
+    }
+    async fn logs(&self, route: &str, cancel: CancellationToken) -> Result<Value, RpcError> {
+        http_logs(self, route, cancel).await
+    }
     async fn get(&self, route: &str, cancel: CancellationToken) -> Result<Value, RpcError> {
         if cancel.is_cancelled() {
             return Err(failure("cancelled", "GitHub request cancelled"));
@@ -604,5 +745,41 @@ mod tests {
             error.details["kind"].as_str(),
             Some("timeout" | "transport")
         ));
+    }
+}
+#[cfg(test)]
+mod log_validation_tests {
+    use super::*;
+    #[test]
+    fn log_destination_is_https_vetted_and_credential_free() {
+        assert!(log_destination(
+            &Url::parse("https://abc.blob.core.windows.net/job?signature=x").unwrap()
+        ));
+        for url in [
+            "http://abc.blob.core.windows.net/job",
+            "https://abc.blob.core.windows.net:444/job",
+            "https://user@abc.blob.core.windows.net/job",
+            "https://abc.blob.core.windows.net.evil.test/job",
+            "https://127.0.0.1/job",
+            "https://api.github.com/job",
+        ] {
+            assert!(!log_destination(&Url::parse(url).unwrap()), "{url}");
+        }
+    }
+    #[test]
+    fn logs_reject_local_resolutions_and_ipv4_mapped_local() {
+        for ip in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "169.254.0.1",
+            "192.168.1.1",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+        ] {
+            assert!(!public_address(ip.parse().unwrap()));
+        }
+        assert!(public_address("1.1.1.1".parse().unwrap()));
     }
 }
