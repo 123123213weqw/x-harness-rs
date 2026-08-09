@@ -557,6 +557,10 @@ pub trait AgentRuntime: Send + Sync + 'static {
         None
     }
 
+    fn auxiliary_token_guard(&self, _route: &ModelRoute) -> Option<TokenGuard> {
+        None
+    }
+
     fn has_available_route(&self) -> bool;
 
     fn can_route(&self, route: &ModelRoute) -> bool;
@@ -1365,6 +1369,9 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         let _ = self.goals.host.set(host);
     }
 
+    fn auxiliary_token_guard(&self, route: &ModelRoute) -> Option<TokenGuard> {
+        self.models.read().ok()?.token_guard(route)
+    }
     async fn automation_command(
         &self,
         session_id: &str,
