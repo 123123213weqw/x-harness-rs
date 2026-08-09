@@ -16,7 +16,7 @@ use windows::Win32::{
     System::{
         Com::{CoCreateInstance, CLSCTX_INPROC_SERVER, SAFEARRAY},
         Ole::{SafeArrayDestroy, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound},
-        Variant::VT_BOOL,
+        Variant::{VARIANT, VT_BOOL},
     },
     UI::Accessibility::*,
 };
@@ -371,6 +371,12 @@ struct Candidate {
 fn invoke_available(cached: Option<bool>, live: impl FnOnce() -> bool) -> bool {
     cached.unwrap_or_else(live)
 }
+fn decode_availability(value: &VARIANT) -> Option<bool> {
+    // Do not coerce a missing/default/non-boolean provider result to false.
+    (value.vt() == VT_BOOL)
+        .then(|| bool::try_from(value).ok())
+        .flatten()
+}
 #[derive(Default)]
 struct Metrics {
     root_us: u128,
@@ -445,8 +451,7 @@ impl Traversal<'_> {
             let invoke_available = element
                 .GetCachedPropertyValueEx(UIA_IsInvokePatternAvailablePropertyId, true)
                 .ok()
-                .filter(|value| value.vt() == VT_BOOL)
-                .and_then(|value| bool::try_from(&value).ok());
+                .and_then(|value| decode_availability(&value));
             let label = if password {
                 "<redacted>".into()
             } else {
@@ -628,7 +633,24 @@ use xharness_computer::ComputerError;
 
 #[cfg(test)]
 mod tests {
-    use super::invoke_available;
+    use super::{decode_availability, invoke_available, VARIANT};
+
+    #[test]
+    fn only_boolean_cache_values_are_authoritative() {
+        for expected in [true, false] {
+            assert_eq!(
+                decode_availability(&VARIANT::from(expected)),
+                Some(expected)
+            );
+        }
+        for value in [
+            VARIANT::default(),
+            VARIANT::from(0i32),
+            VARIANT::from("false"),
+        ] {
+            assert_eq!(decode_availability(&value), None);
+        }
+    }
 
     #[test]
     fn known_availability_does_not_contact_provider_again() {
