@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
 import { compile, legacyTest } from './conversation-test-harness.mjs'
 const deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-types-step1/browser-deps',require=createRequire(resolve(deps,'package.json'));
 const {chromium,webkit}=require('playwright'),engine=process.env.UI_TEST_BROWSER??'chromium',impl=process.env.UI_TEST_IMPL??'source';
@@ -60,6 +61,36 @@ try {
   function Counter({index}){const[clicked,set]=globalThis.__xhTranscriptState.get(React.createElement).useState('fixture-counter',false);return jsx('button',{'data-counter':index,style:{height:80,width:'100%'},onClick:()=>set(true),children:'row '+index+' count '+(clicked?1:0)})}
   window.mode='bar';setMode('bar');
  });
+ // Real palettes + monochrome override: both Send and Stop must use the
+ // matching foreground, not a white glyph on the dark theme's white fill.
+ if (impl === 'source') {
+  const palette = await page.addStyleTag({content:readFileSync('ui/src/modules/theme/design-platform.css','utf8')+'\n'+readFileSync('ui/overrides/monochrome.css','utf8')})
+  await page.evaluate(()=>{shell.setDraft('Contrast probe');setMode('bar')})
+  for (const dark of [false,true]) {
+   await page.evaluate(dark=>document.body.toggleAttribute('data-ds-dark-theme',dark),dark)
+   for (const running of [false,true]) {
+    await page.evaluate(running=>snapshot.set({...snapshot.getSnapshot(),running}),running)
+    const action=page.getByRole('button',{name:running?'Stop generating':'Send message',exact:true})
+    await page.waitForFunction(label=>document.querySelector(`[aria-label="${label}"]`)?.disabled===false,running?'Stop generating':'Send message')
+    // Theme changes animate the background for 100 ms; measure settled
+    // contrast, not the old fill paired with the new foreground.
+    await page.waitForFunction(({label,bg})=>{const el=document.querySelector(`[aria-label="${label}"]`);return el&&getComputedStyle(el).backgroundColor===bg},{label:running?'Stop generating':'Send message',bg:dark?'rgb(245, 245, 245)':'rgb(23, 23, 23)'})
+    const contrast=await action.evaluate(el=>{
+     const rgb=value=>value.match(/[\d.]+/g).slice(0,3).map(Number)
+     const luminance=rgb=>rgb.map(c=>{c/=255;return c<=.04045?c/12.92:((c+.055)/1.055)**2.4}).reduce((v,c,i)=>v+c*[.2126,.7152,.0722][i],0)
+     const style=getComputedStyle(el),fg=luminance(rgb(style.color)),bg=luminance(rgb(style.backgroundColor))
+     return {color:style.color,background:style.backgroundColor,foreground:style.getPropertyValue('--dsw-alias-label-primary-foreground'),ratio:(Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05),disabled:el.disabled,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}
+    })
+    assert.equal(contrast.disabled,false)
+    assert.ok(contrast.ratio>=4.5,`${dark?'dark':'light'} ${running?'stop':'send'} glyph contrast: ${JSON.stringify(contrast)}`)
+    assert.equal(contrast.width,34);assert.equal(contrast.height,34)
+   }
+  }
+  await page.evaluate(()=>{snapshot.set({...snapshot.getSnapshot(),running:false});shell.setDraft('')})
+  await page.waitForFunction(()=>document.querySelector('[aria-label="Send message"]')?.disabled)
+  assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).isDisabled(),true,'empty drafts stay disabled')
+  await page.evaluate(()=>document.body.removeAttribute('data-ds-dark-theme'));await palette.evaluate(el=>el.remove())
+ }
  // Native picker, shared plus-menu focus, commands and draft submission.
  await page.getByRole('button',{name:'Add attachments or commands',exact:true}).press('ArrowDown');await page.getByRole('menuitem',{name:'Add images or files'}).waitFor();await page.waitForFunction(()=>document.activeElement?.textContent?.includes('Add images or files'));assert.equal(await page.getByRole('menuitem',{name:'Add images or files'}).evaluate(e=>e===document.activeElement),true);
  await page.getByRole('menuitem',{name:'Add images or files'}).press('End');assert.equal(await page.getByRole('menuitem',{name:'Commands'}).evaluate(e=>e===document.activeElement),true);await page.getByRole('menuitem',{name:'Commands'}).press('Escape');assert.equal(await page.getByRole('button',{name:'Add attachments or commands',exact:true}).evaluate(e=>e===document.activeElement),true);
@@ -109,5 +140,5 @@ try {
  await page.evaluate(()=>document.activeElement?.blur());
  await page.locator('[data-counter="0"]').waitFor({state:'detached'});
  await scroll.evaluate(e=>{e.style.width='500px';e.scrollTop=0});await page.locator('[data-counter="1"]').waitFor();assert.equal(await page.locator('[data-counter="0"]').innerText(),'row 0 count 1');
- await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${impl}: whole resident conversation + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed`);
+ await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${impl}: whole resident conversation + light/dark Send/Stop contrast + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed`);
 } finally {await browser.close();await new Promise(r=>server.close(r))}
