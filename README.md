@@ -89,6 +89,12 @@ The desktop browser, local tools, and permission controls are native capabilitie
 | [`ui`](ui) | Versioned Web sources and deployable bundle |
 | [`docs`](docs) | Architecture, specifications, operations, and plans |
 
+### Native command execution
+
+Command tools and the Web terminal share shell discovery. Set `XHARNESS_SHELL` to pin a supported executable; an invalid explicit selection fails rather than silently changing dialect. Otherwise an available `SHELL` is preferred, followed by PowerShell Core → Windows PowerShell → CMD on Windows, or Bash → Zsh → sh on Unix. PowerShell 7 is not required for the command tool.
+
+The existing `bash`/`pwsh` tool name remains stable; its description reports the selected interpreter and compatibility constraints. Supply **either** `command` (shell script) **or** `program` plus literal `args` (direct execution), never both. Both paths use the same permissions, cancellation, output and background-job lifecycle. Commands are not replayed in another interpreter after failure. On Windows PowerShell 5.1, scripts must check `$LASTEXITCODE` after intermediate native commands; the wrapper preserves the last native exit code. No Python runtime is installed or silently substituted.
+
 ## Development and verification
 
 The CI workflow checks formatting, builds and tests the Rust workspace across Linux, macOS, and Windows, validates the Tauri shell, and runs frontend regressions in Chromium and WebKit. The exact commands and platform setup are in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
