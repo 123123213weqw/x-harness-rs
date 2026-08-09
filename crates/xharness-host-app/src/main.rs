@@ -274,7 +274,8 @@ async fn run(
     // Local gh credentials must never be exposed by a public unauthenticated Host.
     if args.bind.ip().is_loopback() {
         host.install_github(Arc::new(
-            xharness_host_app::github_service::NativeGitHub::default(),
+            xharness_host_app::github_service::NativeGitHub::default()
+                .with_review_directory(args.state_dir.join("reviews")),
         ))?;
     }
     if let Some(plugins) = plugins {

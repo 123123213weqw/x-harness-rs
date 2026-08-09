@@ -138,6 +138,21 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint.starts_with("github/review-") {
+            let result = crate::github_review::call(self, endpoint, &payload, _cancellation).await;
+            return Some(match result {
+                Ok(v) => RpcResult::success(v),
+                Err(e) => RpcResult::failure(e),
+            });
+        }
+        // Retired product surface: fail closed without reading or mutating old
+        // PR/chat metadata. Existing normal conversations are unaffected.
+        if matches!(endpoint, "github/chat-get" | "github/chat-set") {
+            return Some(RpcResult::failure(RpcError::bad_request(
+                "PR chat binding has been retired; use the global assistant",
+                json!([]),
+            )));
+        }
         if endpoint.starts_with("github/") {
             let result = match self.github.get() {
                 Some(backend) => backend.read(endpoint, &payload, _cancellation).await,
