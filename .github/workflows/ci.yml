@@ -63,6 +63,7 @@ jobs:
       - run: python -B scripts/test-release-orchestrator.py
       - run: python -B scripts/test-ci-tiering.py
       - run: python -B scripts/test-macos-signing.py
+      - run: python -B scripts/test-macos-stable-signing.py
       - run: python -B scripts/test-windows-desktop-bundle.py
       - run: python -B scripts/test-windows-runtime-audit.py
       - name: Unix updater isolation and candidate contracts
@@ -426,6 +427,11 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Portable Mac signing policy on Windows (no credentials or native signing)
+        run: python -B scripts/test-macos-stable-signing.py
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -609,6 +615,21 @@ jobs:
             apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
             apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sha256
           if-no-files-found: error
+
+  macos-fixed-signing-contract:
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fixed certificate signing across two disposable native app versions (no production keys or Rust)
+        run: python3 -B scripts/test-macos-stable-signing.py --native
 
   rust-macos-arm64:
     name: Rust / macOS arm64
