@@ -160,6 +160,34 @@ impl Fixture {
                         Some(instance),
                         None,
                     ))?;
+                    let wrapper = api(CreateWindowExW(
+                        WINDOW_EX_STYLE(0),
+                        w!("STATIC"),
+                        w!("Excluded intermediate wrapper"),
+                        WS_CHILD | WS_VISIBLE,
+                        300,
+                        270,
+                        240,
+                        70,
+                        Some(root),
+                        None,
+                        Some(instance),
+                        None,
+                    ))?;
+                    let _nested = api(CreateWindowExW(
+                        WINDOW_EX_STYLE(0),
+                        w!("BUTTON"),
+                        w!("Promoted visible child"),
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                        8,
+                        28,
+                        210,
+                        28,
+                        Some(wrapper),
+                        Some(HMENU(1005 as *mut _)),
+                        Some(instance),
+                        None,
+                    ))?;
                     let _ = SetForegroundWindow(root);
                     Ok((root.0 as usize, edit.0 as usize))
                 }
@@ -200,6 +228,51 @@ impl Fixture {
 }
 fn record(name: &str, detail: Value) {
     println!("{}", json!({"case":name,"passed":true,"detail":detail}));
+}
+/// Verify actual UIA logical descendant promotion independently of our walk.
+/// This is not a model assertion or proof of every provider's offscreen data.
+fn verify_filtered_descendant(root: usize) -> Result<(), Box<dyn std::error::Error>> {
+    use windows::Win32::{
+        System::{Com::*, Variant::VARIANT},
+        UI::Accessibility::*,
+    };
+    struct ComScope;
+    impl Drop for ComScope {
+        fn drop(&mut self) {
+            // SAFETY: paired with the successful initialization on this thread;
+            // UIA interfaces created below are dropped before this guard.
+            unsafe { CoUninitialize() };
+        }
+    }
+    // SAFETY: fixture-only synchronous block, never crosses an await/thread.
+    unsafe {
+        CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
+        let _com = ComScope;
+        let automation: IUIAutomation =
+            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+        let root = automation.ElementFromHandle(HWND(root as *mut _))?;
+        let condition = automation.CreatePropertyCondition(
+            UIA_NamePropertyId,
+            &VARIANT::from("Promoted visible child"),
+        )?;
+        let walker = automation.CreateTreeWalker(&condition)?;
+        let child = walker.GetFirstChildElement(&root)?;
+        if child.CurrentName()?.to_string() != "Promoted visible child"
+            || child.CurrentIsOffscreen()?.as_bool()
+        {
+            return Err("filtered walker lost the visible nested child".into());
+        }
+        let raw_parent = automation.RawViewWalker()?.GetParentElement(&child)?;
+        let parent_name = raw_parent.CurrentName()?.to_string();
+        if parent_name != "Excluded intermediate wrapper" {
+            return Err(format!("promotion fixture parent was {parent_name:?}, expected excluded intermediate wrapper").into());
+        }
+    }
+    record(
+        "native_filtered_descendant",
+        json!({"actual_intermediate_parent_verified":true,"visible_descendant_promoted":true}),
+    );
+    Ok(())
 }
 async fn execute(
     driver: &WindowsComputer,
@@ -250,9 +323,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("cannot establish fixture physical-pixel DPI context".into());
     }
     let fixture = Fixture::open()?;
+    let started = Instant::now();
+    verify_filtered_descendant(fixture.root)?;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let driver = Arc::new(WindowsComputer::new()?);
-    let started = Instant::now();
     let observe = json!({"action":"observe","detail":"semantic","include_screenshot":false});
     let mut output = execute(&driver, observe.clone()).await?;
     let own = output.value["surfaces"]
@@ -515,7 +589,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     record(
         "native_acceptance",
-        json!({"cases":15,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
+        json!({"cases":16,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
     );
     Ok(())
 }
