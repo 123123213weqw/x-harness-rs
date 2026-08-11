@@ -42,6 +42,7 @@ test('frame retains conversation identity and borrows rather than overwrites sav
  assert.match(frame,/centerPage === 'review' \|\|/);assert.match(frame,/workspaceOpen=centerPage !== 'review'/)
  assert.ok(!frame.includes('reviewChat'));assert.match(frame,/assistantVisible/);assert.equal((frame.match(/renderSlot\('conversation', \{\}\)/g)??[]).length,1);assert.match(frame,/showConversation:setAssistantVisible/)
  assert.ok(!frame.includes('setSidebar(56)'))
- assert.match(frame,/centerPage === 'review'.*closest\('\[data-xharness-review-nav\],\[data-xharness-plugin-nav\],\[data-xharness-work-nav\]'\)/)
+ assert.match(frame,/closest\('\[data-shell-navigation\],\[data-sidebar-toggle\],\[data-xharness-assistant-nav\],\[data-xharness-review-nav\],\[data-xharness-plugin-nav\],\[data-xharness-work-nav\]'\)/)
+ assert.match(frame,/centerPage !== 'chat'\) closeCenterPage\(\)/)
  const layout=readFileSync(new URL('../ui/src/modules/layout/index.ts',import.meta.url),'utf8');assert.match(layout,/'review.center': \{ kind: 'single', scope: 'root' \}/)
 })

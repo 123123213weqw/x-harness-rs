@@ -1,6 +1,7 @@
 /** Owned, deliberately small contracts for migrated view contributors. */
 import type * as React from 'react'
 import type { DeliverablesTurnData } from './deliverables/turn-deliverables'
+import type { ShellNavigationSessions } from './layout/shell-navigation'
 
 export type SessionId = string
 export type Translation = (key: string, values?: Readonly<Record<string, string | number>>) => string
@@ -44,7 +45,7 @@ export interface InputTriggerSource {
   codec?: { clipboardText(ref: string): string; serialize(ref: string): Promise<string> }
 }
 export interface InputTriggerServiceContract { registerSource(source: InputTriggerSource): () => void }
-export interface ISessions { subagentAddress(sessionId: SessionId): unknown | undefined }
+export interface ISessions extends ShellNavigationSessions { subagentAddress(sessionId: SessionId): unknown | undefined }
 export interface HostDescription { canOpenPath?: boolean }
 export interface HostDescriptionSource { getSnapshot(): HostDescription | undefined; subscribe(listener: () => void): () => void }
 export interface ConnectionHandle {
@@ -131,7 +132,7 @@ export interface PropsRenderSlots<_Seat extends string> {
   renderSlot(name: string, owner: Readonly<Record<string, unknown>>, options?: { fallback?: React.ReactNode }): React.ReactNode
 }
 export interface SidebarRootInjected { startSession(workspaceId?: string): void; toggleSidebar(): void }
-export interface SidebarRootComponentProps extends SidebarRootInjected, PropsLocale<'sidebar'>, PropsRenderSlots<string> { collapsed: boolean; width: number }
+export interface SidebarRootComponentProps extends SidebarRootInjected, PropsLocale<'sidebar'>, PropsRenderSlots<string> { collapsed: boolean; width: number; navigation?: import('./layout/shell-navigation').ShellNavigationControls }
 export interface SidebarBrandNameOwnerProps { children?: never }
 export interface SidebarSectionOwnerProps { wide: boolean; expandSidebar(): void }
 export interface SidebarSettingsOwnerProps { wide: boolean }

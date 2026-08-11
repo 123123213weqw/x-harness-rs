@@ -49,8 +49,8 @@ try {
     const layout = registrations['@xharness/dsh-client-ui-layout'].factory(runtime)
     const plugin = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
     let AppFrame,rootDefinition
-    layout.apply({ effect: (fn, label) => { if (label.includes('service')) fn() }, reflect: { provide: () => () => {} }, slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } } })
-    const instance=rootDefinition.store().create(),actions=instance.actions;rootDefinition.inject(actions)
+    layout.apply({ get:()=>({list:{getSnapshot:()=>({current:undefined,ids:[],byId:{},phase:'ready'}),subscribe:()=>()=>{}},open(){},clear(){},subagentAddress(){}}), effect: (fn, label) => { if (label.includes('service')) fn() }, reflect: { provide: () => () => {} }, slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } } })
+    const instance=rootDefinition.store().create(),actions=instance.actions;const injected=rootDefinition.inject(actions)
     const slots = (name, props) => name === 'shell.overlay' ? null
       : name === 'workspace.item' ? React.createElement(plugin.BrowserPane, props)
       : name === 'conversation' ? React.createElement('div', { style: { position: 'absolute', top: 8, right: 8 } }, React.createElement(plugin.BrowserToggle))
@@ -58,7 +58,7 @@ try {
     window.root = ReactDOM.createRoot(document.getElementById('root'))
     root.render(React.createElement(AppFrame, {
       useStore:selector=>selector(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),
-      useSessions: selector => selector({ current: undefined, byId: {} }), actions, renderSlot: slots,
+      useSessions: selector => selector({ current: undefined, byId: {} }), actions, ...injected, renderSlot: slots,
     }))
   })
   const center = () => page.locator('._84hhiq_centerCol').evaluate(element => element.getBoundingClientRect().width)
