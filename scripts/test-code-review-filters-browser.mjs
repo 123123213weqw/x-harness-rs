@@ -8,7 +8,7 @@ const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/Users/wangyue/co
 const {chromium,webkit}=require('playwright'),engine=process.env.UI_TEST_BROWSER??'chromium',browser=await({chromium,webkit}[engine]).launch({headless:true})
 const source=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'@xlang/xharness-client-ui-code-review',source:'src/modules/code-review/index.tsx'},{id:'@xharness/dsh-client-ui-conversation',source:'src/modules/conversation/index.ts'}]).get('@xlang/xharness-client-ui-code-review').bytes.toString()
 try{
- const page=await browser.newPage({viewport:{width:1180,height:780}}),errors=[];page.on('pageerror',e=>{if(e.message!=='owned feature fixture: stop Host boot')errors.push(e.message)})
+ const page=await browser.newPage({viewport:{width:1180,height:780},locale:'en-US'}),errors=[];page.on('pageerror',e=>{if(e.message!=='owned feature fixture: stop Host boot')errors.push(e.message)})
  await installOwnedViewHtml(page,'source','<html lang="en"><head></head><body style="margin:0"><div id="root" style="position:fixed;inset:0"></div></body></html>',{origin:'https://review-filters.test'})
  await page.addScriptTag({content:'window.__ModuleLoader__={load:row=>{window.registration=row}}'});await page.addScriptTag({content:source})
  await page.evaluate(()=>{
