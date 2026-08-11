@@ -21,7 +21,7 @@ html[data-xh-mac-titlebar="overlay"] #root {
 
 #xh-desktop-titlebar-drag {
   position: absolute;
-  inset: 0 0 0 128px;
+  inset: 0 0 0 184px;
 }
 
 /* Native traffic lights occupy x=0..80. Controls are deliberately outside

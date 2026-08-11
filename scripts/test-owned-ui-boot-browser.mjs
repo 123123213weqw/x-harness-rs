@@ -63,10 +63,12 @@ try{
   // Explicit product deltas: Tasks, Code Review, Little X and removed sidebar search.
   // Count the removed controls independently; all other controls and exact
   // conversation pixels continue to use the untouched frozen reference.
+  const shellNavigation=document.querySelectorAll('button[data-shell-navigation-back],button[data-shell-navigation-forward]')
   const copy=document.body.cloneNode(true)
-  copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"],button[data-xharness-review-nav][aria-label="Code Review"],button[data-xharness-assistant-nav][aria-label="Little X"]').forEach(node=>node.remove())
-  return {text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,stableButtons:document.querySelectorAll('button').length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
+  copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"],button[data-xharness-review-nav][aria-label="Code Review"],button[data-xharness-assistant-nav][aria-label="Little X"],button[data-shell-navigation-back],button[data-shell-navigation-forward]').forEach(node=>node.remove())
+  return {text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
  })
+ assert.equal(early.shellNavigationCount,implementation==='source'?2:0,'exactly the reviewed Back/Forward pair')
  assert.equal(early.codeReviewEntryCount,implementation==='source'?1:0,'reviewed navigation is one exact owned control; frozen positive control stays immutable')
  assert.equal(early.assistantEntryCount,implementation==='source'?1:0,'Little X is one exact owned control, not a generic parity mask')
  assert.equal(early.sidebarSearchEntryCount,implementation==='source'?0:1,'removed search versus intact frozen positive control')
@@ -98,6 +100,10 @@ try{
   await work.waitFor()
   await work.getByRole('tab',{name:'Automations',exact:true}).click()
   await work.getByRole('heading',{name:'Automations',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Back',exact:true}).click()
+  assert.equal(await page.getByRole('button',{name:'Forward',exact:true}).isEnabled(),true)
+  await page.getByRole('button',{name:'Forward',exact:true}).click()
+  await work.waitFor()
   await work.getByRole('button',{name:'Back to chat',exact:true}).click()
   assert.equal(await composer.inputValue(),'Retain draft across Work center','real Core and generated slots keep the composer mounted')
  }
@@ -107,5 +113,5 @@ try{
  assert.deepEqual(staticFailures,[],'all full graph static requests complete')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
- console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
+ console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
 }finally{await browser.close()}

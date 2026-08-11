@@ -17092,6 +17092,7 @@ exports.sanitizeSearchQuery = sanitizeSearchQuery;
 exports.reconciledSessionOrder = reconciledSessionOrder;
 exports.nextSessionOrderAccount = nextSessionOrderAccount;
 const jsx_runtime_1 = require("react/jsx-runtime");
+const shell_route_1 = require("../shared/shell-route");
 require("./WorkNavigation.styles");
 const primitives_1 = require("./primitives");
 /**
@@ -17603,16 +17604,7 @@ function WorkspaceBrowser({ wide, useSessions, useWorkspaces, useStore, actions,
     // states; the menu anchors on this button).
     const [wsPickerOpen, setWsPickerOpen] = (0, react_1.useState)(false);
     const [pluginCenterOpen, setPluginCenterOpen] = (0, react_1.useState)(false);
-    (0, react_1.useEffect)(() => {
-        const opened = () => { setPluginCenterOpen(true); };
-        const closed = () => { setPluginCenterOpen(false); };
-        window.addEventListener('xharness:plugins:open', opened);
-        window.addEventListener('xharness:plugins:closed', closed);
-        return () => {
-            window.removeEventListener('xharness:plugins:open', opened);
-            window.removeEventListener('xharness:plugins:closed', closed);
-        };
-    }, []);
+    (0, react_1.useEffect)(() => (0, shell_route_1.observeShellPage)('plugins', setPluginCenterOpen), []);
     (0, react_1.useEffect)(() => {
         const openRequestedSession = (event) => { if (event instanceof CustomEvent && typeof event.detail === 'string')
             open(event.detail); };
@@ -17621,12 +17613,7 @@ function WorkspaceBrowser({ wide, useSessions, useWorkspaces, useStore, actions,
     }, [open]);
     // Keep navigation state in the region owner so wide/rail remounts retain it.
     const [workCenterOpen, setWorkCenterOpen] = (0, react_1.useState)(false);
-    (0, react_1.useEffect)(() => {
-        const opened = () => setWorkCenterOpen(true), closed = () => setWorkCenterOpen(false);
-        window.addEventListener('xharness:work:open', opened);
-        window.addEventListener('xharness:work:closed', closed);
-        return () => { window.removeEventListener('xharness:work:open', opened); window.removeEventListener('xharness:work:closed', closed); };
-    }, []);
+    (0, react_1.useEffect)(() => (0, shell_route_1.observeShellPage)('work', setWorkCenterOpen), []);
     const wsPlusRef = (0, react_1.useRef)(null);
     const composingRef = (0, react_1.useRef)(false);
     // Rename dialog (browser-owned so it outlives row unmounts during collapse).
@@ -17765,6 +17752,29 @@ function WorkspaceBrowser({ wide, useSessions, useWorkspaces, useStore, actions,
                         } }), sessionRenameError !== null && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.renameError, role: "alert", children: sessionRenameError })] }), (0, jsx_runtime_1.jsxs)(primitives_1.Modal, { open: deleteTarget !== null, onClose: closeDelete, closeLabel: t('close'), title: t('delete.workspace'), ...deleteTarget === null
                     ? {}
                     : { description: t('delete.desc', { name: deleteTarget.title }) }, footer: ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "outline", disabled: deleting, onClick: closeDelete, children: t('cancel') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "outline", className: WorkspaceBrowser_styles_1.default.deleteAction, disabled: deleting, onClick: confirmDelete, children: t('delete.workspace') })] })), children: [deleting && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.deleteStatus, role: "status", children: t('delete.pending') }), deleteError !== null && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.renameError, role: "alert", children: deleteError })] })] }));
+}
+
+},
+"src/modules/shared/shell-route.js": function(module, exports, require) {
+// source: src/modules/shared/shell-route.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SHELL_ROUTE_CHANGED = void 0;
+exports.observeShellPage = observeShellPage;
+/** A display projection, never an instruction to re-run a page's action. */
+exports.SHELL_ROUTE_CHANGED = 'xharness:shell-route-changed';
+function observeShellPage(page, setActive) {
+    const changed = (event) => {
+        if (!(event instanceof CustomEvent))
+            return;
+        const detail = event.detail;
+        if (typeof detail === 'object' && detail !== null && 'page' in detail && typeof detail.page === 'string') {
+            setActive(detail.page === page);
+        }
+    };
+    window.addEventListener(exports.SHELL_ROUTE_CHANGED, changed);
+    return () => window.removeEventListener(exports.SHELL_ROUTE_CHANGED, changed);
 }
 
 },
@@ -18864,7 +18874,7 @@ exports.en = {
 
 }
 };
-const __dependencies = {"src/modules/workspace/index.js":{"./stores":"src/modules/workspace/stores.js","./WorkspaceBrowser":"src/modules/workspace/WorkspaceBrowser.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./locales":"src/modules/workspace/locales.js"},"src/modules/workspace/stores.js":{"zod":"vendor/zod.js","./runtime":"src/modules/workspace/runtime.js"},"vendor/zod.js":{},"src/modules/workspace/runtime.js":{},"src/modules/workspace/WorkspaceBrowser.js":{"./WorkNavigation.styles":"src/modules/workspace/WorkNavigation.styles.js","./primitives":"src/modules/workspace/primitives.js","./class-names":"src/modules/workspace/class-names.js","./tree":"src/modules/workspace/tree.js","./rows/Rows":"src/modules/workspace/rows/Rows.js","./stores":"src/modules/workspace/stores.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./WorkspaceBrowser.styles":"src/modules/workspace/WorkspaceBrowser.styles.js"},"src/modules/workspace/WorkNavigation.styles.js":{"./WorkNavigation.css":"src/modules/workspace/WorkNavigation.css","../views-types":"src/modules/views-types.js"},"src/modules/workspace/WorkNavigation.css":{},"src/modules/views-types.js":{},"src/modules/workspace/primitives.js":{},"src/modules/workspace/class-names.js":{},"src/modules/workspace/tree.js":{"./timestamp":"src/modules/workspace/timestamp.js","./runtime":"src/modules/workspace/runtime.js"},"src/modules/workspace/timestamp.js":{},"src/modules/workspace/rows/Rows.js":{"../timestamp":"src/modules/workspace/timestamp.js","../primitives":"src/modules/workspace/primitives.js","../class-names":"src/modules/workspace/class-names.js","../runtime":"src/modules/workspace/runtime.js","../tree":"src/modules/workspace/tree.js","./Rows.styles":"src/modules/workspace/rows/Rows.styles.js"},"src/modules/workspace/rows/Rows.styles.js":{"./Rows.css":"src/modules/workspace/rows/Rows.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/rows/Rows.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/workspace/WorkspacePicker.js":{"./primitives":"src/modules/workspace/primitives.js","./WorkspacePicker.styles":"src/modules/workspace/WorkspacePicker.styles.js"},"src/modules/workspace/WorkspacePicker.styles.js":{"./WorkspacePicker.css":"src/modules/workspace/WorkspacePicker.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspacePicker.css":{},"src/modules/workspace/WorkspaceBrowser.styles.js":{"./WorkspaceBrowser.css":"src/modules/workspace/WorkspaceBrowser.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspaceBrowser.css":{},"src/modules/workspace/locales.js":{}};
+const __dependencies = {"src/modules/workspace/index.js":{"./stores":"src/modules/workspace/stores.js","./WorkspaceBrowser":"src/modules/workspace/WorkspaceBrowser.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./locales":"src/modules/workspace/locales.js"},"src/modules/workspace/stores.js":{"zod":"vendor/zod.js","./runtime":"src/modules/workspace/runtime.js"},"vendor/zod.js":{},"src/modules/workspace/runtime.js":{},"src/modules/workspace/WorkspaceBrowser.js":{"../shared/shell-route":"src/modules/shared/shell-route.js","./WorkNavigation.styles":"src/modules/workspace/WorkNavigation.styles.js","./primitives":"src/modules/workspace/primitives.js","./class-names":"src/modules/workspace/class-names.js","./tree":"src/modules/workspace/tree.js","./rows/Rows":"src/modules/workspace/rows/Rows.js","./stores":"src/modules/workspace/stores.js","./WorkspacePicker":"src/modules/workspace/WorkspacePicker.js","./WorkspaceBrowser.styles":"src/modules/workspace/WorkspaceBrowser.styles.js"},"src/modules/shared/shell-route.js":{},"src/modules/workspace/WorkNavigation.styles.js":{"./WorkNavigation.css":"src/modules/workspace/WorkNavigation.css","../views-types":"src/modules/views-types.js"},"src/modules/workspace/WorkNavigation.css":{},"src/modules/views-types.js":{},"src/modules/workspace/primitives.js":{},"src/modules/workspace/class-names.js":{},"src/modules/workspace/tree.js":{"./timestamp":"src/modules/workspace/timestamp.js","./runtime":"src/modules/workspace/runtime.js"},"src/modules/workspace/timestamp.js":{},"src/modules/workspace/rows/Rows.js":{"../timestamp":"src/modules/workspace/timestamp.js","../primitives":"src/modules/workspace/primitives.js","../class-names":"src/modules/workspace/class-names.js","../runtime":"src/modules/workspace/runtime.js","../tree":"src/modules/workspace/tree.js","./Rows.styles":"src/modules/workspace/rows/Rows.styles.js"},"src/modules/workspace/rows/Rows.styles.js":{"./Rows.css":"src/modules/workspace/rows/Rows.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/rows/Rows.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/workspace/WorkspacePicker.js":{"./primitives":"src/modules/workspace/primitives.js","./WorkspacePicker.styles":"src/modules/workspace/WorkspacePicker.styles.js"},"src/modules/workspace/WorkspacePicker.styles.js":{"./WorkspacePicker.css":"src/modules/workspace/WorkspacePicker.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspacePicker.css":{},"src/modules/workspace/WorkspaceBrowser.styles.js":{"./WorkspaceBrowser.css":"src/modules/workspace/WorkspaceBrowser.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/workspace/WorkspaceBrowser.css":{},"src/modules/workspace/locales.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
