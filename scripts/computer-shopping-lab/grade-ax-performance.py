@@ -24,6 +24,8 @@ def validate(receipt, manifest):
     if result.get('action') != 'observe' or result.get('coordinate_space') != 'physical_desktop_pixels':
         raise ValueError('not a Windows physical-coordinate observation')
     ax = result['accessibility']
+    if 'tree_view' in manifest and ax.get('tree_view') != manifest['tree_view']:
+        raise ValueError('wrong UIA logical view: control/experiment evidence mixed')
     nodes = ax['nodes']
     ids = {n['node_id'] for n in nodes}
     if len(ids) != len(nodes) or any(n.get('parent_id') is not None and n['parent_id'] not in ids for n in nodes):
@@ -64,6 +66,8 @@ def grade(root):
     if not modes or any(len(samples) < 3 for samples in modes.values()):
         raise ValueError('at least three independent samples per mode required')
     report = {'source_sha': manifest['source_sha'], 'geometry': geometry, 'modes': {}}
+    if 'tree_view' in manifest:
+        report['tree_view'] = manifest['tree_view']
     for mode, samples in modes.items():
         timings = [s['result']['accessibility']['timings'] for s in samples]
         resources = [r for s in samples for r in s.get('resource_samples', [])]
