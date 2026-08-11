@@ -213,13 +213,14 @@ try {
  await second.click();await page.locator('[data-chat-flow-key="second-tool"]').waitFor()
  assert.equal(await summary.getAttribute('aria-expanded'),'false')
  assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),0)
- await page.evaluate(()=>{setId('no-answer');seed();finish(false,false,true)})
+ await page.evaluate(()=>{setId('no-answer');seed();toolFixture('job0',{isError:true});finish(false,false,true)})
  await page.getByRole('button',{name:/Show this turn's work/}).waitFor()
  assert.equal((await summary.innerText()).trim(),'Turn finished')
  await page.getByText('network failed',{exact:true}).waitFor()
  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),0)
  await summary.click();await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),80)
+ assert.equal(await page.evaluate(()=>snapshot.getSnapshot().chat.nodes.get('job0').data.root.isError),true,'failed result survives collapse/reopen')
  // Returning to the same numeric turn in another session cannot leak choices.
  await page.evaluate(()=>setId('s'));await summary.waitFor();assert.equal(await summary.getAttribute('aria-expanded'),'false')
  await summary.click();await jobButton.waitFor();assert.equal(await jobButton.getAttribute('aria-expanded'),'false')
@@ -300,11 +301,17 @@ try {
  await page.evaluate(()=>finish());await summary.waitFor()
  assert.equal(await summary.getAttribute('aria-expanded'),'true','manual choice is not overridden by end')
  await summary.click()
- assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),2,'failed/pending roots survive turn fold')
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),1,'known failure folds; pending root remains visible')
+ assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),0,'Failed must not keep a completed process row open')
+ assert.equal(await page.locator('[data-chat-flow-key="job1"]').count(),1)
  // Refresh-style remount of the same final graph defaults folded without losing work.
  await page.evaluate(()=>setId('adaptive-replayed'))
  assert.equal(await summary.getAttribute('aria-expanded'),'false')
- assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),2)
+ assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),1)
+ await summary.click()
+ assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),1,'explicit reopening restores Failed')
+ assert.equal(await page.evaluate(()=>snapshot.getSnapshot().chat.nodes.get('job0').data.root.isError),true)
+ await summary.click()
  // An offscreen/zero-size viewport must not trigger speculative collapse.
  await page.evaluate(()=>{document.querySelector('[data-conversation-scroll]').style.height='0px';setId('zero');seed()})
  await page.waitForTimeout(120)
@@ -378,14 +385,14 @@ try {
  await live.waitFor();assert.equal(await live.getAttribute('aria-expanded'),'false','return to auto restarts bounded live folding')
  // Actual Rust fixtures pass through production Session/Assembler, not finish()'s
  // synthetic footer. Check every durable reason in both render modes, including
- // all errors and outcome-unknown protections (42 assembled windows per engine).
+ // settled error folding and unknown-outcome protections (42 windows per engine).
  for (const item of realWindows) {
   await page.evaluate(item=>installRealWindow(item.chat,'wire-'+item.name),item)
   const footer=page.locator('[data-turn-process-summary="1"]')
   await footer.waitFor();assert.equal((await footer.innerText()).trim(),'Ran for 2m 45s',item.name)
   assert.equal(await footer.getAttribute('aria-expanded'),'false')
   await page.getByText('answer',{exact:true}).waitFor()
-  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),item.outcome==='success'?0:1,item.name)
+  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),item.outcome==='unknown'?1:0,item.name)
   if(item.failure)await page.getByText(item.failure,{exact:true}).waitFor()
   await footer.click();assert.equal(await footer.getAttribute('aria-expanded'),'true')
   await page.locator('[data-chat-flow-kind="tool-call"]').waitFor()
@@ -394,5 +401,5 @@ try {
  assert.equal(await page.evaluate(()=>__foldObservers.size),0,'all adaptive and window resize observers disposed on unmount')
  assert.equal(await page.evaluate(()=>__foldMutations.size),0,'adaptive mutation observer disposed on unmount')
  assert.deepEqual(errors,[])
- console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive height folding, latest/pending/failure protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup; 42 real Rust -> Session/Assembler -> DOM terminal windows passed`)
+ console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive live failure protection, settled failure folding, pending/unknown-outcome protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup; 42 Rust-fixture -> Session/Assembler -> DOM terminal windows passed`)
 } finally {await browser.close();await new Promise(r=>server.close(r))}
