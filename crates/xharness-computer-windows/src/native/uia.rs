@@ -26,6 +26,7 @@ pub(super) struct Automation {
     instance: IUIAutomation,
     walker: IUIAutomationTreeWalker,
     cache: IUIAutomationCacheRequest,
+    view: &'static str,
 }
 impl Automation {
     pub(super) fn new() -> Result<Self> {
@@ -35,6 +36,27 @@ impl Automation {
             let instance: IUIAutomation =
                 api(CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER))?;
             let walker = api(instance.ControlViewWalker())?;
+            let view = "control";
+            #[cfg(feature = "native-acceptance")]
+            let (walker, view) = if std::env::args_os()
+                .any(|arg| arg == "--uia-visible-view-experiment")
+            {
+                // A logical UIA view, NOT a client-side subtree prune. The
+                // same walker resolves action paths, with live runtime/PID
+                // identity checks unchanged. Unknown provider values still
+                // require native compatibility acceptance before rollout.
+                let offscreen = api(instance
+                    .CreatePropertyCondition(UIA_IsOffscreenPropertyId, &VARIANT::from(true)))?;
+                let not_offscreen = api(instance.CreateNotCondition(&offscreen))?;
+                let condition = api(instance
+                    .CreateAndCondition(&api(instance.ControlViewCondition())?, &not_offscreen))?;
+                (
+                    api(instance.CreateTreeWalker(&condition))?,
+                    "visible_control_experiment",
+                )
+            } else {
+                (walker, view)
+            };
             let cache = api(instance.CreateCacheRequest())?;
             api(cache.SetTreeScope(TreeScope_Element))?;
             for id in [
@@ -53,6 +75,7 @@ impl Automation {
                 instance,
                 walker,
                 cache,
+                view,
             })
         }
     }
@@ -267,7 +290,7 @@ impl Automation {
         }
         let validation_ms = validation_started.elapsed().as_millis();
         let timings = json!({"window_ms":window_ms,"discovery_ms":discovery_ms,"root_ms":traversal.metrics.root_us/1000,"child_navigation_ms":traversal.metrics.child_navigation_us/1000,"cached_metadata_ms":traversal.metrics.cached_metadata_us/1000,"selection_ms":selection_ms,"materialization_ms":materialization_ms,"password_check_ms":traversal.metrics.password_check_us/1000,"runtime_id_ms":traversal.metrics.runtime_id_us/1000,"pattern_ms":traversal.metrics.pattern_us/1000,"value_ms":traversal.metrics.value_us/1000,"screenshot_ms":screenshot_ms,"validation_ms":validation_ms,"total_ms":started.elapsed().as_millis(),"first_child_calls":traversal.metrics.first_child_calls,"next_sibling_calls":traversal.metrics.next_sibling_calls,"invoke_cache_hits":traversal.metrics.invoke_cache_hits,"invoke_live_fallbacks":traversal.metrics.invoke_live_fallbacks});
-        let value = json!({"platform":"windows","coordinate_space":"physical_desktop_pixels","displays":screen::displays()?,"surfaces":window_values,"permissions":{"interactive_desktop":true,"elevation":"unchanged","secure_desktop":false},"accessibility":{"nodes":nodes,"truncated":!traversal.reasons.is_empty(),"truncation_reasons":traversal.reasons,"visited":traversal.candidates.len(),"max_visited":max_nodes*5,"returned":nodes.len(),"selected":selection.indices.len(),"eligible":selection.eligible,"omitted":selection.omitted,"max_nodes":max_nodes,"max_depth":max_depth,"scope":"foreground_window","selection_policy":"visible_breadth_first","timings":timings,"region":region,"viewport":viewport},"screenshot_included":!png.is_empty(),"screenshot_bounds":region});
+        let value = json!({"platform":"windows","coordinate_space":"physical_desktop_pixels","displays":screen::displays()?,"surfaces":window_values,"permissions":{"interactive_desktop":true,"elevation":"unchanged","secure_desktop":false},"accessibility":{"nodes":nodes,"truncated":!traversal.reasons.is_empty(),"truncation_reasons":traversal.reasons,"visited":traversal.candidates.len(),"max_visited":max_nodes*5,"returned":nodes.len(),"selected":selection.indices.len(),"eligible":selection.eligible,"omitted":selection.omitted,"max_nodes":max_nodes,"max_depth":max_depth,"scope":"foreground_window","selection_policy":"visible_breadth_first","tree_view":self.view,"timings":timings,"region":region,"viewport":viewport},"screenshot_included":!png.is_empty(),"screenshot_bounds":region});
         Ok((
             Reply {
                 schema: 1,
