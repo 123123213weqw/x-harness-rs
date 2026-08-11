@@ -1,0 +1,7 @@
+
+> xharness-product-ui@0.0.0 check:build
+> node ../scripts/assemble-static-ui.mjs --check
+
+session terminal generation checked from committed schema
+Plugin API: strict owned TS passed; ModuleLoader artifact emitted
+XHarness UI verified: 55 modules, 190 assets; repository inputs only
