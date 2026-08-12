@@ -146,6 +146,21 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
             )
             .await
             .unwrap();
+            if owner == "interrupted-owner" {
+                browser_lifecycle::desktop_browser_control_reply(
+                    app.clone(),
+                    caller.clone(),
+                    app.state(),
+                    request_id,
+                    browser_lifecycle::ControlReply::Failed {},
+                )
+                .await
+                .unwrap();
+                browser::desktop_browser_close(caller, app.state(), tab_id)
+                    .await
+                    .unwrap();
+                return;
+            }
             for _ in 0..100 {
                 let (guest, _) = app
                     .state::<browser::BrowserState>()
@@ -186,7 +201,6 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
         json!({"action":"open","url":url}),
     )
     .await?;
-    app.unlisten(listener);
     if opened["result"]["state"] != "ready" {
         return Err("native open did not reach ready".into());
     }
@@ -207,6 +221,17 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
             .any(|n| n["value"] == "opened-through-control")
     {
         return Err("zero-tab native action lacked verified actual result".into());
+    }
+    let interrupted = bridge_call(
+        connection,
+        "interrupted-owner",
+        "control",
+        json!({"action":"open","url":url}),
+    )
+    .await?;
+    app.unlisten(listener);
+    if interrupted["result"]["ok"] != false || interrupted["result"]["effect"] != "unknown" {
+        return Err("closing an admitted native navigation incorrectly claimed not_started".into());
     }
     let main = app.get_webview("main").unwrap();
     browser::desktop_browser_close(

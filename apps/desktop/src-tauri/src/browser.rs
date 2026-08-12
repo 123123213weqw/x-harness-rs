@@ -278,6 +278,11 @@ pub async fn desktop_browser_navigate(
         return Err("invalid browser tab".into());
     }
     let target = web_url(&url)?;
+    // Before a navigation can enter native dispatch, record its admission.
+    // Closing/switching the pane after this point must not claim no effect.
+    if let Some(lifecycle) = app.try_state::<crate::browser_lifecycle::BrowserLifecycle>() {
+        lifecycle.mark_started(&tab_id);
+    }
     let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
     if inner.tabs.contains_key(&tab_id) {
         inner.clock += 1;
