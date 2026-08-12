@@ -4,6 +4,8 @@ import argparse
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
+import struct
 from pathlib import Path
 from threading import Lock
 
@@ -22,6 +24,16 @@ files = {'/shop.html': ('shop.html', 'text/html; charset=utf-8'),
          '/browser-latest': ('browser-latest.json', 'application/json'),
          '/shop-history': ('shop-events.jsonl', 'application/x-ndjson')}
 
+def image_name(path):
+    match = re.fullmatch(r'/browser-image/(0|[1-9][0-9]?)\.png', path)
+    return f"browser-image-{match[1]}.png" if match and int(match[1]) < 80 else None
+
+def valid_png(data):
+    if len(data) < 33 or data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR':
+        return False
+    width, height = struct.unpack('>II', data[16:24])
+    return 0 < width <= 16384 and 0 < height <= 16384 and width * height <= 64000000
+
 class Handler(BaseHTTPRequestHandler):
     def setup(self):
         super().setup()
@@ -33,9 +45,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
     def do_GET(self):
-        if self.path not in files:
+        binary = image_name(self.path)
+        if binary:
+            filename, mime = binary, 'image/png'
+        elif self.path in files:
+            filename, mime = files[self.path]
+        else:
             return self.send(b'Not published', status=404)
-        filename, mime = files[self.path]
         try:
             data=(root/filename).read_bytes()
         except FileNotFoundError:
@@ -45,6 +61,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(b'Not prepared', status=404)
         self.send(data, mime)
     def do_POST(self):
+        binary = image_name(self.path)
+        if binary:
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 8 * 1024 * 1024:
+                    return self.send(b'Body limit', status=413)
+                data = self.rfile.read(length)
+                if len(data) != length or not valid_png(data):
+                    return self.send(b'Invalid PNG header', status=400)
+                with lock:
+                    temporary = root / (binary + '.tmp')
+                    temporary.write_bytes(data)
+                    temporary.replace(root / binary)
+            except (ValueError, TimeoutError):
+                return self.send(b'Invalid input', status=400)
+            return self.send(b'OK')
         if self.path not in ('/browser-job', '/browser-result', '/shop-event'):
             return self.send(b'Not published', status=404)
         limit=128*1024 if self.path=='/browser-job' else 1024*1024

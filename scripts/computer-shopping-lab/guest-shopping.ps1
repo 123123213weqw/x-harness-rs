@@ -39,6 +39,16 @@ while((Get-Date) -lt $until -and (Get-Process -Id $probe.Id -ErrorAction Silentl
  while(!(Test-Path $response) -and (Get-Date) -lt $wait){if($samples.Count -lt 600){$samples+=SampleResources};Start-Sleep -Milliseconds 100}
  if(!(Test-Path $response)){throw 'Native operation exceeded bounded limit'}
  $value=Get-Content -Raw $response -Encoding UTF8|ConvertFrom-Json
+ # Image bytes travel separately from the bounded JSON receipt. Never send credentials.
+ if($value.media){
+  if($value.media.file -notmatch '^screenshot-(0|[1-9][0-9]?)\.png$'){throw 'Invalid lab image name'}
+  $image=Join-Path $root $value.media.file
+  $bytes=[System.IO.File]::ReadAllBytes($image)
+  if($bytes.Length -ne $value.media.png_bytes -or $bytes.Length -gt 8388608){throw 'Image size mismatch'}
+  $hash=(Get-FileHash $image -Algorithm SHA256).Hash.ToLower()
+  Invoke-WebRequest -UseBasicParsing ('http://10.0.2.2:18086/browser-image/'+$id+'.png') -Method POST -Body $bytes -ContentType 'image/png' -TimeoutSec 30 -DisableKeepAlive|Out-Null
+  $value.media|Add-Member -NotePropertyName sha256 -NotePropertyValue $hash
+ }
  $resources=@(Get-Process msedge,computer-probe -ErrorAction SilentlyContinue|Select-Object Id,ProcessName,WorkingSet64,PrivateMemorySize64,CPU,HandleCount)
  $value|Add-Member -NotePropertyName resource_samples -NotePropertyValue $samples
  $value|Add-Member -NotePropertyName resources -NotePropertyValue $resources
