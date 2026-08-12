@@ -86,7 +86,15 @@ async fn browser_acceptance(directory: &std::ffi::OsStr) -> Result<(), Box<dyn s
     std::fs::create_dir_all(&directory)?;
     let driver = Arc::new(xharness_computer_windows::WindowsComputer::new()?);
     let registry = Arc::new(ToolRegistry::new());
-    registry.register(ComputerTool::new(driver).spec()).await?;
+    // Lab-only media transport. This is not installed Host attachment/history
+    // acceptance; it preserves binary PNGs through the registered tool.
+    let sink = Arc::new(LabMedia {
+        directory: directory.clone(),
+        sequence: std::sync::atomic::AtomicU64::new(0),
+    });
+    registry
+        .register(ComputerTool::new(driver).with_media_sink(sink).spec())
+        .await?;
     let executor = ToolExecutor::new(registry);
     std::fs::write(
         directory.join("tool-definition.json"),
@@ -119,13 +127,66 @@ async fn browser_acceptance(directory: &std::ffi::OsStr) -> Result<(), Box<dyn s
             .unwrap_or("");
         let payload =
             serde_json::from_str::<serde_json::Value>(content).unwrap_or(serde_json::Value::Null);
-        let value = serde_json::json!({"id":index,"ok":result.is_ok(),"elapsed_ms":started.elapsed().as_millis(),"result":payload,"failure":result.failure});
+        let value = serde_json::json!({"id":index,"ok":result.is_ok(),"elapsed_ms":started.elapsed().as_millis(),"result":payload,"failure":result.failure,"media":result.output.as_ref().and_then(|output|output.metadata.as_ref()).and_then(|metadata|metadata.get("labScreenshot"))});
         let temporary = directory.join(format!("result-{index}.tmp"));
         std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
         std::fs::rename(temporary, directory.join(format!("result-{index}.json")))?;
     }
     Ok(())
 }
+
+/// PNG projection is acceptance-only and writes into the authorized run root.
+/// No provider credential, model output or operating-system input is handled.
+#[cfg(all(windows, feature = "native-acceptance"))]
+struct LabMedia {
+    directory: std::path::PathBuf,
+    sequence: std::sync::atomic::AtomicU64,
+}
+#[cfg(all(windows, feature = "native-acceptance"))]
+#[async_trait::async_trait]
+impl xharness_computer::ComputerMediaSink for LabMedia {
+    async fn supports_images(&self) -> bool {
+        true // Controller must independently verify its selected model can see images.
+    }
+    async fn project_png(
+        &self,
+        summary: String,
+        screenshot: xharness_computer::Screenshot,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Result<xharness_tools::ToolOutput, xharness_tools::ToolHandlerError> {
+        if cancellation.is_cancelled() {
+            return Err(xharness_tools::ToolHandlerError::new(
+                "lab capture cancelled",
+            ));
+        }
+        if screenshot.png.len() > 8 * 1024 * 1024 {
+            return Err(xharness_tools::ToolHandlerError::new(
+                "lab image exceeds binary budget",
+            ));
+        }
+        let image = image::load_from_memory_with_format(&screenshot.png, image::ImageFormat::Png)
+            .map_err(|_| xharness_tools::ToolHandlerError::new("lab PNG invalid"))?;
+        let id = self
+            .sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if id >= 80 {
+            return Err(xharness_tools::ToolHandlerError::new(
+                "lab image count exceeded",
+            ));
+        }
+        let name = format!("screenshot-{id}.png");
+        std::fs::write(self.directory.join(&name), &screenshot.png)
+            .map_err(|_| xharness_tools::ToolHandlerError::new("lab PNG persistence failed"))?;
+        Ok(xharness_tools::ToolOutput {
+            content: summary,
+            metadata: Some(
+                serde_json::json!({"labScreenshot":{"file":name,"width":image.width(),"height":image.height(),"png_bytes":screenshot.png.len()}}),
+            ),
+            command_failure: None,
+        })
+    }
+}
+
 #[cfg(not(windows))]
 fn main() {
     eprintln!("native computer probe requires Windows");
