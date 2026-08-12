@@ -255,7 +255,9 @@ def run(args, task, repetition):
             ready.unlink(missing_ok=True)
             if fixture: fixture.close()
             result['cleanup_passed'] = cleanup_profile(profile)
-            if not result['cleanup_passed'] or result.get('error'): result['passed'] = False
+            if not result['cleanup_passed']:
+                result.update(passed=False, error=result.get('error') or 'benchmark_cleanup_failed')
+            if result.get('error'): result['passed'] = False
             if budget_start is not None:
                 try:
                     end = budget_receipt(api)
