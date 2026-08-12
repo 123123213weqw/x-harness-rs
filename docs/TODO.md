@@ -1621,3 +1621,13 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] ARM64 / Intel 的 Homebrew 两版本升级、首次 Gatekeeper 放行及 TCC 保留交互验收；不承诺只授权一次。
 - [ ] 新版本显式启用 all-macos-selfsigned；现有 0.2.35 候选不重绑。
 - 设计及操作步骤：[macos-fixed-publisher-signing.md](macos-fixed-publisher-signing.md)。
+
+## 内置 Browser Use 零标签页与能力门禁（2026-10-06）
+
+- [x] 复用 `plugin_mcp`：零标签页发现、`control status/open`、请求所属聊天自动展开侧栏；等待实际原生加载及会话绑定后再观察／操作／观察验证。未新增顶层模型工具。
+- [x] 请求取消、超时、关页／切换聊天、载入事件先于调用返回、重复／迟到事件、未绑定聊天拒绝观察与操作；已开始导航被中断保留 `unknown`，参数拒绝为 `not_started`，不自动重放。
+- [x] 原生验收必须有完成证据而非仅退出码 0；区分 DOM 合约与完整浏览器能力。V100 临时 Portal/GVFS 挂载只在精确的隔离测试目录中清理，失败停止后续用例。
+- [ ] 当前 PR 的 Windows WebView2／macOS WKWebView 原生运行证据与全量 CI；不能用 Chromium／Playwright WebKit 的模拟 IPC 回归代替。
+- [ ] 三平台公开原生 API 原型：真实鼠标／键盘及 `isTrusted`、跨域／嵌套 iframe 的定位操作、截图尺寸／DPR／内容、录制和后台可见／真正隐藏标签页行为。现有 DOM 事件及 SOP 负对照只证明当前实现不支持，不证明 Tauri 架构做不到。
+- [ ] 原生图像／录制结果复用附件与预算链路并验证有界资源、取消和导航失效；不将截图塞入现有 64 KiB 文本桥，也不静默降级成 DOM 点击。
+- [ ] 真正模型驱动的新零标签页全链路验收及安装版验证；本轮零 API、未替换或重启本机软件，既往付费对照不算本候选的新验收。

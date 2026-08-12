@@ -128,9 +128,11 @@ impl NativeBrowser {
             "perform" => "perform",
             _ => return Err("unknown native browser tool".into()),
         };
+        let may_have_effect = op == "perform"
+            || (op == "control" && arguments.get("action").and_then(Value::as_str) == Some("open"));
         let result = match self.request(owner, op, Value::Object(arguments), cancelled).await {
             Ok(result) => result,
-            Err(error) if op == "perform" || op == "control" => return Err(format!("native browser effect: unknown; {error}; do not replay automatically; observe actual state before deciding")),
+            Err(error) if may_have_effect => return Err(format!("native browser effect: unknown; {error}; do not replay automatically; observe actual state before deciding")),
             Err(error) => return Err(error),
         };
         // MCP result conventions remain authoritative for UI success/failure.
@@ -285,6 +287,28 @@ mod tests {
             .unwrap_err()
             .contains("effect: unknown"));
         assert!(!browser.available("owner", &cancel).await);
+    }
+    #[tokio::test]
+    async fn cancelled_status_does_not_claim_an_uncertain_navigation() {
+        let browser =
+            NativeBrowser::configuration(Some("127.0.0.1:1".into()), Some("a".repeat(64)))
+                .unwrap()
+                .unwrap();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        for (action, uncertain) in [("status", false), ("open", true)] {
+            let parameters = if action == "status" {
+                json!({"action":action})
+            } else {
+                json!({"action":action,"url":"https://example.com/"})
+            };
+            let arguments = parameters.as_object().unwrap().clone();
+            let error = browser
+                .call("owner", "control", arguments, &cancel)
+                .await
+                .unwrap_err();
+            assert_eq!(error.contains("effect: unknown"), uncertain);
+        }
     }
     #[tokio::test]
     async fn actual_framed_transport_captures_owner_and_rejects_oversize_reply() {
