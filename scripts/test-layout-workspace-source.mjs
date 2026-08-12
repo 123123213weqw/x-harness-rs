@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import vm from 'node:vm'
 import {layoutUnitModuleTestInput} from './fixtures/layout-module-test-input.mjs'
-const code=layoutUnitModuleTestInput('workspace-pane.js',['xhLoadBrowserSpaces','xhWorkspaceOpen','xhWorkspaceClose','xhNextWorkspaceId'])
+const exports=['xhLoadBrowserSpaces','xhWorkspaceOpen','xhWorkspaceClose','xhNextWorkspaceId']
+if(process.env.UI_TEST_IMPL!=='legacy')exports.push('xhWorkspaceToggle')
+const code=layoutUnitModuleTestInput('workspace-pane.js',exports)
 let registration
 vm.runInNewContext(code,{window:{__ModuleLoader__:{load:row=>registration=row}},URL,console,localStorage:{getItem:()=>null}})
 const api=registration.factory(()=>({})),json=value=>JSON.parse(JSON.stringify(value)),item=(id,extra={})=>({id,kind:'browser',source:'browser',title:id,entries:[],position:-1,...extra})
@@ -30,4 +32,21 @@ test('layout: 50 sessions/128 items/50 addresses remain bounded and selection fa
  assert.equal(Object.keys(decoded).length,50);assert.equal(decoded.s0,undefined);assert.equal(decoded.s5.items.length,128)
  const first=decoded.s5.items[0];assert.equal(first.id,'browser:2');assert.equal(first.entries.length,50);assert.equal(first.position,5)
  assert.equal(decoded.s5.activeId,first.id)
+})
+if(process.env.UI_TEST_IMPL!=='legacy')test('layout: collapse preserves every tab and selection, explicit opening reveals the requested item',()=>{
+ const first=item('browser:1',{entries:['https://example.com/'],position:0})
+ const tool={...item('tool'),kind:'tool',source:'tool'}
+ const original={items:[first,tool],activeId:'tool'}
+ const collapsed=api.xhWorkspaceToggle(original)
+ assert.equal(collapsed.collapsed,true);assert.equal(collapsed.items,original.items);assert.equal(collapsed.activeId,'tool')
+ const reopened=api.xhWorkspaceToggle(collapsed)
+ assert.equal(reopened.collapsed,false);assert.equal(reopened.items,original.items);assert.equal(reopened.activeId,'tool')
+ const reused=api.xhWorkspaceOpen(collapsed,item('browser:999'))
+ assert.equal(reused.collapsed,false);assert.equal(reused.items.length,2);assert.equal(reused.activeId,'browser:1');assert.equal(reused.items[0],first)
+ const closed=api.xhWorkspaceClose(collapsed,'tool')
+ assert.equal(closed.collapsed,true);assert.equal(closed.activeId,'browser:1')
+ const saved=api.xhLoadBrowserSpaces(JSON.stringify({s:collapsed}))
+ assert.equal(saved.s.collapsed,undefined,'transient hiding never changes the historical persistence schema')
+ assert.equal(saved.s.items.length,1);assert.deepEqual(json(saved.s.items[0].entries),first.entries)
+ const empty={items:[],activeId:null};assert.equal(api.xhWorkspaceToggle(empty),empty)
 })
