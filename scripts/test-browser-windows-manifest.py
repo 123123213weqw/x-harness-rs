@@ -12,6 +12,7 @@ class ManifestTests(unittest.TestCase):
         self.assertIn('cargo:rustc-link-arg=/MANIFESTINPUT:', build)
         self.assertNotIn('cargo:rustc-link-arg-examples=', build)
         self.assertIn('target.ends_with("windows-msvc")', build)
+        self.assertIn('WindowsAttributes::new_without_app_manifest()', build)
 
     def test_dependency_only_does_not_override_production_identity_or_privileges(self):
         root = ET.parse(ROOT / 'apps/desktop/src-tauri/windows-common-controls.manifest').getroot()
