@@ -6,10 +6,21 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from scripts.gui_bench.run_native_probe import command, environment, cleanup, cleanup_profile, hard_capabilities, contract_completed
+from scripts.gui_bench.run_native_probe import command, environment, cleanup, cleanup_profile, hard_capabilities, contract_completed, core_native_apis_passed
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_core_api_gate_requires_trusted_state_and_changed_pixels(self):
+        api = dict(status='tested', native_mouse={'passed':True}, native_keyboard={'passed':True},
+            cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True)
+        self.assertTrue(core_native_apis_passed(api))
+        self.assertFalse(core_native_apis_passed({}))
+        for name in ('native_mouse','native_keyboard','cross_origin_pointer'):
+            for value in ({'passed':False}, {'passed':1}, {}, None):
+                self.assertFalse(core_native_apis_passed(dict(api, **{name:value})))
+        self.assertFalse(core_native_apis_passed(dict(api, snapshot_sequence_verified=False)))
+        self.assertFalse(core_native_apis_passed(dict(api, status='unverified')))
+
     def test_all_gui_entry_points_prepare_x11_before_tauri_initialization(self):
         root = Path(__file__).resolve().parents[2] / 'apps/desktop/src-tauri'
         for relative in ['src/lib.rs','examples/browser-inspect-probe.rs','examples/native-browser-bench.rs']:

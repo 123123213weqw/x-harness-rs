@@ -106,6 +106,24 @@ def acceptance_passed(result):
         and type(result.get('model_calls')) is int and result['model_calls'] > 0)
 
 
+def classify_outcome(result):
+    # Task quality and evaluator admission are different axes. Never count an
+    # exhausted numeric ledger as model failure, or label it a successful task.
+    if acceptance_passed(result):
+        return 'passed'
+    if result.get('budget_denials', 0) > 0:
+        return 'blocked_by_budget_gate'
+    if (result.get('error') or result.get('cleanup_passed') is not True
+            or any(reason.get('kind') == 'error' for reason in result.get('turn_reasons', []))
+            or result.get('accounting_pending')
+            or result.get('provider_settled_before_teardown') is not True
+            or result.get('pending_requests') != 0):
+        return 'evaluation_failed'
+    if type(result.get('model_calls')) is int and result['model_calls'] > 0:
+        return 'task_failed'
+    return 'not_evaluated'
+
+
 def wait_ready(path, process, session, timeout=40, zero_tabs=False):
     deadline = time.monotonic() + timeout
     connection = None
@@ -287,7 +305,8 @@ def run(args, task, repetition):
                     end = budget_receipt(api)
                     result.update(model_calls=end['requests']-budget_start['requests'],
                         budget_sequences=[budget_start['requests']+1,end['requests']],
-                        pending_requests=end['pending_requests'])
+                        pending_requests=end['pending_requests'],
+                        budget_denials=end.get('budget_denials', 0)-budget_start.get('budget_denials', 0))
                     if 'conservative_usd' in end:
                         result['cumulative_usd'] = end['conservative_usd']
                     else:
@@ -297,9 +316,10 @@ def run(args, task, repetition):
                     result['model_calls'] = None
             if result['passed'] and not acceptance_passed(result):
                 result.update(passed=False, error='benchmark_accounting_unverified')
+            result['outcome'] = classify_outcome(result)
             result['total_seconds'] = round(time.monotonic()-started,3)
             (root/'result.json').write_text(json.dumps(result,indent=2))
-            print(json.dumps({k:result.get(k) for k in ('task','repetition','passed','seconds','model_calls','error','cleanup_passed')}),flush=True)
+            print(json.dumps({k:result.get(k) for k in ('task','repetition','passed','outcome','seconds','model_calls','error','cleanup_passed')}),flush=True)
     return result
 
 
@@ -350,7 +370,7 @@ def main():
             for task in tasks:
                 result = run(args,task,repetition); results.append(result)
                 (args.evidence_dir/'results.json').write_text(json.dumps(results,indent=2))
-                if result.get('error'): return 1
+                if result.get('error') or result.get('outcome') == 'blocked_by_budget_gate': return 1
         return 0 if all(r['passed'] for r in results) else 1
     finally:
         cleanup(inputs)

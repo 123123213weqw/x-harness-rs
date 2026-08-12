@@ -180,6 +180,15 @@ def native_api_evidence(log_text: str, evidence_dir: Path) -> dict:
         return {"status": "unverified", "reason": "malformed API probe evidence"}
 
 
+def core_native_apis_passed(api: dict) -> bool:
+    # A "tested" callback alone is not a capability gate. Require fixture
+    # state/trusted input and independently decoded changed-color native pixels.
+    return (api.get('status') == 'tested'
+            and all(isinstance(api.get(name), dict) and api[name].get('passed') is True
+                    for name in ('native_mouse', 'native_keyboard', 'cross_origin_pointer'))
+            and api.get('snapshot_sequence_verified') is True)
+
+
 def contract_completed(log_text: str) -> bool:
     # AppHandle.exit() can stop a native event loop without changing main's
     # process exit status. Require positive terminal evidence, not rc=0 alone.
@@ -222,7 +231,8 @@ def main() -> int:
     api = native_api_evidence(log_text, args.evidence_dir)
     (args.evidence_dir / 'native-api-evidence.json').write_text(json.dumps(api,indent=2)+'\n')
     receipt['native_api_prototype_tested'] = api.get('status') == 'tested'
-    completed = completed and receipt['native_api_prototype_tested']
+    receipt['native_api_core_passed'] = core_native_apis_passed(api)
+    completed = completed and receipt['native_api_core_passed']
     (args.evidence_dir / "hard-capabilities.json").write_text(json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
     # Passing the bounded DOM/lifecycle contract is NOT full Browser Use parity.
     receipt["browser_parity_passed"] = False
