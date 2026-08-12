@@ -6,10 +6,32 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from scripts.gui_bench.run_native_probe import command, environment, cleanup, cleanup_profile
+from scripts.gui_bench.run_native_probe import command, environment, cleanup, cleanup_profile, hard_capabilities, contract_completed
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_early_zero_exit_or_partial_pass_is_not_acceptance(self):
+        import json
+        self.assertFalse(contract_completed(""))
+        self.assertFalse(contract_completed("Native lifecycle probe passed:"))
+        self.assertFalse(contract_completed("Native observation probe failed: native open did not reach ready"))
+        evidence = {name: {"status": "not_implemented"} for name in [
+            "trusted_input", "cross_origin_frames", "screenshot", "recording", "hidden_tab_actions"]}
+        log = "Native lifecycle probe passed:\nNative Tauri DOM probe passed:\nHARD_CAPABILITY_EVIDENCE " + json.dumps(evidence)
+        self.assertTrue(contract_completed(log))
+        self.assertFalse(contract_completed(log + "\nNative observation probe failed:"))
+
+    def test_capability_evidence_is_not_inferred_from_dom_pass_or_silent_skip(self):
+        import json
+        for log in ["Native Tauri DOM probe passed", "HARD_CAPABILITY_EVIDENCE {}",
+                    "HARD_CAPABILITY_EVIDENCE not-json"]:
+            self.assertEqual(hard_capabilities(log)["status"], "unverified")
+        evidence = {name: {"status": "not_implemented"} for name in [
+            "trusted_input", "cross_origin_frames", "screenshot", "recording", "hidden_tab_actions"]}
+        line = "HARD_CAPABILITY_EVIDENCE " + json.dumps(evidence)
+        self.assertEqual(hard_capabilities(line), evidence)
+        self.assertEqual(hard_capabilities(line + "\n" + line)["status"], "unverified")
+
     def test_compiled_binary_only_and_linux_owns_its_display(self):
         binary = Path("/fixture/probe")
         self.assertEqual(command(binary, "darwin"), [str(binary)])

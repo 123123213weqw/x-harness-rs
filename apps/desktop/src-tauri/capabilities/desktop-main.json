@@ -26,6 +26,7 @@
     "allow-desktop-browser-close",
     "allow-desktop-browser-restore",
     "allow-desktop-browser-persist",
+    "allow-desktop-browser-control-reply",
     "allow-desktop-browser-delegate",
     "allow-desktop-browser-access",
     "allow-desktop-browser-inspect",

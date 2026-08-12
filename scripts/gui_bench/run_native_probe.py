@@ -106,6 +106,30 @@ def run_probe(binary: Path, env: dict[str, str], log) -> int:
         process.wait(timeout=5)
 
 
+def hard_capabilities(log_text: str) -> dict:
+    lines = [line[len("HARD_CAPABILITY_EVIDENCE "):] for line in log_text.splitlines()
+             if line.startswith("HARD_CAPABILITY_EVIDENCE ")]
+    if len(lines) != 1:
+        return {"status": "unverified", "reason": "missing or duplicate native capability evidence"}
+    try:
+        result = json.loads(lines[0])
+    except (ValueError, TypeError):
+        return {"status": "unverified", "reason": "malformed native capability evidence"}
+    required = {"trusted_input", "cross_origin_frames", "screenshot", "recording", "hidden_tab_actions"}
+    if not isinstance(result, dict) or not required.issubset(result):
+        return {"status": "unverified", "reason": "incomplete native capability evidence"}
+    return result
+
+
+def contract_completed(log_text: str) -> bool:
+    # AppHandle.exit() can stop a native event loop without changing main's
+    # process exit status. Require positive terminal evidence, not rc=0 alone.
+    return ("Native Tauri DOM probe passed:" in log_text
+            and "Native lifecycle probe passed:" in log_text
+            and "Native observation probe failed:" not in log_text
+            and hard_capabilities(log_text).get("status") != "unverified")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
@@ -131,11 +155,18 @@ def main() -> int:
                 code = 127
     finally:
         cleaned = cleanup_profile(directory)
+    log_text = (args.evidence_dir / "native-probe.log").read_text(encoding="utf-8", errors="replace")
+    capabilities = hard_capabilities(log_text)
+    completed = contract_completed(log_text)
+    (args.evidence_dir / "hard-capabilities.json").write_text(json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
+    # Passing the bounded DOM/lifecycle contract is NOT full Browser Use parity.
+    receipt["browser_parity_passed"] = False
+    receipt["hard_capability_status"] = capabilities.get("parity_gate", capabilities.get("status", "unverified"))
     receipt["cleanup_passed"] = cleaned
-    receipt.update(exit_code=code, seconds=round(time.monotonic() - start, 3), passed=code == 0 and cleaned)
+    receipt.update(exit_code=code, seconds=round(time.monotonic() - start, 3), passed=code == 0 and cleaned and completed, contract_completed=completed)
     (args.evidence_dir / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt))
-    return 0 if code == 0 and cleaned else 1
+    return 0 if code == 0 and cleaned and completed else 1
 
 
 if __name__ == "__main__":

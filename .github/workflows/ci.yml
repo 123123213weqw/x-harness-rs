@@ -294,6 +294,8 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-browser-dock-native-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-browser-native-bridge.mjs
           UI_TEST_BROWSER=webkit node scripts/test-browser-native-bridge.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-browser-model-control.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-browser-model-control.mjs
           UI_TEST_BROWSER=chromium node scripts/test-browser-access.mjs
           UI_TEST_BROWSER=webkit node scripts/test-browser-access.mjs
           UI_TEST_BROWSER=chromium node scripts/test-browser-persistence-browser.mjs

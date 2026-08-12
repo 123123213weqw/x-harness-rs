@@ -10,6 +10,8 @@ mod browser_bridge;
 mod browser_delegation;
 #[path = "../src/browser_inspect.rs"]
 mod browser_inspect;
+#[path = "../src/browser_lifecycle.rs"]
+mod browser_lifecycle;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
 
@@ -18,11 +20,14 @@ use std::net::TcpListener;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
-const HTML: &str = r#"<!doctype html><main><h1>Native observation probe</h1><label for="answer">Answer</label><input id="answer" value="unchanged"><input type="password" value="private-native-secret"><button disabled>Unavailable</button><select aria-label="Choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="apply" onclick="document.querySelector('#status').textContent='Applied '+document.querySelector('#answer').value">Apply</button><p id="status">Not applied</p><p id="ipc">IPC pending</p></main>"#;
+const HTML: &str = r#"<!doctype html><main><h1>Native observation probe</h1><label for="answer">Answer</label><input id="answer" value="unchanged"><input type="password" value="private-native-secret"><button disabled>Unavailable</button><select aria-label="Choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="apply" onclick="document.querySelector('#status').textContent='Applied '+document.querySelector('#answer').value">Apply</button><p id="status">Not applied</p><p id="ipc">IPC pending</p></main><script>
+window.probeEvents=[];
+for(const type of ['click','input','keydown'])document.addEventListener(type,event=>probeEvents.push({type,trusted:event.isTrusted}),true);
+</script>"#;
 
-fn fixture() -> String {
+fn serve_fixture(html: String) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("fixture bind");
     let address = listener.local_addr().unwrap();
     std::thread::spawn(move || {
@@ -31,10 +36,177 @@ fn fixture() -> String {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
             let mut headers = [0; 4096];
             let _ = stream.read(&mut headers);
-            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", HTML.len(), HTML);
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", html.len(), html);
         }
     });
     format!("http://{address}/")
+}
+fn fixture() -> String {
+    // Different ports are different origins; no CORS relaxation or proxy.
+    let child = serve_fixture(
+        "<!doctype html><button id='child'>Cross-origin private button</button>".into(),
+    );
+    serve_fixture(format!(
+        "{HTML}<iframe id='cross-origin' src='{child}'></iframe>"
+    ))
+}
+
+async fn evidence(guest: &tauri::Webview, expression: &str) -> Result<Value, String> {
+    let raw = browser_inspect::evaluate(guest, format!("JSON.stringify({expression})")).await?;
+    browser_inspect::decode_callback(&raw)
+}
+
+async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    let connection_state = app.state::<browser_bridge::BrowserBridge>();
+    let connection = connection_state.start(app).await?;
+    let empty = bridge_call(connection, "probe-owner", "list", json!({})).await?;
+    if empty["result"]["available"] != true || empty["result"]["bound"] != false {
+        return Err("zero-tab browser discovery failed".into());
+    }
+    // A native test-owned UI adapter uses exactly the production pane commands.
+    // React sidebar expansion is tested separately, not falsely claimed here.
+    let handle = app.clone();
+    let listener = app.listen_any("xharness-browser-control-open", move |event| {
+        let value: Value = serde_json::from_str(event.payload()).unwrap();
+        let app = handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let caller = app.get_webview("main").unwrap();
+            let request_id = value["requestId"].as_str().unwrap().to_owned();
+            let tab_id = format!("browser:{request_id}");
+            let owner = value["owner"].as_str().unwrap().to_owned();
+            let url = value["url"].as_str().unwrap().to_owned();
+            browser::desktop_browser_bounds(
+                caller.clone(),
+                app.state(),
+                serde_json::from_value(json!({"x":0,"y":0,"width":780,"height":560})).unwrap(),
+            )
+            .await
+            .unwrap();
+            browser::desktop_browser_activate(caller.clone(), app.state(), Some(tab_id.clone()))
+                .await
+                .unwrap();
+            browser::desktop_browser_navigate(
+                app.clone(),
+                caller.clone(),
+                app.state(),
+                tab_id.clone(),
+                url,
+            )
+            .await
+            .unwrap();
+            for _ in 0..100 {
+                let (guest, _) = app
+                    .state::<browser::BrowserState>()
+                    .inspection_target(&tab_id)
+                    .unwrap();
+                let origin = guest.url().unwrap().origin().ascii_serialization();
+                let _ = browser_delegation::desktop_browser_delegate(
+                    caller.clone(),
+                    app.state(),
+                    tab_id.clone(),
+                    Some(owner.clone()),
+                    true,
+                    Some(origin),
+                )
+                .await;
+                if browser_lifecycle::desktop_browser_control_reply(
+                    app.clone(),
+                    caller.clone(),
+                    app.state(),
+                    request_id.clone(),
+                    browser_lifecycle::ControlReply::Ready {
+                        tab_id: tab_id.clone(),
+                    },
+                )
+                .await
+                .unwrap()
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        });
+    });
+    let opened = bridge_call(
+        connection,
+        "probe-owner",
+        "control",
+        json!({"action":"open","url":url}),
+    )
+    .await?;
+    app.unlisten(listener);
+    if opened["result"]["state"] != "ready" {
+        return Err("native open did not reach ready".into());
+    }
+    let view = bridge_call(connection, "probe-owner", "observe", json!({})).await?;
+    let fill = serde_json::to_value(action(
+        &view["result"],
+        "Answer",
+        json!({"action":"fill","text":"opened-through-control"}),
+    )?)
+    .unwrap();
+    let receipt = bridge_call(connection, "probe-owner", "perform", fill).await?;
+    let view = bridge_call(connection, "probe-owner", "observe", json!({})).await?;
+    if receipt["result"]["effect"] != "applied"
+        || !view["result"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["value"] == "opened-through-control")
+    {
+        return Err("zero-tab native action lacked verified actual result".into());
+    }
+    let main = app.get_webview("main").unwrap();
+    browser::desktop_browser_close(
+        main,
+        app.state(),
+        opened["result"]["tab_id"].as_str().unwrap().into(),
+    )
+    .await?;
+    println!("Native lifecycle probe passed: zero-tab discovery -> open -> native load/binding -> observe -> fill -> observe verification (test UI adapter, no model)");
+    Ok(())
+}
+
+async fn hard_capability_probe(app: &tauri::AppHandle) -> Result<(), String> {
+    let (guest, _) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    let view = observe(app, &app.get_webview("main").unwrap()).await?;
+    if view["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|n| n["label"] == "Cross-origin private button")
+    {
+        return Err("top document unexpectedly advertised cross-origin refs".into());
+    }
+    let observed = evidence(&guest, r#"(() => {
+      const result={events:window.probeEvents,frameReadable:false};
+      try { result.frameReadable=Boolean(document.querySelector('#cross-origin').contentWindow.document.body); }
+      catch(error){result.frameError=error.name;}
+      return result;
+    })()"#).await?;
+    if observed["frameReadable"] != false || observed["frameError"] != "SecurityError" {
+        return Err("cross-origin negative control did not encounter the SOP boundary".into());
+    }
+    let events = observed["events"]
+        .as_array()
+        .ok_or("missing event evidence")?;
+    if !events.iter().any(|e| e["type"] == "click") || events.iter().any(|e| e["trusted"] == true) {
+        return Err("DOM action trusted-input negative control failed".into());
+    }
+    println!(
+        "HARD_CAPABILITY_EVIDENCE {}",
+        json!({
+          "platform":std::env::consts::OS,"engine":"native-tauri-system-webview",
+          "trusted_input":{"status":"not_implemented","observed_dom_events":events},
+          "cross_origin_frames":{"status":"not_implemented","top_document_probe":observed["frameError"]},
+          "screenshot":{"status":"not_implemented"},"recording":{"status":"not_implemented"},
+          "hidden_tab_actions":{"status":"unsupported_by_current_policy","verified_by_hidden_tab_guard":true},
+          "parity_gate":"blocked; DOM actions are not native input; no claim of full ZCode parity"
+        })
+    );
+    Ok(())
 }
 
 async fn observe(app: &tauri::AppHandle, main: &tauri::Webview) -> Result<Value, String> {
@@ -148,7 +320,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
         return Err("guest page granted itself browser control".into());
     }
 
-    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["available"] != false {
+    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["bound"] != false {
         return Err("native bridge appeared before user delegation".into());
     }
     if browser_delegation::desktop_browser_delegate(
@@ -277,7 +449,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     bridge_call(connection, "parent", "perform", restore).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), Some("probe".into())).await?;
-    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["available"] != false {
+    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["bound"] != false {
         return Err("hide/reselect resurrected browser consent".into());
     }
     println!("Private native bridge passed: exact chat binding, read-only denial, frame-preserving renewal, real fill, consumed-frame denial, hide/reselect revocation (no model)");
@@ -285,6 +457,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
 }
 
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    lifecycle_probe(app, &url).await?;
     let main = app.get_webview("main").ok_or("missing main view")?;
     browser::desktop_browser_bounds(
         main.clone(),
@@ -655,6 +828,7 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("hide/reselect revived an old action frame".into());
     }
+    hard_capability_probe(app).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     if browser_inspect::desktop_browser_inspect(
         main,
@@ -672,6 +846,8 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
 }
 
 fn main() {
+    let completion = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let completed = completion.clone();
     let url = fixture();
     let mut context = tauri::generate_context!();
     let mut nonce = [0; 8];
@@ -682,7 +858,9 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(browser::BrowserState::default())
         .manage(browser_bridge::BrowserBridge::default())
+        .manage(browser_lifecycle::BrowserLifecycle::default())
         .invoke_handler(tauri::generate_handler![
+            browser_lifecycle::desktop_browser_control_reply,
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
@@ -694,10 +872,12 @@ fn main() {
                 .inner_size(800.0, 600.0)
                 .build()?;
             let handle = app.handle().clone();
+            let completed = completed.clone();
             tauri::async_runtime::spawn(async move {
                 let result =
-                    tokio::time::timeout(Duration::from_secs(45), probe(&handle, url)).await;
+                    tokio::time::timeout(Duration::from_secs(75), probe(&handle, url)).await;
                 let success = matches!(&result, Ok(Ok(())));
+                completed.store(success, std::sync::atomic::Ordering::SeqCst);
                 if !success {
                     eprintln!("Native observation probe failed: {result:?}");
                 }
@@ -709,4 +889,9 @@ fn main() {
         .build(context)
         .expect("native probe startup");
     app.run(|_, _| {});
+    std::process::exit(if completion.load(std::sync::atomic::Ordering::SeqCst) {
+        0
+    } else {
+        1
+    });
 }
