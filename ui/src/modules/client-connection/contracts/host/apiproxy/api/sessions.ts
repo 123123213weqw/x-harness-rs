@@ -239,7 +239,7 @@ export interface SessionSearchItem {
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
 export interface SessionsApi {
   /** Permanently delete an archived, inactive session; host enforces admission and child constraints. */
-  delete(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ deleted: boolean }>>
+  delete(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ deleted: boolean; deletedSessionIds?: SessionId[] | undefined }>>
 
   /** Lists persisted sessions (updatedAt descending). v1 returns everything; cursor is a reserved seat, unimplemented. */
   list(request: RpcRequest<{ cursor?: string | undefined }>): Promise<RpcResponse<{ items: SessionSummary[] }>>
