@@ -10,7 +10,7 @@ import urllib.request
 
 from scripts.gui_bench.budget import BudgetLedger
 from scripts.gui_bench.native_fixture import Fixture, zero_tab_html
-from scripts.gui_bench.run_webview import budget_receipt, tuple_address, cleanup_profile, settle_quiet, pin_binary, native_environment, acceptance_passed, wait_ready, verify_unbound_discovery
+from scripts.gui_bench.run_webview import budget_receipt, tuple_address, cleanup_profile, settle_quiet, pin_binary, native_environment, acceptance_passed, classify_outcome, wait_ready, verify_unbound_discovery
 from scripts.gui_bench.webview_contract import Contract
 from scripts.terminal_bench.broker import Broker
 
@@ -96,6 +96,20 @@ class WebviewTests(unittest.TestCase):
                 return denied(op, arguments)
             with self.subTest(op=fault_op, value=value), self.assertRaises(AssertionError):
                 verify_unbound_discovery(call)
+
+    def test_budget_gate_is_not_model_quality_and_is_never_a_pass(self):
+        settled = dict(passed=False, cleanup_passed=True, tier='genuine-host-model-tauri-webview',
+            provider_settled_before_teardown=True, pending_requests=0, model_calls=2)
+        self.assertEqual(classify_outcome(settled), 'task_failed')
+        self.assertEqual(classify_outcome(dict(settled, budget_denials=1)), 'blocked_by_budget_gate')
+        self.assertFalse(acceptance_passed(dict(settled, budget_denials=1)))
+        self.assertEqual(classify_outcome(dict(settled, model_calls=0)), 'not_evaluated')
+        self.assertEqual(classify_outcome(dict(settled, accounting_pending=True)), 'evaluation_failed')
+        self.assertEqual(classify_outcome(dict(settled, cleanup_passed=False)), 'evaluation_failed')
+        self.assertEqual(classify_outcome(dict(settled, turn_reasons=[{'kind':'error'}])), 'evaluation_failed')
+        self.assertEqual(classify_outcome(dict(settled, passed=True)), 'passed')
+        # Previous denials cannot disqualify a genuinely completed, settled task.
+        self.assertEqual(classify_outcome(dict(settled, passed=True, budget_denials=1)), 'passed')
 
     def test_task_success_cannot_hide_unverified_accounting(self):
         result = dict(passed=True,cleanup_passed=True,tier='genuine-host-model-tauri-webview',

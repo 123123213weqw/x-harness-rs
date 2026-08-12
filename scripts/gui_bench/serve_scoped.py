@@ -9,6 +9,7 @@ import argparse
 import fcntl
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -26,8 +27,8 @@ POLICY = dict(model='deepseek-flash', currency='USD', input_limit=INPUT_LIMIT,
 
 
 class ScopedLedger(Ledger):
-    def __init__(self, path, *, dollars=1.0, calls=80, seconds=1800):
-        if not 0 < dollars <= 1 or not 0 < calls <= 80 or not 0 < seconds <= 1800:
+    def __init__(self, path, *, dollars=1.0, calls=80, seconds=1800, continuation=False):
+        if not 0 < dollars <= 1 or type(calls) is not int or not 0 < calls <= 200 or not 0 < seconds <= 1800:
             raise ValueError('invalid explicit experiment limits')
         self.path = Path(path)
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -35,11 +36,30 @@ class ScopedLedger(Ledger):
         self.owner = os.fdopen(fd, 'a')
         try:
             fcntl.flock(self.owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            if self.path.exists() or self.path.is_symlink():
-                raise ValueError('existing ledger cannot be reset or reopened')
+            if self.path.is_symlink():
+                raise ValueError('budget checkpoint must not be a symlink')
+            old = None
+            if self.path.exists():
+                if not continuation:
+                    raise ValueError('existing ledger cannot be reset or reopened implicitly')
+                old = json.loads(self.path.read_text())
+                if (old['policy'] != POLICY or old['limit_usd'] != dollars
+                        or old['closed'] is not True or old['pending_requests'] != 0
+                        or type(old['requests']) is not int or not 0 <= old['requests'] < calls
+                        or not math.isfinite(old['conservative_usd'])
+                        or not 0 <= old['conservative_usd'] <= dollars):
+                    raise ValueError('continuation requires the same settled, closed financial scope')
+            elif continuation:
+                raise ValueError('continuation requires the original checkpoint')
             from types import SimpleNamespace
             super().__init__(protocol=SimpleNamespace(dollars=dollars, max_calls=calls,
                               seconds=seconds, max_output_tokens=OUTPUT_LIMIT))
+            self.continuations = []
+            if old is not None:
+                self.spent, self.calls = old['conservative_usd'], old['requests']
+                self.rows, self.denials = old['rows'], old['budget_denials']
+                self.continuations = old.get('continuations', []) + [dict(
+                    start_request=self.calls, start_usd=self.spent, max_calls=calls)]
             with self.lock:
                 self._save()
         except BaseException:
@@ -48,7 +68,8 @@ class ScopedLedger(Ledger):
 
     def _document(self):
         return dict(policy=POLICY, requests=self.calls, conservative_usd=self.spent,
-                    limit_usd=self.limit, pending_requests=self.inflight,
+                    limit_usd=self.limit, max_calls=self.max_calls,
+                    continuations=list(self.continuations), pending_requests=self.inflight,
                     budget_denials=self.denials, closed=not self.active,
                     rows=list(self.rows))
 
@@ -114,12 +135,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=1800)
+    parser.add_argument('--calls', type=int, default=80)
+    parser.add_argument('--continue-settled-scope', action='store_true')
     parser.add_argument('--state-dir', type=Path,
                         default=Path.home()/'Library/Application Support/com.xlang.xharness/state')
     args = parser.parse_args()
     args.root.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(args.root, 0o700)
-    ledger = ScopedLedger(args.root/'budget-usd.json', seconds=args.seconds)
+    ledger = ScopedLedger(args.root/'budget-usd.json', seconds=args.seconds,
+                          calls=args.calls, continuation=args.continue_settled_scope)
     broker, control = None, args.root/'capability.json'
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -131,7 +155,8 @@ def main():
         fd = os.open(control, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'w') as file:
             json.dump(dict(base_url=broker.url, capability=ledger.token), file)
-        print('New browser-only experiment ready; USD 1 admission ceiling; real key stays local.', flush=True)
+        print(('Continued settled scope' if args.continue_settled_scope else 'New browser-only experiment')
+              + '; USD 1 cumulative ceiling; real key stays local.', flush=True)
         stop.wait(args.seconds)
     finally:
         try:
