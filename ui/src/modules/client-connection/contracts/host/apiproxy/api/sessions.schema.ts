@@ -374,4 +374,5 @@ export const sessionDeleteRequestSchema = z.object({
 
 export const sessionDeleteValueSchema = z.object({
   deleted: z.boolean(),
+  deletedSessionIds: z.array(sessionIdSchema).optional(),
 }) satisfies z.ZodType<ResponseValue<'session.delete'>>

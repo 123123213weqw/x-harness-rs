@@ -24,13 +24,15 @@ try {
   ])
   const workspaces=[{workspaceId:'a',title:'Alpha',sessionIds:['alpha'],path:'/a',createdAt:'2026-09-01T00:00:00Z',updatedAt:'2026-09-01T00:00:00Z'}, {workspaceId:'b',title:'Beta',sessionIds:['beta-parent','beta-child'],path:'/b',createdAt:'2026-09-01T00:00:00Z',updatedAt:'2026-09-01T00:00:00Z'}]
   const live=[{sessionId:'live',updatedAt:now,projections:{values:{title:'Live chat'}}}]
+  let freezeNextBaseline=false, frozenBaselineEntered=false, releaseFrozenBaseline, failWorkspaceRefresh=false
+  const frozenBaselineGate=new Promise(resolve=>{releaseFrozenBaseline=resolve})
   const requests=[]; let denyOrphan=true, renameStarted=false, releaseRename
   const renameGate=new Promise(resolve=>{releaseRename=resolve})
   await page.route('**/api/*',async route=>{
     const body=route.request().postDataJSON(); const {method,payload}=body;requests.push({method,payload})
     let value=null,error
     if(method==='session.list')value={items:live.map(row=>({...row,blank:false,running:false,projections:{asOfSeq:0,...row.projections}}))}
-    else if(method==='workspace.list')value={items:workspaces,archivedSessionIds:[...archived.keys()],archivedSessions:[...archived.values()]}
+    else if(method==='workspace.list'){value={items:workspaces,archivedSessionIds:[...archived.keys()],archivedSessions:[...archived.values()]};if(failWorkspaceRefresh)error='archive baseline offline';if(freezeNextBaseline){freezeNextBaseline=false;frozenBaselineEntered=true;await frozenBaselineGate}}
     else if(method==='session.rename') {renameStarted=true;await renameGate;value={title:payload.title,seq:1}}
     else if(method==='workspace.unarchiveSession') { const saved=archived.get(payload.sessionId); if(saved){archived.delete(payload.sessionId);live.push({sessionId:saved.sessionId,updatedAt:saved.updatedAt,projections:{values:{title:saved.title}}})} value={archivedSessionIds:[...archived.keys()]} }
     else if(method==='session.delete') {
@@ -113,10 +115,36 @@ try {
   }
   assert.equal(await page.locator('.xhtask-archived-toggle').count(),0,'old archive panel stays removed')
   assert.equal(await page.getByRole('heading',{name:'Archived chats',exact:true}).count(),1,'Settings archive entry survives empty conversation/header')
+  if(process.env.UI_TEST_IMPL!=='legacy'){
+    archived.set('race-a',{sessionId:'race-a',title:'Race Alpha',updatedAt:now});archived.set('race-b',{sessionId:'race-b',title:'Race Beta',updatedAt:now});
+    await page.evaluate(()=>workCatalog.refresh());await page.waitForFunction(()=>document.querySelectorAll('.xhtask-archived-item').length===2)
+    freezeNextBaseline=true
+    await page.evaluate(()=>{window.oldArchiveBaseline=workCatalog.refresh()})
+    await assertEventually(()=>frozenBaselineEntered,'old list must be in flight before deletion')
+    await page.getByRole('button',{name:'Delete all',exact:true}).click()
+    const allConfirm=page.getByRole('alertdialog',{name:'Delete all'})
+    await allConfirm.getByRole('button',{name:'Delete all',exact:true}).click()
+    await page.waitForFunction(()=>document.querySelectorAll('.xhtask-archived-item').length===0)
+    assert.equal(archived.size,0,'both successful deletes commit without waiting on the stalled old baseline')
+    await page.waitForFunction(()=>api.store.busyId===null)
+    releaseFrozenBaseline();await page.evaluate(()=>oldArchiveBaseline)
+    assert.equal(await rows().count(),0,'late pre-delete baseline must not resurrect removed DOM rows')
+    assert.equal(await page.locator('.xhtask-action-error').count(),0)
+    archived.set('offline-row',{sessionId:'offline-row',title:'Deleted while feed offline',updatedAt:now})
+    await page.evaluate(()=>workCatalog.refresh());await page.waitForFunction(()=>document.querySelectorAll('.xhtask-archived-item').length===1)
+    failWorkspaceRefresh=true
+    await rows().getByRole('button',{name:'Delete permanently：Deleted while feed offline'}).click()
+    await page.getByRole('alertdialog',{name:'Delete permanently'}).getByRole('button',{name:'Delete permanently',exact:true}).click()
+    await page.getByText('No archived sessions.',{exact:true}).waitFor()
+    await page.waitForFunction(()=>api.store.busyId===null)
+    assert.equal(await page.evaluate(()=>api.store.actionError),null,'committed deletion is not misreported as a failed mutation')
+    await page.locator('.xhtask-action-error').filter({hasText:'archive baseline offline'}).waitFor()
+    failWorkspaceRefresh=false;await page.evaluate(()=>workCatalog.refresh())
+  }
   await page.evaluate(()=>{root.unmount();for(const run of cleanup)run()})
   assert.equal(await page.locator('#xharness-tasks-panel-style').count(),0,'single-source stylesheet lifecycle disposes')
   assert.deepEqual(errors,[])
-  console.log(JSON.stringify({engine,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,initialPixelsSha256,fullArchiveSettings:true,hostMetadata:true,projectSearchSort:true,restoreIdentity:true,confirmationAndFailure:true,parentChildRetry:true,sidebarEntry:true,originalIcons:true,styleCleanup:true,staleRenameAck:process.env.UI_TEST_IMPL!=='legacy',pageErrors:errors}))
+  console.log(JSON.stringify({engine,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,initialPixelsSha256,fullArchiveSettings:true,hostMetadata:true,projectSearchSort:true,restoreIdentity:true,confirmationAndFailure:true,parentChildRetry:true,staleDeleteAck:process.env.UI_TEST_IMPL!=='legacy',deletionSurvivesRefreshFailure:process.env.UI_TEST_IMPL!=='legacy',sidebarEntry:true,originalIcons:true,styleCleanup:true,staleRenameAck:process.env.UI_TEST_IMPL!=='legacy',pageErrors:errors}))
 }finally{await browser.close()}
 
 async function assertEventually(predicate,message){

@@ -15,8 +15,8 @@ function fixture(){
  let ss={ids:['a'],byId:{a:{id:'a',title:'Alpha',running:false,blank:false,updatedAt:1,projectionValues:{schedules:[]}}},phase:'ready'}
  let ws={items:[],archivedSessionIds:[],phase:'ready',state:'idle',error:null},status={state:'idle',error:null},archives=[]
  const read=(i,get)=>({subscribe:fn=>{listeners[i].add(fn);return()=>listeners[i].delete(fn)},getSnapshot:get})
- const sessions={list:read(0,()=>ss),catalogStatus:()=>status,refresh:async()=>{calls.push('sessions.refresh')},fork:async input=>{calls.push(['fork',input]);return'child'}}
- const workspaces={list:read(1,()=>ws),archivedSummaries:()=>archives,refresh:async()=>{calls.push('workspaces.refresh')},archiveSession:async id=>{calls.push(['archive',id])}}
+ const sessions={forgetDeletedSessions:ids=>{ss={...ss,ids:ss.ids.filter(id=>!ids.includes(id)),byId:Object.fromEntries(Object.entries(ss.byId).filter(([id])=>!ids.includes(id)))};for(const fn of listeners[0])fn()},list:read(0,()=>ss),catalogStatus:()=>status,refresh:async()=>{calls.push('sessions.refresh')},fork:async input=>{calls.push(['fork',input]);return'child'}}
+ const workspaces={forgetDeletedSessions:ids=>{ws={...ws,archivedSessionIds:ws.archivedSessionIds.filter(id=>!ids.includes(id))};archives=archives.filter(row=>!ids.includes(row.sessionId));for(const fn of listeners[1])fn()},list:read(1,()=>ws),archivedSummaries:()=>archives,refresh:async()=>{calls.push('workspaces.refresh')},archiveSession:async id=>{calls.push(['archive',id])}}
  const command=async(method,payload)=>{calls.push([method,payload]);return{result:{ok:true,value:{deleted:true}}}}
  const api={sessions:{rename:p=>command('rename',p),delete:p=>command('delete',p)},workspace:{unarchiveSession:p=>command('unarchive',p)}}
  const catalog=new WorkCatalog(api,sessions,workspaces)
@@ -83,4 +83,66 @@ test('Actual workspace owner preserves last-good labels on failed pull and adopt
  let fail=false,title='Alpha';const manager=new WorkspaceManager({workspace:{list:async()=>fail?{result:{ok:false,error:{code:'internal',message:'offline',details:{}}}}:result({items:[],archivedSessionIds:['a'],archivedSessions:[{sessionId:'a',title,updatedAt:1}]})}})
  await manager.refresh();fail=true;await manager.refresh();assert.equal(manager.getSnapshot().error.message,'offline');assert.equal(manager.archivedSummaries()[0].title,'Alpha')
  fail=false;title='Corrected';let notified=0;manager.subscribe(()=>notified++);await manager.refresh();await tick();assert.equal(manager.archivedSummaries()[0].title,'Corrected');assert.ok(notified>0)
+})
+
+test('Successful delete publishes acknowledged ids even if the stream is absent and an older refresh is pending',async()=>{
+ let resolve,pull=async()=>result({items:[],archivedSessionIds:['a','b'],archivedSessions:[{sessionId:'a',title:'Alpha',updatedAt:1},{sessionId:'b',title:'Beta',updatedAt:2}]})
+ const manager=new WorkspaceManager({workspace:{list:()=>pull()}});await manager.refresh()
+ const f=fixture();f.workspaces.list={subscribe:fn=>manager.subscribe(fn),getSnapshot:()=>manager.getSnapshot()};f.workspaces.archivedSummaries=()=>manager.archivedSummaries();f.workspaces.refresh=()=>manager.refresh();f.workspaces.forgetDeletedSessions=ids=>manager.forgetDeletedSessions(ids)
+ f.catalog.dispose();f.catalog=new WorkCatalog(f.api,f.sessions,f.workspaces)
+ pull=()=>new Promise(done=>{resolve=done});const before=f.catalog.refresh()
+ await f.catalog.deleteArchived('a')
+ assert.deepEqual(plain(f.catalog.getSnapshot().archivedSessionIds),['b'],'success is visible before the old refresh resolves')
+ resolve(result({items:[],archivedSessionIds:['a','b'],archivedSessions:[{sessionId:'a',title:'Stale Alpha',updatedAt:0}]}));await before;await tick()
+ assert.deepEqual(plain(f.catalog.getSnapshot().archivedSessionIds),['b']);assert.deepEqual(plain(manager.archivedSummaries()),[{sessionId:'b',title:'Beta',updatedAt:2}])
+ // Late archive frames and a later reconnect baseline cannot revive a tombstoned id.
+ manager.handleHostEnvelope({rpcId:'old-frame',payload:{type:'host/archived-sessions-changed',archivedSessionIds:['a','b']}})
+ pull=async()=>result({items:[],archivedSessionIds:['a','b'],archivedSessions:[]});await manager.refresh()
+ assert.deepEqual(plain(f.catalog.getSnapshot().archivedSessionIds),['b']);f.catalog.dispose()
+})
+test('Successful subtree delete removes every acknowledged id; a reconciliation failure does not turn it into a failed deletion',async()=>{
+ const f=fixture();f.changeWorkspaces({items:[],archivedSessionIds:['a','child','other'],phase:'ready',state:'idle',error:null});f.api.sessions.delete=async()=>result({deleted:true,deletedSessionIds:['a','child']});f.sessions.refresh=async()=>{throw Error('refresh offline')}
+ await f.catalog.deleteArchived('a');await tick();assert.deepEqual(plain(f.catalog.getSnapshot().archivedSessionIds),['other']);f.catalog.dispose()
+})
+test('Workspace owner distinguishes durable deletion from Activation detachment and fences stale accounting rows',async()=>{
+ const ws={workspaceId:'w',title:'Project',path:'/w',sessionIds:['a','b'],createdAt:'2026-09-01T00:00:00Z',updatedAt:'2026-09-01T00:00:00Z'}
+ const manager=new WorkspaceManager({workspace:{list:async()=>result({items:[ws],archivedSessionIds:['a','b'],archivedSessions:[]})}});await manager.refresh()
+ manager.handleHostEnvelope({rpcId:'detach',payload:{type:'host/session-removed',sessionId:'a'}});assert.deepEqual(plain(manager.getSnapshot().archivedSessionIds),['a','b'])
+ manager.handleHostEnvelope({rpcId:'delete',payload:{type:'host/session-removed',sessionId:'a',permanent:true}});assert.deepEqual(plain(manager.getSnapshot().archivedSessionIds),['b']);assert.deepEqual(plain(manager.getSnapshot().items[0].sessionIds),['b'])
+ manager.handleHostEnvelope({rpcId:'stale-ws',payload:{type:'host/workspace-changed',workspace:ws}});await manager.refresh();assert.deepEqual(plain(manager.getSnapshot().items[0].sessionIds),['b'])
+})
+
+const sessionsCode=require('esbuild').buildSync({entryPoints:[new URL('../ui/src/modules/client-runtime/sessions/manager.ts',import.meta.url).pathname],bundle:true,write:false,format:'cjs',platform:'node'}).outputFiles[0].text
+const sessionsModule={exports:{}}
+vm.runInNewContext(sessionsCode,{module:sessionsModule,exports:sessionsModule.exports,queueMicrotask,Promise,Map,Set,Error,console,setTimeout,clearTimeout,AbortController})
+const {SessionManager}=sessionsModule.exports
+test('Permanent child removal fences late list, lineage and catalog frames without mistaking normal detach for deletion',async()=>{
+ const rows=[{sessionId:'parent',blank:false,running:false,updatedAt:1},{sessionId:'child',parentSessionId:'parent',origin:'subagent',blank:false,running:false,updatedAt:1}]
+ let pull=async()=>result({items:rows}),resolve
+ const api={sessions:{list:()=>pull()},subagents:{list:async()=>result({parentAvailable:true,entries:[{kind:'child',id:'child',mode:'one-shot',activity:'inactive',hasChildren:false}]})}}
+ const manager=new SessionManager(api,{})
+ await manager.refreshList();await manager.refreshSubagents('parent')
+ manager.handleHostEnvelope({rpcId:'detach',payload:{type:'host/session-removed',sessionId:'child'}})
+ assert.equal(manager.getListSnapshot().items.some(row=>row.sessionId==='child'),true)
+ pull=()=>new Promise(done=>{resolve=done});const old=manager.refreshList()
+ manager.forgetDeletedSessions(['child'])
+ assert.equal(manager.getListSnapshot().items.some(row=>row.sessionId==='child'),false)
+ resolve(result({items:rows}));await old
+ assert.equal(manager.getListSnapshot().items.some(row=>row.sessionId==='child'),false)
+ manager.handleHostEnvelope({rpcId:'stale-child',payload:{type:'host/session-added',sessionId:'child',parentSessionId:'parent',origin:'subagent',blank:false}})
+ manager.handleHostEnvelope({rpcId:'stale-running',payload:{type:'host/session-status',sessionId:'child',running:true}})
+ manager.handleMuxEnvelope({rpcId:'stale-title',payload:{type:'session/projection',sessionId:'child',key:'title',seq:20,value:'Ghost title'}})
+ manager.handleMuxEnvelope({rpcId:'stale-question',payload:{type:'question/requested',sessionId:'child',questions:[]}})
+ manager.handleMuxEnvelope({rpcId:'stale-queue',payload:{type:'session/queue',sessionId:'child',items:[]}})
+ manager.handleMuxEnvelope({rpcId:'stale-jobs',payload:{type:'session/jobs',sessionId:'child',jobs:[{id:'late'}]}})
+ assert.equal(manager.pendingBuffers.has('child'),false)
+ assert.equal(manager.pendingInteractions.has('child'),false)
+ assert.equal(manager.projectionStores.has('child'),false)
+ assert.equal(manager.jobsBySession.has('child'),false)
+ await manager.refreshSubagents('parent')
+ assert.equal(manager.getListSnapshot().items.some(row=>row.sessionId==='child'),false)
+ assert.deepEqual(plain(manager.getListSnapshot().subagentsByParent.parent.entries),[])
+ manager.handleHostEnvelope({rpcId:'deleted-parent',payload:{type:'host/session-removed',sessionId:'parent',permanent:true}})
+ assert.equal(manager.getListSnapshot().items.length,0)
+ manager.dispose?.()
 })
