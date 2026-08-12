@@ -12,6 +12,7 @@ use crate::browser::{self, BrowserState};
 #[derive(Default)]
 pub struct BrowserLifecycle(Mutex<HashMap<String, Pending>>);
 struct Pending {
+    started: bool,
     owner: String,
     reply: oneshot::Sender<Result<Value, String>>,
 }
@@ -69,7 +70,21 @@ impl Drop for Guard {
     }
 }
 
+fn interrupted_receipt(started: bool) -> Value {
+    json!({"ok":false,"effect":if started {"unknown"} else {"not_started"},
+        "message":"browser UI cannot open this page now: select the requesting chat and dismiss overlays before retrying; do not replay an unknown effect automatically"})
+}
+
 impl BrowserLifecycle {
+    pub(super) fn mark_started(&self, tab_id: &str) {
+        if let Some(id) = tab_id.strip_prefix("browser:") {
+            if let Ok(mut pending) = self.0.lock() {
+                if let Some(call) = pending.get_mut(id) {
+                    call.started = true;
+                }
+            }
+        }
+    }
     pub async fn open(&self, app: &AppHandle, owner: &str, url: String) -> Result<Value, String> {
         let url = browser::web_url(&url)?.to_string();
         let mut nonce = [0u8; 16];
@@ -84,6 +99,7 @@ impl BrowserLifecycle {
             pending.insert(
                 request_id.clone(),
                 Pending {
+                    started: false,
                     owner: owner.to_owned(),
                     reply,
                 },
@@ -134,9 +150,7 @@ pub async fn desktop_browser_control_reply(
     };
     let ready = matches!(reply, ControlReply::Ready { .. });
     let result = match reply {
-        ControlReply::Failed {} => Ok(
-            json!({"ok":false,"effect":"not_started","message":"browser UI cannot open this page now: select the requesting chat and dismiss overlays before retrying"}),
-        ),
+        ControlReply::Failed {} => Ok(interrupted_receipt(call.started)),
         ControlReply::Ready { tab_id } => {
             if tab_id != format!("browser:{request_id}") {
                 return Ok(false);
@@ -156,6 +170,11 @@ pub async fn desktop_browser_control_reply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn closing_an_admitted_navigation_is_not_reported_as_unstarted() {
+        assert_eq!(interrupted_receipt(false)["effect"], "not_started");
+        assert_eq!(interrupted_receipt(true)["effect"], "unknown");
+    }
     #[test]
     fn lifecycle_contract_rejects_unknown_controls_and_fields() {
         assert!(serde_json::from_value::<ControlRequest>(
