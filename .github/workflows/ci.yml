@@ -66,6 +66,7 @@ jobs:
       - run: python -B scripts/test-macos-stable-signing.py
       - run: python -B scripts/test-windows-desktop-bundle.py
       - run: python -B scripts/test-windows-runtime-audit.py
+      - run: python -B scripts/test-browser-windows-manifest.py
       - name: Unix updater isolation and candidate contracts
         if: runner.os != 'Windows'
         run: python3 -B scripts/test-unix-update-acceptance.py
@@ -543,8 +544,15 @@ jobs:
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --no-run
+          if ($LASTEXITCODE) { throw 'Windows native test build failed' }
+          $tests = Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/deps/xharness_desktop-*.exe
+          if (-not $tests) { throw 'Windows desktop test binary missing' }
+          foreach ($test in $tests) {
+            ./scripts/gui_bench/windows_imports.ps1 -Binary $test.FullName -EvidenceDir "dist/native-browser-evidence/windows/unit-$($test.BaseName)"
+          }
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
-          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed (see unit activation/import evidence)' }
           cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           python scripts/test-windows-desktop-bundle.py

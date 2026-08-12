@@ -1,16 +1,14 @@
 fn main() {
-    // Tauri embeds the production executable's resources, not Cargo examples.
-    // The Windows probe also imports TaskDialogIndirect and needs ComCtl32 v6;
-    // without this manifest the loader fails before main with 0xC0000139.
+    // Wry imports TaskDialogIndirect (ComCtl32 v6). Tauri resources cover
+    // the production bin but not Cargo's lib test executable. Give every
+    // executable target the same activation dependency, including unit tests.
+    // A dependency-only manifest can merge with Tauri's application manifest.
     let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
-        .join("examples/browser-inspect-probe.manifest");
+        .join("windows-common-controls.manifest");
     println!("cargo:rerun-if-changed={}", manifest.display());
     if std::env::var("TARGET").is_ok_and(|target| target.ends_with("windows-msvc")) {
-        println!("cargo:rustc-link-arg-examples=/MANIFEST:EMBED");
-        println!(
-            "cargo:rustc-link-arg-examples=/MANIFESTINPUT:{}",
-            manifest.display()
-        );
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
     }
 
     // The bundled UI is served by the authenticated loopback Host, not a
