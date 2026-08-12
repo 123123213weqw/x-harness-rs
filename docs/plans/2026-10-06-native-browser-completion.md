@@ -55,8 +55,15 @@ No arbitrary JS-eval tool or global desktop-input bypass was added.
    timed out and is **not** marked supported. macOS changed-color foreground/
    hidden PNGs passed, but native input produced no trusted events (19.190 s).
    The callback-only gate incorrectly passed that probe. The strict core gate
-   now fails unsuccessful input; the next candidate fixes AppKit's lower-left
-   coordinate convention and must be retested. This is not three-platform parity.
+   now fails unsuccessful input. On `4216067`, the coordinate-only hypothesis was
+   rejected: WKWebView reported `flipped=true`, correctly converted points, but
+   no input events; the strict CI gate failed as intended (15.245 s). An owned,
+   invisible, nonpersistent WKWebView diagnostic reproduced window `sendEvent`
+   dropping input; direct scoped native responder dispatch plus focus settling
+   produced trusted click/key/input/key-up and `z`. That diagnostic is not Tauri
+   acceptance. The next candidate uses the owned WKWebView's public responder
+   methods and waits for observed input focus before sending keys; it must be
+   retested in actual Tauri. This is not three-platform parity.
 5. Paid DeepSeek: actual Host with only `plugin_mcp`, genuine native WebView and
    canonical AppFrame; starts with zero tabs and natural prompts (no tool-name
    hint). Each trial has an independent fixture-state grader and accounting/
@@ -109,16 +116,21 @@ The runner now separates `passed`, `blocked_by_budget_gate`, `evaluation_failed`
 trials; provider/Host error turns are not silently counted as task-quality scores.
 No output/action is replayed or edited to make a failed trial pass.
 
-Engineering validation: 61 portable Python tests, 54 remote desktop library
+Engineering validation: 62 portable Python tests, 54 remote desktop library
 unit tests, strict source UI typecheck/build equality. Remote Linux prototype
 core APIs passed; the independent CI repeat also passed in 11.745 s, plus 4/4
 pre-opened and 4/4 genuine-zero-tab contracts. Core native feasibility now
 requires trusted state AND decoded changed-marker pixels, not merely receipt
-presence. Full browser parity remains a separate gate.
+presence. Full browser parity remains a separate gate. Apple documents NSEvent's
+window coordinates and view conversion; WebKit's public WKWebView responder
+methods route to its native input pipeline. References:
+<https://developer.apple.com/documentation/appkit/nsevent/locationinwindow>,
+<https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/API/mac/WKWebViewMac.mm>.
+The retained failures, not those references alone, determine acceptance.
 
 ## Remaining release gates
 
-- Retest the AppKit coordinate correction and strict core gate on macOS/Windows.
+- Retest scoped WKWebView native responder/focus acknowledgement and the strict core gate on macOS/Windows.
 - Review cross-origin **element discovery/refs**, full recording/encoding,
   background policy, non-ASCII/IME/shortcuts, transfers and ownership revocation
   before enabling native inputs/screenshots as production capabilities.

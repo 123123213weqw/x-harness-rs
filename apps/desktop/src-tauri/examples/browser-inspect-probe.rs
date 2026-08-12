@@ -280,7 +280,24 @@ async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
     let button_error = native_api::click(&guest, 450.0, 120.0).await.err();
     tokio::time::sleep(Duration::from_millis(120)).await;
     let input_error = native_api::click(&guest, 60.0, 35.0).await.err();
-    let key_error = native_api::key_z(&guest).await.err();
+    // A native click acknowledgement is dispatch, not WebKit's cross-process
+    // focus/IME acknowledgement. Observe actual focus without replaying input;
+    // never send a key to the wrong control just because the callback returned.
+    let focus_deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let focus_observed = loop {
+        if evidence(&guest, "document.activeElement?.id === 'answer'").await? == true {
+            break true;
+        }
+        if tokio::time::Instant::now() >= focus_deadline {
+            break false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let key_error = if input_error.is_none() && focus_observed {
+        native_api::key_z(&guest).await.err()
+    } else {
+        Some("native input focus was not observed; key not dispatched".into())
+    };
     tokio::time::sleep(Duration::from_millis(120)).await;
     let child_error = native_api::click(&guest, 450.0, 190.0).await.err();
     tokio::time::sleep(Duration::from_millis(120)).await;
@@ -345,7 +362,7 @@ async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
         "NATIVE_API_EVIDENCE {}",
         json!({"platform":std::env::consts::OS,"test_only":true,
         "production_enabled":false,"native_mouse":{"passed":button_error.is_none()&&result["clicked"]==true,"error":button_error},
-        "native_keyboard":{"passed":keyboard_verified,"focus_error":input_error,"error":key_error},
+        "native_keyboard":{"passed":keyboard_verified,"focus_error":input_error,"focus_observed":focus_observed,"error":key_error},
         "cross_origin_pointer":{"passed":child_error.is_none()&&result["child"]==true,"error":child_error},
         "cross_origin_frame_traversal":{"status":"not_implemented"},
         "screenshots":screenshots,"observed":result,
