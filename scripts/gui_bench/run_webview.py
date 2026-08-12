@@ -118,11 +118,32 @@ def wait_ready(path, process, session, timeout=40):
                 token = connection['token']
                 if len(token) != 64 or any(c not in '0123456789abcdef' for c in token):
                     raise ValueError('invalid private native capability')
-            if bridge_call(connection, session, 'list', {}).get('available') is True:
+            descriptor = bridge_call(connection, session, 'list', {})
+            if descriptor.get('available') is True and descriptor.get('bound') is True:
                 return connection
         except (OSError, ValueError, KeyError): pass
         time.sleep(.2)
     raise TimeoutError('production BrowserPane did not bind native page to Host session')
+
+
+def verify_unbound_discovery(call):
+    # Discovery is intentionally available before any tab exists. Authority is
+    # the separate native session binding, never the ability to list tools.
+    descriptor = call('list', {})
+    if descriptor.get('available') is not True or descriptor.get('bound') is not False:
+        raise AssertionError('unrelated chat received a native browser binding')
+    if any(key in descriptor for key in ('tab_id', 'url', 'nodes', 'frame_id')):
+        raise AssertionError('unrelated chat discovery exposed page state')
+    try:
+        call('observe', {})
+    except RuntimeError as error:
+        if 'not delegated' not in str(error):
+            raise AssertionError('unrelated observation failed without a scope denial') from error
+    else:
+        raise AssertionError('unrelated chat could observe native page')
+    receipt = call('perform', {'action':'click', 'frame_id':'0'*32, 'ref':'n0'})
+    if receipt.get('ok') is not False or receipt.get('effect') != 'not_started':
+        raise AssertionError('unrelated chat action was not denied before dispatch')
 
 
 def kill_owned(process):
@@ -184,8 +205,8 @@ def run(args, task, repetition):
             client.call('commands/execute', {'args':{'agentId':session,'line':'/permission danger-full-access','images':[]}})
             if args.contract:
                 result['phase'] = 'native_action_contract'
-                if bridge_call(connection, 'unrelated-chat', 'list', {})['available']:
-                    raise AssertionError('native binding leaked to unrelated chat')
+                verify_unbound_discovery(lambda op, arguments:
+                    bridge_call(connection, 'unrelated-chat', op, arguments))
                 snapshot = bridge_call(connection, session, 'observe', {})
                 if snapshot.get('source', {}).get('engine') != 'tauri-webview' or not snapshot.get('nodes'):
                     raise AssertionError('not a genuine native observation')
