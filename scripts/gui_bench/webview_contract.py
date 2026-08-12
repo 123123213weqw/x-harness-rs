@@ -9,9 +9,24 @@ import time
 class Contract:
     def __init__(self, call):
         self.call, self.actions, self.denials = call, [], []
+        self.readiness_denials = []
 
     def observe(self, scope='page', **paging):
-        snapshot = self.call('observe', dict(scope=scope, **paging))
+        # AppFrame expands/resizes a real native pane asynchronously. Retry
+        # only a bounded, side-effect-free observation while its presentation
+        # is settling. Never replay an action or conceal transport/JS failures.
+        deadline = time.monotonic() + 5
+        transient = {'native browser is hidden', 'native browser is not delegated to this session',
+                     'only the active, laid-out browser tab can be inspected'}
+        while True:
+            try:
+                snapshot = self.call('observe', dict(scope=scope, **paging))
+                break
+            except RuntimeError as error:
+                if str(error) not in transient or time.monotonic() >= deadline:
+                    raise
+                self.readiness_denials.append(str(error))
+                time.sleep(.1)
         if snapshot.get('source', {}).get('engine') != 'tauri-webview':
             raise AssertionError('contract requires genuine native evidence')
         return snapshot
@@ -89,4 +104,5 @@ class Contract:
             return dict(actions=[], denials=[], public_observations=snapshots,
                         searched_via_ui=False, model_task_passed=None)
         else: raise ValueError('unknown contract task')
-        return dict(actions=self.actions, denials=self.denials, model_task_passed=None)
+        return dict(actions=self.actions, denials=self.denials,
+                    readiness_denials=self.readiness_denials, model_task_passed=None)
