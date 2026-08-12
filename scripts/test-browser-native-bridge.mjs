@@ -23,7 +23,7 @@ try {
   </body></html>`)
   await page.addScriptTag({ content: `
     window.commands=[];window.listeners=[];window.closeRequests=0;window.terminalClicks=0;
-    window.activeTab=null;window.nativeTabs=new Set();window.hold=null;
+    window.activeTab=null;window.nativeTabs=new Set();window.hold=null;window.failBounds=false;
     document.querySelector('[data-xh-terminal-trigger]').onclick=()=>{
       terminalClicks++;document.querySelector('[data-xh-terminal-trigger]').dataset.xhTerminalOpen='true';
     };
@@ -31,6 +31,7 @@ try {
       commands.push({command,args});
       if(hold?.command===command){const gate=hold;hold=null;window.gateStarted=true;
         await new Promise((resolve,reject)=>{window.releaseGate=()=>gate.fail?reject(Error('native failed')):resolve()});}
+      if(command==='desktop_browser_bounds'&&window.failBounds)throw Error('native failed');
       if(command==='desktop_browser_activate'){activeTab=args.tabId;return nativeTabs.has(args.tabId)}
       if(command==='desktop_browser_navigate'){nativeTabs.add(args.tabId);activeTab=args.tabId}
       if(command==='desktop_browser_close'){nativeTabs.delete(args.tabId);if(activeTab===args.tabId)activeTab=null}
@@ -266,9 +267,14 @@ try {
     ['desktop_browser_bounds', 'desktop_browser_activate', 'desktop_browser_navigate'].includes(call.command)), streamStart), false,
   'ordinary chat changes must not churn the native view')
   // A rejected native call must not poison subsequent synchronization.
-  await page.evaluate(() => { window.hold = { command: 'desktop_browser_bounds', fail: true }; window.gateStarted = false })
-  await resize(); await page.waitForFunction(() => window.gateStarted); await page.evaluate(() => window.releaseGate())
+  // A resize event and ResizeObserver can supersede the first held request.
+  // Its stale error is correctly ignored. Keep the native fault active until
+  // a current synchronization reports it, then verify recovery without
+  // relaxing the visible-error or subsequent-activation assertions.
+  await page.evaluate(() => { window.failBounds = true })
+  await resize()
   await page.getByRole('alert').getByText('native failed', { exact: false }).waitFor()
+  await page.evaluate(() => { window.failBounds = false })
   await resize(); await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
   // Pending old-tab work cannot show again after close/reopen or a blank new tab.
   await page.evaluate(() => { window.hold = { command: 'desktop_browser_bounds' }; window.gateStarted = false })
