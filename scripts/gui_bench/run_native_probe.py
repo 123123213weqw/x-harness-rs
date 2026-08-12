@@ -55,7 +55,8 @@ def cleanup(root: Path) -> bool:
 def cleanup_profile(root: Path) -> bool:
     # A killed, test-owned document portal can leave a disconnected FUSE mount.
     # Retrying rmtree cannot remove a mount. Never detach a user's profile or a
-    # different filesystem: only portal mounts beneath our generated temp root.
+    # different filesystem: only portal mounts and the exact GVFS runtime mount
+    # beneath our generated temp root. GNOME's portal also starts gvfsd-fuse.
     if (not root.is_absolute() or root.is_symlink()
             or not root.name.startswith(("xh-native-dom-", "xh-webview-profile-"))
             or root.parent.resolve() != Path(tempfile.gettempdir()).resolve()):
@@ -71,15 +72,17 @@ def cleanup_profile(root: Path) -> bool:
                     target = target.replace(escaped, literal)
                 target = Path(target)
                 if root in target.parents:
-                    if fields[fields.index("-") + 1] != "fuse.portal":
-                        print(f"Probe cleanup refused a non-portal mount: {target}", file=sys.stderr)
+                    filesystem = fields[fields.index("-") + 1]
+                    if (filesystem != "fuse.portal"
+                            and not (filesystem == "fuse.gvfsd-fuse" and target == root / "runtime/gvfs")):
+                        print(f"Probe cleanup refused an unowned runtime mount: {target}", file=sys.stderr)
                         return False
                     owned.append(target)
             for target in sorted(owned, key=lambda path: len(path.parts), reverse=True):
                 result = subprocess.run(["fusermount3", "-uz", str(target)],
                                         capture_output=True, timeout=5)
                 if result.returncode:
-                    print(f"Probe portal unmount failed: {target}", file=sys.stderr)
+                    print(f"Probe runtime unmount failed: {target}", file=sys.stderr)
                     return False
         except (OSError, ValueError, IndexError, subprocess.TimeoutExpired) as error:
             print(f"Probe portal cleanup failed: {error}", file=sys.stderr)
