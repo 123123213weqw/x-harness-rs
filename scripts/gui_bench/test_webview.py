@@ -9,13 +9,54 @@ import urllib.error
 import urllib.request
 
 from scripts.gui_bench.budget import BudgetLedger
-from scripts.gui_bench.native_fixture import Fixture
+from scripts.gui_bench.native_fixture import Fixture, zero_tab_html
 from scripts.gui_bench.run_webview import budget_receipt, tuple_address, cleanup_profile, settle_quiet, pin_binary, native_environment, acceptance_passed, wait_ready, verify_unbound_discovery
 from scripts.gui_bench.webview_contract import Contract
 from scripts.terminal_bench.broker import Broker
 
 
 class WebviewTests(unittest.TestCase):
+    def test_contract_retries_only_readiness_reads_and_never_an_action(self):
+        call=Mock(side_effect=[RuntimeError('native browser is hidden'),
+                              {'source':{'engine':'tauri-webview'},'nodes':[]}])
+        with patch('scripts.gui_bench.webview_contract.time.sleep'):
+            checks=Contract(call)
+            checks.observe()
+        self.assertEqual(checks.readiness_denials,['native browser is hidden'])
+        self.assertTrue(all(item.args[0]=='observe' for item in call.call_args_list))
+        for message in ['native bridge interrupted','invalid native observation arguments']:
+            call=Mock(side_effect=RuntimeError(message))
+            with self.assertRaises(RuntimeError): Contract(call).observe()
+            self.assertEqual(call.call_count,1)
+        clock=itertools.count(0,.5)
+        call=Mock(side_effect=RuntimeError('native browser is hidden'))
+        with patch('scripts.gui_bench.webview_contract.time.sleep'), \
+             patch('scripts.gui_bench.webview_contract.time.monotonic',side_effect=lambda:next(clock)), \
+             self.assertRaises(RuntimeError):
+            Contract(call).observe()
+        self.assertLessEqual(call.call_count,11)
+
+    def test_zero_tab_fixture_loads_canonical_appframe_without_opening_a_page(self):
+        html = zero_tab_html('owned-session')
+        self.assertIn('AppFrame', html)
+        self.assertIn('/modules/runtime.js', html)
+        self.assertIn('"session": "owned-session"', html)
+        self.assertNotIn('desktop_browser_navigate', html)
+        self.assertNotIn('xharness-browser-control-open', html)
+        self.assertNotIn('config.target', html)
+        self.assertNotIn('entries:[', html)
+
+    def test_zero_tab_readiness_does_not_infer_a_binding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'private.json'
+            connection = {'address':'127.0.0.1:1234','token':'a'*64}
+            path.write_text(json.dumps(connection))
+            with patch('scripts.gui_bench.run_webview.bridge_call', side_effect=[
+                {'available':False,'bound':False}, {'available':True,'bound':False}
+            ]) as call, patch('scripts.gui_bench.run_webview.time.sleep'):
+                self.assertEqual(wait_ready(path,Mock(poll=lambda:None),'owner',zero_tabs=True),connection)
+                self.assertEqual(call.call_count,2)
+
     def test_native_ready_requires_binding_not_just_zero_tab_discovery(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'private.json'

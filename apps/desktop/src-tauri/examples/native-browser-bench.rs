@@ -13,11 +13,14 @@ mod browser_inspect;
 mod browser_lifecycle;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
+#[path = "../src/native_startup.rs"]
+mod native_startup;
 
 use std::io::Write;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn main() {
+    native_startup::prepare().expect("native benchmark prerequisites failed");
     let args: Vec<String> = std::env::args().collect();
     assert_eq!(
         args.len(),
