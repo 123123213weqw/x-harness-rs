@@ -44,7 +44,14 @@ pub fn button(
         let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
             kind,point,NSEventModifierFlags::empty(),0.0,window.windowNumber(),None,0,1,1.0)
             .ok_or("native mouse event unavailable")?;
-        window.sendEvent(&event);
+        // Dispatch to the owned browser responder, not the outer application
+        // window's hit-testing/current-responder routing. This is still an
+        // NSEvent/WebKit native input path, never DOM dispatchEvent or OS input.
+        if pressed {
+            view.mouseDown(&event);
+        } else {
+            view.mouseUp(&event);
+        }
         Ok(())
     })();
     let _ = reply.send(result);
@@ -62,7 +69,11 @@ pub fn key_z(handle: PlatformWebview, pressed: bool, reply: Sender<Result<(), St
         let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
             kind,NSPoint::new(0.0,0.0),NSEventModifierFlags::empty(),0.0,window.windowNumber(),None,&text,&text,false,6)
             .ok_or("native key event unavailable")?;
-        window.sendEvent(&event);
+        if pressed {
+            view.keyDown(&event);
+        } else {
+            view.keyUp(&event);
+        }
         Ok(())
     })();
     let _ = reply.send(result);
