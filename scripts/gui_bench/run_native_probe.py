@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import signal
@@ -180,12 +181,30 @@ def native_api_evidence(log_text: str, evidence_dir: Path) -> dict:
         return {"status": "unverified", "reason": "malformed API probe evidence"}
 
 
+def native_coordinates_verified(api: dict) -> bool:
+    observed = api.get('observed')
+    if not isinstance(observed, dict) or not isinstance(observed.get('pointers'), list):
+        return False
+    events = observed['pointers']
+    if len(events) > 30:
+        return False
+    for target, x, y in [('native-probe', 450, 120), ('answer', 60, 35)]:
+        if not any(isinstance(event, dict) and event.get('type') == 'click'
+                   and event.get('trusted') is True and event.get('id') == target
+                   and all(type(event.get(axis)) in (float, int)
+                           and math.isfinite(event[axis]) and abs(event[axis] - value) <= 1
+                           for axis, value in [('x', x), ('y', y)]) for event in events):
+            return False
+    return True
+
+
 def core_native_apis_passed(api: dict) -> bool:
     # A "tested" callback alone is not a capability gate. Require fixture
     # state/trusted input and independently decoded changed-color native pixels.
     return (api.get('status') == 'tested'
             and all(isinstance(api.get(name), dict) and api[name].get('passed') is True
                     for name in ('native_mouse', 'native_keyboard', 'cross_origin_pointer'))
+            and native_coordinates_verified(api)
             and api.get('snapshot_sequence_verified') is True)
 
 
@@ -202,7 +221,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
     parser.add_argument("--evidence-dir", type=Path, required=True)
+    parser.add_argument("--macos-titlebar", choices=["standard", "overlay"], default="standard")
     args = parser.parse_args()
+    if args.macos_titlebar != "standard" and sys.platform != "darwin":
+        parser.error("macOS titlebar variants require a macOS probe")
     binary = args.binary.resolve(strict=True)
     args.evidence_dir.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256()
@@ -211,6 +233,7 @@ def main() -> int:
             digest.update(chunk)
     receipt = {"kind": "native_tauri_dom_contract", "platform": sys.platform,
                "model_calls": 0, "os_input": False,
+               "titlebar": args.macos_titlebar,
                "binary_sha256": digest.hexdigest()}
     start = time.monotonic()
     directory = Path(tempfile.mkdtemp(prefix="xh-native-dom-"))
@@ -219,6 +242,7 @@ def main() -> int:
         with (args.evidence_dir / "native-probe.log").open("wb") as log:
             try:
                 env = environment(directory)
+                env['XHARNESS_NATIVE_PROBE_TITLEBAR'] = args.macos_titlebar
                 env['XHARNESS_NATIVE_API_EVIDENCE'] = str(args.evidence_dir.resolve() / 'native-api')
                 code = run_probe(binary, env, log)
             except OSError:

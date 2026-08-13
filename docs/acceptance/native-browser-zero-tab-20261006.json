@@ -323,5 +323,40 @@
       "browser_parity_passed": false,
       "cleanup_passed": true
     }
+  },
+  "macos_inset_investigation": {
+    "candidate_source": "2beb668b4f8b33d8ec8889720a7e2e99abffa67f",
+    "ci_run": 37414998854,
+    "binary_sha256": "1558c206ac7e6f3eab4f08f1d70b0e8ca1b9fb11d0636cfcd61eeb3919b3a090",
+    "unmodified_local_probe": {
+      "core_passed": false,
+      "seconds": 13.091,
+      "cleanup_passed": true,
+      "dpr": 2
+    },
+    "owned_process_diagnostic_not_acceptance": {
+      "native_event_window_matches": true,
+      "view_height": 560,
+      "css_viewport_height": 532,
+      "public_content_layout_top": 28,
+      "requested_pointer": [
+        450,
+        120
+      ],
+      "observed_trusted_pointer_before": [
+        450,
+        92
+      ],
+      "public_geometry_corrected_pointer": [
+        450,
+        120
+      ],
+      "trusted_mouse": true,
+      "trusted_keyboard": true,
+      "cross_origin_coordinate_click": true,
+      "global_input": false,
+      "provider_calls": 0
+    },
+    "rust_fix_retest": "pending unmodified CI/native probe, ordinary and Overlay titlebars; no hardcoded inset"
   }
 }
