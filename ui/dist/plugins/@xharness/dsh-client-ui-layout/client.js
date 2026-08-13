@@ -105,6 +105,7 @@ const AppFrame_styles_1 = __importDefault(require("./AppFrame.styles"));
 const WorkCenter_1 = require("./WorkCenter");
 const browser_window_controller_1 = require("./browser-window-controller");
 const workspace_pane_1 = require("./workspace-pane");
+const model_control_1 = require("../browser/model-control");
 const xhWorkspaceWindow = (0, browser_window_controller_1.xhCreateBrowserWindowController)(typeof window === 'undefined' ? undefined : window.__TAURI__);
 /** Center column grid item (session-body building block). */
 function CenterColumn(props) {
@@ -195,6 +196,8 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
     spaceKeyRef.current = spaceKey;
     const [spaces, setSpaces] = (0, react_1.useState)(workspace_pane_1.xhLoadBrowserSpaces);
     const [browserRestored, setBrowserRestored] = (0, react_1.useState)(!window.__TAURI__?.core?.invoke);
+    const restoredRef = (0, react_1.useRef)(browserRestored);
+    restoredRef.current = browserRestored;
     const space = spaces[spaceKey] ?? workspace_pane_1.xhWorkspaceEmpty;
     const nextWorkspaceId = (0, react_1.useRef)((0, workspace_pane_1.xhNextWorkspaceId)(spaces));
     (0, react_1.useEffect)(() => {
@@ -213,6 +216,25 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
         }).catch(() => { }).finally(() => { if (alive)
             setBrowserRestored(true); });
         return () => { alive = false; };
+    }, []);
+    (0, react_1.useEffect)(() => {
+        const native = window.__TAURI__;
+        if (!native?.core?.invoke || !native.event?.listen)
+            return;
+        return (0, model_control_1.listenModelBrowser)(native, {
+            currentOwner: () => spaceKeyRef.current,
+            ready: () => restoredRef.current,
+            open: request => {
+                const item = { id: `browser:${request.requestId}`, kind: 'browser', source: 'browser',
+                    modelRequestId: request.requestId, title: new URL(request.url).hostname, entries: [request.url], position: 0 };
+                setSpaces(all => ({ ...all, [request.owner]: (0, workspace_pane_1.xhWorkspaceOpen)(all[request.owner] ?? workspace_pane_1.xhWorkspaceEmpty, item, false) }));
+            },
+            cancel: requestId => {
+                setSpaces(all => Object.fromEntries(Object.entries(all).map(([owner, space]) => [owner,
+                    space.items.some(item => item.modelRequestId === requestId) ? (0, workspace_pane_1.xhWorkspaceClose)(space, `browser:${requestId}`) : space])));
+                void native.core.invoke('desktop_browser_close', { tabId: `browser:${requestId}` }).catch(() => { });
+            },
+        });
     }, []);
     const [workspaceWidth, setWorkspaceWidth] = (0, react_1.useState)(440);
     const updateSpace = (fn) => setSpaces(all => {
@@ -720,6 +742,92 @@ function numberValue(value, fallback = 0) {
 }
 
 },
+"src/modules/browser/model-control.js": function(module, exports, require) {
+// source: src/modules/browser/model-control.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.modelBrowserOpen = modelBrowserOpen;
+exports.listenModelBrowser = listenModelBrowser;
+const runtime_types_1 = require("../shared/runtime-types");
+function modelBrowserOpen(raw) {
+    const value = (0, runtime_types_1.objectValue)(raw);
+    if (typeof value.requestId !== 'string' || !/^[0-9a-f]{32}$/.test(value.requestId)
+        || typeof value.owner !== 'string' || !value.owner || value.owner.length > 128 || typeof value.url !== 'string' || value.url.length > 4096)
+        return;
+    try {
+        const url = new URL(value.url);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+            return;
+        return { requestId: value.requestId, owner: value.owner, url: url.href };
+    }
+    catch {
+        return;
+    }
+}
+/** Always mounted at AppFrame, even when settings or another center occludes
+ * the browser. Events never change the selected chat or borrow its identity. */
+function listenModelBrowser(native, ui) {
+    let disposed = false;
+    const unlisten = [];
+    const requests = new Set();
+    const recent = [];
+    const remember = (id) => { if (!recent.includes(id)) {
+        recent.push(id);
+        if (recent.length > 128)
+            recent.shift();
+    } };
+    const bind = (event, handle) => {
+        void native.event.listen(event, event => { if (!disposed)
+            handle(event.payload); }).then(stop => {
+            if (disposed)
+                stop();
+            else
+                unlisten.push(stop);
+        }).catch(() => { });
+    };
+    bind('xharness-browser-control-open', raw => {
+        const request = modelBrowserOpen(raw);
+        if (!request)
+            return;
+        if (recent.includes(request.requestId))
+            return;
+        remember(request.requestId);
+        if (ui.currentOwner() !== request.owner || !ui.ready()) {
+            void native.core.invoke('desktop_browser_control_reply', { requestId: request.requestId, reply: { status: 'failed' } }).catch(() => { });
+            return;
+        }
+        requests.add(request.requestId);
+        ui.open(request);
+    });
+    bind('xharness-browser-control-cancel', raw => {
+        if (typeof raw !== 'string' || !/^[0-9a-f]{32}$/.test(raw))
+            return;
+        remember(raw);
+        if (!requests.delete(raw))
+            return;
+        ui.cancel(raw);
+    });
+    // Ready tabs no longer need a cancellation tombstone. Native controls ignore
+    // late replies; marking completion is local-only and contains no page data.
+    const settled = (event) => {
+        if (event instanceof CustomEvent && typeof event.detail === 'string')
+            requests.delete(event.detail);
+    };
+    window.addEventListener('xharness:browser-control-settled', settled);
+    return () => {
+        disposed = true;
+        unlisten.forEach(stop => stop());
+        window.removeEventListener('xharness:browser-control-settled', settled);
+        for (const requestId of requests) {
+            ui.cancel(requestId);
+            void native.core.invoke('desktop_browser_control_reply', { requestId, reply: { status: 'failed' } }).catch(() => { });
+        }
+        requests.clear();
+    };
+}
+
+},
 "src/modules/layout/stores.js": function(module, exports, require) {
 // source: src/modules/layout/stores.ts
 
@@ -903,7 +1011,7 @@ exports.ThemePresenter = ThemePresenter;
 
 }
 };
-const __dependencies = {"src/modules/layout/index.js":{"./AppFrame":"src/modules/layout/AppFrame.js","./stores":"src/modules/layout/stores.js","./service":"src/modules/layout/service.js","./theme-presenter":"src/modules/layout/theme-presenter.js"},"src/modules/layout/AppFrame.js":{"./columns":"src/modules/layout/columns.js","./AppFrame.styles":"src/modules/layout/AppFrame.styles.js","./WorkCenter":"src/modules/layout/WorkCenter.js","./browser-window-controller":"src/modules/layout/browser-window-controller.js","./workspace-pane":"src/modules/layout/workspace-pane.js"},"src/modules/layout/columns.js":{},"src/modules/layout/AppFrame.styles.js":{"./AppFrame.css":"src/modules/layout/AppFrame.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/AppFrame.css":{},"src/modules/views-types.js":{},"src/modules/layout/WorkCenter.js":{"./WorkCenter.css":"src/modules/layout/WorkCenter.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/WorkCenter.css":{},"src/modules/layout/browser-window-controller.js":{},"src/modules/layout/workspace-pane.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/layout/stores.js":{"./columns":"src/modules/layout/columns.js"},"src/modules/layout/service.js":{},"src/modules/layout/theme-presenter.js":{}};
+const __dependencies = {"src/modules/layout/index.js":{"./AppFrame":"src/modules/layout/AppFrame.js","./stores":"src/modules/layout/stores.js","./service":"src/modules/layout/service.js","./theme-presenter":"src/modules/layout/theme-presenter.js"},"src/modules/layout/AppFrame.js":{"./columns":"src/modules/layout/columns.js","./AppFrame.styles":"src/modules/layout/AppFrame.styles.js","./WorkCenter":"src/modules/layout/WorkCenter.js","./browser-window-controller":"src/modules/layout/browser-window-controller.js","./workspace-pane":"src/modules/layout/workspace-pane.js","../browser/model-control":"src/modules/browser/model-control.js"},"src/modules/layout/columns.js":{},"src/modules/layout/AppFrame.styles.js":{"./AppFrame.css":"src/modules/layout/AppFrame.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/AppFrame.css":{},"src/modules/views-types.js":{},"src/modules/layout/WorkCenter.js":{"./WorkCenter.css":"src/modules/layout/WorkCenter.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/WorkCenter.css":{},"src/modules/layout/browser-window-controller.js":{},"src/modules/layout/workspace-pane.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/browser/model-control.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/layout/stores.js":{"./columns":"src/modules/layout/columns.js"},"src/modules/layout/service.js":{},"src/modules/layout/theme-presenter.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

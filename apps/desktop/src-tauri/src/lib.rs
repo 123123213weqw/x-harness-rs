@@ -2,9 +2,11 @@ mod browser;
 mod browser_bridge;
 mod browser_delegation;
 mod browser_inspect;
+mod browser_lifecycle;
 mod browser_perform;
 mod computer_activity;
 mod diagnostics;
+mod native_startup;
 mod sidecar;
 mod startup;
 mod updater;
@@ -24,6 +26,7 @@ struct DesktopBootstrapEvent {
 }
 
 pub fn run() {
+    native_startup::prepare().expect("native runtime prerequisites failed");
     let app = tauri::Builder::default()
         // Keep the identifier stable across release channels and install paths.
         // This must run before any plugin/setup that can start a second Host.
@@ -51,6 +54,7 @@ pub fn run() {
             app.manage(computer_activity::DesktopComputerActivityState::default());
             app.manage(browser::BrowserState::default());
             app.manage(browser_bridge::BrowserBridge::default());
+            app.manage(browser_lifecycle::BrowserLifecycle::default());
             configure_linux_webview(app.handle());
             if app
                 .state::<DesktopState>()
@@ -100,6 +104,7 @@ pub fn run() {
             browser::desktop_browser_close,
             browser::desktop_browser_restore,
             browser::desktop_browser_persist,
+            browser_lifecycle::desktop_browser_control_reply,
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,

@@ -50,6 +50,11 @@ impl NativeBrowser {
         arguments: Value,
         cancelled: &CancellationToken,
     ) -> Result<Value, String> {
+        let timeout = if op == "control" && arguments["action"] == "open" {
+            35
+        } else {
+            14
+        };
         let call = async {
             let bytes = serde_json::to_vec(
                 &json!({"token":self.token,"owner":owner,"op":op,"arguments":arguments}),
@@ -102,7 +107,7 @@ impl NativeBrowser {
         tokio::select! {
             biased;
             _ = cancelled.cancelled() => Err("native browser call cancelled".into()),
-            result = tokio::time::timeout(Duration::from_secs(14), call) => result.map_err(|_| "native browser callback timed out")?,
+            result = tokio::time::timeout(Duration::from_secs(timeout), call) => result.map_err(|_| "native browser callback timed out")?,
         }
     }
     pub(crate) async fn available(&self, owner: &str, cancelled: &CancellationToken) -> bool {
@@ -118,24 +123,31 @@ impl NativeBrowser {
         cancelled: &CancellationToken,
     ) -> Result<Value, String> {
         let op = match tool {
+            "control" => "control",
             "observe" => "observe",
             "perform" => "perform",
             _ => return Err("unknown native browser tool".into()),
         };
+        let may_have_effect = op == "perform"
+            || (op == "control" && arguments.get("action").and_then(Value::as_str) == Some("open"));
         let result = match self.request(owner, op, Value::Object(arguments), cancelled).await {
             Ok(result) => result,
-            Err(error) if op == "perform" => return Err(format!("native browser effect: unknown; {error}; do not replay automatically; observe actual state before deciding")),
+            Err(error) if may_have_effect => return Err(format!("native browser effect: unknown; {error}; do not replay automatically; observe actual state before deciding")),
             Err(error) => return Err(error),
         };
         // MCP result conventions remain authoritative for UI success/failure.
         Ok(
-            json!({"isError":op == "perform" && result.get("ok") != Some(&Value::Bool(true)),"content":[{"type":"text","text":result.to_string()}]}),
+            json!({"isError":(op == "perform" && result.get("ok") != Some(&Value::Bool(true))) || result.get("ok") == Some(&Value::Bool(false)),"content":[{"type":"text","text":result.to_string()}]}),
         )
     }
 }
 
 pub(crate) fn tools() -> Vec<Value> {
     vec![
+        json!({"name":"control","description":"Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. Do not claim trusted native input, cross-origin iframe traversal, screenshot or recording: these capabilities are explicitly unsupported in status. No arbitrary script or tab/owner override.","inputSchema":{"oneOf":[
+            {"type":"object","additionalProperties":false,"properties":{"action":{"const":"status"}},"required":["action"]},
+            {"type":"object","additionalProperties":false,"properties":{"action":{"const":"open"},"url":{"type":"string","maxLength":4096}},"required":["action","url"]}
+        ]}}),
         json!({"name":"observe","description":"Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence and one-shot refs; no OS input or screenshots. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null.","inputSchema":{"type":"object","additionalProperties":false,"properties":{"scope":{"type":"string","enum":["page","main","dialog"]},"text_offset":{"type":"integer","minimum":0,"maximum":1000000},"node_offset":{"type":"integer","minimum":0,"maximum":1000000},"option_offset":{"type":"integer","minimum":0,"maximum":1000000}}}}),
         json!({"name":"perform","description":"One DOM click/fill/select/scroll with the latest observed frame_id. Frame consumed even if callback is lost. Unknown effect requires observing before any retry. Applied is not task success. No script, selector, arbitrary tab, credentials or native OS input.","inputSchema":{"oneOf":[
             action_schema("click", json!({"ref":{"type":"string"}}), vec!["ref"]),
@@ -181,6 +193,61 @@ mod tests {
             .any(|tool| tool.to_string().contains("token")));
     }
     #[tokio::test]
+    async fn zero_tab_discovery_and_control_use_same_private_bridge_and_frozen_owner() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let browser = NativeBrowser {
+            address: listener.local_addr().unwrap(),
+            token: "a".repeat(64),
+        };
+        let server = tokio::spawn(async move {
+            for op in ["list", "control"] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let length = stream.read_u32().await.unwrap() as usize;
+                let mut bytes = vec![0; length];
+                stream.read_exact(&mut bytes).await.unwrap();
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(request["owner"], "chat-owner");
+                assert_eq!(request["op"], op);
+                if op == "control" {
+                    assert_eq!(request["arguments"]["action"], "open");
+                }
+                let result = if op == "list" {
+                    json!({"available":true,"bound":false})
+                } else {
+                    json!({"ok":true,"state":"ready","effect":"applied","tab_id":"browser:actual","url":"https://example.com/"})
+                };
+                let reply = serde_json::to_vec(&json!({"ok":true,"result":result})).unwrap();
+                stream.write_u32(reply.len() as u32).await.unwrap();
+                stream.write_all(&reply).await.unwrap();
+            }
+        });
+        assert!(
+            browser
+                .available("chat-owner", &CancellationToken::new())
+                .await
+        );
+        let parameters = json!({"action":"open","url":"https://example.com/"})
+            .as_object()
+            .unwrap()
+            .clone();
+        let result = browser
+            .call(
+                "chat-owner",
+                "control",
+                parameters,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["isError"], false);
+        let receipt: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(receipt["state"], "ready");
+        server.await.unwrap();
+        assert!(tools().iter().any(|tool| tool["name"] == "control"));
+    }
+
+    #[tokio::test]
     async fn predispatch_rejection_preserves_not_started_and_tool_failure() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let browser = NativeBrowser {
@@ -220,6 +287,28 @@ mod tests {
             .unwrap_err()
             .contains("effect: unknown"));
         assert!(!browser.available("owner", &cancel).await);
+    }
+    #[tokio::test]
+    async fn cancelled_status_does_not_claim_an_uncertain_navigation() {
+        let browser =
+            NativeBrowser::configuration(Some("127.0.0.1:1".into()), Some("a".repeat(64)))
+                .unwrap()
+                .unwrap();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        for (action, uncertain) in [("status", false), ("open", true)] {
+            let parameters = if action == "status" {
+                json!({"action":action})
+            } else {
+                json!({"action":action,"url":"https://example.com/"})
+            };
+            let arguments = parameters.as_object().unwrap().clone();
+            let error = browser
+                .call("owner", "control", arguments, &cancel)
+                .await
+                .unwrap_err();
+            assert_eq!(error.contains("effect: unknown"), uncertain);
+        }
     }
     #[tokio::test]
     async fn actual_framed_transport_captures_owner_and_rejects_oversize_reply() {
