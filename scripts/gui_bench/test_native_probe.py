@@ -16,6 +16,9 @@ class NativeProbeTests(unittest.TestCase):
         for action in ('mouseDown','mouseUp','keyDown','keyUp'):
             self.assertIn('view.'+action+'(&event)',native)
         self.assertNotIn('window.sendEvent(&event)',native)
+        self.assertIn('view.isHiddenOrHasHiddenAncestor()',native)
+        self.assertIn('window.makeFirstResponder(Some(view))',native)
+        self.assertIn('NSProcessInfo::processInfo().systemUptime()',native)
         self.assertNotIn('dispatchEvent',native.replace('// NSEvent/WebKit native input path, never DOM dispatchEvent or OS input.',''))
         source=(root/'browser-inspect-probe.rs').read_text()
         self.assertIn("document.activeElement?.id === 'answer'",source)

@@ -3,7 +3,7 @@ use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventModifierFlags, NSEventType, NSImage,
 };
-use objc2_foundation::{NSDictionary, NSError, NSPoint, NSString};
+use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSString};
 use objc2_web_kit::WKWebView;
 use tauri::webview::PlatformWebview;
 use tokio::sync::oneshot::Sender;
@@ -27,6 +27,18 @@ pub fn button(
     let result = (|| {
         let view = view(&handle)?;
         let window = view.window().ok_or("WKWebView window missing")?;
+        // Tauri's focus request is queued. Inspect the native presentation and
+        // acknowledge the owned responder in this exact dispatch closure; never
+        // activate the app, show a hidden view or route into another responder.
+        let hidden = view.isHiddenOrHasHiddenAncestor();
+        let visible = view.visibleRect();
+        let focused = !hidden && window.makeFirstResponder(Some(view));
+        println!("NATIVE_INPUT_PRESENTATION hidden={hidden} visible=({},{},{},{}) window_visible={} key_window={} responder_accepted={focused}",
+            visible.origin.x, visible.origin.y, visible.size.width, visible.size.height,
+            window.isVisible(), window.isKeyWindow());
+        if hidden || !focused {
+            return Err("owned native browser is hidden or cannot accept focus".into());
+        }
         // Browser coordinates start at the upper left. An unflipped AppKit
         // view starts at the lower left; converting to window coordinates does
         // not itself change that input convention. Never infer the convention
@@ -42,7 +54,7 @@ pub fn button(
             NSEventType::LeftMouseUp
         };
         let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
-            kind,point,NSEventModifierFlags::empty(),0.0,window.windowNumber(),None,0,1,1.0)
+            kind,point,NSEventModifierFlags::empty(),NSProcessInfo::processInfo().systemUptime(),window.windowNumber(),None,0,1,1.0)
             .ok_or("native mouse event unavailable")?;
         // Dispatch to the owned browser responder, not the outer application
         // window's hit-testing/current-responder routing. This is still an
@@ -67,7 +79,7 @@ pub fn key_z(handle: PlatformWebview, pressed: bool, reply: Sender<Result<(), St
             NSEventType::KeyUp
         };
         let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
-            kind,NSPoint::new(0.0,0.0),NSEventModifierFlags::empty(),0.0,window.windowNumber(),None,&text,&text,false,6)
+            kind,NSPoint::new(0.0,0.0),NSEventModifierFlags::empty(),NSProcessInfo::processInfo().systemUptime(),window.windowNumber(),None,&text,&text,false,6)
             .ok_or("native key event unavailable")?;
         if pressed {
             view.keyDown(&event);

@@ -62,8 +62,14 @@ No arbitrary JS-eval tool or global desktop-input bypass was added.
    dropping input; direct scoped native responder dispatch plus focus settling
    produced trusted click/key/input/key-up and `z`. That diagnostic is not Tauri
    acceptance. The next candidate uses the owned WKWebView's public responder
-   methods and waits for observed input focus before sending keys; it must be
-   retested in actual Tauri. This is not three-platform parity.
+   methods and waits for observed input focus before sending keys. Actual Tauri
+   `c1f9b21` still failed (18.700 s): no mouse events, no observed input focus;
+   the key was correctly not dispatched. This rejects treating the standalone
+   diagnostic as a fix. The following candidate records native visibility,
+   visible bounds and owned-responder acknowledgement in the dispatch closure,
+   and uses NSEvent's uptime timestamp; that is pending verification, not a
+   claimed root cause. The exact failed/prospective CI-built probe executable is
+   retained for no-local-Rust-build diagnosis. This is not three-platform parity.
 5. Paid DeepSeek: actual Host with only `plugin_mcp`, genuine native WebView and
    canonical AppFrame; starts with zero tabs and natural prompts (no tool-name
    hint). Each trial has an independent fixture-state grader and accounting/
@@ -127,6 +133,12 @@ methods route to its native input pipeline. References:
 <https://developer.apple.com/documentation/appkit/nsevent/locationinwindow>,
 <https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/API/mac/WKWebViewMac.mm>.
 The retained failures, not those references alone, determine acceptance.
+
+On `c1f9b21`, strict native core effects passed on CI Linux (10.717 s) and
+Windows (24.328 s), including observed focus, trusted key/input/up, cross-origin
+coordinate input and independently decoded changing foreground pixels. Windows
+hidden capture still timed out; macOS remained a failed gate. Those exact-head
+results do not qualify a later candidate automatically.
 
 ## Remaining release gates
 
