@@ -194,6 +194,7 @@ jobs:
       - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-assistant-projection.mjs
       - run: node scripts/test-assistant-visibility-lifecycle.mjs
+      - run: node --test scripts/test-tool-argument-progress.mjs
       - run: node scripts/test-retry-turn-projection.mjs
       - run: node scripts/test-network-wait-ui.mjs
       - run: node scripts/test-atomic-history.mjs
@@ -224,6 +225,7 @@ jobs:
             UI_TEST_BROWSER="$browser" node scripts/test-code-review-filters-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-code-review-p0-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-global-assistant-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-tool-argument-progress-browser.mjs
             for implementation in source legacy; do
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs
