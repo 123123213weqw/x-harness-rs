@@ -6,10 +6,23 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from scripts.gui_bench.run_native_probe import command, environment, cleanup, cleanup_profile, hard_capabilities, contract_completed, core_native_apis_passed
+from scripts.gui_bench.run_native_probe import command, environment, cleanup, cleanup_profile, hard_capabilities, contract_completed, core_native_apis_passed, native_coordinates_verified
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_macos_geometry_uses_webkit_public_automatic_inset_conditions(self):
+        root=Path(__file__).resolve().parents[2]
+        native=(root/'apps/desktop/src-tauri/examples/native_api/macos.rs').read_text()
+        for source in ('NSWindowStyleMask::FullSizeContentView', '!window.titlebarAppearsTransparent()',
+                       'view.enclosingScrollView().is_none()', 'window.updateConstraintsIfNeeded()',
+                       'view.convertRect_fromView(window.contentLayoutRect(), None)', 'content_point(x, y, height, flipped, top)?'):
+            self.assertIn(source, native)
+        # Never compensate an observed 28px discrepancy with a magic constant or SPI.
+        implementation=native.split('#[cfg(test)]')[0]
+        self.assertNotIn('28.0', implementation)
+        self.assertNotIn('_topContentInset', implementation)
+        self.assertIn('--macos-titlebar overlay', (root/'.github/workflows/ci.yml').read_text())
+
     def test_macos_probe_targets_owned_native_responder_and_observes_focus(self):
         root=Path(__file__).resolve().parents[2]/'apps/desktop/src-tauri/examples'
         native=(root/'native_api/macos.rs').read_text()
@@ -27,7 +40,9 @@ class NativeProbeTests(unittest.TestCase):
 
     def test_core_api_gate_requires_trusted_state_and_changed_pixels(self):
         api = dict(status='tested', native_mouse={'passed':True}, native_keyboard={'passed':True},
-            cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True)
+            cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True,
+            observed={'pointers':[dict(type='click',trusted=True,id=target,x=x,y=y)
+                for target,x,y in [('native-probe',450,120),('answer',60,35)]]})
         self.assertTrue(core_native_apis_passed(api))
         self.assertFalse(core_native_apis_passed({}))
         for name in ('native_mouse','native_keyboard','cross_origin_pointer'):
@@ -35,6 +50,22 @@ class NativeProbeTests(unittest.TestCase):
                 self.assertFalse(core_native_apis_passed(dict(api, **{name:value})))
         self.assertFalse(core_native_apis_passed(dict(api, snapshot_sequence_verified=False)))
         self.assertFalse(core_native_apis_passed(dict(api, status='unverified')))
+        self.assertFalse(core_native_apis_passed(dict(api, observed={})))
+
+    def test_native_pointer_coordinates_are_independently_checked_and_bounded(self):
+        events=[dict(type='click',trusted=True,id=target,x=x,y=y)
+                for target,x,y in [('native-probe',450,120),('answer',60,35)]]
+        def checked(items): return native_coordinates_verified({'observed':{'pointers':items}})
+        self.assertTrue(checked(events))
+        for axis in ('x','y'):
+            for value in (None, True, '120', float('nan'), float('inf'), -1, 92):
+                self.assertFalse(checked([dict(events[0],**{axis:value}),events[1]]))
+        for key,value in [('type','mousedown'),('trusted',False),('id','wrong')]:
+            self.assertFalse(checked([dict(events[0],**{key:value}),events[1]]))
+        self.assertFalse(checked(events * 16))
+        self.assertFalse(checked(events[:1]))
+        for invalid in (None,{},[],{'observed':None},{'observed':{'pointers':'fake'}}):
+            self.assertFalse(native_coordinates_verified(invalid if isinstance(invalid,dict) else {}))
 
     def test_all_gui_entry_points_prepare_x11_before_tauri_initialization(self):
         root = Path(__file__).resolve().parents[2] / 'apps/desktop/src-tauri'

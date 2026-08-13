@@ -53,23 +53,36 @@ No arbitrary JS-eval tool or global desktop-input bypass was added.
 4. Exact `b6e2c65` CI receipts: Windows trusted mouse/key, cross-origin coordinate
    click and changed-color foreground PNGs passed (23.109 s); a hidden snapshot
    timed out and is **not** marked supported. macOS changed-color foreground/
-   hidden PNGs passed, but native input produced no trusted events (19.190 s).
+   hidden PNGs passed, but native input missed target listeners (19.190 s).
    The callback-only gate incorrectly passed that probe. The strict core gate
    now fails unsuccessful input. On `4216067`, the coordinate-only hypothesis was
    rejected: WKWebView reported `flipped=true`, correctly converted points, but
-   no input events; the strict CI gate failed as intended (15.245 s). An owned,
+   no target input events; the strict CI gate failed as intended (15.245 s). An owned,
    invisible, nonpersistent WKWebView diagnostic reproduced window `sendEvent`
    dropping input; direct scoped native responder dispatch plus focus settling
    produced trusted click/key/input/key-up and `z`. That diagnostic is not Tauri
    acceptance. The next candidate uses the owned WKWebView's public responder
    methods and waits for observed input focus before sending keys. Actual Tauri
-   `c1f9b21` still failed (18.700 s): no mouse events, no observed input focus;
+   `c1f9b21` still failed (18.700 s): no target mouse events, no observed input focus;
    the key was correctly not dispatched. This rejects treating the standalone
    diagnostic as a fix. The following candidate records native visibility,
    visible bounds and owned-responder acknowledgement in the dispatch closure,
    and uses NSEvent's uptime timestamp; that is pending verification, not a
-   claimed root cause. The exact failed/prospective CI-built probe executable is
-   retained for no-local-Rust-build diagnosis. This is not three-platform parity.
+   claimed root cause. On `2beb668`, macOS again failed the strict core gate;
+   the exact CI executable (SHA-256 `1558c206ac7e6f3eab4f08f1d70b0e8ca1b9fb11d0636cfcd61eeb3919b3a090`)
+   also failed unmodified on local macOS 26 (13.091 s, cleanup passed). An owned
+   process-only diagnostic then found **trusted events arriving 28 px above
+   the requested CSS target**, rather than input not arriving at all. Native
+   window identity and view-local points matched; public `contentLayoutRect`
+   converted to top inset 28, safe/obscured insets 28, and CSS viewport height
+   was 532 versus native height 560. A diagnostic public-geometry correction
+   hit the button, input and cross-origin coordinate target with trusted events.
+   That injected diagnostic is NOT acceptance. The new test-only Rust adapter
+   mirrors WebKit's automatic-inset conditions through public AppKit geometry,
+   without a magic 28px constant or private API. Ordinary and Overlay titlebars
+   must both pass an unmodified CI-built Tauri probe; the independent grader now
+   verifies exact trusted pointer coordinates as well as effects and PNGs.
+   This is not three-platform parity.
 5. Paid DeepSeek: actual Host with only `plugin_mcp`, genuine native WebView and
    canonical AppFrame; starts with zero tabs and natural prompts (no tool-name
    hint). Each trial has an independent fixture-state grader and accounting/
@@ -122,7 +135,7 @@ The runner now separates `passed`, `blocked_by_budget_gate`, `evaluation_failed`
 trials; provider/Host error turns are not silently counted as task-quality scores.
 No output/action is replayed or edited to make a failed trial pass.
 
-Engineering validation: 62 portable Python tests, 54 remote desktop library
+Engineering validation before the inset candidate: 62 portable Python tests, 54 remote desktop library
 unit tests, strict source UI typecheck/build equality. Remote Linux prototype
 core APIs passed; the independent CI repeat also passed in 11.745 s, plus 4/4
 pre-opened and 4/4 genuine-zero-tab contracts. Core native feasibility now
@@ -132,7 +145,11 @@ window coordinates and view conversion; WebKit's public WKWebView responder
 methods route to its native input pipeline. References:
 <https://developer.apple.com/documentation/appkit/nsevent/locationinwindow>,
 <https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/API/mac/WKWebViewMac.mm>.
-The retained failures, not those references alone, determine acceptance.
+The automatic top inset algorithm is in
+<https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/mac/PageClientImplMac.mm>;
+<https://github.com/WebKit/WebKit/blob/main/Source/WebCore/platform/mac/PlatformEventFactoryMac.mm>
+converts native mouse window points into the view coordinate space. The retained
+failures, not those references alone, determine acceptance.
 
 On `c1f9b21`, strict native core effects passed on CI Linux (10.717 s) and
 Windows (24.328 s), including observed focus, trusted key/input/up, cross-origin
@@ -142,7 +159,7 @@ results do not qualify a later candidate automatically.
 
 ## Remaining release gates
 
-- Retest scoped WKWebView native responder/focus acknowledgement and the strict core gate on macOS/Windows.
+- Retest the native content-inset conversion in the strict core gate on macOS, with ordinary and Overlay titlebars; rerun Windows/Linux on the same candidate.
 - Review cross-origin **element discovery/refs**, full recording/encoding,
   background policy, non-ASCII/IME/shortcuts, transfers and ownership revocation
   before enabling native inputs/screenshots as production capabilities.
