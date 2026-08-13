@@ -9,6 +9,11 @@ import { compileSourceModules } from './build-source-modules.mjs'
 const ui=new URL('../ui/',import.meta.url),id='@xharness/dsh-client-ui-conversation';
 const require=createRequire(new URL('../ui/package.json',import.meta.url)),ts=require('typescript');
 const units={
+ AssistantMarkdown:['chat/AssistantMarkdown','AssistantMarkdown'],
+ toolArgumentPreview:['chat/tool-argument-view','toolArgumentPreview'],
+ boundedToolArgumentText:['chat/tool-argument-view','boundedToolArgumentText'],
+ formatToolArgumentBytes:['chat/tool-argument-view','formatToolArgumentBytes'],
+ TOOL_ARGUMENT_PREVIEW_LIMIT:['chat/tool-argument-view','TOOL_ARGUMENT_PREVIEW_LIMIT'],
  deriveAncestry:['skeleton/ConversationSession','deriveAncestry'],
  resolveActiveView:['skeleton/ConversationSession','resolveActiveView'],
  InputBar:['skeleton/InputBar','InputBar'],
