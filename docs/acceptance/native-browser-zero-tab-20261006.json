@@ -1,0 +1,362 @@
+{
+  "candidate_source": "b6e2c65d811f4b0e7867b00210e5a5ec3ec45cd4",
+  "attempted": 12,
+  "fully_executed_accepted": 8,
+  "admission_blocked_attempts": 4,
+  "model_quality_failures_in_fully_executed_trials": 0,
+  "requests": 160,
+  "conservative_usd": 0.2628189000000001,
+  "limit_usd": 1.0,
+  "closed": true,
+  "pending": 0,
+  "budget_denials": 8,
+  "continuations": [
+    {
+      "start_request": 80,
+      "start_usd": 0.12622139999999987,
+      "max_calls": 200
+    }
+  ],
+  "ledger_sha256": "f11e9ba7dec776c9365ff2eff9bb5a1d663ffad988efc77da2237fa653e6da61",
+  "trials": [
+    {
+      "suite": "paid-natural",
+      "task": "issue",
+      "repetition": 0,
+      "accepted": true,
+      "outcome": "passed",
+      "model_calls": 18,
+      "seconds": 45.962,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural",
+      "task": "pr",
+      "repetition": 0,
+      "accepted": true,
+      "outcome": "passed",
+      "model_calls": 18,
+      "seconds": 46.749,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural",
+      "task": "dynamic",
+      "repetition": 0,
+      "accepted": true,
+      "outcome": "passed",
+      "model_calls": 17,
+      "seconds": 67.829,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural",
+      "task": "game",
+      "repetition": 0,
+      "accepted": true,
+      "outcome": "passed",
+      "model_calls": 25,
+      "seconds": 81.196,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural",
+      "task": "issue",
+      "repetition": 1,
+      "accepted": false,
+      "outcome": "blocked_by_budget_gate",
+      "model_calls": 2,
+      "seconds": 5.756,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural",
+      "task": "pr",
+      "repetition": 1,
+      "accepted": false,
+      "outcome": "blocked_by_budget_gate",
+      "model_calls": 0,
+      "seconds": 2.014,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural",
+      "task": "dynamic",
+      "repetition": 1,
+      "accepted": false,
+      "outcome": "blocked_by_budget_gate",
+      "model_calls": 0,
+      "seconds": 2.225,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural",
+      "task": "game",
+      "repetition": 1,
+      "accepted": false,
+      "outcome": "blocked_by_budget_gate",
+      "model_calls": 0,
+      "seconds": 2.425,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural-repeat",
+      "task": "issue",
+      "repetition": 0,
+      "accepted": true,
+      "outcome": "passed",
+      "model_calls": 17,
+      "seconds": 43.188,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural-repeat",
+      "task": "pr",
+      "repetition": 0,
+      "accepted": true,
+      "outcome": "passed",
+      "model_calls": 18,
+      "seconds": 40.31,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural-repeat",
+      "task": "dynamic",
+      "repetition": 0,
+      "accepted": true,
+      "outcome": "passed",
+      "model_calls": 20,
+      "seconds": 46.28,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    },
+    {
+      "suite": "paid-natural-repeat",
+      "task": "game",
+      "repetition": 0,
+      "accepted": true,
+      "outcome": "passed",
+      "model_calls": 25,
+      "seconds": 72.444,
+      "provider_settled": true,
+      "pending": 0,
+      "cleanup": true,
+      "initial_tabs": 0,
+      "host_sha256": "89d4a1dad68816be8becfa5a6ecf64dba4957b949175f488926f44bb96f24a9f",
+      "native_sha256": "241768592fa44eff99597dcbe72b045efa4ad7514ab444f5815fd12720117404"
+    }
+  ],
+  "scope": "Linux disposable AppFrame/BrowserPane/native WebView; natural prompts; only plugin_mcp; not installed-app or full browser parity",
+  "ui_input_map_sha256": "4324ce4bee9de554cc7b67771de13e3556cda3a7c5dda2fe8a8b97136ff70e8b",
+  "pricing_policy": {
+    "model": "deepseek-flash",
+    "currency": "USD",
+    "input_limit": 1000000,
+    "output_limit": 8192,
+    "input_per_million": 0.3,
+    "output_per_million": 1.2,
+    "source_date": "2026-10-06",
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+  },
+  "provider_invoice": false,
+  "financial_scope": "New browser-only USD 1 scope; old CNY ledger unchanged",
+  "original_admission_blockers_retained": true,
+  "ci_linux_native": {
+    "run": 37411250939,
+    "artifact": "native-browser-dom-linux",
+    "trusted_mouse": true,
+    "trusted_keyboard": true,
+    "cross_origin_coordinate_click": true,
+    "changed_native_pixels": true,
+    "hidden_live_pixels": true,
+    "seconds": 11.745,
+    "source": "b6e2c65d811f4b0e7867b00210e5a5ec3ec45cd4"
+  },
+  "unverified_or_out_of_scope": [
+    "macOS scoped responder/focus acknowledgement Tauri retest; Windows hidden screenshot unsupported in this probe",
+    "cross-origin iframe element traversal",
+    "production native input/screenshot enablement",
+    "full video recorder",
+    "installed-app validation",
+    "macOS AX Computer Use failure"
+  ],
+  "ci_windows_native": {
+    "run": 37411250939,
+    "source": "b6e2c65d811f4b0e7867b00210e5a5ec3ec45cd4",
+    "seconds": 23.109,
+    "trusted_mouse": true,
+    "trusted_keyboard": true,
+    "cross_origin_coordinate_click": true,
+    "changed_native_pixels": true,
+    "hidden_live_pixels": false,
+    "hidden_snapshot_error": "callback_timeout"
+  },
+  "ci_macos_native": {
+    "run": 37411250939,
+    "source": "b6e2c65d811f4b0e7867b00210e5a5ec3ec45cd4",
+    "seconds": 19.19,
+    "trusted_mouse": false,
+    "trusted_keyboard": false,
+    "cross_origin_coordinate_click": false,
+    "changed_native_pixels": true,
+    "hidden_live_pixels": true,
+    "core_gate_passed": false
+  },
+  "macos_coordinate_only_retest": {
+    "run": 37412701210,
+    "source": "421606729b9ff5e6968fd5e89b376955c76f4e2e",
+    "seconds": 15.245,
+    "flipped": true,
+    "native_core_passed": false,
+    "gate_correctly_failed": true
+  },
+  "macos_scoped_responder_diagnostic": {
+    "kind": "owned nonpersistent invisible WKWebView, not Tauri",
+    "window_send_event": {
+      "trusted_click": false,
+      "input": ""
+    },
+    "direct_scoped_responder": {
+      "trusted_click": true,
+      "trusted_keydown": true,
+      "trusted_input": true,
+      "trusted_keyup": true,
+      "input": "z"
+    },
+    "display_capture": false,
+    "global_input": false,
+    "provider_calls": 0
+  },
+  "ci_c1_strict_native": {
+    "run": 37413582695,
+    "source": "c1f9b21805f1156a52a4aae16ff0533177585b1f",
+    "linux": {
+      "native_core_passed": true,
+      "seconds": 10.717,
+      "trusted_mouse": true,
+      "trusted_keyboard": true,
+      "focus_observed": true,
+      "cross_origin_coordinate_click": true,
+      "changed_native_pixels": true,
+      "hidden_live_pixels": true,
+      "binary_sha256": "77e848f6384245f1660224292f84b99242380977ef93ad265a57bbca2b4c4410",
+      "browser_parity_passed": false,
+      "cleanup_passed": true
+    },
+    "windows": {
+      "native_core_passed": true,
+      "seconds": 24.328,
+      "trusted_mouse": true,
+      "trusted_keyboard": true,
+      "focus_observed": true,
+      "cross_origin_coordinate_click": true,
+      "changed_native_pixels": true,
+      "hidden_live_pixels": false,
+      "binary_sha256": "d69451ab1547caf2df5b1a0411a27806e68c48a7bcc6b231b928583246f00341",
+      "browser_parity_passed": false,
+      "cleanup_passed": true
+    },
+    "macos": {
+      "native_core_passed": false,
+      "seconds": 18.7,
+      "trusted_mouse": false,
+      "trusted_keyboard": false,
+      "focus_observed": false,
+      "cross_origin_coordinate_click": false,
+      "changed_native_pixels": true,
+      "hidden_live_pixels": true,
+      "binary_sha256": "526c878f5897fcc02f727e55d65eceaafefe5b1753ae4ce852e205981e76fae0",
+      "browser_parity_passed": false,
+      "cleanup_passed": true
+    }
+  },
+  "macos_inset_investigation": {
+    "candidate_source": "2beb668b4f8b33d8ec8889720a7e2e99abffa67f",
+    "ci_run": 37414998854,
+    "binary_sha256": "1558c206ac7e6f3eab4f08f1d70b0e8ca1b9fb11d0636cfcd61eeb3919b3a090",
+    "unmodified_local_probe": {
+      "core_passed": false,
+      "seconds": 13.091,
+      "cleanup_passed": true,
+      "dpr": 2
+    },
+    "owned_process_diagnostic_not_acceptance": {
+      "native_event_window_matches": true,
+      "view_height": 560,
+      "css_viewport_height": 532,
+      "public_content_layout_top": 28,
+      "requested_pointer": [
+        450,
+        120
+      ],
+      "observed_trusted_pointer_before": [
+        450,
+        92
+      ],
+      "public_geometry_corrected_pointer": [
+        450,
+        120
+      ],
+      "trusted_mouse": true,
+      "trusted_keyboard": true,
+      "cross_origin_coordinate_click": true,
+      "global_input": false,
+      "provider_calls": 0
+    },
+    "rust_fix_retest": "pending unmodified CI/native probe, ordinary and Overlay titlebars; no hardcoded inset"
+  }
+}

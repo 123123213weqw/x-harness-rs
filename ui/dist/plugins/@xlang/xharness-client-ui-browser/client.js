@@ -275,6 +275,8 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
         let binding = null;
         let renewalTimer;
         let loading = false;
+        let completing = false;
+        let eventsReady = false;
         const send = (command, args) => native.core.invoke(command, args);
         const visible = () => {
             if (disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current))
@@ -294,7 +296,7 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
         const syncBounds = () => {
             const requested = ++generation;
             return enqueueNative(async () => {
-                if (disposed || requested !== generation)
+                if (disposed || !eventsReady || requested !== generation)
                     return false;
                 const current = () => requested === generation && visible();
                 if (!current()) {
@@ -360,6 +362,17 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
                     clearTimeout(renewalTimer);
                     renewalTimer = setTimeout(syncBounds, delay);
                 }
+                const requestId = itemRef.current.modelRequestId;
+                if (!loading && binding && requestId && !completing) {
+                    completing = true;
+                    const accepted = await send('desktop_browser_control_reply', { requestId, reply: { status: 'ready', tab_id: item.id } });
+                    if (accepted === true) {
+                        onUpdate({ modelRequestId: undefined });
+                        window.dispatchEvent(new CustomEvent('xharness:browser-control-settled', { detail: requestId }));
+                    }
+                    else
+                        completing = false;
+                }
                 return true;
             }).catch((error) => {
                 if (!disposed && requested === generation) {
@@ -373,7 +386,6 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
         observer.observe(content);
         const stopWatchingSurfaces = watchBrowserSurfaces(content, syncBounds);
         window.addEventListener('resize', syncBounds);
-        requestAnimationFrame(syncBounds);
         let unlisten = null;
         native.event.listen('xharness-browser-event', event => {
             const payload = browserPayload(event.payload);
@@ -410,8 +422,11 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
                 setError(`已阻止非网页链接：${payload.value}`);
         }).then(fn => { if (disposed)
             fn();
-        else
-            unlisten = fn; }).catch((error) => { if (!disposed)
+        else {
+            unlisten = fn;
+            eventsReady = true;
+            requestAnimationFrame(syncBounds);
+        } }).catch((error) => { if (!disposed)
             setError(String(error)); });
         return () => {
             disposed = true;
@@ -423,6 +438,13 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
             unlisten?.();
             if (nativeSyncRef.current === syncBounds)
                 nativeSyncRef.current = null;
+            const requestId = itemRef.current.modelRequestId;
+            if (requestId) {
+                // Closing/switching chats cancels the rendezvous immediately, not after
+                // its full load timeout. Native verifies the main caller and request ID.
+                void native.core.invoke('desktop_browser_control_reply', { requestId, reply: { status: 'failed' } }).catch(() => { });
+                void invoke('desktop_browser_close', { tabId: item.id }).catch(() => { });
+            }
             void invoke('desktop_browser_activate', { tabId: null }).catch(() => { });
         };
     }, [item.id, open, sessionId]);

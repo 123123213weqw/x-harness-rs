@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OnceCell, Semaphore};
 
-use crate::{browser::BrowserState, browser_inspect, browser_perform};
+use crate::{browser::BrowserState, browser_inspect, browser_lifecycle, browser_perform};
 
 const MAX_REQUEST: usize = 32 * 1024;
 const MAX_REPLY: usize = 64 * 1024;
@@ -34,6 +34,7 @@ struct Request {
 #[serde(rename_all = "lowercase")]
 enum Operation {
     List,
+    Control,
     Observe,
     Perform,
 }
@@ -66,7 +67,7 @@ impl BrowserBridge {
                 let secret = token.clone();
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    let slots = Arc::new(Semaphore::new(2));
+                    let slots = Arc::new(Semaphore::new(8));
                     while let Ok((stream, _)) = listener.accept().await {
                         let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else {
                             continue;
@@ -76,7 +77,7 @@ impl BrowserBridge {
                         tauri::async_runtime::spawn(async move {
                             let _permit = permit;
                             let _ = tokio::time::timeout(
-                                Duration::from_secs(15),
+                                Duration::from_secs(36),
                                 serve(stream, app, &secret),
                             )
                             .await;
@@ -108,7 +109,12 @@ async fn serve(mut stream: TcpStream, app: AppHandle, secret: &str) -> Result<()
     })
     .await
     .map_err(|_| ())??;
-    let result = dispatch(&app, request).await;
+    // Closing the Host socket cancels open's UI rendezvous too. No detached
+    // navigation continues after a caller has abandoned the request.
+    let result = tokio::select! {
+        result = dispatch(&app, request) => result,
+        _ = stream.read_u8() => return Err(()),
+    };
     let reply = match result {
         Ok(result) => json!({"ok":true,"result":result}),
         Err(error) => json!({"ok":false,"error":error}),
@@ -128,7 +134,26 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
         if request.arguments != json!({}) {
             return Err("list takes no arguments".into());
         }
-        return Ok(json!({"available":state.delegated_tab(&request.owner).is_ok()}));
+        return Ok(browser_lifecycle::descriptor(&state, &request.owner));
+    }
+    if matches!(request.op, Operation::Control) {
+        let action = match parse_control(request.arguments) {
+            Ok(action) => action,
+            Err(receipt) => return Ok(receipt),
+        };
+        return match action {
+            browser_lifecycle::ControlRequest::Status {} => {
+                Ok(browser_lifecycle::descriptor(&state, &request.owner))
+            }
+            browser_lifecycle::ControlRequest::Open { url } => {
+                if let Err(error) = crate::browser::web_url(&url) {
+                    return Ok(rejected_action(&error));
+                }
+                app.state::<browser_lifecycle::BrowserLifecycle>()
+                    .open(app, &request.owner, url)
+                    .await
+            }
+        };
     }
     let tab = match state.delegated_tab(&request.owner) {
         Ok(tab) => tab,
@@ -162,7 +187,7 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
                 Err(error) => Ok(rejected_action(&error)),
             }
         }
-        Operation::List => unreachable!(),
+        Operation::List | Operation::Control => unreachable!(),
     }
 }
 
@@ -174,9 +199,27 @@ fn parse_action(arguments: Value) -> Result<browser_perform::PerformRequest, Val
     serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native action arguments; describe perform for the action-specific schema; no action was scheduled"))
 }
 
+fn parse_control(arguments: Value) -> Result<browser_lifecycle::ControlRequest, Value> {
+    serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native control arguments; describe control for status/open; no navigation was scheduled"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn malformed_control_is_unstarted_and_does_not_echo_private_input() {
+        for arguments in [
+            json!({"action":"eval","script":"private-input"}),
+            json!({"action":"status","owner":"private-input"}),
+            json!({"action":"open","url":123}),
+        ] {
+            let receipt = parse_control(arguments).err().unwrap();
+            assert_eq!(receipt["ok"], false);
+            assert_eq!(receipt["effect"], "not_started");
+            assert!(!receipt.to_string().contains("private-input"));
+        }
+        assert!(parse_control(json!({"action":"status"})).is_ok());
+    }
     #[test]
     fn malformed_action_is_not_started_not_unknown_and_never_echoes_input() {
         let receipt = parse_action(json!({"action":"eval","script":"private-input"})).unwrap_err();
