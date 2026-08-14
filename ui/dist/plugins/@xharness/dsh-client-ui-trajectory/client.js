@@ -18524,6 +18524,7 @@ exports.sessionDeleteRequestSchema = zod_1.z.object({
 });
 exports.sessionDeleteValueSchema = zod_1.z.object({
     deleted: zod_1.z.boolean(),
+    deletedSessionIds: zod_1.z.array(exports.sessionIdSchema).optional(),
 });
 
 },
