@@ -18,6 +18,7 @@ import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots'
 import { ReasoningRow } from './ReasoningRow'
 import css from './AssistantMarkdown.styles'
 import { preparingCall } from './preparing-call'
+import { ToolArgumentProgress } from './ToolArgumentProgress'
 
 export interface AssistantMarkdownProps {
   blocks: readonly AssistantBlock[]
@@ -95,9 +96,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       }
       // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
       case 'tool-call':
-        if (streaming && preparingCall(block)) rendered.push(<div key={i} className="xh-tool-preparing" role="status" aria-live="polite">
-          {(document.documentElement.lang || '').startsWith('zh') ? '准备工具' : 'Preparing tool'} · {block.name}
-        </div>)
+        if (streaming && preparingCall(block)) rendered.push(<ToolArgumentProgress key={`${i}:${block.callId}:${block.startedAt ?? ''}`} block={block} t={t} />)
         break
       default:
         rendered.push(
