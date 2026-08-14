@@ -493,7 +493,12 @@ pub enum HostFrame {
         agent_preset: Option<String>,
     },
     #[serde(rename = "host/session-removed", rename_all = "camelCase")]
-    SessionRemoved { session_id: String },
+    SessionRemoved {
+        session_id: String,
+        /// Absent for temporary Activation detachment; true only after a durable tombstone.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permanent: Option<bool>,
+    },
     #[serde(rename = "host/session-status", rename_all = "camelCase")]
     SessionStatus { session_id: String, running: bool },
     #[serde(rename = "host/agent-error", rename_all = "camelCase")]
