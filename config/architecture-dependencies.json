@@ -101,6 +101,7 @@
     "xharness-web-terminal",
     "xharness-win32"
   ],
+  "xharness-installation": [],
   "xharness-interaction": [
     "xharness-tools"
   ],
