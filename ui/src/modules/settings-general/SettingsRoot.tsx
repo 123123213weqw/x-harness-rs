@@ -52,7 +52,9 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
   return (
     <DialogSurface className={css.overlay} labelledBy={titleId} onClose={onClose} initialFocus={closeButton}>
       <div className={css.mask} aria-hidden="true" onClick={onClose} />
-      <div className={css.panel}>
+      {/* Section sizing belongs to this card, never the full-viewport dialog.
+          Keep a semantic hook so feature CSS need not target role="dialog". */}
+      <div className={css.panel} data-xh-settings-panel="">
         <nav className={css.nav}>
           <div className={css.navTitle} id={titleId}>{renderSlot('settings.header', {})}</div>
           <div className={css.navList}>
