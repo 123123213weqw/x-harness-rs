@@ -3,8 +3,9 @@
  * the runtime's built-in 'root' slot and, in the same breath, declares the
  * four child slots (declaration = exclusive render authority), seats the
  * layout store (panel geometry), and wires the panel-action service face.
- * ctx.layout is the cross-plugin panel-action contract; navigation state lives
- * with the runtime sessions service. A second effect seats the theme
+ * ctx.layout is the cross-plugin panel-action contract; session selection lives
+ * with the runtime sessions service, while ShellNavigation owns window-local
+ * page/session visit history. A second effect seats the theme
  * presenter, which projects ctx.theme snapshots onto document.body.
  */
 import type { ClientContext } from '../views-types'
@@ -13,6 +14,7 @@ import { AppFrame } from './AppFrame'
 import { createLayoutStore } from './stores'
 import { LayoutController } from './service'
 import { ThemePresenter } from './theme-presenter'
+import { ShellNavigation } from './shell-navigation'
 
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
@@ -38,6 +40,8 @@ export interface SidebarOwnerProps {
   collapsed: boolean
   /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
   width: number
+  /** Window-local route history, separate from panel geometry and Agent work. */
+  navigation: import('./shell-navigation').ShellNavigationControls
 }
 
 /** Conversation owner share: business state and actions belong to the registrant. */
@@ -47,7 +51,7 @@ export interface ConvOwnerProps {}
 export interface DetailsOwnerProps {}
 
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
-export const inject = ['slots', 'theme']
+export const inject = ['slots', 'theme', 'sessions']
 
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
@@ -57,6 +61,7 @@ export const inject = ['slots', 'theme']
  */
 export function apply(ctx: ClientContext): void {
   const layout = new LayoutController()
+  const navigation = new ShellNavigation(ctx.get('sessions'))
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeRegistration = ctx.slots.register({
@@ -80,7 +85,7 @@ export function apply(ctx: ClientContext): void {
       // conversation business actions belong to their registrants.
       inject: (actions: PanelActions) => {
         layout.attachPanels(actions)
-        return {}
+        return { navigation }
       },
     }, AppFrame)
     return () => {
