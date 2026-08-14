@@ -18,7 +18,9 @@ use windows::{
         System::LibraryLoader::GetModuleHandleW,
         UI::{
             HiDpi::*,
-            Input::KeyboardAndMouse::{GetAsyncKeyState, GetKeyState},
+            Input::KeyboardAndMouse::{
+                EnableWindow, GetAsyncKeyState, GetKeyState, IsWindowEnabled,
+            },
             WindowsAndMessaging::*,
         },
     },
@@ -589,6 +591,108 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     record(
         "native_acceptance",
         json!({"cases":16,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
+    );
+    Ok(())
+}
+
+/// Actual elapsed-time regression, separate from fast CI/unit tests. Runs only
+/// on the authorized interactive clone. No age override or fake UI provider.
+pub async fn run_freshness() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var("XHARNESS_DISPOSABLE_COMPUTER_VM").as_deref()
+        != Ok("66b64058-bdcc-43e9-85ee-55a79fe2e875")
+    {
+        return Err("freshness acceptance requires the authorized disposable VM guard".into());
+    }
+    let prior = unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    if prior.0.is_null() {
+        return Err("cannot establish fixture physical-pixel DPI context".into());
+    }
+    let fixture = Fixture::open()?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let driver = WindowsComputer::new()?;
+    let observe = json!({"action":"observe","detail":"semantic","include_screenshot":false});
+    let output = execute(&driver, observe.clone()).await?;
+    let observed_frame = frame(&output)?;
+    let observed_edit = node(&output, "edit")?;
+    let started = Instant::now();
+    tokio::time::sleep(Duration::from_secs(65)).await;
+    let age_ms = started.elapsed().as_millis();
+    let output = execute(&driver, json!({"action":"type","node_id":observed_edit,"frame_id":observed_frame,"text":"slow decision accepted"})).await?;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    if age_ms < 65_000 || fixture.text() != "slow decision accepted" {
+        return Err("delayed observation did not deliver the input exactly once".into());
+    }
+    record(
+        "native_delayed_observation",
+        json!({"age_ms":age_ms,"independent_text_matches":true,"fixed_ttl":false}),
+    );
+
+    let text_before = fixture.text();
+    let expected = super::surface(HWND(fixture.root as *mut _)).ok_or("fixture disappeared")?;
+    // Change the real geometry without refreshing the driver's observation.
+    // Target the button at its old screen position: no click may be dispatched.
+    api(unsafe {
+        SetWindowPos(
+            HWND(fixture.root as *mut _),
+            None,
+            expected.bounds.x as i32 + 25,
+            expected.bounds.y as i32,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER,
+        )
+    })?;
+    let actual = super::surface(HWND(fixture.root as *mut _)).ok_or("fixture disappeared")?;
+    if actual.bounds == expected.bounds {
+        return Err("geometry fixture did not actually move".into());
+    }
+    let changed = driver.execute(serde_json::from_value(json!({"action":"click","frame_id":frame(&output)?,"x":expected.bounds.x+80.0,"y":expected.bounds.y+225.0}))?, CancellationToken::new()).await.expect_err("changed geometry must reject input");
+    if changed.code != "stale_surface"
+        || fixture.text() != text_before
+        || CLICKS.load(Ordering::Relaxed) != 0
+    {
+        return Err("geometry rejection mismatch or unexpected input".into());
+    }
+    record(
+        "native_changed_geometry_denied",
+        json!({"code":changed.code,"text_unchanged":true,"button_commands":0}),
+    );
+    let consumed = driver
+        .execute(
+            serde_json::from_value(
+                json!({"action":"type","frame_id":frame(&output)?,"text":"must not replay"}),
+            )?,
+            CancellationToken::new(),
+        )
+        .await
+        .expect_err("dispatched worker consumes the previous frame");
+    if consumed.code != "stale_frame" || fixture.text() != text_before {
+        return Err("consumed observation was reused".into());
+    }
+    record(
+        "native_consumed_frame_denied",
+        json!({"code":consumed.code,"text_unchanged":true}),
+    );
+
+    let output = execute(&driver, observe).await?;
+    let edit = node(&output, "edit")?;
+    // EnableWindow reports the previous state, not success; query the actual
+    // current state below instead of treating its BOOL as an error code.
+    let _ = unsafe { EnableWindow(HWND(fixture.edit as *mut _), false) };
+    if unsafe { IsWindowEnabled(HWND(fixture.edit as *mut _)) }.as_bool() {
+        return Err("disabled-control fixture did not change".into());
+    }
+    let disabled = driver.execute(serde_json::from_value(json!({"action":"type","frame_id":frame(&output)?,"node_id":edit,"text":"must not type"}))?, CancellationToken::new()).await.expect_err("disabled target must reject input");
+    if disabled.code != "stale_node" || fixture.text() != text_before {
+        return Err("disabled-control rejection mismatch or unexpected text".into());
+    }
+    record(
+        "native_disabled_target_denied",
+        json!({"code":disabled.code,"text_unchanged":true}),
+    );
+    record(
+        "native_freshness_acceptance",
+        json!({"cases":4,"model_calls":0,"fixture_closed_on_return":true}),
     );
     Ok(())
 }
