@@ -10,8 +10,8 @@ import css from './PermissionSelect.styles'
 const FULL_ACCESS = 'danger-full-access'
 
 /* Shield glyphs (design set 1556): check = read-only, pencil = workspace
-   write, exclamation = full access. currentColor so the trigger and menu
-   rows tint them with their own text color. */
+   write, sparkle = AI review, exclamation = full access. currentColor so
+   the trigger and menu rows tint them with their own text color. */
 
 const shieldOutline = 'M8.20554 0.899994L14.7901 3.36857V7.01026C14.7901 12 11.0466 14.2103 8.20554 15.3C5.36446 14.2103 1.62012 12 1.62012 7.01026V3.36857L8.20554 0.899994Z'
 
@@ -29,6 +29,12 @@ const permissionGlyphs: Readonly<Record<string, ReactNode>> = {
       <path d="M9.5824 8.29376V9.50376H5V8.29376H9.5824Z" fill="currentColor" />
       <path d="M14.6647 15.6852H10.0338C10.3878 15.3751 10.7567 15.0517 11.0772 14.7706C11.2531 14.6164 11.4144 14.4746 11.5511 14.3547H14.6647V15.6852Z" fill="currentColor" />
       <path d="M8.14852 14.1308L7.33925 15.4976C7.22458 15.6912 7.42245 15.9194 7.63037 15.8333L9.09785 15.2254L15.0399 10.0719L14.0905 8.97733L8.14852 14.1308Z" fill="currentColor" />
+    </svg>
+  ),
+  'workspace-write-ai-review': (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d={shieldOutline} stroke="currentColor" strokeWidth="1.31831" strokeLinejoin="round" />
+      <path d="m8.2 4.2.95 2.55 2.55.95-2.55.95-.95 2.55-.95-2.55-2.55-.95 2.55-.95Z" stroke="currentColor" strokeWidth="1.15" strokeLinejoin="round" />
     </svg>
   ),
   [FULL_ACCESS]: (
