@@ -27,6 +27,10 @@ async fn probe_main() -> Result<(), Box<dyn std::error::Error>> {
         return xharness_computer_windows::run_native_acceptance().await;
     }
     #[cfg(feature = "native-acceptance")]
+    if args.get(1).is_some_and(|v| v == "--freshness-acceptance") {
+        return xharness_computer_windows::run_freshness_acceptance().await;
+    }
+    #[cfg(feature = "native-acceptance")]
     if args.get(1).is_some_and(|v| v == "--browser-acceptance") {
         return browser_acceptance(args.get(2).ok_or("missing lab directory")?).await;
     }
