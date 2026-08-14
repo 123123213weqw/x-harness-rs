@@ -42,7 +42,7 @@ class CiTieringContract(unittest.TestCase):
 
     def test_native_and_web_contracts_install_locked_owned_toolchain(self) -> None:
         source = workflow_source()
-        for name in ("context-layout", "update-channel-contract", "rust-linux", "rust-windows", "rust-macos-arm64", "desktop-linux"):
+        for name in ("ui-build", "ui-contracts", "ui-browser", "ui-parity", "update-channel-contract", "rust-linux", "rust-windows", "rust-macos-arm64", "desktop-linux"):
             with self.subTest(job=name):
                 body = job(source, name)
                 self.assertIn("actions/setup-node@", body)
@@ -53,6 +53,31 @@ class CiTieringContract(unittest.TestCase):
                 script_calls = list(re.finditer(r"(?m)^\s+(?:- run: )?node scripts/", body))
                 for call in script_calls:
                     self.assertLess(install, call.start(), "typed contract cannot use an absent toolchain")
+
+    def test_ui_required_check_aggregates_all_shards_fail_closed(self) -> None:
+        source = workflow_source()
+        body = job(source, "context-layout")
+        self.assertIn("name: Harness layout / Chromium + WebKit", body)
+        self.assertIn("needs: [ui-build, ui-contracts, ui-browser, ui-parity]", body)
+        self.assertIn("if: ${{ always() }}", body)
+        self.assertIn("UI_CI_NEEDS: ${{ toJSON(needs) }}", body)
+        self.assertIn("node scripts/ci-ui-gate.mjs", body)
+        for name in ("ui-contracts", "ui-browser"):
+            shard = job(source, name)
+            self.assertIn("needs: ui-build", shard)
+            self.assertIn("fail-fast: false", shard)
+            self.assertIn("shard: [0, 1, 2, 3]", shard)
+            self.assertIn("ui-build-${{ github.sha }}", shard)
+            self.assertIn("ci-ui-artifact.mjs --verify", shard)
+            self.assertIn("if: always()", shard)
+        browser = job(source, "ui-browser")
+        self.assertIn("browser: [chromium, webkit]", browser)
+        self.assertIn("--browser ${{ matrix.browser }}", browser)
+        self.assertIn("--shards 4", browser)
+        parity = job(source, "ui-parity")
+        self.assertLess(parity.index("--phase before"), parity.index("npm run build --prefix ui"))
+        self.assertLess(parity.index("npm run build --prefix ui"), parity.index("--phase after"))
+        self.assertNotIn("needs: ui-build", parity, "early parity must inspect committed artifacts")
 
     def test_pull_requests_run_portable_contracts_once(self) -> None:
         body = job(workflow_source(), "update-channel-contract")
