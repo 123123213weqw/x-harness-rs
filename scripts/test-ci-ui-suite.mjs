@@ -106,8 +106,8 @@ test('timeout and missing executable are failures and still produce receipts', a
 test('SIGTERM cancels the shard, kills running descendants, and leaves a checkpoint', { skip: process.platform === 'win32' }, async () => {
   const cwd = temp(), report = join(cwd, 'timing.json')
   try {
-    const grandchild = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"
-    const child = `const p = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], {stdio:'ignore'}); require('node:fs').writeFileSync('ready', String(p.pid)); setInterval(() => {}, 1000)`
+    const grandchild = "process.on('SIGTERM', () => {}); require('node:fs').writeFileSync('grandchild-ready', 'ready'); setInterval(() => {}, 1000)"
+    const child = `const p = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], {stdio:'ignore'}); const wait = setInterval(() => { if(require('node:fs').existsSync('grandchild-ready')) {require('node:fs').writeFileSync('ready', String(p.pid)); clearInterval(wait)} }, 10); setInterval(() => {}, 1000)`
     writeFileSync(join(cwd, 'run.mjs'), `import {runEntries} from ${JSON.stringify(new URL('./ci-ui-suite.mjs', import.meta.url).href)}; const r = await runEntries(${JSON.stringify([command('contract-001', child), command('contract-002', 'process.exit(0)')])}, {cwd: ${JSON.stringify(cwd)}, report: ${JSON.stringify(report)}, stdio:'ignore'}); process.exitCode = r.cancelled ? 130 : 0`)
     const proc = spawn(process.execPath, [join(cwd, 'run.mjs')], { stdio: 'ignore' })
     const closed = new Promise((res, rej) => { proc.once('error', rej); proc.once('close', res) })
