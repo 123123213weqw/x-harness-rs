@@ -18,7 +18,8 @@ import type { createLayoutStore } from './stores'
 import css from './AppFrame.styles'
 import {WorkCenter} from './WorkCenter'
 import {xhCreateBrowserWindowController} from './browser-window-controller'
-import {xhLoadBrowserSpaces,xhSaveBrowserSpaces,xhNextWorkspaceId,xhWorkspaceEmpty,xhWorkspaceOpen,xhWorkspaceClose,XhWorkspacePane,workspaceOpenDetail} from './workspace-pane'
+import {xhLoadBrowserSpaces,xhSaveBrowserSpaces,xhNextWorkspaceId,xhWorkspaceEmpty,xhWorkspaceOpen,xhWorkspaceClose,xhWorkspaceToggle,XhWorkspacePane,workspaceOpenDetail} from './workspace-pane'
+import {workspaceDockEvents} from '../shared/workspace-dock'
 import type {BrowserSpaces,WorkspaceItem,WorkspaceSpace,WorkspaceOpenDetail} from './workspace-pane'
 import type {BrowserPatch} from '../browser/index'
 import {listenModelBrowser} from '../browser/model-control'
@@ -178,9 +179,14 @@ export function AppFrame({
       if(detail)openWorkspace(detail.kind,detail.fresh===true,detail)
     }
     const onCloseTool=():void=>updateSpace(value=>xhWorkspaceClose(value,'tool'))
+    const onToggle=():void=>{
+      const item:WorkspaceItem={id:`browser:${++nextWorkspaceId.current}`,kind:'browser',source:'browser',title:'新标签页',entries:[],position:-1}
+      updateSpace(value=>value.items.length?xhWorkspaceToggle(value):xhWorkspaceOpen(value,item))
+    }
     window.addEventListener('xharness:workspace-open',onOpen)
     window.addEventListener('xharness:workspace-close-tool',onCloseTool)
-    return()=>{window.removeEventListener('xharness:workspace-open',onOpen);window.removeEventListener('xharness:workspace-close-tool',onCloseTool)}
+    window.addEventListener(workspaceDockEvents.toggle,onToggle)
+    return()=>{window.removeEventListener('xharness:workspace-open',onOpen);window.removeEventListener('xharness:workspace-close-tool',onCloseTool);window.removeEventListener(workspaceDockEvents.toggle,onToggle)}
   },[])
   useEffect(()=>{
     setSpaces(all=>{
@@ -190,7 +196,6 @@ export function AppFrame({
       return changed?next:all
     })
   },[spaceKey])
-  useEffect(()=>{void xhWorkspaceWindow.set(space.items.length>0,440)},[space.items.length>0])
   useEffect(()=>()=>{void xhWorkspaceWindow.set(false)},[])
 
 
@@ -233,7 +238,14 @@ export function AppFrame({
   const sidebarCollapsed = centerPage === 'review' || (narrow ? !panels.narrowExpanded : panels.sidebar === 0)
   const sidebarDrawer = narrow && !sidebarCollapsed
   const sidebarWidth=sidebarCollapsed||sidebarDrawer?56:panels.sidebar===0?SIDEBAR_DEFAULT:clampWidth(panels.sidebar,264,420)
-  const workspaceOpen=centerPage !== 'review' && space.items.length>0
+  const workspaceOpen=centerPage !== 'review' && space.items.length>0 && space.collapsed!==true
+  useEffect(()=>{void xhWorkspaceWindow.set(workspaceOpen,440)},[workspaceOpen])
+  useEffect(()=>{
+    const publish=():void=>{window.dispatchEvent(new CustomEvent(workspaceDockEvents.visibility,{detail:{open:workspaceOpen}}))}
+    window.addEventListener(workspaceDockEvents.requestVisibility,publish)
+    publish()
+    return()=>window.removeEventListener(workspaceDockEvents.requestVisibility,publish)
+  },[workspaceOpen])
   const workspaceAvailable=viewport-sidebarWidth-480
   const workspaceDrawer=workspaceOpen&&workspaceAvailable<360
   const workspaceDockWidth=workspaceOpen&&!workspaceDrawer?Math.min(workspaceWidth,workspaceAvailable):0
@@ -315,8 +327,8 @@ export function AppFrame({
         {centerPage === 'work' && <WorkCenter close={closeCenterPage} renderTasks={() => renderSlot('work.center.tasks', {openSession: openWorkSession})} renderAutomations={() => renderSlot('work.center.automations', {openSession: openWorkSession})} />}
         {centerPage === 'review' && renderSlot('review.center', {close: closeCenterPage})}
         </div></CenterColumn>
-        {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>closeWorkspace(space.activeId)} />}
-        <DetailsColumn><XhWorkspacePane space={space} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onNewBrowser={()=>openWorkspace('browser',true)} /></DetailsColumn>
+        {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>updateSpace(value=>({...value,collapsed:true}))} />}
+        <DetailsColumn><XhWorkspacePane space={space} open={workspaceOpen} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onNewBrowser={()=>openWorkspace('browser',true)} /></DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
