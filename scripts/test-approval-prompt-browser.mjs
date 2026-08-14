@@ -43,7 +43,7 @@ try {
     // selector so the takeover contract can be exercised directly.
     if(name==='dsh-client-ui-conversation') {
       assert.equal(source, shippedConversation, 'actual approval Conversation factory is the selected fresh/immutable artifact')
-      source=exposeConversation(shippedConversation,["ApprovalPanel", "selectApproval"]);
+      source=exposeConversation(shippedConversation,["ApprovalPanel", "selectApproval", ...(frozen ? [] : ["PermissionSelect"])]);
     }
     await page.addScriptTag({content:source});
   }
@@ -106,6 +106,20 @@ try {
             React.createElement('div',{'data-normal-composer':''},React.createElement('textarea',{'aria-label':'Message the agent'}))),
           React.createElement(conversation.ApprovalPanel,{matched:wait,t:window.t,useSession:selector=>selector(window.snapshot)})))));
     };
+    window.permissionCommands=[];
+    window.renderPermission=(currentValue='workspace-write-ai-review',locked=false)=>{
+      const options=[
+        {value:'workspace-write',name:'Workspace Write'},
+        {value:'workspace-write-ai-review',name:'AI review'},
+        {value:'danger-full-access',name:'Full access'},
+        {value:'custom',name:'Custom'},
+      ];
+      DOM.flushSync(()=>root.render(React.createElement('div',{'data-permission-preview':'',
+        style:{containerType:'inline-size',width:600,padding:16,margin:'300px 0 0 120px'}},
+        React.createElement(conversation.PermissionSelect,{value:{currentValue,options},locked,
+          command:async line=>{permissionCommands.push(line);return true},
+          t:(key,args)=>key==='input.accessMode'?`Permission mode: ${args.name}`:key}))));
+    };
     // A paired running bash-family call, as the transcript stores it, so the
     // panel can resolve the command line through the Chat Node index.
     window.pairedCall=(callId,args)=>window.snapshot={chat:{nodes:new Map([[runtime.conversationContextKey('tool-call',callId),
@@ -113,6 +127,57 @@ try {
     window.buttonState=()=>[...document.querySelectorAll('button')].map(b=>({text:b.textContent.trim(),disabled:b.disabled}));
     window.renderApproval();
   });
+  // A newly advertised Host preset must render on both permission surfaces.
+  // Use the real shipped Menu and palette, not a mock SVG or a screenshot-only page.
+  if (!frozen) {
+    const evidence=resolve(root,'dist/approval-ui');mkdirSync(evidence,{recursive:true});
+    const permissionColors=[];
+    for (const dark of [false,true]) {
+      await page.evaluate(dark=>{
+        document.body.toggleAttribute('data-ds-dark-theme',dark);
+        window.renderPermission();
+      },dark);
+      const trigger=page.getByRole('button',{name:'Permission mode: AI review',exact:true});
+      const glyph=trigger.locator('svg').first();
+      assert.notEqual(await trigger.locator('span').nth(1).evaluate(el=>getComputedStyle(el).display),'none','wide composer keeps the mode label');
+      assert.equal(await trigger.locator('svg').count(),2,'AI review has a leading shield as well as the dropdown chevron');
+      assert.equal(await glyph.getAttribute('aria-hidden'),'true');
+      assert.deepEqual(await glyph.evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})),{width:14,height:14},'trigger keeps the existing permission icon size');
+      assert.equal(await glyph.locator('path').count(),2,'shield and sparkle are both painted');
+      assert.ok((await glyph.locator('path').evaluateAll(paths=>paths.map(el=>({width:el.getBBox().width,height:el.getBBox().height})))).every(box=>box.width>0&&box.height>0),'both SVG paths have valid, non-empty geometry');
+      const color=await glyph.locator('path').first().evaluate(el=>getComputedStyle(el).stroke);
+      permissionColors.push(color);
+      assert.equal(color,await trigger.evaluate(el=>getComputedStyle(el).color),'shield follows the active palette, not a hard-coded color');
+      const triggerMarkup=await glyph.evaluate(el=>el.innerHTML);
+      await trigger.click();
+      const item=page.getByRole('menuitem',{name:'AI review',exact:true});
+      await item.waitFor();
+      assert.equal(await page.getByRole('menuitem').count(),3,'Custom stays display-only');
+      const menuGlyph=item.locator('svg').first();
+      assert.equal(await menuGlyph.evaluate(el=>el.innerHTML),triggerMarkup,'menu and current preset share the same AI glyph');
+      assert.deepEqual(await menuGlyph.evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})),{width:16,height:16},'menu keeps the existing 16px leading icon size');
+      await page.screenshot({path:resolve(evidence,`${engine}-${implementation}-ai-review-${dark?'dark':'light'}.png`),clip:{x:120,y:160,width:280,height:220}});
+      await trigger.press('Escape');
+      await page.getByRole('menu').waitFor({state:'detached'});
+      // At a narrow composer width labels deliberately hide. The icon and full
+      // accessible name must remain, so AI review never becomes an empty chip.
+      await page.locator('[data-permission-preview]').evaluate(el=>el.style.width='320px');
+      await page.waitForFunction(()=>getComputedStyle(document.querySelector('[data-permission-preview] button > span:nth-child(2)')).display==='none');
+      assert.equal(await glyph.isVisible(),true);
+      assert.equal(await trigger.getAttribute('aria-label'),'Permission mode: AI review');
+      await page.locator('[data-permission-preview]').evaluate(el=>el.style.width='600px');
+    }
+    assert.notEqual(permissionColors[0],permissionColors[1],'AI shield changes with the real light/dark palette');
+    await page.evaluate(()=>{document.body.removeAttribute('data-ds-dark-theme');window.renderPermission('workspace-write')});
+    await page.getByRole('button',{name:'Permission mode: Workspace Write',exact:true}).click();
+    await page.getByRole('menuitem',{name:'AI review',exact:true}).click();
+    await page.waitForFunction(()=>permissionCommands.length===1);
+    assert.deepEqual(await page.evaluate(()=>permissionCommands),['/permission workspace-write-ai-review'],'glyph changes do not alias or bypass the AI review command');
+    assert.equal(await page.getByRole('dialog').count(),0,'selecting AI review does not open the Full access gate');
+    await page.evaluate(()=>window.renderPermission('workspace-write-ai-review',true));
+    assert.equal(await page.getByRole('button',{name:'Permission mode: AI review',exact:true}).isDisabled(),true,'locked contexts remain locked');
+    await page.evaluate(()=>window.renderApproval());
+  }
   // The approval is the only client-answerable carrier; a question never satisfies it.
   assert.equal(await page.evaluate(()=>window.selectPick([])),null,'no interactions must not mount the approval prompt');
   assert.equal(await page.evaluate(()=>window.selectPick([{kind:'question'}])),null,'a question must not mount the approval prompt');
