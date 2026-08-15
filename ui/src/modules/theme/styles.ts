@@ -4,6 +4,7 @@ import designPlatform from './design-platform.css'
 import scrollbar from './scrollbar.css'
 import gradientShadowText from './gradient-shadow-text.css'
 import shiki from './shiki.css'
+import typography from './typography.css'
 
 const PLUGIN_ID = '@xharness/dsh-client-ui-theme'
 
@@ -12,6 +13,7 @@ const STYLES = [
   ['design-platform.css', designPlatform],
   ['scrollbar.css', scrollbar],
   ['gradient-shadow-text.css', gradientShadowText],
+  ['typography.css', typography],
   ['shiki.css', shiki],
 ] as const
 
