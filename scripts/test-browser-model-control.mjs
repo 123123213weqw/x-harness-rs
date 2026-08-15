@@ -1,3 +1,4 @@
+import {installShellSessionsFixture} from './fixtures/shell-navigation-browser.mjs'
 // Real AppFrame/BrowserPane; fake ONLY the Tauri transport. Not a native input
 // or engine acceptance test. Never equate Playwright WebKit with WKWebView.
 import assert from 'node:assert/strict'
@@ -33,18 +34,20 @@ try{
  }},event:{listen:async(event,fn)=>{const set=nativeListeners.get(event)??new Set();set.add(fn);nativeListeners.set(event,set);return()=>set.delete(fn)}}};
  `})
  for(const id of ['@xharness/dsh-client-ui-layout','@xlang/xharness-client-ui-browser','@xharness/dsh-client-runtime'])await page.addScriptTag({content:ownedViewModuleTestInput(id)})
+  await installShellSessionsFixture(page)
  await page.evaluate(()=>{
    const runtime=registrations['@xharness/dsh-client-runtime'].factory(id=>staticModules[id])
    const load=id=>id==='@xharness/dsh-client-runtime/client'?runtime:staticModules[id]
    const layout=registrations['@xharness/dsh-client-ui-layout'].factory(load)
    const browser=registrations['@xlang/xharness-client-ui-browser'].factory(load)
    browser.apply({effect:fn=>fn(),slots:{inject:(_name,fn)=>fn(),register:()=>{}}})
+    const shellSessions=createShellSessionsFixture({current:'chat-a',ids:['chat-a'],byId:{'chat-a':{blank:false}}})
    let AppFrame,definition
-   layout.apply({effect:(fn,label)=>{if(label.includes('service'))fn()},reflect:{provide:()=>()=>{}},slots:{register:(spec,view)=>{AppFrame=view;definition=spec;return()=>{}}}})
-   const store=definition.store().create();definition.inject(store.actions)
+   layout.apply({get:name=>name==='sessions'?shellSessions:undefined,effect:(fn,label)=>{if(label.includes('service'))fn()},reflect:{provide:()=>()=>{}},slots:{register:(spec,view)=>{AppFrame=view;definition=spec;return()=>{}}}})
+   const store=definition.store().create();const injected=definition.inject(store.actions)
    function App(){
-     const [owner,setOwner]=React.useState('chat-a');window.selectOwner=setOwner
-     return React.createElement(AppFrame,{useStore:s=>s(React.useSyncExternalStore(store.subscribe,store.getSnapshot)),useSessions:s=>s({current:owner,byId:{}}),actions:store.actions,
+     const [owner,setOwner]=React.useState('chat-a');window.selectOwner=id=>{shellSessions.update({current:id,ids:[id],byId:{[id]:{blank:false}}});setOwner(id)}
+     return React.createElement(AppFrame,{...injected,useStore:s=>s(React.useSyncExternalStore(store.subscribe,store.getSnapshot)),useSessions:s=>s({current:owner,byId:{}}),actions:store.actions,
       renderSlot:(name,props)=>name==='workspace.item'?React.createElement(browser.BrowserPane,props):null})
    }
    window.root=ReactDOM.createRoot(document.getElementById('root'));root.render(React.createElement(App))
