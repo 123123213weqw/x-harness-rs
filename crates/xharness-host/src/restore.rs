@@ -1040,14 +1040,17 @@ impl BasicHost {
     pub async fn hydrate_session(&self, session_id: &str) -> Result<(), HostRestoreError> {
         let gate = self.session_restore_gate(session_id).await;
         let _guard = gate.lock().await;
-        if !self
-            .state
-            .read()
-            .await
-            .sessions
-            .get(session_id)
-            .is_some_and(|s| s.restoring)
-        {
+        let needs_replay = {
+            let state = self.state.read().await;
+            !state.deleted_sessions.contains(session_id)
+                && match state.sessions.get(session_id) {
+                    Some(record) => record.restoring,
+                    // A validated discovery header can precede the streaming
+                    // startup catalogue record (e.g. subtree deletion).
+                    None => self.lazy_headers.read().await.contains_key(session_id),
+                }
+        };
+        if !needs_replay {
             return Ok(());
         }
         let Some(store) = self.lazy_store.get().cloned() else {

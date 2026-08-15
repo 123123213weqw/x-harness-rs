@@ -108,6 +108,7 @@ function updateChunk(state: AssistantState, match: ConversationMatch): Assistant
         // Preserve the tool identity already received for this block.
         name: chunk.name || base.name,
         argsRaw: base.argsRaw + chunk.argumentsDelta,
+        startedAt: base.startedAt ?? match.event.time,
       }
       break
     }

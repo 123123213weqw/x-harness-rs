@@ -1,3 +1,4 @@
+import {installShellSessionsFixture} from './fixtures/shell-navigation-browser.mjs'
 // Browser-level navigation regression using the shipped AppFrame implementation.
 // The Host and its private data are fixtures; no user's running session is touched.
 import assert from 'node:assert/strict'
@@ -23,6 +24,7 @@ try {
   for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js']) {
     await page.addScriptTag({ path: resolve(deps, 'node_modules', file) })
   }
+  await installShellSessionsFixture(page)
   await page.addScriptTag({ content: `
     const react=React;
     const react_jsx_runtime={jsx:(type,props,key)=>React.createElement(type,{...props,key}),jsxs:(type,props,key)=>React.createElement(type,{...props,key}),Fragment:React.Fragment};
@@ -34,10 +36,11 @@ try {
     };
     window.__ModuleLoader__={load:registration=>{window.layoutModule=registration.factory(seed)}};
     ${source}
-    let AppFrame;
-    window.layoutModule.apply({
+    const shellSessions=createShellSessionsFixture({phase:'pending'});window.shellSessions=shellSessions;
+    let AppFrame,rootDefinition;
+    window.layoutModule.apply({get:name=>name==='sessions'?shellSessions:undefined,
       effect:fn=>fn(), reflect:{provide:()=>()=>{}},
-      slots:{register:(spec,component)=>{if(spec.name==='root')AppFrame=component;return()=>{}}},
+      slots:{register:(spec,component)=>{if(spec.name==='root'){AppFrame=component;rootDefinition=spec};return()=>{}}},
       theme:{getTheme:()=>({active:{colorScheme:'dark',tokens:{}}})}, on:()=>()=>{},
     });
     if(!AppFrame)throw new Error('Shipped layout did not register its root component');
@@ -52,11 +55,14 @@ try {
       if(name==='plugins.center')return React.createElement('p',null,'Plugin inventory');
       return null;
     };
-    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(AppFrame,{useStore:f=>f(panels),useSessions:f=>f(sessions),actions,renderSlot}));
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(AppFrame,{useStore:f=>f(panels),useSessions:f=>f(React.useSyncExternalStore(shellSessions.list.subscribe,shellSessions.list.getSnapshot)),actions,...rootDefinition.inject(actions),renderSlot}));
   ` })
   await page.getByText('Chat content').waitFor()
   await page.getByRole('button', { name: 'Plugins' }).click()
   await page.getByText('Plugin inventory').waitFor()
+  // Simulate late Host connection without resetting the current page.
+  await page.evaluate(()=>shellSessions.update({phase:'ready',current:'restored',ids:['restored'],byId:{restored:{blank:false}}}))
+  assert.equal(await page.getByText('Plugin inventory').isVisible(),true,'first successful session list preserves the offline page')
   assert.equal(await page.getByText('Chat content').count(), 1, 'retain the conversation subtree while navigating so drafts and scroll state survive')
   assert.equal(await page.getByText('Chat content').isVisible(), false, 'retained chat is hidden, not overlaid on the plugin page')
   await page.getByRole('button', { name: 'Search' }).click()

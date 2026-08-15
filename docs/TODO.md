@@ -10,6 +10,14 @@
 
 规格：`docs/specs/ci-ui-sharding.md`。
 
+## 工具参数生成可视化（2026-10-06）
+
+- [x] `UI-TOOL-INPUT-01` 将模糊的 Preparing tool 替换为可展开的参数生成卡片，明确尚未执行；显示工具名、UTF-8 字节与首片段耗时，支持原始 JSON／内容预览，不改变实际工具调用。
+- [x] `UI-TOOL-INPUT-02` 保留增量／窗口化展示状态，重试独立状态；展示有界、不解释 HTML、取消清理计时器、窄屏与减少动画支持。
+- [x] `UI-TOOL-INPUT-03` 6 项真实工厂测试、Chromium／WebKit 新 UI 及原工具行回归、原可见性生命周期、严格 TS 和构建一致性通过；本地合成预览已打开。见 `docs/specs/tool-argument-progress.md` 与 `docs/evidence/tool-argument-progress-20261006.md`。
+- [x] `UI-TOOL-INPUT-COLOR-01` 生成卡片及预览复用产品黑白灰 Token 与浅／深色主题，移除独立蓝色调色板；修复旧徽章样式覆盖卡片，两个浏览器验证计算颜色、布局及取消整块闪烁通过。
+- [ ] `UI-TOOL-INPUT-04` PR 审核、全量 CI 及原生安装版／实际 Provider 回归；当前预览不等于生产部署，不以 UI 改动声称推理提速。
+
 ## 桌面后台准备更新（2026-10-03）
 
 - [x] `UPDATE-PREPARE-01` 复用原 Tauri controller，自动检查后准备新版，不弹出面板、不自动安装；重启需确认，恢复网络与最多三次退避重试，页面退出取消后续动作。
@@ -93,6 +101,12 @@
 - [x] `UI-A11Y-01` 收起侧栏的设置按钮保留本地化可访问名称。
 - [x] `UI-PRIORITY-TEST-01` Chromium／WebKit 整图隔离回归、平台差分、严格类型与确定性构建通过。规范见 `docs/specs/page-priority.md`，验收记录见 `docs/evidence/page-priority-20261003.md`。
 - [ ] `UI-PRIORITY-RELEASE-01` PR 合并与桌面／运行中服务部署验收；代码通过不等于已替换 3082。
+
+## 设置遮罩尺寸修复（2026-10-06 集成）
+
+- [x] `UI-MASK-01` Profile／归档页只调整带 `data-xh-settings-panel` 标记的内容卡片，不再缩窄原生 dialog 和全屏遮罩。
+- [x] `UI-MASK-TEST-01` 同步最新 master 后，Chromium／WebKit 各 50 个主题、页面及窗口尺寸场景通过；右侧边缘可点击关闭、重开正常。当前集成证据见 `docs/evidence/settings-mask-pr-20261006.md`；此前系统 WKWebView 的独立资源 A/B 见 `docs/evidence/settings-mask-20261005.md`。原有 WebKit Tab 焦点用例在 master／候选均失败，不计为通过。
+- [ ] `UI-MASK-RELEASE-01` 发布修复安装包并对实际安装版验收；当前没有替换 `/Applications/XHarness.app`、重启 Host 或部署 3082。
 
 ## 整轮折叠 TS 正式接入（2026-10-03）
 

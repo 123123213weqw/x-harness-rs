@@ -2,7 +2,6 @@
 
 use serde_json::{json, Value};
 use xharness_api::{RpcError, RpcErrorCode, RpcId, RpcMethod};
-use xharness_control::ControlEvent;
 use xharness_projection::{metrics::MetricsProjectionState, project_session_event_range};
 use xharness_session::{EventData as SessionEventData, SessionEvent, SessionTitleSource};
 
@@ -677,99 +676,4 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         host.push_host(json!({"type": "host/workspace-changed", "workspace": workspace}));
     }
     Ok(json!({"sessionId": child_id}))
-}
-
-/// Delete only a cold archived leaf. The control tombstone is durable before
-/// any filesystem operation, so a crash cannot resurrect the session.
-pub(super) async fn delete(
-    host: &BasicHost,
-    rpc_id: RpcId,
-    payload: &Value,
-) -> Result<Value, RpcError> {
-    let session_id = required_string(payload, "sessionId")?;
-    let _admission = host.lock_admission(&session_id).await;
-    let _control = host.control_gate.lock().await;
-    let replayed = host
-        .replay_control_receipt(&rpc_id, RpcMethod::SessionDelete, payload)
-        .await?;
-    let already_deleted = {
-        let state = host.state.read().await;
-        if state.deleted_sessions.contains(&session_id) {
-            true
-        } else {
-            let record = state
-                .sessions
-                .get(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?;
-            if !state.archived_sessions.contains(&session_id) {
-                return Err(bad_request("archive the session before permanent deletion"));
-            }
-            if record.running
-                || record.restoring
-                || !record.queue.is_empty()
-                || !record.projected_queue.is_empty()
-                || !record.admissions.is_empty()
-                || record
-                    .goal
-                    .as_ref()
-                    .is_some_and(|goal| goal.phase == xharness_session::GoalPhase::Active)
-                || !record.schedules.is_empty()
-            {
-                return Err(rpc_error(
-                    RpcErrorCode::SessionConflict,
-                    "session still has running or scheduled work",
-                    json!({"sessionId": session_id}),
-                ));
-            }
-            if state
-                .sessions
-                .values()
-                .any(|other| other.parent_session_id.as_deref() == Some(&session_id))
-            {
-                return Err(rpc_error(
-                    RpcErrorCode::SessionConflict,
-                    "delete child sessions before deleting their parent",
-                    json!({"sessionId": session_id}),
-                ));
-            }
-            false
-        }
-    };
-    if replayed.is_some() && !already_deleted {
-        return Err(RpcError::internal(
-            "session deletion receipt exists without a deletion tombstone",
-        ));
-    }
-    if !already_deleted {
-        host.commit_control_mutation(
-            &rpc_id,
-            RpcMethod::SessionDelete,
-            payload,
-            vec![ControlEvent::SessionDeleted {
-                session_id: session_id.clone(),
-            }],
-            json!({"deleted": true}),
-        )
-        .await?;
-        host.push_host(json!({"type":"host/session-removed","sessionId":session_id}));
-        host.push_host(json!({"type":"host/archived-sessions-changed",
-            "archivedSessionIds":host.state.read().await.archived_sessions}));
-    }
-    host.agent_runtime
-        .delete_session_data(&session_id)
-        .await
-        .map_err(agent_runtime_error)?;
-    if let Some(store) = host.lazy_store.get() {
-        store
-            .delete_session_data(&session_id)
-            .await
-            .map_err(|error| RpcError::internal(error.to_string()))?;
-    }
-    host.config
-        .attachment_store
-        .delete_session_data(&session_id)
-        .await
-        .map_err(|error| RpcError::internal(error.to_string()))?;
-    host.lazy_headers.write().await.remove(&session_id);
-    Ok(json!({"deleted": true}))
 }

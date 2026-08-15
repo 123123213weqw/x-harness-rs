@@ -7,7 +7,8 @@ export interface WorkspaceItem extends BrowserItem {
   source:string
   sessionId?:string|undefined
 }
-export interface WorkspaceSpace {items:WorkspaceItem[];activeId:string|null}
+/** Collapsed is transient presentation state; persisted browser history is unchanged. */
+export interface WorkspaceSpace {items:WorkspaceItem[];activeId:string|null;collapsed?:boolean}
 export type BrowserSpaces=Record<string,WorkspaceSpace>
 export const xhWorkspaceEmpty:WorkspaceSpace={items:[],activeId:null}
 export const xhWorkspaceStorageKey='xharness:browser-spaces-v1'
@@ -57,27 +58,32 @@ export function xhNextWorkspaceId(spaces:BrowserSpaces):number {
 }
 export function xhWorkspaceOpen(space:WorkspaceSpace,item:WorkspaceItem,reuse=true):WorkspaceSpace {
   const existing=reuse&&space.items.find(value=>value.kind===item.kind&&value.source===item.source)
-  if(existing)return{...space,activeId:existing.id}
-  return{items:[...space.items,item],activeId:item.id}
+  const visible=space.collapsed===true?{...space,collapsed:false}:space
+  if(existing)return{...visible,activeId:existing.id}
+  return{...visible,items:[...space.items,item],activeId:item.id}
+}
+/** Hiding is not tab destruction: retain the selected item, draft and history. */
+export function xhWorkspaceToggle(space:WorkspaceSpace):WorkspaceSpace {
+  return space.items.length?{...space,collapsed:space.collapsed!==true}:space
 }
 export function xhWorkspaceClose(space:WorkspaceSpace,id:string|null):WorkspaceSpace {
   const index=space.items.findIndex(item=>item.id===id)
   if(index<0)return space
   const items=space.items.filter(item=>item.id!==id)
-  return{items,activeId:space.activeId===id?(items[Math.min(index,items.length-1)]?.id??null):space.activeId}
+  return{...space,items,activeId:space.activeId===id?(items[Math.min(index,items.length-1)]?.id??null):space.activeId}
 }
 export interface WorkspaceItemOwner extends Record<string,unknown> {
-  item:WorkspaceItem;sessionId:string|null;open:true;onUpdate(patch:BrowserPatch):void;onClose():void;onNewBrowser():void
+  item:WorkspaceItem;sessionId:string|null;open:boolean;onUpdate(patch:BrowserPatch):void;onClose():void;onNewBrowser():void
 }
 export type WorkspaceRenderSlot={
   (name:'details',owner:Record<string,never>):React.ReactNode
   (name:'workspace.item',owner:WorkspaceItemOwner):React.ReactNode
 }
-export function XhWorkspacePane({space,sessionId,renderSlot,onSelect,onClose,onUpdate,onNewBrowser}:{
-  space:WorkspaceSpace;sessionId:string|null;renderSlot:WorkspaceRenderSlot;onSelect(id:string):void;onClose(id:string):void;onUpdate(id:string,patch:BrowserPatch):void;onNewBrowser():void
+export function XhWorkspacePane({space,open,sessionId,renderSlot,onSelect,onClose,onUpdate,onNewBrowser}:{
+  space:WorkspaceSpace;open:boolean;sessionId:string|null;renderSlot:WorkspaceRenderSlot;onSelect(id:string):void;onClose(id:string):void;onUpdate(id:string,patch:BrowserPatch):void;onNewBrowser():void
 }){
   const active=space.items.find(item=>item.id===space.activeId)
-  return <section className="xhworkspace" aria-label="工作区">
+  return <section className="xhworkspace" aria-label="工作区" hidden={!open}>
     <div className="xhworkspace-tabs" role="tablist" aria-label="工作区标签">
       {space.items.map(item=><div className="xhworkspace-tab" key={item.id} data-active={item.id===space.activeId||undefined}>
         <button type="button" role="tab" aria-selected={item.id===space.activeId} onClick={()=>onSelect(item.id)} title={item.title}>
@@ -88,7 +94,7 @@ export function XhWorkspacePane({space,sessionId,renderSlot,onSelect,onClose,onU
       <button type="button" className="xhworkspace-new" aria-label="新建浏览器标签" onClick={onNewBrowser} title="新建浏览器标签">+</button>
     </div>
     <div className="xhworkspace-body">{active&&<div key={active.id} className={`xhworkspace-item xhworkspace-${active.kind}`} role="tabpanel">
-      {active.kind==='tool'?renderSlot('details',{}):renderSlot('workspace.item',{item:active,sessionId,open:true,onUpdate:patch=>onUpdate(active.id,patch),onClose:()=>onClose(active.id),onNewBrowser})}
+      {active.kind==='tool'?renderSlot('details',{}):renderSlot('workspace.item',{item:active,sessionId,open,onUpdate:patch=>onUpdate(active.id,patch),onClose:()=>onClose(active.id),onNewBrowser})}
     </div>}</div>
   </section>
 }

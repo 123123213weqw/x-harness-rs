@@ -32,11 +32,17 @@ test('recursive calls: only all-successful settled roots eligible, output never 
  assert.equal(plugin.toolCanAutoFold({kind:'unknown',data:{}}),false)
  assert.equal(JSON.stringify(root),before)
 })
-test('turn/end cannot suppress failed or recursively running tools; explicit expansion remains',()=>{
+test('turn/end folds settled failures but preserves pending/unknown outcomes; expansion restores every row',()=>{
  const tail={turn:1,closing:null}
- for(const root of [block({isError:true}),block({subCalls:[{callId:'live',subCalls:[]}]})]){
+ for(const root of [block({subCalls:[{callId:'live',subCalls:[]}]}),block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}}),block({subCalls:[block({isError:true,error:{name:'OutcomeUnknown',code:'OUTCOME_UNKNOWN'}})]}),block({isError:true,error:{name:'Interrupted',code:'interrupted'}}),block({subCalls:[block({isError:true,error:{name:'Interrupted',code:'interrupted'}})]})]){
   assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden:false})
   assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,true)),{collapsed:false,hidden:false})
  }
- assert.equal(plugin.turnProcessPresentation(tool(block()),tail,false).hidden,true)
+ for(const root of [block(),block({isError:true}),block({subCalls:[block({isError:true})]})]){
+  const before=JSON.stringify(root)
+  assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,false)),{collapsed:true,hidden:true})
+  assert.deepEqual(json(plugin.turnProcessPresentation(tool(root),tail,true)),{collapsed:false,hidden:false})
+  assert.equal(plugin.turnProcessPresentation(tool(root),undefined,false).hidden,false,'failure never folds before turn/end')
+  assert.equal(JSON.stringify(root),before,'folding cannot mutate failure evidence')
+ }
 })

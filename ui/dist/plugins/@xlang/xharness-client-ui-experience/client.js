@@ -50,6 +50,7 @@ exports.apply = apply;
 const React = __importStar(require("react"));
 const Experience_css_1 = __importDefault(require("./Experience.css"));
 const process_display_1 = require("../shared/process-display");
+const InstallationStatistics_1 = require("./InstallationStatistics");
 const h = React.createElement;
 const { useEffect, useState } = React;
 const MODES = ['auto', 'expanded'];
@@ -207,6 +208,10 @@ function Settings({ t }) {
 }
 exports.inject = ['slots', 'locale'];
 function apply(ctx) {
+    ctx.effect(() => ctx.locale.register('xharness-installations', InstallationStatistics_1.statisticsLabels), 'xharness-installations: locale');
+    ctx.slots.inject('settings.section', () => ctx.slots.register({
+        name: 'settings.section', id: 'installation-statistics', order: 36, label: () => ctx.locale.bind('xharness-installations')('nav'), inject: () => ({ t: ctx.locale.bind('xharness-installations') }),
+    }, InstallationStatistics_1.InstallationStatistics));
     ctx.effect(() => ctx.locale.register('xharness-experience', labels), 'xharness-experience: locale');
     ctx.effect(() => {
         if (document.getElementById('xharness-experience-css'))
@@ -234,7 +239,7 @@ exports._test = { chord, setMode, setShortcuts, initialMode, initialShortcuts, M
 // source: src/modules/experience/Experience.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = "\n.xhe-root{display:grid;gap:25px;padding:5px 0 24px;color:var(--dsw-alias-label-primary)}\n.xhe-root h2{margin:0;font-size:23px;font-weight:600;letter-spacing:-.03em}\n.xhe-root h3{margin:0 0 9px;font-size:14px;font-weight:600}\n.xhe-root p{margin:6px 0 0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary)}\n.xhe-root section{min-width:0}.xhe-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}\n.xhe-option{min-height:66px;text-align:left;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:11px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}\n.xhe-option:hover,.xhe-option:focus-visible{border-color:var(--dsw-alias-label-secondary);outline:none}\n.xhe-option[aria-pressed=true]{background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base)}\n.xhe-option strong{display:block;font-size:13px}.xhe-option span{display:block;margin-top:4px;font-size:11px;opacity:.7}\n.xhe-search{box-sizing:border-box;width:100%;height:34px;padding:0 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px}\n.xhe-search:focus-visible,.xhe-key:focus-visible,.xhe-reset:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}\n.xhe-shortcuts{display:grid;gap:0;margin-top:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:11px;overflow:hidden}\n.xhe-shortcut{display:flex;align-items:center;gap:12px;min-height:46px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}.xhe-shortcut:last-child{border-bottom:0}\n.xhe-shortcut span{flex:1;min-width:0;font-size:12px}.xhe-key,.xhe-reset{font:inherit;font-size:11px;cursor:pointer;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:5px 8px}\n.xhe-key[data-recording=true]{border-color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhe-note{color:var(--dsw-alias-state-error-primary)!important}.xhe-footer{display:flex;justify-content:flex-end;margin-top:9px}\n@media(max-width:700px){.xhe-options{grid-template-columns:repeat(2,minmax(0,1fr))}}\n";
+exports.default = "\n.xhe-root{display:grid;gap:25px;padding:5px 0 24px;color:var(--dsw-alias-label-primary)}\n.xhe-root h2{margin:0;font-size:23px;font-weight:600;letter-spacing:-.03em}\n.xhe-root h3{margin:0 0 9px;font-size:14px;font-weight:600}\n.xhe-root p{margin:6px 0 0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary)}\n.xhe-root section{min-width:0}.xhe-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}\n.xhe-option{min-height:66px;text-align:left;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:11px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}\n.xhe-option:hover,.xhe-option:focus-visible{border-color:var(--dsw-alias-label-secondary);outline:none}\n.xhe-option[aria-pressed=true]{background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base)}\n.xhe-option strong{display:block;font-size:13px}.xhe-option span{display:block;margin-top:4px;font-size:11px;opacity:.7}\n.xhe-search{box-sizing:border-box;width:100%;height:34px;padding:0 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px}\n.xhe-search:focus-visible,.xhe-key:focus-visible,.xhe-reset:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}\n.xhe-shortcuts{display:grid;gap:0;margin-top:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:11px;overflow:hidden}\n.xhe-shortcut{display:flex;align-items:center;gap:12px;min-height:46px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}.xhe-shortcut:last-child{border-bottom:0}\n.xhe-shortcut span{flex:1;min-width:0;font-size:12px}.xhe-key,.xhe-reset{font:inherit;font-size:11px;cursor:pointer;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:5px 8px}\n.xhe-key[data-recording=true]{border-color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}\n.xhe-note{color:var(--dsw-alias-state-error-primary)!important}.xhe-footer{display:flex;justify-content:flex-end;margin-top:9px}\n@media(max-width:700px){.xhe-options{grid-template-columns:repeat(2,minmax(0,1fr))}}\n\n/* Consent is a small native-top-layer modal, not an onboarding takeover. */\n.xhi-dialog{width:min(460px,100%)!important;padding:0!important;border-radius:20px!important;max-height:calc(100dvh - 48px);overflow:auto!important}\n.xhi-card{box-sizing:border-box;width:100%;padding:30px;color:var(--dsw-alias-label-primary);font-family:inherit}\n.xhi-card h2{margin:0 0 14px;font-size:23px;line-height:1.25;font-weight:600;letter-spacing:-.025em}\n.xhi-card p{margin:10px 0;font-size:14px;line-height:1.65;color:var(--dsw-alias-label-secondary)}\n.xhi-links{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:18px;color:var(--dsw-alias-label-secondary)}\n.xhi-links button{border:0;padding:2px 0;background:transparent;color:inherit;font:inherit;font-size:12px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}\n.xhi-card .xhi-disclosure{padding:12px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;font-size:12px}\n.xhi-disclosure p{font-size:12px}\n.xhi-disclosure p:first-child{margin-top:0}.xhi-disclosure p:last-child{margin-bottom:0}\n.xhi-actions{display:flex;gap:10px;margin-top:26px}\n.xhi-actions button{flex:1;min-width:0;min-height:44px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:10px 12px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;font-weight:500;cursor:pointer}\n.xhi-actions .xhi-primary{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);border-color:var(--dsw-alias-label-primary)}\n.xhi-card button:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:3px}\n.xhi-card button:disabled{opacity:.55;cursor:wait}\n.xhi-card .xhi-error{color:var(--dsw-alias-state-error-primary);font-size:12px}\n@media(max-width:480px){.xhi-card{padding:24px}.xhi-card h2{font-size:21px}.xhi-links{gap:8px}}\n";
 
 },
 "src/modules/shared/process-display.js": function(module, exports, require) {
@@ -263,9 +268,150 @@ function useProcessMode() {
     return mode;
 }
 
+},
+"src/modules/experience/InstallationStatistics.js": function(module, exports, require) {
+// source: src/modules/experience/InstallationStatistics.tsx
+
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.statisticsLabels = void 0;
+exports.decodeStatus = decodeStatus;
+exports.InstallationStatistics = InstallationStatistics;
+const React = __importStar(require("react"));
+const h = React.createElement;
+function isRecord(value) { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+function decodeStatus(value) {
+    if (!isRecord(value))
+        throw new Error('Invalid statistics status');
+    const s = value;
+    if ((s.noticeRequired !== undefined && typeof s.noticeRequired !== 'boolean') || typeof s.enabled !== 'boolean' || typeof s.configured !== 'boolean' || typeof s.deletionPending !== 'boolean'
+        || typeof s.pendingReports !== 'number' || !Number.isSafeInteger(s.pendingReports) || s.pendingReports < 0 || s.pendingReports > 64
+        || typeof s.droppedEvents !== 'number' || !Number.isSafeInteger(s.droppedEvents) || s.droppedEvents < 0
+        || (s.error !== null && typeof s.error !== 'string'))
+        throw new Error('Invalid statistics status');
+    return { noticeRequired: s.noticeRequired === true, enabled: s.enabled, configured: s.configured, deletionPending: s.deletionPending, pendingReports: s.pendingReports, droppedEvents: s.droppedEvents, error: s.error };
+}
+exports.statisticsLabels = {
+    zh: { nav: '安装统计与隐私', title: '安装统计与隐私', intro: '自愿帮助我们了解安装量、版本分布和更新成功率。默认关闭，不影响 AI 和更新功能。',
+        privacy: '仅发送随机安装 ID、版本、系统、架构、通道和启动 / 更新结果。不发送对话、图片、密钥、文件路径或硬件标识。',
+        retention: '原始事件保存 90 天；连续 365 天未上报的安装移除。关闭后清除本机待发事件并申请删除服务端设备记录；离线时延后删除，期间不再上报。',
+        enabled: '安装统计已开启', disabled: '安装统计已关闭', enable: '开启统计', disable: '关闭并删除记录', pending: '条记录待补发', deletion: '删除请求待联网完成。完成前不能重新开启。',
+        web: '此设置仅用于桌面软件；普通 Web 页面不会登记为一次安装。', unavailable: '此构建未配置统计服务，无法开启。', error: '统计暂时不可用，不影响任务；没有发送日志或错误正文。', loading: '读取设置中…', busy: '正在保存…', retrySave: '重试保存关闭设置', unsavedOff: '统计已停止，但关闭设置尚未保存。请修复存储后重试；重启可能恢复旧设置。' },
+    en: { nav: 'Installation statistics & privacy', title: 'Installation statistics & privacy', intro: 'Optionally help us understand installs, versions and successful updates. Off by default; AI and updates work independently.',
+        privacy: 'Sends only a random installation ID, version, OS, architecture, channel and startup / update outcomes. Never conversations, images, keys, paths or hardware identifiers.',
+        retention: 'Raw events expire after 90 days; devices inactive for 365 days are removed. Opting out clears queued events and requests server deletion. Offline deletion waits for connectivity; reporting stops immediately.',
+        enabled: 'Installation statistics enabled', disabled: 'Installation statistics disabled', enable: 'Enable statistics', disable: 'Disable & delete records', pending: 'reports queued', deletion: 'Deletion awaits connectivity. Re-enabling requires deletion to finish.',
+        web: 'Desktop only. Ordinary Web pages are not registered as installations.', unavailable: 'This build has no configured statistics service.', error: 'Statistics unavailable; tasks are unaffected. Logs and error bodies are not reported.', loading: 'Reading settings…', busy: 'Saving…', retrySave: 'Retry saving opt-out', unsavedOff: 'Reporting stopped, but opt-out could not be saved. Fix storage and retry; a restart may restore the old preference.' },
+};
+function InstallationStatistics({ t }) {
+    const invoke = window.__TAURI__?.core?.invoke;
+    const [status, setStatus] = React.useState(null);
+    const [busy, setBusy] = React.useState(false);
+    const [error, setError] = React.useState(false);
+    const epoch = React.useRef(0);
+    const pending = React.useRef(false);
+    const mounted = React.useRef(true);
+    React.useEffect(() => {
+        if (!invoke)
+            return;
+        let active = true;
+        mounted.current = true;
+        const refresh = async () => { if (pending.current)
+            return; const id = ++epoch.current; try {
+            const next = decodeStatus(await invoke('desktop_installation_status'));
+            if (active && id === epoch.current) {
+                setStatus(next);
+                setError(false);
+            }
+        }
+        catch {
+            if (active && id === epoch.current)
+                setError(true);
+        } };
+        void refresh();
+        const timer = window.setInterval(() => { void refresh(); }, 5000);
+        return () => { active = false; mounted.current = false; ++epoch.current; window.clearInterval(timer); };
+    }, [invoke]);
+    async function toggle() {
+        if (!invoke || !status || pending.current || busy)
+            return;
+        const id = ++epoch.current;
+        pending.current = true;
+        setBusy(true);
+        setError(false);
+        try {
+            const next = decodeStatus(await invoke('desktop_set_installation_statistics', { enabled: status.error === 'statistics_optout_not_persisted' ? false : !status.enabled }));
+            if (mounted.current && id === epoch.current)
+                setStatus(next);
+        }
+        catch {
+            if (mounted.current && id === epoch.current) {
+                setError(true);
+                try {
+                    const next = decodeStatus(await invoke('desktop_installation_status'));
+                    if (mounted.current && id === epoch.current)
+                        setStatus(next);
+                }
+                catch { /* retain visible error */ }
+            }
+        }
+        finally {
+            pending.current = false;
+            if (mounted.current)
+                setBusy(false);
+        }
+    }
+    return h('div', { className: 'xhe-root' }, [
+        h('header', { key: 'header' }, [h('h2', { key: 'title' }, t('title')), h('p', { key: 'intro' }, t('intro'))]),
+        h('section', { key: 'settings' }, [h('p', { key: 'privacy' }, t('privacy')), h('p', { key: 'retention' }, t('retention')),
+            !invoke ? h('p', { key: 'web', role: 'status' }, t('web')) : status ? h(React.Fragment, { key: 'status' }, [
+                h('h3', { key: 'label' }, t(status.enabled ? 'enabled' : 'disabled')),
+                !status.configured && h('p', { key: 'unconfigured' }, t('unavailable')),
+                status.deletionPending && h('p', { key: 'deletion', role: 'status' }, t('deletion')),
+                status.pendingReports > 0 && h('p', { key: 'pending' }, `${status.pendingReports} ${t('pending')}`),
+                h('button', { key: 'toggle', className: 'xhe-reset', type: 'button', disabled: busy || (!status.enabled && status.error !== 'statistics_optout_not_persisted' && (!status.configured || status.deletionPending)), onClick: toggle }, t(busy ? 'busy' : status.error === 'statistics_optout_not_persisted' ? 'retrySave' : status.enabled ? 'disable' : 'enable')),
+            ]) : !error && h('p', { key: 'loading' }, t('loading')),
+            (error || status?.error) && h('p', { key: 'error', role: 'alert', className: 'xhe-note' }, t(status?.error === 'statistics_optout_not_persisted' ? 'unsavedOff' : 'error')),
+        ]),
+    ]);
+}
+
 }
 };
-const __dependencies = {"src/modules/experience/index.js":{"./Experience.css":"src/modules/experience/Experience.css","../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/experience/Experience.css":{},"src/modules/shared/process-display.js":{}};
+const __dependencies = {"src/modules/experience/index.js":{"./Experience.css":"src/modules/experience/Experience.css","../shared/process-display":"src/modules/shared/process-display.js","./InstallationStatistics":"src/modules/experience/InstallationStatistics.js"},"src/modules/experience/Experience.css":{},"src/modules/shared/process-display.js":{},"src/modules/experience/InstallationStatistics.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
