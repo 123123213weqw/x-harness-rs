@@ -1,4 +1,4 @@
-import { SHELL_ROUTE_CHANGED } from '../shared/shell-route'
+import { SHELL_ROUTE_CHANGED, SHELL_ROUTE_REQUESTED } from '../shared/shell-route'
 
 /** Shell routes only: no transcript copies, browser history, or Agent commands. */
 export type ShellPage = 'chat' | 'plugins' | 'work' | 'review' | 'assistant'
@@ -33,6 +33,8 @@ export interface ShellNavigationControls {
   forward(): void
 }
 
+type HistoryRoute = ShellRoute & { readonly selectionPending?: true }
+
 const pages = ['plugins', 'work', 'review', 'assistant'] as const
 const sameRoute = (a: ShellRoute, b: ShellRoute): boolean => a.page === b.page && a.sessionId === b.sessionId
 export const SHELL_HISTORY_LIMIT = 128
@@ -40,7 +42,7 @@ export const SHELL_HISTORY_LIMIT = 128
 /** One history owner for session selection and center-page transitions. History
  * is window-local and bounded; deleted routes are skipped, never recreated. */
 export class ShellNavigation implements ShellNavigationControls {
-  private entries: ShellRoute[] = []
+  private entries: HistoryRoute[] = []
   private position = -1
   private snapshot: ShellNavigationSnapshot = {
     route: { page: 'chat', sessionId: undefined }, canBack: false, canForward: false,
@@ -74,6 +76,8 @@ export class ShellNavigation implements ShellNavigationControls {
       target.addEventListener(`xharness:${page}:open`, listener)
       return () => target.removeEventListener(`xharness:${page}:open`, listener)
     })
+    const project = (): void => { this.present(this.snapshot.route.page) }
+    target.addEventListener(SHELL_ROUTE_REQUESTED, project)
     target.addEventListener('xharness:assistant:close', this.close)
     const off = this.sessions.list.subscribe(this.schedule)
     this.flush()
@@ -81,6 +85,7 @@ export class ShellNavigation implements ShellNavigationControls {
     return () => {
       off()
       for (const remove of bindings) remove()
+      target.removeEventListener(SHELL_ROUTE_REQUESTED, project)
       target.removeEventListener('xharness:assistant:close', this.close)
       this.target = undefined
       this.generation++
@@ -101,24 +106,29 @@ export class ShellNavigation implements ShellNavigationControls {
   }
   private flush(): void {
     const state = this.sessions.list.getSnapshot()
-    if (state.phase !== 'ready') { this.publish(); return }
-    // A list re-pull may temporarily mask a retained selection. It is not a
-    // user visit to the empty page and must not cut off the forward branch.
+    // Center pages are local UI. An unavailable Host must not block them.
+    // Unknown initial selection is distinct from an intentional empty chat;
+    // bind only unknown visits once the first authoritative catalog arrives.
+    if (this.position < 0) {
+      this.selected = state.current
+      this.entries = [{ page: 'chat', sessionId: state.current,
+        ...(state.phase === 'pending' && state.current === undefined ? { selectionPending: true as const } : {}) }]
+      this.position = 0
+    }
     const masked = state.current === undefined && this.selected !== undefined && state.byId[this.selected] === undefined
     const sessionId = masked ? this.selected : state.current
-    if (!this.initialized) {
+    if (state.phase === 'ready' && !this.initialized) {
       this.initialized = true
-      this.selected = sessionId
-      this.entries = [{ page: 'chat', sessionId }]
-      this.position = 0
-      this.publish()
+      this.entries = this.entries.map(route => route.selectionPending
+        ? { page: route.page, sessionId } : route)
     }
     const page = this.pendingPage ?? this.snapshot.route.page
     this.pendingPage = undefined
     this.selected = sessionId
     // Coalesce a feature's open event and its same-gesture session selection.
     // Returning to a page never replays that feature's open operation.
-    this.visit({ page, sessionId })
+    this.visit({ page, sessionId,
+      ...(!this.initialized && sessionId === undefined ? { selectionPending: true as const } : {}) })
     this.publish()
   }
   private openPage(page: ShellPage): void {
@@ -126,7 +136,7 @@ export class ShellNavigation implements ShellNavigationControls {
     this.pendingPage = page
     this.schedule()
   }
-  private visit(route: ShellRoute): void {
+  private visit(route: HistoryRoute): void {
     const previous = this.entries[this.position]
     if (previous && sameRoute(previous, route)) return
     this.entries = this.entries.slice(0, this.position + 1)
@@ -137,9 +147,9 @@ export class ShellNavigation implements ShellNavigationControls {
     this.present(route.page)
   }
 
-  private available(route: ShellRoute): boolean {
+  private available(route: HistoryRoute): boolean {
     const state = this.sessions.list.getSnapshot()
-    if (state.phase !== 'ready') return false
+    if (state.phase !== 'ready') return !!route.selectionPending || route.sessionId === this.selected
     if (route.sessionId === undefined) return true
     if (state.ids.includes(route.sessionId)) return true
     // Catalog children are deliberately absent from ids after leaving them.
@@ -168,13 +178,14 @@ export class ShellNavigation implements ShellNavigationControls {
     if (route === undefined) return
     this.replaying = true
     try {
-      if (route.sessionId !== this.sessions.list.getSnapshot().current) {
+      const ready = this.sessions.list.getSnapshot().phase === 'ready'
+      if (ready && route.sessionId !== this.sessions.list.getSnapshot().current) {
         if (route.sessionId === undefined) this.sessions.clear()
         else this.sessions.open(route.sessionId)
       }
       // Selection is synchronous; never advance a cursor on an unaccepted
       // route. Transcript loading continues through the existing runtime.
-      if (this.sessions.list.getSnapshot().current !== route.sessionId) return
+      if (ready && this.sessions.list.getSnapshot().current !== route.sessionId) return
       this.selected = route.sessionId
       this.position = next
       this.publish()
@@ -182,7 +193,8 @@ export class ShellNavigation implements ShellNavigationControls {
     } finally { this.replaying = false }
   }
   private publish(): void {
-    const route = this.entries[this.position] ?? this.snapshot.route
+    const entry = this.entries[this.position] ?? this.snapshot.route
+    const route: ShellRoute = { page: entry.page, sessionId: entry.sessionId }
     const canBack = this.find(-1) !== -1, canForward = this.find(1) !== -1
     if (sameRoute(route, this.snapshot.route) && canBack === this.snapshot.canBack && canForward === this.snapshot.canForward) return
     this.snapshot = { route, canBack, canForward }

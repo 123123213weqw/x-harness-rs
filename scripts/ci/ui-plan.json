@@ -290,6 +290,13 @@
     {"id":"browser-194","suite":"browser","argv":["node","scripts/test-computer-ui-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":120},
     {"id":"browser-195","suite":"browser","argv":["node","scripts/test-computer-ui-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120},
     {"id":"browser-196","suite":"browser","argv":["node","scripts/test-request-audit-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":120},
-    {"id":"browser-197","suite":"browser","argv":["node","scripts/test-request-audit-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120}
+    {"id":"browser-197","suite":"browser","argv":["node","scripts/test-request-audit-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120},
+    {"id":"contract-085","suite":"contract","argv":["node","--test","scripts/test-shell-navigation.mjs"],"env":{},"weight":60},
+    {"id":"contract-086","suite":"contract","argv":["node","--test","scripts/test-tool-argument-progress.mjs"],"env":{},"weight":60},
+    {"id":"contract-087","suite":"contract","argv":["node","scripts/test-installation-statistics-ui.mjs"],"env":{},"weight":60},
+    {"id":"browser-198","suite":"browser","argv":["node","scripts/test-settings-mask-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":180},
+    {"id":"browser-199","suite":"browser","argv":["node","scripts/test-tool-argument-progress-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":180},
+    {"id":"browser-200","suite":"browser","argv":["node","scripts/test-settings-mask-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":180},
+    {"id":"browser-201","suite":"browser","argv":["node","scripts/test-tool-argument-progress-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":180}
   ]
 }
