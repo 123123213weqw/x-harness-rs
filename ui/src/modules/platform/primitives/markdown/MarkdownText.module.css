@@ -10,7 +10,7 @@
 }
 
 .markdown strong {
-  font-weight: 600;
+  font-weight: var(--dsw-font-markdown-base-strong-font-weight, 700);
 }
 
 /* Only new prose batches fade. No transform, blur, stagger queue or permanent layer. */
@@ -29,26 +29,28 @@
 
 .markdown h1 {
   font: var(--dsw-font-markdown-h1);
-  margin: 32px 0 16px;
+  margin: 28px 0 12px;
 }
 
 .markdown h2 {
   font: var(--dsw-font-markdown-h2);
-  margin: 32px 0 16px;
+  margin: 28px 0 12px;
 }
 
 .markdown h3 {
   font: var(--dsw-font-markdown-h3);
-  margin: 32px 0 16px;
+  margin: 24px 0 10px;
 }
 
 .markdown h4 {
   font: var(--dsw-font-markdown-h4);
-  margin: 16px 0;
+  margin: 20px 0 8px;
 }
 
 .markdown :where(h5, h6) {
   font: var(--dsw-font-markdown-base-strong);
+  /* Lower headings stay subordinate to h1–h3, not as heavy as emphasis. */
+  font-weight: 600;
   margin: 16px 0;
 }
 
@@ -57,7 +59,7 @@
 }
 
 .markdown p {
-  margin: 16px 0;
+  margin: 14px 0;
 }
 
 /* Tighten h4–h6 against a following list (design: 8px gap). */
