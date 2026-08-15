@@ -115,6 +115,7 @@ try {
     assert.match(await confirmDialog.innerText(), /https:\/\/example.com\/demo.zip/)
     assert.equal(await page.evaluate(() => window.__fixture.calls.includes('plugins/install')), false, 'opening consent does not install')
     await confirmDialog.getByRole('button', {name:'Cancel',exact:true}).click()
+    await confirmDialog.waitFor({state:'detached'})
     assert.equal(await confirmDialog.count(), 0)
     // Escape and the close button are cancellation, never acceptance.
     for (const close of ['escape', 'button']) {
@@ -122,6 +123,7 @@ try {
       await confirmDialog.waitFor()
       if (close === 'escape') await page.keyboard.press('Escape')
       else await confirmDialog.getByRole('button', {name:'Close',exact:true}).click()
+      await confirmDialog.waitFor({state:'detached'})
       assert.equal(await confirmDialog.count(), 0)
     }
   }
