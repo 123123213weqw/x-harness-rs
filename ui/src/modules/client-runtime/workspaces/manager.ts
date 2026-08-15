@@ -67,6 +67,7 @@ export class WorkspaceManager {
    * into permanent blindfolds and must clear them instead.
    */
   private readonly removedIds = new Set<WorkspaceId>()
+  private readonly deletedSessionIds = new Set<SessionId>()
   private snapshotCache: WorkspaceListSnapshot
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
@@ -247,6 +248,9 @@ export class WorkspaceManager {
       this.orderFrameGeneration++
       this.installOrder(envelope.payload.workspaceIds, true)
     }
+    else if (envelope.payload.type === 'host/session-removed' && envelope.payload.permanent === true) {
+      this.forgetDeletedSessions([envelope.payload.sessionId])
+    }
     else if (envelope.payload.type === 'host/archived-sessions-changed') {
       this.installArchived(envelope.payload.archivedSessionIds)
     }
@@ -275,6 +279,19 @@ export class WorkspaceManager {
     return this.snapshotCache
   }
 
+  /** Apply only a successful delete acknowledgement or a permanent-removal frame. */
+  forgetDeletedSessions(ids: readonly SessionId[]): void {
+    for (const id of ids) this.deletedSessionIds.add(id)
+    this.archivedSessions = this.archivedSessions.filter(row => !this.deletedSessionIds.has(row.sessionId))
+    this.installArchived(this.archivedSessionIds)
+    for (const workspace of this.items) {
+      const view = workspace.getSnapshot().view
+      if (view !== undefined) workspace.adopt({...view, sessionIds: view.sessionIds.filter(id => !this.deletedSessionIds.has(id))})
+    }
+    this.items = [...this.items]
+    this.notifier.notifyNow()
+  }
+
   archivedSummaries(): readonly ArchivedSessionSummary[] {
     return this.archivedSessions.filter(row => this.archivedSessionIds.includes(row.sessionId))
   }
@@ -296,6 +313,7 @@ export class WorkspaceManager {
    */
   private installArchived(archivedSessionIds: readonly SessionId[]): void {
     if (this.refreshFrames !== null) this.archivedSupersedesRefresh = true
+    archivedSessionIds = archivedSessionIds.filter(id => !this.deletedSessionIds.has(id))
     if (archivedSessionIds.length === this.archivedSessionIds.length
       && archivedSessionIds.every((id, index) => id === this.archivedSessionIds[index])) return
     this.archivedSessionIds = [...archivedSessionIds]
@@ -322,6 +340,7 @@ export class WorkspaceManager {
 
   /** Upsert one Host view, optionally retaining the local object that materialized it. */
   private upsert(view: WorkspaceView, identity?: Workspace): void {
+    view = {...view, sessionIds: view.sessionIds.filter(id => !this.deletedSessionIds.has(id))}
     if (this.removedIds.has(view.workspaceId)) return
     this.refreshFrames?.push({ type: 'upsert', workspace: view })
     const index = this.items.findIndex(item => item.getSnapshot().view?.workspaceId === view.workspaceId)
@@ -366,6 +385,7 @@ export class WorkspaceManager {
   }
 
   private installViews(views: readonly WorkspaceView[]): void {
+    views = views.map(view => ({...view, sessionIds: view.sessionIds.filter(id => !this.deletedSessionIds.has(id))}))
     const existing = new Map(
       this.items.flatMap((workspace) => {
         const view = workspace.getSnapshot().view

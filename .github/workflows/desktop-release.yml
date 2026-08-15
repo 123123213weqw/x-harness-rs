@@ -135,6 +135,9 @@ jobs:
       run:
         shell: bash
     env:
+      # Empty until the native-only ingestion endpoint is deployed and accepted.
+      XHARNESS_INSTALLATION_ENDPOINT: ${{ vars.XHARNESS_INSTALLATION_ENDPOINT }}
+      XHARNESS_RELEASE_CHANNEL: stable
       XHARNESS_UPDATER_ENDPOINT: ${{ needs.plan.outputs.endpoint }}
       XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
     steps:

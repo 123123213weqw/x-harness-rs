@@ -32,6 +32,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import tomllib
 import urllib.request
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -684,6 +685,58 @@ def isolate_base_updater_timers(path):
     path.write_text(text.replace(periodic, '\n    // Production target timers remain unmodified.\n', 1), encoding='utf-8')
 
 
+def prepare_reqwest_dependency(desktop):
+    """Reconcile the disposable driver with its pinned TLS client, idempotently.
+
+    Preserve an existing compatible dependency and all its production features.
+    A lock/version mismatch fails closed; never weaken certificate verification
+    or edit the original checkout to make a rehearsal pass.
+    """
+    manifest_path = desktop / 'Cargo.toml'
+    lock_path = desktop / 'Cargo.lock'
+    manifest_text = manifest_path.read_text()
+    lock_text = lock_path.read_text()
+    manifest = tomllib.loads(manifest_text)
+    lock = tomllib.loads(lock_text)
+    packages = lock.get('package', [])
+    clients = [p for p in packages if p.get('name') == 'reqwest']
+    require(len(clients) == 1 and clients[0].get('version') == '0.13.4',
+            'Disposable updater requires pinned reqwest 0.13.4 in Cargo.lock')
+    dependency = manifest.get('dependencies', {}).get('reqwest')
+    if dependency is not None:
+        version = dependency if isinstance(dependency, str) else dependency.get('version') if isinstance(dependency, dict) else None
+        require(version in ('0.13', '^0.13', '0.13.4', '^0.13.4', '=0.13.4'),
+                f'Existing reqwest dependency is incompatible with pinned 0.13.4: {version!r}')
+        require(not isinstance(dependency, dict) or not any(key in dependency for key in ('path', 'git', 'package', 'workspace')),
+                'Disposable updater cannot reconcile a redirected reqwest dependency')
+    else:
+        require(manifest_text.count('[dependencies]\n') == 1,
+                'Disposable reqwest dependency section anchor drifted')
+        manifest_text = manifest_text.replace('[dependencies]\n',
+            '[dependencies]\nreqwest = { version = "=0.13.4", default-features = false }\n', 1)
+    desktops = [p for p in packages if p.get('name') == 'xharness-desktop']
+    require(len(desktops) == 1, 'Desktop lockfile package anchor drifted')
+    deps = desktops[0].get('dependencies', [])
+    references = [dep for dep in deps if dep == 'reqwest' or dep.startswith('reqwest ')]
+    require(len(references) <= 1 and all(dep in ('reqwest', 'reqwest 0.13.4') for dep in references),
+            'Desktop lockfile reqwest dependency is ambiguous or incompatible')
+    if not references:
+        blocks = re.split(r'(?=\[\[package\]\])', lock_text)
+        found = False
+        for i, block in enumerate(blocks):
+            if re.search(r'^name = "xharness-desktop"$', block, re.MULTILINE):
+                require(block.count('dependencies = [\n') == 1, 'Desktop lockfile dependency anchor drifted')
+                blocks[i] = block.replace('dependencies = [\n', 'dependencies = [\n "reqwest",\n', 1)
+                found = True
+        require(found, 'Desktop lockfile package text anchor drifted')
+        lock_text = ''.join(blocks)
+    # Validate every input before writing either disposable file.
+    if manifest_text != manifest_path.read_text():
+        manifest_path.write_text(manifest_text)
+    if lock_text != lock_path.read_text():
+        lock_path.write_text(lock_text)
+
+
 def prepare(args):
     root = isolated_root(args.root, create=True)
     source = pathlib.Path(args.source).resolve()
@@ -731,17 +784,7 @@ def prepare(args):
     anchor = '    if let Err(error) = update.install(bytes.as_slice()) {'
     require(text.count(anchor) == 1, 'Updater post-shutdown snapshot injection anchor drifted')
     path.write_text(text.replace(anchor, '    crate::rehearsal::snapshot_before_install();\n' + anchor, 1))
-    path = desktop / 'Cargo.toml'
-    text = path.read_text()
-    require('[dependencies]\n' in text and '\nreqwest =' not in text, 'Disposable reqwest dependency anchor drifted')
-    path.write_text(text.replace('[dependencies]\n', '[dependencies]\nreqwest = { version = "=0.13.4", default-features = false }\n', 1))
-    path = desktop / 'Cargo.lock'
-    text = path.read_text()
-    require('name = "reqwest"\nversion = "0.13.4"' in text, 'Pinned reqwest lockfile changed')
-    prefix, desktop_lock = text.split('name = "xharness-desktop"\n', 1)
-    require('dependencies = [\n' in desktop_lock, 'Desktop lockfile dependency anchor drifted')
-    desktop_lock = desktop_lock.replace('dependencies = [\n', 'dependencies = [\n "reqwest",\n', 1)
-    path.write_text(prefix + 'name = "xharness-desktop"\n' + desktop_lock)
+    prepare_reqwest_dependency(desktop)
     generate_tls(root)
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))

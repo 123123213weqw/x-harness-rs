@@ -1,3 +1,4 @@
+import {installShellSessionsFixture} from './fixtures/shell-navigation-browser.mjs'
 import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 import {installOwnedViewHtml} from './fixtures/owned-view-platform-browser.mjs'
 // End-to-end layout/plugin restoration against the stable native snapshot IPC.
@@ -29,27 +30,37 @@ try {
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xharness/dsh-client-ui-layout') })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xharness/dsh-client-runtime') })
+  await installShellSessionsFixture(page)
   await page.evaluate(() => {
     const engine=registrations['@xharness/dsh-client-runtime'].factory(id=>{if(id in staticModules)return staticModules[id];throw Error(id)})
     const runtime=id=>{if(id==='@xharness/dsh-client-runtime/client')return engine;if(id in staticModules)return staticModules[id];throw Error(id)}
     const layout = registrations['@xharness/dsh-client-ui-layout'].factory(runtime)
     const plugin = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
+    const shellSessions=createShellSessionsFixture()
     let AppFrame,rootDefinition
-    layout.apply({ effect: (fn, label) => { if (label.includes('service')) fn() }, reflect: { provide: () => () => {} }, slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } } })
+    layout.apply({get:name=>name==='sessions'?shellSessions:undefined, effect: (fn, label) => { if (label.includes('service')) fn() }, reflect: { provide: () => () => {} }, slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } } })
     const components = {}
     plugin.apply({ effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: (config, component) => { components[config.id] = component } } })
-    const instance=rootDefinition.store().create(),actions=instance.actions;rootDefinition.inject(actions)
+    const instance=rootDefinition.store().create(),actions=instance.actions;const injected=rootDefinition.inject(actions)
     const slots = (name, props) => name === 'workspace.item' ? React.createElement(components['browser-pane'], props)
-      : name === 'conversation' ? React.createElement('div', null, 'Conversation') : null
+      : name === 'conversation' ? React.createElement('div', null, 'Conversation', React.createElement(plugin.BrowserToggle)) : null
     window.root = ReactDOM.createRoot(document.getElementById('root'))
     root.render(React.createElement(AppFrame, {
       useStore:selector=>selector(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),
-      useSessions: selector => selector({ current: undefined, byId: {} }), actions, renderSlot: slots,
+      ...injected,useSessions: selector => selector({ current: undefined, byId: {} }), actions, renderSlot: slots,
     }))
   })
   await page.getByRole('tab', { name: 'example.com' }).waitFor()
   await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_navigate'))
   assert.equal(await page.evaluate(() => window.activeTab), 'browser:7', 'an empty viewport-sized shell carrier must not hide its peer')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    assert.equal(await page.locator('.xhbrowser-header-trigger').getAttribute('aria-expanded'), 'true', 'restored tabs publish their actual visibility to the header')
+    await page.getByRole('button', {name:'收起右侧工作区'}).click()
+    await page.waitForFunction(()=>window.activeTab===null&&document.querySelector('[data-xhworkspace-open]')===null)
+    await page.getByRole('button', {name:'展开右侧工作区'}).click()
+    await page.waitForFunction(()=>window.activeTab==='browser:7')
+    assert.equal(await page.getByRole('tab').count(),1,'restored tab survives hiding without duplication')
+  }
   await page.evaluate(() => {
     const menu = document.createElement('div'); menu.id = 'shell-card'
     menu.style.cssText = 'position:absolute;right:20px;top:150px;width:220px;height:160px;background:white'

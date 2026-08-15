@@ -41,10 +41,18 @@ const timer=setInterval(()=>{
  const layout=registrations['@xharness/dsh-client-ui-layout'].factory(load);
  const browser=registrations['@xlang/xharness-client-ui-browser'].factory(load);
  browser.apply({effect:fn=>fn(),slots:{inject:(_name,fn)=>fn(),register:()=>{}}});
+ // Evaluator-owned session service, not a navigation or native-browser stub.
+ // AppFrame consumes the real ShellNavigation returned by the root inject hook.
+ let selection={current:config.session,ids:[config.session],byId:{[config.session]:{blank:false}},phase:'ready'};
+ const listeners=new Set();
+ const update=patch=>{selection={...selection,...patch};for(const listener of [...listeners])listener()};
+ const sessions={list:{getSnapshot:()=>selection,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)}},
+   open:id=>{if(!selection.ids.includes(id))throw Error('fixture session absent: '+id);update({current:id})},
+   clear:()=>update({current:undefined}),subagentAddress:()=>undefined};
  let AppFrame,definition;
- layout.apply({effect:(fn,label)=>{if(label.includes('service'))fn()},reflect:{provide:()=>()=>{}},slots:{register:(spec,view)=>{AppFrame=view;definition=spec;return()=>{}}}});
- const store=definition.store().create();definition.inject(store.actions);
- function App(){return React.createElement(AppFrame,{useStore:s=>s(React.useSyncExternalStore(store.subscribe,store.getSnapshot)),useSessions:s=>s({current:config.session,byId:{}}),actions:store.actions,renderSlot:(name,props)=>name==='workspace.item'?React.createElement(browser.BrowserPane,props):null})}
+ layout.apply({get:name=>name==='sessions'?sessions:undefined,effect:(fn,label)=>{if(label.includes('service'))fn()},reflect:{provide:()=>()=>{}},slots:{register:(spec,view)=>{AppFrame=view;definition=spec;return()=>{}}}});
+ const store=definition.store().create();const injected=definition.inject(store.actions);
+ function App(){return React.createElement(AppFrame,{...injected,useStore:s=>s(React.useSyncExternalStore(store.subscribe,store.getSnapshot)),useSessions:s=>s(React.useSyncExternalStore(sessions.list.subscribe,sessions.list.getSnapshot)),actions:store.actions,renderSlot:(name,props)=>name==='workspace.item'?React.createElement(browser.BrowserPane,props):null})}
  ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
 },20);
 </script></html>'''

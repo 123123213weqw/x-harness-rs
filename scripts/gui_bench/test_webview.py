@@ -46,6 +46,18 @@ class WebviewTests(unittest.TestCase):
         self.assertNotIn('config.target', html)
         self.assertNotIn('entries:[', html)
 
+    def test_zero_tab_fixture_supplies_session_service_and_root_injected_navigation(self):
+        html = zero_tab_html('owned-session')
+        self.assertIn("get:name=>name==='sessions'?sessions:undefined", html)
+        self.assertIn('const injected=definition.inject(store.actions)', html)
+        self.assertIn('React.createElement(AppFrame,{...injected,', html)
+        self.assertIn('React.useSyncExternalStore(sessions.list.subscribe,sessions.list.getSnapshot)', html)
+        self.assertIn('phase:\'ready\'', html)
+        self.assertIn('ids:[config.session]', html)
+        self.assertIn('listeners.delete(listener)', html)
+        self.assertNotIn('navigation:', html, 'fixture must not replace the actual ShellNavigation')
+        self.assertNotIn('useSessions:s=>s({', html, 'selection must be observable, not a stale render snapshot')
+
     def test_zero_tab_readiness_does_not_infer_a_binding(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'private.json'
