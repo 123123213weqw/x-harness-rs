@@ -10,6 +10,11 @@ on:
         description: Optional opaque correlation ID from scripts/release.py
         required: false
         type: string
+      integrated_acceptance:
+        description: Run native upgrades in the signing workers using the complete immutable candidate
+        required: false
+        type: boolean
+        default: false
       prepare_tag:
         description: Unified entry only; create immutable tag with GITHUB_TOKEN (no duplicate push build)
         required: false
@@ -59,6 +64,7 @@ jobs:
     outputs:
       version: ${{ steps.plan.outputs.version }}
       endpoint: ${{ steps.plan.outputs.endpoint }}
+      integrated: ${{ inputs.integrated_acceptance }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
@@ -87,6 +93,7 @@ jobs:
           # `all` still requires Apple credentials; no automatic signing fallback.
           # Operators may explicitly choose windows-linux before Mac is published;
           # promotion refuses to silently drop platforms from an existing feed.
+          INTEGRATED_ACCEPTANCE: ${{ inputs.integrated_acceptance }}
           RELEASE_SCOPE_INPUT: ${{ inputs.release_scope || vars.XHARNESS_DESKTOP_TAG_RELEASE_SCOPE || 'all-macos-preview' }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag || github.ref_name }}
           XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
@@ -170,7 +177,7 @@ jobs:
         if: matrix.platform == 'linux-x86_64-appimage'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 ripgrep squashfs-tools
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 ripgrep squashfs-tools xvfb dbus-x11
       - name: Install pinned Windows ripgrep
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
@@ -187,6 +194,8 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
+          shared-key: desktop-native-${{ matrix.target }}
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
@@ -253,9 +262,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
         run: python -B scripts/desktop-release-build.py sign-stable-preview --plan dist/desktop-plan/plan.json --target '${{ matrix.target }}'
-      - name: Destroy isolated publisher keychain even if signing fails
-        if: ${{ always() && matrix.macos_selfsigned }}
-        run: python -B scripts/macos-stable-signing.py cleanup
       - name: Remove incompatible bundled Linux desktop stack and re-sign final bytes
         if: matrix.platform == 'linux-x86_64-appimage'
         working-directory: apps/desktop
@@ -297,11 +303,85 @@ jobs:
           path: dist/desktop-package/${{ matrix.platform }}/
           if-no-files-found: error
           retention-days: 90
+      - name: Prepare disposable Unix BASE on this worker while other platforms are building
+        if: inputs.integrated_acceptance && matrix.platform != 'windows-x86_64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -B scripts/desktop-release-build.py prepare-in-build --plan dist/desktop-plan/plan.json --platform '${{ matrix.platform }}' --package 'dist/desktop-package/${{ matrix.platform }}' --output "$RUNNER_TEMP/desktop-base-context" --root "$RUNNER_TEMP/desktop-unix-update"
+      - name: Build Unix BASE using the already staged Host and hot native target
+        if: inputs.integrated_acceptance && matrix.platform != 'windows-x86_64'
+        working-directory: ${{ runner.temp }}/desktop-unix-update/source/apps/desktop
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+          TAURI_SIGNING_PRIVATE_KEY: ''
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
+      - name: Fetch the complete immutable aggregate for Unix (never a partial manifest)
+        if: inputs.integrated_acceptance && matrix.platform != 'windows-x86_64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -B scripts/desktop-release-build.py fetch-in-build --plan dist/desktop-plan/plan.json --output "$RUNNER_TEMP/desktop-unix-candidate"
+      - name: Three production updater rounds against the exact signed Unix target
+        if: inputs.integrated_acceptance && matrix.platform != 'windows-x86_64'
+        run: python -B scripts/desktop-release-build.py native-run --candidate "$RUNNER_TEMP/desktop-unix-candidate" --root "$RUNNER_TEMP/desktop-unix-update"
+      - name: Export synthetic Unix native evidence only
+        if: always() && inputs.integrated_acceptance && matrix.platform != 'windows-x86_64'
+        run: python -B scripts/desktop-release-build.py export-native --root "$RUNNER_TEMP/desktop-unix-update" --output 'dist/native-evidence/${{ matrix.platform }}'
+      - uses: actions/upload-artifact@v7
+        if: always() && inputs.integrated_acceptance && matrix.platform != 'windows-x86_64'
+        with:
+          name: desktop-acceptance-${{ matrix.platform }}
+          path: dist/native-evidence/${{ matrix.platform }}/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Fetch complete immutable Windows candidate on the signing worker
+        if: inputs.integrated_acceptance && matrix.platform == 'windows-x86_64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -B scripts/desktop-release-build.py fetch-in-build --plan dist/desktop-plan/plan.json --output dist/unified-windows-candidate
+      - name: Stage Windows one-hop upgrade from the authenticated stable installer
+        if: inputs.integrated_acceptance && matrix.platform == 'windows-x86_64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          UPSTREAM_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+        run: node scripts/desktop-windows-acceptance.mjs stage
+      - name: Install isolated Windows native UI driver
+        if: inputs.integrated_acceptance && matrix.platform == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/migration-deps" --no-save --package-lock=false playwright@1.61.1
+          if ($LASTEXITCODE) { throw 'Playwright installation failed' }
+          "MIGRATION_TEST_DEPS=$env:RUNNER_TEMP/migration-deps/node_modules/playwright/index.mjs" >> $env:GITHUB_ENV
+      - name: Exact Windows one-hop update and data preservation
+        if: inputs.integrated_acceptance && matrix.platform == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          ./scripts/windows-migration-acceptance.ps1
+          if ($LASTEXITCODE) { throw 'Native updater acceptance failed' }
+      - name: Bind Windows native evidence to this immutable build attempt
+        if: inputs.integrated_acceptance && matrix.platform == 'windows-x86_64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          UPSTREAM_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+        run: node scripts/desktop-windows-acceptance.mjs collect
+      - uses: actions/upload-artifact@v7
+        if: always() && inputs.integrated_acceptance && matrix.platform == 'windows-x86_64'
+        with:
+          name: desktop-acceptance-windows-x86_64
+          path: dist/migration-acceptance/evidence/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Destroy isolated publisher keychain after signing and native acceptance
+        if: ${{ always() && matrix.macos_selfsigned }}
+        run: python -B scripts/macos-stable-signing.py cleanup
 
   aggregate:
-    needs: [plan, build]
+    # The pipeline workers wait for this artifact; depending on build would deadlock.
+    needs: plan
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 85
     permissions:
       contents: write
       actions: read
@@ -318,20 +398,19 @@ jobs:
         with:
           name: desktop-plan
           path: dist/desktop-candidate
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: desktop-package-*
-          path: dist/matrix-artifacts
+      - name: Wait for immutable platform packages without waiting for native worker completion
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 -B scripts/desktop-release-build.py wait-packages --plan dist/desktop-candidate/plan.json --output dist/pipeline-handoff
+          mv 'dist/pipeline-handoff/desktop-symbols-windows-${{ needs.plan.outputs.version }}' dist/symbols-archive
+          mv dist/pipeline-handoff dist/matrix-artifacts
       - name: Install final Windows installer extractor
         run: sudo apt-get update && sudo apt-get install -y p7zip-full
       - name: Independently verify all selected immutable platform receipts and aggregate once
         env:
           XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
         run: python3 -B scripts/desktop-release-build.py aggregate --plan dist/desktop-candidate/plan.json --artifacts dist/matrix-artifacts --output dist/desktop-candidate/release
-      - uses: actions/download-artifact@v8
-        with:
-          name: desktop-symbols-windows-${{ needs.plan.outputs.version }}
-          path: dist/symbols-archive
       - name: Retain verified symbols as a separate immutable release asset
         run: python3 -B scripts/attach-desktop-symbols.py --candidate dist/desktop-candidate --symbols dist/symbols-archive/desktop-symbols-windows.zip
       - name: Stage one complete draft, never latest

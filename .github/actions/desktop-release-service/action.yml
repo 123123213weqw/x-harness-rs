@@ -1,0 +1,9 @@
+name: Durable desktop release coordinator
+description: Execute the canonical release task with write-ahead artifact checkpoints
+inputs:
+  rehearsal:
+    description: No-secret CI artifact round-trip only, never dispatch or publish
+    default: 'false'
+runs:
+  using: node24
+  main: index.cjs
