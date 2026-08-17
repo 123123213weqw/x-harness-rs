@@ -213,8 +213,27 @@ def contract_completed(log_text: str) -> bool:
     # process exit status. Require positive terminal evidence, not rc=0 alone.
     return ("Native Tauri DOM probe passed:" in log_text
             and "Native lifecycle probe passed:" in log_text
+            and subframe_navigation_passed(log_text)
             and "Native observation probe failed:" not in log_text
             and hard_capabilities(log_text).get("status") != "unverified")
+
+
+def subframe_navigation_passed(log_text: str) -> bool:
+    prefix = "SUBFRAME_NAVIGATION_EVIDENCE "
+    lines = [line[len(prefix):] for line in log_text.splitlines() if line.startswith(prefix)]
+    if len(lines) != 1:
+        return False
+    try:
+        result = json.loads(lines[0])
+        return (isinstance(result, dict) and result.get('test_only') is True
+                and result.get('same_origin') == 'passed'
+                and result.get('cross_origin') == 'passed'
+                and result.get('same_document') == 'passed'
+                and result.get('guest_caller') == 'denied'
+                and result.get('top_level_address') == 'preserved'
+                and result.get('loaded_owner_receipt') == 'preserved')
+    except (ValueError, TypeError):
+        return False
 
 
 def main() -> int:
@@ -251,6 +270,7 @@ def main() -> int:
         cleaned = cleanup_profile(directory)
     log_text = (args.evidence_dir / "native-probe.log").read_text(encoding="utf-8", errors="replace")
     capabilities = hard_capabilities(log_text)
+    receipt['subframe_navigation_passed'] = subframe_navigation_passed(log_text)
     completed = contract_completed(log_text)
     api = native_api_evidence(log_text, args.evidence_dir)
     (args.evidence_dir / 'native-api-evidence.json').write_text(json.dumps(api,indent=2)+'\n')

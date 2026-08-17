@@ -23,13 +23,22 @@ try{
    calls.push({command,args});
    if(command==='desktop_browser_restore'){restoreDone=true;return '{}'}
    if(command==='desktop_browser_activate'){activeTab=args.tabId;return nativeTabs.has(args.tabId)}
+   if(command==='desktop_browser_page_state')return {...nativeTabs.get(args.tabId)};
    if(command==='desktop_browser_close'){nativeTabs.delete(args.tabId);return}
    if(command==='desktop_browser_navigate'){
-     nativeTabs.set(args.tabId,{url:args.url,loaded:true});
+     const url=window.redirectNext??args.url;window.redirectNext=undefined;
+     nativeTabs.set(args.tabId,{url,loaded:true});
      // Regression: Finished arrives BEFORE the navigate promise resolves.
-     emitNative('xharness-browser-event',{tabId:args.tabId,kind:'loaded',value:args.url});return;
+     emitNative('xharness-browser-event',{tabId:args.tabId,kind:'loading',value:url});
+     emitNative('xharness-browser-event',{tabId:args.tabId,kind:'url',value:url});
+     emitNative('xharness-browser-event',{tabId:args.tabId,kind:'loaded',value:url});
+     // A duplicate URL is not a new load. Previously this poisoned readiness.
+     emitNative('xharness-browser-event',{tabId:args.tabId,kind:'url',value:url});return;
    }
-   if(command==='desktop_browser_delegate')return {origin:args.expectedOrigin,grant:{owner:args.owner,allowActions:true,remainingMs:600000}};
+   if(command==='desktop_browser_delegate'){
+     if(new URL(nativeTabs.get(args.tabId).url).origin!==args.expectedOrigin)throw Error('browser origin changed; synchronize the visible page again');
+     return {origin:args.expectedOrigin,grant:{owner:args.owner,allowActions:true,remainingMs:600000}};
+   }
    if(command==='desktop_browser_control_reply')return args.reply.status==='ready'&&nativeTabs.get(args.reply.tab_id)?.loaded===true;
  }},event:{listen:async(event,fn)=>{const set=nativeListeners.get(event)??new Set();set.add(fn);nativeListeners.set(event,set);return()=>set.delete(fn)}}};
  `})
@@ -70,6 +79,50 @@ try{
  assert.equal(await page.getByRole('tab').count(),1)
  await page.evaluate(requestId=>emitNative('xharness-browser-control-cancel',requestId),requestId)
  assert.equal(await page.getByRole('textbox',{name:'网址'}).count(),1)
+ // A frame-agnostic policy hint uses the native top-level URL, not its source.
+ await page.evaluate(tabId=>emitNative('xharness-browser-event',{tabId,kind:'navigation-policy',value:'https://iframe.example/'}),tabId)
+ await page.waitForFunction(()=>calls.some(c=>c.command==='desktop_browser_page_state'))
+ assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://example.com/')
+ // Same-document location changes remain supported without a Finished event.
+ await page.evaluate(tabId=>{
+   nativeTabs.get(tabId).url='https://example.com/#section'
+   emitNative('xharness-browser-event',{tabId,kind:'navigation-policy',value:''})
+ },tabId)
+ await page.waitForFunction(()=>document.querySelector('.xhbrowser-address-form input')?.value==='https://example.com/#section')
+ await page.evaluate(tabId=>{
+   nativeTabs.get(tabId).url='https://example.com/'
+   emitNative('xharness-browser-event',{tabId,kind:'navigation-policy',value:''})
+ },tabId)
+ await page.waitForFunction(()=>document.querySelector('.xhbrowser-address-form input')?.value==='https://example.com/')
+ // A delayed native sample must not overwrite a newer top-level load event.
+ await page.evaluate(tabId=>{
+   const invoke=__TAURI__.core.invoke
+   __TAURI__.core.invoke=(command,args)=>{
+     if(command!=='desktop_browser_page_state')return invoke(command,args)
+     __TAURI__.core.invoke=invoke
+     return new Promise(resolve=>{window.releasePageSample=()=>resolve({url:'https://old.example/',loaded:false})})
+   }
+   emitNative('xharness-browser-event',{tabId,kind:'navigation-policy',value:''})
+ },tabId)
+ await page.waitForFunction(()=>typeof window.releasePageSample==='function')
+ await page.evaluate(tabId=>{
+   emitNative('xharness-browser-event',{tabId,kind:'url',value:'https://example.com/'})
+   emitNative('xharness-browser-event',{tabId,kind:'loaded',value:'https://example.com/'})
+   releasePageSample()
+ },tabId)
+ await page.waitForTimeout(100)
+ assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://example.com/')
+ // Committed top-level redirect is synchronized before exact-origin binding.
+ const redirected='f'.repeat(32)
+ await page.evaluate(requestId=>{
+   window.redirectNext='https://final.example/path'
+   emitNative('xharness-browser-control-open',{requestId,owner:'chat-a',url:'https://start.example/'})
+ },redirected)
+ await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id&&c.args.reply.status==='ready'),redirected)
+ assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://final.example/path')
+ assert.equal(await page.evaluate(id=>calls.filter(c=>c.command==='desktop_browser_delegate'&&c.args.tabId==='browser:'+id).at(-1).args.expectedOrigin,redirected),'https://final.example')
+ await page.getByRole('button',{name:'关闭 final.example',exact:true}).click()
+ await page.waitForFunction(()=>document.querySelector('.xhbrowser-address-form input')?.value==='https://example.com/')
  await page.evaluate(()=>selectOwner('chat-b'))
  await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
  const other='b'.repeat(32)
