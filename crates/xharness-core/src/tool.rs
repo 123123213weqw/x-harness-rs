@@ -31,6 +31,7 @@ impl ToolSpec {
             timeout: Duration::from_secs(120),
             concurrency: ToolConcurrency::Parallel,
             resource_key_resolver: None,
+            requires_approval: false,
         }
     }
 
@@ -51,6 +52,12 @@ impl ToolSpec {
     pub fn exclusive(mut self) -> Self {
         self.concurrency = ToolConcurrency::Exclusive;
         self.resource_key_resolver = None;
+        self
+    }
+
+    /// Requires the host to approve each call before the handler is started.
+    pub fn requires_approval(mut self) -> Self {
+        self.requires_approval = true;
         self
     }
 }

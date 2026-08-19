@@ -51,6 +51,9 @@ pub struct AgentMessage {
     pub tool_call_id: Option<String>,
     #[serde(default)]
     pub provider_items: Vec<Value>,
+    /// True when the assistant turn was cut short by runtime steering.
+    #[serde(default)]
+    pub interrupted: bool,
 }
 
 impl AgentMessage {
@@ -145,6 +148,7 @@ pub struct ToolSpec {
     pub timeout: Duration,
     pub concurrency: ToolConcurrency,
     pub resource_key_resolver: Option<ResourceKeyResolver>,
+    pub requires_approval: bool,
 }
 
 impl fmt::Debug for ToolSpec {
@@ -154,6 +158,7 @@ impl fmt::Debug for ToolSpec {
             .field("definition", &self.definition)
             .field("timeout", &self.timeout)
             .field("concurrency", &self.concurrency)
+            .field("requires_approval", &self.requires_approval)
             .finish_non_exhaustive()
     }
 }
@@ -233,15 +238,78 @@ pub enum LoopStatus {
     LimitReached,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InjectionMode {
+    /// Add the message before the next model request without interrupting the
+    /// model or any tools that are currently running.
+    #[default]
+    NextStep,
+    /// Cancel the current model stream, preserve any partial assistant text as
+    /// an interrupted turn, and continue with the injected message.
+    InterruptModel,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum LoopCommand {
+    InjectMessage {
+        message: AgentMessage,
+        mode: InjectionMode,
+    },
+    /// Shorthand for an `InjectMessage` using `InterruptModel`.
+    Steer(AgentMessage),
+    Pause,
+    Resume,
+    Cancel,
+    ApproveTool {
+        call_id: String,
+    },
+    RejectTool {
+        call_id: String,
+        reason: String,
+    },
+}
+
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
+pub enum LoopControlError {
+    #[error("loop is no longer accepting commands")]
+    Closed,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoopEventKind {
     TextDelta(String),
     ReasoningDelta(String),
     ToolStarted(ToolCall),
-    ToolCompleted { call: ToolCall, result: ToolResult },
-    ModelRetry { attempt: usize, error: String },
-    RunCompleted { text: String },
-    RunFailed { error: String },
+    ToolCompleted {
+        call: ToolCall,
+        result: ToolResult,
+    },
+    ToolApprovalRequested {
+        call: ToolCall,
+    },
+    ToolApprovalResolved {
+        call: ToolCall,
+        approved: bool,
+        reason: Option<String>,
+    },
+    MessageInjected {
+        message: AgentMessage,
+        mode: InjectionMode,
+    },
+    RunPaused,
+    RunResumed,
+    ModelInterrupted,
+    ModelRetry {
+        attempt: usize,
+        error: String,
+    },
+    RunCompleted {
+        text: String,
+    },
+    RunFailed {
+        error: String,
+    },
     RunCancelled,
     LimitReached,
 }
@@ -283,6 +351,7 @@ pub struct LoopConfig {
     pub tool_result_limit_bytes: usize,
     pub provider_retries: usize,
     pub event_buffer: usize,
+    pub command_buffer: usize,
 }
 
 impl Default for LoopConfig {
@@ -293,6 +362,7 @@ impl Default for LoopConfig {
             tool_result_limit_bytes: 256 * 1024,
             provider_retries: 2,
             event_buffer: 128,
+            command_buffer: 64,
         }
     }
 }
