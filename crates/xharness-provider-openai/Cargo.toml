@@ -1,0 +1,22 @@
+[package]
+name = "xharness-provider-openai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OpenAI-compatible streaming provider for XHarness"
+
+[dependencies]
+async-stream.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+xharness-core = { path = "../xharness-core" }
+
+[dev-dependencies]
+tokio.workspace = true
