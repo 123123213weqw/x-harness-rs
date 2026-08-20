@@ -1,0 +1,649 @@
+use std::{collections::HashMap, time::SystemTime};
+
+use serde::{Deserialize, Serialize};
+
+use crate::{EventData, LoggedEvent, Message, MessageRole, Revision, Sequence, SessionEvent};
+
+/// On-disk format identity and immutable metadata outside the conversation
+/// event stream.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionHeader {
+    pub version: u32,
+    pub id: String,
+    pub created_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+impl SessionHeader {
+    pub const FORMAT_VERSION: u32 = 1;
+
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            version: Self::FORMAT_VERSION,
+            id: id.into(),
+            created_at_ms: unix_timestamp_ms(),
+            cwd: None,
+        }
+    }
+}
+
+/// Immutable-history session snapshot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Session {
+    header: SessionHeader,
+    revision: Revision,
+    events: Vec<LoggedEvent>,
+}
+
+/// Result of one successful compare-and-swap append.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AppendReceipt {
+    pub previous_revision: Revision,
+    pub revision: Revision,
+    pub first_seq: Sequence,
+    pub last_seq: Option<Sequence>,
+    pub events: Vec<LoggedEvent>,
+}
+
+/// An owned, read-only logical inspection cut.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionInspection {
+    pub header: SessionHeader,
+    pub revision: Revision,
+    pub next_seq: Sequence,
+    pub events: Vec<LoggedEvent>,
+}
+
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
+pub enum SessionError {
+    #[error("session id must not be empty")]
+    EmptySessionId,
+    #[error("unsupported session format version {actual}; expected {expected}")]
+    UnsupportedVersion { expected: u32, actual: u32 },
+    #[error("session sequence mismatch: expected {expected}, got {actual}")]
+    SequenceMismatch {
+        expected: Sequence,
+        actual: Sequence,
+    },
+    #[error("session revision conflict: expected {expected:?}, actual {actual:?}")]
+    RevisionConflict {
+        expected: Revision,
+        actual: Revision,
+    },
+    #[error("session revision overflow")]
+    RevisionOverflow,
+    #[error("invalid logged revision at seq {seq}: expected {expected:?}, got {actual:?}")]
+    LoggedRevisionMismatch {
+        seq: Sequence,
+        expected: Revision,
+        actual: Revision,
+    },
+    #[error("event at seq {seq} has invalid {role} message role")]
+    InvalidMessageRole { seq: Sequence, role: &'static str },
+    #[error("tool call id must not be empty at seq {seq}")]
+    EmptyToolCallId { seq: Sequence },
+    #[error("tool name must not be empty at seq {seq}")]
+    EmptyToolName { seq: Sequence },
+    #[error("duplicate tool call id {call_id:?} at seq {seq}")]
+    DuplicateToolCall { seq: Sequence, call_id: String },
+    #[error("tool result at seq {seq} references unknown call id {call_id:?}")]
+    UnknownToolCall { seq: Sequence, call_id: String },
+    #[error("duplicate tool result for call id {call_id:?} at seq {seq}")]
+    DuplicateToolResult { seq: Sequence, call_id: String },
+    #[error("invalid session lifecycle at seq {seq}: {message}")]
+    InvalidLifecycle { seq: Sequence, message: String },
+    #[error(
+        "tool-call audit at seq {seq} does not mirror assistant call {position} in turn {turn} step {step}"
+    )]
+    ToolCallMirrorMismatch {
+        seq: Sequence,
+        turn: u32,
+        step: u32,
+        position: usize,
+    },
+}
+
+impl Session {
+    pub fn new(header: SessionHeader) -> Result<Self, SessionError> {
+        validate_header(&header)?;
+        Ok(Self {
+            header,
+            revision: Revision::ZERO,
+            events: Vec::new(),
+        })
+    }
+
+    /// Restore a complete storage snapshot while rechecking every append
+    /// invariant. No partially valid prefix is returned.
+    pub fn restore(
+        header: SessionHeader,
+        revision: Revision,
+        events: Vec<LoggedEvent>,
+    ) -> Result<Self, SessionError> {
+        validate_header(&header)?;
+        validate_log(revision, &events)?;
+        Ok(Self {
+            header,
+            revision,
+            events,
+        })
+    }
+
+    pub const fn header(&self) -> &SessionHeader {
+        &self.header
+    }
+
+    pub const fn revision(&self) -> Revision {
+        self.revision
+    }
+
+    pub fn events(&self) -> &[LoggedEvent] {
+        &self.events
+    }
+
+    pub fn next_seq(&self) -> Sequence {
+        self.events.len() as Sequence
+    }
+
+    /// Append one event under a single-writer revision check.
+    pub fn append(
+        &mut self,
+        expected_revision: Revision,
+        event: impl Into<SessionEvent>,
+    ) -> Result<LoggedEvent, SessionError> {
+        let receipt = self.append_batch(expected_revision, vec![event.into()])?;
+        Ok(receipt
+            .events
+            .into_iter()
+            .next()
+            .expect("a one-event append returns one event"))
+    }
+
+    /// Atomically append a batch. Every event receives a contiguous sequence
+    /// number and the batch's one new revision. An empty batch is a checked
+    /// no-op and does not advance the revision.
+    pub fn append_batch(
+        &mut self,
+        expected_revision: Revision,
+        events: Vec<SessionEvent>,
+    ) -> Result<AppendReceipt, SessionError> {
+        self.append_batch_at(expected_revision, events, unix_timestamp_ms())
+    }
+
+    /// Deterministic-clock form used by persistence providers and tests.
+    pub fn append_batch_at(
+        &mut self,
+        expected_revision: Revision,
+        events: Vec<SessionEvent>,
+        timestamp_ms: u64,
+    ) -> Result<AppendReceipt, SessionError> {
+        if expected_revision != self.revision {
+            return Err(SessionError::RevisionConflict {
+                expected: expected_revision,
+                actual: self.revision,
+            });
+        }
+
+        let first_seq = self.next_seq();
+        if events.is_empty() {
+            return Ok(AppendReceipt {
+                previous_revision: self.revision,
+                revision: self.revision,
+                first_seq,
+                last_seq: None,
+                events: Vec::new(),
+            });
+        }
+
+        let revision = Revision(
+            self.revision
+                .0
+                .checked_add(1)
+                .ok_or(SessionError::RevisionOverflow)?,
+        );
+        let mut staged = Vec::with_capacity(events.len());
+        for (offset, event) in events.into_iter().enumerate() {
+            staged.push(LoggedEvent {
+                seq: first_seq + offset as Sequence,
+                revision,
+                timestamp_ms,
+                event,
+            });
+        }
+
+        // Validate the prospective whole log before committing any member.
+        let prospective: Vec<_> = self.events.iter().chain(&staged).cloned().collect();
+        validate_log(revision, &prospective)?;
+
+        let previous_revision = self.revision;
+        self.events.extend(staged.iter().cloned());
+        self.revision = revision;
+        Ok(AppendReceipt {
+            previous_revision,
+            revision,
+            first_seq,
+            last_seq: staged.last().map(|event| event.seq),
+            events: staged,
+        })
+    }
+
+    /// Pure provider-history projection over the immutable event snapshot.
+    pub fn derive_messages(&self) -> Vec<Message> {
+        derive_messages(&self.events)
+    }
+
+    pub fn inspect(&self) -> SessionInspection {
+        SessionInspection {
+            header: self.header.clone(),
+            revision: self.revision,
+            next_seq: self.next_seq(),
+            events: self.events.clone(),
+        }
+    }
+}
+
+/// Pure provider-history projection. Raw chunks, lifecycle boundaries, request
+/// headers, and tool-call audit facts never become a second message.
+pub fn derive_messages(events: &[LoggedEvent]) -> Vec<Message> {
+    events
+        .iter()
+        .filter_map(|logged| match logged.data() {
+            EventData::UserMessage { message } | EventData::AssistantMessage { message, .. } => {
+                Some(message.clone())
+            }
+            EventData::ToolResult { result, .. } => Some(Message::tool(
+                result.call_id.clone(),
+                result.content.clone(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+fn validate_header(header: &SessionHeader) -> Result<(), SessionError> {
+    if header.id.is_empty() {
+        return Err(SessionError::EmptySessionId);
+    }
+    if header.version != SessionHeader::FORMAT_VERSION {
+        return Err(SessionError::UnsupportedVersion {
+            expected: SessionHeader::FORMAT_VERSION,
+            actual: header.version,
+        });
+    }
+    Ok(())
+}
+
+fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), SessionError> {
+    if events.is_empty() {
+        if revision != Revision::ZERO {
+            return Err(SessionError::LoggedRevisionMismatch {
+                seq: 0,
+                expected: Revision::ZERO,
+                actual: revision,
+            });
+        }
+        return Ok(());
+    }
+
+    #[derive(Default)]
+    struct StepState {
+        turn: u32,
+        step: u32,
+        request_header_seen: bool,
+        assistant_calls: Option<Vec<crate::ToolCall>>,
+        mirrored_calls: usize,
+    }
+
+    fn lifecycle_error(seq: Sequence, message: impl Into<String>) -> SessionError {
+        SessionError::InvalidLifecycle {
+            seq,
+            message: message.into(),
+        }
+    }
+
+    fn ensure_calls_mirrored(seq: Sequence, state: &StepState) -> Result<(), SessionError> {
+        if let Some(calls) = &state.assistant_calls {
+            if state.mirrored_calls != calls.len() {
+                return Err(lifecycle_error(
+                    seq,
+                    format!(
+                        "assistant declared {} tool calls but only {} audit events followed",
+                        calls.len(),
+                        state.mirrored_calls
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    let mut current_logged_revision = Revision::ZERO;
+    let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
+    let mut open_turn = None::<u32>;
+    let mut last_turn = 0u32;
+    let mut open_step = None::<StepState>;
+    let mut last_step = 0u32;
+    for (position, logged) in events.iter().enumerate() {
+        let expected_seq = position as Sequence;
+        if logged.seq != expected_seq {
+            return Err(SessionError::SequenceMismatch {
+                expected: expected_seq,
+                actual: logged.seq,
+            });
+        }
+        if logged.revision == Revision::ZERO {
+            return Err(SessionError::LoggedRevisionMismatch {
+                seq: logged.seq,
+                expected: Revision(1),
+                actual: logged.revision,
+            });
+        }
+        if logged.revision != current_logged_revision {
+            let next = current_logged_revision
+                .0
+                .checked_add(1)
+                .ok_or(SessionError::RevisionOverflow)?;
+            if logged.revision != Revision(next) {
+                return Err(SessionError::LoggedRevisionMismatch {
+                    seq: logged.seq,
+                    expected: Revision(next),
+                    actual: logged.revision,
+                });
+            }
+            current_logged_revision = logged.revision;
+        }
+
+        if !matches!(logged.data(), EventData::ToolCall { .. }) {
+            if let Some(state) = open_step.as_ref() {
+                ensure_calls_mirrored(logged.seq, state)?;
+            }
+        }
+
+        match logged.data() {
+            EventData::TurnStart { turn } => {
+                if open_turn.is_some() || open_step.is_some() {
+                    return Err(lifecycle_error(logged.seq, "cannot nest a turn"));
+                }
+                let expected = last_turn
+                    .checked_add(1)
+                    .ok_or(SessionError::RevisionOverflow)?;
+                if *turn != expected {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!("expected turn {expected}, got {turn}"),
+                    ));
+                }
+                open_turn = Some(*turn);
+                last_turn = *turn;
+                last_step = 0;
+            }
+            EventData::TurnEnd { turn, .. } => {
+                if open_step.is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "cannot end a turn while a step is open",
+                    ));
+                }
+                if open_turn != Some(*turn) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!("turn/end {turn} does not match the open turn {open_turn:?}"),
+                    ));
+                }
+                open_turn = None;
+            }
+            EventData::StepStart { turn, step } => {
+                if open_turn != Some(*turn) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!("step/start turn {turn} does not match open turn {open_turn:?}"),
+                    ));
+                }
+                if open_step.is_some() {
+                    return Err(lifecycle_error(logged.seq, "cannot nest a step"));
+                }
+                let expected = last_step
+                    .checked_add(1)
+                    .ok_or(SessionError::RevisionOverflow)?;
+                if *step != expected {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!("expected step {expected}, got {step}"),
+                    ));
+                }
+                last_step = *step;
+                open_step = Some(StepState {
+                    turn: *turn,
+                    step: *step,
+                    ..StepState::default()
+                });
+            }
+            EventData::StepEnd { turn, step } => {
+                let Some(state) = open_step.as_ref() else {
+                    return Err(lifecycle_error(logged.seq, "step/end without an open step"));
+                };
+                if state.turn != *turn || state.step != *step {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!(
+                            "step/end {turn}/{step} does not match open step {}/{}",
+                            state.turn, state.step
+                        ),
+                    ));
+                }
+                open_step = None;
+            }
+            EventData::RequestHeader { .. } => {
+                let Some(state) = open_step.as_mut() else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "request/header requires an open step",
+                    ));
+                };
+                if state.request_header_seen {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "a step may contain only one request/header",
+                    ));
+                }
+                if state.assistant_calls.is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "request/header cannot follow assistant/message",
+                    ));
+                }
+                state.request_header_seen = true;
+            }
+            EventData::UserMessage { message } => {
+                if message.role != MessageRole::User {
+                    return Err(SessionError::InvalidMessageRole {
+                        seq: logged.seq,
+                        role: "user",
+                    });
+                }
+                if open_turn.is_none() || open_step.is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "user/message requires an open turn at a step boundary",
+                    ));
+                }
+            }
+            EventData::AssistantChunk { turn, step, .. } => {
+                let Some(state) = open_step.as_ref() else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "assistant/chunk requires an open step",
+                    ));
+                };
+                if state.turn != *turn || state.step != *step {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "assistant/chunk coordinates do not match the open step",
+                    ));
+                }
+                if state.assistant_calls.is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "assistant/chunk cannot follow assistant/message",
+                    ));
+                }
+            }
+            EventData::AssistantMessage {
+                turn,
+                step,
+                message,
+                ..
+            } => {
+                if message.role != MessageRole::Assistant {
+                    return Err(SessionError::InvalidMessageRole {
+                        seq: logged.seq,
+                        role: "assistant",
+                    });
+                }
+                let Some(state) = open_step.as_mut() else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "assistant/message requires an open step",
+                    ));
+                };
+                if state.turn != *turn || state.step != *step {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "assistant/message coordinates do not match the open step",
+                    ));
+                }
+                if state.assistant_calls.is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "a step may contain only one assistant/message",
+                    ));
+                }
+                let mut embedded_ids = std::collections::HashSet::new();
+                for call in &message.tool_calls {
+                    if call.id.is_empty() {
+                        return Err(SessionError::EmptyToolCallId { seq: logged.seq });
+                    }
+                    if call.name.is_empty() {
+                        return Err(SessionError::EmptyToolName { seq: logged.seq });
+                    }
+                    if calls.contains_key(&call.id) || !embedded_ids.insert(call.id.as_str()) {
+                        return Err(SessionError::DuplicateToolCall {
+                            seq: logged.seq,
+                            call_id: call.id.clone(),
+                        });
+                    }
+                }
+                state.assistant_calls = Some(message.tool_calls.clone());
+            }
+            EventData::ToolCall { turn, step, call } => {
+                if call.id.is_empty() {
+                    return Err(SessionError::EmptyToolCallId { seq: logged.seq });
+                }
+                if call.name.is_empty() {
+                    return Err(SessionError::EmptyToolName { seq: logged.seq });
+                }
+                let Some(state) = open_step.as_mut() else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "tool/call requires an open step",
+                    ));
+                };
+                if state.turn != *turn || state.step != *step {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "tool/call coordinates do not match the open step",
+                    ));
+                }
+                let expected = state
+                    .assistant_calls
+                    .as_ref()
+                    .and_then(|expected| expected.get(state.mirrored_calls));
+                if expected != Some(call) {
+                    return Err(SessionError::ToolCallMirrorMismatch {
+                        seq: logged.seq,
+                        turn: *turn,
+                        step: *step,
+                        position: state.mirrored_calls,
+                    });
+                }
+                state.mirrored_calls += 1;
+                if calls
+                    .insert(call.id.clone(), (false, *turn, *step))
+                    .is_some()
+                {
+                    return Err(SessionError::DuplicateToolCall {
+                        seq: logged.seq,
+                        call_id: call.id.clone(),
+                    });
+                }
+            }
+            EventData::ToolResult { turn, step, result } => match calls.get_mut(&result.call_id) {
+                None => {
+                    return Err(SessionError::UnknownToolCall {
+                        seq: logged.seq,
+                        call_id: result.call_id.clone(),
+                    });
+                }
+                Some((true, _, _)) => {
+                    return Err(SessionError::DuplicateToolResult {
+                        seq: logged.seq,
+                        call_id: result.call_id.clone(),
+                    });
+                }
+                Some((settled, call_turn, call_step)) => {
+                    if *call_turn != *turn || *call_step != *step {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "tool/result coordinates do not match its tool/call",
+                        ));
+                    }
+                    if result.outcome != crate::ToolOutcome::OutcomeUnknown {
+                        let Some(state) = open_step.as_ref() else {
+                            return Err(lifecycle_error(
+                                logged.seq,
+                                "authoritative tool/result requires its step to remain open",
+                            ));
+                        };
+                        if state.turn != *turn || state.step != *step {
+                            return Err(lifecycle_error(
+                                logged.seq,
+                                "tool/result does not belong to the open step",
+                            ));
+                        }
+                    }
+                    *settled = true;
+                }
+            },
+            EventData::SessionEndSeed => {
+                if open_turn.is_some() || open_step.is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "session/end-seed requires all turns and steps to be closed",
+                    ));
+                }
+            }
+        }
+    }
+
+    if let Some(state) = open_step.as_ref() {
+        ensure_calls_mirrored(events.last().expect("non-empty").seq, state)?;
+    }
+
+    if current_logged_revision != revision {
+        return Err(SessionError::LoggedRevisionMismatch {
+            seq: events.last().expect("non-empty").seq,
+            expected: revision,
+            actual: current_logged_revision,
+        });
+    }
+    Ok(())
+}
+
+pub(crate) fn unix_timestamp_ms() -> u64 {
+    let millis = SystemTime::UNIX_EPOCH
+        .elapsed()
+        .unwrap_or_default()
+        .as_millis();
+    u64::try_from(millis).unwrap_or(u64::MAX)
+}

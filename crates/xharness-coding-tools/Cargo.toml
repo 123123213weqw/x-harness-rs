@@ -1,0 +1,30 @@
+[package]
+name = "xharness-coding-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Fourteen model-facing coding, terminal and Web tools for XHarness"
+
+[features]
+default = ["rustls-tls"]
+rustls-tls = ["xharness-web/rustls-tls"]
+
+[dependencies]
+async-trait.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+xharness-fs = { path = "../xharness-fs" }
+xharness-core = { path = "../xharness-core" }
+xharness-platform = { path = "../xharness-platform" }
+xharness-process = { path = "../xharness-process" }
+xharness-terminal = { path = "../xharness-terminal" }
+xharness-tools = { path = "../xharness-tools" }
+xharness-web = { path = "../xharness-web", default-features = false }
+
+[dev-dependencies]
+futures.workspace = true
+xharness-sandbox = { path = "../xharness-sandbox" }
+xharness-provider-openai = { path = "../xharness-provider-openai" }

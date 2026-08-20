@@ -1,0 +1,289 @@
+//! DeepSeek Harness Web-compatible physical carrier.
+//!
+//! Unary RPC travels upstream through JSON POST requests. Mux and Host events
+//! use two downlink-only WebSockets. The server owns transport validation only;
+//! business behavior is supplied by [`xharness_api::ApiBackend`].
+
+use std::{future::Future, path::PathBuf, str::FromStr, sync::Arc};
+
+use axum::{
+    body::Bytes,
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        DefaultBodyLimit, Path, Query, State,
+    },
+    http::{header, HeaderMap, Method, StatusCode},
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Json, Router,
+};
+use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
+use tower_http::services::{ServeDir, ServeFile};
+use xharness_api::{
+    ApiBackend, ClientRequest, ClientResponse, EventStream, ReceiptRejection, RpcError, RpcId,
+    RpcMethod, RpcReceipt, RpcResult, ServerRequest, ServerResponse, HOST_EVENTS_PATH,
+    MUX_EVENTS_PATH, RESPOND_PATH, SESSION_EXPORT_PATH,
+};
+
+pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 160 * 1024 * 1024;
+
+#[derive(Clone)]
+struct ServerState {
+    backend: Arc<dyn ApiBackend>,
+}
+
+/// Build the complete `/api` transport surface without static-file fallback.
+pub fn api_router(backend: Arc<dyn ApiBackend>) -> Router {
+    let state = ServerState { backend };
+    Router::new()
+        .route(RESPOND_PATH, post(respond))
+        .route(MUX_EVENTS_PATH, get(mux_events))
+        .route(HOST_EVENTS_PATH, get(host_events))
+        .route(
+            SESSION_EXPORT_PATH,
+            get(session_export).head(session_export),
+        )
+        .route("/api/{method}", post(unary))
+        .layer(DefaultBodyLimit::max(DEFAULT_REQUEST_BODY_LIMIT_BYTES))
+        .with_state(state)
+}
+
+#[derive(Deserialize)]
+struct SessionExportQuery {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+}
+
+async fn session_export(
+    State(state): State<ServerState>,
+    method: Method,
+    Query(query): Query<SessionExportQuery>,
+) -> Response {
+    if query.session_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            "missing or invalid sessionId query parameter",
+        )
+            .into_response();
+    }
+    let cancellation = CancellationToken::new();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    match state
+        .backend
+        .export_session(&query.session_id, cancellation)
+        .await
+    {
+        Ok(export) => {
+            let mut response = if method == Method::HEAD {
+                ().into_response()
+            } else {
+                export.bytes.into_response()
+            };
+            let Ok(content_type) = export.content_type.parse() else {
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            };
+            let disposition = format!(
+                "attachment; filename=\"{}\"",
+                export.filename.replace(['\\', '"'], "_")
+            );
+            let Ok(disposition) = disposition.parse() else {
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            };
+            response
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, content_type);
+            response
+                .headers_mut()
+                .insert(header::CONTENT_DISPOSITION, disposition);
+            response
+        }
+        Err(error) if error.code == xharness_api::RpcErrorCode::SessionNotFound => {
+            (StatusCode::NOT_FOUND, error.message).into_response()
+        }
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.message).into_response(),
+    }
+}
+
+/// Add an optional SPA fallback. Unknown paths first try the dist directory,
+/// then return its `index.html` so client-side routes remain reloadable.
+pub fn web_router(backend: Arc<dyn ApiBackend>, static_dir: Option<PathBuf>) -> Router {
+    let router = api_router(backend);
+    match static_dir {
+        Some(root) => {
+            let index = root.join("index.html");
+            router.fallback_service(ServeDir::new(root).fallback(ServeFile::new(index)))
+        }
+        None => router,
+    }
+}
+
+/// Serve a prebuilt Router on a caller-owned listener until shutdown resolves.
+pub async fn serve<F>(listener: TcpListener, router: Router, shutdown: F) -> std::io::Result<()>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown)
+        .await
+}
+
+async fn unary(
+    State(state): State<ServerState>,
+    Path(path_method): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Ok(method) = RpcMethod::from_str(&path_method) else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    if !is_json(&headers) {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "content type must be application/json",
+        )
+            .into_response();
+    }
+    let value: Value = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(_) => return (StatusCode::BAD_REQUEST, "body is not JSON").into_response(),
+    };
+    let request: ClientRequest = match serde_json::from_value(value.clone()) {
+        Ok(request) => request,
+        Err(error) => {
+            let rpc_id = salvage_rpc_id(&value);
+            return Json(ServerResponse::new(
+                rpc_id,
+                RpcResult::failure(RpcError::bad_request(
+                    format!("invalid payload for {}", method.as_str()),
+                    json!([{ "message": error.to_string() }]),
+                )),
+            ))
+            .into_response();
+        }
+    };
+    if request.method != method.as_str() {
+        return Json(ServerResponse::new(
+            request.rpc_id,
+            RpcResult::failure(RpcError::bad_request(
+                format!(
+                    "method {:?} does not match path {:?}",
+                    request.method,
+                    method.as_str()
+                ),
+                json!([]),
+            )),
+        ))
+        .into_response();
+    }
+
+    let cancellation = CancellationToken::new();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    let rpc_id = request.rpc_id;
+    let result = state
+        .backend
+        .call(rpc_id.clone(), method, request.payload, cancellation)
+        .await;
+    Json(ServerResponse::new(rpc_id, result)).into_response()
+}
+
+async fn respond(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+    if !is_json(&headers) {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "content type must be application/json",
+        )
+            .into_response();
+    }
+    let value: Value = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(_) => return (StatusCode::BAD_REQUEST, "body is not JSON").into_response(),
+    };
+    let response: ClientResponse = match serde_json::from_value(value) {
+        Ok(response) => response,
+        Err(_) => {
+            return Json(RpcReceipt::Rejected {
+                reason: ReceiptRejection::BadResponse,
+            })
+            .into_response();
+        }
+    };
+    Json(state.backend.respond(response).await).into_response()
+}
+
+async fn mux_events(
+    State(state): State<ServerState>,
+    upgrade: WebSocketUpgrade,
+) -> impl IntoResponse {
+    upgrade.on_upgrade(move |socket| pump_downlink(socket, state.backend.mux_events()))
+}
+
+async fn host_events(
+    State(state): State<ServerState>,
+    upgrade: WebSocketUpgrade,
+) -> impl IntoResponse {
+    upgrade.on_upgrade(move |socket| pump_downlink(socket, state.backend.host_events()))
+}
+
+async fn pump_downlink(socket: WebSocket, mut events: EventStream) {
+    let (mut sender, mut receiver) = socket.split();
+    loop {
+        tokio::select! {
+            frame = events.next() => match frame {
+                Some(frame) => {
+                    let Ok(text) = serde_json::to_string(&frame) else { break };
+                    if sender.send(Message::Text(text.into())).await.is_err() { break; }
+                }
+                None => {
+                    let _ = sender.send(Message::Close(None)).await;
+                    break;
+                }
+            },
+            incoming = receiver.next() => match incoming {
+                Some(Ok(Message::Ping(payload))) => {
+                    if sender.send(Message::Pong(payload)).await.is_err() { break; }
+                }
+                Some(Ok(Message::Pong(_))) => {}
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                Some(Ok(Message::Text(_) | Message::Binary(_))) => {
+                    // The browser uses HTTP for every upstream message.
+                    let _ = sender.send(Message::Close(None)).await;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn is_json(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/json"))
+}
+
+fn salvage_rpc_id(value: &Value) -> RpcId {
+    value
+        .get("rpcId")
+        .and_then(Value::as_str)
+        .map(RpcId::new)
+        .unwrap_or_else(RpcId::invalid_request)
+}
+
+struct CancelOnDrop(CancellationToken);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+/// Utility for backends: create a correctly correlated push frame from a
+/// payload whose `type` field is the stream method.
+pub fn stream_frame(rpc_id: RpcId, payload: Value) -> Result<ServerRequest, RpcError> {
+    ServerRequest::frame(rpc_id, payload)
+}

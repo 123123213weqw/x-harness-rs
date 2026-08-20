@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use xharness_core::{
-    AgentMessage, ProviderError, ProviderEvent, ProviderRequest, Role, ToolCall, ToolDefinition,
+    AgentMessage, FinishReason, ProviderError, ProviderEvent, ProviderRequest, Role, TokenUsage,
+    ToolCall, ToolDefinition,
 };
 
 use crate::SseEvent;
@@ -163,7 +164,9 @@ fn encode_response_tool_call(call: &ToolCall) -> Value {
 #[derive(Clone, Debug)]
 pub struct OpenAiStreamNormalizer {
     protocol: OpenAiProtocol,
-    usage: Option<Value>,
+    usage: Option<TokenUsage>,
+    finish_reason: Option<FinishReason>,
+    saw_tool_call: bool,
     provider_items: Vec<Value>,
     provider_item_encodings: HashSet<String>,
     argument_seen: HashSet<usize>,
@@ -175,6 +178,8 @@ impl OpenAiStreamNormalizer {
         Self {
             protocol,
             usage: None,
+            finish_reason: None,
+            saw_tool_call: false,
             provider_items: Vec::new(),
             provider_item_encodings: HashSet::new(),
             argument_seen: HashSet::new(),
@@ -186,6 +191,13 @@ impl OpenAiStreamNormalizer {
         if self.protocol == OpenAiProtocol::ChatCompletions && event.data == "[DONE]" {
             self.completed = true;
             return Ok(vec![ProviderEvent::Completed {
+                finish_reason: Some(self.finish_reason.clone().unwrap_or({
+                    if self.saw_tool_call {
+                        FinishReason::ToolCalls
+                    } else {
+                        FinishReason::Stop
+                    }
+                })),
                 usage: self.usage.clone(),
                 provider_items: Vec::new(),
             }]);
@@ -210,17 +222,22 @@ impl OpenAiStreamNormalizer {
 
     fn consume_chat(&mut self, root: Value) -> Result<Vec<ProviderEvent>, ProviderError> {
         if let Some(usage) = root.get("usage").filter(|value| !value.is_null()) {
-            self.usage = Some(usage.clone());
+            self.usage = Some(openai_token_usage(usage, OpenAiProtocol::ChatCompletions));
         }
         if let Some(error) = root.get("error").filter(|value| !value.is_null()) {
             return Err(ProviderError::new(error_message(error)));
         }
-        let Some(delta) = root
+        let Some(choice) = root
             .get("choices")
             .and_then(Value::as_array)
             .and_then(|choices| choices.first())
-            .and_then(|choice| choice.get("delta"))
         else {
+            return Ok(Vec::new());
+        };
+        if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
+            self.finish_reason = Some(chat_finish_reason(reason));
+        }
+        let Some(delta) = choice.get("delta") else {
             return Ok(Vec::new());
         };
         let mut output = Vec::new();
@@ -238,6 +255,7 @@ impl OpenAiStreamNormalizer {
             output.push(ProviderEvent::ReasoningDelta(reasoning.to_owned()));
         }
         if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
+            self.saw_tool_call |= !calls.is_empty();
             for (fallback_index, call) in calls.iter().enumerate() {
                 let function = call.get("function").unwrap_or(&Value::Null);
                 output.push(ProviderEvent::ToolCallDelta {
@@ -285,6 +303,7 @@ impl OpenAiStreamNormalizer {
                     .get("item")
                     .filter(|item| string_field(item, "type") == "function_call")
                 {
+                    self.saw_tool_call = true;
                     let arguments = string_field(item, "arguments");
                     if !arguments.is_empty() {
                         self.argument_seen.insert(index);
@@ -298,6 +317,7 @@ impl OpenAiStreamNormalizer {
                 let Some(item) = root.get("item") else {
                     return Ok(Vec::new());
                 };
+                self.saw_tool_call |= string_field(item, "type") == "function_call";
                 self.retain_item(item.clone());
                 if string_field(item, "type") == "function_call"
                     && !self.argument_seen.contains(&index)
@@ -311,24 +331,9 @@ impl OpenAiStreamNormalizer {
                     Vec::new()
                 }
             }
-            "response.completed" => {
-                if let Some(response) = root.get("response") {
-                    if let Some(usage) = response.get("usage").filter(|value| !value.is_null()) {
-                        self.usage = Some(usage.clone());
-                    }
-                    if let Some(items) = response.get("output").and_then(Value::as_array) {
-                        for item in items {
-                            self.retain_item(item.clone());
-                        }
-                    }
-                }
-                self.completed = true;
-                vec![ProviderEvent::Completed {
-                    usage: self.usage.clone(),
-                    provider_items: self.provider_items.clone(),
-                }]
-            }
-            "error" | "response.failed" | "response.incomplete" => {
+            "response.completed" => vec![self.complete_response(&root, false)],
+            "response.incomplete" => vec![self.complete_response(&root, true)],
+            "error" | "response.failed" => {
                 let message = root
                     .get("error")
                     .map(error_message)
@@ -338,6 +343,34 @@ impl OpenAiStreamNormalizer {
             _ => Vec::new(),
         };
         Ok(output)
+    }
+
+    fn complete_response(&mut self, root: &Value, explicit_incomplete: bool) -> ProviderEvent {
+        let response = root.get("response").unwrap_or(root);
+        if let Some(usage) = response.get("usage").filter(|value| !value.is_null()) {
+            self.usage = Some(openai_token_usage(usage, OpenAiProtocol::Responses));
+        }
+        let items = response
+            .get("output")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        self.saw_tool_call |= items
+            .iter()
+            .any(|item| string_field(item, "type") == "function_call");
+        for item in items {
+            self.retain_item(item);
+        }
+
+        let finish_reason =
+            response_finish_reason(response, explicit_incomplete, self.saw_tool_call);
+        self.finish_reason = Some(finish_reason.clone());
+        self.completed = true;
+        ProviderEvent::Completed {
+            finish_reason: Some(finish_reason),
+            usage: self.usage.clone(),
+            provider_items: self.provider_items.clone(),
+        }
     }
 
     fn retain_item(&mut self, item: Value) {
@@ -362,6 +395,103 @@ fn function_call_event(index: usize, item: &Value, arguments_delta: String) -> P
         name: string_field(item, "name"),
         arguments_delta,
     }
+}
+
+fn chat_finish_reason(reason: &str) -> FinishReason {
+    match reason {
+        "stop" => FinishReason::Stop,
+        "tool_calls" | "function_call" => FinishReason::ToolCalls,
+        "length" | "max_tokens" | "max_output_tokens" => FinishReason::Length,
+        "content_filter" | "safety" => FinishReason::ContentFilter,
+        other => FinishReason::Other(other.to_owned()),
+    }
+}
+
+fn response_finish_reason(
+    response: &Value,
+    explicit_incomplete: bool,
+    saw_tool_call: bool,
+) -> FinishReason {
+    let status = string_field(response, "status");
+    if explicit_incomplete || status == "incomplete" {
+        let reason = response
+            .get("incomplete_details")
+            .and_then(|details| details.get("reason"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        return match reason {
+            "max_output_tokens" | "max_tokens" | "length" => FinishReason::Length,
+            "content_filter" | "safety" => FinishReason::ContentFilter,
+            other => FinishReason::Incomplete(other.to_owned()),
+        };
+    }
+    if !status.is_empty() && status != "completed" {
+        return FinishReason::Incomplete(status);
+    }
+    if saw_tool_call {
+        FinishReason::ToolCalls
+    } else {
+        FinishReason::Stop
+    }
+}
+
+fn openai_token_usage(usage: &Value, protocol: OpenAiProtocol) -> TokenUsage {
+    let total_input = match protocol {
+        OpenAiProtocol::ChatCompletions => first_u64(usage, &["prompt_tokens", "input_tokens"]),
+        OpenAiProtocol::Responses => first_u64(usage, &["input_tokens", "prompt_tokens"]),
+    }
+    .unwrap_or_default();
+    let cache_read_tokens = nested_u64(usage, "input_tokens_details", "cached_tokens")
+        .or_else(|| nested_u64(usage, "prompt_tokens_details", "cached_tokens"))
+        .or_else(|| first_u64(usage, &["prompt_cache_hit_tokens", "cache_read_tokens"]))
+        .unwrap_or_default();
+    let explicitly_uncached = first_u64(usage, &["prompt_cache_miss_tokens"]);
+    let total_output_tokens = match protocol {
+        OpenAiProtocol::ChatCompletions => {
+            first_u64(usage, &["completion_tokens", "output_tokens"])
+        }
+        OpenAiProtocol::Responses => first_u64(usage, &["output_tokens", "completion_tokens"]),
+    }
+    .unwrap_or_default();
+    let reasoning_tokens = nested_u64(usage, "output_tokens_details", "reasoning_tokens")
+        .or_else(|| nested_u64(usage, "completion_tokens_details", "reasoning_tokens"))
+        .or_else(|| first_u64(usage, &["reasoning_tokens"]))
+        .unwrap_or_default();
+    let cache_write_tokens = nested_u64(usage, "input_tokens_details", "cache_write_tokens")
+        .or_else(|| {
+            first_u64(
+                usage,
+                &["cache_write_tokens", "cache_creation_input_tokens"],
+            )
+        })
+        .unwrap_or_default();
+
+    TokenUsage {
+        input_tokens: explicitly_uncached.unwrap_or_else(|| {
+            total_input
+                .saturating_sub(cache_read_tokens)
+                .saturating_sub(cache_write_tokens)
+        }),
+        // OpenAI's completion/output total includes reasoning tokens. Keep the
+        // portable TokenUsage buckets disjoint so summing them cannot double
+        // count hidden reasoning work.
+        output_tokens: total_output_tokens.saturating_sub(reasoning_tokens),
+        cache_read_tokens,
+        cache_write_tokens,
+        reasoning_tokens,
+    }
+}
+
+fn first_u64(value: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_u64))
+}
+
+fn nested_u64(value: &Value, parent: &str, key: &str) -> Option<u64> {
+    value
+        .get(parent)
+        .and_then(|details| details.get(key))
+        .and_then(Value::as_u64)
 }
 
 fn string_field(value: &Value, key: &str) -> String {
