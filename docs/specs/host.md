@@ -207,12 +207,13 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 
 ## 当前限制
 
-- 进程退出后会丢失 Workspace 用户标题/排序/归档、Credential Override、Attachment、Settings、
-  用户自定义 Preset 文档和 Pending Approval。可从 Session Log 推导的 Workspace/Session/History/
+- 进程退出后会丢失 Workspace 用户标题/排序/归档、Credential Override、Attachment、Settings 和
+  用户自定义 Preset 文档。Pending Approval 已能恢复；可从 Session Log 推导的 Workspace/Session/History/
   Queue、选中 Preset、Title、Permission 和 Goal 会在
   启动时恢复并重新附着 Driver，但 Web Projection 本身仍是进程内缓存。
 - 持久 `xharness-session`/JSONL 已是模型历史和 Pending Input 真源，File Lease 已用于 Agent；
-  由于缺少持久 RPC Receipt、审批恢复和硬崩溃矩阵，仍不能对外承诺完整 Exactly-once 续跑。
+  审批恢复与八点硬崩溃矩阵已完成，但其他 Mutation RPC 仍缺少通用持久 Receipt，因此不能对外
+  承诺整个 Web API 的 Exactly-once 语义。
 - Subagent 方法目前只有血缘和继续对话，没有自主 Spawn。
 - Attachment 是有界 metadata/data-URL 桥，不是计划中的内容寻址多模态 Blob Store。
 - 事件广播有界，但 lag 后没有 replay cursor。

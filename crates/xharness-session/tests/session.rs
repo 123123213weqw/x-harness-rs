@@ -782,6 +782,120 @@ fn incomplete_calls_produce_pure_outcome_unknown_recovery_candidates() {
     );
 }
 
+#[test]
+fn undecided_approval_is_projected_and_not_converted_to_outcome_unknown() {
+    let mut session = Session::new(header("approval-recovery")).unwrap();
+    let mut assistant = Message::assistant("waiting for approval");
+    assistant.tool_calls = vec![call("execution-1", 0), call("execution-2", 1)];
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("execution-1", 0),
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("execution-2", 1),
+                }),
+                event(EventData::ApprovalAsked {
+                    id: "approval-1".to_owned(),
+                    tool_name: "echo".to_owned(),
+                    call_id: Some("execution-1".to_owned()),
+                    reason: Some("needs user approval".to_owned()),
+                }),
+            ],
+            100,
+        )
+        .unwrap();
+
+    let pending = session.pending_tool_approvals();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].id, "approval-1");
+    assert_eq!(pending[0].call_id, "execution-1");
+    assert_eq!(pending[0].turn, 1);
+    assert_eq!(pending[0].step, 1);
+    assert_eq!(pending[0].call.id, "execution-1");
+
+    let recovery = session.outcome_unknown_recovery();
+    assert_eq!(recovery.len(), 1);
+    assert!(matches!(
+        recovery[0].data(),
+        EventData::ToolResult { result, .. }
+            if result.call_id == "execution-2"
+                && result.outcome == ToolOutcome::OutcomeUnknown
+    ));
+}
+
+#[test]
+fn message_projection_restores_tool_results_in_assistant_call_order() {
+    let mut session = Session::new(header("ordered-recovery-results")).unwrap();
+    let mut assistant = Message::assistant("");
+    assistant.tool_calls = vec![call("first", 0), call("second", 1)];
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("first", 0),
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("second", 1),
+                }),
+                // A recovery writer may obtain the second result before it
+                // can materialize the first one. Provider history must still
+                // follow the assistant call list, not append timing.
+                event(EventData::ToolResult {
+                    turn: 1,
+                    step: 1,
+                    result: ToolResultData::success("second", "result two"),
+                }),
+                event(EventData::ToolResult {
+                    turn: 1,
+                    step: 1,
+                    result: ToolResultData::success("first", "result one"),
+                }),
+                event(EventData::StepEnd { turn: 1, step: 1 }),
+                event(EventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Completed,
+                }),
+            ],
+            100,
+        )
+        .unwrap();
+
+    let messages = session.derive_messages();
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[1].tool_call_id.as_deref(), Some("first"));
+    assert_eq!(messages[1].content, "result one");
+    assert_eq!(messages[2].tool_call_id.as_deref(), Some("second"));
+    assert_eq!(messages[2].content, "result two");
+}
+
 #[tokio::test]
 async fn memory_store_create_load_flush_and_inspect_are_detached() {
     let store = MemorySessionStore::default();

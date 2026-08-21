@@ -60,11 +60,20 @@ pub enum AgentCommandError {
     Failed(String),
 }
 
+/// Stable internal work identity used to correlate a restarted approval turn
+/// with the Host subscriber that was attached before the worker was woken.
+pub fn approval_recovery_work_id(approval_id: &str) -> String {
+    format!("approval-recovery:{approval_id}")
+}
+
 enum DriverCommand {
     /// Explicitly start processing already-durable pending input. Activation
     /// itself never does this because resume callers must first attach event
     /// subscribers and product projections.
     Wake,
+    /// Resume one open tool-approval boundary from the durable Session log.
+    /// No synthetic user input or new turn is created.
+    RecoverOpenTurn,
     Followup(InboxMessage),
     Steer(InboxMessage),
     Inject(InboxMessage),
@@ -105,6 +114,7 @@ impl DurableAgentHandle {
             events: events.clone(),
             status: status_tx,
             wake_requested: false,
+            recovery_requested: false,
         };
         tokio::spawn(worker.run());
         Self {
@@ -157,6 +167,11 @@ impl DurableAgentHandle {
     /// method after every pending input has an attached event receiver.
     pub async fn wake(&self) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::Wake).await
+    }
+
+    /// Resume an undecided durable approval after subscribers have attached.
+    pub async fn recover_open_turn(&self) -> Result<(), AgentCommandError> {
+        self.send(DriverCommand::RecoverOpenTurn).await
     }
 
     pub async fn steer(&self, message: InboxMessage) -> Result<(), AgentCommandError> {
@@ -262,6 +277,7 @@ struct DriverWorker {
     events: broadcast::Sender<AgentEvent>,
     status: watch::Sender<AgentStatus>,
     wake_requested: bool,
+    recovery_requested: bool,
 }
 
 impl DriverWorker {
@@ -270,6 +286,14 @@ impl DriverWorker {
             self.publish_error(error.to_string());
         }
         loop {
+            if self.recovery_requested {
+                self.recovery_requested = false;
+                if let Err(error) = self.drive_recovery().await {
+                    self.publish_error(error.to_string());
+                    return;
+                }
+                continue;
+            }
             let snapshot = match self.activation.inbox().snapshot().await {
                 Ok(snapshot) => snapshot,
                 Err(error) => {
@@ -338,32 +362,7 @@ impl DriverWorker {
             request.journal_prelude = deletion_events;
 
             let turn = self.next_turn().await?;
-            let _ = self
-                .events
-                .send(AgentEvent::TurnStarted { turn, input_ids });
-            let mut run = LoopEngine.start(request);
-            loop {
-                tokio::select! {
-                    event = run.next() => match event {
-                        Some(event) => { let _ = self.events.send(AgentEvent::TurnEvent { turn, event }); }
-                        None => break,
-                    },
-                    command = self.commands.recv() => match command {
-                        Some(command) => self.handle_active(command, &run).await,
-                        None => {
-                            let _ = run.send(LoopCommand::Cancel).await;
-                            while run.next().await.is_some() {}
-                            let _ = run.result().await;
-                            return Err(AgentCommandError::Closed);
-                        }
-                    }
-                }
-            }
-            let result = run.result().await;
-            let _ = self.events.send(AgentEvent::TurnFinished {
-                turn,
-                result: result.clone(),
-            });
+            self.drive_request(request, turn, input_ids).await?;
             self.activation
                 .inbox()
                 .reconcile_consumed()
@@ -380,6 +379,88 @@ impl DriverWorker {
             }
             self.wake_requested = false;
         }
+    }
+
+    async fn drive_recovery(&mut self) -> Result<(), AgentCommandError> {
+        self.activation
+            .reserve_driver()
+            .await
+            .map_err(lifecycle_error)?;
+        self.set_status(AgentStatus::Running);
+        let result = self.drive_recovery_inner().await;
+        if let Err(error) = self.activation.finish_driver().await {
+            self.publish_error(error.to_string());
+        }
+        self.set_status(AgentStatus::Idle);
+        result
+    }
+
+    async fn drive_recovery_inner(&mut self) -> Result<(), AgentCommandError> {
+        let session = self
+            .activation
+            .inbox()
+            .store()
+            .load(self.activation.id())
+            .await
+            .map_err(|error| AgentCommandError::Failed(error.to_string()))?
+            .ok_or_else(|| AgentCommandError::Failed("agent session disappeared".to_owned()))?;
+        let pending = session.pending_tool_approvals();
+        let first = pending.first().ok_or_else(|| {
+            AgentCommandError::Failed("agent has no pending durable approval to recover".to_owned())
+        })?;
+        if pending
+            .iter()
+            .any(|approval| approval.turn != first.turn || approval.step != first.step)
+        {
+            return Err(AgentCommandError::Failed(
+                "pending approvals span more than one open tool batch".to_owned(),
+            ));
+        }
+        let mut request = self
+            .factory
+            .build(self.activation.id(), Vec::new())
+            .await
+            .map_err(AgentCommandError::Failed)?;
+        request.session_id = Some(self.activation.id().to_owned());
+        request.journal_store = Some(self.activation.inbox().store());
+        self.drive_request(
+            request,
+            first.turn,
+            vec![approval_recovery_work_id(&first.id)],
+        )
+        .await
+    }
+
+    async fn drive_request(
+        &mut self,
+        request: LoopRequest,
+        turn: u32,
+        input_ids: Vec<String>,
+    ) -> Result<(), AgentCommandError> {
+        let _ = self
+            .events
+            .send(AgentEvent::TurnStarted { turn, input_ids });
+        let mut run = LoopEngine.start(request);
+        loop {
+            tokio::select! {
+                event = run.next() => match event {
+                    Some(event) => { let _ = self.events.send(AgentEvent::TurnEvent { turn, event }); }
+                    None => break,
+                },
+                command = self.commands.recv() => match command {
+                    Some(command) => self.handle_active(command, &run).await,
+                    None => {
+                        let _ = run.send(LoopCommand::Cancel).await;
+                        while run.next().await.is_some() {}
+                        let _ = run.result().await;
+                        return Err(AgentCommandError::Closed);
+                    }
+                }
+            }
+        }
+        let result = run.result().await;
+        let _ = self.events.send(AgentEvent::TurnFinished { turn, result });
+        Ok(())
     }
 
     async fn next_turn(&self) -> Result<u32, AgentCommandError> {
@@ -410,6 +491,11 @@ impl DriverWorker {
                 self.wake_requested = true;
                 Ok(())
             }
+            DriverCommand::RecoverOpenTurn => {
+                self.recovery_requested = true;
+                self.set_status(AgentStatus::Running);
+                Ok(())
+            }
             DriverCommand::Followup(message) => {
                 let result = self.persist(InboxTarget::NextTurn, message).await;
                 if result.is_ok() {
@@ -438,6 +524,9 @@ impl DriverWorker {
                 self.wake_requested = true;
                 Ok(())
             }
+            DriverCommand::RecoverOpenTurn => Err(AgentCommandError::Failed(
+                "an Agent turn is already running".to_owned(),
+            )),
             DriverCommand::Followup(message) => {
                 let result = self.persist(InboxTarget::NextTurn, message).await;
                 if result.is_ok() {

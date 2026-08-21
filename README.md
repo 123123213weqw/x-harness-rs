@@ -52,7 +52,8 @@ FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产�
 Developer ID 签名、公证和本机安装验证。
 
 > **当前可用性提醒（2026-08-22）：** Web/Loop/14 工具、版本化最小 Coding System Prompt 和
-> 请求前 Hard Token Guard 已经贯通。当前 Host 仍完整重放历史、每个 Step 固定发送全部工具；
+> 请求前 Hard Token Guard 已经贯通。当前 Host 仍完整重放历史，但每个 Step 已按平台 Readiness
+> 动态发送可用工具；
 > 大文件任务超限时会在本地明确失败，但尚不会自动压缩。Linux Bubblewrap Probe 失败时，
 > `bash/glob/grep/terminal_open` 会按设计 fail closed。详见[运行诊断](docs/operations.md)。
 
@@ -60,8 +61,8 @@ Developer ID 签名、公证和本机安装验证。
 `session.prompt` 成功回执已绑定 Durable Inbox Flush。启动会枚举并恢复可由日志推导的
 Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。Web Projection 仍是内存
 派生缓存。Prompt RPC Receipt 可从完整 Inbox 历史重建，同 ID/同 Payload 的并发或重启重试不会
-重复 Admission；Settings、Approval 和其他变更 RPC Receipt 尚未持久化，因此还不是整个 API 的
-完整 Exactly-once 恢复。
+重复 Admission；Pending Approval 已能在原 Turn/Step 上跨重启继续回答。Settings 和其他变更
+RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once 恢复。
 
 ## 工作区模块
 
@@ -89,13 +90,14 @@ Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。W
 
 - 组合 OpenAI-compatible Provider、HTTP/WS Server 和原生 14 工具
 - `NativeToolFactory` 按 Workspace 缓存 Platform、按 Session 隔离 Terminal
-- 当前每个模型 Step 都发送完整 14 工具定义；选中 Preset 已经通过 `xharness-prompt/v1`
+- 当前每个模型 Step 按 Sandbox/Search/Terminal Readiness 投影 14 工具的可用子集；选中 Preset
+  已经通过 `xharness-prompt/v1`
   成为 Provider 请求中的第一个 System Message
 - 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
 
 当前 Host 的 Web DTO 是进程内派生缓存，但持久真源已经是 Agent/Session：重启会恢复 Session、
-History、Header Workspace、Durable Queue 并续跑 Pending Turn。仍需把 Projection 改成游标查询、
-持久化 Settings/Approval/RPC Receipt，并实现真正自主 Subagent。
+History、Header Workspace、Durable Queue 并续跑 Pending Turn/Pending Approval。仍需把
+Projection 改成游标查询、持久化 Settings/通用 RPC Receipt，并实现真正自主 Subagent。
 
 ### `xharness-agent`
 
@@ -107,7 +109,8 @@ History、Header Workspace、Durable Queue 并续跑 Pending Turn。仍需把 Pr
 - AgentSupervisor 自动连续消费多 Turn，Active Steer 先持久排队再中断并在恢复时按 ID 去重
 - 启动枚举、Pending Turn 先订阅后显式 Wake、无重复 Append 已完成
 - Prompt Admission 的持久 Receipt/冲突检测已完成
-- 当前剩余持久 Projection、非 Prompt Receipt、Approval 和部署级七点硬崩溃矩阵
+- Pending Approval 可用原 Approval/Execution ID 在重启后恢复，回答前不会执行 Tool
+- 当前剩余持久 Projection、非 Prompt Receipt；部署级八点硬崩溃矩阵已完成
 
 ### `xharness-core`
 

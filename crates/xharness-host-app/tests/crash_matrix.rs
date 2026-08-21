@@ -17,11 +17,14 @@ use serde_json::json;
 use tokio::{process::Command, time};
 use tokio_util::sync::CancellationToken;
 use xharness_agent::{DurableInbox, FileLeaseManager, InboxMessage, InboxTarget};
+use xharness_api::{ApiBackend, ClientResponse, ClientResponseKind, RpcResult};
 use xharness_core::{
     AgentMessage, FinishReason, LoopEngine, LoopRequest, LoopStatus, ModelProvider, ProviderError,
     ProviderEvent, ProviderRequest, ProviderStream, ToolResult, ToolSpec,
 };
-use xharness_host::{BasicHost, DurableLoopAgentRuntime, HostConfig, NoTools};
+use xharness_host::{
+    BasicHost, DurableLoopAgentRuntime, HostConfig, NoTools, PermissionPreset, SessionToolFactory,
+};
 use xharness_session::{
     AppendReceipt, EventData, Revision, Session, SessionEvent, SessionHeader, SessionInspection,
     Store, StoreError, ToolOutcome, TurnEndReason,
@@ -36,17 +39,19 @@ enum CrashCut {
     Claim,
     Request,
     ToolCall,
+    ApprovalAsked,
     ToolResult,
     StepEnd,
     TurnEnd,
 }
 
 impl CrashCut {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Admission,
         Self::Claim,
         Self::Request,
         Self::ToolCall,
+        Self::ApprovalAsked,
         Self::ToolResult,
         Self::StepEnd,
         Self::TurnEnd,
@@ -58,6 +63,7 @@ impl CrashCut {
             Self::Claim => "claim",
             Self::Request => "request",
             Self::ToolCall => "tool-call",
+            Self::ApprovalAsked => "approval-asked",
             Self::ToolResult => "tool-result",
             Self::StepEnd => "step-end",
             Self::TurnEnd => "turn-end",
@@ -117,6 +123,7 @@ impl CrashStore {
             (CrashCut::Claim, EventData::TurnStart { .. })
                 | (CrashCut::Request, EventData::RequestHeader { .. })
                 | (CrashCut::ToolCall, EventData::ToolCall { .. })
+                | (CrashCut::ApprovalAsked, EventData::ApprovalAsked { .. })
                 | (CrashCut::ToolResult, EventData::ToolResult { .. })
                 | (CrashCut::StepEnd, EventData::StepEnd { .. })
                 | (CrashCut::TurnEnd, EventData::TurnEnd { .. })
@@ -197,7 +204,10 @@ impl ModelProvider for CrashProvider {
         _request: ProviderRequest,
         _cancellation: CancellationToken,
     ) -> Result<ProviderStream, ProviderError> {
-        let events = if matches!(self.cut, CrashCut::ToolCall | CrashCut::ToolResult) {
+        let events = if matches!(
+            self.cut,
+            CrashCut::ToolCall | CrashCut::ApprovalAsked | CrashCut::ToolResult
+        ) {
             vec![
                 Ok(ProviderEvent::ToolCallDelta {
                     index: 0,
@@ -279,13 +289,16 @@ async fn crash_cut_worker() {
 
     let crash_store = Arc::new(CrashStore::new(inner, cut, root.clone()));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("dangerous", "dangerous", json!({"type": "object"}), {
+    let mut tool = ToolSpec::new("dangerous", "dangerous", json!({"type": "object"}), {
         let executions = Arc::clone(&executions);
         move |_, _| {
             executions.fetch_add(1, Ordering::SeqCst);
             async { ToolResult::success("side effect completed") }
         }
     });
+    if cut == CrashCut::ApprovalAsked {
+        tool = tool.requires_approval();
+    }
     let mut request = LoopRequest::new(
         Arc::new(CrashProvider { cut }),
         vec![AgentMessage::user("durable original").with_id("claimed-input")],
@@ -333,6 +346,8 @@ async fn durable_sigkill_matrix_recovers_exactly_once() {
         let store = Arc::new(JsonlSessionStore::new(state.0.join("sessions")).unwrap());
         if cut == CrashCut::Admission {
             recover_admission(&state.0, store).await;
+        } else if cut == CrashCut::ApprovalAsked {
+            recover_approval(&state.0, store).await;
         } else {
             recover_core_cut(cut, store).await;
         }
@@ -389,6 +404,120 @@ async fn recover_admission(root: &Path, store: Arc<JsonlSessionStore>) {
             return;
         }
         assert!(time::Instant::now() < deadline, "admission did not resume");
+        time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+struct RecoveryToolFactory {
+    executions: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl SessionToolFactory for RecoveryToolFactory {
+    async fn tools(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+    ) -> Result<Vec<ToolSpec>, String> {
+        let executions = Arc::clone(&self.executions);
+        Ok(vec![ToolSpec::new(
+            "dangerous",
+            "dangerous",
+            json!({"type": "object"}),
+            move |_, _| {
+                executions.fetch_add(1, Ordering::SeqCst);
+                async { ToolResult::success("recovered approved side effect") }
+            },
+        )
+        .requires_approval()])
+    }
+}
+
+async fn recover_approval(root: &Path, store: Arc<JsonlSessionStore>) {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let provider: Arc<dyn ModelProvider> = Arc::new(RecoveryProvider);
+    let store_trait: Arc<dyn Store> = store.clone();
+    let runtime = Arc::new(DurableLoopAgentRuntime::new(
+        "crash-provider",
+        "crash-model",
+        Some(provider),
+        Arc::new(RecoveryToolFactory {
+            executions: Arc::clone(&executions),
+        }),
+        Arc::new(xharness_core::IdentityContextPolicy),
+        Arc::clone(&store_trait),
+        Arc::new(FileLeaseManager::new(root.join("leases")).unwrap()),
+        64,
+    ));
+    let mut config = HostConfig::new(root.join("workspace"));
+    config.provider_id = "crash-provider".to_owned();
+    config.model_id = "crash-model".to_owned();
+    let host = BasicHost::with_agent_runtime(config, runtime);
+    let mut mux = host.mux_events();
+    let report = host.restore_from_store(store_trait).await.unwrap();
+    assert_eq!(report.resumed_pending_approvals, 1);
+
+    let request = time::timeout(Duration::from_secs(5), async {
+        loop {
+            let frame = mux.next().await.expect("mux remains open");
+            if frame.payload["type"] == "approval/requested" {
+                break frame;
+            }
+        }
+    })
+    .await
+    .expect("approval was not restored after SIGKILL");
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    let approval_id = request.payload["approvalId"].clone();
+    let receipt = host
+        .respond(ClientResponse {
+            kind: ClientResponseKind::ClientResponse,
+            rpc_id: request.rpc_id,
+            result: RpcResult::success(json!({
+                "sessionId": SESSION_ID,
+                "approvalId": approval_id,
+                "outcome": "allowed-once",
+            })),
+        })
+        .await;
+    assert_eq!(receipt, xharness_api::RpcReceipt::Accepted);
+
+    let deadline = time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let session = store.load(SESSION_ID).await.unwrap().unwrap();
+        if session.events().iter().any(|event| {
+            matches!(
+                event.data(),
+                EventData::TurnEnd {
+                    reason: TurnEndReason::Completed,
+                    ..
+                }
+            )
+        }) {
+            assert_eq!(executions.load(Ordering::SeqCst), 1);
+            assert_eq!(session.pending_tool_approvals().len(), 0);
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(event.data(), EventData::ApprovalAsked { .. }))
+                    .count(),
+                1
+            );
+            assert!(session.events().iter().any(|event| matches!(
+                event.data(),
+                EventData::ToolResult { result, .. }
+                    if result.outcome == ToolOutcome::Success
+            )));
+            assert!(!session.events().iter().any(|event| matches!(
+                event.data(),
+                EventData::ToolResult { result, .. }
+                    if result.outcome == ToolOutcome::OutcomeUnknown
+            )));
+            return;
+        }
+        assert!(time::Instant::now() < deadline, "approval did not resume");
         time::sleep(Duration::from_millis(10)).await;
     }
 }
@@ -450,6 +579,7 @@ async fn recover_core_cut(cut: CrashCut, store: Arc<JsonlSessionStore>) {
     match cut {
         CrashCut::ToolCall => assert_eq!(outcomes, [ToolOutcome::OutcomeUnknown]),
         CrashCut::ToolResult => assert_eq!(outcomes, [ToolOutcome::Success]),
+        CrashCut::ApprovalAsked => unreachable!("approval cut has a dedicated recovery path"),
         _ => assert!(outcomes.is_empty(), "cut={cut:?}"),
     }
 }

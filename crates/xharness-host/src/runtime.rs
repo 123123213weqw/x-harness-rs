@@ -71,10 +71,13 @@ pub struct AgentSessionRequest {
 }
 
 /// Durable work attached during one startup-resume operation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AgentResumeReport {
     pub pending_turns: usize,
     pub pending_next_step: usize,
+    /// Stable internal work id for one open approval turn that was attached
+    /// and woken during startup recovery.
+    pub recovered_approval_work_id: Option<String>,
 }
 
 /// A live turn owned by the Host driver. This seam prevents Web control-plane
@@ -167,6 +170,16 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _request: AgentSessionRequest,
     ) -> Result<AgentResumeReport, AgentRuntimeError> {
         Ok(AgentResumeReport::default())
+    }
+
+    /// Take a startup-recovered live turn after `resume_session` attached its
+    /// event subscriber. Ephemeral runtimes never return one.
+    async fn take_resumed_turn(
+        &self,
+        _session_id: &str,
+        _work_id: &str,
+    ) -> Result<Option<Box<dyn RunningTurn>>, AgentRuntimeError> {
+        Ok(None)
     }
 
     /// Durably admit one future turn before the Host acknowledges the client.
@@ -450,6 +463,18 @@ impl DurableLoopAgentRuntime {
             input_id,
         })
     }
+
+    fn running_from_prepared(&self, prepared: PreparedDurableTurn) -> Box<dyn RunningTurn> {
+        Box::new(DurableRunningTurn {
+            handle: prepared.handle,
+            events: prepared.events,
+            target_input_id: prepared.input_id,
+            turn: None,
+            result: None,
+            terminal: false,
+            next_control_id: Arc::clone(&self.next_control_id),
+        })
+    }
 }
 
 #[async_trait]
@@ -577,6 +602,33 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 })?;
         let pending_turns = snapshot.next_turn().len();
         let pending_next_step = snapshot.next_step().len();
+        let session = self
+            .store
+            .load(&request.session_id)
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: format!(
+                    "could not inspect durable approval recovery for {:?}: {error}",
+                    request.session_id
+                ),
+            })?
+            .ok_or_else(|| AgentRuntimeError::Preparation {
+                message: format!("durable session {:?} disappeared", request.session_id),
+            })?;
+        let pending_approvals = session.pending_tool_approvals();
+        let recovered_approval_work_id = pending_approvals
+            .first()
+            .map(|first| xharness_agent::approval_recovery_work_id(&first.id));
+        if let Some(first) = pending_approvals.first() {
+            if pending_approvals
+                .iter()
+                .any(|approval| approval.turn != first.turn || approval.step != first.step)
+            {
+                return Err(AgentRuntimeError::Preparation {
+                    message: "pending approvals span more than one open tool batch".to_owned(),
+                });
+            }
+        }
 
         // Subscribe once per stable input before the worker is allowed to
         // wake. Each later Web driver can then consume only the turn whose
@@ -592,14 +644,43 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                     input_id: input.id.clone(),
                 });
         }
+        if let Some(work_id) = &recovered_approval_work_id {
+            prepared
+                .entry((request.session_id.clone(), work_id.clone()))
+                .or_insert_with(|| PreparedDurableTurn {
+                    handle: handle.clone(),
+                    events: handle.subscribe(),
+                    input_id: work_id.clone(),
+                });
+        }
         drop(prepared);
+        if recovered_approval_work_id.is_some() {
+            handle
+                .recover_open_turn()
+                .await
+                .map_err(agent_command_error)?;
+        }
         if pending_turns > 0 {
             handle.wake().await.map_err(agent_command_error)?;
         }
         Ok(AgentResumeReport {
             pending_turns,
             pending_next_step,
+            recovered_approval_work_id,
         })
+    }
+
+    async fn take_resumed_turn(
+        &self,
+        session_id: &str,
+        work_id: &str,
+    ) -> Result<Option<Box<dyn RunningTurn>>, AgentRuntimeError> {
+        Ok(self
+            .prepared
+            .lock()
+            .await
+            .remove(&(session_id.to_owned(), work_id.to_owned()))
+            .map(|prepared| self.running_from_prepared(prepared)))
     }
 
     async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
@@ -698,15 +779,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             Some(prepared) => prepared,
             None => self.prepare_turn(request).await?,
         };
-        Ok(Box::new(DurableRunningTurn {
-            handle: prepared.handle,
-            events: prepared.events,
-            target_input_id: prepared.input_id,
-            turn: None,
-            result: None,
-            terminal: false,
-            next_control_id: Arc::clone(&self.next_control_id),
-        }))
+        Ok(self.running_from_prepared(prepared))
     }
 }
 

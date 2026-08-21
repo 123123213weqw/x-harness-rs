@@ -63,6 +63,8 @@ Plan Mode 当前只持久化已经接受的稳定状态：不存在事件等价�
 `derive_messages()` 必须确定、无副作用。它忽略只用于审计的 Chunk 和边界，同时逐字节
 保留完整 User、Assistant 和 Tool Message。Tool Result 投影会通过对应 `tool/call` 把内部
 Execution ID 还原为 Provider Native Call ID，确保无状态协议重放关联正确。
+同一 Assistant Tool Batch 的 Result 即使因崩溃恢复分多个 Append 写入，投影仍按 Assistant
+中的原始 Call Index 排序，不能按恢复写盘时序改变 Provider Transcript。
 
 完整 Transcript 与“下一次模型可见 Surface”必须分离。Context Policy 可以引用原始消息、
 追加 Summary/Spill Metadata 或选择 Surface Replace，但禁止覆盖/删除原始 Tool Result。
@@ -73,6 +75,12 @@ Request Header 必须记录本次实际使用的消息 Revision、压缩 Policy 
 `outcome_unknown` Tool Result，但禁止执行该 Call。非幂等操作再次尝试前，Host 应先
 检查外部状态。
 
+唯一例外是存在同 Call ID 的未决 `approval/asked`：Asked 已 Flush、Decided 缺失证明旧进程
+尚未越过审批门，`pending_tool_approvals()` 将其投影为可交互恢复项，并从普通
+`outcome_unknown_recovery()` 中排除。恢复必须复用原 Approval/Execution/Provider Call ID；
+Allowed-once 之后才能首次执行。已经 Decided Allowed 但 Result 缺失时仍属于 Outcome Unknown，
+不得因为曾获批而重放副作用。
+
 ## Store Trait
 
 `Store::{create, load, append, flush, inspect}` 定义隔离值和 CAS Append 语义。`flush`
@@ -81,8 +89,8 @@ Request Header 必须记录本次实际使用的消息 Revision、压缩 Policy 
 
 ## 当前限制
 
-- Durable Inbox Event、Claim Batch 和本机 Lease 已由 `xharness-agent` 接入 Host；但 Workspace、
-  Settings、Pending Approval、通用 Mutation Receipt 仍没有统一持久控制面。
+- Durable Inbox Event、Claim Batch、本机 Lease 和 Pending Approval 恢复已由 `xharness-agent`
+  接入 Host；但 Workspace、Settings、通用 Mutation Receipt 仍没有统一持久控制面。
 - Plan Mode 已有 Idle 状态日志，但运行中 Pending Pre-step、带 Message/Image 的 Steering、
   Plan Prompt Section 和 `exit_plan_mode` 工具尚未实现。
 - 尚无 Branch、Compaction Surface、Attachment Store 或远程 Multi-writer Fencing。

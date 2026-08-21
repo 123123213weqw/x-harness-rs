@@ -75,6 +75,9 @@ Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只�
   `Exclusive` 是全局屏障。
 - 完成事件可以按真实完成顺序发送；写回模型的消息必须保持原始调用顺序。
 - 需要审批的工具在收到显式允许命令前禁止启动。
+- 若进程在已 Flush `approval/asked`、尚未写 `approval/decided` 时退出，重启必须在原
+  Turn/Step 上重发同一 Approval ID。该 Call 不能转成 Outcome Unknown，也不能在用户再次响应前
+  执行。已 Decided Allowed 但缺 Result 的 Call 仍按 Outcome Unknown 处理，禁止重放。
 - 取消/超时必须取消 Handler Token，并在 drop Handler Future 前提供有界清理时间。
 - 模型可见工具结果默认上限 256 KiB；超限优先使用确定性 `head_tail/v1` Envelope，记录
   原始/遗漏 Byte 和 SHA-256。所有合法配置上限下都必须保持 UTF-8 和 JSON 有效；极小预算使用
@@ -92,7 +95,10 @@ Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只�
 
 `journal_store` 是权威 append-only 路径，快照 `SessionStore` 只用于 v0 迁移。Journal
 模式下必须在对应生命周期边界记录 Request Header、Assistant Chunk/Message、Tool Call
-和 Tool Result。已记录 Call 但没有 Result 时，恢复为 `outcome_unknown`，禁止自动重放。
+和 Tool Result。已记录 Call 但没有 Result时，恢复为 `outcome_unknown`，禁止自动重放；唯一可
+继续执行的是“Asked 已落盘且 Decided 缺失”的审批边界，因为该状态证明工具从未获准启动。
+恢复的 Tool Batch 先处理所有原调用：未决审批等待交互，其他无结果调用写 Outcome Unknown；结果
+按 Assistant 的原始 Call Index 一次性落账，再从下一模型 Step 继续。
 
 ## 默认限制与当前不足
 
@@ -101,7 +107,7 @@ Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只�
 - 默认 `IdentityContextPolicy` 完整重放全部消息，没有 Summary 或 Surface Replace；正式 Host
   安装 Hard Token Guard，超限会本地失败，但不会自动腾出空间。
 - 嵌入式 Core 允许宿主不安装 Token Guard；正式 Host 配置模型时缺少窗口会拒绝启动。
-- 事件当前使用无界内部 Channel；按字节有界的 Event Journal/Subscription 已列入 TODO。
+- 事件已使用按数量和序列化 Byte 双预算的非阻塞 Ring Journal；WebSocket 跨连接 Cursor 尚未完成。
 - `LoopRun` 表示一次 Run，不是带持久 Inbox 的长生命周期 Agent。
 - Provider 自有 replay 状态当前仍以 JSON Value 暴露。
 

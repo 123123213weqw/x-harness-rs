@@ -86,8 +86,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 > Turn/Input 已在同一 CAS Revision，Queue Edit/Remove 也同步到 Inbox。JSONL 目录枚举、
 > Session/History/Workspace/Queue 启动 Replay、恢复前订阅与显式 Wake 已完成；Web Projection 和
 > Driver Attachment 仍是 Session Log 的进程内派生缓存。Prompt RPC Receipt 已从 Durable Inbox
-> 历史重建；Approval Asked/Decided 与 Provider Retry/Started 已强类型持久化和投影，但 Pending
-> Approval 还不能跨重启继续回答；Agent/Permission/Sandbox/Approval Policy 和 Permission Command
+> 历史重建；Approval Asked/Decided 与 Provider Retry/Started 已强类型持久化和投影，Pending
+> Approval 已能在原 Turn/Step 上跨重启继续回答；Agent/Permission/Sandbox/Approval Policy 和 Permission Command
 > Receipt、Session Title、Agent Preset 选择、Goal Snapshot/Tombstone 与 Idle Plan Mode 已持久化，Settings 和其他
 > 变更 RPC Receipt 未持久化，
 > 因此 `A-09` 尚不能勾选。Catalog v2 已记录
@@ -112,12 +112,12 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [ ] `A-09` 重启恢复 Workspace、Session、Inbox、运行终态和未决 Outcome。已完成由
   Session Header/Log 可推导的 Workspace、Session、History、模型路由、Next-turn Queue 和
   Pending Turn、Prompt RPC Receipt、Agent/Permission Policy、Permission Command Receipt、Session
-  Title、Agent Preset 选择、Goal Snapshot/Tombstone 和 Idle Plan Mode；
-  未完成自定义 Workspace 元数据、Settings、Pending Approval、其他变更 RPC Receipt 及
-  七个硬崩溃点下的终态矩阵。
+  Title、Agent Preset 选择、Goal Snapshot/Tombstone、Idle Plan Mode 和 Pending Approval 交互恢复；
+  未完成自定义 Workspace 元数据、Settings 和其他变更 RPC Receipt。
 - [x] `A-10` Admission/Claim/Request Header/Tool Call/Tool Result/Step End/Turn End 七点均有
-  确定性日志前缀测试和真实子进程 SIGKILL；父进程在相同 State Dir 重启正式 JSONL Host/Core，
-  验证不丢输入、不重放 Tool、Interrupted/OutcomeUnknown 和权威结果保留。
+  确定性日志前缀测试；真实子进程 SIGKILL 另加入 Approval Asked，共八点。父进程在相同 State Dir
+  重启正式 JSONL Host/Core，验证不丢输入、未批准 Tool 不执行、未知 Tool 不重放、
+  Interrupted/OutcomeUnknown 和权威结果保留。
 
 ### Batch B：工具身份与终止语义
 
@@ -156,7 +156,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 
 ### Batch E：Web 产品闭环
 
-- [ ] `E-01` 事件改为按 Byte 有界 Journal + Cursor Subscription。
+- [x] `E-01` 事件改为按事件数和序列化 Byte 双预算的有界 Journal，并提供 Lag/Resume Cursor
+  Subscription；跨 WebSocket 连接的持久 Cursor 继续由 `E-02` 完成。
 - [ ] `E-02` WebSocket 支持 Cursor Resume、Lag、Reconnect 和 Session Mux。
 - [ ] `E-03` History 从 Session Log 重建，不依赖进程内 `Vec<Value>`。
 - [ ] `E-04` Approval/Terminal/File/Web/Usage/Recovery Projection 全量对齐。
