@@ -82,15 +82,15 @@
 
 - 默认最多 128 个模型 Step。
 - 默认最多 8 个并发工具。
-- 默认 `IdentityContextPolicy` 完整重放全部消息，没有 Token Meter、输出预留、Summary 或
-  Surface Replace；这会让长 Tool Result 在下一 Step 超过模型窗口。
-- Core 当前不知道目标模型的 `context_window_tokens`，Host 也未传入该能力。
+- 默认 `IdentityContextPolicy` 完整重放全部消息，没有 Summary 或 Surface Replace；正式 Host
+  安装 Hard Token Guard，超限会本地失败，但不会自动腾出空间。
+- 嵌入式 Core 允许宿主不安装 Token Guard；正式 Host 配置模型时缺少窗口会拒绝启动。
 - 事件当前使用无界内部 Channel；按字节有界的 Event Journal/Subscription 已列入 TODO。
 - `LoopRun` 表示一次 Run，不是带持久 Inbox 的长生命周期 Agent。
 - Provider 自有 replay 状态当前仍以 JSON Value 暴露。
 
-完整目标契约见[上下文预算与压缩规范](context.md)。在该规范落地前，不能宣称 Long Context
-安全；Provider 返回 `exceed_context_size` 属于 Harness 请求准备缺陷，不是正常模型终态。
+完整目标契约见[上下文预算与压缩规范](context.md)。Hard Guard 已封住已知超窗发送路径；在
+分页、Reduce 和 Surface Replace 落地前，仍不能宣称长任务能自动连续完成。
 
 ## 验收标准
 

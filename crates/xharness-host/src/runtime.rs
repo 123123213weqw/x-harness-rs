@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, RwLock as StdRwLock,
     },
 };
 
@@ -19,6 +19,7 @@ use xharness_core::{
 };
 use xharness_prompt::PromptAssembly;
 use xharness_session::{Session, SessionEvent, SessionHeader, Store, StoreError};
+use xharness_token::TokenGuard;
 
 use crate::{PermissionPreset, SessionToolFactory};
 
@@ -209,6 +210,7 @@ pub struct LoopAgentRuntime {
     provider: Option<Arc<dyn ModelProvider>>,
     tool_factory: Arc<dyn SessionToolFactory>,
     context_policy: Arc<dyn ContextPolicy>,
+    token_guard: Option<TokenGuard>,
 }
 
 impl LoopAgentRuntime {
@@ -225,7 +227,13 @@ impl LoopAgentRuntime {
             provider,
             tool_factory,
             context_policy,
+            token_guard: None,
         }
+    }
+
+    pub fn with_token_guard(mut self, token_guard: Option<TokenGuard>) -> Self {
+        self.token_guard = token_guard;
+        self
     }
 }
 
@@ -262,6 +270,7 @@ impl AgentRuntime for LoopAgentRuntime {
         loop_request.prompt = request.prompt;
         loop_request.tools = tools;
         loop_request.context_policy = Arc::clone(&self.context_policy);
+        loop_request.token_guard = self.token_guard.clone();
         Ok(Box::new(LoopEngine.start(loop_request)))
     }
 }
@@ -277,6 +286,7 @@ struct DurableTurnFactory {
     provider: Option<Arc<dyn ModelProvider>>,
     tool_factory: Arc<dyn SessionToolFactory>,
     context_policy: Arc<dyn ContextPolicy>,
+    token_guard: Arc<StdRwLock<Option<TokenGuard>>>,
     sessions: Arc<RwLock<HashMap<String, DurableSessionConfig>>>,
 }
 
@@ -303,6 +313,11 @@ impl TurnRequestFactory for DurableTurnFactory {
         request.prompt = config.prompt;
         request.tools = tools;
         request.context_policy = Arc::clone(&self.context_policy);
+        request.token_guard = self
+            .token_guard
+            .read()
+            .expect("token guard lock poisoned")
+            .clone();
         Ok(request)
     }
 }
@@ -323,6 +338,7 @@ pub struct DurableLoopAgentRuntime {
     supervisor: AgentSupervisor,
     prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
     next_control_id: Arc<AtomicU64>,
+    token_guard: Arc<StdRwLock<Option<TokenGuard>>>,
 }
 
 struct PreparedDurableTurn {
@@ -345,10 +361,12 @@ impl DurableLoopAgentRuntime {
     ) -> Self {
         let provider_available = provider.is_some();
         let sessions = Arc::new(RwLock::new(HashMap::new()));
+        let token_guard = Arc::new(StdRwLock::new(None));
         let factory = Arc::new(DurableTurnFactory {
             provider,
             tool_factory,
             context_policy,
+            token_guard: Arc::clone(&token_guard),
             sessions: Arc::clone(&sessions),
         });
         let registry = Arc::new(AgentRegistry::new(Arc::clone(&store), leases));
@@ -361,7 +379,13 @@ impl DurableLoopAgentRuntime {
             supervisor: AgentSupervisor::new(registry, factory, event_capacity),
             prepared: Mutex::new(HashMap::new()),
             next_control_id: Arc::new(AtomicU64::new(1)),
+            token_guard,
         }
+    }
+
+    pub fn with_token_guard(self, token_guard: Option<TokenGuard>) -> Self {
+        *self.token_guard.write().expect("token guard lock poisoned") = token_guard;
+        self
     }
 
     fn validate_turn_input(

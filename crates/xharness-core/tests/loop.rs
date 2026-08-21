@@ -128,6 +128,25 @@ impl ContextPolicy for DroppingSystemPolicy {
     }
 }
 
+#[derive(Debug)]
+struct FixedTokenMeter {
+    total: u64,
+}
+
+impl TokenMeter for FixedTokenMeter {
+    fn id(&self) -> &str {
+        "test-fixed/v1"
+    }
+
+    fn estimate(&self, _request: &TokenEstimateRequest) -> Result<TokenBreakdown, TokenMeterError> {
+        Ok(TokenBreakdown {
+            protocol_tokens: self.total,
+            total_input_tokens: self.total,
+            ..TokenBreakdown::default()
+        })
+    }
+}
+
 #[derive(Clone)]
 struct GatedProvider {
     requests: Arc<Mutex<Vec<ProviderRequest>>>,
@@ -758,6 +777,30 @@ async fn invalid_request_fails_before_the_provider_is_called() {
         .as_deref()
         .unwrap()
         .contains("tool_result_limit_bytes"));
+}
+
+#[tokio::test]
+async fn hard_token_budget_rejects_64196_before_a_53248_provider_attempt() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let guard = TokenGuard::new(
+        Arc::new(FixedTokenMeter { total: 64_196 }),
+        TokenBudget {
+            context_window_tokens: 53_248,
+            reserved_output_tokens: 4_096,
+            safety_margin_tokens: 1_024,
+        },
+    )
+    .unwrap();
+    assert_eq!(guard.budget().available_input_tokens(), 48_128);
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("large turn")]);
+    request.token_guard = Some(guard);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.attempts(), 0);
+    let error = result.error.unwrap();
+    assert!(error.contains("64196"), "{error}");
+    assert!(error.contains("context=53248"), "{error}");
 }
 
 #[tokio::test]
@@ -1616,6 +1659,17 @@ async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_he
     request.session_id = Some("prompt-audit".to_owned());
     request.journal_store = Some(journal.clone());
     request.prompt = Some(prompt);
+    request.token_guard = Some(
+        TokenGuard::new(
+            Arc::new(FixedTokenMeter { total: 42 }),
+            TokenBudget {
+                context_window_tokens: 8_192,
+                reserved_output_tokens: 1_024,
+                safety_margin_tokens: 256,
+            },
+        )
+        .unwrap(),
+    );
 
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
@@ -1627,6 +1681,7 @@ async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_he
         "System identity.\n\nInspect, then answer."
     );
     assert_eq!(requests[0].messages[1].content, "hello");
+    assert_eq!(requests[0].max_output_tokens, Some(1_024));
 
     let session = journal.load("prompt-audit").await.unwrap().unwrap();
     let header = session
@@ -1651,6 +1706,12 @@ async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_he
             .unwrap()
             .len(),
         64
+    );
+    assert_eq!(header.options["tokenBudget"]["meter"], "test-fixed/v1");
+    assert_eq!(header.options["tokenBudget"]["availableInputTokens"], 6_912);
+    assert_eq!(
+        header.options["tokenBudget"]["estimate"]["totalInputTokens"],
+        42
     );
     assert!(session
         .derive_messages()

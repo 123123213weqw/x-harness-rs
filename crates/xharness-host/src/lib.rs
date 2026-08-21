@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 use tokio::sync::{broadcast, Mutex, OwnedMutexGuard, RwLock};
 use xharness_api::{RpcId, ServerRequest};
 use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpec};
+use xharness_token::TokenGuard;
 
 pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
 pub use runtime::{
@@ -40,6 +41,8 @@ pub struct HostConfig {
     pub provider_id: String,
     pub provider_display_name: String,
     pub model_id: String,
+    /// Provider/model context admission configured by the product host.
+    pub token_guard: Option<TokenGuard>,
     pub event_capacity: usize,
 }
 
@@ -56,6 +59,7 @@ impl HostConfig {
             provider_id: "openai-compatible".to_owned(),
             provider_display_name: "OpenAI compatible".to_owned(),
             model_id: "unconfigured".to_owned(),
+            token_guard: None,
             event_capacity: 2_048,
         }
     }
@@ -122,13 +126,16 @@ impl BasicHost {
         tool_factory: Arc<dyn SessionToolFactory>,
         context_policy: Arc<dyn ContextPolicy>,
     ) -> Arc<Self> {
-        let agent_runtime = Arc::new(LoopAgentRuntime::new(
-            config.provider_id.clone(),
-            config.model_id.clone(),
-            provider,
-            tool_factory,
-            context_policy,
-        ));
+        let agent_runtime = Arc::new(
+            LoopAgentRuntime::new(
+                config.provider_id.clone(),
+                config.model_id.clone(),
+                provider,
+                tool_factory,
+                context_policy,
+            )
+            .with_token_guard(config.token_guard.clone()),
+        );
         Self::with_agent_runtime(config, agent_runtime)
     }
 

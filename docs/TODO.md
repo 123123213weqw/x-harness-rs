@@ -98,6 +98,12 @@ Commit、Issue、PR 应引用这些 ID。
   Message；Request Header 保存 Assembler/Assembly/Section/System Hash 与 Tool Definition Hash，
   Transcript 不保存 System。Chat Completions、Responses、Host Provider 边界和重启 Pending Turn
   均有测试；Cancel 在 Turn 已结束时改为幂等，避免控制终态竞态。
+- [x] `DONE-36` 请求前上下文硬预算：新增 Provider-neutral `xharness-token` 与可替换
+  `TokenMeter`，生产 Host 配置模型时强制显式声明 Context Window；Core 在 Context Surface
+  完成后、Provider I/O 前计量 System/消息/工具/协议开销并预留输出与安全余量，预算报告写入
+  Request Header。Chat/Responses 分别下发 `max_tokens`/`max_output_tokens`；固定
+  `64196 > 53248` 回归验证 Provider Attempt 为零。当前保守 UTF-8/JSON Byte Meter 保证宁可
+  过估，不把精确 Tokenizer 绑定到 llama.cpp；精确 Adapter 与自动压缩仍归 `P1-03`。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -161,11 +167,11 @@ Commit、Issue、PR 应引用这些 ID。
   Reasoning、多并行 Call、Tool Failure、Cancel、Usage、Long Context。保存不含 Secret 的
   可复现 Fixture。
 
-- [ ] `P0-11` **请求前上下文硬预算。** 在 Provider I/O 前计量 System、消息、全部工具
+- [x] `P0-11` **请求前上下文硬预算。** 在 Provider I/O 前计量 System、消息、全部工具
   Schema、协议模板和输出预留；窗口未知或预算超限时结构化失败。加入 2026-08-21 的
-  `64196 > 53248` 固定回归，断言超限时 Provider Attempt 为零。独立 `xharness-context`、
-  `ContextRequest -> ContextSurface`、Surface Edit 校验和 Request Header 审计已经完成；下一步
-  接 `xharness-token` 与 Hard Guard。
+  `64196 > 53248` 固定回归，断言超限时 Provider Attempt 为零。`xharness-token` 已提供统一
+  `TokenMeter`、保守 Byte Meter、强类型 Budget/Report/Error；正式 Host 配置模型时缺少窗口会
+  拒绝启动。每次成功预算的分项进入 Request Header，输出上限进入两种 OpenAI 线协议。
 
 - [ ] `P0-12` **大结果治理与分页 Read。** `read` 增加 Byte/Line Range 和下一页 Cursor，
   默认降到适合模型的小页；工具原始输出落日志/Spill，模型 Surface 只保留确定性的

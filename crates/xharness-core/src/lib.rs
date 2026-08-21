@@ -13,3 +13,7 @@ pub use xharness_context::{
     ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface,
     IdentityContextPolicy, SurfaceEdit, SurfaceEditKind,
 };
+pub use xharness_token::{
+    ConservativeByteMeter, TokenBreakdown, TokenBudget, TokenBudgetError, TokenBudgetReport,
+    TokenEstimateRequest, TokenGuard, TokenMeter, TokenMeterError,
+};

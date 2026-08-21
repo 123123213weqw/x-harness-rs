@@ -33,7 +33,8 @@ Host 默认把 Agent Session JSONL 和跨进程 Lease 保存在平台数据目�
   Header CWD 对应 Workspace 和 Pending Turn。Prompt RPC Receipt 由完整 Inbox 历史恢复，同 RPC ID
   与 Payload 的请求可安全重试；Workspace 自定义元数据、Settings、审批和其他变更 RPC Receipt
   仍在内存中，因此尚不是整个 API 的完整 Exactly-once 恢复。
-- 当前没有请求前 Token Guard 或自动上下文压缩。
+- 正式 Host 已安装请求前 Token Guard；配置模型时必须显式声明真实窗口。当前没有自动上下文
+  压缩，超限会在本地失败且 Provider Attempt 为零。
 
 ## Sandbox Probe 失败
 
@@ -75,8 +76,20 @@ request (64196 tokens) exceeds the available context size (53248 tokens)
 - 不要整文件读取；先读取入口、符号附近或小范围行。
 - 服务端扩窗只能在显存和模型部署确实支持时使用，不能替代 Host 预算管理。
 
-正式修复由[上下文预算规范](specs/context.md)定义：请求前计量、输出预留、分页读取、确定性
-工具结果压缩和不修改原日志的 Surface Replace。
+当前 Hard Guard 已阻止再次向 Provider 发送超窗请求。启动示例：
+
+```bash
+XHARNESS_MODEL=your-model \
+XHARNESS_CONTEXT_WINDOW=53248 \
+XHARNESS_MAX_OUTPUT_TOKENS=4096 \
+XHARNESS_TOKEN_SAFETY_MARGIN=1024 \
+xharness-host
+```
+
+可使用等价参数 `--context-window`、`--max-output-tokens` 和 `--token-safety-margin`。Guard 将
+总窗口减去输出预留和安全余量后再接纳输入；Chat/Responses 同时收到对应的原生最大输出字段。
+后续分页读取、确定性工具结果压缩和不修改原日志的 Surface Replace 仍由
+[上下文预算规范](specs/context.md)定义。
 
 ## 诊断 Session
 

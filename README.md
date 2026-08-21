@@ -50,9 +50,9 @@ FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产�
 该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
 Developer ID 签名、公证和本机安装验证。
 
-> **当前可用性提醒（2026-08-22）：** Web/Loop/14 工具和版本化最小 Coding System Prompt 已经
-> 贯通，但当前 Host 仍完整重放历史、每个 Step 固定发送全部工具、没有请求前 Token Guard。
-> 大文件任务可能超过模型真实上下文。Linux Bubblewrap Probe 失败时，
+> **当前可用性提醒（2026-08-22）：** Web/Loop/14 工具、版本化最小 Coding System Prompt 和
+> 请求前 Hard Token Guard 已经贯通。当前 Host 仍完整重放历史、每个 Step 固定发送全部工具；
+> 大文件任务超限时会在本地明确失败，但尚不会自动压缩。Linux Bubblewrap Probe 失败时，
 > `bash/glob/grep/terminal_open` 会按设计 fail closed。详见[运行诊断](docs/operations.md)。
 
 正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
@@ -128,7 +128,14 @@ History、Header Workspace、Durable Queue 并续跑 Pending Turn。仍需把 Pr
 - Policy 输入同时包含 Provider、Model、Step 与全部工具 Schema
 - Surface 替换记录源消息范围、替换数量、原因和 Policy 版本
 - Core 在 Provider I/O 前验证 Surface，并把审计元数据写入 Request Header
-- 当前默认仍是 `IdentityContextPolicy`；Token Guard、Prune 与 Summary 是下一阶段
+- 当前默认仍是 `IdentityContextPolicy`；Prune 与 Summary 是下一阶段
+
+### `xharness-token`
+
+- Provider-neutral `TokenMeter`，不依赖 llama.cpp 或任一推理后端
+- 当前提供保守 UTF-8/JSON Byte Meter；后续精确 Tokenizer 实现同一 Trait
+- Core 在 Provider I/O 前执行 Hard Guard，预算报告写入 Request Header
+- 正式 Host 配置模型时强制声明 Context Window，并把输出预留下发给 Provider
 
 ### `xharness-prompt`
 
@@ -318,6 +325,9 @@ XHARNESS_WORKSPACE=/path/to/project \
 XHARNESS_WEB_DIST=/path/to/deepseek-harness/apps/web/dist \
 XHARNESS_BASE_URL=http://your-model-server:8000/v1 \
 XHARNESS_MODEL=your-model \
+XHARNESS_CONTEXT_WINDOW=53248 \
+XHARNESS_MAX_OUTPUT_TOKENS=4096 \
+XHARNESS_TOKEN_SAFETY_MARGIN=1024 \
 XHARNESS_API_KEY=optional-key \
 XHARNESS_PROTOCOL=chat \
 cargo run -p xharness-host-app --bin xharness-host
@@ -329,8 +339,9 @@ cargo run -p xharness-host-app --bin xharness-host
 安全默认是仅监听 loopback。
 
 模型服务的真实上下文以部署参数为准。例如 llama.cpp 的 `-c 53248` 代表整个请求窗口，
-System、历史、工具 Schema、模板和输出预留都要共享它。当前 Host 尚不会自动计量或压缩；
-长任务开始前请阅读[上下文预算规范](docs/specs/context.md)。
+System、历史、工具 Schema、模板和输出预留都要共享它。配置模型但没有
+`XHARNESS_CONTEXT_WINDOW`（或 `--context-window`）时，正式 Host 会拒绝启动；超限请求在网络前
+失败。当前尚不会自动压缩，长任务开始前请阅读[上下文预算规范](docs/specs/context.md)。
 
 ## Linux `.deb`
 

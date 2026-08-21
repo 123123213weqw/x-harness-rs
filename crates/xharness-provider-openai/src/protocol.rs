@@ -50,6 +50,9 @@ pub fn build_openai_request(
             if !tools.is_empty() {
                 root["tools"] = Value::Array(tools);
             }
+            if let Some(max_output_tokens) = request.max_output_tokens {
+                root["max_tokens"] = Value::from(max_output_tokens);
+            }
             root
         }
         OpenAiProtocol::Responses => {
@@ -66,6 +69,9 @@ pub fn build_openai_request(
             });
             if !tools.is_empty() {
                 root["tools"] = Value::Array(tools);
+            }
+            if let Some(max_output_tokens) = request.max_output_tokens {
+                root["max_output_tokens"] = Value::from(max_output_tokens);
             }
             root
         }

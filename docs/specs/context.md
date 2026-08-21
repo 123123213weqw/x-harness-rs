@@ -1,7 +1,7 @@
 # 上下文预算与压缩规范
 
-**所属层：** `xharness-context`、未来的 `xharness-token` / `xharness-prompt`
-**状态：** 第一阶段已实现独立 Surface 抽象；预算、裁剪和压缩策略仍是 P0。
+**所属层：** `xharness-context`、`xharness-token`、`xharness-prompt`
+**状态：** Surface 抽象和请求前硬预算已实现；分页、裁剪、精确 Tokenizer 与压缩仍待实现。
 
 ## 已落地的抽象边界
 
@@ -14,8 +14,13 @@
 - `IdentityContextPolicy`：兼容策略，逐字完整重放。
 
 Core 在任何 Provider I/O 前调用 Policy、验证 Surface 结构，并把 Policy、源/可见消息数量及
-Edit 写入 `request/header.options.context`。LoopResult 和 Session 原始历史不因 Surface 替换而
-改变。当前抽象只建立正确的替换边界，尚未宣称具备 Token 窗口安全。
+Edit 写入 `request/header.options.context`。随后 `xharness-token::TokenGuard` 对冻结 Surface 和
+全部 Tool Schema 做硬准入；成功报告写入 `request/header.options.tokenBudget`。LoopResult 和
+Session 原始历史不因 Surface 替换而改变。
+
+正式 `xharness-host-app` 只要配置了模型，就必须通过 `XHARNESS_CONTEXT_WINDOW` 或
+`--context-window` 显式给出部署真实窗口；未知窗口拒绝启动。嵌入式 Core 仍允许不安装 Guard，
+用于测试或由宿主提供其他 Prepared-call 管线，这不属于生产 Host 的安全默认值。
 
 ## 目标
 
@@ -42,7 +47,11 @@ input_tokens + reserved_output_tokens + safety_margin_tokens
     <= context_window_tokens
 ```
 
-本地 OpenAI-compatible 端点如果能提供同模型 Tokenizer，应优先做精确计量；否则采用保守估计。
+`xharness-token::TokenMeter` 是统一抽象，不依赖 llama.cpp。当前
+`ConservativeByteMeter` 按 Provider-neutral JSON 的 UTF-8 字节数并加入显式消息/工具/请求框架
+开销；对普通 Byte-BPE 家族宁可过估。后续同模型 Tokenizer 可实现同一 Trait，替换 Meter 而不
+改变 Core、Host 或 Context Policy。本地 OpenAI-compatible 端点如果能提供同模型 Tokenizer，
+应优先做精确计量；否则采用保守估计。
 估计不确定性不能通过减少安全余量来掩盖。超过预算必须在 Provider 网络 I/O 前返回结构化
 `context_budget_exceeded`，并携带各分项，禁止把上游 HTTP 400 当成正常控制流。
 
@@ -80,17 +89,19 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 400 拒绝。主要来源是三个完整文件结果：约 20,115、26,953 和 6,848 tokens；最后一批
 并行读取单次增加约 33,800 tokens。
 
-该样本必须成为固定回归 Fixture：在 53,248 总窗口、至少 8,192 输出预留下，Core 必须在
-网络请求前分页/压缩或明确失败，绝不能再次发送 64,196-token 请求。
+该样本已成为固定回归：测试构造 64,196 输入估计和 53,248 可用输入预算，Core 在网络请求前
+明确失败并断言 Provider Attempt 为零。自动分页/压缩尚未实现，因此当前行为是本地拒绝，而非
+再次发送超窗请求。
 
 ## 当前实现差距
 
-- Host 仍安装 `IdentityContextPolicy`，原样返回全部消息。
-- Host 没有安装 Token Meter、Context Policy 或输出预留。
+- Host 仍安装 `IdentityContextPolicy`，原样返回全部消息；超限时会拒绝，但不会自动腾出空间。
+- 当前正式 Host 安装保守 Byte Meter；Provider-aware 精确 Tokenizer 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。
 - `read` 模型 Schema 目前只有 `path`，虽然底层 FS 已支持字节/行上限。
 - 每个 Step 固定发送全部 14 个工具 Schema。
-- Request Header 尚未记录完整预算分项。
+- 工具 Schema 和 System/Message/Protocol 分项已经记录；Provider 原生 Chat Template 的精确开销
+  仍需要 Provider-aware Meter。
 
 ## 验收标准
 
