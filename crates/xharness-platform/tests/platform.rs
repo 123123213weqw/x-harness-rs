@@ -1,8 +1,8 @@
 use std::{fs, path::PathBuf};
 
-use xharness_platform::{NativePlatform, PlatformConfig, PlatformKind};
+use xharness_platform::{NativePlatform, PlatformAccess, PlatformConfig, PlatformKind};
 use xharness_process::SpawnSpec;
-use xharness_sandbox::SandboxMode;
+use xharness_sandbox::NetworkAccess;
 
 struct TempWorkspace(PathBuf);
 
@@ -28,10 +28,11 @@ impl Drop for TempWorkspace {
 #[tokio::test]
 async fn native_platform_composes_filesystem_process_and_policy() {
     let workspace = TempWorkspace::new();
-    let platform = NativePlatform::new(
-        PlatformConfig::new(&workspace.0).sandbox_mode(SandboxMode::DangerFullAccess),
-    )
-    .unwrap();
+    let config = PlatformConfig::new(&workspace.0)
+        .full_access()
+        .network(NetworkAccess::Deny);
+    assert_eq!(config.network_value(), NetworkAccess::Allow);
+    let platform = NativePlatform::new(config).unwrap();
 
     #[cfg(target_os = "linux")]
     assert_eq!(platform.kind(), PlatformKind::Linux);
@@ -39,6 +40,8 @@ async fn native_platform_composes_filesystem_process_and_policy() {
     assert_eq!(platform.kind(), PlatformKind::MacOS);
     assert_eq!(platform.workspace_root(), workspace.0);
     assert_eq!(platform.filesystem().workspace_root(), PathBuf::from("/"));
+    assert_eq!(platform.access(), PlatformAccess::FullAccess);
+    assert!(platform.sandbox().is_none());
 
     let relative = platform.resolve_file("probe.txt").unwrap();
     let absolute = platform
@@ -51,4 +54,8 @@ async fn native_platform_composes_filesystem_process_and_policy() {
         platform.prepare_spawn(original.clone()).await.unwrap(),
         original
     );
+
+    let handle = platform.spawn(SpawnSpec::new("/bin/echo", &workspace.0).arg("managed"));
+    let output = handle.await.unwrap().wait().await.unwrap();
+    assert_eq!(output.stdout.text.trim(), "managed");
 }

@@ -37,7 +37,8 @@ Commit、Issue、PR 应引用这些 ID。
   Seatbelt 隔离，并生成带 SHA-256 的 `xharness-host-darwin-arm64` 构件。
 - [x] `DONE-21` Web Full access 权限预设：接通 `permissions` Projection、Schemastery
   Settings、`commands/list`/`commands/execute` 动态 Remote；前端一次风险确认后，Session 使用
-  `danger-full-access + never`，原生工具获得系统范围文件/进程能力且不再逐工具审批。
+  `danger-full-access + never`，原生工具获得系统范围文件/进程能力且不再逐工具审批；Full access
+  已从 `SandboxMode` 移出，只绕过权限隔离，不绕过 `ProcessRuntime`。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

@@ -9,8 +9,6 @@ pub enum SandboxMode {
     ReadOnly,
     /// `workspace_root` is writable; the rest of the host remains read-only.
     WorkspaceWrite,
-    /// Explicitly bypass confinement and preserve the original spawn spec.
-    DangerFullAccess,
 }
 
 /// Network namespace policy reserved as an explicit capability rather than an

@@ -145,7 +145,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "bash",
-                "Run one Bash command in the selected workspace sandbox.",
+                "Run one Bash command under the active session permission policy.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -183,7 +183,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "read",
-                "Read a workspace file and record its version for safe later edits.",
+                "Read an allowed file and record its version for safe later edits.",
                 path_schema(false),
             ),
             move |context| {
@@ -308,7 +308,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "glob",
-                "List workspace files matching a glob using ripgrep without a shell.",
+                "List files matching a glob from the session workspace using ripgrep without a shell.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -348,7 +348,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "grep",
-                "Search workspace text using ripgrep without shell interpretation.",
+                "Search text from the session workspace using ripgrep without shell interpretation.",
                 json!({
                     "type": "object",
                     "properties": {

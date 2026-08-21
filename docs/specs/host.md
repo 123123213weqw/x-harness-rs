@@ -114,7 +114,10 @@ Session 事件、队列/投影变化和审批流量走 Mux；Host 生命周期�
 
 - `workspace-write`：原生 Sandbox 限制到 Workspace，写入、终端和其他有副作用工具逐次审批。
 - `danger-full-access`（UI 显示为 **Full access**）：Web 客户端在切换前显示一次风险确认；确认后
-  当前 Session 使用无沙箱 Platform，并把工具审批策略设为 `never`，不再重复逐工具弹窗。
+  当前 Session 使用无权限沙箱 Platform，并把工具审批策略设为 `never`，不再重复逐工具弹窗。
+  它不是一种 Sandbox Mode；`sandbox/mode` 明确记录 `enabled=false, mode=disabled`。命令仍由
+  `ProcessRuntime` 托管，以便取消、超时和 Process Group 清理；它不承诺受限沙箱才有的硬后代
+  containment。
 
 `permissions` Session Projection 是 UI 的真源；切换通过 `/permission <preset>` 的
 `commands/execute` 动态端点完成，并顺序记录 `command/run`、`permission/preset`、

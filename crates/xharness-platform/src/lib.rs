@@ -20,6 +20,35 @@ pub enum PlatformKind {
     Linux,
 }
 
+/// Process authority selected by the product permission preset.
+///
+/// Full access is intentionally outside [`SandboxMode`]: it does not create,
+/// probe or call a native sandbox adapter. Processes are still launched by
+/// [`ProcessRuntime`] so cancellation, timeout and process-group cleanup remain
+/// active. A descendant that deliberately creates a new Unix session is not
+/// hard-contained in this mode.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlatformAccess {
+    #[default]
+    WorkspaceWrite,
+    ReadOnly,
+    FullAccess,
+}
+
+impl PlatformAccess {
+    const fn sandbox_mode(self) -> Option<SandboxMode> {
+        match self {
+            Self::WorkspaceWrite => Some(SandboxMode::WorkspaceWrite),
+            Self::ReadOnly => Some(SandboxMode::ReadOnly),
+            Self::FullAccess => None,
+        }
+    }
+
+    pub const fn is_sandboxed(self) -> bool {
+        self.sandbox_mode().is_some()
+    }
+}
+
 impl PlatformKind {
     #[cfg(target_os = "linux")]
     pub const CURRENT: Self = Self::Linux;
@@ -30,7 +59,7 @@ impl PlatformKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlatformConfig {
     workspace_root: PathBuf,
-    sandbox_mode: SandboxMode,
+    access: PlatformAccess,
     network: NetworkAccess,
     allowed_cwd_roots: Vec<PathBuf>,
 }
@@ -39,14 +68,25 @@ impl PlatformConfig {
     pub fn new(workspace_root: impl Into<PathBuf>) -> Self {
         Self {
             workspace_root: workspace_root.into(),
-            sandbox_mode: SandboxMode::WorkspaceWrite,
+            access: PlatformAccess::WorkspaceWrite,
             network: NetworkAccess::Deny,
             allowed_cwd_roots: Vec::new(),
         }
     }
 
     pub fn sandbox_mode(mut self, mode: SandboxMode) -> Self {
-        self.sandbox_mode = mode;
+        self.access = match mode {
+            SandboxMode::ReadOnly => PlatformAccess::ReadOnly,
+            SandboxMode::WorkspaceWrite => PlatformAccess::WorkspaceWrite,
+        };
+        self
+    }
+
+    /// Disable native permission sandboxing while retaining managed process
+    /// execution through [`ProcessRuntime`].
+    pub fn full_access(mut self) -> Self {
+        self.access = PlatformAccess::FullAccess;
+        self.network = NetworkAccess::Allow;
         self
     }
 
@@ -64,12 +104,15 @@ impl PlatformConfig {
         &self.workspace_root
     }
 
-    pub const fn sandbox_mode_value(&self) -> SandboxMode {
-        self.sandbox_mode
+    pub const fn access_value(&self) -> PlatformAccess {
+        self.access
     }
 
     pub const fn network_value(&self) -> NetworkAccess {
-        self.network
+        match self.access {
+            PlatformAccess::FullAccess => NetworkAccess::Allow,
+            PlatformAccess::WorkspaceWrite | PlatformAccess::ReadOnly => self.network,
+        }
     }
 }
 
@@ -87,10 +130,10 @@ pub enum PlatformError {
 #[derive(Clone)]
 pub struct NativePlatform {
     workspace_root: PathBuf,
-    sandbox_mode: SandboxMode,
+    access: PlatformAccess,
     filesystem: FsService,
     process: ProcessRuntime,
-    sandbox: NativeSandbox,
+    sandbox: Option<NativeSandbox>,
 }
 
 impl NativePlatform {
@@ -108,23 +151,27 @@ impl NativePlatform {
                 path: config.workspace_root.to_string_lossy().into_owned(),
                 source,
             })?;
-        let filesystem_root = if config.sandbox_mode == SandboxMode::DangerFullAccess {
+        let filesystem_root = if config.access == PlatformAccess::FullAccess {
             Path::new("/")
         } else {
             workspace_root.as_path()
         };
         let filesystem = FsService::with_observations(filesystem_root, observations)?;
-        let mut policy =
-            SandboxPolicy::new(&workspace_root, config.sandbox_mode).with_network(config.network);
-        for root in config.allowed_cwd_roots {
-            policy = policy.allow_cwd_root(root);
-        }
+        let sandbox = if let Some(mode) = config.access.sandbox_mode() {
+            let mut policy = SandboxPolicy::new(&workspace_root, mode).with_network(config.network);
+            for root in config.allowed_cwd_roots {
+                policy = policy.allow_cwd_root(root);
+            }
+            Some(NativeSandbox::new(policy))
+        } else {
+            None
+        };
         Ok(Self {
             workspace_root,
-            sandbox_mode: config.sandbox_mode,
+            access: config.access,
             filesystem,
             process: ProcessRuntime::new(),
-            sandbox: NativeSandbox::new(policy),
+            sandbox,
         })
     }
 
@@ -148,7 +195,7 @@ impl NativePlatform {
     /// preserving workspace-relative inputs for ordinary coding tasks.
     pub fn resolve_file(&self, input: impl AsRef<Path>) -> Result<FsTarget, FsError> {
         let input = input.as_ref();
-        if self.sandbox_mode != SandboxMode::DangerFullAccess {
+        if self.access != PlatformAccess::FullAccess {
             return self.filesystem.resolve(input);
         }
         let absolute = if input.is_absolute() {
@@ -169,14 +216,23 @@ impl NativePlatform {
         &self.process
     }
 
-    pub const fn sandbox(&self) -> &NativeSandbox {
-        &self.sandbox
+    pub const fn access(&self) -> PlatformAccess {
+        self.access
+    }
+
+    /// The native adapter exists only for restricted execution. Full access
+    /// returns `None` because it is not a sandbox configuration.
+    pub const fn sandbox(&self) -> Option<&NativeSandbox> {
+        self.sandbox.as_ref()
     }
 
     /// Apply the native sandbox without spawning. This keeps policy decisions
     /// inspectable and lets higher layers journal the final argv first.
     pub async fn prepare_spawn(&self, spec: SpawnSpec) -> Result<SpawnSpec, PlatformError> {
-        Ok(self.sandbox.prepare(spec).await?)
+        match &self.sandbox {
+            Some(sandbox) => Ok(sandbox.prepare(spec).await?),
+            None => Ok(spec),
+        }
     }
 
     /// Prepare and launch one process. Callers retain the handle and must await

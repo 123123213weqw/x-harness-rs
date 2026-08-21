@@ -16,8 +16,11 @@ Read-only Cwd Root。`NativePlatform::new` 必须使用同一权限边界初始�
 `prepare_spawn` 只应用 Sandbox Policy、不启动进程；`spawn` 先 Prepare 再 Launch，
 返回受管 `ProcessHandle`。
 
-`DangerFullAccess` 必须来自 Host 已确认的 Session Permission Preset。该模式下 Process 原样
-透传；结构化文件能力以 `/` 为根，因此允许绝对路径。为保持 Coding Agent 的正常相对路径
+`FullAccess` 必须来自 Host 已确认的 Session Permission Preset。它不是 `SandboxMode`：Platform
+不会创建、探测或调用 Seatbelt/Bubblewrap，原始 `SpawnSpec` 直接交给 `ProcessRuntime`。因此权限
+沙箱关闭，但进程仍受 Runtime 托管，取消、超时、输出限额和 Process Group 清理由同一条路径
+保证。Full access 不提供 PID Namespace 的硬后代 containment，主动 `setsid` 的后代仍可能逃逸。
+结构化文件能力以 `/` 为根，因此允许绝对路径。为保持 Coding Agent 的正常相对路径
 语义，`NativePlatform::resolve_file` 仍把相对路径接到 canonical Session Workspace，再转换为
 根能力。`NativePlatform::workspace_root` 与 `filesystem().workspace_root()` 在 Full access 下
 有意不同：前者是默认 Cwd，后者是 `/`。
@@ -36,7 +39,8 @@ coding tools -> NativePlatform -> fs + process + native sandbox
 core/provider/session ----------------X（禁止原生依赖）
 ```
 
-受限 Shell/Terminal 进程禁止绕过 `prepare_spawn`。可信进程内文件修改仍必须经过
+受限 Shell/Terminal 进程禁止绕过 `prepare_spawn`。Full access 也禁止绕过 `NativePlatform::spawn`：
+它只绕过 Sandbox Adapter，不能绕过 `ProcessRuntime`。可信进程内文件修改仍必须经过
 `FsService` Path/CAS 规则。
 
 ## 当前限制
@@ -51,4 +55,5 @@ core/provider/session ----------------X（禁止原生依赖）
 测试必须证明门面共享配置的 Workspace/Policy，正确选择目标平台，并确保 Prepare/Spawn
 命令经过原生 Sandbox。两个目标平台家族都必须通过编译期 Lint。
 Capability 测试必须证明 Probe 只执行一次、错误原因稳定、动态工具投影可消费该报告，并且
-`DangerFullAccess` 只有显式配置时才显示为可用。
+`FullAccess` 只有显式配置时才显示为可用；测试还必须证明其 `sandbox()` 为 `None`，而 `spawn()`
+仍返回受管 `ProcessHandle`。

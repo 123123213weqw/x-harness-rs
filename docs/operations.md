@@ -46,7 +46,8 @@ bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
 - 优先部署兼容的 Bubblewrap 环境或实现/启用 Landlock 等后备 Backend。
 - Host 应把 Probe 结果投影为 Capability，并从下一 Step 移除 `bash/glob/grep/terminal_open`；
   只有存在历史 Terminal 时才保留相应的 read/signal/close 管理工具。
-- 只有操作者明确选择 `DangerFullAccess` 时才允许无沙箱运行，并明确记录该策略。
+- 只有操作者明确选择 `Full access` 时才允许关闭权限沙箱，并明确记录
+  `sandbox/mode={enabled:false,mode:"disabled"}`；进程仍必须由 Process Runtime 托管。
 
 ## Context 超窗
 

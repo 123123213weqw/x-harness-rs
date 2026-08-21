@@ -29,7 +29,8 @@ Normal Exit、Timeout 和 Cancellation。
 
 Process Group 只用于生命周期协调，不是硬隔离。非受限进程的后代可以创建新 Session
 逃逸。受限 Coding Tool 因此必须运行在 `xharness-sandbox` 之下，由 PID Namespace/OS
-Policy 提供硬后代 containment。`DangerFullAccess` 明确不承诺此能力。
+Policy 提供硬后代 containment。`FullAccess` 明确不承诺此能力，但仍使用本 Runtime 完成普通
+Process Group 的取消、超时和清理。
 
 `ProcessRuntime` 能启动进程不代表 Restricted Process Capability 可用；Host 必须同时检查
 原生 Sandbox Probe。Probe 失败时不得调用本层裸跑命令，也不得把错误当成普通进程 Exit。

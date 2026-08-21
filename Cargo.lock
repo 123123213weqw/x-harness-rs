@@ -2137,6 +2137,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-context"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "xharness-session",
+]
+
+[[package]]
 name = "xharness-core"
 version = "0.1.0"
 dependencies = [
@@ -2148,6 +2160,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "xharness-context",
  "xharness-session",
 ]
 
@@ -2170,12 +2183,24 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-util",
  "tower",
  "xharness-api",
+ "xharness-core",
+]
+
+[[package]]
+name = "xharness-host-app"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "tokio",
+ "xharness-api",
  "xharness-coding-tools",
  "xharness-core",
+ "xharness-host",
  "xharness-platform",
  "xharness-provider-openai",
  "xharness-server",
