@@ -690,6 +690,25 @@ fn tool_result_cap_is_utf8_safe_and_valid_json() {
 }
 
 #[test]
+fn tool_result_reduction_is_deterministic_and_preserves_head_tail_and_digest() {
+    let content = format!("HEAD-{}-TAIL", "middle".repeat(1_000));
+    let result = ToolResult::success(content.clone());
+    let (first, truncated) = tool_result_for_model(&result, 512);
+    let (second, _) = tool_result_for_model(&result, 512);
+    assert!(truncated);
+    assert_eq!(first, second);
+    assert!(first.len() <= 512);
+    let value: Value = serde_json::from_str(&first).unwrap();
+    assert_eq!(value["reduction"]["strategy"], "head_tail/v1");
+    assert_eq!(value["reduction"]["original_bytes"], content.len());
+    assert!(value["reduction"]["omitted_bytes"].as_u64().unwrap() > 0);
+    assert_eq!(value["reduction"]["sha256"].as_str().unwrap().len(), 64);
+    let excerpt = value["content"].as_str().unwrap();
+    assert!(excerpt.starts_with("HEAD-"));
+    assert!(excerpt.ends_with("-TAIL"));
+}
+
+#[test]
 fn tool_result_cap_never_produces_invalid_json() {
     let result = ToolResult::success("content");
     for limit in 0..MIN_TOOL_RESULT_LIMIT_BYTES {

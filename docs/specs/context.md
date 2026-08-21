@@ -65,6 +65,11 @@ input_tokens + reserved_output_tokens + safety_margin_tokens
 4. 相同 Tool Call 的压缩结果必须稳定；禁止依据进程随机状态改变内容。
 5. Tool Call/Result 配对和 Provider 原生 Call ID 不得因压缩断裂。
 
+当前已实现单结果 `head_tail/v1`：在 Core 模型写回预算内保留 UTF-8 安全的头尾，并携带
+原始/遗漏 Byte 数和 SHA-256；相同输入逐字稳定。它还不是完整 Spill/Surface 方案：持久
+Session 当前保存模型可见版本，原始结果只存在于运行时 `ToolCompleted` 事件，进程重启后不能
+通过内容引用重新分页读取。因此“大结果先持久化”的完整不变量仍待内容寻址 Spill Store 落地。
+
 旧工具结果可以通过 Surface Replace 从后续请求中缩短，但审计、导出和崩溃恢复必须仍能看到
 原始事件。摘要失败时应回退到确定性截断，而不是继续发送超预算请求。
 

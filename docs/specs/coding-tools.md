@@ -65,7 +65,8 @@ read/signal/close 按 Session 状态单独投影。一次工具失败后，模�
 Observation Version。大结果 Spill Reference 仍待实现。
 
 `glob/grep/bash/terminal` 输出同样必须先经过工具级 Byte Cap，再进入全局 Context Policy。
-单个结果未超过 256 KiB 不代表多个结果可以安全并行写入下一次请求。
+Core 对超限单结果使用确定性 Head/Tail Envelope；单个结果未超过 256 KiB 不代表多个结果可以
+安全并行写入下一次请求，持久 Spill/历史 Surface Reduce 仍待实现。
 
 ## 验证
 
