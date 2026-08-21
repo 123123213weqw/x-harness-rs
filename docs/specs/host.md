@@ -70,9 +70,10 @@ Workspace 自定义元数据、Settings、Approval 和 RPC Receipt 建独立日�
 HTTP 404。当前先实现 Web 控件依赖的 `commands/list` 和 `commands/execute`；动态目录已暴露
 `permission` 与 `plan` 两个命令。
 
-当前 `AgentPreset.content` 只存在于 Host 状态/RPC 投影，`run_turn` 没有把它转换成
-`Role::System`。因此“UI 选中了 coding preset”和“模型收到 Coding System Prompt”不是一回事。
-当前只有工具 `name/description/Schema` 被 Provider 请求注入。
+选中的 `AgentPreset.content` 已由 `xharness-prompt/v1` 与权限、Workspace、Coding Workflow、
+Plan Policy 确定性组装，并作为每轮第一个 `Role::System` 进入 Provider 请求。Request Header
+记录 Section/Assembly/System 与工具定义 Hash；System 不进入 Transcript。完整动态 Prompt
+Registry、Token Guard 和按能力裁剪工具仍未实现。
 
 ## RPC 基础实现
 
@@ -217,7 +218,7 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 - 尚无 Host 认证、Origin Policy、健康/就绪检查和远程暴露控制；二进制默认必须只监听
   loopback。
 - Credential 更新只是进程内配置，不能重建已经运行中的 Provider。
-- Agent Preset 尚未成为真实 System Prompt；缺少 Prompt Version 与请求体级验证。
+- 最小 Prompt 已真实注入；完整 Section Registry、用户 Preset 持久化和 Token Guard 尚未完成。
 - Plan Mode 目前只完成 Idle 状态持久化；完整 Pre-step Steering、Prompt Section 和退出工具待补。
 - 没有整体 Token Budget/Compaction；完整文件结果可能在下一 Step 触发 Context 400。
 - 除 Full access 会关闭逐工具审批外，固定 14 工具投影仍不会随 Sandbox/Search 能力变化。

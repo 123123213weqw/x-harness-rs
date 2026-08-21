@@ -50,9 +50,9 @@ FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产�
 该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
 Developer ID 签名、公证和本机安装验证。
 
-> **当前可用性提醒（2026-08-21）：** Web/Loop/14 工具已经贯通，但当前 Host 仍完整重放
-> 历史、每个 Step 固定发送全部工具、没有请求前 Token Guard；`AgentPreset.content` 也尚未
-> 作为 System Prompt 注入。大文件任务可能超过模型真实上下文。Linux Bubblewrap Probe 失败时，
+> **当前可用性提醒（2026-08-22）：** Web/Loop/14 工具和版本化最小 Coding System Prompt 已经
+> 贯通，但当前 Host 仍完整重放历史、每个 Step 固定发送全部工具、没有请求前 Token Guard。
+> 大文件任务可能超过模型真实上下文。Linux Bubblewrap Probe 失败时，
 > `bash/glob/grep/terminal_open` 会按设计 fail closed。详见[运行诊断](docs/operations.md)。
 
 正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
@@ -88,8 +88,8 @@ Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。W
 
 - 组合 OpenAI-compatible Provider、HTTP/WS Server 和原生 14 工具
 - `NativeToolFactory` 按 Workspace 缓存 Platform、按 Session 隔离 Terminal
-- 当前每个模型 Step 都发送完整 14 工具定义；Preset 只是 UI/Host 状态，尚未成为
-  Provider 请求中的 System Prompt
+- 当前每个模型 Step 都发送完整 14 工具定义；选中 Preset 已经通过 `xharness-prompt/v1`
+  成为 Provider 请求中的第一个 System Message
 - 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
 
 当前 Host 的 Web DTO 是进程内派生缓存，但持久真源已经是 Agent/Session：重启会恢复 Session、
@@ -129,6 +129,13 @@ History、Header Workspace、Durable Queue 并续跑 Pending Turn。仍需把 Pr
 - Surface 替换记录源消息范围、替换数量、原因和 Policy 版本
 - Core 在 Provider I/O 前验证 Surface，并把审计元数据写入 Request Header
 - 当前默认仍是 `IdentityContextPolicy`；Token Guard、Prune 与 Summary 是下一阶段
+
+### `xharness-prompt`
+
+- 按稳定顺序组装 Preset、权限、Workspace、Coding Workflow 和 Plan Policy
+- 每个 Section、最终 System 和整个 Assembly 均有可审计版本/Hash
+- Core 在历史前注入 System，并把 Prompt Audit 与 Tool Definition Hash 写入 Request Header
+- System 不进入 Session Transcript；Chat Completions/Responses 请求体均有顺序测试
 
 ### `xharness-provider-openai`
 
@@ -369,7 +376,7 @@ Workspace 外读写/网络/进程清理，以及真实 Chromium 的权限确认�
 ## 路线图
 
 1. 请求前上下文预算、分页读取、大工具结果压缩和运行时能力投影
-2. 真正注入版本化 Coding System Prompt，并按 Step 投影可用工具
+2. 完整 Prompt Registry、请求前 Token Guard，并按 Step 投影可用工具
 3. 把 `BasicHost` 迁移到长生命周期 Agent、durable inbox、single-writer lease
 4. CLI、配置/凭据边界与 macOS 原生发布验证
 5. Web Host 认证、断线游标恢复、健康检查与部署配置

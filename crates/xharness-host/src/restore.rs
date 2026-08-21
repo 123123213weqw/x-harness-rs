@@ -50,6 +50,8 @@ pub enum HostRestoreError {
     SessionDisappeared { session_id: String },
     #[error("session {session_id:?} has an invalid durable inbox: {message}")]
     InvalidInbox { session_id: String, message: String },
+    #[error("session {session_id:?} prompt could not be restored: {message}")]
+    Prompt { session_id: String, message: String },
     #[error(
         "session {session_id:?} resume attached {runtime_count} turns but projection contains {projected_count}"
     )]
@@ -159,14 +161,30 @@ impl BasicHost {
             report.restored_sessions += 1;
             report.waiting_next_step_inputs += inbox.next_step().len();
             if projected_queue_len > 0 {
-                resumable.push((session_id, cwd, route, permission, projected_queue_len));
+                let prompt = self
+                    .state
+                    .read()
+                    .await
+                    .prompt_assembly(&session_id)
+                    .map_err(|message| HostRestoreError::Prompt {
+                        session_id: session_id.clone(),
+                        message,
+                    })?;
+                resumable.push((
+                    session_id,
+                    cwd,
+                    route,
+                    permission,
+                    prompt,
+                    projected_queue_len,
+                ));
             }
         }
 
         // The runtime subscribes and prepares every recovered input before it
         // wakes the durable Agent. Only after that succeeds do we publish the
         // Host-owned driver/control projection.
-        for (session_id, cwd, route, permission, projected_count) in resumable {
+        for (session_id, cwd, route, permission, prompt, projected_count) in resumable {
             match self
                 .agent_runtime
                 .resume_session(AgentSessionRequest {
@@ -174,6 +192,7 @@ impl BasicHost {
                     cwd,
                     route,
                     permission,
+                    prompt: Some(prompt),
                 })
                 .await
             {

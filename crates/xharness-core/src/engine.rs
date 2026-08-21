@@ -10,7 +10,9 @@ use std::{
 };
 
 use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
+use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
@@ -332,6 +334,7 @@ impl Runner {
             prepared
                 .validate()
                 .map_err(|error| RunFailure::Failed(error.to_string()))?;
+            self.validate_prompt_surface(&prepared)?;
             self.journal_request_header(&prepared).await?;
             let prepared = prepared.into_messages();
 
@@ -461,6 +464,27 @@ impl Runner {
         });
     }
 
+    fn validate_prompt_surface(&self, surface: &ContextSurface) -> Result<(), RunFailure> {
+        let Some(prompt) = &self.request.prompt else {
+            return Ok(());
+        };
+        let systems = surface
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .collect::<Vec<_>>();
+        if systems.len() != 1
+            || surface.messages.first() != systems.first().copied()
+            || systems[0].content != prompt.system()
+        {
+            return Err(RunFailure::Failed(
+                "context policy removed, duplicated, reordered, or modified the assembled system prompt"
+                    .to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
     async fn initialize_journal(&mut self) -> Result<(), RunFailure> {
         let Some(journal) = self.journal.as_ref() else {
             return Ok(());
@@ -544,7 +568,7 @@ impl Runner {
                 })?;
         }
 
-        self.messages = session.derive_messages();
+        self.messages = self.prompt_prefixed(session.derive_messages());
         let next_turn = last_turn
             .unwrap_or_default()
             .checked_add(1)
@@ -730,8 +754,20 @@ impl Runner {
             })?;
         let mut header = RequestHeader::new(provider, model);
         header.system = (!system.is_empty()).then_some(system);
+        header.options.insert(
+            "toolDefinitionsSha256".to_owned(),
+            Value::String(sha256_json(&tools)?),
+        );
         header.tools = tools;
         header.input = surface.messages.clone();
+        if let Some(prompt) = &self.request.prompt {
+            header.options.insert(
+                "prompt".to_owned(),
+                serde_json::to_value(prompt.audit()).map_err(|error| {
+                    RunFailure::Failed(format!("could not serialize prompt audit: {error}"))
+                })?,
+            );
+        }
         header
             .options
             .insert("step".to_owned(), Value::from(self.step as u64));
@@ -1290,8 +1326,20 @@ impl Runner {
                 }
             }
         }
+        let history = std::mem::take(&mut self.messages);
+        self.messages = self.prompt_prefixed(history);
         self.messages.extend(self.request.messages.clone());
         Ok(())
+    }
+
+    fn prompt_prefixed(&self, messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
+        let Some(prompt) = &self.request.prompt else {
+            return messages;
+        };
+        let mut visible = Vec::with_capacity(messages.len().saturating_add(1));
+        visible.push(AgentMessage::system(prompt.system()));
+        visible.extend(messages);
+        visible
     }
 
     async fn model_round(&mut self, messages: Vec<AgentMessage>) -> Result<ModelRound, RunFailure> {
@@ -1791,6 +1839,14 @@ impl Runner {
         }));
         Ok(())
     }
+}
+
+fn sha256_json(value: &impl Serialize) -> Result<String, RunFailure> {
+    let encoded = serde_json::to_vec(value)
+        .map_err(|error| RunFailure::Failed(format!("could not encode request audit: {error}")))?;
+    let mut digest = Sha256::new();
+    digest.update(encoded);
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 #[derive(Default)]

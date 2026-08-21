@@ -2173,11 +2173,13 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.20",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "xharness-context",
+ "xharness-prompt",
  "xharness-session",
 ]
 
@@ -2208,6 +2210,7 @@ dependencies = [
  "xharness-agent",
  "xharness-api",
  "xharness-core",
+ "xharness-prompt",
  "xharness-session",
 ]
 
@@ -2254,6 +2257,16 @@ dependencies = [
  "nix",
  "thiserror 2.0.20",
  "tokio",
+]
+
+[[package]]
+name = "xharness-prompt"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

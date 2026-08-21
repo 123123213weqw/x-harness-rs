@@ -36,8 +36,9 @@ Metadata。Process Tool 报告 PID、Exit Code/Signal、Termination Reason、两
 Truncation 和总 Byte Count。
 
 当前 `core_specs()` 会让 Host 在每个模型 Step 注入上述 14 个 `name/description/Schema`。
-这代表“工具定义已经注入”，不代表 Coding System Prompt 已经注入。最终实现必须根据平台
-Readiness、Search Provider、Profile 和 Step 选择稳定子集，并将选择写入 Request Header。
+最小 Coding System Prompt 已由独立 `xharness-prompt` 注入；工具定义仍是另一条协议字段。
+最终实现必须根据平台 Readiness、Search Provider、Profile 和 Step 选择稳定子集，并将选择写入
+Request Header。
 
 ## 环境与路径
 

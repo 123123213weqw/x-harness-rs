@@ -93,6 +93,11 @@ Commit、Issue、PR 应引用这些 ID。
   退出；成功选择以 `command/run → plan/mode → command/done` Flush 并投影 `{active,pending}`，
   重启从最后事件恢复。运行中 Pending Pre-step、附带 Message/Image Steering 和 `exit_plan_mode`
   仍归 `P0-14/P1-01`，当前 fail explicit 而非静默丢输入。48 个冻结事件覆盖 25 个。
+- [x] `DONE-35` 真实最小 Coding System Prompt：新增 `xharness-prompt` 确定性有序组装器，
+  将选中 Preset、权限、Workspace、Coding 工作流和 Plan Policy 组装为每轮第一个 System
+  Message；Request Header 保存 Assembler/Assembly/Section/System Hash 与 Tool Definition Hash，
+  Transcript 不保存 System。Chat Completions、Responses、Host Provider 边界和重启 Pending Turn
+  均有测试；Cancel 在 Turn 已结束时改为幂等，避免控制终态竞态。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -170,9 +175,13 @@ Commit、Issue、PR 应引用这些 ID。
   Sandbox/Search/PTY Probe，把结果投影给 UI；已确认不可用的工具不进入后续模型请求。
   WZU_4080 的 `RTM_NEWADDR` Bubblewrap 失败必须有固定诊断测试，禁止无限重复调用。
 
-- [ ] `P0-14` **真实 Coding System Prompt 注入。** 把选中的 `AgentPreset.content` 通过有
+- [x] `P0-14` **真实 Coding System Prompt 注入。** 把选中的 `AgentPreset.content` 通过有
   版本的最小 Prompt Assembler 变成 `Role::System`，明确分页读取、不可用工具不重试、证据
   足够即回答和审批规则。测试必须解析 Provider 请求体，而不是只检查 Host 内存。
+  已实现 `xharness-prompt/v1`：Preset/Permission/Workspace/Workflow/Plan 的顺序固定，动态内容
+  以 SHA-256 版本化；Core 在 Context Policy 前注入并在 Request Header 记录审计元数据，
+  Provider 两种线协议与 Host 实际请求均验证。完整可注册 Scope/Variable/Provider Section 仍归
+  `P1-01`，Token Guard 仍归 `P0-11/P1-03`。
 
 - [ ] `P0-15` **Linux `.deb` 自动沙箱配置。** 依赖声明、AppArmor 检测、官方
   `bwrap-userns-restrict` 安装/升级/保留管理员文件、语法校验、四项真实隔离 Probe、状态 Hash、

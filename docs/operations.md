@@ -27,7 +27,8 @@ Host 默认把 Agent Session JSONL 和跨进程 Lease 保存在平台数据目�
 - 52 个上游兼容 RPC 有基础状态行为。
 - `session.prompt` 可驱动真实 Rust Loop。
 - 每个模型 Step 当前固定注入 14 个工具的 name/description/Schema。
-- Preset 文本目前没有作为 System Prompt 注入。
+- Preset、权限、Workspace、Coding Workflow 和 Plan Policy 已通过 `xharness-prompt/v1` 真实注入
+  System Prompt；Request Header 保存版本和 Hash，System 不进入 Transcript。
 - 模型历史、实际 Turn 和 Admission Queue 已写 JSONL Session。启动会枚举并恢复 Session、History、
   Header CWD 对应 Workspace 和 Pending Turn。Prompt RPC Receipt 由完整 Inbox 历史恢复，同 RPC ID
   与 Payload 的请求可安全重试；Workspace 自定义元数据、Settings、审批和其他变更 RPC Receipt
