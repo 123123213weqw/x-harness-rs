@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -391,10 +392,42 @@ impl HostState {
                 revision: 0,
             },
         );
+        // The Web composer cannot start a session without at least one
+        // workspace choice. The durable workspace store is still pending, so
+        // always seed the configured canonical cwd as a deterministic boot
+        // baseline instead of presenting an empty, apparently unclickable
+        // selector after every Host restart.
+        let mut workspaces = BTreeMap::new();
+        let mut workspace_order = Vec::new();
+        if let Ok(canonical) = std::fs::canonicalize(&config.cwd) {
+            if canonical.is_dir() {
+                let path = canonical.to_string_lossy().into_owned();
+                let title = Path::new(&path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or(&path)
+                    .to_owned();
+                let now = iso_now();
+                let workspace_id = "workspace-default".to_owned();
+                workspaces.insert(
+                    workspace_id.clone(),
+                    WorkspaceRecord {
+                        workspace_id: workspace_id.clone(),
+                        path,
+                        title,
+                        session_ids: Vec::new(),
+                        created_at: now.clone(),
+                        updated_at: now,
+                    },
+                );
+                workspace_order.push(workspace_id);
+            }
+        }
         Self {
             sessions: BTreeMap::new(),
-            workspaces: BTreeMap::new(),
-            workspace_order: Vec::new(),
+            workspaces,
+            workspace_order,
             archived_sessions: BTreeSet::new(),
             presets,
             settings,
