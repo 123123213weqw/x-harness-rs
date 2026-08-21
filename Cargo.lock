@@ -2221,6 +2221,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "xharness-agent",
  "xharness-api",
  "xharness-coding-tools",
