@@ -7,7 +7,8 @@ use xharness_session::SessionEvent;
 use crate::{
     restore::{
         project_session_event_range, project_session_event_tail, restored_agent_preset,
-        restored_goal, restored_permission, restored_plan_mode, restored_title,
+        restored_goal, restored_permission, restored_plan_mode, restored_session_mutation_receipts,
+        restored_title,
     },
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute, RunningTurn},
     state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
@@ -115,6 +116,7 @@ impl BasicHost {
         let title = restored_title(&session);
         let plan_active = restored_plan_mode(&session);
         let goal = restored_goal(&session);
+        let mutation_receipts = restored_session_mutation_receipts(&session);
         let tail = project_session_event_tail(
             &session,
             &route,
@@ -150,6 +152,7 @@ impl BasicHost {
                 record.title = title;
                 record.plan_active = plan_active;
                 record.goal = goal.clone();
+                record.mutation_receipts = mutation_receipts;
                 record.updated_at = session
                     .events()
                     .last()

@@ -7,8 +7,8 @@ use xharness_session::{
     GoalClearOperation, GoalPhase, GoalRef, GoalSnapshot, GoalSnapshotChange,
     GoalSnapshotOperation, LlmFailure, LlmRetryMode, LoggedEvent, MemorySessionStore, Message,
     MessageRole, PolicySource, RequestHeader, Revision, Session, SessionError, SessionEvent,
-    SessionHeader, SessionSandboxMode, SessionTitleSource, Store, StoreError, ToolCall,
-    ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
+    SessionHeader, SessionMutationReceipt, SessionSandboxMode, SessionTitleSource, Store,
+    StoreError, ToolCall, ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
 };
 
 fn header(id: &str) -> SessionHeader {
@@ -188,6 +188,11 @@ fn every_first_version_event_round_trips_through_serde() {
         event(EventData::AgentPresetSelected {
             agent_preset: "coding".to_owned(),
         }),
+        event(EventData::SessionModelSelected {
+            provider: "openai".to_owned(),
+            model: "gpt-test".to_owned(),
+            reasoning_effort: Some("high".to_owned()),
+        }),
         event(EventData::RequestHeader {
             header: RequestHeader::new("openai", "gpt-test"),
         }),
@@ -228,6 +233,15 @@ fn every_first_version_event_round_trips_through_serde() {
             title: "A durable title".to_owned(),
             message_seqs: Vec::new(),
             source: SessionTitleSource::User,
+        }),
+        event(EventData::SessionMutationCommitted {
+            receipt: SessionMutationReceipt {
+                rpc_id: "rpc-1".to_owned(),
+                method: "session.rename".to_owned(),
+                fingerprint: "a".repeat(64),
+                response: json!({"title": "A durable title"}),
+                response_event_seq_field: None,
+            },
         }),
         goal_snapshot_event(
             1,
@@ -322,6 +336,73 @@ fn every_first_version_event_round_trips_through_serde() {
     assert_eq!(goal["data"]["operation"], "create");
     assert_eq!(goal["data"]["goal"]["maxGoalRounds"], 8);
     assert!(goal["data"].get("change").is_none());
+}
+
+#[test]
+fn session_mutation_receipt_is_atomic_unique_and_secret_free() {
+    let mut session = Session::new(header("mutation-receipt")).unwrap();
+    let receipt = SessionMutationReceipt {
+        rpc_id: "rpc-preset".to_owned(),
+        method: "agentPreset.select".to_owned(),
+        fingerprint: "b".repeat(64),
+        response: json!({"agentPreset": "coding"}),
+        response_event_seq_field: None,
+    };
+    let committed = session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::AgentPresetSelected {
+                    agent_preset: "coding".to_owned(),
+                }),
+                event(EventData::SessionMutationCommitted {
+                    receipt: receipt.clone(),
+                }),
+            ],
+            500,
+        )
+        .unwrap();
+    assert_eq!(committed.revision, Revision(1));
+    assert_eq!(committed.events.len(), 2);
+    assert!(session.derive_messages().is_empty());
+
+    let duplicate = session
+        .append_batch_at(
+            Revision(1),
+            vec![
+                event(EventData::AgentPresetSelected {
+                    agent_preset: "coding".to_owned(),
+                }),
+                event(EventData::SessionMutationCommitted { receipt }),
+            ],
+            501,
+        )
+        .unwrap_err();
+    assert!(matches!(duplicate, SessionError::InvalidLifecycle { .. }));
+    assert_eq!(session.revision(), Revision(1));
+
+    let secret = session
+        .append_batch_at(
+            Revision(1),
+            vec![
+                event(EventData::AgentPresetSelected {
+                    agent_preset: "coding".to_owned(),
+                }),
+                event(EventData::SessionMutationCommitted {
+                    receipt: SessionMutationReceipt {
+                        rpc_id: "rpc-secret".to_owned(),
+                        method: "agentPreset.select".to_owned(),
+                        fingerprint: "c".repeat(64),
+                        response: json!({"apiKey": "must-not-persist"}),
+                        response_event_seq_field: None,
+                    },
+                }),
+            ],
+            502,
+        )
+        .unwrap_err();
+    assert!(matches!(secret, SessionError::InvalidLifecycle { .. }));
+    assert_eq!(session.revision(), Revision(1));
 }
 
 #[test]

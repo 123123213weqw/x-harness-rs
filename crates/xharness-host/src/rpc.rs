@@ -26,6 +26,7 @@ use xharness_session::{
 };
 
 use crate::{
+    control::SessionMutationResponse,
     control::{settings_snapshot, workspace_snapshot},
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
     restore::{project_session_event_range, project_session_history},
@@ -57,8 +58,8 @@ impl ApiBackend for BasicHost {
             RpcMethod::SessionCreate => self.session_create(&payload).await,
             RpcMethod::SessionHistory => self.session_history(&payload).await,
             RpcMethod::SessionModels => self.session_models(&payload).await,
-            RpcMethod::SessionSelectModel => self.session_select_model(&payload).await,
-            RpcMethod::SessionRename => self.session_rename(&payload).await,
+            RpcMethod::SessionSelectModel => self.session_select_model(rpc_id, &payload).await,
+            RpcMethod::SessionRename => self.session_rename(rpc_id, &payload).await,
             RpcMethod::SessionFork => self.session_fork(&payload).await,
             RpcMethod::SessionPrompt => self.session_prompt(rpc_id, &payload).await,
             RpcMethod::SessionAttachment => self.session_attachment(&payload).await,
@@ -88,17 +89,17 @@ impl ApiBackend for BasicHost {
             }
             RpcMethod::SkillList => self.skill_list(&payload).await,
             RpcMethod::AgentPresetList => self.agent_preset_list(&payload).await,
-            RpcMethod::AgentPresetSelect => self.agent_preset_select(&payload).await,
+            RpcMethod::AgentPresetSelect => self.agent_preset_select(rpc_id, &payload).await,
             RpcMethod::AgentPresetRead => self.agent_preset_read(&payload).await,
             RpcMethod::AgentPresetCopy => self.agent_preset_copy(&payload).await,
             RpcMethod::AgentPresetOpenDocument => self.agent_preset_open_document(&payload).await,
             RpcMethod::AgentPresetRemove => self.agent_preset_remove(&payload).await,
-            RpcMethod::GoalCreate => self.goal_create(&payload).await,
-            RpcMethod::GoalEdit => self.goal_edit(&payload).await,
-            RpcMethod::GoalPause => self.goal_transition(&payload, "paused").await,
-            RpcMethod::GoalResume => self.goal_transition(&payload, "active").await,
-            RpcMethod::GoalComplete => self.goal_transition(&payload, "complete").await,
-            RpcMethod::GoalClear => self.goal_clear(&payload).await,
+            RpcMethod::GoalCreate => self.goal_create(rpc_id, &payload).await,
+            RpcMethod::GoalEdit => self.goal_edit(rpc_id, &payload).await,
+            RpcMethod::GoalPause => self.goal_transition(rpc_id, &payload, "paused").await,
+            RpcMethod::GoalResume => self.goal_transition(rpc_id, &payload, "active").await,
+            RpcMethod::GoalComplete => self.goal_transition(rpc_id, &payload, "complete").await,
+            RpcMethod::GoalClear => self.goal_clear(rpc_id, &payload).await,
             RpcMethod::SettingsDescribe => self.settings_describe(&payload).await,
             RpcMethod::SettingsOpenDocument => self.settings_open_document(&payload).await,
             RpcMethod::SettingsUpdate => self.settings_update(rpc_id, &payload).await,
@@ -693,6 +694,7 @@ impl BasicHost {
             messages: Vec::new(),
             queue: Default::default(),
             admissions: Default::default(),
+            mutation_receipts: Default::default(),
             authoritative_seq: None,
             control: None,
             next_turn: 0,
@@ -858,8 +860,13 @@ impl BasicHost {
         }))
     }
 
-    async fn session_select_model(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn session_select_model(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        let _session_guard = self.lock_admission(&session_id).await;
         let provider = nonempty(required_string(payload, "provider")?, "provider")?;
         let model = nonempty(required_string(payload, "model")?, "model")?;
         let reasoning_effort = optional_string(payload, "reasoningEffort")?;
@@ -868,16 +875,42 @@ impl BasicHost {
             model,
             reasoning_effort,
         };
+        if let Some(response) = self
+            .replay_session_mutation_receipt(
+                &session_id,
+                &rpc_id,
+                RpcMethod::SessionSelectModel,
+                payload,
+            )
+            .await?
+        {
+            return Ok(response);
+        }
+        let response = self
+            .commit_session_mutation(
+                &session_id,
+                &rpc_id,
+                RpcMethod::SessionSelectModel,
+                payload,
+                vec![SessionEventData::SessionModelSelected {
+                    provider: selected.provider.clone(),
+                    model: selected.model.clone(),
+                    reasoning_effort: selected.reasoning_effort.clone(),
+                }
+                .into()],
+                SessionMutationResponse::fixed(json!({"selected": selected})),
+            )
+            .await?;
         let mut state = self.state.write().await;
         let session = state
             .sessions
             .get_mut(&session_id)
             .ok_or_else(|| session_not_found(&session_id))?;
-        session.model = selected.clone();
-        Ok(json!({"selected": selected}))
+        session.model = selected;
+        Ok(response)
     }
 
-    async fn session_rename(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn session_rename(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let _session_guard = self.lock_admission(&session_id).await;
         let title = required_string(payload, "title")?
@@ -891,41 +924,47 @@ impl BasicHost {
                 json!({"sessionId": session_id}),
             ));
         }
-        if !self.state.read().await.sessions.contains_key(&session_id) {
-            return Err(session_not_found(&session_id));
+        if let Some(response) = self
+            .replay_session_mutation_receipt(
+                &session_id,
+                &rpc_id,
+                RpcMethod::SessionRename,
+                payload,
+            )
+            .await?
+        {
+            return Ok(response);
         }
-        self.commit_session_events(
-            &session_id,
-            vec![SessionEventData::SessionTitle {
-                title: title.clone(),
-                message_seqs: Vec::new(),
-                source: SessionTitleSource::User,
-            }
-            .into()],
-        )
-        .await?;
-        let seq = {
+        let response = self
+            .commit_session_mutation(
+                &session_id,
+                &rpc_id,
+                RpcMethod::SessionRename,
+                payload,
+                vec![SessionEventData::SessionTitle {
+                    title: title.clone(),
+                    message_seqs: Vec::new(),
+                    source: SessionTitleSource::User,
+                }
+                .into()],
+                SessionMutationResponse::with_event_seq(json!({"title": title}), "seq"),
+            )
+            .await?;
+        {
             let mut state = self.state.write().await;
             let session = state
                 .sessions
                 .get_mut(&session_id)
                 .ok_or_else(|| session_not_found(&session_id))?;
             session.title = Some(title.clone());
-            session
-                .events
-                .iter()
-                .rev()
-                .find(|event| event["type"] == "session/title")
-                .and_then(|event| event["seq"].as_u64())
-                .ok_or_else(|| RpcError::internal("session/title append produced no event"))?
-        };
+        }
         self.push_projection(
             &session_id,
             "sessionTitle",
             json!({"title": title, "source": {"kind": "user"}}),
         )
         .await;
-        Ok(json!({"title": title, "seq": seq}))
+        Ok(response)
     }
 
     async fn session_fork(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -1027,6 +1066,7 @@ impl BasicHost {
             messages: child_messages,
             queue: Default::default(),
             admissions: Default::default(),
+            mutation_receipts: Default::default(),
             authoritative_seq: None,
             control: None,
             next_turn,
@@ -1953,10 +1993,21 @@ impl BasicHost {
         }))
     }
 
-    async fn agent_preset_select(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn agent_preset_select(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let preset = nonempty(required_string(payload, "agentPreset")?, "agentPreset")?;
         let _session_guard = self.lock_admission(&session_id).await;
+        if let Some(response) = self
+            .replay_session_mutation_receipt(
+                &session_id,
+                &rpc_id,
+                RpcMethod::AgentPresetSelect,
+                payload,
+            )
+            .await?
+        {
+            return Ok(response);
+        }
         {
             let state = self.state.read().await;
             if !state.presets.contains_key(&preset) {
@@ -1974,12 +2025,17 @@ impl BasicHost {
                 ));
             }
         }
-        self.commit_session_events(
+        let response = json!({"agentPreset": preset});
+        self.commit_session_mutation(
             &session_id,
+            &rpc_id,
+            RpcMethod::AgentPresetSelect,
+            payload,
             vec![SessionEventData::AgentPresetSelected {
                 agent_preset: preset.clone(),
             }
             .into()],
+            SessionMutationResponse::fixed(response.clone()),
         )
         .await?;
         self.state
@@ -1989,7 +2045,7 @@ impl BasicHost {
             .get_mut(&session_id)
             .ok_or_else(|| session_not_found(&session_id))?
             .agent_preset = Some(preset.clone());
-        Ok(json!({"agentPreset": preset}))
+        Ok(response)
     }
 
     async fn agent_preset_read(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -2065,7 +2121,7 @@ impl BasicHost {
         Ok(json!({}))
     }
 
-    async fn goal_create(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn goal_create(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let objective = nonempty(required_string(payload, "objective")?, "objective")?;
         let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?.unwrap_or(256);
@@ -2073,6 +2129,12 @@ impl BasicHost {
             return Err(bad_request("maxGoalRounds must be positive"));
         }
         let _session_guard = self.lock_admission(&session_id).await;
+        if let Some(response) = self
+            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalCreate, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         {
             let state = self.state.read().await;
             if !state.sessions.contains_key(&session_id) {
@@ -2098,9 +2160,14 @@ impl BasicHost {
             created_at: now,
             updated_at: now,
         };
-        self.commit_session_events(
+        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+        self.commit_session_mutation(
             &session_id,
+            &rpc_id,
+            RpcMethod::GoalCreate,
+            payload,
             vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Create)],
+            SessionMutationResponse::fixed(response.clone()),
         )
         .await?;
         {
@@ -2114,10 +2181,10 @@ impl BasicHost {
         }
         self.push_projection(&session_id, "goal", goal.projection())
             .await;
-        Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
+        Ok(response)
     }
 
-    async fn goal_edit(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn goal_edit(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let objective = optional_string(payload, "objective")?;
         let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?;
@@ -2126,6 +2193,12 @@ impl BasicHost {
         }
         let expected = goal_ref(payload)?;
         let _session_guard = self.lock_admission(&session_id).await;
+        if let Some(response) = self
+            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalEdit, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let mut goal = self
             .state
             .read()
@@ -2152,9 +2225,14 @@ impl BasicHost {
         }
         goal.revision = goal.revision.saturating_add(1);
         goal.updated_at = now_ms().max(goal.updated_at);
-        self.commit_session_events(
+        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+        self.commit_session_mutation(
             &session_id,
+            &rpc_id,
+            RpcMethod::GoalEdit,
+            payload,
             vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Edit)],
+            SessionMutationResponse::fixed(response.clone()),
         )
         .await?;
         {
@@ -2168,13 +2246,30 @@ impl BasicHost {
         }
         self.push_projection(&session_id, "goal", goal.projection())
             .await;
-        Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
+        Ok(response)
     }
 
-    async fn goal_transition(&self, payload: &Value, transition: &str) -> Result<Value, RpcError> {
+    async fn goal_transition(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+        transition: &str,
+    ) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let expected = goal_ref(payload)?;
         let _session_guard = self.lock_admission(&session_id).await;
+        let method = match transition {
+            "paused" => RpcMethod::GoalPause,
+            "active" => RpcMethod::GoalResume,
+            "complete" => RpcMethod::GoalComplete,
+            _ => return Err(RpcError::internal("unknown goal transition")),
+        };
+        if let Some(response) = self
+            .replay_session_mutation_receipt(&session_id, &rpc_id, method, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let mut goal = self
             .state
             .read()
@@ -2203,7 +2298,7 @@ impl BasicHost {
                 GoalPhase::Complete,
                 goal.phase != GoalPhase::Complete,
             ),
-            _ => return Err(RpcError::internal("unknown goal transition")),
+            _ => unreachable!("transition was validated above"),
         };
         if !valid {
             return Err(bad_request(format!(
@@ -2215,8 +2310,16 @@ impl BasicHost {
         goal.blocked_reason = None;
         goal.revision = goal.revision.saturating_add(1);
         goal.updated_at = now_ms().max(goal.updated_at);
-        self.commit_session_events(&session_id, vec![goal_snapshot_event(&goal, operation)])
-            .await?;
+        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+        self.commit_session_mutation(
+            &session_id,
+            &rpc_id,
+            method,
+            payload,
+            vec![goal_snapshot_event(&goal, operation)],
+            SessionMutationResponse::fixed(response.clone()),
+        )
+        .await?;
         {
             let mut state = self.state.write().await;
             state
@@ -2228,13 +2331,19 @@ impl BasicHost {
         }
         self.push_projection(&session_id, "goal", goal.projection())
             .await;
-        Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
+        Ok(response)
     }
 
-    async fn goal_clear(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn goal_clear(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let expected = goal_ref(payload)?;
         let _session_guard = self.lock_admission(&session_id).await;
+        if let Some(response) = self
+            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalClear, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let goal = self
             .state
             .read()
@@ -2248,8 +2357,12 @@ impl BasicHost {
             id: goal.id.clone(),
             revision: goal.revision.saturating_add(1),
         };
-        self.commit_session_events(
+        let response = json!({"cleared": true});
+        self.commit_session_mutation(
             &session_id,
+            &rpc_id,
+            RpcMethod::GoalClear,
+            payload,
             vec![SessionEventData::GoalChange {
                 change: SessionGoalChange::Clear(GoalClearChange {
                     kind: GoalChangeKind::GoalChange,
@@ -2260,6 +2373,7 @@ impl BasicHost {
                 }),
             }
             .into()],
+            SessionMutationResponse::fixed(response.clone()),
         )
         .await?;
         {
@@ -2272,7 +2386,7 @@ impl BasicHost {
             state.goals.remove(&session_id);
         }
         self.push_projection(&session_id, "goal", Value::Null).await;
-        Ok(json!({"cleared": true}))
+        Ok(response)
     }
 
     async fn settings_describe(&self, payload: &Value) -> Result<Value, RpcError> {

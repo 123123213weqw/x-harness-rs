@@ -144,6 +144,12 @@ Commit、Issue、PR 应引用这些 ID。
   变更 RPC 把状态事件和 `{rpcId, method, fingerprint, response}` 在同一 Revision 落账并 Flush；
   同 ID/同 Payload 跨并发和重启逐字重放原响应，不同 Payload fail closed。日志递归拒绝非空
   Password/Token/Secret/API Key 字段，真实 Host 子进程重启验证自定义 Workspace、Settings 和回执。
+- [x] `DONE-45` Session 级原子 Mutation Receipt：新增内部、log-only 的
+  `xharness/mutation-committed`，状态事件与 `{rpcId, method, fingerprint, response}` 在同一
+  Session CAS Revision 落账并 Flush。`session.rename`、`session.selectModel`、
+  `agentPreset.select` 和 6 个 Goal RPC 共 9 个变更接口支持同 ID/同 Payload 跨重启逐字重放，
+  ID 冲突 fail closed；模型选择以 `session/model-selected` latest-wins 事件恢复，不再依赖最近一次
+  Request Header。Web History 只投影隐藏的回执占位，不暴露 Fingerprint 或 Response Body。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -164,10 +170,10 @@ Commit、Issue、PR 应引用这些 ID。
   显式 Wake 已完成；History 已按 Cursor 直接查询权威日志，Host Event Projection 只保留有界
   尾部。Host 内存 FIFO 已不再是模型执行输入的真源，只承担 Driver Attachment 和即时 Queue
   Projection。Workspace 自定义元数据、排序、归档与 Settings 已进入独立 Host Control Log，相关
-  9 个变更 RPC 使用通用 Exactly-once Receipt。剩余：把 Queue Projection 改为持久游标视图，
-  将同一 Receipt 框架扩展到 Session/Goal/Preset/Attachment 等其他变更 RPC，并实现 Secret-free
-  Credential Reference Store；
-  Session Title 与 Agent Preset 选择的状态已持久化，但重复 RPC ID 的 Exactly-once Receipt 尚未统一。
+  9 个变更 RPC 使用通用 Exactly-once Receipt。Session Log 内的 Rename、Model Select、Preset
+  Select 和 6 个 Goal RPC 也已使用同 Revision 原子 Receipt。剩余：把 Queue Projection 改为
+  持久游标视图，将同一 Receipt 框架扩展到 Session Create/Fork、Queue/Cancel/Attachment、Preset
+  Copy/Remove 等变更 RPC，并实现 Secret-free Credential Reference Store；
   七点通用日志前缀和包含 Approval Asked 的八点真实子进程 SIGKILL/同目录重启矩阵均已完成。
   Approval Asked/Decided、Provider Retry/Started、Agent/Permission/Sandbox/Approval Policy 与
   Permission Command Receipt 已进入强类型 Session Log 和确定性 Web History；Pending Approval

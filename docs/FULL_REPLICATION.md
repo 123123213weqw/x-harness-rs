@@ -89,7 +89,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 > Projection 与 Driver Attachment 仍是进程内派生状态。Prompt RPC Receipt 已从 Durable Inbox
 > 历史重建；Approval Asked/Decided 与 Provider Retry/Started 已强类型持久化和投影，Pending
 > Approval 已能在原 Turn/Step 上跨重启继续回答；Agent/Permission/Sandbox/Approval Policy 和 Permission Command
-> Receipt、Session Title、Agent Preset 选择、Goal Snapshot/Tombstone 与 Idle Plan Mode 已持久化，Settings 和其他
+> Receipt、Session Title、Model Select、Agent Preset 选择、Goal Snapshot/Tombstone 与 Idle Plan Mode 已持久化；
+> Rename/Model/Preset/Goal 的 Session 原子 Receipt 也已完成，Queue/Attachment 等其他
 > 变更 RPC Receipt 未持久化，
 > 因此 `A-09` 尚不能勾选。Catalog v2 已记录
 > 52 固定 RPC、26 动态 Typert RPC、Mux/Host 各 10 个 Frame、11 个转发 Host Event、48 Session
@@ -113,10 +114,11 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [ ] `A-09` 重启恢复 Workspace、Session、Inbox、运行终态和未决 Outcome。已完成由
   Session Header/Log 可推导的 Workspace、Session、History、模型路由、Next-turn Queue 和
   Pending Turn、Prompt RPC Receipt、Agent/Permission Policy、Permission Command Receipt、Session
-  Title、Agent Preset 选择、Goal Snapshot/Tombstone、Idle Plan Mode 和 Pending Approval 交互恢复；
+  Title、Model Select、Agent Preset 选择、Goal Snapshot/Tombstone、Idle Plan Mode、Pending Approval
+  交互恢复，以及 Rename/Model/Preset/Goal 的 Session 原子 Receipt；
   自定义 Workspace 元数据/排序/归档、Settings 以及对应 9 个变更 RPC 的通用 Receipt 已进入
-  独立 Control Log。未完成其他 Session/Goal/Preset/Attachment 变更 RPC 的统一 Receipt、Credential
-  Reference 与 Queue 持久游标投影。
+  独立 Control Log。未完成 Session Create/Fork、Queue/Cancel/Attachment、Preset Copy/Remove 等
+  变更 RPC 的统一 Receipt、Credential Reference 与 Queue 持久游标投影。
 - [x] `A-10` Admission/Claim/Request Header/Tool Call/Tool Result/Step End/Turn End 七点均有
   确定性日志前缀测试；真实子进程 SIGKILL 另加入 Approval Asked，共八点。父进程在相同 State Dir
   重启正式 JSONL Host/Core，验证不丢输入、未批准 Tool 不执行、未知 Tool 不重放、

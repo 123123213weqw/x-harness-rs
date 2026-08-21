@@ -175,6 +175,7 @@ impl BasicHost {
                 messages,
                 queue,
                 admissions,
+                mutation_receipts: restored_session_mutation_receipts(&session),
                 authoritative_seq: Some(tail.next_seq),
                 control: None,
                 next_turn,
@@ -305,6 +306,15 @@ fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
         .iter()
         .rev()
         .find_map(|event| match event.data() {
+            EventData::SessionModelSelected {
+                provider,
+                model,
+                reasoning_effort,
+            } => Some(ModelRoute {
+                provider: provider.clone(),
+                model: model.clone(),
+                reasoning_effort: reasoning_effort.clone(),
+            }),
             EventData::RequestHeader { header } => Some(ModelRoute {
                 provider: header.provider.clone(),
                 model: header.model.clone(),
@@ -453,6 +463,29 @@ fn restored_admissions(session: &Session) -> BTreeMap<String, QueuedPrompt> {
     admissions
 }
 
+pub(crate) fn restored_session_mutation_receipts(
+    session: &Session,
+) -> BTreeMap<String, crate::state::ProjectedSessionMutationReceipt> {
+    session
+        .events()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, event)| {
+            let EventData::SessionMutationCommitted { receipt } = event.data() else {
+                return None;
+            };
+            let state_event_seq = session.events().get(index.checked_sub(1)?)?.seq;
+            Some((
+                receipt.rpc_id.clone(),
+                crate::state::ProjectedSessionMutationReceipt {
+                    receipt: receipt.clone(),
+                    state_event_seq,
+                },
+            ))
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 struct PromptView {
     content: Vec<Value>,
@@ -577,6 +610,7 @@ fn restored_web_event(
     let (event_type, data, surface_op) = match event.data() {
         EventData::AgentPresetSelected { .. }
         | EventData::AgentInboxSpliced { .. }
+        | EventData::SessionModelSelected { .. }
         | EventData::RequestHeader { .. }
         | EventData::ApprovalAsked { .. }
         | EventData::ApprovalDecided { .. }
@@ -590,6 +624,15 @@ fn restored_web_event(
         | EventData::PlanMode { .. }
         | EventData::LlmRetry { .. }
         | EventData::LlmRetryStarted { .. } => tagged_event_data(event.data()),
+        EventData::SessionMutationCommitted { .. } => {
+            return json!({
+                "type": "xharness/internal",
+                "seq": event.seq,
+                "time": event.timestamp_ms,
+                "data": {"kind": "session-mutation-receipt"},
+                "hidden": true,
+            });
+        }
         EventData::TurnStart { turn } => (
             "turn/start".to_owned(),
             json!({
@@ -1724,6 +1767,20 @@ mod tests {
             )
             .await;
         assert!(matches!(selected, RpcResult::Success { .. }));
+        let selected_model = live
+            .call(
+                RpcId::new("policy-model"),
+                RpcMethod::SessionSelectModel,
+                json!({
+                    "sessionId": "policy-session",
+                    "provider": "test",
+                    "model": "selected-model",
+                    "reasoningEffort": "high",
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(selected_model, RpcResult::Success { .. }));
         let plan = live
             .call_dynamic(
                 RpcId::new("policy-plan"),
@@ -1752,12 +1809,16 @@ mod tests {
                 .iter()
                 .map(|event| match event.data() {
                     EventData::AgentPresetSelected { .. } => "agent-preset/selected",
+                    EventData::SessionModelSelected { .. } => "session/model-selected",
                     EventData::CommandRun { .. } => "command/run",
                     EventData::PermissionPreset { .. } => "permission/preset",
                     EventData::SandboxMode { .. } => "sandbox/mode",
                     EventData::ApprovalPolicy { .. } => "approval/policy",
                     EventData::CommandDone { .. } => "command/done",
                     EventData::SessionTitle { .. } => "session/title",
+                    EventData::SessionMutationCommitted { .. } => {
+                        "xharness/mutation-committed"
+                    }
                     EventData::PlanMode { .. } => "plan/mode",
                     _ => "other",
                 })
@@ -1773,7 +1834,11 @@ mod tests {
                 "approval/policy",
                 "command/done",
                 "session/title",
+                "xharness/mutation-committed",
                 "agent-preset/selected",
+                "xharness/mutation-committed",
+                "session/model-selected",
+                "xharness/mutation-committed",
                 "command/run",
                 "plan/mode",
                 "command/done",
@@ -1796,12 +1861,71 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(report.restored_sessions, 1);
+        let replayed_rename = restarted
+            .call(
+                RpcId::new("policy-rename"),
+                RpcMethod::SessionRename,
+                json!({"sessionId": "policy-session", "title": "  Durable   policy  "}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(replayed_rename, renamed);
+        let replayed_preset = restarted
+            .call(
+                RpcId::new("policy-preset"),
+                RpcMethod::AgentPresetSelect,
+                json!({"sessionId": "policy-session", "agentPreset": "coding"}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(replayed_preset, selected);
+        let replayed_model = restarted
+            .call(
+                RpcId::new("policy-model"),
+                RpcMethod::SessionSelectModel,
+                json!({
+                    "sessionId": "policy-session",
+                    "provider": "test",
+                    "model": "selected-model",
+                    "reasoningEffort": "high",
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(replayed_model, selected_model);
+        let conflicting_model = restarted
+            .call(
+                RpcId::new("policy-model"),
+                RpcMethod::SessionSelectModel,
+                json!({
+                    "sessionId": "policy-session",
+                    "provider": "test",
+                    "model": "another-model",
+                    "reasoningEffort": "high",
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(conflicting_model, RpcResult::Failure { .. }));
+        let receipt_count = store
+            .load("policy-session")
+            .await
+            .unwrap()
+            .unwrap()
+            .events()
+            .iter()
+            .filter(|event| matches!(event.data(), EventData::SessionMutationCommitted { .. }))
+            .count();
+        assert_eq!(receipt_count, 3);
         let restarted_events = {
             let state = restarted.state.read().await;
             let record = state.sessions.get("policy-session").unwrap();
             assert_eq!(record.permission_preset, PermissionPreset::DangerFullAccess);
             assert_eq!(record.title.as_deref(), Some("Durable policy"));
             assert_eq!(record.agent_preset.as_deref(), Some("coding"));
+            assert_eq!(record.model.provider, "test");
+            assert_eq!(record.model.model, "selected-model");
+            assert_eq!(record.model.reasoning_effort.as_deref(), Some("high"));
             assert!(record.plan_active);
             assert_eq!(
                 record.projection_values()["plan"],
@@ -1875,11 +1999,12 @@ mod tests {
         else {
             panic!("goal edit failed: {edited:?}");
         };
+        let pause_payload = json!({"sessionId": "goal-session", "ref": edited["ref"]});
         let paused = live
             .call(
                 RpcId::new("goal-pause"),
                 RpcMethod::GoalPause,
-                json!({"sessionId": "goal-session", "ref": edited["ref"]}),
+                pause_payload.clone(),
                 CancellationToken::new(),
             )
             .await;
@@ -1898,6 +2023,35 @@ mod tests {
                 .count(),
             3
         );
+        assert_eq!(
+            durable
+                .events()
+                .iter()
+                .filter(|event| {
+                    matches!(event.data(), EventData::SessionMutationCommitted { .. })
+                })
+                .count(),
+            3
+        );
+        let history = live
+            .call(
+                RpcId::new("goal-history"),
+                RpcMethod::SessionHistory,
+                json!({"sessionId": "goal-session", "maxMessages": 500}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(history),
+        } = history
+        else {
+            panic!("goal history failed: {history:?}");
+        };
+        let encoded_history = serde_json::to_string(&history).unwrap();
+        assert!(encoded_history.contains("session-mutation-receipt"));
+        assert!(!encoded_history.contains("goal-pause"));
+        assert!(!encoded_history.contains("\"fingerprint\""));
+        assert!(!encoded_history.contains("\"response\""));
 
         let restarted_runtime = Arc::new(DurableLoopAgentRuntime::new(
             "test",
@@ -1914,13 +2068,46 @@ mod tests {
             .restore_from_store(Arc::clone(&store))
             .await
             .unwrap();
-        let state = restarted.state.read().await;
-        let restored = state.goals.get("goal-session").expect("restored goal");
-        assert_eq!(restored.revision, 3);
-        assert_eq!(restored.phase, xharness_session::GoalPhase::Paused);
+        {
+            let state = restarted.state.read().await;
+            let restored = state.goals.get("goal-session").expect("restored goal");
+            assert_eq!(restored.revision, 3);
+            assert_eq!(restored.phase, xharness_session::GoalPhase::Paused);
+            assert_eq!(
+                restored.projection()["goal"]["objective"],
+                "Ship the durable Rust agent"
+            );
+        }
+
+        let replayed = restarted
+            .call(
+                RpcId::new("goal-pause"),
+                RpcMethod::GoalPause,
+                pause_payload,
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(replayed, paused);
+        let conflict = restarted
+            .call(
+                RpcId::new("goal-pause"),
+                RpcMethod::GoalPause,
+                json!({
+                    "sessionId": "goal-session",
+                    "ref": {"id": edited["ref"]["id"], "revision": 999},
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(conflict, RpcResult::Failure { .. }));
+        let after_replay = store.load("goal-session").await.unwrap().unwrap();
         assert_eq!(
-            restored.projection()["goal"]["objective"],
-            "Ship the durable Rust agent"
+            after_replay
+                .events()
+                .iter()
+                .filter(|event| matches!(event.data(), EventData::GoalChange { .. }))
+                .count(),
+            3
         );
     }
 
