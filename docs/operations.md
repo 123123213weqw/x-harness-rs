@@ -29,8 +29,9 @@ Host 默认把 Agent Session JSONL 和跨进程 Lease 保存在平台数据目�
 - 每个模型 Step 当前固定注入 14 个工具的 name/description/Schema。
 - Preset 文本目前没有作为 System Prompt 注入。
 - 模型历史、实际 Turn 和 Admission Queue 已写 JSONL Session。启动会枚举并恢复 Session、History、
-  Header CWD 对应 Workspace 和 Pending Turn；Workspace 自定义元数据、Settings、审批和 RPC Receipt
-  仍在内存中，因此尚不是完整 Exactly-once 恢复。
+  Header CWD 对应 Workspace 和 Pending Turn。Prompt RPC Receipt 由完整 Inbox 历史恢复，同 RPC ID
+  与 Payload 的请求可安全重试；Workspace 自定义元数据、Settings、审批和其他变更 RPC Receipt
+  仍在内存中，因此尚不是整个 API 的完整 Exactly-once 恢复。
 - 当前没有请求前 Token Guard 或自动上下文压缩。
 
 ## Sandbox Probe 失败

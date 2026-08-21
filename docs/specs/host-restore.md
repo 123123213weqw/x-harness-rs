@@ -42,6 +42,13 @@ Web Prompt 的结构化 `content` 与 `source` 保存在 `InboxMessage.source` �
 恢复 Attachment/Text Block 的 Queue 外观。旧日志没有这段元数据时退化为一个 Text Block，并标记
 `restored=true`；不得因此修改模型可见纯文本。
 
+`session.prompt` 和 `subagent.prompt` 还要在同一元数据封装中保存 `rpcFingerprint` 与
+`rpcSessionId`。Fingerprint 是带版本号的 Mode、原始 Content 和 Timezone 的规范 JSON SHA-256。
+Host 启动时扫描完整 Inbox Insert 历史（包括已消费输入）重建会话内 Receipt 索引；因此响应丢失后
+使用相同 RPC ID 和 Payload 重试必须直接返回原成功语义，既不重复创建 Attachment，也不调用
+Runtime。相同 ID 配不同 Payload 必须返回 `SessionConflict`。每会话 Admission Gate 保证并发重试
+也只有一个写入者；Fork 不继承 Receipt，因为 `rpcSessionId` 必须等于当前 Session。
+
 Queue Edit 必须同时替换 Durable Message 和这段元数据；Queue Remove 必须先成功修改 Durable
 Inbox，再改变 Web Projection。
 
@@ -49,8 +56,8 @@ Inbox，再改变 Web Projection。
 
 - Workspace 用户标题、排序、归档，Settings、Credential Override、Attachment Blob、Goal、Preset
   与 Pending Approval 还没有独立持久日志。
-- HTTP RPC Receipt/Consumed 索引尚未持久化；客户端在成功回执丢失后重放同一 RPC ID 的完整
-  Exactly-once 语义仍需实现。
+- Prompt RPC Receipt 已可从 Inbox 历史恢复；Workspace、Settings、Goal、Queue Action 等其他
+  变更 RPC 仍没有通用持久 Receipt/Consumed Store。
 - Web Event Projection 目前在启动时整体重建，还没有按 Cursor 从持久 Store 查询。
 - queued-to-steer 是 Remove + Steer 两步，不是崩溃原子 Move。
 
@@ -59,8 +66,8 @@ Inbox，再改变 Web Projection。
 - Memory/JSONL Store 枚举排序，忽略非 Session 文件，损坏/Symlink fail closed。
 - Worker 对已存在 Pending Input 保持休眠，订阅后显式 Wake 才执行。
 - Runtime 恢复 Pending Input 后只出现一次 Inbox Insert 和一次 User Message。
+- 同 RPC ID + Prompt Payload 的并发/重启重试只出现一次 Inbox Insert；Payload 不同则冲突。
 - Host 单元测试恢复 History、模型路由、Workspace、Web Event 与 Pending Turn。
 - 真实 `xharness-host` 子进程在相同 State Dir 和端口重启后，`workspace.list`、`session.list`、
   `session.history` 与 WebSocket Carrier 均恢复。
 - 所有 Rust 测试必须同步到 `WZU_Server`，远程通过 Workspace Check/Test/Clippy。
-

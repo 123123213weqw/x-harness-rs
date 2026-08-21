@@ -120,10 +120,11 @@ Web Queue 的 Edit/Remove 在修改内存 Projection 前先调用 Durable Inbox 
 
 - Durable Inbox、Lease、Supervisor、多 Turn Driver、Active Turn Steering、持久 HTTP Admission、
   目录枚举和 Pending Turn 重挂接已实现。`BasicHost` 启动会从 Session Log 重建 FIFO/Queue/Event
-  派生缓存并续跑；该缓存仍不是可独立查询的持久 Store，Workspace 自定义元数据、审批与 Receipt
-  也尚未恢复。
-- 同一进程内重复 Admission 在 Prepared Turn 存活时按稳定 ID 幂等；重启后的重复 RPC ID 尚未
-  建立持久 Receipt/Consumed 索引，不能宣称完整 Exactly-once HTTP 语义。
+  派生缓存并续跑；该缓存仍不是可独立查询的持久 Store，Workspace 自定义元数据、审批与非 Prompt
+  Receipt 也尚未恢复。
+- Prompt Admission 已用 RPC ID、Payload SHA-256 和完整 Inbox Insert 历史建立持久 Receipt：
+  同进程并发、成功响应丢失、输入已消费和重启后的同 Payload 重试均幂等；不同 Payload 复用 ID
+  fail closed。其他变更 RPC 尚无统一 Receipt，因此仍不能宣称整个 HTTP API Exactly-once。
 - Pause、Approval 与 Event Subscription 仍属于当前 `LoopRun` 控制面；尚未成为可恢复 Agent
   Activation 状态。
 - 没有远程 Fencing Epoch、Scheduler、Subagent 或 Workflow。

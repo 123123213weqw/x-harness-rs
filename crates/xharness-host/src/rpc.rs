@@ -9,6 +9,7 @@ use std::{
 
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
@@ -18,7 +19,7 @@ use xharness_api::{
 use xharness_core::{AgentMessage, LoopCommand};
 
 use crate::{
-    driver::{agent_runtime_error, rpc_error},
+    driver::{agent_runtime_error, rpc_error, PromptAdmission},
     runtime::ModelRoute,
     state::{
         iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
@@ -529,6 +530,7 @@ impl BasicHost {
             events: Vec::new(),
             messages: Vec::new(),
             queue: Default::default(),
+            admissions: Default::default(),
             control: None,
             next_turn: 0,
         };
@@ -718,6 +720,7 @@ impl BasicHost {
             events: child_events,
             messages: source.messages.clone(),
             queue: Default::default(),
+            admissions: Default::default(),
             control: None,
             next_turn: source.next_turn,
         };
@@ -752,10 +755,9 @@ impl BasicHost {
         if mode != "queue" && mode != "steer" {
             return Err(bad_request("mode must be queue or steer"));
         }
-        let content = required_array(payload, "content")?;
-        let (text, durable) = self.admit_prompt_content(&session_id, content).await?;
-        let mut source = json!({"kind": "user", "rpcId": rpc_id.as_str()});
-        if let Some(zone) = optional_string(payload, "clientTimeZone")? {
+        let content = required_array(payload, "content")?.clone();
+        let client_time_zone = optional_string(payload, "clientTimeZone")?;
+        if let Some(zone) = &client_time_zone {
             if zone.trim().is_empty() || zone.contains('\0') {
                 return Err(rpc_error(
                     RpcErrorCode::InvalidTimeZone,
@@ -763,14 +765,61 @@ impl BasicHost {
                     json!({"clientTimeZone": zone}),
                 ));
             }
+        }
+        let fingerprint = prompt_fingerprint(&mode, &content, client_time_zone.as_deref());
+        let _admission_guard = self.lock_admission(&session_id).await;
+        if self
+            .is_duplicate_admission(&session_id, rpc_id.as_str(), &fingerprint)
+            .await?
+        {
+            return Ok(json!({"accepted": true}));
+        }
+
+        // Attachment materialization is deliberately after receipt lookup:
+        // retrying a successfully admitted request must not mint duplicates.
+        let (text, durable) = self.admit_prompt_content(&session_id, &content).await?;
+        let mut source = json!({"kind": "user", "rpcId": rpc_id.as_str()});
+        if let Some(zone) = client_time_zone {
             source
                 .as_object_mut()
                 .expect("source is object")
                 .insert("clientTimeZone".to_owned(), json!(zone));
         }
-        self.enqueue_prompt(rpc_id, &session_id, &mode, text, durable, source)
-            .await?;
+        self.enqueue_prompt(PromptAdmission {
+            rpc_id,
+            session_id,
+            mode,
+            text,
+            content: durable,
+            source,
+            fingerprint: Some(fingerprint),
+        })
+        .await?;
         Ok(json!({"accepted": true}))
+    }
+
+    async fn is_duplicate_admission(
+        &self,
+        session_id: &str,
+        rpc_id: &str,
+        fingerprint: &str,
+    ) -> Result<bool, RpcError> {
+        let state = self.state.read().await;
+        let session = state
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| session_not_found(session_id))?;
+        let Some(previous) = session.admissions.get(rpc_id) else {
+            return Ok(false);
+        };
+        if previous.fingerprint.as_deref() == Some(fingerprint) {
+            return Ok(true);
+        }
+        Err(rpc_error(
+            RpcErrorCode::SessionConflict,
+            "rpc id was already admitted with a different prompt payload",
+            json!({"sessionId": session_id, "rpcId": rpc_id}),
+        ))
     }
 
     async fn admit_prompt_content(
@@ -923,6 +972,7 @@ impl BasicHost {
                         .clone();
                     let text = visible_text(&content);
                     let source = session.queue[index].source.clone();
+                    let fingerprint = session.queue[index].fingerprint.clone();
                     self.agent_runtime
                         .replace_pending_input(
                             &session_id,
@@ -931,6 +981,8 @@ impl BasicHost {
                             Some(json!({
                                 "content": content.clone(),
                                 "source": source.clone(),
+                                "rpcFingerprint": fingerprint,
+                                "rpcSessionId": session_id,
                             })),
                         )
                         .await
@@ -945,14 +997,15 @@ impl BasicHost {
         }
         self.emit_queue(&session_id).await;
         if let Some(item) = steer_item {
-            self.enqueue_prompt(
-                RpcId::new(item.id),
-                &session_id,
-                "steer",
-                item.text,
-                item.content,
-                item.source,
-            )
+            self.enqueue_prompt(PromptAdmission {
+                rpc_id: RpcId::new(item.id),
+                session_id,
+                mode: "steer".to_owned(),
+                text: item.text,
+                content: item.content,
+                source: item.source,
+                fingerprint: item.fingerprint,
+            })
             .await?;
         }
         Ok(json!({"accepted": true}))
@@ -981,6 +1034,7 @@ impl BasicHost {
         control
             .send(DriverCommand {
                 command,
+                input_metadata: None,
                 acknowledgement,
             })
             .await
@@ -1034,15 +1088,24 @@ impl BasicHost {
         }
         let child = required_string(payload, "childSessionId")?;
         let content = required_array(payload, "content")?.clone();
+        let fingerprint = prompt_fingerprint("continuable", &content, None);
+        let _admission_guard = self.lock_admission(&child).await;
+        if self
+            .is_duplicate_admission(&child, rpc_id.as_str(), &fingerprint)
+            .await?
+        {
+            return Ok(json!({"messageId": rpc_id.as_str()}));
+        }
         let text = visible_text(&content);
-        self.enqueue_prompt(
-            rpc_id.clone(),
-            &child,
-            "queue",
+        self.enqueue_prompt(PromptAdmission {
+            rpc_id: rpc_id.clone(),
+            session_id: child,
+            mode: "queue".to_owned(),
             text,
             content,
-            json!({"kind": "user", "rpcId": rpc_id.as_str()}),
-        )
+            source: json!({"kind": "user", "rpcId": rpc_id.as_str()}),
+            fingerprint: Some(fingerprint),
+        })
         .await?;
         Ok(json!({"messageId": rpc_id.as_str()}))
     }
@@ -1873,6 +1936,7 @@ impl BasicHost {
                 if control
                     .send(DriverCommand {
                         command,
+                        input_metadata: None,
                         acknowledgement,
                     })
                     .await
@@ -1888,6 +1952,28 @@ impl BasicHost {
             }
         }
     }
+}
+
+pub(crate) fn prompt_fingerprint(
+    mode: &str,
+    content: &[Value],
+    client_time_zone: Option<&str>,
+) -> String {
+    let canonical = json!({
+        "version": 1,
+        "mode": mode,
+        "content": content,
+        "clientTimeZone": client_time_zone,
+    });
+    let encoded = serde_json::to_vec(&canonical).expect("JSON value serialization cannot fail");
+    let digest = Sha256::digest(encoded);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(64);
+    for byte in digest {
+        output.push(HEX[usize::from(byte >> 4)] as char);
+        output.push(HEX[usize::from(byte & 0x0f)] as char);
+    }
+    output
 }
 
 fn require_object(value: &Value) -> Result<&Map<String, Value>, RpcError> {

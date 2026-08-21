@@ -567,6 +567,80 @@ async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_i
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_prompt_retry_is_admitted_once_and_payload_reuse_conflicts() {
+    let mut fx = Fixture::new();
+    let created = fx
+        .value(
+            RpcMethod::SessionCreate,
+            json!({"cwd": fx.root.to_string_lossy()}),
+        )
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap().to_owned();
+    let payload = json!({
+        "sessionId": session_id,
+        "mode": "queue",
+        "content": [{"type": "text", "text": "exactly once"}],
+    });
+    let first_host = Arc::clone(&fx.host);
+    let second_host = Arc::clone(&fx.host);
+    let first_payload = payload.clone();
+    let second_payload = payload.clone();
+    let (first, second) = tokio::join!(
+        first_host.call(
+            RpcId::new("same-prompt-rpc"),
+            RpcMethod::SessionPrompt,
+            first_payload,
+            CancellationToken::new(),
+        ),
+        second_host.call(
+            RpcId::new("same-prompt-rpc"),
+            RpcMethod::SessionPrompt,
+            second_payload,
+            CancellationToken::new(),
+        ),
+    );
+    assert!(matches!(first, RpcResult::Success { .. }));
+    assert!(matches!(second, RpcResult::Success { .. }));
+    fx.wait_for_assistant(&session_id).await;
+
+    let conflict = fx
+        .host
+        .call(
+            RpcId::new("same-prompt-rpc"),
+            RpcMethod::SessionPrompt,
+            json!({
+                "sessionId": session_id,
+                "mode": "queue",
+                "content": [{"type": "text", "text": "must conflict"}],
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(
+        conflict,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::SessionConflict,
+                ..
+            }
+        }
+    ));
+
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId": session_id}))
+        .await;
+    assert_eq!(
+        history["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry["event"]["type"] == "user/message")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_upstream_rpc_has_baseline_behavior() {
     let mut fx = Fixture::new();
 
