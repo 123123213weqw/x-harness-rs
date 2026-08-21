@@ -130,6 +130,21 @@ Host 在 Turn 启动时把权限快照放入 `AgentTurnRequest`；`NativeToolFac
 绕过 Seatbelt/Bubblewrap，结构化 Read/Write/Edit 以 `/` 为能力根，但相对路径仍从 Session
 Workspace 解析。
 
+在 Durable Workspace Store 完成前，Host 启动时必须把配置的 canonical cwd 注册为
+`workspace-default`。这样重启后 `workspace.list` 不会返回空数组，Web Composer 仍可直接创建
+Session；额外工作区和 Session 当前仍属于内存态。
+
+进程级验收测试必须启动真实 `xharness-host` 二进制、连接 HTTP 与 Host WebSocket、杀死进程并
+在原地址重新启动。第二个进程的 `workspace.list` 必须立即包含 canonical
+`workspace-default`，新的 WebSocket 必须可以完成握手；测试禁止只调用 `BasicHost::new()` 来
+假装覆盖部署重启。
+
+浏览器发布门禁位于 `tests/web-e2e`。它必须使用真实 Chromium、真实 Host 和已组装 Web dist：
+取消 Full access 风险对话框不得改变权限；确认框未勾选时启用按钮必须禁用；确认后当前 Session
+投影必须显示 Full access。连接恢复测试必须保持 Host 进程存活，只切断 TCP Carrier，连续制造
+至少 8 次失败后恢复，并证明 Web 重新请求 Host、Workspace、Session、History、Settings 基线，
+而不是仅把“正在重连”提示隐藏。
+
 ## 原生工具
 
 `xharness-host-app::NativeToolFactory` 为每个 canonical Workspace 与 Permission Preset 组合缓存一个

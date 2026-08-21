@@ -180,8 +180,11 @@ async fn process_wide_session_lock_makes_same_revision_append_atomic() {
     let right = {
         let store = Arc::clone(&second);
         tokio::spawn(async move {
+            // Both contenders must be valid at revision zero. Otherwise the
+            // test can nondeterministically observe lifecycle rejection when
+            // turn 2 wins the scheduler instead of exercising revision CAS.
             store
-                .append("concurrent", Revision::ZERO, vec![turn_start(2)])
+                .append("concurrent", Revision::ZERO, vec![turn_start(1)])
                 .await
         })
     };

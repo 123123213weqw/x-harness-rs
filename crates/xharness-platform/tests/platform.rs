@@ -1,22 +1,44 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    io::{Read as _, Write as _},
+    net::{TcpListener, TcpStream},
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
+use xharness_fs::{ReadLimits, ReadOutcome};
 use xharness_platform::{NativePlatform, PlatformAccess, PlatformConfig, PlatformKind};
-use xharness_process::SpawnSpec;
+use xharness_process::{SpawnSpec, TerminationReason};
 use xharness_sandbox::NetworkAccess;
+
+static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 
 struct TempWorkspace(PathBuf);
 
 impl TempWorkspace {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "xharness-platform-{}-{}",
+            "xharness-platform-{}-{}-{}",
             std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+            std::thread::current().name().unwrap_or("test"),
+            NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed),
         ));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         Self(fs::canonicalize(path).unwrap())
     }
+}
+
+#[test]
+fn full_access_network_probe_child() {
+    let Ok(address) = std::env::var("XHARNESS_TEST_NETWORK_ADDRESS") else {
+        return;
+    };
+    let mut stream = TcpStream::connect(address).expect("full-access child can connect");
+    stream
+        .write_all(b"xharness-network-ok")
+        .expect("full-access child can write");
 }
 
 impl Drop for TempWorkspace {
@@ -58,4 +80,109 @@ async fn native_platform_composes_filesystem_process_and_policy() {
     let handle = platform.spawn(SpawnSpec::new("/bin/echo", &workspace.0).arg("managed"));
     let output = handle.await.unwrap().wait().await.unwrap();
     assert_eq!(output.stdout.text.trim(), "managed");
+}
+
+#[tokio::test]
+async fn full_access_reads_and_writes_an_absolute_path_outside_the_workspace() {
+    let workspace = TempWorkspace::new();
+    let outside = TempWorkspace::new();
+    let platform = NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap();
+    let outside_file = outside.0.join("outside.txt");
+    let target = platform.resolve_file(&outside_file).unwrap();
+
+    assert_eq!(
+        platform
+            .filesystem()
+            .read("full-access", &target, ReadLimits::default())
+            .await
+            .unwrap(),
+        ReadOutcome::Absent
+    );
+    let written = platform
+        .filesystem()
+        .write("full-access", &target, b"outside workspace\n".to_vec())
+        .await
+        .unwrap();
+    assert!(written.created);
+    assert_eq!(
+        fs::read_to_string(&outside_file).unwrap(),
+        "outside workspace\n"
+    );
+    let reread = platform
+        .filesystem()
+        .read("full-access", &target, ReadLimits::default())
+        .await
+        .unwrap();
+    let ReadOutcome::File(reread) = reread else {
+        panic!("the full-access write must be readable");
+    };
+    assert_eq!(reread.text, "outside workspace\n");
+}
+
+#[tokio::test]
+async fn full_access_allows_network_without_bypassing_managed_process_execution() {
+    let workspace = TempWorkspace::new();
+    let platform = NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener
+        .set_nonblocking(false)
+        .expect("test listener can be blocking");
+    let address = listener.local_addr().unwrap();
+    let receiver = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("network probe connects");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).unwrap();
+        bytes
+    });
+
+    let current_test = std::env::current_exe().unwrap();
+    let output = platform
+        .spawn(
+            SpawnSpec::new(current_test, &workspace.0)
+                .args(["--exact", "full_access_network_probe_child", "--nocapture"])
+                .env("XHARNESS_TEST_NETWORK_ADDRESS", address.to_string())
+                .timeout(Duration::from_secs(10)),
+        )
+        .await
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert!(output.status.success, "{}", output.stderr.text);
+    assert_eq!(receiver.join().unwrap(), b"xharness-network-ok");
+}
+
+#[tokio::test]
+async fn full_access_keeps_timeout_and_cancel_process_group_cleanup() {
+    let workspace = TempWorkspace::new();
+    let platform = NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap();
+
+    let timed_out = platform
+        .spawn(
+            SpawnSpec::new("/bin/sh", &workspace.0)
+                .args(["-c", "/bin/sleep 30 & wait"])
+                .timeout(Duration::from_millis(100))
+                .termination_grace(Duration::from_millis(50)),
+        )
+        .await
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert_eq!(timed_out.termination, TerminationReason::TimedOut);
+
+    let running = platform
+        .spawn(
+            SpawnSpec::new("/bin/sh", &workspace.0)
+                .args(["-c", "/bin/sleep 30 & wait"])
+                .termination_grace(Duration::from_millis(50)),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let cancelled = running.cancel_and_wait().await.unwrap();
+    assert_eq!(cancelled.termination, TerminationReason::Cancelled);
 }

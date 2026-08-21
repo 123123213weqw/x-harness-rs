@@ -22,3 +22,10 @@ xharness-provider-openai = { path = "../xharness-provider-openai" }
 xharness-server = { path = "../xharness-server" }
 xharness-terminal = { path = "../xharness-terminal" }
 xharness-web = { path = "../xharness-web" }
+
+[dev-dependencies]
+futures.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["process"] }
+tokio-tungstenite.workspace = true

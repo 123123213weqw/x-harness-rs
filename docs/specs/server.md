@@ -52,3 +52,7 @@ graceful，并等待活跃连接收尾。
 测试必须 POST 全部 52 个方法，验证 method/path 不匹配和传输状态边界，覆盖
 `/api/respond`，证明两条 WebSocket 路径存在，完成真实 WebSocket 握手并收到正确的
 `server-request`，拒绝浏览器上行业务帧，并覆盖成功和不存在两种 Session 导出路径。
+
+发布级断线测试必须位于真实 Web 与 Host 之间的可中断 TCP Carrier 上。Carrier 恢复后客户端必须
+重新完成双 WebSocket + `host.describe` 握手并重新拉取运行时基线。测试至少跨过 retry #8，防止把
+有限重试次数、旧连接 Generation 或仅恢复静态页面误判为“自动重连”。

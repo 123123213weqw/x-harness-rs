@@ -39,6 +39,12 @@ Commit、Issue、PR 应引用这些 ID。
   Settings、`commands/list`/`commands/execute` 动态 Remote；前端一次风险确认后，Session 使用
   `danger-full-access + never`，原生工具获得系统范围文件/进程能力且不再逐工具审批；Full access
   已从 `SandboxMode` 移出，只绕过权限隔离，不绕过 `ProcessRuntime`。
+- [x] `DONE-22` Web 重启基线工作区：Host 启动时把 canonical cwd 注册为
+  `workspace-default`，避免内存状态重置后工作区选择器为空、Composer 看似无法点击。
+- [x] `DONE-23` Web/Full access 发布回归：真实 Host 子进程原端口重启后恢复默认 Workspace
+  和 WebSocket Carrier；Full access 验证 Workspace 外绝对路径读写、Loopback 网络、Timeout/
+  Cancel 仍走受管 Process Group；真实 Chromium 覆盖风险确认取消/确认，并在 TCP 承载连续失败
+  至少 8 次后重新拉取 Host、Workspace、Session、History、Settings 与权限投影。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
