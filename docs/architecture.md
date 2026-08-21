@@ -149,8 +149,8 @@ terminal_signal terminal_close terminal_list
 web_search web_fetch
 ```
 
-“稳定名称”不表示每一轮都应该发送全部工具。最终工具投影由 Profile、当前 Step 与平台能力
-决定，并写入 Request Header。当前 Host 仍固定发送 14 个，属于待修复兼容行为。
+“稳定名称”不表示每一轮都应该发送全部工具。Host 已按平台、Search Provider 与现存 Terminal
+状态裁剪模型可见子集；最终工具投影还要加入 Profile/当前 Step 规则并完整写入 Request Header。
 
 ## Web 组合边界
 

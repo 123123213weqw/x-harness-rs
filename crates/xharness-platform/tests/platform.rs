@@ -186,3 +186,19 @@ async fn full_access_keeps_timeout_and_cancel_process_group_cleanup() {
     let cancelled = running.cancel_and_wait().await.unwrap();
     assert_eq!(cancelled.termination, TerminationReason::Cancelled);
 }
+
+#[tokio::test]
+async fn full_access_readiness_is_explicit_and_does_not_construct_a_sandbox() {
+    let workspace = TempWorkspace::new();
+    let platform = NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap();
+    let first = platform.capability_report().await;
+    let second = platform.capability_report().await;
+    assert_eq!(first, second);
+    assert!(first.filesystem_read.is_available());
+    assert!(first.filesystem_mutation.is_available());
+    assert!(first.restricted_process.is_available());
+    assert!(first.terminal_open.is_available());
+    assert!(first.process_network.is_available());
+    assert_eq!(first.sandbox_backend, "none-full-access");
+    assert!(platform.sandbox().is_none());
+}

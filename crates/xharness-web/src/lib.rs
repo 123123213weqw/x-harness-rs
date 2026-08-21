@@ -158,6 +158,10 @@ impl WebRuntime {
         self
     }
 
+    pub const fn has_search_provider(&self) -> bool {
+        self.search.is_some()
+    }
+
     pub async fn search(
         &self,
         query: &str,

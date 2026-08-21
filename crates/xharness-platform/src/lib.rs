@@ -5,7 +5,12 @@
 //! direct process execution, and OS confinement. Linux and macOS select their
 //! implementation with `cfg`, not a runtime backend registry.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
+use tokio::sync::OnceCell;
 
 use xharness_fs::{FsError, FsService, FsTarget, ObservationStore};
 use xharness_process::{ProcessError, ProcessHandle, ProcessRuntime, SpawnSpec};
@@ -18,6 +23,30 @@ compile_error!("xharness-platform currently supports only Linux and macOS");
 pub enum PlatformKind {
     MacOS,
     Linux,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CapabilityState {
+    Available,
+    Unavailable { reason: String },
+}
+
+impl CapabilityState {
+    pub const fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+}
+
+/// Cached product-facing readiness of one workspace/permission composition.
+/// It reports facts only; it never widens policy or falls back to full access.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CapabilityReport {
+    pub filesystem_read: CapabilityState,
+    pub filesystem_mutation: CapabilityState,
+    pub restricted_process: CapabilityState,
+    pub terminal_open: CapabilityState,
+    pub process_network: CapabilityState,
+    pub sandbox_backend: String,
 }
 
 /// Process authority selected by the product permission preset.
@@ -134,6 +163,7 @@ pub struct NativePlatform {
     filesystem: FsService,
     process: ProcessRuntime,
     sandbox: Option<NativeSandbox>,
+    readiness: Arc<OnceCell<CapabilityReport>>,
 }
 
 impl NativePlatform {
@@ -172,6 +202,7 @@ impl NativePlatform {
             filesystem,
             process: ProcessRuntime::new(),
             sandbox,
+            readiness: Arc::new(OnceCell::new()),
         })
     }
 
@@ -226,6 +257,86 @@ impl NativePlatform {
         self.sandbox.as_ref()
     }
 
+    /// Probe native process confinement once and return a stable readiness
+    /// report consumed by Host tool projection.
+    pub async fn capability_report(&self) -> CapabilityReport {
+        self.readiness
+            .get_or_init(|| async { self.probe_capabilities().await })
+            .await
+            .clone()
+    }
+
+    async fn probe_capabilities(&self) -> CapabilityReport {
+        let filesystem_read = CapabilityState::Available;
+        let filesystem_mutation = if self.access == PlatformAccess::ReadOnly {
+            CapabilityState::Unavailable {
+                reason: "session policy is read-only".to_owned(),
+            }
+        } else {
+            CapabilityState::Available
+        };
+        if self.access == PlatformAccess::FullAccess {
+            return CapabilityReport {
+                filesystem_read,
+                filesystem_mutation,
+                restricted_process: CapabilityState::Available,
+                terminal_open: CapabilityState::Available,
+                process_network: CapabilityState::Available,
+                sandbox_backend: "none-full-access".to_owned(),
+            };
+        }
+
+        let process = match self.probe_native_sandbox().await {
+            Ok(()) => CapabilityState::Available,
+            Err(reason) => CapabilityState::Unavailable { reason },
+        };
+        let process_network = if process.is_available()
+            && self
+                .sandbox
+                .as_ref()
+                .is_some_and(|sandbox| sandbox.policy().network() == NetworkAccess::Allow)
+        {
+            CapabilityState::Available
+        } else if !process.is_available() {
+            process.clone()
+        } else {
+            CapabilityState::Unavailable {
+                reason: "sandbox network policy is deny".to_owned(),
+            }
+        };
+        CapabilityReport {
+            filesystem_read,
+            filesystem_mutation,
+            restricted_process: process.clone(),
+            terminal_open: process,
+            process_network,
+            sandbox_backend: native_sandbox_name().to_owned(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn probe_native_sandbox(&self) -> Result<(), String> {
+        self.sandbox
+            .as_ref()
+            .expect("restricted platform has a sandbox")
+            .probe()
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn probe_native_sandbox(&self) -> Result<(), String> {
+        let spec = SpawnSpec::new("/usr/bin/true", &self.workspace_root);
+        self.sandbox
+            .as_ref()
+            .expect("restricted platform has a sandbox")
+            .prepare(spec)
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Apply the native sandbox without spawning. This keeps policy decisions
     /// inspectable and lets higher layers journal the final argv first.
     pub async fn prepare_spawn(&self, spec: SpawnSpec) -> Result<SpawnSpec, PlatformError> {
@@ -241,6 +352,16 @@ impl NativePlatform {
         let spec = self.prepare_spawn(spec).await?;
         Ok(self.process.spawn(spec)?)
     }
+}
+
+#[cfg(target_os = "linux")]
+const fn native_sandbox_name() -> &'static str {
+    "bubblewrap"
+}
+
+#[cfg(target_os = "macos")]
+const fn native_sandbox_name() -> &'static str {
+    "seatbelt"
 }
 
 impl std::fmt::Debug for NativePlatform {

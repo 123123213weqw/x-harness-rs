@@ -63,7 +63,7 @@ DeepSeek Web UI / CLI / ACP
 | `M01` | 持久 Agent 接管 Web Host，重启不丢输入、不重复副作用 | 进行中 | Web、Subagent |
 | `M02` | 统一 Tool Runtime、Execution ID 和结构化 Shutdown | 部分完成 | MCP、Jobs |
 | `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | 部分完成（最小 Prompt 与硬 Token Guard 已实现） | 长上下文、质量 |
-| `M04` | Linux/macOS 原生工具、Readiness 和动态工具投影 | 部分完成 | 日常使用 |
+| `M04` | Linux/macOS 原生工具、Readiness 和动态工具投影 | 部分完成（模型请求侧已动态投影） | 日常使用 |
 | `M05` | Web 持久状态、游标续传、认证和完整 UI Projection | 部分完成 | 产品发布 |
 | `M06` | Git、MCP、Skills、LSP、本地代码索引 | 未开始 | 高级 Coding |
 | `M07` | 多模态、Blob、Session Branch/Import/Export | 未开始 | 多模态 Agent |
@@ -143,8 +143,10 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 
 ### Batch D：平台与 14+ 工具
 
-- [ ] `D-01` 启动时探测 Sandbox、PTY、Search、Browser、Git、LSP 能力。
-- [ ] `D-02` 不可用工具从模型请求和 Web 工具目录中同时移除。
+- [ ] `D-01` 启动时探测 Sandbox、PTY、Search、Browser、Git、LSP 能力。已完成 Sandbox、
+  Search 与现存 Terminal 的缓存 Readiness；Browser/Git/LSP 尚未接入。
+- [ ] `D-02` 不可用工具从模型请求和 Web 工具目录中同时移除。模型请求侧已完成；Web UI
+  工具目录/Workspace Readiness 投影尚未接通。
 - [ ] `D-03` 扩展 FS：list/mkdir/move/copy/delete/patch/image/binary/paged-read。Paged Read 已完成。
 - [ ] `D-04` 后台 Job Registry、重启 Outcome、Spill 和 Process-tree 清理。
 - [ ] `D-05` Terminal Resize、OSC133、Foreground PGID、Settle Reason。

@@ -56,7 +56,8 @@ Guard 状态单调：后续阶段可以把 `allow` 收紧为 `ask` 或 `deny`，
 - JSON Schema 只实现实用的首版子集，不覆盖完整生态。
 - 持久 Tool Call 记账由 Session/Core 负责，不属于本 Crate。
 - Result Spill-to-disk 和 Output Schema Enforcement 尚未实现。
-- 尚无按平台 Readiness 自动生成的 Definition Projection；当前 Web Host 固定发送 14 个工具。
+- Host 已按 Platform/Search/Terminal Readiness 生成 Definition Projection；Profile/Step 级策略
+  与投影审计仍待完整实现。
 
 ## 验收标准
 

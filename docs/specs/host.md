@@ -223,7 +223,8 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 - Plan Mode 目前只完成 Idle 状态持久化；完整 Pre-step Steering、Prompt Section 和退出工具待补。
 - 没有自动 Compaction；完整文件结果可能在下一 Step 被本地 Hard Guard 拒绝，但不会再发送已知
   超窗请求触发 Provider Context 400。
-- 除 Full access 会关闭逐工具审批外，固定 14 工具投影仍不会随 Sandbox/Search 能力变化。
+- Full access 会关闭逐工具审批；正式 Host 已按 Sandbox/Search/Terminal Readiness 动态裁剪
+  模型工具，但 Web UI 尚未显示同一能力报告。
 
 ## 验收标准
 
