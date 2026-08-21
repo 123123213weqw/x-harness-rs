@@ -289,9 +289,11 @@ pub enum LoopEventKind {
         result: ToolResult,
     },
     ToolApprovalRequested {
+        approval_id: String,
         call: ToolCall,
     },
     ToolApprovalResolved {
+        approval_id: String,
         call: ToolCall,
         approved: bool,
         reason: Option<String>,
@@ -304,7 +306,9 @@ pub enum LoopEventKind {
     RunResumed,
     ModelInterrupted,
     ModelRetry {
+        retry_id: String,
         attempt: usize,
+        max_retries: usize,
         error: String,
     },
     RunCompleted {

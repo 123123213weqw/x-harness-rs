@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use serde_json::json;
 use xharness_session::{
-    derive_messages, incomplete_tool_calls, AssistantChunk, EventData, LoggedEvent,
-    MemorySessionStore, Message, MessageRole, RequestHeader, Revision, Session, SessionError,
-    SessionEvent, SessionHeader, Store, StoreError, ToolCall, ToolOutcome, ToolResultData,
-    TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
+    derive_messages, incomplete_tool_calls, ApprovalOutcome, AssistantChunk, EventData, LlmFailure,
+    LlmRetryMode, LoggedEvent, MemorySessionStore, Message, MessageRole, RequestHeader, Revision,
+    Session, SessionError, SessionEvent, SessionHeader, Store, StoreError, ToolCall, ToolOutcome,
+    ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
 };
 
 fn header(id: &str) -> SessionHeader {
@@ -146,6 +146,34 @@ fn every_first_version_event_round_trips_through_serde() {
         event(EventData::RequestHeader {
             header: RequestHeader::new("openai", "gpt-test"),
         }),
+        event(EventData::ApprovalAsked {
+            id: "approval-1".to_owned(),
+            tool_name: "bash".to_owned(),
+            call_id: Some("call-1".to_owned()),
+            reason: Some("requires permission".to_owned()),
+        }),
+        event(EventData::ApprovalDecided {
+            id: "approval-1".to_owned(),
+            outcome: ApprovalOutcome::AllowedOnce,
+        }),
+        event(EventData::LlmRetry {
+            retry_id: "retry-1".to_owned(),
+            turn: 1,
+            step: 1,
+            provider: "openai".to_owned(),
+            mode: LlmRetryMode::Normal,
+            policy_key: "normal:2".to_owned(),
+            retry: 1,
+            max_retries: Some(2),
+            delay_ms: 0,
+            failure: LlmFailure::transport("connection reset"),
+        }),
+        event(EventData::LlmRetryStarted {
+            retry_id: "retry-1".to_owned(),
+            turn: 1,
+            step: 1,
+            retry: 1,
+        }),
         event(EventData::TurnStart { turn: 1 }),
         event(EventData::StepStart { turn: 1, step: 1 }),
         event(EventData::UserMessage {
@@ -185,6 +213,135 @@ fn every_first_version_event_round_trips_through_serde() {
         let decoded: SessionEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, candidate);
     }
+
+    let asked = serde_json::to_value(event(EventData::ApprovalAsked {
+        id: "approval-wire".to_owned(),
+        tool_name: "bash".to_owned(),
+        call_id: Some("call-wire".to_owned()),
+        reason: None,
+    }))
+    .unwrap();
+    assert_eq!(asked["type"], "approval/asked");
+    assert_eq!(asked["data"]["toolName"], "bash");
+    assert_eq!(asked["data"]["callId"], "call-wire");
+    assert!(asked["data"].get("tool_name").is_none());
+}
+
+#[test]
+fn approval_audit_is_turn_enclosed_paired_and_call_correlated() {
+    let mut assistant = Message::assistant("");
+    assistant.tool_calls = vec![call("call-1", 0)];
+    let mut session = Session::new(header("approval-lifecycle")).unwrap();
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::UserMessage {
+                    message: Message::user("run"),
+                }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::RequestHeader {
+                    header: RequestHeader::new("openai", "gpt-test"),
+                }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("call-1", 0),
+                }),
+                event(EventData::ApprovalAsked {
+                    id: "approval-1".to_owned(),
+                    tool_name: "read_file".to_owned(),
+                    call_id: Some("call-1".to_owned()),
+                    reason: None,
+                }),
+                event(EventData::ApprovalDecided {
+                    id: "approval-1".to_owned(),
+                    outcome: ApprovalOutcome::Rejected,
+                }),
+                event(EventData::ToolResult {
+                    turn: 1,
+                    step: 1,
+                    result: ToolResultData::error("call-1", "rejected"),
+                }),
+            ],
+            1,
+        )
+        .unwrap();
+
+    let revision = session.revision();
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::ApprovalDecided {
+                id: "missing".to_owned(),
+                outcome: ApprovalOutcome::Rejected,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+}
+
+#[test]
+fn retry_audit_requires_request_route_and_ordered_started_pairs() {
+    let mut session = Session::new(header("retry-lifecycle")).unwrap();
+    let scheduled = EventData::LlmRetry {
+        retry_id: "retry-1".to_owned(),
+        turn: 1,
+        step: 1,
+        provider: "openai".to_owned(),
+        mode: LlmRetryMode::Normal,
+        policy_key: "normal:2".to_owned(),
+        retry: 1,
+        max_retries: Some(2),
+        delay_ms: 0,
+        failure: LlmFailure::transport("connection reset"),
+    };
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::UserMessage {
+                    message: Message::user("run"),
+                }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::RequestHeader {
+                    header: RequestHeader::new("openai", "gpt-test"),
+                }),
+                event(scheduled),
+                event(EventData::LlmRetryStarted {
+                    retry_id: "retry-1".to_owned(),
+                    turn: 1,
+                    step: 1,
+                    retry: 1,
+                }),
+            ],
+            1,
+        )
+        .unwrap();
+
+    let revision = session.revision();
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::LlmRetryStarted {
+                retry_id: "retry-1".to_owned(),
+                turn: 1,
+                step: 1,
+                retry: 1,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
 }
 
 #[test]

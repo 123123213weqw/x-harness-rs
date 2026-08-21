@@ -318,9 +318,12 @@ fn restored_web_event(
     prompts: &BTreeMap<String, PromptView>,
 ) -> Value {
     let (event_type, data, surface_op) = match event.data() {
-        EventData::AgentInboxSpliced { .. } | EventData::RequestHeader { .. } => {
-            tagged_event_data(event.data())
-        }
+        EventData::AgentInboxSpliced { .. }
+        | EventData::RequestHeader { .. }
+        | EventData::ApprovalAsked { .. }
+        | EventData::ApprovalDecided { .. }
+        | EventData::LlmRetry { .. }
+        | EventData::LlmRetryStarted { .. } => tagged_event_data(event.data()),
         EventData::TurnStart { turn } => (
             "turn/start".to_owned(),
             json!({
@@ -593,8 +596,9 @@ mod tests {
         ProviderRequest, ProviderStream,
     };
     use xharness_session::{
-        EventData, MemorySessionStore, Message, RequestHeader, Revision, SessionEvent,
-        SessionHeader, Store, TurnEndReason,
+        ApprovalOutcome, EventData, LlmFailure, LlmRetryMode, MemorySessionStore, Message,
+        RequestHeader, Revision, SessionEvent, SessionHeader, Store, ToolCall, ToolResultData,
+        TurnEndReason,
     };
 
     use super::*;
@@ -709,6 +713,134 @@ mod tests {
             .workspaces
             .values()
             .any(|workspace| workspace.session_ids == ["history-session"]));
+    }
+
+    #[tokio::test]
+    async fn approval_and_retry_events_project_with_frozen_wire_names() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        store
+            .create(SessionHeader::new("control-projection"))
+            .await
+            .unwrap();
+        let call = ToolCall {
+            id: "execution-1".to_owned(),
+            index: 0,
+            name: "bash".to_owned(),
+            arguments_json: r#"{"command":"pwd"}"#.to_owned(),
+        };
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls.push(call.clone());
+        store
+            .append(
+                "control-projection",
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("inspect"),
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::RequestHeader {
+                        header: RequestHeader::new("test", "test-model"),
+                    }
+                    .into(),
+                    EventData::LlmRetry {
+                        retry_id: "retry-1".to_owned(),
+                        turn: 1,
+                        step: 1,
+                        provider: "test".to_owned(),
+                        mode: LlmRetryMode::Normal,
+                        policy_key: "normal:2".to_owned(),
+                        retry: 1,
+                        max_retries: Some(2),
+                        delay_ms: 0,
+                        failure: LlmFailure::transport("temporary"),
+                    }
+                    .into(),
+                    EventData::LlmRetryStarted {
+                        retry_id: "retry-1".to_owned(),
+                        turn: 1,
+                        step: 1,
+                        retry: 1,
+                    }
+                    .into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call,
+                    }
+                    .into(),
+                    EventData::ApprovalAsked {
+                        id: "approval-1".to_owned(),
+                        tool_name: "bash".to_owned(),
+                        call_id: Some("execution-1".to_owned()),
+                        reason: Some("requires permission".to_owned()),
+                    }
+                    .into(),
+                    EventData::ApprovalDecided {
+                        id: "approval-1".to_owned(),
+                        outcome: ApprovalOutcome::Rejected,
+                    }
+                    .into(),
+                    EventData::ToolResult {
+                        turn: 1,
+                        step: 1,
+                        result: ToolResultData::error("execution-1", "rejected"),
+                    }
+                    .into(),
+                    EventData::StepEnd { turn: 1, step: 1 }.into(),
+                    EventData::TurnEnd {
+                        turn: 1,
+                        reason: TurnEndReason::Completed,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let session = store.load("control-projection").await.unwrap().unwrap();
+        let route = ModelRoute {
+            provider: "test".to_owned(),
+            model: "test-model".to_owned(),
+            reasoning_effort: None,
+        };
+        let projected = project_session_events(&session, &route);
+        let controls = projected
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event["type"].as_str(),
+                    Some("approval/asked" | "approval/decided" | "llm/retry" | "llm/retry-started")
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            controls
+                .iter()
+                .map(|event| event["type"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "llm/retry",
+                "llm/retry-started",
+                "approval/asked",
+                "approval/decided",
+            ]
+        );
+        assert_eq!(controls[0]["data"]["retryId"], "retry-1");
+        assert_eq!(controls[2]["data"]["toolName"], "bash");
+        assert_eq!(controls[2]["data"]["callId"], "execution-1");
+        assert_eq!(controls[3]["data"]["outcome"], "rejected");
+        assert!(controls
+            .iter()
+            .all(|event| event.get("surfaceOp").is_none()));
     }
 
     #[tokio::test]

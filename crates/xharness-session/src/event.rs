@@ -143,6 +143,50 @@ pub enum ToolOutcome {
     OutcomeUnknown,
 }
 
+/// Closed, fail-safe outcome of one human approval request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApprovalOutcome {
+    AllowedOnce,
+    Rejected,
+    Cancelled,
+    Unavailable,
+}
+
+/// Provider-neutral failure retained by a durable model-retry audit record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmFailure {
+    pub message: String,
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_retry_after_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
+impl LlmFailure {
+    pub fn transport(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: "TRANSPORT".to_owned(),
+            status: None,
+            provider_retry_after_ms: None,
+            request_id: None,
+        }
+    }
+}
+
+/// Retry policy mode recorded at the durable scheduling boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmRetryMode {
+    Normal,
+    Always,
+}
+
 /// One durable tool outcome. The model-facing message is derived from these
 /// fields instead of being stored as a second copy.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -193,6 +237,54 @@ pub enum EventData {
     },
     #[serde(rename = "request/header")]
     RequestHeader { header: RequestHeader },
+    /// Log-only audit fact written before an approval answerer is consulted.
+    #[serde(rename = "approval/asked")]
+    ApprovalAsked {
+        id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(rename = "callId", default, skip_serializing_if = "Option::is_none")]
+        call_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    /// Log-only decision paired one-to-one with an `approval/asked` event.
+    #[serde(rename = "approval/decided")]
+    ApprovalDecided {
+        id: String,
+        outcome: ApprovalOutcome,
+    },
+    /// One durable provider retry scheduled after a failed request attempt.
+    #[serde(rename = "llm/retry")]
+    LlmRetry {
+        #[serde(rename = "retryId")]
+        retry_id: String,
+        turn: u32,
+        step: u32,
+        provider: String,
+        mode: LlmRetryMode,
+        #[serde(rename = "policyKey")]
+        policy_key: String,
+        retry: u32,
+        #[serde(
+            rename = "maxRetries",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        max_retries: Option<u32>,
+        #[serde(rename = "delayMs")]
+        delay_ms: u64,
+        failure: LlmFailure,
+    },
+    /// Durable transition immediately before the scheduled retry begins.
+    #[serde(rename = "llm/retry-started")]
+    LlmRetryStarted {
+        #[serde(rename = "retryId")]
+        retry_id: String,
+        turn: u32,
+        step: u32,
+        retry: u32,
+    },
     #[serde(rename = "turn/start")]
     TurnStart { turn: u32 },
     #[serde(rename = "turn/end")]

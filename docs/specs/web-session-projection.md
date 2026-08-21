@@ -1,7 +1,8 @@
 # Web Session 确定性投影规范
 
 **涉及 Crate：** `xharness-session`、`xharness-agent`、`xharness-host`  
-**状态：** 权威 History/重启等价阶段已实现；完整冻结事件词汇仍在迁移。
+**状态：** 权威 History/重启等价以及 Approval/Provider Retry 强类型投影已实现；完整冻结事件
+词汇仍在迁移。
 
 ## 真源与边界
 
@@ -29,11 +30,24 @@ History。兼容 `LoopAgentRuntime` 没有 Session 真源，可以继续使用�
    Host 不得再为 Durable Turn 人工追加另一份 `turn/start/user/message/assistant/message`。
 7. 启动恢复与运行中 History 必须调用同一 `project_session_events()` 纯函数。
 
-## 当前控制事件
+## 审批与模型重试
 
-Tool Approval Request/Resolved 和 Host Agent Error 仍由当前 RunningTurn 控制面即时推送，尚未成为
-可恢复 Session Event。Provider Retry 也缺少强类型持久事件。这些缺口意味着冻结上游的完整事件
-词汇还未全部迁移，`A-08` 在补齐前不能标记完成。
+- Core 在调用审批 Answerer 前 Flush `approval/asked`，使用独立 `approval_id` 与内部
+  `call_id` 关联；得到允许、拒绝、取消或不可用结论后，再 Flush 唯一的
+  `approval/decided`。审批审计永不进入模型消息。
+- 当前 Host 的实时交互 Frame 仍使用 `approval/requested` / `approval/resolved`，但 History
+  使用冻结上游的 `approval/asked` / `approval/decided`；两者由同一个 `approval_id` 关联。
+- 可重试 Provider 在第一次 Delta 之前失败时，先 Flush `llm/retry`，发出运行时通知，再 Flush
+  `llm/retry-started`，之后才发起下一次 Provider I/O。Retry ID 在同一步的整个策略链中稳定，
+  Retry Number 必须从 1 连续递增。
+- Session Validator 会检查审批成对关系、Tool Call 引用、Retry 路由与 Request Header 一致、
+  Normal/Always Policy 字段、Retry ID 所有权以及 Started 一一对应。
+- 当前 Core 只生产 `normal + delayMs=0` 的网络重试；类型和投影已能表达 `always`，但带退避的
+  Provider Policy Registry 尚未实现。崩溃后存在 `approval/asked` 而没有 Decision 时会保留为
+  审计事实并 fail closed，尚不能恢复成可继续点击的 Pending Approval；该能力归 `A-09`。
+
+冻结 48 个 Session Event 中目前已有 16 个强类型事件；其余 Approval Policy、Permission、
+Compaction、Goal、Subagent/Team 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能提前标记完成。
 
 ## 失败语义
 
@@ -50,4 +64,6 @@ Tool Approval Request/Resolved 和 Host Agent Error 仍由当前 RunningTurn 控
 - 结构化 User Content 和 Timezone 在 Claim 消费 Inbox 后仍可从完整历史恢复。
 - History 查询可以吸收尚未由 Driver 推送的日志尾部，但不能制造第二条 User/Assistant Message。
 - Ephemeral Runtime 的既有 Loop 投影测试继续通过。
+- Approval Asked 必须先于 UI Request 和 Tool Side Effect 持久化；Decided 必须先于 Tool Start。
+- 每个 Retry 必须按 `retry → retry-started → 下一 Provider Attempt` 排序，运行与重启投影一致。
 - Rust Check/Test/Clippy 必须在 `WZU_Server` 执行。
