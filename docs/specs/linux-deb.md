@@ -8,7 +8,7 @@
 Ubuntu 用户不需要理解 Bubblewrap、AppArmor、User Namespace 或 UID Map。`.deb` 在
 `postinst` 阶段完成依赖安装后的系统检测、专用 Profile 安装、真实隔离验证和状态保存。
 产品禁止为了安装成功而全局关闭 User Namespace 加固，也禁止自动降级到
-`DangerFullAccess`。
+`Full access`。
 
 ## 包依赖
 

@@ -10,7 +10,8 @@ const DEFAULT_SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 ///
 /// The profile is constructed from a canonical workspace capability and
 /// passed directly as an argv element; no shell or temporary profile file is
-/// involved. `DangerFullAccess` is the only mode that bypasses preparation.
+/// involved. Full access is deliberately represented above this crate and
+/// never constructs or calls a Seatbelt adapter.
 #[derive(Clone, Debug)]
 pub struct SeatbeltSandbox {
     policy: SandboxPolicy,
@@ -37,9 +38,6 @@ impl SeatbeltSandbox {
     }
 
     pub async fn prepare(&self, mut spec: SpawnSpec) -> Result<SpawnSpec, SandboxError> {
-        if self.policy.mode() == SandboxMode::DangerFullAccess {
-            return Ok(spec);
-        }
         if spec.program.is_empty() {
             return Err(SandboxError::EmptyProgram);
         }

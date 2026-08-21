@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use std::{
     collections::BTreeMap,
@@ -70,7 +70,11 @@ async fn argv_is_not_interpreted_by_a_shell_and_cwd_is_explicit() {
         .wait()
         .await
         .unwrap();
-    assert_eq!(pwd.stdout.text.trim_end(), dir.path().to_str().unwrap());
+    assert_eq!(
+        fs::canonicalize(pwd.stdout.text.trim_end()).unwrap(),
+        fs::canonicalize(dir.path()).unwrap(),
+        "macOS may report /private/var for the /var symlink"
+    );
 
     let environment = ProcessRuntime::new()
         .spawn(SpawnSpec::new("/usr/bin/env", dir.path()).env("XHARNESS_VISIBLE", "explicit-value"))
@@ -251,12 +255,33 @@ async fn wait_for_pid_file(path: &Path) -> u32 {
 }
 
 fn proc_group_and_session(pid: u32) -> (u32, u32) {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
-    let after_name = stat.rsplit_once(") ").unwrap().1;
-    let fields: Vec<_> = after_name.split_whitespace().collect();
-    let process_group = fields[2].parse().unwrap();
-    let session = fields[3].parse().unwrap();
-    (process_group, session)
+    #[cfg(target_os = "linux")]
+    {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+        let after_name = stat.rsplit_once(") ").unwrap().1;
+        let fields: Vec<_> = after_name.split_whitespace().collect();
+        let process_group = fields[2].parse().unwrap();
+        let session = fields[3].parse().unwrap();
+        return (process_group, session);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let pid = i32::try_from(pid).unwrap();
+        // SAFETY: both calls only inspect the process identified by `pid`.
+        // The test has just spawned it and checks both return values below.
+        let process_group = unsafe { nix::libc::getpgid(pid) };
+        let session = unsafe { nix::libc::getsid(pid) };
+        assert!(process_group >= 0, "getpgid failed for pid {pid}");
+        assert!(session >= 0, "getsid failed for pid {pid}");
+        return (
+            u32::try_from(process_group).unwrap(),
+            u32::try_from(session).unwrap(),
+        );
+    }
+
+    #[allow(unreachable_code)]
+    (0, 0)
 }
 
 async fn wait_until_dead(pid: u32) {

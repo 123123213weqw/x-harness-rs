@@ -20,7 +20,7 @@ use xharness_core::{
     ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, SurfaceEdit,
     SurfaceEditKind, TokenUsage, ToolResult, ToolSpec,
 };
-use xharness_host::{BasicHost, HostConfig, NoTools, SessionToolFactory};
+use xharness_host::{BasicHost, HostConfig, NoTools, PermissionPreset, SessionToolFactory};
 
 struct TextProvider;
 
@@ -174,6 +174,139 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[tokio::test]
+async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_future_sessions() {
+    let mut fx = Fixture::new();
+    let root = fx.root.to_string_lossy().into_owned();
+    let created = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd": root}))
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap().to_owned();
+
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId": session_id}))
+        .await;
+    assert_eq!(
+        history["projections"]["values"]["permissions"]["currentValue"],
+        "workspace-write"
+    );
+
+    let listed = fx
+        .host
+        .call_dynamic(
+            RpcId::new("commands-list"),
+            "commands/list",
+            json!({"args": {"agentId": session_id}}),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("commands/list is mounted");
+    let RpcResult::Success {
+        value: Some(listed),
+    } = listed
+    else {
+        panic!("commands/list failed: {listed:?}");
+    };
+    assert_eq!(listed[0]["name"], "permission");
+
+    let switched = fx
+        .host
+        .call_dynamic(
+            RpcId::new("commands-execute"),
+            "commands/execute",
+            json!({
+                "args": {
+                    "agentId": session_id,
+                    "line": "/permission danger-full-access",
+                    "images": []
+                }
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("commands/execute is mounted");
+    let RpcResult::Success {
+        value: Some(switched),
+    } = switched
+    else {
+        panic!("permission switch failed: {switched:?}");
+    };
+    assert_eq!(switched["result"]["kind"], "success");
+
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId": session_id}))
+        .await;
+    assert_eq!(
+        history["projections"]["values"]["permissions"]["currentValue"],
+        "danger-full-access"
+    );
+    let types = history["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["event"]["type"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        types,
+        [
+            "command/run",
+            "permission/preset",
+            "sandbox/mode",
+            "approval/policy",
+            "command/done",
+        ]
+    );
+    let sandbox_event = history["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["event"]["type"] == "sandbox/mode")
+        .unwrap();
+    assert_eq!(sandbox_event["event"]["data"]["enabled"], false);
+    assert_eq!(sandbox_event["event"]["data"]["mode"], "disabled");
+
+    let settings = fx.value(RpcMethod::SettingsDescribe, json!({})).await;
+    let permission = settings["namespaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["ns"] == "permission")
+        .unwrap();
+    assert_eq!(permission["value"]["defaultPreset"], "workspace-write");
+    assert_eq!(
+        permission["schema"]["refs"]["2"]["value"],
+        "danger-full-access"
+    );
+    fx.value(
+        RpcMethod::SettingsMutate,
+        json!({
+            "ns": "permission",
+            "ops": [{"op": "set", "path": ["defaultPreset"], "value": "danger-full-access"}],
+            "expectedRevision": permission["revision"],
+        }),
+    )
+    .await;
+    let second = fx
+        .value(
+            RpcMethod::SessionCreate,
+            json!({
+                "sessionId": "full-access-default",
+                "cwd": root,
+            }),
+        )
+        .await;
+    let second_history = fx
+        .value(
+            RpcMethod::SessionHistory,
+            json!({"sessionId": second["sessionId"]}),
+        )
+        .await;
+    assert_eq!(
+        second_history["projections"]["values"]["permissions"]["currentValue"],
+        "danger-full-access"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -632,7 +765,12 @@ struct OneTool {
 
 #[async_trait]
 impl SessionToolFactory for OneTool {
-    async fn tools(&self, _session_id: &str, _cwd: &str) -> Result<Vec<ToolSpec>, String> {
+    async fn tools(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+    ) -> Result<Vec<ToolSpec>, String> {
         let executed = Arc::clone(&self.executed);
         Ok(vec![ToolSpec::new(
             "gated",

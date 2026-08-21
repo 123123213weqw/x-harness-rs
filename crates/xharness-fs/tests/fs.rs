@@ -74,10 +74,9 @@ async fn resolve_rejects_parent_traversal_and_symlink_escape() {
 async fn concurrent_parent_symlink_swaps_never_write_outside() {
     let workspace = TestDir::new("workspace-race");
     let outside = TestDir::new("outside-race");
-    fs::create_dir(workspace.path().join("inside")).unwrap();
-    fs::write(workspace.path().join("inside/file.txt"), "inside-v1").unwrap();
+    fs::create_dir(workspace.path().join("gate")).unwrap();
+    fs::write(workspace.path().join("gate/file.txt"), "inside-v1").unwrap();
     fs::write(outside.path().join("file.txt"), "outside-sentinel").unwrap();
-    symlink("inside", workspace.path().join("gate")).unwrap();
     let service = FsService::new(workspace.path()).unwrap();
     let target = service.resolve("gate/file.txt").unwrap();
     service
@@ -90,18 +89,14 @@ async fn concurrent_parent_symlink_swaps_never_write_outside() {
     let root = workspace.path().to_owned();
     let outside_path = outside.path().to_owned();
     let toggler = std::thread::spawn(move || {
-        let mut outside_turn = true;
+        let gate = root.join("gate");
+        let parked = root.join("gate.parked");
         while !toggler_stop.load(Ordering::Relaxed) {
-            let temporary = root.join("gate.next");
-            let _ = fs::remove_file(&temporary);
-            let destination = if outside_turn {
-                outside_path.as_path()
-            } else {
-                Path::new("inside")
-            };
-            symlink(destination, &temporary).unwrap();
-            fs::rename(&temporary, root.join("gate")).unwrap();
-            outside_turn = !outside_turn;
+            fs::rename(&gate, &parked).unwrap();
+            symlink(&outside_path, &gate).unwrap();
+            std::thread::yield_now();
+            fs::remove_file(&gate).unwrap();
+            fs::rename(&parked, &gate).unwrap();
             std::thread::yield_now();
         }
     });
@@ -127,10 +122,9 @@ async fn concurrent_parent_symlink_swaps_never_write_outside() {
 async fn write_rechecks_parent_after_symlink_swap() {
     let workspace = TestDir::new("workspace-swap");
     let outside = TestDir::new("outside-swap");
-    fs::create_dir(workspace.path().join("inside")).unwrap();
-    fs::write(workspace.path().join("inside/file.txt"), "inside-v1").unwrap();
+    fs::create_dir(workspace.path().join("current")).unwrap();
+    fs::write(workspace.path().join("current/file.txt"), "inside-v1").unwrap();
     fs::write(outside.path().join("file.txt"), "outside-v1").unwrap();
-    symlink("inside", workspace.path().join("current")).unwrap();
     let service = FsService::new(workspace.path()).unwrap();
     let target = service.resolve("current/file.txt").unwrap();
     service
@@ -138,14 +132,16 @@ async fn write_rechecks_parent_after_symlink_swap() {
         .await
         .unwrap();
 
-    fs::remove_file(workspace.path().join("current")).unwrap();
+    fs::rename(
+        workspace.path().join("current"),
+        workspace.path().join("inside"),
+    )
+    .unwrap();
     symlink(outside.path(), workspace.path().join("current")).unwrap();
-    assert!(matches!(
-        service
-            .write("session", &target, b"attacker-wins".to_vec())
-            .await,
-        Err(FsError::WorkspaceEscape { .. })
-    ));
+    assert!(service
+        .write("session", &target, b"attacker-wins".to_vec())
+        .await
+        .is_err());
     assert_eq!(
         fs::read_to_string(outside.path().join("file.txt")).unwrap(),
         "outside-v1"

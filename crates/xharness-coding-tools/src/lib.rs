@@ -145,7 +145,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "bash",
-                "Run one Bash command in the selected workspace sandbox.",
+                "Run one Bash command under the active session permission policy.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -183,7 +183,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "read",
-                "Read a workspace file and record its version for safe later edits.",
+                "Read an allowed file and record its version for safe later edits.",
                 path_schema(false),
             ),
             move |context| {
@@ -191,7 +191,7 @@ impl CodingToolBundle {
                 let session_id = Arc::clone(&session_id);
                 async move {
                     let path = required_string(&context, "path")?;
-                    let target = platform.filesystem().resolve(path).map_err(handler_error)?;
+                    let target = platform.resolve_file(path).map_err(handler_error)?;
                     let result = platform
                         .filesystem()
                         .read(&session_id, &target, ReadLimits::default())
@@ -239,7 +239,7 @@ impl CodingToolBundle {
                 async move {
                     let path = required_string(&context, "path")?;
                     let content = required_string(&context, "content")?;
-                    let target = platform.filesystem().resolve(path).map_err(handler_error)?;
+                    let target = platform.resolve_file(path).map_err(handler_error)?;
                     let result = platform
                         .filesystem()
                         .write(&session_id, &target, content.into_bytes())
@@ -284,7 +284,7 @@ impl CodingToolBundle {
                     let path = required_string(&context, "path")?;
                     let old = required_string(&context, "old")?;
                     let new = required_string(&context, "new")?;
-                    let target = platform.filesystem().resolve(path).map_err(handler_error)?;
+                    let target = platform.resolve_file(path).map_err(handler_error)?;
                     let result = platform
                         .filesystem()
                         .edit_literal(&session_id, &target, old, new)
@@ -308,7 +308,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "glob",
-                "List workspace files matching a glob using ripgrep without a shell.",
+                "List files matching a glob from the session workspace using ripgrep without a shell.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -329,7 +329,7 @@ impl CodingToolBundle {
                         args.push(OsString::from("--"));
                         args.push(OsString::from(path));
                     }
-                    let spec = SpawnSpec::new("rg", platform.filesystem().workspace_root())
+                    let spec = SpawnSpec::new("rg", platform.workspace_root())
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
@@ -348,7 +348,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "grep",
-                "Search workspace text using ripgrep without shell interpretation.",
+                "Search text from the session workspace using ripgrep without shell interpretation.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -377,7 +377,7 @@ impl CodingToolBundle {
                     args.push(OsString::from(
                         optional_string(&context, "path").unwrap_or("."),
                     ));
-                    let spec = SpawnSpec::new("rg", platform.filesystem().workspace_root())
+                    let spec = SpawnSpec::new("rg", platform.workspace_root())
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
@@ -791,7 +791,7 @@ fn resolve_cwd(
     platform: &NativePlatform,
     requested: Option<&str>,
 ) -> Result<PathBuf, ToolHandlerError> {
-    let root = platform.filesystem().workspace_root();
+    let root = platform.workspace_root();
     let path = match requested {
         None | Some("") => root.to_owned(),
         Some(path) if Path::new(path).is_absolute() => PathBuf::from(path),
