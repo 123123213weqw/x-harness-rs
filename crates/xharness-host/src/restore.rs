@@ -64,6 +64,8 @@ pub(crate) struct ProjectedHistoryPage {
 #[derive(Debug, thiserror::Error)]
 pub enum HostRestoreError {
     #[error(transparent)]
+    Control(#[from] xharness_control::ControlError),
+    #[error(transparent)]
     Store(#[from] StoreError),
     #[error("session {session_id:?} disappeared during Host restoration")]
     SessionDisappeared { session_id: String },
@@ -90,6 +92,7 @@ impl BasicHost {
         self: &Arc<Self>,
         store: Arc<dyn Store>,
     ) -> Result<HostRestoreReport, HostRestoreError> {
+        self.restore_control_state().await?;
         let headers = store.list_headers().await?;
         let mut report = HostRestoreReport {
             discovered_sessions: headers.len(),
@@ -287,6 +290,10 @@ impl BasicHost {
                 }),
             }
         }
+
+        // Session discovery may attach newly restored ids to a Workspace.
+        // Reapply durable custom ordering/tombstones after those ids exist.
+        self.reload_control_projection().await?;
 
         Ok(report)
     }
@@ -852,6 +859,7 @@ mod tests {
     use xharness_api::{
         ApiBackend, ClientResponse, ClientResponseKind, RpcId, RpcMethod, RpcResult,
     };
+    use xharness_control::{ControlRevision, ControlStore, JsonlControlStore};
     use xharness_core::{
         FinishReason, IdentityContextPolicy, ModelProvider, ProviderError, ProviderEvent,
         ProviderRequest, ProviderStream, ToolResult, ToolSpec,
@@ -864,7 +872,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        DurableLoopAgentRuntime, HostConfig, NoTools, PermissionPreset, SessionToolFactory,
+        state::now_ms, DurableLoopAgentRuntime, HostConfig, NoTools, PermissionPreset,
+        SessionToolFactory,
     };
 
     struct GatedProvider {
@@ -1094,6 +1103,213 @@ mod tests {
             assert_eq!(value["projections"]["asOfSeq"], 41);
             assert_eq!(value["hasMore"], false);
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn workspace_settings_and_mutation_receipts_survive_a_host_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "xharness-host-control-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let cwd = root.join("boot");
+        let custom = root.join("custom");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&custom).unwrap();
+        let session_store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let control_store: Arc<dyn ControlStore> =
+            Arc::new(JsonlControlStore::new(root.join("control")).unwrap());
+
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&session_store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let live = BasicHost::with_agent_runtime_and_control_store(
+            config(&cwd),
+            runtime,
+            Arc::clone(&control_store),
+        );
+        live.restore_from_store(Arc::clone(&session_store))
+            .await
+            .unwrap();
+
+        let create_payload = json!({"path": custom.to_string_lossy()});
+        let left = {
+            let host = Arc::clone(&live);
+            let payload = create_payload.clone();
+            tokio::spawn(async move {
+                host.call(
+                    RpcId::new("workspace-create-once"),
+                    RpcMethod::WorkspaceCreate,
+                    payload,
+                    CancellationToken::new(),
+                )
+                .await
+            })
+        };
+        let right = {
+            let host = Arc::clone(&live);
+            let payload = create_payload.clone();
+            tokio::spawn(async move {
+                host.call(
+                    RpcId::new("workspace-create-once"),
+                    RpcMethod::WorkspaceCreate,
+                    payload,
+                    CancellationToken::new(),
+                )
+                .await
+            })
+        };
+        let [created, duplicate] = [left.await.unwrap(), right.await.unwrap()];
+        assert_eq!(created, duplicate);
+        let RpcResult::Success {
+            value: Some(created),
+        } = created
+        else {
+            panic!("workspace create failed: {created:?}");
+        };
+        let workspace_id = created["workspace"]["workspaceId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            control_store.load().await.unwrap().revision(),
+            ControlRevision(1)
+        );
+
+        let renamed = live
+            .call(
+                RpcId::new("workspace-rename-once"),
+                RpcMethod::WorkspaceRename,
+                json!({"workspaceId": workspace_id, "title": "Durable custom"}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(renamed, RpcResult::Success { .. }));
+        let settings_payload = json!({
+            "ns": "ui-onboarding",
+            "section": {"welcomeNoticeVersion": "v2"},
+            "expectedRevision": 0,
+        });
+        let settings = live
+            .call(
+                RpcId::new("settings-once"),
+                RpcMethod::SettingsReplace,
+                settings_payload.clone(),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(settings, RpcResult::Success { .. }));
+        assert_eq!(
+            control_store.load().await.unwrap().revision(),
+            ControlRevision(3)
+        );
+
+        drop(live);
+        std::fs::remove_dir_all(&custom).unwrap();
+        let restarted_runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&session_store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let restarted = BasicHost::with_agent_runtime_and_control_store(
+            config(&cwd),
+            restarted_runtime,
+            Arc::clone(&control_store),
+        );
+        restarted
+            .restore_from_store(Arc::clone(&session_store))
+            .await
+            .unwrap();
+        let workspaces = restarted
+            .call(
+                RpcId::new("workspace-list-after-restart"),
+                RpcMethod::WorkspaceList,
+                json!({}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(workspaces),
+        } = workspaces
+        else {
+            panic!("workspace list failed: {workspaces:?}");
+        };
+        assert!(workspaces["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|workspace| {
+                workspace["workspaceId"] == workspace_id && workspace["title"] == "Durable custom"
+            }));
+        let described = restarted
+            .call(
+                RpcId::new("settings-after-restart"),
+                RpcMethod::SettingsDescribe,
+                json!({}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(described),
+        } = described
+        else {
+            panic!("settings describe failed: {described:?}");
+        };
+        assert!(described["namespaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|namespace| {
+                namespace["ns"] == "ui-onboarding"
+                    && namespace["value"]["welcomeNoticeVersion"] == "v2"
+                    && namespace["revision"] == 1
+            }));
+
+        // Receipt lookup precedes path validation: the original success can
+        // be recovered even though the directory disappeared after commit.
+        let replay = restarted
+            .call(
+                RpcId::new("workspace-create-once"),
+                RpcMethod::WorkspaceCreate,
+                create_payload,
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(replay, duplicate);
+        assert_eq!(
+            control_store.load().await.unwrap().revision(),
+            ControlRevision(3)
+        );
+        let conflict = restarted
+            .call(
+                RpcId::new("settings-once"),
+                RpcMethod::SettingsReplace,
+                json!({
+                    "ns": "ui-onboarding",
+                    "section": {"welcomeNoticeVersion": "different"},
+                    "expectedRevision": 0,
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(conflict, RpcResult::Failure { .. }));
+        assert_eq!(
+            control_store.load().await.unwrap().revision(),
+            ControlRevision(3)
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[tokio::test]

@@ -93,7 +93,7 @@ async fn rpc_call(
         .post(format!("http://{address}/api/{method}"))
         .json(&json!({
             "type": "client-request",
-            "rpcId": "restart-test",
+            "rpcId": format!("restart-test-{method}"),
             "method": method,
             "payload": payload,
         }))
@@ -128,6 +128,8 @@ async fn wait_for_workspace(client: &Client, address: SocketAddr, expected: &Pat
 #[tokio::test]
 async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
     let workspace = TempWorkspace::new();
+    let custom_workspace = workspace.0.join("custom-workspace");
+    std::fs::create_dir(&custom_workspace).unwrap();
     let store = JsonlSessionStore::new(workspace.0.join(".xharness-state/sessions")).unwrap();
     let mut header = SessionHeader::new("persisted-session");
     header.cwd = Some(workspace.0.to_string_lossy().into_owned());
@@ -198,6 +200,43 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
         .unwrap()
         .iter()
         .any(|entry| entry["event"]["type"] == "assistant/message"));
+    let created_workspace = rpc_call(
+        &client,
+        address,
+        "workspace.create",
+        json!({"path": custom_workspace.to_string_lossy()}),
+    )
+    .await
+    .expect("first Host persists a custom workspace");
+    let custom_workspace_id = created_workspace["result"]["value"]["workspace"]["workspaceId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let renamed = rpc_call(
+        &client,
+        address,
+        "workspace.rename",
+        json!({"workspaceId": custom_workspace_id, "title": "Restart durable"}),
+    )
+    .await
+    .expect("first Host persists workspace metadata");
+    assert_eq!(
+        renamed["result"]["value"]["workspace"]["title"],
+        "Restart durable"
+    );
+    let settings = rpc_call(
+        &client,
+        address,
+        "settings.replace",
+        json!({
+            "ns": "ui-onboarding",
+            "section": {"welcomeNoticeVersion": "restart-v1"},
+            "expectedRevision": 0,
+        }),
+    )
+    .await
+    .expect("first Host persists settings");
+    assert_eq!(settings["result"]["value"]["revision"], 1);
     let (mut first_socket, _) = connect_async(format!("ws://{address}/api/events.host"))
         .await
         .expect("first websocket connects");
@@ -215,13 +254,11 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
 
     let second = spawn_host(address, &workspace.0);
     let second_list = wait_for_workspace(&client, address, &workspace.0).await;
-    assert_eq!(
-        second_list["result"]["value"]["items"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
+    let second_workspaces = second_list["result"]["value"]["items"].as_array().unwrap();
+    assert_eq!(second_workspaces.len(), 2);
+    assert!(second_workspaces.iter().any(|item| {
+        item["workspaceId"] == custom_workspace_id && item["title"] == "Restart durable"
+    }));
     let second_sessions = rpc_call(&client, address, "session.list", json!({}))
         .await
         .expect("second Host lists restored sessions");
@@ -229,6 +266,27 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
         second_sessions["result"]["value"]["items"][0]["sessionId"],
         "persisted-session"
     );
+    let second_settings = rpc_call(&client, address, "settings.describe", json!({}))
+        .await
+        .expect("second Host restores settings");
+    assert!(second_settings["result"]["value"]["namespaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|namespace| {
+            namespace["ns"] == "ui-onboarding"
+                && namespace["value"]["welcomeNoticeVersion"] == "restart-v1"
+                && namespace["revision"] == 1
+        }));
+    let replayed_create = rpc_call(
+        &client,
+        address,
+        "workspace.create",
+        json!({"path": custom_workspace.to_string_lossy()}),
+    )
+    .await
+    .expect("second Host replays the original mutation receipt");
+    assert_eq!(replayed_create, created_workspace);
     let (_second_socket, _) = connect_async(format!("ws://{address}/api/events.host"))
         .await
         .expect("new websocket connects after restart");

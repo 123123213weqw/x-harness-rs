@@ -2,7 +2,7 @@
 
 **涉及 Crate：** `xharness-session`、`xharness-session-jsonl`、`xharness-agent`、
 `xharness-host`、`xharness-host-app`  
-**状态：** 第一阶段已实现并通过真实进程重启测试。
+**状态：** Agent Session 与 Host Control 双日志恢复已实现并通过真实进程重启测试。
 
 ## 目标与真源
 
@@ -13,18 +13,20 @@ Host 进程退出后，已经成功 Flush 的 Session、模型历史和 Pending 
 
 ## 固定恢复顺序
 
-1. HTTP Listener 暴露前调用 `Store::list_headers()`；枚举结果必须已排序、已验证。
-2. 对每个 Header 完整 `load()`，重放 `InboxProjection` 和 `derive_messages()`。
-3. 从最后一个 `request/header` 恢复 Provider/Model/Reasoning Route；没有 Header 时使用当前配置。
-4. 从 Header CWD 恢复 Workspace 归属；当前配置目录映射到 `workspace-default`，其他目录生成
+1. HTTP Listener 暴露前先加载并校验 Host Control Log，恢复 Workspace/Settings/Mutation Receipt。
+2. 调用 Session `Store::list_headers()`；枚举结果必须已排序、已验证。
+3. 对每个 Header 完整 `load()`，重放 `InboxProjection` 和 `derive_messages()`。
+4. 从最后一个 `request/header` 恢复 Provider/Model/Reasoning Route；没有 Header 时使用当前配置。
+5. 从 Header CWD 恢复 Workspace 归属；当前配置目录映射到 `workspace-default`，其他目录生成
    确定性的 recovered Workspace。
-5. 把所有强类型事件确定性转换为 Web Event；Durable Turn 的一基坐标转换成 Web 的零基坐标。
-6. 对每个 Pending `next-turn` 输入，先创建独立 Agent Event Receiver 和 Prepared Turn。若日志
+6. 再次应用 Control Workspace 顺序/Tombstone，避免 Session 归属覆盖用户定制。
+7. 把所有强类型事件确定性转换为 Web Event；Durable Turn 的一基坐标转换成 Web 的零基坐标。
+8. 对每个 Pending `next-turn` 输入，先创建独立 Agent Event Receiver 和 Prepared Turn。若日志
    存在未决 `approval/asked`，同时以稳定 Approval ID 创建 Recovery Receiver。
-7. 所有 Receiver 就绪后才调用 `recover_open_turn()` 和 `wake()`；Activation 本身禁止自动执行
+9. 所有 Receiver 就绪后才调用 `recover_open_turn()` 和 `wake()`；Activation 本身禁止自动执行
    旧输入或旧审批。
-8. Runtime 返回的 Pending 数必须与 Host Projection 相同，否则启动 fail closed。
-9. 最后创建进程内 Control Channel 和 Web Driver。Host 开始监听后，客户端可从
+10. Runtime 返回的 Pending 数必须与 Host Projection 相同，否则启动 fail closed。
+11. 最后创建进程内 Control Channel 和 Web Driver。Host 开始监听后，客户端可从
    `session.list/history` 获取恢复基线。
 
 新 `followup()` 仍会自动 Wake；显式 Wake 只用于“输入在本进程启动前已经持久化”的恢复路径。
@@ -60,12 +62,11 @@ Inbox，再改变 Web Projection。
 
 ## 当前不承诺
 
-- Workspace 用户标题、排序、归档，Settings、Credential Override 与 Attachment Blob 还没有独立
-  持久日志。Pending Approval 已由 Session Log 恢复；Agent/Permission Preset、Goal 和展开的
-  Sandbox/Approval Policy 已进入 Session Log。
-- Prompt RPC Receipt 与 Permission Command Receipt 已可恢复；Workspace、Settings、Queue
-  Action 等其他变更 RPC 仍没有通用持久 Receipt/Consumed Store。Session Title 与 Agent Preset
-  选择的最终状态可恢复，但相同 RPC ID 重试仍未进入通用 Exactly-once Receipt Store。
+- Workspace 用户标题、顺序、Session 顺序、归档与 Settings 已有独立 Control Log；Credential
+  Reference 与 Attachment Blob 尚未持久化。Pending Approval 已由 Session Log 恢复；Agent/
+  Permission Preset、Goal 和展开的 Sandbox/Approval Policy 已进入 Session Log。
+- Prompt RPC Receipt、Permission Command Receipt，以及 Workspace/Settings 共 9 个变更 RPC 的
+  通用 Receipt 已可恢复；Session/Goal/Preset/Attachment 等其他变更 RPC 仍未统一接入。
 - Web History 已按权威 Session Cursor 分页查询、使用有界尾缓存并增量广播；Workspace/Settings
   等非 Session 投影仍没有统一持久查询接口。
 - Idle Plan Mode 的最终 `active` 状态已由最后一条 `plan/mode` 恢复；运行中尚未接受的 Pending

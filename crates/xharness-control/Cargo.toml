@@ -1,0 +1,20 @@
+[package]
+name = "xharness-control"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Append-only durable Host control state and exactly-once mutation receipts"
+
+[dependencies]
+async-trait.workspace = true
+fs2 = "0.4.3"
+libc = "0.2.180"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

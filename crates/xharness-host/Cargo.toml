@@ -19,6 +19,7 @@ tokio-util.workspace = true
 xharness-api = { path = "../xharness-api" }
 xharness-agent = { path = "../xharness-agent" }
 xharness-core = { path = "../xharness-core" }
+xharness-control = { path = "../xharness-control" }
 xharness-prompt = { path = "../xharness-prompt" }
 xharness-session = { path = "../xharness-session" }
 xharness-token = { path = "../xharness-token" }

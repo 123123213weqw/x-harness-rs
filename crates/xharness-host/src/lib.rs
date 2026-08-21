@@ -4,6 +4,7 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
+mod control;
 mod driver;
 mod restore;
 mod rpc;
@@ -22,6 +23,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, Mutex, OwnedMutexGuard, RwLock};
 use xharness_api::{RpcId, ServerRequest};
+use xharness_control::{ControlStore, MemoryControlStore};
 use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpec};
 use xharness_token::TokenGuard;
 
@@ -107,6 +109,8 @@ pub struct BasicHost {
     pub(crate) config: HostConfig,
     pub(crate) agent_runtime: Arc<dyn AgentRuntime>,
     pub(crate) state: Arc<RwLock<state::HostState>>,
+    pub(crate) control_store: Arc<dyn ControlStore>,
+    pub(crate) control_gate: Arc<Mutex<()>>,
     pub(crate) mux_tx: broadcast::Sender<ServerRequest>,
     pub(crate) host_tx: broadcast::Sender<ServerRequest>,
     admission_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
@@ -155,6 +159,21 @@ impl BasicHost {
         config: HostConfig,
         agent_runtime: Arc<dyn AgentRuntime>,
     ) -> Arc<Self> {
+        Self::with_agent_runtime_and_control_store(
+            config,
+            agent_runtime,
+            Arc::new(MemoryControlStore::default()),
+        )
+    }
+
+    /// Compose an Agent runtime with an independently durable Host-global
+    /// control log. Production uses JSONL; embedded callers may use the
+    /// in-memory implementation while preserving identical mutation semantics.
+    pub fn with_agent_runtime_and_control_store(
+        config: HostConfig,
+        agent_runtime: Arc<dyn AgentRuntime>,
+        control_store: Arc<dyn ControlStore>,
+    ) -> Arc<Self> {
         let capacity = config.event_capacity.max(16);
         let (mux_tx, _) = broadcast::channel(capacity);
         let (host_tx, _) = broadcast::channel(capacity);
@@ -162,6 +181,8 @@ impl BasicHost {
             state: Arc::new(RwLock::new(state::HostState::new(&config))),
             config,
             agent_runtime,
+            control_store,
+            control_gate: Arc::new(Mutex::new(())),
             mux_tx,
             host_tx,
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),

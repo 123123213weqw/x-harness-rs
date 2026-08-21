@@ -90,7 +90,8 @@ Allowed-once 之后才能首次执行。已经 Decided Allowed 但 Result 缺失
 ## 当前限制
 
 - Durable Inbox Event、Claim Batch、本机 Lease 和 Pending Approval 恢复已由 `xharness-agent`
-  接入 Host；但 Workspace、Settings、通用 Mutation Receipt 仍没有统一持久控制面。
+  接入 Host；Workspace、Settings 和首批通用 Mutation Receipt 已由独立 `xharness-control` 持久化，
+  不污染模型 Session 词汇。其余 Host Mutation 与 Credential Reference 仍待迁移。
 - Plan Mode 已有 Idle 状态日志，但运行中 Pending Pre-step、带 Message/Image 的 Steering、
   Plan Prompt Section 和 `exit_plan_mode` 工具尚未实现。
 - 尚无 Branch、Compaction Surface、Attachment Store 或远程 Multi-writer Fencing。

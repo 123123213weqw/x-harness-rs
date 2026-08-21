@@ -114,7 +114,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
   Session Header/Log 可推导的 Workspace、Session、History、模型路由、Next-turn Queue 和
   Pending Turn、Prompt RPC Receipt、Agent/Permission Policy、Permission Command Receipt、Session
   Title、Agent Preset 选择、Goal Snapshot/Tombstone、Idle Plan Mode 和 Pending Approval 交互恢复；
-  未完成自定义 Workspace 元数据、Settings 和其他变更 RPC Receipt。
+  自定义 Workspace 元数据/排序/归档、Settings 以及对应 9 个变更 RPC 的通用 Receipt 已进入
+  独立 Control Log。未完成其他 Session/Goal/Preset/Attachment 变更 RPC 的统一 Receipt、Credential
+  Reference 与 Queue 持久游标投影。
 - [x] `A-10` Admission/Claim/Request Header/Tool Call/Tool Result/Step End/Turn End 七点均有
   确定性日志前缀测试；真实子进程 SIGKILL 另加入 Approval Asked，共八点。父进程在相同 State Dir
   重启正式 JSONL Host/Core，验证不丢输入、未批准 Tool 不执行、未知 Tool 不重放、
@@ -166,6 +168,7 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [ ] `E-05` Health、Readiness、诊断包和部署状态接口。
 - [ ] `E-06` 默认 Loopback；远程模式增加 Auth、Origin、Owner/Workspace 隔离。
 - [ ] `E-07` Settings/Profile/Credential Reference 持久化且日志永不含 Secret。
+  Settings 已完成；Control Log 会拒绝非空 Secret 字段。Profile 与 Credential Reference 尚未完成。
 - [ ] `E-08` 真实 Chromium 覆盖刷新、断线、Host 重启和审批恢复。
 
 ### Batch F：生态与高级能力

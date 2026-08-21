@@ -138,6 +138,12 @@ Commit、Issue、PR 应引用这些 ID。
   Log；Host 仅保留按 Event 数和序列化 Byte 双预算约束的连续尾部，Sequence 不因驱逐重编号。
   Session Search 与 Fork 同样读取权威日志。测试覆盖尾缓存已驱逐 37/42 个事件后仍能取回完整
   42 个事件、跨页 Cursor 严格递减，以及 Host 重启前后等价。
+- [x] `DONE-44` Host Control Log 与首批通用 Mutation Receipt：新增 `xharness-control`，以
+  Append-only Event、CAS Revision、跨进程锁和 JSONL Crash-tail 恢复持久化 Workspace
+  定义/标题/排序/Session 排序/归档以及 Settings 文档。Workspace 6 个变更 RPC 与 Settings 3 个
+  变更 RPC 把状态事件和 `{rpcId, method, fingerprint, response}` 在同一 Revision 落账并 Flush；
+  同 ID/同 Payload 跨并发和重启逐字重放原响应，不同 Payload fail closed。日志递归拒绝非空
+  Password/Token/Secret/API Key 字段，真实 Host 子进程重启验证自定义 Workspace、Settings 和回执。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -157,8 +163,10 @@ Commit、Issue、PR 应引用这些 ID。
   `Store::list_headers`、Host 启动 Replay、Workspace/Session/History/Queue 重建和 Pending Turn
   显式 Wake 已完成；History 已按 Cursor 直接查询权威日志，Host Event Projection 只保留有界
   尾部。Host 内存 FIFO 已不再是模型执行输入的真源，只承担 Driver Attachment 和即时 Queue
-  Projection。剩余：把 Queue Projection 改为持久游标视图，持久化 Workspace 自定义元数据、
-  Settings 和除 Permission Command 之外其他变更 RPC 的通用 Receipt；
+  Projection。Workspace 自定义元数据、排序、归档与 Settings 已进入独立 Host Control Log，相关
+  9 个变更 RPC 使用通用 Exactly-once Receipt。剩余：把 Queue Projection 改为持久游标视图，
+  将同一 Receipt 框架扩展到 Session/Goal/Preset/Attachment 等其他变更 RPC，并实现 Secret-free
+  Credential Reference Store；
   Session Title 与 Agent Preset 选择的状态已持久化，但重复 RPC ID 的 Exactly-once Receipt 尚未统一。
   七点通用日志前缀和包含 Approval Asked 的八点真实子进程 SIGKILL/同目录重启矩阵均已完成。
   Approval Asked/Decided、Provider Retry/Started、Agent/Permission/Sandbox/Approval Policy 与

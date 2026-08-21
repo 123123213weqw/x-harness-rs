@@ -16,6 +16,7 @@ use xharness_api::{
     ApiBackend, ClientResponse, EventStream, ReceiptRejection, RpcError, RpcErrorCode, RpcId,
     RpcMethod, RpcReceipt, RpcResult, ServerRequest, SessionExport,
 };
+use xharness_control::ControlEvent;
 use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_session::{
     ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData,
@@ -25,6 +26,7 @@ use xharness_session::{
 };
 
 use crate::{
+    control::{settings_snapshot, workspace_snapshot},
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
     restore::{project_session_event_range, project_session_history},
     runtime::ModelRoute,
@@ -72,14 +74,18 @@ impl ApiBackend for BasicHost {
             RpcMethod::HostCreateDirectory => self.host_create_directory(&payload).await,
             RpcMethod::HostOpenPath => self.host_open_path(&payload).await,
             RpcMethod::WorkspaceList => self.workspace_list(&payload).await,
-            RpcMethod::WorkspaceCreate => self.workspace_create(&payload).await,
-            RpcMethod::WorkspaceRename => self.workspace_rename(&payload).await,
-            RpcMethod::WorkspaceDelete => self.workspace_delete(&payload).await,
-            RpcMethod::WorkspaceInsertBefore => self.workspace_insert_before(&payload).await,
-            RpcMethod::WorkspaceInsertSessionBefore => {
-                self.workspace_insert_session_before(&payload).await
+            RpcMethod::WorkspaceCreate => self.workspace_create(rpc_id, &payload).await,
+            RpcMethod::WorkspaceRename => self.workspace_rename(rpc_id, &payload).await,
+            RpcMethod::WorkspaceDelete => self.workspace_delete(rpc_id, &payload).await,
+            RpcMethod::WorkspaceInsertBefore => {
+                self.workspace_insert_before(rpc_id, &payload).await
             }
-            RpcMethod::WorkspaceArchiveSession => self.workspace_archive_session(&payload).await,
+            RpcMethod::WorkspaceInsertSessionBefore => {
+                self.workspace_insert_session_before(rpc_id, &payload).await
+            }
+            RpcMethod::WorkspaceArchiveSession => {
+                self.workspace_archive_session(rpc_id, &payload).await
+            }
             RpcMethod::SkillList => self.skill_list(&payload).await,
             RpcMethod::AgentPresetList => self.agent_preset_list(&payload).await,
             RpcMethod::AgentPresetSelect => self.agent_preset_select(&payload).await,
@@ -95,9 +101,9 @@ impl ApiBackend for BasicHost {
             RpcMethod::GoalClear => self.goal_clear(&payload).await,
             RpcMethod::SettingsDescribe => self.settings_describe(&payload).await,
             RpcMethod::SettingsOpenDocument => self.settings_open_document(&payload).await,
-            RpcMethod::SettingsUpdate => self.settings_update(&payload).await,
-            RpcMethod::SettingsReplace => self.settings_replace(&payload).await,
-            RpcMethod::SettingsMutate => self.settings_mutate(&payload).await,
+            RpcMethod::SettingsUpdate => self.settings_update(rpc_id, &payload).await,
+            RpcMethod::SettingsReplace => self.settings_replace(rpc_id, &payload).await,
+            RpcMethod::SettingsMutate => self.settings_mutate(rpc_id, &payload).await,
             RpcMethod::CredentialsDescribe => self.credentials_describe(&payload).await,
             RpcMethod::CredentialsSet => self.credentials_set(&payload).await,
             RpcMethod::CredentialsUnset => self.credentials_unset(&payload).await,
@@ -1604,7 +1610,14 @@ impl BasicHost {
         }))
     }
 
-    async fn workspace_create(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_create(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceCreate, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let raw_path = required_string(payload, "path")?;
         let path = canonical_directory(&raw_path).map_err(|message| {
             rpc_error(
@@ -1613,13 +1626,23 @@ impl BasicHost {
                 json!({"path": raw_path}),
             )
         })?;
-        let mut state = self.state.write().await;
+        let state = self.state.read().await;
         if let Some(existing) = state
             .workspaces
             .values()
             .find(|workspace| workspace.path == path)
         {
-            return Ok(json!({"workspace": existing, "created": false}));
+            let response = json!({"workspace": existing, "created": false});
+            drop(state);
+            return self
+                .commit_control_mutation(
+                    &rpc_id,
+                    RpcMethod::WorkspaceCreate,
+                    payload,
+                    Vec::new(),
+                    response,
+                )
+                .await;
         }
         let id = self.mint_id("workspace");
         let now = iso_now();
@@ -1637,54 +1660,128 @@ impl BasicHost {
             created_at: now.clone(),
             updated_at: now,
         };
-        state.workspace_order.push(id.clone());
-        state.workspaces.insert(id, workspace.clone());
+        let mut order = state.workspace_order.clone();
+        order.push(id);
         drop(state);
+        let response = json!({"workspace": workspace, "created": true});
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceCreate,
+                payload,
+                vec![
+                    ControlEvent::WorkspaceDefined {
+                        workspace: workspace_snapshot(&workspace),
+                    },
+                    ControlEvent::WorkspaceOrderSet {
+                        workspace_ids: order,
+                    },
+                ],
+                response,
+            )
+            .await?;
         self.push_host(json!({"type": "host/workspace-changed", "workspace": workspace}));
-        Ok(json!({"workspace": workspace, "created": true}))
+        Ok(response)
     }
 
-    async fn workspace_rename(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_rename(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceRename, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let id = required_string(payload, "workspaceId")?;
         let title = required_string(payload, "title")?.trim().to_owned();
         if title.is_empty() {
             return Err(bad_request("workspace title must not be blank"));
         }
-        let mut state = self.state.write().await;
-        let workspace = state
+        let state = self.state.read().await;
+        let mut workspace = state
             .workspaces
-            .get_mut(&id)
+            .get(&id)
+            .cloned()
             .ok_or_else(|| workspace_not_found(&id))?;
         workspace.title = title;
         workspace.updated_at = iso_now();
-        let value = serde_json::to_value(&*workspace)
+        let value = serde_json::to_value(&workspace)
             .map_err(|error| RpcError::internal(error.to_string()))?;
         drop(state);
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceRename,
+                payload,
+                vec![ControlEvent::WorkspaceDefined {
+                    workspace: workspace_snapshot(&workspace),
+                }],
+                json!({"workspace": value}),
+            )
+            .await?;
         self.push_host(json!({"type": "host/workspace-changed", "workspace": value}));
-        Ok(json!({"workspace": value}))
+        Ok(response)
     }
 
-    async fn workspace_delete(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_delete(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceDelete, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let id = required_string(payload, "workspaceId")?;
-        let mut state = self.state.write().await;
-        if state.workspaces.remove(&id).is_none() {
+        let state = self.state.read().await;
+        if !state.workspaces.contains_key(&id) {
             return Err(workspace_not_found(&id));
         }
-        state.workspace_order.retain(|candidate| candidate != &id);
-        let order = state.workspace_order.clone();
+        let order = state
+            .workspace_order
+            .iter()
+            .filter(|candidate| *candidate != &id)
+            .cloned()
+            .collect::<Vec<_>>();
         drop(state);
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceDelete,
+                payload,
+                vec![
+                    ControlEvent::WorkspaceRemoved {
+                        workspace_id: id.clone(),
+                    },
+                    ControlEvent::WorkspaceOrderSet {
+                        workspace_ids: order.clone(),
+                    },
+                ],
+                json!({"deleted": true}),
+            )
+            .await?;
         self.push_host(json!({"type": "host/workspace-removed", "workspaceId": id}));
         self.push_host(json!({
             "type": "host/workspace-order-changed",
             "workspaceIds": order,
         }));
-        Ok(json!({"deleted": true}))
+        Ok(response)
     }
 
-    async fn workspace_insert_before(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_insert_before(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceInsertBefore, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let id = required_string(payload, "workspaceId")?;
         let before = optional_string(payload, "beforeWorkspaceId")?;
-        let mut state = self.state.write().await;
+        let state = self.state.read().await;
         if !state.workspaces.contains_key(&id) {
             return Err(workspace_not_found(&id));
         }
@@ -1697,37 +1794,59 @@ impl BasicHost {
                 ));
             }
         }
-        state.workspace_order.retain(|candidate| candidate != &id);
+        let mut order = state
+            .workspace_order
+            .iter()
+            .filter(|candidate| *candidate != &id)
+            .cloned()
+            .collect::<Vec<_>>();
         let index = before
             .as_ref()
-            .and_then(|anchor| {
-                state
-                    .workspace_order
-                    .iter()
-                    .position(|candidate| candidate == anchor)
-            })
-            .unwrap_or(state.workspace_order.len());
-        state.workspace_order.insert(index, id);
-        let order = state.workspace_order.clone();
+            .and_then(|anchor| order.iter().position(|candidate| candidate == anchor))
+            .unwrap_or(order.len());
+        order.insert(index, id);
         drop(state);
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceInsertBefore,
+                payload,
+                vec![ControlEvent::WorkspaceOrderSet {
+                    workspace_ids: order.clone(),
+                }],
+                json!({"workspaceIds": order}),
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/workspace-order-changed",
             "workspaceIds": order,
         }));
-        Ok(json!({"workspaceIds": order}))
+        Ok(response)
     }
 
-    async fn workspace_insert_session_before(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_insert_session_before(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceInsertSessionBefore, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let workspace_id = required_string(payload, "workspaceId")?;
         let session_id = required_string(payload, "sessionId")?;
         let before = optional_string(payload, "beforeSessionId")?;
-        let mut state = self.state.write().await;
+        let state = self.state.read().await;
         if !state.sessions.contains_key(&session_id) {
             return Err(session_not_found(&session_id));
         }
-        let workspace = state
+        let mut workspace = state
             .workspaces
-            .get_mut(&workspace_id)
+            .get(&workspace_id)
+            .cloned()
             .ok_or_else(|| workspace_not_found(&workspace_id))?;
         if let Some(before) = &before {
             if before == &session_id || !workspace.session_ids.contains(before) {
@@ -1752,27 +1871,61 @@ impl BasicHost {
             .unwrap_or(workspace.session_ids.len());
         workspace.session_ids.insert(index, session_id);
         workspace.updated_at = iso_now();
-        let value = serde_json::to_value(&*workspace)
+        let value = serde_json::to_value(&workspace)
             .map_err(|error| RpcError::internal(error.to_string()))?;
         drop(state);
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceInsertSessionBefore,
+                payload,
+                vec![ControlEvent::WorkspaceDefined {
+                    workspace: workspace_snapshot(&workspace),
+                }],
+                json!({"workspace": value}),
+            )
+            .await?;
         self.push_host(json!({"type": "host/workspace-changed", "workspace": value}));
-        Ok(json!({"workspace": value}))
+        Ok(response)
     }
 
-    async fn workspace_archive_session(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn workspace_archive_session(
+        &self,
+        rpc_id: RpcId,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::WorkspaceArchiveSession, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let session_id = required_string(payload, "sessionId")?;
-        let mut state = self.state.write().await;
+        let state = self.state.read().await;
         if !state.sessions.contains_key(&session_id) {
             return Err(session_not_found(&session_id));
         }
-        state.archived_sessions.insert(session_id);
-        let archived = state.archived_sessions.clone();
+        let mut archived = state.archived_sessions.clone();
+        archived.insert(session_id);
         drop(state);
+        let archived_ids = archived.iter().cloned().collect::<Vec<_>>();
+        let response = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::WorkspaceArchiveSession,
+                payload,
+                vec![ControlEvent::ArchivedSessionsSet {
+                    session_ids: archived_ids,
+                }],
+                json!({"archivedSessionIds": archived}),
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/archived-sessions-changed",
             "archivedSessionIds": archived,
         }));
-        Ok(json!({"archivedSessionIds": archived}))
+        Ok(response)
     }
 
     async fn skill_list(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -2137,7 +2290,14 @@ impl BasicHost {
         Ok(json!({"opened": true}))
     }
 
-    async fn settings_update(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn settings_update(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::SettingsUpdate, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let ns = nonempty(required_string(payload, "ns")?, "ns")?;
         let patch = payload
             .get("patch")
@@ -2148,17 +2308,29 @@ impl BasicHost {
         if ns == "permission" {
             validate_permission_patch(&patch)?;
         }
-        let mut state = self.state.write().await;
-        let namespace = state
+        let state = self.state.read().await;
+        let mut namespace = state
             .settings
-            .get_mut(&ns)
+            .get(&ns)
+            .cloned()
             .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(namespace, expected)?;
+        check_revision(&namespace, expected)?;
         merge_object(&mut namespace.user, &Value::Object(patch));
         merge_object(&mut namespace.value, &namespace.user);
         namespace.revision = namespace.revision.saturating_add(1);
         let view = namespace.view();
         drop(state);
+        let view = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::SettingsUpdate,
+                payload,
+                vec![ControlEvent::SettingsSet {
+                    settings: settings_snapshot(&namespace),
+                }],
+                view,
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
@@ -2167,7 +2339,14 @@ impl BasicHost {
         Ok(view)
     }
 
-    async fn settings_replace(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn settings_replace(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::SettingsReplace, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let ns = nonempty(required_string(payload, "ns")?, "ns")?;
         let section = payload
             .get("section")
@@ -2178,17 +2357,29 @@ impl BasicHost {
         if ns == "permission" {
             validate_permission_section(&section)?;
         }
-        let mut state = self.state.write().await;
-        let namespace = state
+        let state = self.state.read().await;
+        let mut namespace = state
             .settings
-            .get_mut(&ns)
+            .get(&ns)
+            .cloned()
             .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(namespace, expected)?;
+        check_revision(&namespace, expected)?;
         namespace.user = Value::Object(section.clone());
         namespace.value = Value::Object(section);
         namespace.revision = namespace.revision.saturating_add(1);
         let view = namespace.view();
         drop(state);
+        let view = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::SettingsReplace,
+                payload,
+                vec![ControlEvent::SettingsSet {
+                    settings: settings_snapshot(&namespace),
+                }],
+                view,
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
@@ -2197,16 +2388,24 @@ impl BasicHost {
         Ok(view)
     }
 
-    async fn settings_mutate(&self, payload: &Value) -> Result<Value, RpcError> {
+    async fn settings_mutate(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
+        let _control_guard = self.control_gate.lock().await;
+        if let Some(response) = self
+            .replay_control_receipt(&rpc_id, RpcMethod::SettingsMutate, payload)
+            .await?
+        {
+            return Ok(response);
+        }
         let ns = nonempty(required_string(payload, "ns")?, "ns")?;
         let ops = required_array(payload, "ops")?.clone();
         let expected = optional_u64(payload, "expectedRevision")?;
-        let mut state = self.state.write().await;
-        let namespace = state
+        let state = self.state.read().await;
+        let mut namespace = state
             .settings
-            .get_mut(&ns)
+            .get(&ns)
+            .cloned()
             .ok_or_else(|| settings_rejected(&ns))?;
-        check_revision(namespace, expected)?;
+        check_revision(&namespace, expected)?;
         for op in ops {
             let kind = op
                 .get("op")
@@ -2248,6 +2447,17 @@ impl BasicHost {
         namespace.revision = namespace.revision.saturating_add(1);
         let view = namespace.view();
         drop(state);
+        let view = self
+            .commit_control_mutation(
+                &rpc_id,
+                RpcMethod::SettingsMutate,
+                payload,
+                vec![ControlEvent::SettingsSet {
+                    settings: settings_snapshot(&namespace),
+                }],
+                view,
+            )
+            .await?;
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
