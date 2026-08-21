@@ -70,7 +70,11 @@ async fn argv_is_not_interpreted_by_a_shell_and_cwd_is_explicit() {
         .wait()
         .await
         .unwrap();
-    assert_eq!(pwd.stdout.text.trim_end(), dir.path().to_str().unwrap());
+    assert_eq!(
+        fs::canonicalize(pwd.stdout.text.trim_end()).unwrap(),
+        fs::canonicalize(dir.path()).unwrap(),
+        "macOS may report /private/var for the /var symlink"
+    );
 
     let environment = ProcessRuntime::new()
         .spawn(SpawnSpec::new("/usr/bin/env", dir.path()).env("XHARNESS_VISIBLE", "explicit-value"))
