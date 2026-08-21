@@ -5,7 +5,7 @@ use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopSta
 use xharness_session::SessionEvent;
 
 use crate::{
-    restore::{project_session_events, restored_agent_preset, restored_permission},
+    restore::{project_session_events, restored_agent_preset, restored_permission, restored_title},
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute},
     state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
     BasicHost,
@@ -110,6 +110,7 @@ impl BasicHost {
         let projected = project_session_events(&session, &route);
         let permission = restored_permission(&session);
         let agent_preset = restored_agent_preset(&session);
+        let title = restored_title(&session);
         let next_seq = session.next_seq();
         let new_events =
             {
@@ -132,6 +133,7 @@ impl BasicHost {
                 record.messages = session.derive_messages();
                 record.permission_preset = permission;
                 record.agent_preset = agent_preset;
+                record.title = title;
                 record.updated_at = session
                     .events()
                     .last()

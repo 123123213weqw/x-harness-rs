@@ -689,6 +689,37 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     }
                 }
             }
+            EventData::SessionTitle {
+                title,
+                message_seqs,
+                source,
+            } => {
+                if title.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "session/title title must be non-empty",
+                    ));
+                }
+                let user_owned = matches!(source, crate::SessionTitleSource::User);
+                if message_seqs.is_empty() != user_owned {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "session/title messageSeqs must be empty exactly for a user source",
+                    ));
+                }
+                if let crate::SessionTitleSource::Provider { provider, model } = source {
+                    if provider.trim().is_empty()
+                        || model.as_ref().is_some_and(|model| {
+                            model.provider.trim().is_empty() || model.model.trim().is_empty()
+                        })
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "session/title provider provenance must be non-empty",
+                        ));
+                    }
+                }
+            }
             EventData::LlmRetry {
                 retry_id,
                 turn,

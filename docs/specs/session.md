@@ -18,11 +18,12 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
 
 ## 事件词汇
 
-当前强类型 Log 覆盖冻结目录中的 22 个事件：
+当前强类型 Log 覆盖冻结目录中的 23 个事件：
 
 - Agent/权限控制面：`agent-preset/selected`、`agent/inbox/spliced`、`permission/preset`、
   `sandbox/mode`、`approval/policy`；
 - 审批和命令审计：`approval/asked`、`approval/decided`、`command/run`、`command/done`；
+- Session 元数据：`session/title`（latest-wins、log-only，不进入模型历史）；
 - Provider 生命周期：`request/header`、`llm/retry`、`llm/retry-started`、`assistant/chunk`、
   `assistant/message`；
 - Turn/Step 和工具：`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、

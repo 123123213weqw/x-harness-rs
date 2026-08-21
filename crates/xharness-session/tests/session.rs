@@ -5,8 +5,8 @@ use xharness_session::{
     derive_messages, incomplete_tool_calls, ApprovalOutcome, ApprovalPolicy, AssistantChunk,
     CommandResultKind, CommandSource, EventData, LlmFailure, LlmRetryMode, LoggedEvent,
     MemorySessionStore, Message, MessageRole, PolicySource, RequestHeader, Revision, Session,
-    SessionError, SessionEvent, SessionHeader, SessionSandboxMode, Store, StoreError, ToolCall,
-    ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
+    SessionError, SessionEvent, SessionHeader, SessionSandboxMode, SessionTitleSource, Store,
+    StoreError, ToolCall, ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
 };
 
 fn header(id: &str) -> SessionHeader {
@@ -182,6 +182,11 @@ fn every_first_version_event_round_trips_through_serde() {
             kind: CommandResultKind::Success,
             text: Some("updated".to_owned()),
             source_event_seq: None,
+        }),
+        event(EventData::SessionTitle {
+            title: "A durable title".to_owned(),
+            message_seqs: Vec::new(),
+            source: SessionTitleSource::User,
         }),
         event(EventData::LlmRetry {
             retry_id: "retry-1".to_owned(),
@@ -415,6 +420,48 @@ fn command_lifecycle_and_permission_policy_are_durable_outside_turns() {
                 kind: CommandResultKind::Success,
                 text: None,
                 source_event_seq: None,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+}
+
+#[test]
+fn session_title_source_and_message_sequences_are_validated_atomically() {
+    let mut session = Session::new(header("title-lifecycle")).unwrap();
+    session
+        .append(
+            Revision::ZERO,
+            event(EventData::SessionTitle {
+                title: "User title".to_owned(),
+                message_seqs: Vec::new(),
+                source: SessionTitleSource::User,
+            }),
+        )
+        .unwrap();
+
+    let revision = session.revision();
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::SessionTitle {
+                title: "Invalid fallback".to_owned(),
+                message_seqs: Vec::new(),
+                source: SessionTitleSource::Fallback,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::SessionTitle {
+                title: "Invalid user reference".to_owned(),
+                message_seqs: vec![0],
+                source: SessionTitleSource::User,
             })
         ),
         Err(SessionError::InvalidLifecycle { .. })

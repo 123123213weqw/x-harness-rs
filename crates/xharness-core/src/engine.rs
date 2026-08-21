@@ -649,6 +649,7 @@ impl Runner {
                                 SessionEventData::AgentInboxSpliced { .. }
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }
+                                    | SessionEventData::SessionTitle { .. }
                             )
                         })
                     {
