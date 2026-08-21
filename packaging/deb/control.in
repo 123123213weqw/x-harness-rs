@@ -1,0 +1,11 @@
+Package: xharness
+Version: @VERSION@
+Section: devel
+Priority: optional
+Architecture: @ARCH@
+Maintainer: XHarness Maintainers <noreply@example.invalid>
+Depends: libc6, ca-certificates, bash, util-linux, ripgrep, bubblewrap (>= 0.6), apparmor, apparmor-utils, apparmor-profiles
+Description: Rust coding-agent host with native sandbox setup
+ XHarness provides a provider-neutral Rust agent loop, Web host, and native
+ coding tools. Installation configures and verifies a restricted Bubblewrap
+ execution backend without globally disabling AppArmor user-namespace policy.

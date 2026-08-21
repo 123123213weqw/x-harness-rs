@@ -1,22 +1,17 @@
 [package]
-name = "xharness-core"
+name = "xharness-context"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Embeddable async agent loop for XHarness"
+description = "Provider-neutral model-visible context projection for XHarness"
 
 [dependencies]
 async-trait.workspace = true
-futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
-tokio-stream.workspace = true
-tokio-util.workspace = true
-xharness-context = { path = "../xharness-context" }
 xharness-session = { path = "../xharness-session" }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

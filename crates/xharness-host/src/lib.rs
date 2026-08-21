@@ -5,8 +5,8 @@
 //! while session prompts are driven by the provider-neutral Rust loop.
 
 mod driver;
-mod native;
 mod rpc;
+mod runtime;
 mod state;
 
 use std::{
@@ -21,9 +21,11 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, RwLock};
 use xharness_api::{RpcId, ServerRequest};
-use xharness_core::{ModelProvider, ToolSpec};
+use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpec};
 
-pub use native::NativeToolFactory;
+pub use runtime::{
+    AgentRuntime, AgentRuntimeError, AgentTurnRequest, LoopAgentRuntime, ModelRoute, RunningTurn,
+};
 pub use state::{AgentPreset, GoalState, SessionRecord, WorkspaceRecord};
 
 /// Host process configuration visible at the browser boundary.
@@ -76,8 +78,7 @@ impl SessionToolFactory for NoTools {
 #[derive(Clone)]
 pub struct BasicHost {
     pub(crate) config: HostConfig,
-    pub(crate) provider: Option<Arc<dyn ModelProvider>>,
-    pub(crate) tool_factory: Arc<dyn SessionToolFactory>,
+    pub(crate) agent_runtime: Arc<dyn AgentRuntime>,
     pub(crate) state: Arc<RwLock<state::HostState>>,
     pub(crate) mux_tx: broadcast::Sender<ServerRequest>,
     pub(crate) host_tx: broadcast::Sender<ServerRequest>,
@@ -90,14 +91,46 @@ impl BasicHost {
         provider: Option<Arc<dyn ModelProvider>>,
         tool_factory: Arc<dyn SessionToolFactory>,
     ) -> Arc<Self> {
+        Self::new_with_context_policy(
+            config,
+            provider,
+            tool_factory,
+            Arc::new(IdentityContextPolicy),
+        )
+    }
+
+    /// Build a Host around replaceable model, tool and context capabilities.
+    /// Native OS composition belongs in `xharness-host-app`, not this control
+    /// plane library.
+    pub fn new_with_context_policy(
+        config: HostConfig,
+        provider: Option<Arc<dyn ModelProvider>>,
+        tool_factory: Arc<dyn SessionToolFactory>,
+        context_policy: Arc<dyn ContextPolicy>,
+    ) -> Arc<Self> {
+        let agent_runtime = Arc::new(LoopAgentRuntime::new(
+            config.provider_id.clone(),
+            config.model_id.clone(),
+            provider,
+            tool_factory,
+            context_policy,
+        ));
+        Self::with_agent_runtime(config, agent_runtime)
+    }
+
+    /// Primary constructor for alternative durable or remote Agent runtimes.
+    /// The Host owns only Web-facing state and projections.
+    pub fn with_agent_runtime(
+        config: HostConfig,
+        agent_runtime: Arc<dyn AgentRuntime>,
+    ) -> Arc<Self> {
         let capacity = config.event_capacity.max(16);
         let (mux_tx, _) = broadcast::channel(capacity);
         let (host_tx, _) = broadcast::channel(capacity);
         Arc::new(Self {
             state: Arc::new(RwLock::new(state::HostState::new(&config))),
             config,
-            provider,
-            tool_factory,
+            agent_runtime,
             mux_tx,
             host_tx,
             next_id: Arc::new(AtomicU64::new(1)),

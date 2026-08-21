@@ -19,6 +19,7 @@ use xharness_core::LoopCommand;
 
 use crate::{
     driver::rpc_error,
+    runtime::ModelRoute,
     state::{
         iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
         PendingResponse, SessionRecord, SettingsNamespace, WorkspaceRecord,
@@ -450,9 +451,14 @@ impl BasicHost {
             .sessions
             .get(&session_id)
             .ok_or_else(|| session_not_found(&session_id))?;
+        let route = ModelRoute {
+            provider: session.model.provider.clone(),
+            model: session.model.model.clone(),
+            reasoning_effort: session.model.reasoning_effort.clone(),
+        };
         Ok(json!({
             "current": session.model,
-            "routable": self.provider.is_some(),
+            "routable": self.agent_runtime.can_route(&route),
             "groups": self.model_groups(),
             "failures": [],
         }))
@@ -1594,7 +1600,7 @@ impl BasicHost {
                 "displayName": self.config.provider_display_name,
                 "settingsNs": "xharness",
                 "settingsPath": [],
-                "active": self.provider.is_some(),
+                "active": self.agent_runtime.has_available_route(),
                 "declared": true,
             }],
         }))
@@ -1613,7 +1619,7 @@ impl BasicHost {
     }
 
     fn model_groups(&self) -> Vec<Value> {
-        if self.provider.is_none() {
+        if !self.agent_runtime.has_available_route() {
             return Vec::new();
         }
         vec![json!({

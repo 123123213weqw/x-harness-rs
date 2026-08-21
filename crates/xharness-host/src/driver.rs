@@ -1,14 +1,10 @@
-use std::sync::Arc;
-
-use futures::StreamExt;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use xharness_api::{RpcError, RpcErrorCode, RpcId};
-use xharness_core::{
-    AgentMessage, LoopCommand, LoopEngine, LoopEvent, LoopEventKind, LoopRequest, LoopStatus, Role,
-};
+use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
 
 use crate::{
+    runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute},
     state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
     BasicHost,
 };
@@ -103,14 +99,6 @@ impl BasicHost {
         content: Vec<Value>,
         source: Value,
     ) -> Result<(), RpcError> {
-        if self.provider.is_none() {
-            return Err(rpc_error(
-                RpcErrorCode::ModelUnavailable,
-                "no model provider is configured",
-                json!({"provider": self.config.provider_id, "model": self.config.model_id}),
-            ));
-        }
-
         let steer_control = {
             let state = self.state.read().await;
             let session = state.sessions.get(session_id).ok_or_else(|| {
@@ -120,6 +108,21 @@ impl BasicHost {
                     json!({"sessionId": session_id}),
                 )
             })?;
+            let route = ModelRoute {
+                provider: session.model.provider.clone(),
+                model: session.model.model.clone(),
+                reasoning_effort: session.model.reasoning_effort.clone(),
+            };
+            if !self.agent_runtime.can_route(&route) {
+                return Err(rpc_error(
+                    RpcErrorCode::ModelUnavailable,
+                    format!(
+                        "model route {}/{} is unavailable",
+                        route.provider, route.model
+                    ),
+                    json!({"provider": route.provider, "model": route.model}),
+                ));
+            }
             if mode == "steer" && session.running {
                 session.control.clone()
             } else {
@@ -251,7 +254,7 @@ impl BasicHost {
         prompt: QueuedPrompt,
         control_rx: &mut mpsc::Receiver<DriverCommand>,
     ) -> Result<(), RpcError> {
-        let (turn, cwd, messages) = {
+        let (turn, cwd, route, messages) = {
             let mut state = self.state.write().await;
             let session = state.sessions.get_mut(session_id).ok_or_else(|| {
                 rpc_error(
@@ -265,7 +268,16 @@ impl BasicHost {
             session
                 .messages
                 .push(AgentMessage::new(Role::User, prompt.text.clone()));
-            (turn, session.cwd.clone(), session.messages.clone())
+            (
+                turn,
+                session.cwd.clone(),
+                ModelRoute {
+                    provider: session.model.provider.clone(),
+                    model: session.model.model.clone(),
+                    reasoning_effort: session.model.reasoning_effort.clone(),
+                },
+                session.messages.clone(),
+            )
         };
 
         self.append_session_event(
@@ -286,21 +298,21 @@ impl BasicHost {
         )
         .await?;
 
-        let provider = Arc::clone(self.provider.as_ref().expect("checked before enqueue"));
-        let tools = self
-            .tool_factory
-            .tools(session_id, &cwd)
+        let mut run = self
+            .agent_runtime
+            .start_turn(AgentTurnRequest {
+                session_id: session_id.to_owned(),
+                cwd,
+                route,
+                messages,
+            })
             .await
-            .map_err(|message| RpcError::internal(format!("could not prepare tools: {message}")))?;
-        let mut request = LoopRequest::new(provider, messages);
-        request.session_id = Some(session_id.to_owned());
-        request.tools = tools;
-        let mut run = LoopEngine.start(request);
+            .map_err(agent_runtime_error)?;
         let mut current_step = None;
 
         loop {
             tokio::select! {
-                event = run.next() => match event {
+                event = run.next_event() => match event {
                     Some(event) => {
                         self.project_loop_event(session_id, turn, &mut current_step, event)
                             .await?;
@@ -604,6 +616,19 @@ pub(crate) fn rpc_error(
         code,
         message: message.into(),
         details,
+    }
+}
+
+fn agent_runtime_error(error: AgentRuntimeError) -> RpcError {
+    match error {
+        AgentRuntimeError::ModelUnavailable { provider, model } => rpc_error(
+            RpcErrorCode::ModelUnavailable,
+            format!("model route {provider}/{model} is unavailable"),
+            json!({"provider": provider, "model": model}),
+        ),
+        AgentRuntimeError::Preparation { message } => {
+            RpcError::internal(format!("could not prepare agent turn: {message}"))
+        }
     }
 }
 

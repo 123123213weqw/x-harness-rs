@@ -271,6 +271,26 @@ impl HostState {
                 revision: 0,
             },
         );
+        // The upstream Web shell persists its versioned first-run notice in
+        // this Host-only namespace.  Keeping the namespace in the Rust Host
+        // makes the repository Web usable without a Node settings service.
+        settings.insert(
+            "ui-onboarding".to_owned(),
+            SettingsNamespace {
+                ns: "ui-onboarding".to_owned(),
+                schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "welcomeNoticeVersion": {"type": "string"},
+                    },
+                    "additionalProperties": false,
+                }),
+                value: json!({}),
+                user: json!({}),
+                applies: "immediate".to_owned(),
+                revision: 0,
+            },
+        );
         Self {
             sessions: BTreeMap::new(),
             workspaces: BTreeMap::new(),

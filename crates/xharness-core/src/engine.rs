@@ -10,7 +10,7 @@ use std::{
 };
 
 use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
@@ -20,10 +20,10 @@ use xharness_session::{
 };
 
 use crate::{
-    tool_result_for_model, AgentMessage, FinishReason, InjectionMode, LoopCommand,
-    LoopControlError, LoopEvent, LoopEventKind, LoopRequest, LoopResult, LoopStatus, ProviderError,
-    ProviderEvent, ProviderRequest, Role, SessionSnapshot, StepUsage, TokenUsage, ToolCall,
-    ToolConcurrency, ToolResult, ToolSpec,
+    tool_result_for_model, AgentMessage, ContextRequest, ContextSurface, FinishReason,
+    InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind, LoopRequest,
+    LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role, SessionSnapshot,
+    StepUsage, TokenUsage, ToolCall, ToolConcurrency, ToolResult, ToolSpec,
 };
 
 static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -304,13 +304,33 @@ impl Runner {
             self.settle_control_at_boundary().await?;
             self.step += 1;
             self.journal_step_start().await?;
+            let context_tools = self
+                .request
+                .tools
+                .iter()
+                .map(|tool| serde_json::to_value(&tool.definition))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| {
+                    RunFailure::Failed(format!("could not serialize tool schema: {error}"))
+                })?;
+            let context_request = ContextRequest::new(self.messages.clone())
+                .with_target(
+                    self.request.provider.provider_name(),
+                    self.request.provider.model_name(),
+                )
+                .with_step(self.step)
+                .with_tools(context_tools);
             let prepared = self
                 .request
                 .context_policy
-                .prepare(&self.messages)
+                .prepare(context_request)
                 .await
-                .map_err(RunFailure::Failed)?;
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
+            prepared
+                .validate()
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
             self.journal_request_header(&prepared).await?;
+            let prepared = prepared.into_messages();
 
             let mut model = self.model_round(prepared).await?;
             // The durable session contract requires call ids to be globally
@@ -602,7 +622,7 @@ impl Runner {
         Ok(())
     }
 
-    async fn journal_request_header(&mut self, input: &[AgentMessage]) -> Result<(), RunFailure> {
+    async fn journal_request_header(&mut self, surface: &ContextSurface) -> Result<(), RunFailure> {
         if self.journal.is_none() {
             return Ok(());
         }
@@ -613,7 +633,8 @@ impl Runner {
             .model_name()
             .unwrap_or("unknown")
             .to_owned();
-        let system = input
+        let system = surface
+            .messages
             .iter()
             .filter(|message| message.role == Role::System)
             .map(|message| message.content.as_str())
@@ -631,10 +652,19 @@ impl Runner {
         let mut header = RequestHeader::new(provider, model);
         header.system = (!system.is_empty()).then_some(system);
         header.tools = tools;
-        header.input = input.to_vec();
+        header.input = surface.messages.clone();
         header
             .options
             .insert("step".to_owned(), Value::from(self.step as u64));
+        header.options.insert(
+            "context".to_owned(),
+            json!({
+                "policy": surface.policy,
+                "source_message_count": surface.source_message_count,
+                "visible_message_count": surface.messages.len(),
+                "edits": surface.edits,
+            }),
+        );
         self.journal_append(vec![SessionEventData::RequestHeader { header }], true)
             .await
     }
