@@ -27,6 +27,7 @@ fn event(data: EventData) -> SessionEvent {
 fn call(id: &str, index: usize) -> ToolCall {
     ToolCall {
         id: id.to_owned(),
+        provider_call_id: None,
         index,
         name: "read_file".to_owned(),
         arguments_json: r#"{"path":"README.md"}"#.to_owned(),
@@ -80,6 +81,16 @@ fn message_constructors_and_role_spellings_are_stable() {
         Message::assistant("world"),
         Message::new(MessageRole::Assistant, "world")
     );
+
+    let legacy: ToolCall = serde_json::from_value(json!({
+        "id": "legacy-call",
+        "index": 0,
+        "name": "read",
+        "arguments_json": "{}"
+    }))
+    .unwrap();
+    assert_eq!(legacy.provider_call_id, None);
+    assert_eq!(legacy.provider_id(), "legacy-call");
 }
 
 #[test]
@@ -609,7 +620,9 @@ fn goal_changes_require_full_monotonic_snapshots_and_a_revisioned_tombstone() {
 fn derive_messages_is_a_pure_surface_projection() {
     let mut assistant = Message::assistant("I will read it");
     assistant.reasoning = "need the file".to_owned();
-    assistant.tool_calls = vec![call("call-1", 0)];
+    let mut tool_call = call("execution-1", 0);
+    tool_call.provider_call_id = Some("provider-call-1".to_owned());
+    assistant.tool_calls = vec![tool_call.clone()];
     let mut session = Session::new(header("s1")).unwrap();
     session
         .append_batch_at(
@@ -637,12 +650,12 @@ fn derive_messages_is_a_pure_surface_projection() {
                 event(EventData::ToolCall {
                     turn: 1,
                     step: 1,
-                    call: call("call-1", 0),
+                    call: tool_call,
                 }),
                 event(EventData::ToolResult {
                     turn: 1,
                     step: 1,
-                    result: ToolResultData::success("call-1", "contents"),
+                    result: ToolResultData::success("execution-1", "contents"),
                 }),
                 event(EventData::StepEnd { turn: 1, step: 1 }),
             ],
@@ -653,7 +666,7 @@ fn derive_messages_is_a_pure_surface_projection() {
     let expected = vec![
         Message::user("read README"),
         assistant,
-        Message::tool("call-1", "contents"),
+        Message::tool("provider-call-1", "contents"),
     ];
     assert_eq!(session.derive_messages(), expected);
     assert_eq!(derive_messages(session.events()), expected);
@@ -669,6 +682,28 @@ fn message_roles_and_tool_pairing_are_validated_atomically() {
     assert!(matches!(
         session.append(Revision::ZERO, invalid_role),
         Err(SessionError::InvalidMessageRole { .. })
+    ));
+    assert!(session.events().is_empty());
+
+    let mut invalid_call = call("execution-1", 0);
+    invalid_call.provider_call_id = Some(String::new());
+    let mut assistant = Message::assistant("");
+    assistant.tool_calls.push(invalid_call);
+    assert!(matches!(
+        session.append_batch(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }),
+            ],
+        ),
+        Err(SessionError::EmptyProviderToolCallId { .. })
     ));
     assert!(session.events().is_empty());
 

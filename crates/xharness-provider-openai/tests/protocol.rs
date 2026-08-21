@@ -6,7 +6,8 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
-    AgentMessage, FinishReason, ModelProvider, ProviderEvent, ProviderRequest, ToolDefinition,
+    AgentMessage, FinishReason, ModelProvider, ProviderEvent, ProviderRequest, ToolCall,
+    ToolDefinition,
 };
 use xharness_provider_openai::*;
 
@@ -93,6 +94,37 @@ fn chat_request_and_stream_are_normalized() {
             && usage.reasoning_tokens == 2
     ));
     normalizer.finish().unwrap();
+}
+
+#[test]
+fn protocol_replay_uses_provider_call_id_not_internal_execution_id() {
+    let call = ToolCall {
+        id: "execution-1".to_owned(),
+        provider_call_id: Some("provider-call-1".to_owned()),
+        index: 0,
+        name: "echo".to_owned(),
+        arguments_json: "{}".to_owned(),
+    };
+    let mut assistant = AgentMessage::assistant("");
+    assistant.tool_calls.push(call);
+    let request = ProviderRequest {
+        messages: vec![assistant, AgentMessage::tool("provider-call-1", "output")],
+        tools: Vec::new(),
+        step: 2,
+        max_output_tokens: None,
+    };
+
+    let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
+    assert_eq!(
+        chat["messages"][0]["tool_calls"][0]["id"],
+        "provider-call-1"
+    );
+    assert_eq!(chat["messages"][1]["tool_call_id"], "provider-call-1");
+    assert_ne!(chat["messages"][0]["tool_calls"][0]["id"], "execution-1");
+
+    let responses = build_openai_request(OpenAiProtocol::Responses, "model", &request);
+    assert_eq!(responses["input"][1]["call_id"], "provider-call-1");
+    assert_eq!(responses["input"][2]["call_id"], "provider-call-1");
 }
 
 #[test]

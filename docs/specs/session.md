@@ -36,6 +36,10 @@ Tool 原始参数 JSON 必须保留。Provider 可见值只放在 Request/Messag
 Permission Preset、Sandbox Mode 与 Approval Policy；`/permission` 使用
 `command/run → policy events → command/done` 的固定顺序。
 
+每个 `ToolCall` 同时保存 Harness Execution ID 和可选 Provider Native Call ID。Execution ID 在
+Session 内全局唯一，是 `tool/result`、Approval 与审计关联键；Provider ID 只用于重建下一次
+Chat/Responses 请求。旧日志没有 Provider ID 时，投影确定性回退到 Execution ID。
+
 ## 生命周期校验
 
 Restore 和 Append 必须校验 Turn/Step 嵌套、坐标一致、消息角色、Assistant 与 Tool Call
@@ -57,7 +61,8 @@ Plan Mode 当前只持久化已经接受的稳定状态：不存在事件等价�
 ## 投影与恢复
 
 `derive_messages()` 必须确定、无副作用。它忽略只用于审计的 Chunk 和边界，同时逐字节
-保留完整 User、Assistant 和 Tool Message。
+保留完整 User、Assistant 和 Tool Message。Tool Result 投影会通过对应 `tool/call` 把内部
+Execution ID 还原为 Provider Native Call ID，确保无状态协议重放关联正确。
 
 完整 Transcript 与“下一次模型可见 Surface”必须分离。Context Policy 可以引用原始消息、
 追加 Summary/Spill Metadata 或选择 Surface Replace，但禁止覆盖/删除原始 Tool Result。

@@ -116,7 +116,7 @@ fn encode_chat_message(message: &AgentMessage) -> Value {
                     .iter()
                     .map(|call| {
                         json!({
-                            "id": call.id,
+                            "id": call.provider_id(),
                             "type": "function",
                             "function": {
                                 "name": call.name,
@@ -161,7 +161,7 @@ fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
 fn encode_response_tool_call(call: &ToolCall) -> Value {
     json!({
         "type": "function_call",
-        "call_id": call.id,
+        "call_id": call.provider_id(),
         "name": call.name,
         "arguments": call.arguments_json,
     })

@@ -86,6 +86,8 @@ pub enum SessionError {
     InvalidMessageRole { seq: Sequence, role: &'static str },
     #[error("tool call id must not be empty at seq {seq}")]
     EmptyToolCallId { seq: Sequence },
+    #[error("provider-native tool call id must not be empty at seq {seq}")]
+    EmptyProviderToolCallId { seq: Sequence },
     #[error("tool name must not be empty at seq {seq}")]
     EmptyToolName { seq: Sequence },
     #[error("duplicate tool call id {call_id:?} at seq {seq}")]
@@ -259,19 +261,31 @@ impl Session {
 /// Pure provider-history projection. Raw chunks, lifecycle boundaries, request
 /// headers, and tool-call audit facts never become a second message.
 pub fn derive_messages(events: &[LoggedEvent]) -> Vec<Message> {
-    events
-        .iter()
-        .filter_map(|logged| match logged.data() {
-            EventData::UserMessage { message } | EventData::AssistantMessage { message, .. } => {
-                Some(message.clone())
+    let mut provider_call_ids = HashMap::<String, String>::new();
+    let mut messages = Vec::new();
+    for logged in events {
+        match logged.data() {
+            EventData::UserMessage { message } => messages.push(message.clone()),
+            EventData::AssistantMessage { message, .. } => {
+                for call in &message.tool_calls {
+                    provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
+                }
+                messages.push(message.clone());
             }
-            EventData::ToolResult { result, .. } => Some(Message::tool(
-                result.call_id.clone(),
+            EventData::ToolCall { call, .. } => {
+                provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
+            }
+            EventData::ToolResult { result, .. } => messages.push(Message::tool(
+                provider_call_ids
+                    .get(&result.call_id)
+                    .cloned()
+                    .unwrap_or_else(|| result.call_id.clone()),
                 result.content.clone(),
             )),
-            _ => None,
-        })
-        .collect()
+            _ => {}
+        }
+    }
+    messages
 }
 
 fn validate_header(header: &SessionHeader) -> Result<(), SessionError> {
@@ -1072,6 +1086,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     if call.id.is_empty() {
                         return Err(SessionError::EmptyToolCallId { seq: logged.seq });
                     }
+                    if call.provider_call_id.as_deref() == Some("") {
+                        return Err(SessionError::EmptyProviderToolCallId { seq: logged.seq });
+                    }
                     if call.name.is_empty() {
                         return Err(SessionError::EmptyToolName { seq: logged.seq });
                     }
@@ -1087,6 +1104,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
             EventData::ToolCall { turn, step, call } => {
                 if call.id.is_empty() {
                     return Err(SessionError::EmptyToolCallId { seq: logged.seq });
+                }
+                if call.provider_call_id.as_deref() == Some("") {
+                    return Err(SessionError::EmptyProviderToolCallId { seq: logged.seq });
                 }
                 if call.name.is_empty() {
                     return Err(SessionError::EmptyToolName { seq: logged.seq });

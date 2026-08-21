@@ -839,6 +839,7 @@ mod tests {
             .unwrap();
         let call = ToolCall {
             id: "execution-1".to_owned(),
+            provider_call_id: Some("provider-call-1".to_owned()),
             index: 0,
             name: "bash".to_owned(),
             arguments_json: r#"{"command":"pwd"}"#.to_owned(),

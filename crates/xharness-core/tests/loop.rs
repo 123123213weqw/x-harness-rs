@@ -938,6 +938,7 @@ async fn interrupted_tool_batch_is_closed_without_replay() {
     let mut assistant = AgentMessage::assistant("");
     assistant.tool_calls.push(ToolCall {
         id: "side-effect".to_owned(),
+        provider_call_id: None,
         index: 0,
         name: "dangerous".to_owned(),
         arguments_json: "{}".to_owned(),
@@ -1809,6 +1810,18 @@ async fn journal_namespaces_reused_provider_call_ids_across_steps() {
     assert_ne!(execution_ids[0], execution_ids[1]);
     assert!(execution_ids.iter().all(|id| id.starts_with("xh-")));
     assert!(execution_ids.iter().all(|id| id != "provider-reused"));
+    let persisted_provider_ids = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ToolCall { call, .. } => call.provider_call_id.as_deref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        persisted_provider_ids,
+        ["provider-reused", "provider-reused"]
+    );
 
     let raw_provider_ids = session
         .events()
@@ -1832,6 +1845,13 @@ async fn journal_namespaces_reused_provider_call_ids_across_steps() {
         })
         .collect::<Vec<_>>();
     assert_eq!(result_ids, execution_ids);
+    let replayed_tool_ids = result
+        .messages
+        .iter()
+        .filter(|message| message.role == Role::Tool)
+        .filter_map(|message| message.tool_call_id.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(replayed_tool_ids, ["provider-reused", "provider-reused"]);
 }
 
 #[tokio::test]
@@ -1843,6 +1863,7 @@ async fn event_journal_recovers_incomplete_tool_as_outcome_unknown_without_repla
         .unwrap();
     let call = ToolCall {
         id: "side-effect".to_owned(),
+        provider_call_id: None,
         index: 0,
         name: "dangerous".to_owned(),
         arguments_json: "{}".to_owned(),
@@ -1967,6 +1988,7 @@ async fn durable_crash_cut_matrix_closes_or_preserves_each_authoritative_boundar
         if matches!(cut, CrashCut::ToolCall | CrashCut::ToolResult) {
             let call = ToolCall {
                 id: "durable-side-effect".to_owned(),
+                provider_call_id: None,
                 index: 0,
                 name: "dangerous".to_owned(),
                 arguments_json: "{}".to_owned(),

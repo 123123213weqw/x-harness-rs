@@ -151,6 +151,8 @@ History、Header Workspace、Durable Queue 并续跑 Pending Turn。仍需把 Pr
 - Chat Completions 与 Responses API，协议显式选择
 - 增量 SSE：任意网络分片、CRLF、多行 data 和 UTF-8 边界
 - Responses 使用 `store=false` 并保留 opaque provider items
+- Harness Execution ID 与 Provider Call ID 分离持久化；Chat/Responses Tool Output 使用正确的
+  Provider 原生关联 ID
 - API Key 不进入 Session，并在 `Debug` 输出中脱敏
 
 ### `xharness-session`
