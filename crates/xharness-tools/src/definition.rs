@@ -180,10 +180,22 @@ impl fmt::Debug for ToolSpec {
 pub struct ExecutionId(pub(crate) String);
 
 impl ExecutionId {
+    pub fn new(value: impl Into<String>) -> Result<Self, ExecutionIdError> {
+        let value = value.into();
+        if value.trim().is_empty() || value.contains('\0') {
+            return Err(ExecutionIdError);
+        }
+        Ok(Self(value))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
+
+#[derive(Clone, Copy, Debug, thiserror::Error, PartialEq, Eq)]
+#[error("tool execution id must be non-empty and contain no NUL byte")]
+pub struct ExecutionIdError;
 
 impl fmt::Display for ExecutionId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

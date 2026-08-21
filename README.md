@@ -236,7 +236,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 ### `xharness-tools`
 
 - 唯一名称 Registry、确定性 schema 列表与 JSON object/schema 校验
-- 每次调用生成独立 `execution_id`，所有失败均物化为结构化结果
+- 已有 Durable Journal 时接收并原样贯通 `execution_id`；独立调用时才生成进程内 ID，所有失败均
+  物化为结构化结果
 - `pre → monotonic guards → approval → around → handler → post → finalize → observer`
 - guard 只允许把权限从 allow 收紧到 ask/deny，后续 middleware 不能反向放宽
 - 缺失、异常、panic 或超时的审批 provider 全部 fail closed

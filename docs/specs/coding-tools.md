@@ -7,10 +7,12 @@
 
 `CodingToolBundle` 绑定一个 `NativePlatform`、`TerminalRegistry`、`WebRuntime`、Session ID
 和 Owner ID。`specs()` 返回正式 `xharness-tools` Spec；`register/registry` 填充唯一
-Registry；`core_specs()` 把同一个 Executor 适配到当前 `xharness-core::ToolSpec`。
+Registry；`core_specs()` 把同一个 Executor 适配到当前 `xharness-core::ToolSpec`，并把 Core
+已落账的 Durable Execution ID 原样绑定到内部 `ToolRequest`。
 
 兼容桥禁止绕过正式 Schema 校验、并发、Timeout 或 Result Mapping。桥仍存在期间，交互式
-审批由 Core 管理。
+审批由 Core 管理，因此目前仍有 Core 与 Executor 两层调度/审批边界；两层已经使用相同
+Execution ID，下一阶段将删除外层重复执行语义。
 
 v0 只暴露以下 14 个稳定模型工具名：
 

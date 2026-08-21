@@ -61,8 +61,18 @@ pub enum ToolConcurrency {
     Exclusive,
 }
 
+#[derive(Clone, Debug)]
+pub struct ToolInvocation {
+    /// Durable Harness identity shared by Journal, Approval and Tool pipeline.
+    pub execution_id: String,
+    /// Provider-native identity retained only for wire replay correlation.
+    pub provider_call_id: Option<String>,
+    pub arguments: Value,
+    pub cancellation: CancellationToken,
+}
+
 pub type ToolHandler =
-    Arc<dyn Fn(Value, CancellationToken) -> BoxFuture<'static, ToolResult> + Send + Sync + 'static>;
+    Arc<dyn Fn(ToolInvocation) -> BoxFuture<'static, ToolResult> + Send + Sync + 'static>;
 pub type ResourceKeyResolver = Arc<dyn Fn(&Value) -> Option<String> + Send + Sync + 'static>;
 
 #[derive(Clone)]

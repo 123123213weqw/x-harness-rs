@@ -32,6 +32,7 @@ pub struct ToolRequest {
     pub name: String,
     pub arguments_json: String,
     pub cancellation: CancellationToken,
+    pub execution_id: Option<ExecutionId>,
 }
 
 impl ToolRequest {
@@ -40,12 +41,24 @@ impl ToolRequest {
             name: name.into(),
             arguments_json: arguments_json.into(),
             cancellation: CancellationToken::new(),
+            execution_id: None,
         }
     }
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
         self.cancellation = cancellation;
         self
+    }
+
+    /// Bind an already-durable Harness execution identity. The executor uses
+    /// this exact value in middleware, approvals, observers and its result
+    /// instead of minting a process-local identity.
+    pub fn with_execution_id(
+        mut self,
+        execution_id: impl Into<String>,
+    ) -> Result<Self, crate::ExecutionIdError> {
+        self.execution_id = Some(ExecutionId::new(execution_id)?);
+        Ok(self)
     }
 }
 
@@ -204,7 +217,10 @@ impl ToolExecutor {
     }
 
     pub async fn execute(&self, request: ToolRequest) -> ToolResult {
-        let execution_id = next_execution_id();
+        let execution_id = request
+            .execution_id
+            .clone()
+            .unwrap_or_else(next_execution_id);
         let started_at_ms = unix_timestamp_ms();
         let started = Instant::now();
         let name = request.name.clone();

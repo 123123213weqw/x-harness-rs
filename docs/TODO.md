@@ -156,6 +156,12 @@ Commit、Issue、PR 应引用这些 ID。
   发送 subscribed/projection，并为非空 Inbox 发送 Queue Baseline。`session.updateQueue` 先修改
   Durable Inbox，Claim 竞态返回 `queue-item-not-found`，非文本 Edit 返回冻结 Attachment Error；
   Host FIFO 只保留 RunningTurn Attachment，不再是真源。
+- [x] `DONE-47` Tool Execution ID 跨层贯通：Core 在 Tool Call 落账后把同一个 Durable
+  `execution_id` 通过 `ToolInvocation` 交给兼容桥；`xharness-coding-tools` 将其显式绑定到
+  `xharness-tools::ToolRequest`，因此 Registry、Middleware、Approval、Handler、Observer 和 Result
+  不再另造进程内身份。Provider 原生 `provider_call_id` 仍只用于线协议重放。已覆盖非法外部 ID、
+  Executor 原样传播以及 Journal → Core Handler 的一致性回归；Core 重复 Scheduling/Approval
+  的删除仍属于 `P0-03` 下一阶段。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -190,6 +196,10 @@ Commit、Issue、PR 应引用这些 ID。
 - [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，
   淘汰兼容 `xharness-core::ToolSpec`。同一个 Execution ID 必须贯穿 Journal、Approval、
   Middleware、Event 和 Result。
+  已完成：Durable Execution ID 已贯穿 Journal、Core Event/Approval、`ToolInvocation`、
+  `xharness-tools` Middleware/Approval/Handler/Observer 与 Result；未提供 ID 的独立 Executor 调用仍
+  安全生成进程内唯一 ID。剩余：让 `ToolExecutor` 独占 Batch Scheduling、Schema、Approval、
+  Timeout/Panic/Cancel 执行语义，删除 Core 的重复实现和 `core_specs()` 兼容反向适配。
 
 - [x] `P0-04` **Provider Call ID 映射。** `ToolCall` 已分别保存内部 Execution ID 和
   Provider Native Call ID。Responses Opaque Item Replay、无 Opaque Responses 和 Chat 均保证

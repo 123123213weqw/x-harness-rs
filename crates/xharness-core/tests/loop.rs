@@ -449,6 +449,47 @@ async fn aggregates_fragmented_tool_calls_and_returns_errors_to_model() {
 }
 
 #[tokio::test]
+async fn contextual_tool_handler_receives_the_journal_execution_id() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "provider-call", "inspect", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let tool = ToolSpec::new_contextual("inspect", "inspect", json!({"type":"object"}), {
+        let seen = Arc::clone(&seen);
+        move |invocation| {
+            let seen = Arc::clone(&seen);
+            async move {
+                seen.lock()
+                    .unwrap()
+                    .push((invocation.execution_id, invocation.provider_call_id));
+                ToolResult::success("ok")
+            }
+        }
+    });
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("contextual-tool-id".to_owned());
+    request.journal_store = Some(journal);
+    request.tools.push(tool);
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    let call = &result.messages[1].tool_calls[0];
+    assert_eq!(call.provider_call_id.as_deref(), Some("provider-call"));
+    assert_eq!(
+        seen.lock().unwrap().as_slice(),
+        [(call.id.clone(), Some("provider-call".to_owned()))]
+    );
+}
+
+#[tokio::test]
 async fn retries_only_before_the_first_delta() {
     let provider = Arc::new(ScriptProvider::with_attempts([
         Err(ProviderError::retryable("temporary 1")),
