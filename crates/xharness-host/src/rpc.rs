@@ -1019,7 +1019,7 @@ impl BasicHost {
                 .arg(&path)
                 .spawn()
                 .map_err(|error| RpcError::internal(format!("could not open path: {error}")))?;
-            return Ok(json!({"opened": true}));
+            Ok(json!({"opened": true}))
         }
         #[cfg(not(target_os = "macos"))]
         {
