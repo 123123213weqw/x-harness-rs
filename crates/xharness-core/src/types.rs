@@ -282,7 +282,7 @@ pub enum LoopControlError {
     Rejected(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LoopEventKind {
     TextDelta(String),
     ReasoningDelta(String),
@@ -314,6 +314,12 @@ pub enum LoopEventKind {
         max_retries: usize,
         error: String,
     },
+    /// The subscriber fell behind the bounded event journal. `resume_seq` is
+    /// the first event sequence still available for deterministic replay.
+    EventsLagged {
+        missed: u64,
+        resume_seq: u64,
+    },
     RunCompleted {
         text: String,
     },
@@ -324,7 +330,7 @@ pub enum LoopEventKind {
     LimitReached,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoopEvent {
     pub seq: u64,
     pub run_id: String,
@@ -375,10 +381,12 @@ pub struct LoopConfig {
     pub max_tool_concurrency: usize,
     pub tool_result_limit_bytes: usize,
     pub provider_retries: usize,
-    /// Retained for configuration compatibility. Loop events are delivered
-    /// through a non-blocking unbounded channel, so this value is not currently
-    /// used as a channel capacity.
+    /// Maximum number of events retained by the non-blocking in-memory event
+    /// journal. Slow subscribers receive an explicit lag record.
     pub event_buffer: usize,
+    /// Aggregate serialized-byte budget of retained loop events. The journal
+    /// evicts oldest events until both count and byte budgets are satisfied.
+    pub event_buffer_bytes: usize,
     pub command_buffer: usize,
 }
 
@@ -404,6 +412,7 @@ impl Default for LoopConfig {
             tool_result_limit_bytes: 256 * 1024,
             provider_retries: 2,
             event_buffer: 128,
+            event_buffer_bytes: 8 * 1024 * 1024,
             command_buffer: 64,
         }
     }
@@ -430,6 +439,16 @@ impl LoopConfig {
         if self.command_buffer == 0 {
             return Err(LoopValidationError::new(
                 "command_buffer must be greater than zero",
+            ));
+        }
+        if self.event_buffer == 0 {
+            return Err(LoopValidationError::new(
+                "event_buffer must be greater than zero",
+            ));
+        }
+        if self.event_buffer_bytes == 0 {
+            return Err(LoopValidationError::new(
+                "event_buffer_bytes must be greater than zero",
             ));
         }
         Ok(())

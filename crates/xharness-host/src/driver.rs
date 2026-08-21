@@ -735,6 +735,15 @@ impl BasicHost {
                     "message": error,
                 }));
             }
+            LoopEventKind::EventsLagged { missed, resume_seq } => {
+                self.push_host(json!({
+                    "type": "host/agent-error",
+                    "sessionId": session_id,
+                    "message": format!(
+                        "live loop projection lagged by {missed} events; durable history was resynchronized from cursor {resume_seq}"
+                    ),
+                }));
+            }
             _ => {}
         }
         Ok(())
@@ -967,6 +976,11 @@ impl BasicHost {
                     "sessionId": session_id,
                     "message": error,
                 }));
+            }
+            LoopEventKind::EventsLagged { missed, resume_seq } => {
+                return Err(RpcError::internal(format!(
+                    "ephemeral loop projection lagged by {missed} events; resume cursor is {resume_seq}"
+                )));
             }
             LoopEventKind::MessageInjected { .. }
             | LoopEventKind::RunPaused

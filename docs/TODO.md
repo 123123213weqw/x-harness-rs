@@ -123,6 +123,10 @@ Commit、Issue、PR 应引用这些 ID。
   Web 审计继续使用前者，Chat/Responses 的 Assistant Tool Call 与 Tool Output 统一使用后者。
   旧日志缺少原生 ID 时确定性回退到 Execution ID，Responses Opaque Item 与
   `function_call_output.call_id` 不再错配。
+- [x] `DONE-41` 有界 Loop Event Journal：删除无界 MPSC，改为按事件数和序列化 Byte 双预算的
+  非阻塞 Ring Journal。慢消费者收到强类型 `events_lagged { missed, resume_seq }`，可通过
+  `subscribe_events_from(resume_seq)` 从最早保留事件继续；完全不消费事件不会阻塞 `result()`，
+  单个超大事件也会被逐出而不是突破内存预算。Drop、Cancel 和工具清理竞态保持确定终态。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -160,9 +164,10 @@ Commit、Issue、PR 应引用这些 ID。
   Tool Output ID 与 Assistant Call 匹配；审计事件继续使用稳定 Namespaced ID。测试覆盖跨 Step
   复用 Provider ID、旧日志回退、Session 重放和两种真实请求体编码。
 
-- [ ] `P0-05` **有界事件投递。** 用 Append-only、按 Byte 计量的 Journal 和非阻塞
-  Subscription 替换无界 Loop Event Channel，并提供明确 Lag/Resume Cursor。忽略事件的
-  Host 不能 OOM，也不能阻塞 `result()`。
+- [x] `P0-05` **有界事件投递。** Loop 已使用逻辑 Append-only、物理有界的 Event Ring
+  Journal，按事件数与序列化 Byte 双预算驱逐；Subscription 提供明确 Lag/Resume Cursor。
+  忽略事件的 Host 不会积累无界 Channel，也不会阻塞 `result()`。WebSocket 跨连接 Cursor
+  继续由 `P2-02` 完成，不再由 Core 临时流承担。
 
 - [ ] `P0-06` **结构化 Shutdown 和 Quiescence。** 用 Scope 管理 Provider/Tool/Process
   Task；Cancel 必须 Signal 并 Join。定义超过有界 Grace 后的 Forced-cleanup 终态。

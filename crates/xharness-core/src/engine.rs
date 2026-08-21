@@ -2,8 +2,8 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
     },
     task::{Context, Poll},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -14,7 +14,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
 use xharness_session::{
     ApprovalOutcome, AssistantChunk, EventData as SessionEventData, LlmFailure, LlmRetryMode,
@@ -41,10 +41,182 @@ enum StopReason {
 
 pub struct LoopRun {
     pub run_id: String,
-    events: UnboundedReceiverStream<LoopEvent>,
+    events: LoopEventStream,
+    event_journal: Arc<EventJournal>,
     result: watch::Receiver<Option<LoopResult>>,
     cancellation: CancellationToken,
+    consumer_dropped: Arc<AtomicBool>,
     command_tx: mpsc::Sender<CommandEnvelope>,
+}
+
+/// Non-blocking cursor subscription over one run's bounded event journal.
+///
+/// Items remain ordered by their real event `seq`. When the requested cursor
+/// has already been evicted, the stream first yields `EventsLagged` with the
+/// earliest still-readable `resume_seq`.
+pub struct LoopEventStream {
+    journal: Arc<EventJournal>,
+    wake: WatchStream<u64>,
+    next_seq: u64,
+    run_id: String,
+}
+
+struct EventJournal {
+    state: Mutex<EventJournalState>,
+    wake: watch::Sender<u64>,
+    max_events: usize,
+    max_bytes: usize,
+}
+
+struct EventJournalState {
+    events: VecDeque<BufferedLoopEvent>,
+    bytes: usize,
+    next_seq: u64,
+    last_step: usize,
+    closed: bool,
+}
+
+struct BufferedLoopEvent {
+    event: LoopEvent,
+    bytes: usize,
+}
+
+impl EventJournal {
+    fn new(max_events: usize, max_bytes: usize) -> Arc<Self> {
+        let (wake, _) = watch::channel(0);
+        Arc::new(Self {
+            state: Mutex::new(EventJournalState {
+                events: VecDeque::new(),
+                bytes: 0,
+                next_seq: 1,
+                last_step: 0,
+                closed: false,
+            }),
+            wake,
+            max_events,
+            max_bytes,
+        })
+    }
+
+    fn subscribe(self: &Arc<Self>, run_id: String, next_seq: u64) -> LoopEventStream {
+        LoopEventStream {
+            journal: Arc::clone(self),
+            wake: WatchStream::new(self.wake.subscribe()),
+            next_seq: next_seq.max(1),
+            run_id,
+        }
+    }
+
+    fn append(&self, event: LoopEvent) -> Result<(), serde_json::Error> {
+        let bytes = serde_json::to_vec(&event)?.len();
+        let generation = {
+            let mut state = self.state.lock().expect("event journal mutex poisoned");
+            debug_assert_eq!(event.seq, state.next_seq);
+            state.next_seq = event.seq.saturating_add(1);
+            state.last_step = event.step;
+            state.bytes = state.bytes.saturating_add(bytes);
+            state.events.push_back(BufferedLoopEvent { event, bytes });
+            while state.events.len() > self.max_events || state.bytes > self.max_bytes {
+                let removed = state
+                    .events
+                    .pop_front()
+                    .expect("an over-budget event journal is non-empty");
+                state.bytes = state.bytes.saturating_sub(removed.bytes);
+            }
+            state.next_seq
+        };
+        self.wake.send_replace(generation);
+        Ok(())
+    }
+
+    fn close(&self) {
+        let generation = {
+            let mut state = self.state.lock().expect("event journal mutex poisoned");
+            state.closed = true;
+            state.next_seq
+        };
+        self.wake.send_replace(generation);
+    }
+}
+
+impl Stream for LoopEventStream {
+    type Item = LoopEvent;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            enum Read {
+                Event(Box<LoopEvent>),
+                Lagged {
+                    missed: u64,
+                    resume_seq: u64,
+                    step: usize,
+                },
+                Closed,
+                Pending,
+            }
+
+            let read = {
+                let state = self
+                    .journal
+                    .state
+                    .lock()
+                    .expect("event journal mutex poisoned");
+                let earliest = state
+                    .events
+                    .front()
+                    .map_or(state.next_seq, |buffered| buffered.event.seq);
+                if self.next_seq < earliest {
+                    Read::Lagged {
+                        missed: earliest - self.next_seq,
+                        resume_seq: earliest,
+                        step: state
+                            .events
+                            .front()
+                            .map_or(state.last_step, |buffered| buffered.event.step),
+                    }
+                } else if self.next_seq < state.next_seq {
+                    let offset = usize::try_from(self.next_seq - earliest).ok();
+                    match offset.and_then(|offset| state.events.get(offset)) {
+                        Some(buffered) => Read::Event(Box::new(buffered.event.clone())),
+                        None => Read::Lagged {
+                            missed: state.next_seq.saturating_sub(self.next_seq),
+                            resume_seq: state.next_seq,
+                            step: state.last_step,
+                        },
+                    }
+                } else if state.closed {
+                    Read::Closed
+                } else {
+                    Read::Pending
+                }
+            };
+
+            match read {
+                Read::Event(event) => {
+                    self.next_seq = event.seq.saturating_add(1);
+                    return Poll::Ready(Some(*event));
+                }
+                Read::Lagged {
+                    missed,
+                    resume_seq,
+                    step,
+                } => {
+                    self.next_seq = resume_seq;
+                    return Poll::Ready(Some(LoopEvent {
+                        seq: resume_seq.saturating_sub(1),
+                        run_id: self.run_id.clone(),
+                        step,
+                        kind: LoopEventKind::EventsLagged { missed, resume_seq },
+                    }));
+                }
+                Read::Closed => return Poll::Ready(None),
+                Read::Pending => match Pin::new(&mut self.wake).poll_next(context) {
+                    Poll::Ready(Some(_)) => continue,
+                    Poll::Ready(None) | Poll::Pending => return Poll::Pending,
+                },
+            }
+        }
+    }
 }
 
 struct CommandEnvelope {
@@ -56,6 +228,13 @@ impl LoopRun {
     /// Returns this run as a stream. It can only be consumed once, in order.
     pub fn events(&mut self) -> &mut Self {
         self
+    }
+
+    /// Create an additional event subscription beginning at the given next
+    /// sequence cursor. A stale cursor receives one explicit lag record before
+    /// continuing from the retained journal head.
+    pub fn subscribe_events_from(&self, next_seq: u64) -> LoopEventStream {
+        self.event_journal.subscribe(self.run_id.clone(), next_seq)
     }
 
     pub fn cancel(&self) {
@@ -109,6 +288,7 @@ impl Stream for LoopRun {
 
 impl Drop for LoopRun {
     fn drop(&mut self) {
+        self.consumer_dropped.store(true, Ordering::Release);
         self.cancellation.cancel();
     }
 }
@@ -121,9 +301,13 @@ impl LoopEngine {
         let startup_error = request.validate().err().map(|error| error.to_string());
         let run_id = new_run_id();
         let cancellation = CancellationToken::new();
+        let consumer_dropped = Arc::new(AtomicBool::new(false));
         // Invalid zero-sized command buffers are reported as normal failed
         // runs rather than panicking inside `tokio::sync::mpsc::channel`.
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let event_journal = EventJournal::new(
+            request.config.event_buffer.max(1),
+            request.config.event_buffer_bytes.max(1),
+        );
         let (command_tx, command_rx) = mpsc::channel(request.config.command_buffer.max(1));
         let (result_tx, result_rx) = watch::channel(None);
         let journal = request.journal_store.clone().map(|store| JournalState {
@@ -139,7 +323,8 @@ impl LoopEngine {
             run_id: run_id.clone(),
             request,
             cancellation: cancellation.clone(),
-            event_tx,
+            consumer_dropped: Arc::clone(&consumer_dropped),
+            event_journal: Arc::clone(&event_journal),
             seq: 0,
             messages: Vec::new(),
             final_text: String::new(),
@@ -156,15 +341,19 @@ impl LoopEngine {
             startup_error,
             journal,
         };
+        let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
             let result = runner.run().await;
+            runner_journal.close();
             let _ = result_tx.send(Some(result));
         });
         LoopRun {
+            events: event_journal.subscribe(run_id.clone(), 1),
+            event_journal,
             run_id,
-            events: UnboundedReceiverStream::new(event_rx),
             result: result_rx,
             cancellation,
+            consumer_dropped,
             command_tx,
         }
     }
@@ -204,7 +393,8 @@ struct Runner {
     run_id: String,
     request: LoopRequest,
     cancellation: CancellationToken,
-    event_tx: mpsc::UnboundedSender<LoopEvent>,
+    consumer_dropped: Arc<AtomicBool>,
+    event_journal: Arc<EventJournal>,
     seq: u64,
     messages: Vec<AgentMessage>,
     final_text: String,
@@ -1290,18 +1480,14 @@ impl Runner {
 
     fn ensure_running(&self) -> Result<(), RunFailure> {
         if self.cancellation.is_cancelled() {
-            Err(RunFailure::Stopped(if self.event_tx.is_closed() {
-                StopReason::ConsumerStopped
-            } else {
-                StopReason::Cancelled
-            }))
+            Err(self.stopped_failure())
         } else {
             Ok(())
         }
     }
 
     fn stopped_failure(&self) -> RunFailure {
-        RunFailure::Stopped(if self.event_tx.is_closed() {
+        RunFailure::Stopped(if self.consumer_dropped.load(Ordering::Acquire) {
             StopReason::ConsumerStopped
         } else {
             StopReason::Cancelled
@@ -1316,11 +1502,9 @@ impl Runner {
             step: self.step,
             kind,
         };
-        if self.event_tx.send(event).is_err() {
-            self.cancellation.cancel();
-            return Err(RunFailure::Stopped(StopReason::ConsumerStopped));
-        }
-        Ok(())
+        self.event_journal
+            .append(event)
+            .map_err(|error| RunFailure::Failed(format!("could not serialize loop event: {error}")))
     }
 
     async fn snapshot(&self, phase: &str, tool_batch_complete: bool) -> Result<(), RunFailure> {
@@ -1699,6 +1883,7 @@ impl Runner {
                 Completed(ToolExecution),
             }
             let input = tokio::select! {
+                biased;
                 _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
                 command = self.command_rx.recv(), if self.command_open => {
                     ToolInput::Command(command)
@@ -2063,6 +2248,7 @@ async fn execute_tool(
                 let deadline = tokio::time::sleep(spec.timeout);
                 tokio::pin!(deadline);
                 tokio::select! {
+                    biased;
                     _ = cancellation.cancelled() => {
                         handler_cancellation.cancel();
                         let _ = tokio::time::timeout(TOOL_CLEANUP_GRACE, &mut caught).await;

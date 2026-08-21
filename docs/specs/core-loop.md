@@ -55,6 +55,18 @@
   结果关联使用前者，下一轮 Provider 请求使用后者。
 - Context/配置类 4xx 不得重试；请求前预算失败时 Provider Attempt 必须为零。
 
+## Loop 事件投递
+
+Loop 事件先按单调 `seq` 追加到进程内 Ring Journal，再由一个或多个 Subscription 非阻塞读取。
+Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只改变可读窗口，不改变已分配序号。
+慢消费者请求的 `next_seq` 早于当前窗口时，先收到
+`EventsLagged { missed, resume_seq }`，再从 `resume_seq` 继续。调用方可用
+`LoopRun::subscribe_events_from(resume_seq)` 新建读取器。
+
+单个事件超过总 Byte 预算时也必须被驱逐，最终通过 Lag Marker 表达，不能为了保留一个 Delta
+突破上限。完全不读取事件不得反压 Provider、工具或 `LoopRun::result()`；丢弃整个 `LoopRun`
+仍表示 Consumer Stop，并协作取消当前工作。
+
 ## 工具批次语义
 
 - 未知工具、畸形/非 Object JSON、Handler 失败、超时和 Panic 必须转为工具结果，禁止
