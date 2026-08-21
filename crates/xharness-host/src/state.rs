@@ -511,7 +511,7 @@ impl HostState {
             serde_json::to_string(&session.cwd)
                 .map_err(|error| format!("workspace path encoding failed: {error}"))?
         );
-        let workflow = "Inspect before editing and make the smallest coherent change. For large files, use targeted search and bounded reads; the current read tool has bounded output, so do not repeat an oversized read unchanged. A tool error is an observation: diagnose it, change the approach, or report the limitation instead of retrying the same unavailable capability forever. Once the evidence is sufficient, answer directly. Preserve user work and verify changes with the strongest available checks.";
+        let workflow = "Inspect before editing and make the smallest coherent change. For large files, use targeted search and bounded read pages; continue only the needed page with next_cursor instead of repeating or requesting the whole file. A tool error is an observation: diagnose it, change the approach, or report the limitation instead of retrying the same unavailable capability forever. Once the evidence is sufficient, answer directly. Preserve user work and verify changes with the strongest available checks.";
 
         let mut sections = vec![
             PromptSection::content_addressed(
@@ -520,7 +520,7 @@ impl HostState {
             ),
             PromptSection::new("permission/policy", "1", permission),
             PromptSection::content_addressed("workspace/context", workspace),
-            PromptSection::new("coding/workflow", "1", workflow),
+            PromptSection::new("coding/workflow", "2", workflow),
         ];
         if session.plan_active {
             sections.push(PromptSection::new(

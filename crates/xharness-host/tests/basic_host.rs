@@ -630,7 +630,7 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     let system = &requests[0].messages[0].content;
     assert!(system.contains("You are a coding agent."));
     assert!(system.contains("workspace-write isolation"));
-    assert!(system.contains("current read tool has bounded output"));
+    assert!(system.contains("continue only the needed page with next_cursor"));
     assert!(system.contains("Once the evidence is sufficient, answer directly."));
     assert!(system.contains("Plan mode is active."));
     assert_eq!(requests[0].messages[1].content, "show the exact prompt");

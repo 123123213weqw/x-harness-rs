@@ -70,9 +70,10 @@ input_tokens + reserved_output_tokens + safety_margin_tokens
 
 ## 文件读取策略
 
-面向模型的 `read` 必须支持显式 `offset`/`limit` 或 `start_line`/`end_line`，并返回下一页
-游标。默认不能一次返回 256 KiB/2,000 行。模型需要完整文件时，应分段读取并只保留与任务
-相关的片段；Binary/Image 走 Attachment，不得内联进普通文本历史。
+面向模型的 `read` 已支持 `offset`/`limit` 或 `start_line`/`line_limit`，并返回绑定 SHA-256
+和原页限制的下一页 Cursor。默认 32 KiB/400 行，不再一次返回 256 KiB/2,000 行。模型需要
+完整文件时，应分段读取并只保留与任务相关的片段；Binary/Image 走 Attachment，不得内联进
+普通文本历史。
 
 ## 工具定义预算
 
@@ -98,7 +99,7 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 - Host 仍安装 `IdentityContextPolicy`，原样返回全部消息；超限时会拒绝，但不会自动腾出空间。
 - 当前正式 Host 安装保守 Byte Meter；Provider-aware 精确 Tokenizer 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。
-- `read` 模型 Schema 目前只有 `path`，虽然底层 FS 已支持字节/行上限。
+- `read` 已分页；其他工具结果仍缺统一 Spill/Reduce。
 - 每个 Step 固定发送全部 14 个工具 Schema。
 - 工具 Schema 和 System/Message/Protocol 分项已经记录；Provider 原生 Chat Template 的精确开销
   仍需要 Provider-aware Meter。

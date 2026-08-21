@@ -104,6 +104,11 @@ Commit、Issue、PR 应引用这些 ID。
   Request Header。Chat/Responses 分别下发 `max_tokens`/`max_output_tokens`；固定
   `64196 > 53248` 回归验证 Provider Attempt 为零。当前保守 UTF-8/JSON Byte Meter 保证宁可
   过估，不把精确 Tokenizer 绑定到 llama.cpp；精确 Adapter 与自动压缩仍归 `P1-03`。
+- [x] `DONE-37` 模型 `read` 分页：默认页从 256 KiB/2,000 行降为 32 KiB/400 行，暴露
+  `offset`、`start_line`、`limit`、`line_limit` 与 Opaque `next_cursor`。Cursor 固定原页限制并
+  绑定完整文件 SHA-256，文件变化后继续读取 fail stale；底层仍完整计算 Version 并保持
+  Observation CAS。测试覆盖 Line 起点、连续 Cursor、UTF-8 边界、Cursor Roundtrip、版本变化
+  和模型工具真实两页读取。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -176,6 +181,9 @@ Commit、Issue、PR 应引用这些 ID。
 - [ ] `P0-12` **大结果治理与分页 Read。** `read` 增加 Byte/Line Range 和下一页 Cursor，
   默认降到适合模型的小页；工具原始输出落日志/Spill，模型 Surface 只保留确定性的
   Head/Relevant/Tail、元数据和引用。不得破坏 Observation CAS。
+  已完成：模型 Schema 的 Byte/Line 起点、页大小/行数和版本绑定 Cursor；默认 32 KiB/400 行，
+  Cursor 延续原限制且文件变化后拒绝拼接。剩余：原始大输出 Spill、确定性
+  Head/Relevant/Tail Surface 和持久引用。
 
 - [ ] `P0-13` **Platform Readiness 与动态工具投影。** Host 启动和 Workspace 初始化时运行
   Sandbox/Search/PTY Probe，把结果投影给 UI；已确认不可用的工具不进入后续模型请求。
