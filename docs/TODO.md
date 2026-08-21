@@ -69,6 +69,10 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `DONE-28` 七点真实 SIGKILL 矩阵：独立子进程使用正式 JSONL Store，在每个权威切点写入
   Ready Marker 后由父进程发送 SIGKILL；随后在同一 State Dir 重启 Durable Host/Core。七点均
   验证 Admission 不丢不重、Tool 不重放、Interrupted/OutcomeUnknown/权威终态符合规范。
+- [x] `DONE-29` Web History 权威投影：Durable Runtime 暴露不可变 Session Cut，History 查询和
+  Driver 按 Session Sequence 刷新同一纯投影；运行中与重启后的 Events/Projections 逐字相等，
+  User 的结构化 Content、Source 与 Timezone 从 Inbox 元数据恢复。内存 Event DTO 不再是正式
+  History 真源。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

@@ -58,7 +58,8 @@ Inbox，再改变 Web Projection。
   与 Pending Approval 还没有独立持久日志。
 - Prompt RPC Receipt 已可从 Inbox 历史恢复；Workspace、Settings、Goal、Queue Action 等其他
   变更 RPC 仍没有通用持久 Receipt/Consumed Store。
-- Web Event Projection 目前在启动时整体重建，还没有按 Cursor 从持久 Store 查询。
+- Web History 已按权威 Session Cursor 刷新和增量广播；Workspace/Settings 等非 Session 投影仍
+  没有统一持久查询接口。
 - queued-to-steer 是 Remove + Steer 两步，不是崩溃原子 Move。
 
 ## 验收
