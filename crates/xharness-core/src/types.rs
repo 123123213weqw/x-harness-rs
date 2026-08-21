@@ -439,6 +439,10 @@ pub struct LoopRequest {
     /// restoration for this run; the legacy `session_store` remains a v0
     /// migration bridge.
     pub journal_store: Option<Arc<dyn xharness_session::Store>>,
+    /// Durable control-plane facts committed in the same atomic batch as the
+    /// next `turn/start` and new user input. Long-lived agents use this to
+    /// claim inbox messages without a crash window between dequeue and turn.
+    pub journal_prelude: Vec<xharness_session::SessionEvent>,
     pub context_policy: Arc<dyn crate::ContextPolicy>,
     pub config: LoopConfig,
 }
@@ -452,6 +456,7 @@ impl LoopRequest {
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
             journal_store: None,
+            journal_prelude: Vec::new(),
             context_policy: Arc::new(crate::IdentityContextPolicy),
             config: LoopConfig::default(),
         }
@@ -461,6 +466,11 @@ impl LoopRequest {
     /// provider, session store, context policy, or any tool handler.
     pub fn validate(&self) -> Result<(), LoopValidationError> {
         self.config.validate()?;
+        if !self.journal_prelude.is_empty() && self.journal_store.is_none() {
+            return Err(LoopValidationError::new(
+                "journal_prelude requires journal_store",
+            ));
+        }
         let mut names = HashSet::with_capacity(self.tools.len());
         for (index, tool) in self.tools.iter().enumerate() {
             let name = tool.definition.name.as_str();

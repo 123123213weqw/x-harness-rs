@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_session::{
-    AssistantChunk, EventData as SessionEventData, RequestHeader, Revision, SessionHeader,
-    Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
+    AssistantChunk, EventData as SessionEventData, RequestHeader, Revision, SessionEvent,
+    SessionHeader, Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
 };
 
 use crate::{
@@ -126,6 +126,7 @@ impl LoopEngine {
             store,
             session_id: request.session_id.clone().unwrap_or_else(|| run_id.clone()),
             revision: Revision::ZERO,
+            next_seq: 0,
             turn: 0,
             step_open: false,
             turn_open: false,
@@ -218,6 +219,7 @@ struct JournalState {
     store: Arc<dyn EventSessionStore>,
     session_id: String,
     revision: Revision,
+    next_seq: u64,
     turn: u32,
     step_open: bool,
     turn_open: bool,
@@ -348,6 +350,7 @@ impl Runner {
                 if !model.text.is_empty() || !model.reasoning.is_empty() {
                     self.final_text = model.text.clone();
                     self.messages.push(AgentMessage {
+                        id: None,
                         role: Role::Assistant,
                         content: model.text,
                         reasoning: model.reasoning,
@@ -394,6 +397,7 @@ impl Runner {
                 None
             };
             let assistant = AgentMessage {
+                id: None,
                 role: Role::Assistant,
                 content: model.text.clone(),
                 reasoning: model.reasoning,
@@ -546,15 +550,20 @@ impl Runner {
             .ok_or_else(|| RunFailure::Failed("session turn counter overflow".to_owned()))?;
         if let Some(journal) = self.journal.as_mut() {
             journal.revision = session.revision();
+            journal.next_seq = session.next_seq();
             journal.turn = next_turn;
         }
 
-        let mut events = vec![SessionEventData::TurnStart { turn: next_turn }];
+        let mut events = vec![SessionEventData::TurnStart { turn: next_turn }.into()];
+        events.extend(self.request.journal_prelude.clone());
         for message in &self.request.messages {
             match message.role {
-                Role::User => events.push(SessionEventData::UserMessage {
-                    message: message.clone(),
-                }),
+                Role::User => events.push(
+                    SessionEventData::UserMessage {
+                        message: message.clone(),
+                    }
+                    .into(),
+                ),
                 Role::System => {}
                 Role::Assistant | Role::Tool => {
                     return Err(RunFailure::Failed(
@@ -564,7 +573,7 @@ impl Runner {
                 }
             }
         }
-        self.journal_append(events, true).await?;
+        self.journal_append_events(events, true).await?;
         if let Some(journal) = self.journal.as_mut() {
             journal.turn_open = true;
         }
@@ -577,6 +586,15 @@ impl Runner {
         events: Vec<SessionEventData>,
         flush: bool,
     ) -> Result<(), RunFailure> {
+        self.journal_append_events(events.into_iter().map(Into::into).collect(), flush)
+            .await
+    }
+
+    async fn journal_append_events(
+        &mut self,
+        events: Vec<SessionEvent>,
+        flush: bool,
+    ) -> Result<(), RunFailure> {
         if events.is_empty() {
             return Ok(());
         }
@@ -585,17 +603,64 @@ impl Runner {
         };
         let store = Arc::clone(&journal.store);
         let session_id = journal.session_id.clone();
-        let revision = journal.revision;
-        let receipt = store
-            .append(
-                &session_id,
-                revision,
-                events.into_iter().map(Into::into).collect(),
-            )
-            .await
-            .map_err(|error| {
-                RunFailure::Failed(format!("session journal append failed: {error}"))
-            })?;
+        let mut inbox_conflicts = 0usize;
+        let receipt = loop {
+            let (revision, next_seq) = self
+                .journal
+                .as_ref()
+                .map(|journal| (journal.revision, journal.next_seq))
+                .expect("journal checked above");
+            match store.append(&session_id, revision, events.clone()).await {
+                Ok(receipt) => break receipt,
+                Err(xharness_session::StoreError::RevisionConflict { .. }) => {
+                    inbox_conflicts = inbox_conflicts.saturating_add(1);
+                    if inbox_conflicts > 16 {
+                        return Err(RunFailure::Failed(
+                            "session journal stayed contended by durable inbox writers".to_owned(),
+                        ));
+                    }
+                    let session = store
+                        .load(&session_id)
+                        .await
+                        .map_err(|error| {
+                            RunFailure::Failed(format!(
+                                "session journal conflict reload failed: {error}"
+                            ))
+                        })?
+                        .ok_or_else(|| {
+                            RunFailure::Failed(
+                                "session journal disappeared during append conflict".to_owned(),
+                            )
+                        })?;
+                    let known = usize::try_from(next_seq).map_err(|_| {
+                        RunFailure::Failed("session journal sequence overflow".to_owned())
+                    })?;
+                    let intervening = session.events().get(known..).ok_or_else(|| {
+                        RunFailure::Failed(
+                            "session journal moved behind the active writer".to_owned(),
+                        )
+                    })?;
+                    if intervening.is_empty()
+                        || intervening.iter().any(|event| {
+                            !matches!(event.data(), SessionEventData::AgentInboxSpliced { .. })
+                        })
+                    {
+                        return Err(RunFailure::Failed(
+                            "session journal changed outside the durable inbox".to_owned(),
+                        ));
+                    }
+                    if let Some(journal) = self.journal.as_mut() {
+                        journal.revision = session.revision();
+                        journal.next_seq = session.next_seq();
+                    }
+                }
+                Err(error) => {
+                    return Err(RunFailure::Failed(format!(
+                        "session journal append failed: {error}"
+                    )))
+                }
+            }
+        };
         if flush {
             store.flush(&session_id).await.map_err(|error| {
                 RunFailure::Failed(format!("session journal flush failed: {error}"))
@@ -603,6 +668,9 @@ impl Runner {
         }
         if let Some(journal) = self.journal.as_mut() {
             journal.revision = receipt.revision;
+            journal.next_seq = receipt
+                .last_seq
+                .map_or(journal.next_seq, |sequence| sequence.saturating_add(1));
         }
         Ok(())
     }

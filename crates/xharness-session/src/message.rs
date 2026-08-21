@@ -42,6 +42,10 @@ pub struct ToolCall {
 /// Provider-neutral message used by [`crate::derive_messages`].
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Message {
+    /// Stable harness identity for durable user/assistant inputs. Providers do
+    /// not receive this field unless an adapter explicitly maps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub role: MessageRole,
     #[serde(default)]
     pub content: String,
@@ -74,6 +78,11 @@ impl Message {
 
     pub fn system(content: impl Into<String>) -> Self {
         Self::new(MessageRole::System, content)
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn user(content: impl Into<String>) -> Self {

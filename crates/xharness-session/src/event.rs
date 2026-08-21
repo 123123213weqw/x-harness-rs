@@ -8,6 +8,46 @@ use crate::{Message, ToolCall};
 /// Monotonic position in a session log.
 pub type Sequence = u64;
 
+/// One of the two ordered durable input lists owned by a long-lived agent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InboxTarget {
+    /// An ordinary prompt waiting to open its own turn.
+    NextTurn,
+    /// Context or steering waiting for the nearest later model step.
+    NextStep,
+}
+
+/// Identified user input retained in the durable inbox until a step claims it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InboxMessage {
+    /// Stable identity used by queue editing, deduplication and UI projection.
+    pub id: String,
+    /// Provider-neutral model-facing content. Its role must be `user`.
+    pub message: Message,
+    /// Transport- or product-specific provenance retained for audit/UI replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Value>,
+}
+
+impl InboxMessage {
+    pub fn user(id: impl Into<String>, content: impl Into<String>) -> Self {
+        let id = id.into();
+        Self {
+            message: Message::user(content).with_id(id.clone()),
+            id,
+            source: None,
+        }
+    }
+}
+
+/// Why an inbox splice deliberately discarded pending input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InboxSpliceOutcome {
+    Cancelled,
+}
+
 /// Single-writer generation used by compare-and-swap appends.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -138,6 +178,19 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// A normalized splice over one durable pending-input list. Replaying all
+    /// such events after the seed reconstructs the exact live inbox.
+    #[serde(rename = "agent/inbox/spliced")]
+    AgentInboxSpliced {
+        target: InboxTarget,
+        start: usize,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        removed_count: usize,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        inserted: Vec<InboxMessage>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<InboxSpliceOutcome>,
+    },
     #[serde(rename = "request/header")]
     RequestHeader { header: RequestHeader },
     #[serde(rename = "turn/start")]
@@ -178,6 +231,10 @@ pub enum EventData {
     },
     #[serde(rename = "session/end-seed")]
     SessionEndSeed,
+}
+
+const fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 /// An event waiting to receive its durable log coordinates.

@@ -241,6 +241,7 @@ mod tests {
     #[test]
     fn identity_preserves_lossless_messages() {
         let message = Message {
+            id: None,
             role: MessageRole::Assistant,
             content: "answer".to_owned(),
             reasoning: "reason".to_owned(),

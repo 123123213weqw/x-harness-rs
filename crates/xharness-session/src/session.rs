@@ -2,7 +2,10 @@ use std::{collections::HashMap, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EventData, LoggedEvent, Message, MessageRole, Revision, Sequence, SessionEvent};
+use crate::{
+    EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole, Revision, Sequence,
+    SessionEvent,
+};
 
 /// On-disk format identity and immutable metadata outside the conversation
 /// event stream.
@@ -102,6 +105,16 @@ pub enum SessionError {
         step: u32,
         position: usize,
     },
+    #[error("inbox message id must not be empty at seq {seq}")]
+    EmptyInboxMessageId { seq: Sequence },
+    #[error("inbox message {message_id:?} at seq {seq} must have the user role")]
+    InvalidInboxMessageRole { seq: Sequence, message_id: String },
+    #[error("inbox message {message_id:?} at seq {seq} must carry the same message id")]
+    InboxMessageIdMismatch { seq: Sequence, message_id: String },
+    #[error("duplicate pending inbox message id {message_id:?} at seq {seq}")]
+    DuplicateInboxMessage { seq: Sequence, message_id: String },
+    #[error("invalid inbox splice at seq {seq}: {message}")]
+    InvalidInboxSplice { seq: Sequence, message: String },
 }
 
 impl Session {
@@ -324,6 +337,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut last_turn = 0u32;
     let mut open_step = None::<StepState>;
     let mut last_step = 0u32;
+    let mut next_turn_inbox = Vec::<InboxMessage>::new();
+    let mut next_step_inbox = Vec::<InboxMessage>::new();
     for (position, logged) in events.iter().enumerate() {
         let expected_seq = position as Sequence;
         if logged.seq != expected_seq {
@@ -361,6 +376,68 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
 
         match logged.data() {
+            EventData::AgentInboxSpliced {
+                target,
+                start,
+                removed_count,
+                inserted,
+                outcome,
+            } => {
+                let (target_inbox, other_inbox) = match target {
+                    InboxTarget::NextTurn => (&mut next_turn_inbox, &next_step_inbox),
+                    InboxTarget::NextStep => (&mut next_step_inbox, &next_turn_inbox),
+                };
+                let end = start.checked_add(*removed_count).ok_or_else(|| {
+                    SessionError::InvalidInboxSplice {
+                        seq: logged.seq,
+                        message: "splice range overflow".to_owned(),
+                    }
+                })?;
+                if *start > target_inbox.len() || end > target_inbox.len() {
+                    return Err(SessionError::InvalidInboxSplice {
+                        seq: logged.seq,
+                        message: format!(
+                            "range {start}..{end} exceeds {} pending items",
+                            target_inbox.len()
+                        ),
+                    });
+                }
+                if outcome.is_some() && *removed_count == 0 {
+                    return Err(SessionError::InvalidInboxSplice {
+                        seq: logged.seq,
+                        message: "discard outcome requires at least one removed message".to_owned(),
+                    });
+                }
+                for message in inserted {
+                    if message.id.is_empty() {
+                        return Err(SessionError::EmptyInboxMessageId { seq: logged.seq });
+                    }
+                    if message.message.role != MessageRole::User {
+                        return Err(SessionError::InvalidInboxMessageRole {
+                            seq: logged.seq,
+                            message_id: message.id.clone(),
+                        });
+                    }
+                    if message.message.id.as_deref() != Some(message.id.as_str()) {
+                        return Err(SessionError::InboxMessageIdMismatch {
+                            seq: logged.seq,
+                            message_id: message.id.clone(),
+                        });
+                    }
+                }
+                let mut candidate = target_inbox.clone();
+                candidate.splice(*start..end, inserted.iter().cloned());
+                let mut ids = std::collections::HashSet::new();
+                for message in candidate.iter().chain(other_inbox) {
+                    if !ids.insert(message.id.as_str()) {
+                        return Err(SessionError::DuplicateInboxMessage {
+                            seq: logged.seq,
+                            message_id: message.id.clone(),
+                        });
+                    }
+                }
+                *target_inbox = candidate;
+            }
             EventData::TurnStart { turn } => {
                 if open_turn.is_some() || open_step.is_some() {
                     return Err(lifecycle_error(logged.seq, "cannot nest a turn"));
