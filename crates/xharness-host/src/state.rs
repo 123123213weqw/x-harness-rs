@@ -182,13 +182,31 @@ pub(crate) struct AttachmentRecord {
     pub referenced_by: BTreeSet<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum QueuePlacement {
+    Queued,
+    Steering,
+    Context,
+}
+
+impl QueuePlacement {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Steering => "steering",
+            Self::Context => "context",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct QueuedPrompt {
     pub id: String,
     pub text: String,
     pub content: Vec<Value>,
     pub source: Value,
     pub fingerprint: Option<String>,
+    pub placement: QueuePlacement,
 }
 
 #[derive(Clone, Debug)]
@@ -249,6 +267,10 @@ pub struct SessionRecord {
     pub messages: Vec<AgentMessage>,
     #[serde(skip)]
     pub(crate) queue: VecDeque<QueuedPrompt>,
+    /// Authoritative transient view folded from both durable inbox lists.
+    /// `queue` above remains only the Host driver attachment FIFO.
+    #[serde(skip)]
+    pub(crate) projected_queue: Vec<QueuedPrompt>,
     #[serde(skip)]
     pub(crate) admissions: BTreeMap<String, QueuedPrompt>,
     #[serde(skip)]
@@ -351,12 +373,17 @@ impl SessionRecord {
     }
 
     pub(crate) fn queue_view(&self) -> Vec<Value> {
-        self.queue
+        let items: Vec<_> = if self.authoritative_seq.is_some() {
+            self.projected_queue.iter().collect()
+        } else {
+            self.queue.iter().collect()
+        };
+        items
             .iter()
             .map(|item| {
                 json!({
                     "id": item.id,
-                    "placement": "queued",
+                    "placement": item.placement.as_str(),
                     "message": {
                         "id": item.id,
                         "role": "user",

@@ -85,8 +85,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 > Session Log 重放；HTTP `session.prompt` 已先 Flush Durable Inbox 再返回成功，Claim 与
 > Turn/Input 已在同一 CAS Revision，Queue Edit/Remove 也同步到 Inbox。JSONL 目录枚举、
 > Session/History/Workspace/Queue 启动 Replay、恢复前订阅与显式 Wake 已完成；History 已直接
-> 按稳定 Cursor 查询 Session Log，Host 只缓存受 Event/Byte 双预算约束的连续尾部。Queue
-> Projection 与 Driver Attachment 仍是进程内派生状态。Prompt RPC Receipt 已从 Durable Inbox
+> 按稳定 Cursor 查询 Session Log，Host 只缓存受 Event/Byte 双预算约束的连续尾部。Queue 已从
+> 完整 Durable Inbox 折叠并在每次变化及 Mux 重连发送权威快照，Driver Attachment 与其分离。
+> Prompt RPC Receipt 已从 Durable Inbox
 > 历史重建；Approval Asked/Decided 与 Provider Retry/Started 已强类型持久化和投影，Pending
 > Approval 已能在原 Turn/Step 上跨重启继续回答；Agent/Permission/Sandbox/Approval Policy 和 Permission Command
 > Receipt、Session Title、Model Select、Agent Preset 选择、Goal Snapshot/Tombstone 与 Idle Plan Mode 已持久化；
@@ -118,7 +119,7 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
   交互恢复，以及 Rename/Model/Preset/Goal 的 Session 原子 Receipt；
   自定义 Workspace 元数据/排序/归档、Settings 以及对应 9 个变更 RPC 的通用 Receipt 已进入
   独立 Control Log。未完成 Session Create/Fork、Queue/Cancel/Attachment、Preset Copy/Remove 等
-  变更 RPC 的统一 Receipt、Credential Reference 与 Queue 持久游标投影。
+  变更 RPC 的统一 Receipt、Credential Reference，以及 queued-to-steer 的原子 Move。
 - [x] `A-10` Admission/Claim/Request Header/Tool Call/Tool Result/Step End/Turn End 七点均有
   确定性日志前缀测试；真实子进程 SIGKILL 另加入 Approval Asked，共八点。父进程在相同 State Dir
   重启正式 JSONL Host/Core，验证不丢输入、未批准 Tool 不执行、未知 Tool 不重放、

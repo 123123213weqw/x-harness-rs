@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
+use xharness_agent::InboxProjection;
 use xharness_api::{RpcError, RpcErrorCode, RpcId};
 use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
 use xharness_session::SessionEvent;
@@ -7,11 +8,11 @@ use xharness_session::SessionEvent;
 use crate::{
     restore::{
         project_session_event_range, project_session_event_tail, restored_agent_preset,
-        restored_goal, restored_permission, restored_plan_mode, restored_session_mutation_receipts,
-        restored_title,
+        restored_goal, restored_permission, restored_plan_mode, restored_queue,
+        restored_session_mutation_receipts, restored_title,
     },
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute, RunningTurn},
-    state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
+    state::{now_ms, DriverCommand, PendingResponse, QueuePlacement, QueuedPrompt},
     BasicHost,
 };
 
@@ -117,15 +118,21 @@ impl BasicHost {
         let plan_active = restored_plan_mode(&session);
         let goal = restored_goal(&session);
         let mutation_receipts = restored_session_mutation_receipts(&session);
+        let inbox = InboxProjection::from_session(&session).map_err(|error| {
+            RpcError::internal(format!(
+                "authoritative session {session_id:?} has an invalid inbox: {error}"
+            ))
+        })?;
+        let projected_queue = restored_queue(&inbox);
         let tail = project_session_event_tail(
             &session,
             &route,
             self.config.session_event_cache_capacity,
             self.config.session_event_cache_bytes,
         );
-        let new_events = {
+        let (new_events, queue_changed) = {
             let mut state = self.state.write().await;
-            let new_events = {
+            let (new_events, queue_changed) = {
                 let record = state
                     .sessions
                     .get_mut(session_id)
@@ -153,6 +160,8 @@ impl BasicHost {
                 record.plan_active = plan_active;
                 record.goal = goal.clone();
                 record.mutation_receipts = mutation_receipts;
+                let queue_changed = record.projected_queue != projected_queue;
+                record.projected_queue = projected_queue;
                 record.updated_at = session
                     .events()
                     .last()
@@ -162,14 +171,14 @@ impl BasicHost {
                 }) {
                     record.blank = false;
                 }
-                new_events
+                (new_events, queue_changed)
             };
             if let Some(goal) = goal {
                 state.goals.insert(session_id.to_owned(), goal);
             } else {
                 state.goals.remove(session_id);
             }
-            new_events
+            (new_events, queue_changed)
         };
         for event in new_events {
             self.push_mux(json!({
@@ -177,6 +186,9 @@ impl BasicHost {
                 "sessionId": session_id,
                 "event": event,
             }));
+        }
+        if queue_changed {
+            self.emit_queue(session_id).await;
         }
         Ok(true)
     }
@@ -380,17 +392,20 @@ impl BasicHost {
                             content: content.clone(),
                             source: source.clone(),
                             fingerprint,
+                            placement: QueuePlacement::Steering,
                         },
                     );
                 }
             }
-            self.append_session_event(
-                session_id,
-                "user/message",
-                web_user_message(&self.mint_id("message"), content, source),
-                Some("append"),
-            )
-            .await?;
+            if !self.sync_authoritative_session(session_id).await? {
+                self.append_session_event(
+                    session_id,
+                    "user/message",
+                    web_user_message(&self.mint_id("message"), content, source),
+                    Some("append"),
+                )
+                .await?;
+            }
             return Ok(());
         }
 
@@ -421,6 +436,7 @@ impl BasicHost {
                 content: content.clone(),
                 source: source.clone(),
                 fingerprint: fingerprint.clone(),
+                placement: QueuePlacement::Queued,
             });
             session.admissions.insert(
                 rpc_id.as_str().to_owned(),
@@ -430,6 +446,7 @@ impl BasicHost {
                     content,
                     source,
                     fingerprint,
+                    placement: QueuePlacement::Queued,
                 },
             );
             if !session.running {
@@ -439,7 +456,9 @@ impl BasicHost {
                 start_driver = Some(control_rx);
             }
         }
-        self.emit_queue(session_id).await;
+        if !self.sync_authoritative_session(session_id).await? {
+            self.emit_queue(session_id).await;
+        }
         if let Some(control_rx) = start_driver {
             self.push_host(json!({
                 "type": "host/session-status",

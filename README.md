@@ -60,7 +60,8 @@ Developer ID 签名、公证和本机安装验证。
 正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
 `session.prompt` 成功回执已绑定 Durable Inbox Flush。启动会枚举并恢复可由日志推导的
 Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。History 直接按稳定 Cursor
-查询权威 Session Log，Host 只保留受 Event/Byte 双预算约束的投影尾缓存。Workspace/Settings 与
+查询权威 Session Log，Host 只保留受 Event/Byte 双预算约束的投影尾缓存；Web Queue 从 Durable
+`next-turn + next-step` 折叠并在变化及重连发送完整快照。Workspace/Settings 与
 对应 Mutation Receipt 已进入独立、Secret-free 的 Host Control JSONL。Prompt RPC Receipt 可从
 完整 Inbox 历史重建；Session Rename/Model Select、Preset Select 和 6 个 Goal RPC 也已把状态与
 Receipt 在同一 Session Revision 原子提交。同 ID/同 Payload 的并发或重启重试不会重复变更；Pending
@@ -100,7 +101,8 @@ RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once �
 
 当前 Host 的 Web DTO 是进程内派生缓存，但持久真源已经是 Agent/Session：重启会恢复 Session、
 History、Header Workspace、Durable Queue 并续跑 Pending Turn/Pending Approval。History 已按
-`beforeSeq/maxMessages` 直接游标查询权威日志；Workspace/Settings 的 9 个变更 RPC，以及 Session
+`beforeSeq/maxMessages` 直接游标查询权威日志；Queue 也从 Durable Inbox 折叠 `queued/steering/context`
+并在 Mux 重连发送 Baseline。Workspace/Settings 的 9 个变更 RPC，以及 Session
 Rename/Model Select、Preset Select 和 6 个 Goal RPC 已通用 Exactly-once。仍需持久化 Queue、
 Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent。
 
@@ -115,7 +117,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 启动枚举、Pending Turn 先订阅后显式 Wake、无重复 Append 已完成
 - Prompt Admission 的持久 Receipt/冲突检测已完成
 - Pending Approval 可用原 Approval/Execution ID 在重启后恢复，回答前不会执行 Tool
-- 当前剩余 Queue/Workspace/Settings 持久投影与非 Prompt Receipt；部署级八点硬崩溃矩阵已完成
+- 当前剩余 Queue 原子 Move/Mutation Receipt、Credential Reference 与其他非 Prompt Receipt；
+  部署级八点硬崩溃矩阵已完成
 
 ### `xharness-core`
 

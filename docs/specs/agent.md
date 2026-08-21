@@ -122,16 +122,23 @@ Pending Approval 使用相同门：Runtime 先为稳定的 `approval-recovery:<a
 合成 User Message、不增加 Turn 编号；Web Host 从恢复事件重新创建一次可回答的 Server RPC，回答
 后 Core 才持久化 `approval/decided` 并继续原 Tool Batch。
 
-Web Queue 的 Edit/Remove 在修改内存 Projection 前先调用 Durable Inbox Replace/Remove；如果输入
-已经被领取，操作结构化失败，禁止只修改 UI 造成真源分叉。当前 queued-to-steer 仍经过删除后再
-发送到活动控制面，不承诺跨两次操作的崩溃原子性；后续应增加 Inbox Target 原子 Move。
+Web Queue 是完整 Durable Inbox 的纯投影：先投影 `next-turn` 为 `queued`，再把 `next-step` 中
+User Source 投影为 `steering`、其他 Source 投影为不可见的 `context`。每次 Splice/Claim 后发送完整
+`session/queue` 快照；Mux 重连对非空 Inbox 重发 Baseline，客户端不靠局部 Insert/Discard 推断。
+Host Driver FIFO 只关联 Prepared RunningTurn，不能参与 Web Queue 判定。
+
+Edit/Remove 在修改 Driver Attachment 前先调用 Durable Inbox Replace/Remove；如果输入已经被领取，
+返回 `queue-item-not-found`，禁止只修改 UI 造成真源分叉。Edit 只接受 Text Block，并同时替换 Durable
+Message 和结构化 Source Metadata。当前 queued-to-steer 仍经过删除后再发送到活动控制面，不承诺跨
+两次操作的崩溃原子性；后续应增加 Inbox Target 原子 Move。
 
 ## 当前限制
 
 - Durable Inbox、Lease、Supervisor、多 Turn Driver、Active Turn Steering、持久 HTTP Admission、
-  目录枚举和 Pending Turn 重挂接已实现。`BasicHost` 启动会从 Session Log 重建 FIFO/Queue/Event
-  派生缓存并续跑；该缓存仍不是可独立查询的持久 Store，Workspace 自定义元数据和非 Prompt
-  Receipt 也尚未恢复。Pending Approval 已从 Session Log 重建并可继续交互。
+  目录枚举、Pending Turn 重挂接和权威 Queue Baseline 已实现。`BasicHost` 启动会从 Session Log
+  重建 Queue/Event 派生缓存并续跑；Workspace 自定义元数据已由独立 Control Log 恢复。Queue
+  Mutation Receipt、Credential Reference 和其余非 Prompt Receipt 仍未完成。Pending Approval
+  已从 Session Log 重建并可继续交互。
 - Prompt Admission 已用 RPC ID、Payload SHA-256 和完整 Inbox Insert 历史建立持久 Receipt：
   同进程并发、成功响应丢失、输入已消费和重启后的同 Payload 重试均幂等；不同 Payload 复用 ID
   fail closed。其他变更 RPC 尚无统一 Receipt，因此仍不能宣称整个 HTTP API Exactly-once。

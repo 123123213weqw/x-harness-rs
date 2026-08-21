@@ -16,7 +16,8 @@ use xharness_session::{
 use crate::{
     runtime::{AgentSessionRequest, ModelRoute},
     state::{
-        DriverCommand, GoalState, ModelSelection, QueuedPrompt, SessionRecord, WorkspaceRecord,
+        DriverCommand, GoalState, ModelSelection, QueuePlacement, QueuedPrompt, SessionRecord,
+        WorkspaceRecord,
     },
     BasicHost, PermissionPreset,
 };
@@ -123,6 +124,7 @@ impl BasicHost {
                 .iter()
                 .map(restored_prompt)
                 .collect::<VecDeque<_>>();
+            let projected_queue = restored_queue(&inbox);
             let admissions = restored_admissions(&session);
             let projected_queue_len = queue.len();
             let pending_approval_count = session.pending_tool_approvals().len();
@@ -174,6 +176,7 @@ impl BasicHost {
                 event_cache_bytes: tail.bytes,
                 messages,
                 queue,
+                projected_queue,
                 admissions,
                 mutation_receipts: restored_session_mutation_receipts(&session),
                 authoritative_seq: Some(tail.next_seq),
@@ -407,7 +410,7 @@ pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
     current
 }
 
-fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
+pub(crate) fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
     let (content, source, fingerprint) = input
         .source
         .as_ref()
@@ -435,7 +438,26 @@ fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
         content,
         source,
         fingerprint,
+        placement: QueuePlacement::Queued,
     }
+}
+
+pub(crate) fn restored_queue(inbox: &InboxProjection) -> Vec<QueuedPrompt> {
+    let mut items = inbox
+        .next_turn()
+        .iter()
+        .map(restored_prompt)
+        .collect::<Vec<_>>();
+    items.extend(inbox.next_step().iter().map(|input| {
+        let mut prompt = restored_prompt(input);
+        prompt.placement = if prompt.source.get("kind").and_then(Value::as_str) == Some("user") {
+            QueuePlacement::Steering
+        } else {
+            QueuePlacement::Context
+        };
+        prompt
+    }));
+    items
 }
 
 fn restored_admissions(session: &Session) -> BTreeMap<String, QueuedPrompt> {
@@ -1937,6 +1959,123 @@ mod tests {
             .events
             .clone();
         assert_eq!(restarted_events, live_events);
+    }
+
+    #[tokio::test]
+    async fn mux_queue_baseline_is_folded_from_both_durable_inbox_lists() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut header = SessionHeader::new("queue-baseline");
+        header.cwd = Some(cwd.to_string_lossy().into_owned());
+        let inbox = DurableInbox::open(Arc::clone(&store), header)
+            .await
+            .unwrap();
+        inbox
+            .append(
+                InboxTarget::NextStep,
+                InboxMessage {
+                    id: "steering-1".to_owned(),
+                    message: Message::user("steer now").with_id("steering-1"),
+                    source: Some(json!({
+                        "content": [{"type": "text", "text": "steer now"}],
+                        "source": {"kind": "user"},
+                    })),
+                },
+            )
+            .await
+            .unwrap();
+        inbox
+            .append(
+                InboxTarget::NextStep,
+                InboxMessage {
+                    id: "context-1".to_owned(),
+                    message: Message::user("tool context").with_id("context-1"),
+                    source: Some(json!({
+                        "content": [{"type": "text", "text": "tool context"}],
+                        "source": {"kind": "tool", "callId": "call-1"},
+                    })),
+                },
+            )
+            .await
+            .unwrap();
+
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let host = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        host.restore_from_store(Arc::clone(&store)).await.unwrap();
+
+        let mut mux = host.mux_events();
+        let baseline = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let frame = mux.next().await.expect("mux remained open");
+                if frame.payload["type"] == "session/queue" {
+                    break frame.payload;
+                }
+            }
+        })
+        .await
+        .expect("queue baseline was not replayed");
+        assert_eq!(baseline["sessionId"], "queue-baseline");
+        assert_eq!(baseline["items"][0]["id"], "steering-1");
+        assert_eq!(baseline["items"][0]["placement"], "steering");
+        assert_eq!(baseline["items"][1]["id"], "context-1");
+        assert_eq!(baseline["items"][1]["placement"], "context");
+
+        inbox.remove("steering-1").await.unwrap().unwrap();
+        host.sync_authoritative_session("queue-baseline")
+            .await
+            .unwrap();
+        let after_remove = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let frame = mux.next().await.expect("mux remained open");
+                if frame.payload["type"] == "session/queue" {
+                    break frame.payload;
+                }
+            }
+        })
+        .await
+        .expect("queue removal was not projected");
+        assert_eq!(after_remove["items"].as_array().unwrap().len(), 1);
+        assert_eq!(after_remove["items"][0]["id"], "context-1");
+
+        inbox
+            .append(
+                InboxTarget::NextTurn,
+                InboxMessage {
+                    id: "queued-1".to_owned(),
+                    message: Message::user("later").with_id("queued-1"),
+                    source: Some(json!({
+                        "content": [{"type": "text", "text": "later"}],
+                        "source": {"kind": "user"},
+                    })),
+                },
+            )
+            .await
+            .unwrap();
+        host.sync_authoritative_session("queue-baseline")
+            .await
+            .unwrap();
+        let after_append = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let frame = mux.next().await.expect("mux remained open");
+                if frame.payload["type"] == "session/queue" {
+                    break frame.payload;
+                }
+            }
+        })
+        .await
+        .expect("queue append was not projected");
+        assert_eq!(after_append["items"][0]["id"], "queued-1");
+        assert_eq!(after_append["items"][0]["placement"], "queued");
+        assert_eq!(after_append["items"][1]["id"], "context-1");
     }
 
     #[tokio::test]
