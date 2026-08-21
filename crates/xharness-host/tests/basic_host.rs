@@ -316,7 +316,8 @@ async fn configured_cwd_is_always_available_as_the_boot_workspace() {
     let items = listed["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["workspaceId"], "workspace-default");
-    assert_eq!(items[0]["path"], fx.root.to_string_lossy().as_ref());
+    let canonical_root = std::fs::canonicalize(&fx.root).unwrap();
+    assert_eq!(items[0]["path"], canonical_root.to_string_lossy().as_ref());
 
     let created = fx
         .value(RpcMethod::WorkspaceCreate, json!({"path": fx.root}))
