@@ -54,10 +54,10 @@ Inbox，再改变 Web Projection。
 
 ## 当前不承诺
 
-- Workspace 用户标题、排序、归档，Settings、Credential Override、Attachment Blob、Goal 与
-  Pending Approval 还没有独立持久日志。Agent/Permission Preset 和它展开的 Sandbox/Approval
-  Policy 已进入 Session Log。
-- Prompt RPC Receipt 与 Permission Command Receipt 已可恢复；Workspace、Settings、Goal、Queue
+- Workspace 用户标题、排序、归档，Settings、Credential Override、Attachment Blob 与 Pending
+  Approval 还没有独立持久日志。Agent/Permission Preset、Goal 和展开的 Sandbox/Approval Policy
+  已进入 Session Log。
+- Prompt RPC Receipt 与 Permission Command Receipt 已可恢复；Workspace、Settings、Queue
   Action 等其他变更 RPC 仍没有通用持久 Receipt/Consumed Store。Session Title 与 Agent Preset
   选择的最终状态可恢复，但相同 RPC ID 重试仍未进入通用 Exactly-once Receipt Store。
 - Web History 已按权威 Session Cursor 刷新和增量广播；Workspace/Settings 等非 Session 投影仍
@@ -77,6 +77,8 @@ Inbox，再改变 Web Projection。
   `danger-full-access + never`，Command Run/Done 顺序不变。
 - `session.rename` 和 `agentPreset.select` 在返回前 Flush，重启后保留 Title/Preset；显式用户标题
   使用空 `messageSeqs` 与 `source={kind:"user"}`，不进入模型消息。
+- Goal Mutation 使用全快照或 Clear Tombstone；Host 重启恢复 Revision、Phase、Objective、Round
+  Budget、时间和 History/Projection，不依赖旧进程的 `goals` Map。
 - 真实 `xharness-host` 子进程在相同 State Dir 和端口重启后，`workspace.list`、`session.list`、
   `session.history` 与 WebSocket Carrier 均恢复。
 - 所有 Rust 测试必须同步到 `WZU_Server`，远程通过 Workspace Check/Test/Clippy。

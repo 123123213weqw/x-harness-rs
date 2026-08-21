@@ -141,9 +141,35 @@ pub struct GoalState {
     pub id: String,
     pub revision: u64,
     pub objective: String,
+    pub phase: xharness_session::GoalPhase,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_goal_rounds: Option<u64>,
-    pub status: String,
+    pub blocked_reason: Option<xharness_session::GoalBlockReason>,
+    pub max_goal_rounds: u64,
+    pub rounds_started: u64,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+impl GoalState {
+    pub(crate) fn snapshot(&self) -> xharness_session::GoalSnapshot {
+        xharness_session::GoalSnapshot {
+            id: self.id.clone(),
+            revision: self.revision,
+            objective: self.objective.clone(),
+            phase: self.phase,
+            blocked_reason: self.blocked_reason.clone(),
+            max_goal_rounds: self.max_goal_rounds,
+        }
+    }
+
+    pub(crate) fn projection(&self) -> Value {
+        json!({
+            "goal": self.snapshot(),
+            "roundsStarted": self.rounds_started,
+            "createdAt": self.created_at,
+            "updatedAt": self.updated_at,
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -187,6 +213,8 @@ pub struct SessionRecord {
     pub title: Option<String>,
     pub model: ModelSelection,
     pub permission_preset: PermissionPreset,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal: Option<GoalState>,
     pub events: Vec<Value>,
     pub messages: Vec<AgentMessage>,
     #[serde(skip)]
@@ -242,6 +270,12 @@ impl SessionRecord {
             );
         }
         values.insert("permissions".to_owned(), self.permission_preset.select());
+        values.insert(
+            "goal".to_owned(),
+            self.goal
+                .as_ref()
+                .map_or(Value::Null, GoalState::projection),
+        );
         Value::Object(values)
     }
 

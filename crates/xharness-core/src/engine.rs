@@ -650,6 +650,7 @@ impl Runner {
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }
                                     | SessionEventData::SessionTitle { .. }
+                                    | SessionEventData::GoalChange { .. }
                             )
                         })
                     {

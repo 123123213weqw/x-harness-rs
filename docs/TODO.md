@@ -85,6 +85,10 @@ Commit、Issue、PR 应引用这些 ID。
   latest-wins 的 `session/title`；`agentPreset.select` 复用 `agent-preset/selected`。两者均经过
   Per-session Admission Fence 和 Flush Barrier 后才更新内存投影，重启从 Session Log 折叠恢复；
   运行中 Rename 被 Core 视为允许的外部控制事件。48 个冻结事件当前覆盖 23 个。
+- [x] `DONE-33` Goal 全快照事件与恢复：6 个 Goal RPC 经 Per-session Admission Fence 写入
+  `goal/change`；Create/Edit/Pause/Resume/Complete 使用 version 1 全快照，Clear 使用递增 Revision
+  Tombstone。Session 校验 ID/Revision/Phase/时间和定义迁移，History/Projection 与重启从同一日志
+  折叠，默认 `maxGoalRounds=256`。48 个冻结事件当前覆盖 24 个。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

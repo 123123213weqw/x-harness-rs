@@ -346,6 +346,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut last_step = 0u32;
     let mut next_turn_inbox = Vec::<InboxMessage>::new();
     let mut next_step_inbox = Vec::<InboxMessage>::new();
+    let mut current_goal = None::<(crate::GoalSnapshot, u64, u64, u64)>;
+    let mut seen_goal_ids = std::collections::HashSet::<String>::new();
     for (position, logged) in events.iter().enumerate() {
         let expected_seq = position as Sequence;
         if logged.seq != expected_seq {
@@ -720,6 +722,139 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     }
                 }
             }
+            EventData::GoalChange { change } => match change {
+                crate::GoalChange::Snapshot(change) => {
+                    let goal = &change.goal;
+                    if change.version != 1
+                        || goal.id.trim().is_empty()
+                        || goal.objective.trim().is_empty()
+                        || goal.revision == 0
+                        || goal.max_goal_rounds == 0
+                        || change.rounds_started > goal.max_goal_rounds
+                        || change.updated_at < change.created_at
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "goal/change snapshot has invalid identity, limits or timestamps",
+                        ));
+                    }
+                    let blocked = matches!(goal.phase, crate::GoalPhase::Blocked);
+                    if blocked != goal.blocked_reason.is_some()
+                        || goal.blocked_reason.as_ref().is_some_and(|reason| {
+                            reason.code.trim().is_empty() || reason.message.trim().is_empty()
+                        })
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "goal/change blockedReason must exist exactly for blocked phase",
+                        ));
+                    }
+                    match change.operation {
+                        crate::GoalSnapshotOperation::Create => {
+                            if goal.revision != 1
+                                || goal.phase != crate::GoalPhase::Active
+                                || change.rounds_started != 0
+                                || current_goal.as_ref().is_some_and(|(current, ..)| {
+                                    current.phase != crate::GoalPhase::Complete
+                                })
+                                || !seen_goal_ids.insert(goal.id.clone())
+                            {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "goal create requires a fresh active revision-one goal",
+                                ));
+                            }
+                        }
+                        operation => {
+                            let Some((current, rounds, created_at, updated_at)) =
+                                current_goal.as_ref()
+                            else {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "non-create goal mutation requires a current goal",
+                                ));
+                            };
+                            if goal.id != current.id
+                                || goal.revision != current.revision.saturating_add(1)
+                                || change.created_at != *created_at
+                                || change.updated_at < *updated_at
+                                || change.rounds_started != *rounds
+                            {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "goal mutation must advance one revision without rewinding metadata",
+                                ));
+                            }
+                            let same_definition = goal.objective == current.objective
+                                && goal.max_goal_rounds == current.max_goal_rounds;
+                            let valid = match operation {
+                                crate::GoalSnapshotOperation::Edit => {
+                                    goal.phase == current.phase
+                                        && goal.blocked_reason == current.blocked_reason
+                                }
+                                crate::GoalSnapshotOperation::Pause => {
+                                    same_definition
+                                        && current.phase == crate::GoalPhase::Active
+                                        && goal.phase == crate::GoalPhase::Paused
+                                }
+                                crate::GoalSnapshotOperation::Resume => {
+                                    same_definition
+                                        && matches!(
+                                            current.phase,
+                                            crate::GoalPhase::Active
+                                                | crate::GoalPhase::Paused
+                                                | crate::GoalPhase::Blocked
+                                        )
+                                        && goal.phase == crate::GoalPhase::Active
+                                        && change.rounds_started < goal.max_goal_rounds
+                                }
+                                crate::GoalSnapshotOperation::Complete => {
+                                    same_definition
+                                        && current.phase != crate::GoalPhase::Complete
+                                        && goal.phase == crate::GoalPhase::Complete
+                                }
+                                crate::GoalSnapshotOperation::Block => {
+                                    same_definition
+                                        && current.phase == crate::GoalPhase::Active
+                                        && goal.phase == crate::GoalPhase::Blocked
+                                }
+                                crate::GoalSnapshotOperation::Create => false,
+                            };
+                            if !valid {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "goal/change has an invalid phase or definition transition",
+                                ));
+                            }
+                        }
+                    }
+                    current_goal = Some((
+                        goal.clone(),
+                        change.rounds_started,
+                        change.created_at,
+                        change.updated_at,
+                    ));
+                }
+                crate::GoalChange::Clear(change) => {
+                    let Some((current, _, _, updated_at)) = current_goal.as_ref() else {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "goal clear requires a current goal",
+                        ));
+                    };
+                    if change.version != 1
+                        || change.cleared.id != current.id
+                        || change.cleared.revision != current.revision.saturating_add(1)
+                        || change.cleared_at < *updated_at
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "goal clear tombstone has invalid identity, revision or timestamp",
+                        ));
+                    }
+                    current_goal = None;
+                }
+            },
             EventData::LlmRetry {
                 retry_id,
                 turn,

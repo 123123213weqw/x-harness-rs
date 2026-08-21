@@ -5,7 +5,10 @@ use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopSta
 use xharness_session::SessionEvent;
 
 use crate::{
-    restore::{project_session_events, restored_agent_preset, restored_permission, restored_title},
+    restore::{
+        project_session_events, restored_agent_preset, restored_goal, restored_permission,
+        restored_title,
+    },
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute},
     state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
     BasicHost,
@@ -111,10 +114,11 @@ impl BasicHost {
         let permission = restored_permission(&session);
         let agent_preset = restored_agent_preset(&session);
         let title = restored_title(&session);
+        let goal = restored_goal(&session);
         let next_seq = session.next_seq();
-        let new_events =
-            {
-                let mut state = self.state.write().await;
+        let new_events = {
+            let mut state = self.state.write().await;
+            let new_events = {
                 let record = state
                     .sessions
                     .get_mut(session_id)
@@ -134,6 +138,7 @@ impl BasicHost {
                 record.permission_preset = permission;
                 record.agent_preset = agent_preset;
                 record.title = title;
+                record.goal = goal.clone();
                 record.updated_at = session
                     .events()
                     .last()
@@ -145,6 +150,13 @@ impl BasicHost {
                 }
                 new_events
             };
+            if let Some(goal) = goal {
+                state.goals.insert(session_id.to_owned(), goal);
+            } else {
+                state.goals.remove(session_id);
+            }
+            new_events
+        };
         for event in new_events {
             self.push_mux(json!({
                 "type": "session/event",

@@ -214,6 +214,101 @@ pub enum SessionTitleSource {
     User,
 }
 
+/// Durable phase of a long-running goal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GoalPhase {
+    Active,
+    Paused,
+    Blocked,
+    Complete,
+}
+
+/// Stable machine and human explanation present only for a blocked goal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalBlockReason {
+    pub code: String,
+    pub message: String,
+}
+
+/// Full durable goal state carried by every non-clear mutation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSnapshot {
+    pub id: String,
+    pub revision: u64,
+    pub objective: String,
+    pub phase: GoalPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<GoalBlockReason>,
+    pub max_goal_rounds: u64,
+}
+
+/// Stable operation vocabulary for a full goal snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GoalSnapshotOperation {
+    Create,
+    Edit,
+    Pause,
+    Resume,
+    Complete,
+    Block,
+}
+
+/// Constant self-description retained inside an upstream `goal/change` body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GoalChangeKind {
+    #[serde(rename = "goal/change")]
+    GoalChange,
+}
+
+/// Full-snapshot durable goal mutation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSnapshotChange {
+    pub kind: GoalChangeKind,
+    pub version: u8,
+    pub operation: GoalSnapshotOperation,
+    pub goal: GoalSnapshot,
+    pub rounds_started: u64,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+/// Clear tombstone retained after the current goal disappears.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalClearChange {
+    pub kind: GoalChangeKind,
+    pub version: u8,
+    pub operation: GoalClearOperation,
+    pub cleared: GoalRef,
+    pub cleared_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GoalClearOperation {
+    Clear,
+}
+
+/// Compare-and-set identity shared by goal snapshots and clear tombstones.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoalRef {
+    pub id: String,
+    pub revision: u64,
+}
+
+/// Exact upstream event-body union.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GoalChange {
+    Snapshot(GoalSnapshotChange),
+    Clear(GoalClearChange),
+}
+
 /// Provider-neutral failure retained by a durable model-retry audit record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -370,6 +465,12 @@ pub enum EventData {
         #[serde(rename = "messageSeqs")]
         message_seqs: Vec<Sequence>,
         source: SessionTitleSource,
+    },
+    /// Full latest-wins goal snapshot or revisioned clear tombstone.
+    #[serde(rename = "goal/change")]
+    GoalChange {
+        #[serde(flatten)]
+        change: GoalChange,
     },
     /// One durable provider retry scheduled after a failed request attempt.
     #[serde(rename = "llm/retry")]

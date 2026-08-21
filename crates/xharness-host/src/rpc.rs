@@ -18,7 +18,9 @@ use xharness_api::{
 };
 use xharness_core::{AgentMessage, LoopCommand};
 use xharness_session::{
-    ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData, SessionEvent,
+    ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData,
+    GoalChange as SessionGoalChange, GoalChangeKind, GoalClearChange, GoalClearOperation,
+    GoalPhase, GoalRef as DurableGoalRef, GoalSnapshotChange, GoalSnapshotOperation, SessionEvent,
     SessionSandboxMode, SessionTitleSource,
 };
 
@@ -88,7 +90,7 @@ impl ApiBackend for BasicHost {
             RpcMethod::GoalEdit => self.goal_edit(&payload).await,
             RpcMethod::GoalPause => self.goal_transition(&payload, "paused").await,
             RpcMethod::GoalResume => self.goal_transition(&payload, "active").await,
-            RpcMethod::GoalComplete => self.goal_transition(&payload, "completed").await,
+            RpcMethod::GoalComplete => self.goal_transition(&payload, "complete").await,
             RpcMethod::GoalClear => self.goal_clear(&payload).await,
             RpcMethod::SettingsDescribe => self.settings_describe(&payload).await,
             RpcMethod::SettingsOpenDocument => self.settings_open_document(&payload).await,
@@ -521,6 +523,7 @@ impl BasicHost {
             title: None,
             model: ModelSelection::from_config(&self.config),
             permission_preset,
+            goal: None,
             events: Vec::new(),
             messages: Vec::new(),
             queue: Default::default(),
@@ -749,6 +752,7 @@ impl BasicHost {
             title: source.title.clone(),
             model: source.model.clone(),
             permission_preset: source.permission_preset,
+            goal: source.goal.clone(),
             events: child_events,
             messages: source.messages.clone(),
             queue: Default::default(),
@@ -1629,24 +1633,52 @@ impl BasicHost {
     async fn goal_create(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let objective = nonempty(required_string(payload, "objective")?, "objective")?;
-        let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?;
-        if max_goal_rounds == Some(0) {
+        let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?.unwrap_or(256);
+        if max_goal_rounds == 0 {
             return Err(bad_request("maxGoalRounds must be positive"));
         }
-        let mut state = self.state.write().await;
-        if !state.sessions.contains_key(&session_id) {
-            return Err(session_not_found(&session_id));
+        let _session_guard = self.lock_admission(&session_id).await;
+        {
+            let state = self.state.read().await;
+            if !state.sessions.contains_key(&session_id) {
+                return Err(session_not_found(&session_id));
+            }
+            if state
+                .goals
+                .get(&session_id)
+                .is_some_and(|goal| goal.phase != GoalPhase::Complete)
+            {
+                return Err(bad_request("session already has a non-complete goal"));
+            }
         }
+        let now = now_ms();
         let goal = GoalState {
             id: self.mint_id("goal"),
             revision: 1,
             objective,
             max_goal_rounds,
-            status: "active".to_owned(),
+            phase: GoalPhase::Active,
+            blocked_reason: None,
+            rounds_started: 0,
+            created_at: now,
+            updated_at: now,
         };
-        state.goals.insert(session_id.clone(), goal.clone());
-        drop(state);
-        self.push_projection(&session_id, "goal", json!(goal)).await;
+        self.commit_session_events(
+            &session_id,
+            vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Create)],
+        )
+        .await?;
+        {
+            let mut state = self.state.write().await;
+            state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .goal = Some(goal.clone());
+            state.goals.insert(session_id.clone(), goal.clone());
+        }
+        self.push_projection(&session_id, "goal", goal.projection())
+            .await;
         Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
     }
 
@@ -1658,15 +1690,22 @@ impl BasicHost {
             return Err(bad_request("goal.edit requires objective or maxGoalRounds"));
         }
         let expected = goal_ref(payload)?;
-        let mut state = self.state.write().await;
-        let goal = state.goals.get_mut(&session_id).ok_or_else(|| {
-            rpc_error(
-                RpcErrorCode::BadRequest,
-                "session has no active goal",
-                json!({"issues": []}),
-            )
-        })?;
-        require_goal_ref(goal, &expected)?;
+        let _session_guard = self.lock_admission(&session_id).await;
+        let mut goal = self
+            .state
+            .read()
+            .await
+            .goals
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::BadRequest,
+                    "session has no active goal",
+                    json!({"issues": []}),
+                )
+            })?;
+        require_goal_ref(&goal, &expected)?;
         if let Some(objective) = objective {
             goal.objective = nonempty(objective, "objective")?;
         }
@@ -1674,43 +1713,129 @@ impl BasicHost {
             if rounds == 0 {
                 return Err(bad_request("maxGoalRounds must be positive"));
             }
-            goal.max_goal_rounds = Some(rounds);
+            goal.max_goal_rounds = rounds;
         }
         goal.revision = goal.revision.saturating_add(1);
-        let goal = goal.clone();
-        drop(state);
-        self.push_projection(&session_id, "goal", json!(goal)).await;
+        goal.updated_at = now_ms().max(goal.updated_at);
+        self.commit_session_events(
+            &session_id,
+            vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Edit)],
+        )
+        .await?;
+        {
+            let mut state = self.state.write().await;
+            state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .goal = Some(goal.clone());
+            state.goals.insert(session_id.clone(), goal.clone());
+        }
+        self.push_projection(&session_id, "goal", goal.projection())
+            .await;
         Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
     }
 
-    async fn goal_transition(&self, payload: &Value, status: &str) -> Result<Value, RpcError> {
+    async fn goal_transition(&self, payload: &Value, transition: &str) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let expected = goal_ref(payload)?;
-        let mut state = self.state.write().await;
-        let goal = state
+        let _session_guard = self.lock_admission(&session_id).await;
+        let mut goal = self
+            .state
+            .read()
+            .await
             .goals
-            .get_mut(&session_id)
+            .get(&session_id)
+            .cloned()
             .ok_or_else(|| bad_request("session has no goal"))?;
-        require_goal_ref(goal, &expected)?;
-        goal.status = status.to_owned();
+        require_goal_ref(&goal, &expected)?;
+        let (operation, phase, valid) = match transition {
+            "paused" => (
+                GoalSnapshotOperation::Pause,
+                GoalPhase::Paused,
+                goal.phase == GoalPhase::Active,
+            ),
+            "active" => (
+                GoalSnapshotOperation::Resume,
+                GoalPhase::Active,
+                matches!(
+                    goal.phase,
+                    GoalPhase::Active | GoalPhase::Paused | GoalPhase::Blocked
+                ) && goal.rounds_started < goal.max_goal_rounds,
+            ),
+            "complete" => (
+                GoalSnapshotOperation::Complete,
+                GoalPhase::Complete,
+                goal.phase != GoalPhase::Complete,
+            ),
+            _ => return Err(RpcError::internal("unknown goal transition")),
+        };
+        if !valid {
+            return Err(bad_request(format!(
+                "cannot {transition} goal from phase {:?}",
+                goal.phase
+            )));
+        }
+        goal.phase = phase;
+        goal.blocked_reason = None;
         goal.revision = goal.revision.saturating_add(1);
-        let goal = goal.clone();
-        drop(state);
-        self.push_projection(&session_id, "goal", json!(goal)).await;
+        goal.updated_at = now_ms().max(goal.updated_at);
+        self.commit_session_events(&session_id, vec![goal_snapshot_event(&goal, operation)])
+            .await?;
+        {
+            let mut state = self.state.write().await;
+            state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .goal = Some(goal.clone());
+            state.goals.insert(session_id.clone(), goal.clone());
+        }
+        self.push_projection(&session_id, "goal", goal.projection())
+            .await;
         Ok(json!({"ref": {"id": goal.id, "revision": goal.revision}}))
     }
 
     async fn goal_clear(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let expected = goal_ref(payload)?;
-        let mut state = self.state.write().await;
-        let goal = state
+        let _session_guard = self.lock_admission(&session_id).await;
+        let goal = self
+            .state
+            .read()
+            .await
             .goals
             .get(&session_id)
+            .cloned()
             .ok_or_else(|| bad_request("session has no goal"))?;
-        require_goal_ref(goal, &expected)?;
-        state.goals.remove(&session_id);
-        drop(state);
+        require_goal_ref(&goal, &expected)?;
+        let cleared = DurableGoalRef {
+            id: goal.id.clone(),
+            revision: goal.revision.saturating_add(1),
+        };
+        self.commit_session_events(
+            &session_id,
+            vec![SessionEventData::GoalChange {
+                change: SessionGoalChange::Clear(GoalClearChange {
+                    kind: GoalChangeKind::GoalChange,
+                    version: 1,
+                    operation: GoalClearOperation::Clear,
+                    cleared,
+                    cleared_at: now_ms().max(goal.updated_at),
+                }),
+            }
+            .into()],
+        )
+        .await?;
+        {
+            let mut state = self.state.write().await;
+            state
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .goal = None;
+            state.goals.remove(&session_id);
+        }
         self.push_projection(&session_id, "goal", Value::Null).await;
         Ok(json!({"cleared": true}))
     }
@@ -2227,6 +2352,21 @@ fn permission_events(preset: crate::PermissionPreset) -> Vec<SessionEvent> {
         }
         .into(),
     ]
+}
+
+fn goal_snapshot_event(goal: &GoalState, operation: GoalSnapshotOperation) -> SessionEvent {
+    SessionEventData::GoalChange {
+        change: SessionGoalChange::Snapshot(GoalSnapshotChange {
+            kind: GoalChangeKind::GoalChange,
+            version: 1,
+            operation,
+            goal: goal.snapshot(),
+            rounds_started: goal.rounds_started,
+            created_at: goal.created_at,
+            updated_at: goal.updated_at,
+        }),
+    }
+    .into()
 }
 
 #[derive(Clone, Debug)]

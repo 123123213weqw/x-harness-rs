@@ -15,7 +15,9 @@ use xharness_session::{
 
 use crate::{
     runtime::{AgentSessionRequest, ModelRoute},
-    state::{DriverCommand, ModelSelection, QueuedPrompt, SessionRecord, WorkspaceRecord},
+    state::{
+        DriverCommand, GoalState, ModelSelection, QueuedPrompt, SessionRecord, WorkspaceRecord,
+    },
     BasicHost, PermissionPreset,
 };
 
@@ -116,6 +118,7 @@ impl BasicHost {
                 .unwrap_or_default();
             let blank = messages.is_empty() && !inbox.has_pending();
             let permission = restored_permission(&session);
+            let goal = restored_goal(&session);
             let record = SessionRecord {
                 session_id: session_id.clone(),
                 created_at: header.created_at_ms,
@@ -133,6 +136,7 @@ impl BasicHost {
                     reasoning_effort: route.reasoning_effort.clone(),
                 },
                 permission_preset: permission,
+                goal: goal.clone(),
                 events,
                 messages,
                 queue,
@@ -146,6 +150,9 @@ impl BasicHost {
                 let mut state = self.state.write().await;
                 attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
                 state.sessions.insert(session_id.clone(), record);
+                if let Some(goal) = goal {
+                    state.goals.insert(session_id.clone(), goal);
+                }
             }
             report.restored_sessions += 1;
             report.waiting_next_step_inputs += inbox.next_step().len();
@@ -263,6 +270,30 @@ pub(crate) fn restored_title(session: &Session) -> Option<String> {
     })
 }
 
+pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
+    let mut current = None;
+    for event in session.events() {
+        let EventData::GoalChange { change } = event.data() else {
+            continue;
+        };
+        current = match change {
+            xharness_session::GoalChange::Snapshot(change) => Some(GoalState {
+                id: change.goal.id.clone(),
+                revision: change.goal.revision,
+                objective: change.goal.objective.clone(),
+                phase: change.goal.phase,
+                blocked_reason: change.goal.blocked_reason.clone(),
+                max_goal_rounds: change.goal.max_goal_rounds,
+                rounds_started: change.rounds_started,
+                created_at: change.created_at,
+                updated_at: change.updated_at,
+            }),
+            xharness_session::GoalChange::Clear(_) => None,
+        };
+    }
+    current
+}
+
 fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
     let (content, source, fingerprint) = input
         .source
@@ -371,6 +402,7 @@ fn restored_web_event(
         | EventData::CommandRun { .. }
         | EventData::CommandDone { .. }
         | EventData::SessionTitle { .. }
+        | EventData::GoalChange { .. }
         | EventData::LlmRetry { .. }
         | EventData::LlmRetryStarted { .. } => tagged_event_data(event.data()),
         EventData::TurnStart { turn } => (
@@ -1014,6 +1046,115 @@ mod tests {
             .events
             .clone();
         assert_eq!(restarted_events, live_events);
+    }
+
+    #[tokio::test]
+    async fn goal_snapshot_revisions_and_projection_survive_a_host_restart() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let live = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        assert!(live
+            .call(
+                RpcId::new("goal-session-create"),
+                RpcMethod::SessionCreate,
+                json!({"sessionId": "goal-session", "cwd": cwd}),
+                CancellationToken::new(),
+            )
+            .await
+            .is_ok());
+        let created = live
+            .call(
+                RpcId::new("goal-create"),
+                RpcMethod::GoalCreate,
+                json!({
+                    "sessionId": "goal-session",
+                    "objective": "Ship the durable agent",
+                    "maxGoalRounds": 8,
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(created),
+        } = created
+        else {
+            panic!("goal create failed: {created:?}");
+        };
+        let edited = live
+            .call(
+                RpcId::new("goal-edit"),
+                RpcMethod::GoalEdit,
+                json!({
+                    "sessionId": "goal-session",
+                    "ref": created["ref"],
+                    "objective": "Ship the durable Rust agent",
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(edited),
+        } = edited
+        else {
+            panic!("goal edit failed: {edited:?}");
+        };
+        let paused = live
+            .call(
+                RpcId::new("goal-pause"),
+                RpcMethod::GoalPause,
+                json!({"sessionId": "goal-session", "ref": edited["ref"]}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(paused.is_ok());
+
+        let durable = store.load("goal-session").await.unwrap().unwrap();
+        let goal = restored_goal(&durable).expect("current durable goal");
+        assert_eq!(goal.revision, 3);
+        assert_eq!(goal.phase, xharness_session::GoalPhase::Paused);
+        assert_eq!(goal.objective, "Ship the durable Rust agent");
+        assert_eq!(
+            durable
+                .events()
+                .iter()
+                .filter(|event| matches!(event.data(), EventData::GoalChange { .. }))
+                .count(),
+            3
+        );
+
+        let restarted_runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let restarted = BasicHost::with_agent_runtime(config(&cwd), restarted_runtime);
+        restarted
+            .restore_from_store(Arc::clone(&store))
+            .await
+            .unwrap();
+        let state = restarted.state.read().await;
+        let restored = state.goals.get("goal-session").expect("restored goal");
+        assert_eq!(restored.revision, 3);
+        assert_eq!(restored.phase, xharness_session::GoalPhase::Paused);
+        assert_eq!(
+            restored.projection()["goal"]["objective"],
+            "Ship the durable Rust agent"
+        );
     }
 
     #[tokio::test]
