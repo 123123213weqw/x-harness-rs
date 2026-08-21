@@ -1,4 +1,5 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=XHARNESS_ACCOUNT_ORIGIN");
     println!("cargo:rerun-if-env-changed=XHARNESS_INSTALLATION_ENDPOINT");
     println!("cargo:rerun-if-env-changed=XHARNESS_RELEASE_CHANNEL");
     // Wry imports TaskDialogIndirect (ComCtl32 v6). Tauri resources cover
@@ -26,6 +27,11 @@ fn main() {
     };
     tauri_build::try_build(
         attributes.app_manifest(tauri_build::AppManifest::new().commands(&[
+            "desktop_account_status",
+            "desktop_account_open",
+            "desktop_account_start",
+            "desktop_account_poll",
+            "desktop_account_finish",
             "desktop_status",
             "desktop_installation_status",
             "desktop_set_installation_statistics",
