@@ -1,14 +1,20 @@
+//! Native deployment composition for the reusable [`xharness_host`] control
+//! plane.
+//!
+//! This crate owns OS-facing tool construction. The Host library itself stays
+//! independent from Linux/macOS process, filesystem, sandbox, terminal and Web
+//! implementations.
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 use xharness_coding_tools::CodingToolBundle;
 use xharness_core::ToolSpec;
+use xharness_host::SessionToolFactory;
 use xharness_platform::{NativePlatform, PlatformConfig};
 use xharness_terminal::TerminalRegistry;
 use xharness_web::WebRuntime;
-
-use crate::SessionToolFactory;
 
 /// Native Linux/macOS implementation of the standard fourteen-tool factory.
 /// Platforms are cached per canonical workspace so filesystem observations

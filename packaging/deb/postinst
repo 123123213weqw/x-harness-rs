@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+case ${1:-configure} in
+    configure|triggered)
+        /usr/lib/xharness/xharness-sandbox-setup install
+        ;;
+esac
+
+exit 0

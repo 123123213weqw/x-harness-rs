@@ -1,0 +1,24 @@
+[package]
+name = "xharness-host-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native Linux/macOS composition and Web executable for XHarness"
+
+[[bin]]
+name = "xharness-host"
+path = "src/main.rs"
+
+[dependencies]
+async-trait.workspace = true
+tokio.workspace = true
+xharness-api = { path = "../xharness-api" }
+xharness-coding-tools = { path = "../xharness-coding-tools" }
+xharness-core = { path = "../xharness-core" }
+xharness-host = { path = "../xharness-host" }
+xharness-platform = { path = "../xharness-platform" }
+xharness-provider-openai = { path = "../xharness-provider-openai" }
+xharness-server = { path = "../xharness-server" }
+xharness-terminal = { path = "../xharness-terminal" }
+xharness-web = { path = "../xharness-web" }

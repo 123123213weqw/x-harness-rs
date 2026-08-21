@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use crate::{AgentMessage, SessionSnapshot};
+use crate::SessionSnapshot;
 
 #[async_trait]
 pub trait SessionStore: Send + Sync + 'static {
@@ -28,20 +28,5 @@ impl SessionStore for MemorySessionStore {
             .await
             .insert(session_id.to_owned(), snapshot);
         Ok(())
-    }
-}
-
-#[async_trait]
-pub trait ContextPolicy: Send + Sync + 'static {
-    async fn prepare(&self, messages: &[AgentMessage]) -> Result<Vec<AgentMessage>, String>;
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct IdentityContextPolicy;
-
-#[async_trait]
-impl ContextPolicy for IdentityContextPolicy {
-    async fn prepare(&self, messages: &[AgentMessage]) -> Result<Vec<AgentMessage>, String> {
-        Ok(messages.to_vec())
     }
 }

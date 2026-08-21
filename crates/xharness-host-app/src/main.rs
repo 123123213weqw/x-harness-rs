@@ -2,7 +2,8 @@ use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use tokio::net::TcpListener;
 use xharness_api::ApiBackend;
-use xharness_host::{BasicHost, HostConfig, NativeToolFactory};
+use xharness_host::{BasicHost, HostConfig};
+use xharness_host_app::NativeToolFactory;
 use xharness_provider_openai::{OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig};
 use xharness_server::{serve, web_router};
 use xharness_web::WebRuntime;

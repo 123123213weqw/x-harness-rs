@@ -26,6 +26,7 @@ type Script = Vec<Result<ProviderEvent, ProviderError>>;
 struct ScriptProvider {
     scripts: Arc<Mutex<VecDeque<Result<Script, ProviderError>>>>,
     attempts: Arc<AtomicUsize>,
+    requests: Arc<Mutex<Vec<ProviderRequest>>>,
 }
 
 impl ScriptProvider {
@@ -35,6 +36,7 @@ impl ScriptProvider {
                 scripts.into_iter().map(Ok).collect::<VecDeque<_>>(),
             )),
             attempts: Arc::new(AtomicUsize::new(0)),
+            requests: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -42,11 +44,16 @@ impl ScriptProvider {
         Self {
             scripts: Arc::new(Mutex::new(scripts.into_iter().collect())),
             attempts: Arc::new(AtomicUsize::new(0)),
+            requests: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     fn attempts(&self) -> usize {
         self.attempts.load(Ordering::SeqCst)
+    }
+
+    fn requests(&self) -> Vec<ProviderRequest> {
+        self.requests.lock().unwrap().clone()
     }
 }
 
@@ -54,9 +61,10 @@ impl ScriptProvider {
 impl ModelProvider for ScriptProvider {
     async fn stream(
         &self,
-        _request: ProviderRequest,
+        request: ProviderRequest,
         _cancellation: CancellationToken,
     ) -> Result<ProviderStream, ProviderError> {
+        self.requests.lock().unwrap().push(request);
         self.attempts.fetch_add(1, Ordering::SeqCst);
         let script = self
             .scripts
@@ -65,6 +73,35 @@ impl ModelProvider for ScriptProvider {
             .pop_front()
             .expect("fake provider script exhausted")?;
         Ok(Box::pin(stream::iter(script)))
+    }
+}
+
+#[derive(Clone, Default)]
+struct RecordingCompactionPolicy {
+    requests: Arc<Mutex<Vec<ContextRequest>>>,
+}
+
+impl RecordingCompactionPolicy {
+    fn requests(&self) -> Vec<ContextRequest> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ContextPolicy for RecordingCompactionPolicy {
+    async fn prepare(&self, request: ContextRequest) -> Result<ContextSurface, ContextError> {
+        self.requests.lock().unwrap().push(request.clone());
+        Ok(ContextSurface::transformed(
+            ContextPolicyId::new("test-compaction", 1),
+            request.messages.len(),
+            vec![AgentMessage::user("compacted surface")],
+            vec![SurfaceEdit::new(
+                0,
+                request.messages.len(),
+                1,
+                SurfaceEditKind::HistoryCompacted,
+            )],
+        ))
     }
 }
 
@@ -233,6 +270,38 @@ async fn streams_reasoning_and_text_separately() {
         LoopEventKind::ReasoningDelta(ref value) if value == "想"
     ));
     assert_eq!(events.last().unwrap().seq, events.len() as u64);
+}
+
+#[tokio::test]
+async fn context_policy_projects_a_disposable_surface_before_provider_io() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("answer".to_owned())),
+        Ok(completed()),
+    ]]));
+    let context = Arc::new(RecordingCompactionPolicy::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("full history")]);
+    request.context_policy = context.clone();
+    request.tools.push(ToolSpec::new(
+        "read",
+        "read a file",
+        json!({"type": "object"}),
+        |_, _| async { ToolResult::success("unused") },
+    ));
+
+    let (_, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.messages[0].content, "full history");
+    assert_eq!(
+        provider.requests()[0].messages[0].content,
+        "compacted surface"
+    );
+    let context_requests = context.requests();
+    let context_request = &context_requests[0];
+    assert_eq!(context_request.provider, "custom");
+    assert_eq!(context_request.step, 1);
+    assert_eq!(context_request.messages[0].content, "full history");
+    assert_eq!(context_request.tools[0]["name"], "read");
 }
 
 #[tokio::test]
@@ -1360,6 +1429,14 @@ async fn event_journal_records_model_input_and_tool_call_before_side_effects() {
         .unwrap();
     assert_eq!(request_header.input[0].content, "inspect state");
     assert_eq!(request_header.provider, "custom");
+    assert_eq!(
+        request_header.options["context"]["policy"]["name"],
+        "identity"
+    );
+    assert_eq!(
+        request_header.options["context"]["visible_message_count"],
+        1
+    );
 }
 
 #[tokio::test]
