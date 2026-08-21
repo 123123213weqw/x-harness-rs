@@ -34,7 +34,7 @@ impl PermissionPreset {
     pub const fn sandbox_mode(self) -> &'static str {
         match self {
             Self::WorkspaceWrite => "workspace-write",
-            Self::DangerFullAccess => "disabled",
+            Self::DangerFullAccess => "danger-full-access",
         }
     }
 

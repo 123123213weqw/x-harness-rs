@@ -617,7 +617,8 @@ impl Runner {
                     inbox_conflicts = inbox_conflicts.saturating_add(1);
                     if inbox_conflicts > 16 {
                         return Err(RunFailure::Failed(
-                            "session journal stayed contended by durable inbox writers".to_owned(),
+                            "session journal stayed contended by external control writers"
+                                .to_owned(),
                         ));
                     }
                     let session = store
@@ -643,11 +644,17 @@ impl Runner {
                     })?;
                     if intervening.is_empty()
                         || intervening.iter().any(|event| {
-                            !matches!(event.data(), SessionEventData::AgentInboxSpliced { .. })
+                            !matches!(
+                                event.data(),
+                                SessionEventData::AgentInboxSpliced { .. }
+                                    | SessionEventData::CommandRun { .. }
+                                    | SessionEventData::CommandDone { .. }
+                            )
                         })
                     {
                         return Err(RunFailure::Failed(
-                            "session journal changed outside the durable inbox".to_owned(),
+                            "session journal changed outside allowed external control events"
+                                .to_owned(),
                         ));
                     }
                     if let Some(journal) = self.journal.as_mut() {

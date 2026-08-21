@@ -335,6 +335,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut current_logged_revision = Revision::ZERO;
     let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
     let mut approvals = HashMap::<String, bool>::new();
+    let mut commands = HashMap::<String, bool>::new();
     let mut retry_chains = HashMap::<(u32, u32, String, String), (String, u32)>::new();
     let mut retry_owners = HashMap::<String, (u32, u32, String, String)>::new();
     let mut scheduled_retries = HashMap::<(String, u32), (u32, u32)>::new();
@@ -382,6 +383,14 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
 
         match logged.data() {
+            EventData::AgentPresetSelected { agent_preset } => {
+                if agent_preset.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "agent-preset/selected value must be non-empty",
+                    ));
+                }
+            }
             EventData::AgentInboxSpliced {
                 target,
                 start,
@@ -611,6 +620,73 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ));
                     }
                     Some(decided) => *decided = true,
+                }
+            }
+            EventData::PermissionPreset { preset } => {
+                if preset.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "permission/preset name must be non-empty",
+                    ));
+                }
+            }
+            EventData::SandboxMode { .. } | EventData::ApprovalPolicy { .. } => {}
+            EventData::CommandRun {
+                command_id, name, ..
+            } => {
+                if command_id.trim().is_empty() || name.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "command/run commandId and name must be non-empty",
+                    ));
+                }
+                if commands.insert(command_id.clone(), false).is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!("command/run repeats commandId {command_id:?}"),
+                    ));
+                }
+            }
+            EventData::CommandDone {
+                command_id,
+                kind,
+                source_event_seq,
+                ..
+            } => {
+                match commands.get_mut(command_id) {
+                    None => {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("command/done has no matching run for {command_id:?}"),
+                        ));
+                    }
+                    Some(true) => {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("command/done repeats commandId {command_id:?}"),
+                        ));
+                    }
+                    Some(done) => *done = true,
+                }
+                if let Some(source_seq) = source_event_seq {
+                    let target = usize::try_from(*source_seq)
+                        .ok()
+                        .and_then(|index| events.get(index));
+                    if *kind != crate::CommandResultKind::Success
+                        || *source_seq >= logged.seq
+                        || target.is_none_or(|target| {
+                            target.seq != *source_seq
+                                || matches!(
+                                    target.data(),
+                                    EventData::CommandRun { .. } | EventData::CommandDone { .. }
+                                )
+                        })
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "command/done carries an invalid sourceEventSeq",
+                        ));
+                    }
                 }
             }
             EventData::LlmRetry {

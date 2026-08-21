@@ -17,7 +17,7 @@ use xharness_core::{
     AgentMessage, ContextPolicy, InjectionMode, LoopCommand, LoopControlError, LoopEngine,
     LoopEvent, LoopRequest, LoopResult, LoopRun, LoopStatus, ModelProvider, Role,
 };
-use xharness_session::{Session, SessionHeader, Store};
+use xharness_session::{Session, SessionEvent, SessionHeader, Store, StoreError};
 
 use crate::{PermissionPreset, SessionToolFactory};
 
@@ -139,6 +139,19 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _session_id: &str,
     ) -> Result<Option<Session>, AgentRuntimeError> {
         Ok(None)
+    }
+
+    /// Persist product/control-plane session facts outside an active model
+    /// turn. Returns `true` only when this runtime owns and flushed an
+    /// authoritative Session log; ephemeral runtimes leave projection to the
+    /// Host's compatibility cache.
+    async fn persist_session_events(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _events: Vec<SessionEvent>,
+    ) -> Result<bool, AgentRuntimeError> {
+        Ok(false)
     }
 
     /// Reattach already-durable work after a Host restart. Ephemeral runtimes
@@ -432,6 +445,68 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .map_err(|error| AgentRuntimeError::Preparation {
                 message: format!("could not load durable session {session_id:?}: {error}"),
             })
+    }
+
+    async fn persist_session_events(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        events: Vec<SessionEvent>,
+    ) -> Result<bool, AgentRuntimeError> {
+        if events.is_empty() {
+            return Ok(true);
+        }
+        let mut conflicts = 0usize;
+        loop {
+            let session = match self.store.load(session_id).await.map_err(|error| {
+                AgentRuntimeError::Preparation {
+                    message: format!("could not load durable session {session_id:?}: {error}"),
+                }
+            })? {
+                Some(session) => session,
+                None => {
+                    let mut header = SessionHeader::new(session_id);
+                    header.cwd = Some(cwd.to_owned());
+                    match self.store.create(header).await {
+                        Ok(session) => session,
+                        Err(StoreError::AlreadyExists { .. }) => continue,
+                        Err(error) => {
+                            return Err(AgentRuntimeError::Preparation {
+                                message: format!(
+                                    "could not create durable session {session_id:?}: {error}"
+                                ),
+                            });
+                        }
+                    }
+                }
+            };
+            match self
+                .store
+                .append(session_id, session.revision(), events.clone())
+                .await
+            {
+                Ok(_) => {
+                    self.store.flush(session_id).await.map_err(|error| {
+                        AgentRuntimeError::Preparation {
+                            message: format!(
+                                "could not flush durable session {session_id:?}: {error}"
+                            ),
+                        }
+                    })?;
+                    return Ok(true);
+                }
+                Err(StoreError::RevisionConflict { .. }) if conflicts < 16 => {
+                    conflicts += 1;
+                }
+                Err(error) => {
+                    return Err(AgentRuntimeError::Preparation {
+                        message: format!(
+                            "could not append durable session events for {session_id:?}: {error}"
+                        ),
+                    });
+                }
+            }
+        }
     }
 
     async fn resume_session(

@@ -130,7 +130,8 @@ Session 事件、队列/投影变化和审批流量走 Mux；Host 生命周期�
 - `workspace-write`：原生 Sandbox 限制到 Workspace，写入、终端和其他有副作用工具逐次审批。
 - `danger-full-access`（UI 显示为 **Full access**）：Web 客户端在切换前显示一次风险确认；确认后
   当前 Session 使用无权限沙箱 Platform，并把工具审批策略设为 `never`，不再重复逐工具弹窗。
-  它不是一种 Sandbox Mode；`sandbox/mode` 明确记录 `enabled=false, mode=disabled`。命令仍由
+  Rust Platform 内部仍把它建模为绕过限制层的 Access Mode，而不是伪装成受限 Sandbox；但为与
+  冻结 Web/Session 协议一致，`sandbox/mode` 的线值记录为 `danger-full-access`。命令仍由
   `ProcessRuntime` 托管，以便取消、超时和 Process Group 清理；它不承诺受限沙箱才有的硬后代
   containment。
 
@@ -138,7 +139,8 @@ Session 事件、队列/投影变化和审批流量走 Mux；Host 生命周期�
 `commands/execute` 动态端点完成，并顺序记录 `command/run`、`permission/preset`、
 `sandbox/mode`、`approval/policy`、`command/done`。运行中的 Session 禁止切换，避免一个 Turn
 混用两种权限。Settings 的 `permission.defaultPreset` 只决定之后创建的新 Session，同样由 Web
-Full access 风险确认保护。
+Full access 风险确认保护。Durable Runtime 在 RPC 返回前 CAS Append 并 Flush 这些事件；Host
+重启折叠最后一个 `permission/preset`，不会退回默认值。
 
 Host 在 Turn 启动时把权限快照放入 `AgentTurnRequest`；`NativeToolFactory` 按
 `(canonical workspace, permission preset)` 缓存 Platform。Full access 下，Shell/Terminal

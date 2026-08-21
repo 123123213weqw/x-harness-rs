@@ -15,9 +15,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_core::*;
 use xharness_session::{
-    AppendReceipt, ApprovalOutcome, AssistantChunk, EventData as SessionEventData, InboxMessage,
-    InboxTarget, MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent,
-    SessionHeader, SessionInspection, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
+    AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
+    EventData as SessionEventData, InboxMessage, InboxTarget,
+    MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent, SessionHeader,
+    SessionInspection, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
 };
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
@@ -2066,7 +2067,7 @@ async fn durable_inbox_claim_and_turn_input_share_one_atomic_revision() {
 }
 
 #[tokio::test]
-async fn active_loop_adopts_intervening_durable_inbox_appends() {
+async fn active_loop_adopts_intervening_durable_control_appends() {
     let journal = Arc::new(EventMemorySessionStore::default());
     let provider = Arc::new(GatedProvider::new());
     let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
@@ -2084,14 +2085,30 @@ async fn active_loop_adopts_intervening_durable_inbox_appends() {
         .append(
             "live-inbox-writer",
             session.revision(),
-            vec![SessionEventData::AgentInboxSpliced {
-                target: InboxTarget::NextTurn,
-                start: 0,
-                removed_count: 0,
-                inserted: vec![InboxMessage::user("later", "next turn")],
-                outcome: None,
-            }
-            .into()],
+            vec![
+                SessionEventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    start: 0,
+                    removed_count: 0,
+                    inserted: vec![InboxMessage::user("later", "next turn")],
+                    outcome: None,
+                }
+                .into(),
+                SessionEventData::CommandRun {
+                    command_id: "external-command".to_owned(),
+                    name: "permission".to_owned(),
+                    args: Some(String::new()),
+                    source: CommandSource::User,
+                }
+                .into(),
+                SessionEventData::CommandDone {
+                    command_id: "external-command".to_owned(),
+                    kind: CommandResultKind::Success,
+                    text: Some("unchanged".to_owned()),
+                    source_event_seq: None,
+                }
+                .into(),
+            ],
         )
         .await
         .unwrap();

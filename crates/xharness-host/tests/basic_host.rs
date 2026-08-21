@@ -99,6 +99,13 @@ struct GatedAdmissionRuntime {
     admitted_message_id: Arc<Mutex<Option<String>>>,
 }
 
+struct GatedPersistenceRuntime {
+    inner: LoopAgentRuntime,
+    entered: Arc<AtomicBool>,
+    release: Arc<Notify>,
+    persist_calls: Arc<Mutex<usize>>,
+}
+
 #[async_trait]
 impl AgentRuntime for GatedAdmissionRuntime {
     fn has_available_route(&self) -> bool {
@@ -117,6 +124,36 @@ impl AgentRuntime for GatedAdmissionRuntime {
         self.entered.store(true, Ordering::SeqCst);
         self.release.notified().await;
         Ok(())
+    }
+
+    async fn start_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.inner.start_turn(request).await
+    }
+}
+
+#[async_trait]
+impl AgentRuntime for GatedPersistenceRuntime {
+    fn has_available_route(&self) -> bool {
+        self.inner.has_available_route()
+    }
+
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        self.inner.can_route(route)
+    }
+
+    async fn persist_session_events(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _events: Vec<xharness_session::SessionEvent>,
+    ) -> Result<bool, AgentRuntimeError> {
+        *self.persist_calls.lock().unwrap() += 1;
+        self.entered.store(true, Ordering::SeqCst);
+        self.release.notified().await;
+        Ok(false)
     }
 
     async fn start_turn(
@@ -290,6 +327,10 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
     assert_eq!(
         types,
         [
+            "agent-preset/selected",
+            "permission/preset",
+            "sandbox/mode",
+            "approval/policy",
             "command/run",
             "permission/preset",
             "sandbox/mode",
@@ -301,10 +342,11 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
         .as_array()
         .unwrap()
         .iter()
+        .rev()
         .find(|entry| entry["event"]["type"] == "sandbox/mode")
         .unwrap();
-    assert_eq!(sandbox_event["event"]["data"]["enabled"], false);
-    assert_eq!(sandbox_event["event"]["data"]["mode"], "disabled");
+    assert!(sandbox_event["event"]["data"].get("enabled").is_none());
+    assert_eq!(sandbox_event["event"]["data"]["mode"], "danger-full-access");
 
     let settings = fx.value(RpcMethod::SettingsDescribe, json!({})).await;
     let permission = settings["namespaces"]
@@ -563,6 +605,99 @@ async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_i
 
     release.notify_one();
     assert!(prompt.await.unwrap().is_ok());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_named_session_create_waits_for_the_initial_event_flush() {
+    let root =
+        std::env::temp_dir().join(format!("xharness-host-create-fence-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "test".to_owned();
+    config.model_id = "test-model".to_owned();
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(Notify::new());
+    let persist_calls = Arc::new(Mutex::new(0));
+    let runtime = Arc::new(GatedPersistenceRuntime {
+        inner: LoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(Arc::new(TextProvider)),
+            Arc::new(NoTools),
+            Arc::new(xharness_core::IdentityContextPolicy),
+        ),
+        entered: Arc::clone(&entered),
+        release: Arc::clone(&release),
+        persist_calls: Arc::clone(&persist_calls),
+    });
+    let host = BasicHost::with_agent_runtime(config, runtime);
+    let payload = json!({
+        "sessionId": "durable-create",
+        "cwd": root,
+        "agentPreset": "coding",
+    });
+
+    let first_host = Arc::clone(&host);
+    let first_payload = payload.clone();
+    let first = tokio::spawn(async move {
+        first_host
+            .call(
+                RpcId::new("create-first"),
+                RpcMethod::SessionCreate,
+                first_payload,
+                CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !entered.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("session.create never reached the persistence barrier");
+
+    let second_host = Arc::clone(&host);
+    let second = tokio::spawn(async move {
+        second_host
+            .call(
+                RpcId::new("create-second"),
+                RpcMethod::SessionCreate,
+                payload,
+                CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    assert!(
+        !second.is_finished(),
+        "idempotent create escaped before the first durable receipt"
+    );
+
+    release.notify_one();
+    let first = first.await.unwrap();
+    let second = second.await.unwrap();
+    assert!(first.is_ok());
+    assert_eq!(first, second);
+    assert_eq!(*persist_calls.lock().unwrap(), 1);
+
+    let snapshot = host.snapshot().await;
+    let events = snapshot["sessions"][0]["events"]
+        .as_array()
+        .expect("session events");
+    assert_eq!(
+        events
+            .iter()
+            .filter_map(|event| event["type"].as_str())
+            .collect::<Vec<_>>(),
+        [
+            "agent-preset/selected",
+            "permission/preset",
+            "sandbox/mode",
+            "approval/policy",
+        ]
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 

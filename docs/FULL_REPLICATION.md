@@ -87,7 +87,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 > Session/History/Workspace/Queue 启动 Replay、恢复前订阅与显式 Wake 已完成；Web Projection 和
 > Driver Attachment 仍是 Session Log 的进程内派生缓存。Prompt RPC Receipt 已从 Durable Inbox
 > 历史重建；Approval Asked/Decided 与 Provider Retry/Started 已强类型持久化和投影，但 Pending
-> Approval 还不能跨重启继续回答；Settings 和其他变更 RPC Receipt 未持久化，
+> Approval 还不能跨重启继续回答；Agent/Permission/Sandbox/Approval Policy 和 Permission Command
+> Receipt 已持久化，Settings 和其他变更 RPC Receipt 未持久化，
 > 因此 `A-09` 尚不能勾选。Catalog v2 已记录
 > 52 固定 RPC、26 动态 Typert RPC、Mux/Host 各 10 个 Frame、11 个转发 Host Event、48 Session
 > Event、63 个 Tool 注册点（53 个 Literal）、37 个 Prompt Component、6 个 Settings 注册点
@@ -104,12 +105,13 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [x] `A-07a` `session.prompt/subagent.prompt` 建立跨并发、消费和重启的持久 Admission Receipt；
   相同 RPC ID + Payload 幂等成功，不同 Payload 复用 ID fail closed。
 - [ ] `A-08` 把 Agent Event 确定性投影为冻结 Web Session Event。权威 History Cursor、运行/重启
-  同源纯投影、结构化 User Message、Approval Asked/Decided 和 Provider Retry/Started 已完成；
-  48 个冻结事件当前强类型覆盖 16 个，剩余 32 个继续逐项做 Schema/Fixture 等价。
+  同源纯投影、结构化 User Message、Approval Asked/Decided、Provider Retry/Started、Agent/
+  Permission/Sandbox/Approval Policy 和 Command Lifecycle 已完成；48 个冻结事件当前强类型覆盖
+  22 个，剩余 26 个继续逐项做 Schema/Fixture 等价。
 - [ ] `A-09` 重启恢复 Workspace、Session、Inbox、运行终态和未决 Outcome。已完成由
   Session Header/Log 可推导的 Workspace、Session、History、模型路由、Next-turn Queue 和
-  Pending Turn 和 Prompt RPC Receipt；未完成自定义 Workspace 元数据、Settings、Pending Approval、
-  其他变更 RPC Receipt 及
+  Pending Turn、Prompt RPC Receipt、Agent/Permission Policy 和 Permission Command Receipt；
+  未完成自定义 Workspace 元数据、Settings、Pending Approval、其他变更 RPC Receipt 及
   七个硬崩溃点下的终态矩阵。
 - [x] `A-10` Admission/Claim/Request Header/Tool Call/Tool Result/Step End/Turn End 七点均有
   确定性日志前缀测试和真实子进程 SIGKILL；父进程在相同 State Dir 重启正式 JSONL Host/Core，

@@ -17,6 +17,10 @@ use xharness_api::{
     RpcMethod, RpcReceipt, RpcResult, ServerRequest, SessionExport,
 };
 use xharness_core::{AgentMessage, LoopCommand};
+use xharness_session::{
+    ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData, SessionEvent,
+    SessionSandboxMode,
+};
 
 use crate::{
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
@@ -283,6 +287,7 @@ impl BasicHost {
             .get("args")
             .ok_or_else(|| bad_request("commands/execute requires args"))?;
         let session_id = required_string(args, "agentId")?;
+        let _session_guard = self.lock_admission(&session_id).await;
         let line = required_string(args, "line")?;
         let images = required_array(args, "images")?;
 
@@ -290,16 +295,15 @@ impl BasicHost {
             return Ok(None);
         };
         let command_id = self.mint_id("command");
-        self.append_session_event(
+        self.commit_session_events(
             &session_id,
-            "command/run",
-            json!({
-                "commandId": command_id,
-                "name": "permission",
-                "args": raw_input,
-                "source": {"kind": "user"},
-            }),
-            None,
+            vec![SessionEventData::CommandRun {
+                command_id: command_id.clone(),
+                name: "permission".to_owned(),
+                args: Some(raw_input.to_owned()),
+                source: CommandSource::User,
+            }
+            .into()],
         )
         .await?;
 
@@ -322,49 +326,29 @@ impl BasicHost {
                 ),
             })
         } else if let Some(preset) = crate::PermissionPreset::parse(raw_input.trim()) {
-            let busy = {
-                let mut state = self.state.write().await;
-                let session = state
-                    .sessions
-                    .get_mut(&session_id)
-                    .ok_or_else(|| session_not_found(&session_id))?;
-                if session.running {
-                    true
-                } else {
-                    session.permission_preset = preset;
-                    false
-                }
-            };
+            let busy = self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .running;
             if busy {
                 json!({
                     "kind": "error",
                     "text": "cannot change permissions while the session is running",
                 })
             } else {
-                self.append_session_event(
-                    &session_id,
-                    "permission/preset",
-                    json!({"preset": preset.as_str()}),
-                    None,
-                )
-                .await?;
-                self.append_session_event(
-                    &session_id,
-                    "sandbox/mode",
-                    json!({
-                        "enabled": preset.sandbox_enabled(),
-                        "mode": preset.sandbox_mode(),
-                    }),
-                    None,
-                )
-                .await?;
-                self.append_session_event(
-                    &session_id,
-                    "approval/policy",
-                    json!({"policy": preset.approval_policy()}),
-                    None,
-                )
-                .await?;
+                self.commit_session_events(&session_id, permission_events(preset))
+                    .await?;
+                self.state
+                    .write()
+                    .await
+                    .sessions
+                    .get_mut(&session_id)
+                    .ok_or_else(|| session_not_found(&session_id))?
+                    .permission_preset = preset;
                 self.push_projection(&session_id, "permissions", preset.select())
                     .await;
                 json!({"kind": "success", "text": format!("preset {}", preset.as_str())})
@@ -379,15 +363,19 @@ impl BasicHost {
             })
         };
 
-        self.append_session_event(
+        let kind = match result["kind"].as_str() {
+            Some("success") => CommandResultKind::Success,
+            _ => CommandResultKind::Error,
+        };
+        self.commit_session_events(
             &session_id,
-            "command/done",
-            json!({
-                "commandId": command_id,
-                "kind": result["kind"],
-                "text": result["text"],
-            }),
-            None,
+            vec![SessionEventData::CommandDone {
+                command_id: command_id.clone(),
+                kind,
+                text: result["text"].as_str().map(str::to_owned),
+                source_event_seq: None,
+            }
+            .into()],
         )
         .await?;
         Ok(Some(json!({"commandId": command_id, "result": result})))
@@ -452,6 +440,13 @@ impl BasicHost {
         }
         let requested_id = optional_string(payload, "sessionId")?;
         let preset = optional_string(payload, "agentPreset")?;
+        let session_id = requested_id.unwrap_or_else(|| self.mint_id("session"));
+        // Creating a named session participates in the same per-session admission
+        // fence as prompts and control commands.  The guard is intentionally held
+        // until the initial durable policy events have crossed their flush barrier,
+        // so an idempotent concurrent create can never observe a half-created
+        // in-memory record and return success before its receipt is durable.
+        let _session_guard = self.lock_admission(&session_id).await;
         let mut state = self.state.write().await;
         if let Some(preset) = &preset {
             if !state.presets.contains_key(preset) {
@@ -487,7 +482,6 @@ impl BasicHost {
                 json!({"path": cwd}),
             )
         })?;
-        let session_id = requested_id.unwrap_or_else(|| self.mint_id("session"));
         if let Some(existing) = state.sessions.get(&session_id) {
             if existing.cwd != cwd {
                 return Err(rpc_error(
@@ -545,6 +539,29 @@ impl BasicHost {
             serde_json::to_value(workspace).ok()
         });
         drop(state);
+        let mut initial_events = effective_preset
+            .iter()
+            .map(|agent_preset| {
+                SessionEventData::AgentPresetSelected {
+                    agent_preset: agent_preset.clone(),
+                }
+                .into()
+            })
+            .collect::<Vec<SessionEvent>>();
+        initial_events.extend(permission_events(permission_preset));
+        if let Err(error) = self
+            .commit_session_events(&session_id, initial_events)
+            .await
+        {
+            let mut state = self.state.write().await;
+            state.sessions.remove(&session_id);
+            for workspace in state.workspaces.values_mut() {
+                workspace
+                    .session_ids
+                    .retain(|candidate| candidate != &session_id);
+            }
+            return Err(error);
+        }
         self.push_host(json!({
             "type": "host/session-added",
             "sessionId": session_id,
@@ -2155,6 +2172,31 @@ fn permission_command_input(line: &str) -> Option<&str> {
     } else {
         None
     }
+}
+
+fn permission_events(preset: crate::PermissionPreset) -> Vec<SessionEvent> {
+    vec![
+        SessionEventData::PermissionPreset {
+            preset: preset.as_str().to_owned(),
+        }
+        .into(),
+        SessionEventData::SandboxMode {
+            mode: match preset {
+                crate::PermissionPreset::WorkspaceWrite => SessionSandboxMode::WorkspaceWrite,
+                crate::PermissionPreset::DangerFullAccess => SessionSandboxMode::DangerFullAccess,
+            },
+            source: None,
+        }
+        .into(),
+        SessionEventData::ApprovalPolicy {
+            policy: match preset {
+                crate::PermissionPreset::WorkspaceWrite => ApprovalPolicy::Ask,
+                crate::PermissionPreset::DangerFullAccess => ApprovalPolicy::Never,
+            },
+            source: None,
+        }
+        .into(),
+    ]
 }
 
 #[derive(Clone, Debug)]

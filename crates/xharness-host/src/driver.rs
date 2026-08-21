@@ -2,9 +2,10 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use xharness_api::{RpcError, RpcErrorCode, RpcId};
 use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
+use xharness_session::SessionEvent;
 
 use crate::{
-    restore::project_session_events,
+    restore::{project_session_events, restored_agent_preset, restored_permission},
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute},
     state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
     BasicHost,
@@ -21,6 +22,58 @@ pub(crate) struct PromptAdmission {
 }
 
 impl BasicHost {
+    /// Commit log-only product facts through the runtime-owned Session when
+    /// available, otherwise retain the legacy in-memory projection. The
+    /// authoritative path flushes before it refreshes/broadcasts History.
+    pub(crate) async fn commit_session_events(
+        &self,
+        session_id: &str,
+        events: Vec<SessionEvent>,
+    ) -> Result<(), RpcError> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let cwd = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .map(|session| session.cwd.clone())
+            .ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::SessionNotFound,
+                    format!("session {session_id:?} was not found"),
+                    json!({"sessionId": session_id}),
+                )
+            })?;
+        let authoritative = self
+            .agent_runtime
+            .persist_session_events(session_id, &cwd, events.clone())
+            .await
+            .map_err(agent_runtime_error)?;
+        if authoritative {
+            self.sync_authoritative_session(session_id).await?;
+            return Ok(());
+        }
+        for event in events {
+            let mut tagged = serde_json::to_value(event).map_err(|error| {
+                RpcError::internal(format!("session event encoding failed: {error}"))
+            })?;
+            let object = tagged
+                .as_object_mut()
+                .ok_or_else(|| RpcError::internal("session event must encode as an object"))?;
+            let event_type = object
+                .remove("type")
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .ok_or_else(|| RpcError::internal("session event encoding omitted its type"))?;
+            let data = object.remove("data").unwrap_or(Value::Null);
+            self.append_session_event(session_id, &event_type, data, None)
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Refresh the browser history cache from the runtime-owned append-only
     /// Session. The returned boolean distinguishes a durable runtime from the
     /// legacy ephemeral adapter, even before a Session file exists.
@@ -55,6 +108,8 @@ impl BasicHost {
             }
         };
         let projected = project_session_events(&session, &route);
+        let permission = restored_permission(&session);
+        let agent_preset = restored_agent_preset(&session);
         let next_seq = session.next_seq();
         let new_events =
             {
@@ -75,6 +130,8 @@ impl BasicHost {
                 record.events = projected;
                 record.authoritative_seq = Some(next_seq);
                 record.messages = session.derive_messages();
+                record.permission_preset = permission;
+                record.agent_preset = agent_preset;
                 record.updated_at = session
                     .events()
                     .last()
