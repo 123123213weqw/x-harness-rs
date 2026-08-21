@@ -42,11 +42,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         provider,
         tools,
         Arc::new(IdentityContextPolicy),
-        store,
+        Arc::clone(&store),
         leases,
         config.event_capacity,
     ));
     let host = BasicHost::with_agent_runtime(config, runtime);
+    let restore = host.restore_from_store(store).await?;
+    eprintln!(
+        "xharness restored {} sessions and resumed {} pending turns ({} issues)",
+        restore.restored_sessions,
+        restore.resumed_pending_turns,
+        restore.issues.len(),
+    );
+    for issue in &restore.issues {
+        eprintln!(
+            "xharness restore issue for session {}: {}",
+            issue.session_id, issue.message
+        );
+    }
     let backend: Arc<dyn ApiBackend> = host;
     let router = web_router(backend, args.static_dir);
     let listener = TcpListener::bind(args.bind).await?;

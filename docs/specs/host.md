@@ -18,9 +18,10 @@ Bundle、Platform、Terminal 或 Web Runtime。`xharness-host-app` 负责选择�
 链接默认 Web Server 和原生工具组合。
 
 当前 `BasicHost` 仍把 Workspace、Session 摘要、Web Queue Projection 和 Driver Attachment
-放在内存中，但 Prompt Admission、模型历史和 Agent Driver 已切到持久 Session/Inbox Store。
-它仍是迁移中的兼容基线，不是最终持久 Host Store；继续替换时禁止改变 52 个方法名、四象限
-RPC 信封和事件帧形状。
+作为内存派生缓存，但 Prompt Admission、模型历史和 Agent Driver 已切到持久 Session/Inbox Store。
+启动时会通过 `Store::list_headers` 从强类型日志重建 Session、History、模型路由、Workspace 归属和
+Pending Queue，并在订阅后续跑。它仍不是最终持久 Host Store；继续替换时禁止改变 52 个方法名、
+四象限 RPC 信封和事件帧形状。详细顺序见[Host 启动恢复规范](host-restore.md)。
 
 ## 组合结构
 
@@ -58,9 +59,9 @@ Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；`AgentRuntime::ad
 
 当前仍是迁移中间态：`session.prompt` 已在返回成功前完成 Durable Inbox Append + Flush，
 RPC ID 同时是稳定 Inbox ID；Queue Edit/Remove 先修改持久 Inbox，再更新内存 Projection。
-`BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责，但 Workspace、Session 摘要和
-Web Event Projection 仍在内存中。下一阶段必须从 Session Log 和持久目录恢复这些投影，之后才能
-删除兼容 FIFO 和内存历史。
+`BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责。它现在能从 Session Log 和
+JSONL 目录确定性重建可推导投影；下一阶段要让 History/Queue 直接按 Cursor 查询持久投影，并为
+Workspace 自定义元数据、Settings、Approval 和 RPC Receipt 建独立日志，最终删除兼容缓存。
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
@@ -100,9 +101,9 @@ Durable Inbox，再加入 Web Projection 并返回成功。正式 Agent 领取�
 `assistant/chunk`、`tool/call`、`tool/result`、`assistant/message`、`step/end` 和
 `turn/end`。
 
-同一时间只能有一个 Driver 拥有一个 Session。额外 Prompt 进入 FIFO 队列。Steering
-交给活跃 `RunningTurn`；取消只停止当前 Turn，不删除排队输入。当前所有权只在进程内成立；
-在声明崩溃恢复能力前，必须升级为持久 Lease/Inbox。
+同一时间只能有一个 Driver 拥有一个 Session。额外 Prompt 进入由 Durable Inbox 派生的 FIFO
+Projection。Steering 交给活跃 `RunningTurn`；取消只停止当前 Turn，不删除排队输入。File Lease
+提供单机跨进程所有权；远程多主机仍需要 Fencing Epoch。
 
 每个 Step 当前通过默认 `IdentityContextPolicy` 完整重放 `session.messages`，并固定注入完整
 14 工具。Host 没有读取目标模型 Context Window、预留输出或在 Provider I/O 前计量请求。
@@ -142,14 +143,15 @@ Host 在 Turn 启动时把权限快照放入 `AgentTurnRequest`；`NativeToolFac
 绕过 Seatbelt/Bubblewrap，结构化 Read/Write/Edit 以 `/` 为能力根，但相对路径仍从 Session
 Workspace 解析。
 
-在 Durable Workspace Store 完成前，Host 启动时必须把配置的 canonical cwd 注册为
-`workspace-default`。这样重启后 `workspace.list` 不会返回空数组，Web Composer 仍可直接创建
-Session；额外工作区和 Session 当前仍属于内存态。
+在 Durable Workspace Store 完成前，Host 启动时先注册配置的 canonical cwd 为
+`workspace-default`，再把 Session Header 中的其他 cwd 确定性映射成 recovered Workspace。
+这样重启后 `workspace.list`、`session.list` 和 `session.history` 都能恢复；Workspace 的用户标题、
+排序和归档仍没有独立持久真源。
 
 进程级验收测试必须启动真实 `xharness-host` 二进制、连接 HTTP 与 Host WebSocket、杀死进程并
-在原地址重新启动。第二个进程的 `workspace.list` 必须立即包含 canonical
-`workspace-default`，新的 WebSocket 必须可以完成握手；测试禁止只调用 `BasicHost::new()` 来
-假装覆盖部署重启。
+在原地址重新启动。第二个进程的 `workspace.list` 必须立即包含 canonical `workspace-default`，
+`session.list/history` 必须包含预置 JSONL Session 和 Assistant Message，新的 WebSocket 必须完成
+握手；测试禁止只调用 `BasicHost::new()` 来假装覆盖部署重启。
 
 浏览器发布门禁位于 `tests/web-e2e`。它必须使用真实 Chromium、真实 Host 和已组装 Web dist：
 取消 Full access 风险对话框不得改变权限；确认框未勾选时启用按钮必须禁用；确认后当前 Session
@@ -187,11 +189,11 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 
 ## 当前限制
 
-- 进程退出后会丢失 Host 的 Workspace/Session 枚举、Credential Override、Attachment、Settings、
-  Preset、Goal、Web Queue Projection 和 Pending Approval；Durable Session/Inbox 文件本身保留，
-  但启动时尚未自动枚举、重建并重新附着 Web Driver。
+- 进程退出后会丢失 Workspace 用户标题/排序/归档、Credential Override、Attachment、Settings、
+  Preset、Goal 和 Pending Approval。可从 Session Log 推导的 Workspace/Session/History/Queue 会在
+  启动时恢复并重新附着 Driver，但 Web Projection 本身仍是进程内缓存。
 - 持久 `xharness-session`/JSONL 已是模型历史和 Pending Input 真源，File Lease 已用于 Agent；
-  由于缺少 Host 目录恢复、持久 RPC Receipt 和硬崩溃矩阵，仍不能对外承诺完整重启续跑。
+  由于缺少持久 RPC Receipt、审批恢复和硬崩溃矩阵，仍不能对外承诺完整 Exactly-once 续跑。
 - Subagent 方法目前只有血缘和继续对话，没有自主 Spawn。
 - Attachment 是有界 metadata/data-URL 桥，不是计划中的内容寻址多模态 Blob Store。
 - 事件广播有界，但 lag 后没有 replay cursor。

@@ -55,9 +55,10 @@ Developer ID 签名、公证和本机安装验证。
 > 作为 System Prompt 注入。大文件任务可能超过模型真实上下文。Linux Bubblewrap Probe 失败时，
 > `bash/glob/grep/terminal_open` 会按设计 fail closed。详见[运行诊断](docs/operations.md)。
 
-正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；当前尚未持久化
-Web Workspace/Session Projection，且 `session.prompt` 成功回执还没有直接绑定到 Durable Inbox
-Flush，因此这是持久 Host 迁移的第一阶段，不是完整的重启恢复。
+正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
+`session.prompt` 成功回执已绑定 Durable Inbox Flush。启动会枚举并恢复可由日志推导的
+Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。Web Projection 仍是内存
+派生缓存，Settings/Approval/RPC Receipt 尚未持久化，因此还不是完整 Exactly-once 恢复。
 
 ## 工作区模块
 
@@ -89,10 +90,9 @@ Flush，因此这是持久 Host 迁移的第一阶段，不是完整的重启恢
   Provider 请求中的 System Prompt
 - 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
 
-当前 Host 状态仍是进程内存：接口和最小功能已经贯通，但重启恢复、durable inbox、
-真正自主 Subagent 仍需接到 Agent/Session 持久层。`xharness-agent` 已实现 Durable Inbox、原子
-Claim、Supervisor、多 Turn/Steer、进程内 Registry 与本机 File Lease；尚未替换 BasicHost 的
-内存 FIFO。
+当前 Host 的 Web DTO 是进程内派生缓存，但持久真源已经是 Agent/Session：重启会恢复 Session、
+History、Header Workspace、Durable Queue 并续跑 Pending Turn。仍需把 Projection 改成游标查询、
+持久化 Settings/Approval/RPC Receipt，并实现真正自主 Subagent。
 
 ### `xharness-agent`
 
@@ -102,7 +102,8 @@ Claim、Supervisor、多 Turn/Steer、进程内 Registry 与本机 File Lease；
 - 进程内 Agent Registry；macOS/Linux File Lease 排除第二个进程同时驱动同一 Session
 - Idle/Running/Maintenance 生命周期状态机，从 Session 最后 Turn 坐标恢复
 - AgentSupervisor 自动连续消费多 Turn，Active Steer 先持久排队再中断并在恢复时按 ID 去重
-- 当前剩余 Host FIFO 替换和部署级硬崩溃矩阵
+- 启动枚举、Pending Turn 先订阅后显式 Wake、无重复 Append 已完成
+- 当前剩余持久 Projection/Receipt/Approval 和部署级七点硬崩溃矩阵
 
 ### `xharness-core`
 

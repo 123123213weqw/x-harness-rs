@@ -138,6 +138,10 @@ impl BasicHost {
                         route,
                         permission: session.permission_preset,
                         messages,
+                        input_metadata: Some(json!({
+                            "content": content.clone(),
+                            "source": source.clone(),
+                        })),
                     }),
                 )
             }
@@ -233,7 +237,7 @@ impl BasicHost {
         Ok(())
     }
 
-    async fn drive_session(
+    pub(crate) async fn drive_session(
         self,
         session_id: String,
         mut control_rx: mpsc::Receiver<DriverCommand>,
@@ -331,6 +335,7 @@ impl BasicHost {
                 route,
                 permission,
                 messages,
+                input_metadata: None,
             })
             .await
             .map_err(agent_runtime_error)?;

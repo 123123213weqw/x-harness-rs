@@ -167,6 +167,10 @@ struct FailAssistantJournal {
 
 #[async_trait]
 impl EventStore for FailAssistantJournal {
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        self.inner.list_headers().await
+    }
+
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
         self.inner.create(header).await
     }

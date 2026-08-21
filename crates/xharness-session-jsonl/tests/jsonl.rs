@@ -95,6 +95,50 @@ async fn create_is_exclusive_and_header_is_first_jsonl_record() {
 }
 
 #[tokio::test]
+async fn list_headers_is_sorted_validated_and_ignores_non_session_files() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("z-last")).await.unwrap();
+    store.create(header("a-first")).await.unwrap();
+    fs::write(dir.path().join("README.txt"), b"not a session").unwrap();
+    fs::write(dir.path().join("z-last.lock"), b"lock metadata").unwrap();
+
+    let headers = store.list_headers().await.unwrap();
+    assert_eq!(
+        headers
+            .iter()
+            .map(|header| header.id.as_str())
+            .collect::<Vec<_>>(),
+        ["a-first", "z-last"]
+    );
+}
+
+#[tokio::test]
+async fn list_headers_fails_closed_for_corrupt_or_symlinked_sessions() {
+    let corrupt_dir = TestDir::new();
+    let corrupt_store = JsonlSessionStore::new(corrupt_dir.path()).unwrap();
+    corrupt_store.create(header("valid")).await.unwrap();
+    fs::write(corrupt_dir.session_file("broken"), b"not-json\n").unwrap();
+    assert!(matches!(
+        corrupt_store.list_headers().await,
+        Err(StoreError::Backend { message }) if message.contains("broken.jsonl")
+    ));
+
+    let symlink_dir = TestDir::new();
+    let symlink_store = JsonlSessionStore::new(symlink_dir.path()).unwrap();
+    symlink_store.create(header("valid")).await.unwrap();
+    std::os::unix::fs::symlink(
+        symlink_dir.session_file("valid"),
+        symlink_dir.session_file("alias"),
+    )
+    .unwrap();
+    assert!(matches!(
+        symlink_store.list_headers().await,
+        Err(StoreError::Backend { message }) if message.contains("symbolic link")
+    ));
+}
+
+#[tokio::test]
 async fn append_persists_one_complete_batch_and_round_trips() {
     let dir = TestDir::new();
     let store = JsonlSessionStore::new(dir.path()).unwrap();

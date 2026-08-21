@@ -5,6 +5,7 @@
 //! while session prompts are driven by the provider-neutral Rust loop.
 
 mod driver;
+mod restore;
 mod rpc;
 mod runtime;
 mod state;
@@ -23,9 +24,10 @@ use tokio::sync::{broadcast, RwLock};
 use xharness_api::{RpcId, ServerRequest};
 use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpec};
 
+pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
 pub use runtime::{
-    AgentRuntime, AgentRuntimeError, AgentTurnRequest, DurableLoopAgentRuntime, LoopAgentRuntime,
-    ModelRoute, RunningTurn,
+    AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
+    DurableLoopAgentRuntime, LoopAgentRuntime, ModelRoute, RunningTurn,
 };
 pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, WorkspaceRecord};
 

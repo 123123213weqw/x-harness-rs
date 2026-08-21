@@ -1,6 +1,6 @@
 # 运行、诊断与故障处理
 
-**最后核对：** 2026-08-21
+**最后核对：** 2026-08-22
 
 本文记录当前 Rust Web Host 的运行边界。生产能力以源码和各项规范为准；这里不给尚未实现的
 自动降级制造假象。
@@ -28,8 +28,9 @@ Host 默认把 Agent Session JSONL 和跨进程 Lease 保存在平台数据目�
 - `session.prompt` 可驱动真实 Rust Loop。
 - 每个模型 Step 当前固定注入 14 个工具的 name/description/Schema。
 - Preset 文本目前没有作为 System Prompt 注入。
-- 模型历史和实际 Turn 已写 JSONL Session；Web 状态、Admission 队列和审批投影仍在内存中，
-  重启不会完整恢复。
+- 模型历史、实际 Turn 和 Admission Queue 已写 JSONL Session。启动会枚举并恢复 Session、History、
+  Header CWD 对应 Workspace 和 Pending Turn；Workspace 自定义元数据、Settings、审批和 RPC Receipt
+  仍在内存中，因此尚不是完整 Exactly-once 恢复。
 - 当前没有请求前 Token Guard 或自动上下文压缩。
 
 ## Sandbox Probe 失败

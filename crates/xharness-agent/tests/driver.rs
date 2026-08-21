@@ -211,6 +211,48 @@ async fn idle_injection_stays_pending_until_a_waking_message_arrives() {
 }
 
 #[tokio::test]
+async fn recovered_followup_waits_for_explicit_wake_after_subscriber_attachment() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("resume-gate"))
+        .await
+        .unwrap();
+    activation
+        .inbox()
+        .append(
+            xharness_agent::InboxTarget::NextTurn,
+            InboxMessage::user("restored-prompt", "resume me"),
+        )
+        .await
+        .unwrap();
+    let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+        scripts: Arc::new(Mutex::new(VecDeque::from([answer("resumed")]))),
+    });
+    let handle = DurableAgentHandle::start(activation, Arc::new(Factory { provider }), 64);
+    let mut events = handle.subscribe();
+
+    tokio::task::yield_now().await;
+    assert_eq!(
+        handle.inbox().snapshot().await.unwrap().next_turn()[0].id,
+        "restored-prompt"
+    );
+    assert!(matches!(
+        events.try_recv(),
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+    ));
+
+    handle.wake().await.unwrap();
+    let result = loop {
+        if let AgentEvent::TurnFinished { result, .. } = events.recv().await.unwrap() {
+            break result;
+        }
+    };
+    assert_eq!(result.final_text, "resumed");
+    assert!(!handle.inbox().snapshot().await.unwrap().has_pending());
+}
+
+#[tokio::test]
 async fn active_steer_is_durable_and_consumed_at_the_next_step() {
     let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
     let registry = AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));

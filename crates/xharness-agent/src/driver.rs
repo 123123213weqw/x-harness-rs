@@ -61,6 +61,10 @@ pub enum AgentCommandError {
 }
 
 enum DriverCommand {
+    /// Explicitly start processing already-durable pending input. Activation
+    /// itself never does this because resume callers must first attach event
+    /// subscribers and product projections.
+    Wake,
     Followup(InboxMessage),
     Steer(InboxMessage),
     Inject(InboxMessage),
@@ -82,8 +86,10 @@ pub struct DurableAgentHandle {
 }
 
 impl DurableAgentHandle {
-    /// Start one worker. Pending durable input found during resume wakes it
-    /// immediately; otherwise it sleeps without holding a model/tool task.
+    /// Start one worker. It sleeps until a new command or explicit [`Self::wake`]
+    /// even when the recovered inbox already contains work. This prevents a
+    /// restarted worker from publishing `TurnStarted` before its Host has
+    /// attached a replay-safe subscriber.
     pub fn start(
         activation: Arc<AgentActivation>,
         factory: Arc<dyn TurnRequestFactory>,
@@ -144,6 +150,13 @@ impl DurableAgentHandle {
 
     pub async fn followup(&self, message: InboxMessage) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::Followup(message)).await
+    }
+
+    /// Process work that was already durable before this worker was created.
+    /// New followups wake the worker implicitly; startup recovery uses this
+    /// method after every pending input has an attached event receiver.
+    pub async fn wake(&self) -> Result<(), AgentCommandError> {
+        self.send(DriverCommand::Wake).await
     }
 
     pub async fn steer(&self, message: InboxMessage) -> Result<(), AgentCommandError> {
@@ -264,11 +277,13 @@ impl DriverWorker {
                     return;
                 }
             };
-            if !snapshot.next_turn().is_empty() || self.wake_requested {
+            if self.wake_requested {
                 self.wake_requested = false;
-                if let Err(error) = self.drive_pending().await {
-                    self.publish_error(error.to_string());
-                    return;
+                if !snapshot.next_turn().is_empty() {
+                    if let Err(error) = self.drive_pending().await {
+                        self.publish_error(error.to_string());
+                        return;
+                    }
                 }
                 continue;
             }
@@ -391,6 +406,10 @@ impl DriverWorker {
 
     async fn handle_idle(&mut self, envelope: CommandEnvelope) {
         let result = match envelope.command {
+            DriverCommand::Wake => {
+                self.wake_requested = true;
+                Ok(())
+            }
             DriverCommand::Followup(message) => {
                 let result = self.persist(InboxTarget::NextTurn, message).await;
                 if result.is_ok() {
@@ -415,6 +434,10 @@ impl DriverWorker {
 
     async fn handle_active(&mut self, envelope: CommandEnvelope, run: &xharness_core::LoopRun) {
         let result = match envelope.command {
+            DriverCommand::Wake => {
+                self.wake_requested = true;
+                Ok(())
+            }
             DriverCommand::Followup(message) => {
                 let result = self.persist(InboxTarget::NextTurn, message).await;
                 if result.is_ok() {
