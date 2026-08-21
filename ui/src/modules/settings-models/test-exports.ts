@@ -8,3 +8,5 @@ export { pathOps, ProviderEditor } from './ProviderEditor'
 export { removeProviderProfile, needsSetup, ModelsSection } from './ModelsSection'
 export { ModelListEditor, adopt } from './ModelListEditor'
 export { CustomProviderCard } from './CustomProviderCard'
+
+export {saveManagedAccess} from './ManagedAccount'
