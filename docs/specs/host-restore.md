@@ -8,7 +8,8 @@
 
 Host 进程退出后，已经成功 Flush 的 Session、模型历史和 Pending Input 不能从 Web 中消失，
 也不能为了重新附着 Web Driver 而再次 Append 同一输入。Append-only Session Log 是唯一真源；
-`BasicHost.sessions/events/queue` 都只是可以丢弃并重建的 Web Projection。
+`BasicHost.sessions/events/queue` 都只是可以丢弃并重建的 Web Projection；其中 `events` 只保留
+按 Event 数和序列化 Byte 双预算限制的连续尾部，完整 History 始终从 Session Store 查询。
 
 ## 固定恢复顺序
 
@@ -65,8 +66,8 @@ Inbox，再改变 Web Projection。
 - Prompt RPC Receipt 与 Permission Command Receipt 已可恢复；Workspace、Settings、Queue
   Action 等其他变更 RPC 仍没有通用持久 Receipt/Consumed Store。Session Title 与 Agent Preset
   选择的最终状态可恢复，但相同 RPC ID 重试仍未进入通用 Exactly-once Receipt Store。
-- Web History 已按权威 Session Cursor 刷新和增量广播；Workspace/Settings 等非 Session 投影仍
-  没有统一持久查询接口。
+- Web History 已按权威 Session Cursor 分页查询、使用有界尾缓存并增量广播；Workspace/Settings
+  等非 Session 投影仍没有统一持久查询接口。
 - Idle Plan Mode 的最终 `active` 状态已由最后一条 `plan/mode` 恢复；运行中尚未接受的 Pending
   Pre-step 选择不是可恢复状态，当前重启后一律投影为 `pending=false`。
 - queued-to-steer 是 Remove + Steer 两步，不是崩溃原子 Move。

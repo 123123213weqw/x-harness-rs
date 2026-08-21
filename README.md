@@ -59,8 +59,9 @@ Developer ID 签名、公证和本机安装验证。
 
 正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
 `session.prompt` 成功回执已绑定 Durable Inbox Flush。启动会枚举并恢复可由日志推导的
-Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。Web Projection 仍是内存
-派生缓存。Prompt RPC Receipt 可从完整 Inbox 历史重建，同 ID/同 Payload 的并发或重启重试不会
+Workspace/Session/History/Queue，并在先订阅后显式 Wake Pending Turn。History 直接按稳定 Cursor
+查询权威 Session Log，Host 只保留受 Event/Byte 双预算约束的投影尾缓存。Prompt RPC Receipt 可从
+完整 Inbox 历史重建，同 ID/同 Payload 的并发或重启重试不会
 重复 Admission；Pending Approval 已能在原 Turn/Step 上跨重启继续回答。Settings 和其他变更
 RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once 恢复。
 
@@ -96,8 +97,9 @@ RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once �
 - 生成 `xharness-host` 二进制，默认监听 `127.0.0.1:3080`
 
 当前 Host 的 Web DTO 是进程内派生缓存，但持久真源已经是 Agent/Session：重启会恢复 Session、
-History、Header Workspace、Durable Queue 并续跑 Pending Turn/Pending Approval。仍需把
-Projection 改成游标查询、持久化 Settings/通用 RPC Receipt，并实现真正自主 Subagent。
+History、Header Workspace、Durable Queue 并续跑 Pending Turn/Pending Approval。History 已按
+`beforeSeq/maxMessages` 直接游标查询权威日志；仍需持久化 Queue/Workspace 自定义元数据、Settings、
+通用 RPC Receipt，并实现真正自主 Subagent。
 
 ### `xharness-agent`
 
@@ -110,7 +112,7 @@ Projection 改成游标查询、持久化 Settings/通用 RPC Receipt，并实�
 - 启动枚举、Pending Turn 先订阅后显式 Wake、无重复 Append 已完成
 - Prompt Admission 的持久 Receipt/冲突检测已完成
 - Pending Approval 可用原 Approval/Execution ID 在重启后恢复，回答前不会执行 Tool
-- 当前剩余持久 Projection、非 Prompt Receipt；部署级八点硬崩溃矩阵已完成
+- 当前剩余 Queue/Workspace/Settings 持久投影与非 Prompt Receipt；部署级八点硬崩溃矩阵已完成
 
 ### `xharness-core`
 

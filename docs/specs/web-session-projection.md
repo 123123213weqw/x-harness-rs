@@ -1,15 +1,15 @@
 # Web Session 确定性投影规范
 
 **涉及 Crate：** `xharness-session`、`xharness-agent`、`xharness-host`  
-**状态：** 权威 History/重启等价以及 Approval/Provider Retry 强类型投影已实现；完整冻结事件
-词汇仍在迁移。
+**状态：** 权威可游标 History、有界 Host 尾缓存、重启等价以及 Approval/Provider Retry
+强类型投影已实现；完整冻结事件词汇仍在迁移。
 
 ## 真源与边界
 
 正式 Durable Runtime 的 Append-only `Session` 是模型历史与浏览器 History 的共同真源。
-`BasicHost.SessionRecord.events` 只是可丢弃缓存，禁止继续把 Loop Event 临时转换结果当成正式
-History。兼容 `LoopAgentRuntime` 没有 Session 真源，可以继续使用旧的内存投影，但不得冒充
-可恢复语义。
+`BasicHost.SessionRecord.events` 只是可丢弃的**连续尾缓存**，同时受 Event 数与序列化 Byte
+预算限制；它不再承载完整 History。兼容 `LoopAgentRuntime` 没有 Session 真源，可以继续使用
+旧的完整内存投影，但不得冒充可恢复语义。
 
 `AgentRuntime` 通过以下能力显式声明这一边界：
 
@@ -20,15 +20,19 @@ History。兼容 `LoopAgentRuntime` 没有 Session 真源，可以继续使用�
 ## 投影算法
 
 1. Host 以 `authoritative_seq` 保存下一个待发布的 Session Sequence。
-2. 每次 History 查询、模型流事件和 Turn 终止时加载完整 Session Cut。
+2. 每次 History 查询、模型流事件和 Turn 终止时加载已验证的 Session Cut。
 3. 对每个 Logged Event 产生且只产生一个 Web Session Event；Web `seq/time` 直接使用日志坐标。
-4. 缓存整体替换为纯投影结果，只把 `[authoritative_seq, next_seq)` 的新增事件推送到 Mux，避免
-   History 查询或重连造成重复广播。
-5. `user/message` 使用稳定 Message ID 连接之前的 `agent/inbox/spliced` 元数据，恢复原始
+4. History 用 `beforeSeq` 作为排他上界，向前扫描至 `maxMessages` 个
+   `user/message | assistant/message | tool/result`，只投影该范围；`seq` 永远等于日志 Sequence。
+5. 运行缓存每次替换为满足 `session_event_cache_capacity` 与
+   `session_event_cache_bytes` 的最大连续后缀；超大单事件可以不驻留内存，但仍实时投递且可从日志
+   查询。只把 `[authoritative_seq, next_seq)` 的新增事件推送到 Mux，避免查询或重连重复广播。
+6. `user/message` 使用稳定 Message ID 连接之前的 `agent/inbox/spliced` 元数据，恢复原始
    Text/Image Content Block、Source、RPC ID 与 Timezone；旧日志缺元数据时才退化为纯文本。
-6. Assistant、Tool、Turn、Step、Request Header 和 Inbox Event 均从同一个 Logged Event 生成；
+7. Assistant、Tool、Turn、Step、Request Header 和 Inbox Event 均从同一个 Logged Event 生成；
    Host 不得再为 Durable Turn 人工追加另一份 `turn/start/user/message/assistant/message`。
-7. 启动恢复与运行中 History 必须调用同一 `project_session_events()` 纯函数。
+8. 启动尾缓存、运行增量和 History Page 必须调用同一 `restored_web_event()` 纯投影；Search 与
+   Fork 在 Durable Runtime 下也必须读取权威 Session，而不是只看缓存尾部。
 
 ## 审批与模型重试
 
@@ -80,6 +84,8 @@ Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不�
   `projections` 必须逐字相等。
 - 结构化 User Content 和 Timezone 在 Claim 消费 Inbox 后仍可从完整历史恢复。
 - History 查询可以吸收尚未由 Driver 推送的日志尾部，但不能制造第二条 User/Assistant Message。
+- 尾缓存驱逐后，`beforeSeq` 连续翻页仍必须返回完整历史；Host 重启不能改变页边界、事件内容或
+  `projections.asOfSeq`。
 - Ephemeral Runtime 的既有 Loop 投影测试继续通过。
 - Approval Asked 必须先于 UI Request 和 Tool Side Effect 持久化；Decided 必须先于 Tool Start。
 - 重启恢复的 Approval 必须复用原 Approval/Execution ID，回答前 Provider Attempt 和工具执行均为

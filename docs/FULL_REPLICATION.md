@@ -84,8 +84,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 > 当前进展：正式 Host 已切到 `DurableLoopAgentRuntime + JSONL + File Lease`，连续 Turn 历史由
 > Session Log 重放；HTTP `session.prompt` 已先 Flush Durable Inbox 再返回成功，Claim 与
 > Turn/Input 已在同一 CAS Revision，Queue Edit/Remove 也同步到 Inbox。JSONL 目录枚举、
-> Session/History/Workspace/Queue 启动 Replay、恢复前订阅与显式 Wake 已完成；Web Projection 和
-> Driver Attachment 仍是 Session Log 的进程内派生缓存。Prompt RPC Receipt 已从 Durable Inbox
+> Session/History/Workspace/Queue 启动 Replay、恢复前订阅与显式 Wake 已完成；History 已直接
+> 按稳定 Cursor 查询 Session Log，Host 只缓存受 Event/Byte 双预算约束的连续尾部。Queue
+> Projection 与 Driver Attachment 仍是进程内派生状态。Prompt RPC Receipt 已从 Durable Inbox
 > 历史重建；Approval Asked/Decided 与 Provider Retry/Started 已强类型持久化和投影，Pending
 > Approval 已能在原 Turn/Step 上跨重启继续回答；Agent/Permission/Sandbox/Approval Policy 和 Permission Command
 > Receipt、Session Title、Agent Preset 选择、Goal Snapshot/Tombstone 与 Idle Plan Mode 已持久化，Settings 和其他
@@ -159,7 +160,8 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 - [x] `E-01` 事件改为按事件数和序列化 Byte 双预算的有界 Journal，并提供 Lag/Resume Cursor
   Subscription；跨 WebSocket 连接的持久 Cursor 继续由 `E-02` 完成。
 - [ ] `E-02` WebSocket 支持 Cursor Resume、Lag、Reconnect 和 Session Mux。
-- [ ] `E-03` History 从 Session Log 重建，不依赖进程内 `Vec<Value>`。
+- [x] `E-03` History 从 Session Log 按 `beforeSeq/maxMessages` 重建，不依赖进程内
+  `Vec<Value>`；Host Event DTO 仅保留有界连续尾部，Search/Fork 也不因驱逐丢历史。
 - [ ] `E-04` Approval/Terminal/File/Web/Usage/Recovery Projection 全量对齐。
 - [ ] `E-05` Health、Readiness、诊断包和部署状态接口。
 - [ ] `E-06` 默认 Loopback；远程模式增加 Auth、Origin、Owner/Workspace 隔离。

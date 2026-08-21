@@ -62,7 +62,8 @@ Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；`AgentRuntime::ad
 当前仍是迁移中间态：`session.prompt` 已在返回成功前完成 Durable Inbox Append + Flush，
 RPC ID 同时是稳定 Inbox ID；Queue Edit/Remove 先修改持久 Inbox，再更新内存 Projection。
 `BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责。它现在能从 Session Log 和
-JSONL 目录确定性重建可推导投影；下一阶段要让 History/Queue 直接按 Cursor 查询持久投影，并为
+JSONL 目录确定性重建可推导投影；History 已直接按 Cursor 查询权威日志且内存只留有界尾部，
+下一阶段要让 Queue 也直接按 Cursor 查询持久投影，并为
 Workspace 自定义元数据、Settings、Approval 和 RPC Receipt 建独立日志，最终删除兼容缓存。
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定

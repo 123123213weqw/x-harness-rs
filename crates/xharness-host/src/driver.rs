@@ -6,8 +6,8 @@ use xharness_session::SessionEvent;
 
 use crate::{
     restore::{
-        project_session_events, restored_agent_preset, restored_goal, restored_permission,
-        restored_plan_mode, restored_title,
+        project_session_event_range, project_session_event_tail, restored_agent_preset,
+        restored_goal, restored_permission, restored_plan_mode, restored_title,
     },
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute, RunningTurn},
     state::{now_ms, DriverCommand, PendingResponse, QueuedPrompt},
@@ -110,13 +110,17 @@ impl BasicHost {
                 reasoning_effort: record.model.reasoning_effort.clone(),
             }
         };
-        let projected = project_session_events(&session, &route);
         let permission = restored_permission(&session);
         let agent_preset = restored_agent_preset(&session);
         let title = restored_title(&session);
         let plan_active = restored_plan_mode(&session);
         let goal = restored_goal(&session);
-        let next_seq = session.next_seq();
+        let tail = project_session_event_tail(
+            &session,
+            &route,
+            self.config.session_event_cache_capacity,
+            self.config.session_event_cache_bytes,
+        );
         let new_events = {
             let mut state = self.state.write().await;
             let new_events = {
@@ -127,14 +131,19 @@ impl BasicHost {
                 let previous = record.authoritative_seq.unwrap_or_default();
                 let start = usize::try_from(previous)
                     .map_err(|_| RpcError::internal("authoritative session cursor overflow"))?;
-                if start > projected.len() {
+                if start > session.events().len() {
                     return Err(RpcError::internal(format!(
                         "authoritative session {session_id:?} moved behind cursor {previous}"
                     )));
                 }
-                let new_events = projected[start..].to_vec();
-                record.events = projected;
-                record.authoritative_seq = Some(next_seq);
+                let new_events =
+                    project_session_event_range(&session, &route, start, session.events().len());
+                record.replace_authoritative_tail(
+                    tail.base_seq,
+                    tail.next_seq,
+                    tail.events,
+                    tail.bytes,
+                );
                 record.messages = session.derive_messages();
                 record.permission_preset = permission;
                 record.agent_preset = agent_preset;
@@ -185,7 +194,7 @@ impl BasicHost {
                     json!({"sessionId": session_id}),
                 )
             })?;
-            let seq = session.events.len();
+            let seq = session.next_event_seq();
             let mut event = json!({
                 "type": event_type,
                 "seq": seq,
@@ -204,6 +213,9 @@ impl BasicHost {
             if event_type == "user/message" {
                 session.updated_at = now_ms();
             }
+            session.event_cache_bytes = session
+                .event_cache_bytes
+                .saturating_add(serde_json::to_vec(&event).map_or(0, |encoded| encoded.len()));
             session.events.push(event.clone());
             event
         };
@@ -222,7 +234,7 @@ impl BasicHost {
             .await
             .sessions
             .get(session_id)
-            .map_or(-1, |session| session.events.len() as i64 - 1);
+            .map_or(-1, |session| session.last_event_seq_i64());
         if seq >= 0 {
             self.push_mux(json!({
                 "type": "session/projection",
