@@ -26,7 +26,7 @@ Capability 产生本 Step 的 Definition Projection；投影保持名称/Schema 
   -> pre middleware
   -> 单调 guard
   -> fail-closed 审批
-  -> 并发 gate
+  -> 并发 gate -> host lifecycle started ack
   -> around middleware -> handler
   -> post middleware -> finalize middleware
   -> observer
@@ -53,6 +53,14 @@ Guard 状态单调：后续阶段可以把 `allow` 收紧为 `ask` 或 `deny`，
 - Request Cancellation 必须传播到 Handler Token。
 - Timeout/Cancel 后，在 Executor 返回失败前必须提供有界清理时间。
 
+`ToolBatchRun` 是多调用唯一正式调度器。它按模型原始顺序解释 Barrier、按 Batch 配置限制总并发，
+完成事件按真实完成顺序发布，最终结果按原始 `order` 返回。Core/Agent 不得复制这些调度规则。
+Batch Handle 被 Cancel 或 Drop 时必须向全部 Call Token 广播取消；宿主仍应读取最终 Result，确认
+Handler 清理完成后才能发布整个 Run 的终态。
+
+`ToolLifecycle::started` 位于审批和并发准入之后、Handler 之前。宿主利用该 Awaitable Ack 持久化
+和投影副作用开始边界；Error 或 Panic 必须阻止 Handler 执行，不能降级为仅观察型通知。
+
 ## 当前限制
 
 - JSON Schema 只实现实用的首版子集，不覆盖完整生态。
@@ -67,4 +75,5 @@ Guard 状态单调：后续阶段可以把 `allow` 收紧为 `ask` 或 `deny`，
 
 测试必须覆盖重复/非法定义、畸形/Schema 非法参数、精确 Pipeline 顺序、单调 Guard、
 Approval Unavailable/Denied/Pending/Cancelled、每个 Middleware Panic、Handler Timeout/
-Panic、安全的默认 Exclusive、Keyed 重叠/串行，以及 Finalizer 禁止提权。
+Panic、安全的默认 Exclusive、Keyed 重叠/串行、Batch 并发上限/Barrier/完成与重放顺序、
+Lifecycle Ack fail closed，以及 Finalizer 禁止提权。
