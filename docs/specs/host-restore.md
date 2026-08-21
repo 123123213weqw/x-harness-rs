@@ -67,6 +67,8 @@ Inbox，再改变 Web Projection。
 - Worker 对已存在 Pending Input 保持休眠，订阅后显式 Wake 才执行。
 - Runtime 恢复 Pending Input 后只出现一次 Inbox Insert 和一次 User Message。
 - 同 RPC ID + Prompt Payload 的并发/重启重试只出现一次 Inbox Insert；Payload 不同则冲突。
+- 七点日志前缀矩阵覆盖 Claim/Request/Tool Call/Tool Result/Step End/Turn End 的 Interrupted、
+  OutcomeUnknown 和权威结果保留；真实进程 SIGKILL 仍需单独覆盖。
 - Host 单元测试恢复 History、模型路由、Workspace、Web Event 与 Pending Turn。
 - 真实 `xharness-host` 子进程在相同 State Dir 和端口重启后，`workspace.list`、`session.list`、
   `session.history` 与 WebSocket Carrier 均恢复。
