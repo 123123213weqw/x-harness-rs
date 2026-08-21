@@ -32,6 +32,9 @@ Commit、Issue、PR 应引用这些 ID。
 - [x] `DONE-19` Host Turn Runtime 解耦：定义 `AgentRuntime`、`AgentTurnRequest`、
   `RunningTurn` 和 `ModelRoute`，BasicHost 不再直接持有 Provider/ToolFactory/ContextPolicy 或
   创建 Loop；`LoopAgentRuntime` 作为当前兼容适配器。
+- [x] `DONE-20` Apple Silicon 原生 CI：在 GitHub `macos-15` ARM64 Runner 上执行整个
+  Workspace 的 Check、Test、Clippy，真实覆盖 FS Symlink Race、Process Group、PTY 和
+  Seatbelt 隔离，并生成带 SHA-256 的 `xharness-host-darwin-arm64` 构件。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -62,6 +65,8 @@ Commit、Issue、PR 应引用这些 ID。
 
 - [ ] `P0-07` **macOS 原生运行验证。** 在真实 Apple Silicon Mac 上运行 FS Race、Seatbelt、
   PTY Lifecycle、Web TLS、Live Loop，并打包/签名 CLI。仅 Cross Compilation 不算完成。
+  ARM64 原生 CI、FS/Process/PTY/Seatbelt 测试和未签名 Host 构件已经完成；剩余 Web TLS、
+  真实 Provider Live Loop、开发者签名、公证和本机安装/启动验证。
 
 - [ ] `P0-08` **Web DNS Rebinding 加固。** 每个连接绑定到已验证 Resolve Address，同时
   保留 TLS Host/SNI；Redirect 重新应用 Policy。测试 Rebinding、IPv4-mapped IPv6 和
@@ -195,9 +200,9 @@ Commit、Issue、PR 应引用这些 ID。
 
 ## 持续发布门禁
 
-- [ ] `REL-01` 每次变更在 Linux 对整个 Workspace 执行 Fmt、`check --all-targets`、Test、
+- [x] `REL-01` 每次变更在 Linux 对整个 Workspace 执行 Fmt、`check --all-targets`、Test、
   Clippy `-D warnings`。
-- [ ] `REL-02` macOS 原生 CI，覆盖 Sandbox/PTY/FS 集成测试。
+- [x] `REL-02` macOS 原生 CI，覆盖 Sandbox/PTY/FS 集成测试。
 - [ ] `REL-03` SSE、JSONL Crash Tail、Event Lifecycle、Tool-call Assembly、Path Resolve、
   Schema Input 的 Property/Fuzz Test。
 - [ ] `REL-04` 每个 Durability Barrier 和 Tool Side-effect Boundary 的 Fault Injection。

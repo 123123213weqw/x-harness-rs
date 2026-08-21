@@ -38,6 +38,14 @@ DeepSeek Web UI / future CLI
 
 行为变更只有在实现、测试、规范和 TODO 状态一致后才算完成。
 
+## Apple Silicon 构件
+
+CI 在 GitHub `macos-15` 的原生 ARM64 Runner 上检查和测试整个 Workspace，并执行真实的
+FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产出
+`xharness-host-darwin-arm64` Artifact，里面包含未签名的 Host 压缩包和 SHA-256 校验文件。
+该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
+Developer ID 签名、公证和本机安装验证。
+
 > **当前可用性提醒（2026-08-21）：** Web/Loop/14 工具已经贯通，但当前 Host 仍完整重放
 > 历史、每个 Step 固定发送全部工具、没有请求前 Token Guard；`AgentPreset.content` 也尚未
 > 作为 System Prompt 注入。大文件任务可能超过模型真实上下文。Linux Bubblewrap Probe 失败时，
