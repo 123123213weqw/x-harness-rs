@@ -26,7 +26,7 @@ use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider, ToolSpe
 pub use runtime::{
     AgentRuntime, AgentRuntimeError, AgentTurnRequest, LoopAgentRuntime, ModelRoute, RunningTurn,
 };
-pub use state::{AgentPreset, GoalState, SessionRecord, WorkspaceRecord};
+pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, WorkspaceRecord};
 
 /// Host process configuration visible at the browser boundary.
 #[derive(Clone, Debug)]
@@ -60,7 +60,12 @@ impl HostConfig {
 
 #[async_trait]
 pub trait SessionToolFactory: Send + Sync + 'static {
-    async fn tools(&self, session_id: &str, cwd: &str) -> Result<Vec<ToolSpec>, String>;
+    async fn tools(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+    ) -> Result<Vec<ToolSpec>, String>;
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -68,7 +73,12 @@ pub struct NoTools;
 
 #[async_trait]
 impl SessionToolFactory for NoTools {
-    async fn tools(&self, _session_id: &str, _cwd: &str) -> Result<Vec<ToolSpec>, String> {
+    async fn tools(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+    ) -> Result<Vec<ToolSpec>, String> {
         Ok(Vec::new())
     }
 }

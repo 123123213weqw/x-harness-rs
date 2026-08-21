@@ -47,6 +47,7 @@ pub fn api_router(backend: Arc<dyn ApiBackend>) -> Router {
             SESSION_EXPORT_PATH,
             get(session_export).head(session_export),
         )
+        .route("/api/{namespace}/{method}", post(dynamic_unary))
         .route("/api/{method}", post(unary))
         .layer(DefaultBodyLimit::max(DEFAULT_REQUEST_BODY_LIMIT_BYTES))
         .with_state(state)
@@ -137,9 +138,24 @@ async fn unary(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let Ok(method) = RpcMethod::from_str(&path_method) else {
-        return (StatusCode::NOT_FOUND, "not found").into_response();
-    };
+    unary_endpoint(state, path_method, headers, body).await
+}
+
+async fn dynamic_unary(
+    State(state): State<ServerState>,
+    Path((namespace, method)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    unary_endpoint(state, format!("{namespace}/{method}"), headers, body).await
+}
+
+async fn unary_endpoint(
+    state: ServerState,
+    path_method: String,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     if !is_json(&headers) {
         return (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -158,21 +174,20 @@ async fn unary(
             return Json(ServerResponse::new(
                 rpc_id,
                 RpcResult::failure(RpcError::bad_request(
-                    format!("invalid payload for {}", method.as_str()),
+                    format!("invalid payload for {path_method}"),
                     json!([{ "message": error.to_string() }]),
                 )),
             ))
             .into_response();
         }
     };
-    if request.method != method.as_str() {
+    if request.method != path_method {
         return Json(ServerResponse::new(
             request.rpc_id,
             RpcResult::failure(RpcError::bad_request(
                 format!(
                     "method {:?} does not match path {:?}",
-                    request.method,
-                    method.as_str()
+                    request.method, path_method
                 ),
                 json!([]),
             )),
@@ -183,10 +198,24 @@ async fn unary(
     let cancellation = CancellationToken::new();
     let _cancel_on_drop = CancelOnDrop(cancellation.clone());
     let rpc_id = request.rpc_id;
-    let result = state
-        .backend
-        .call(rpc_id.clone(), method, request.payload, cancellation)
-        .await;
+    let result = match RpcMethod::from_str(&path_method) {
+        Ok(method) => {
+            state
+                .backend
+                .call(rpc_id.clone(), method, request.payload, cancellation)
+                .await
+        }
+        Err(_) => {
+            let Some(result) = state
+                .backend
+                .call_dynamic(rpc_id.clone(), &path_method, request.payload, cancellation)
+                .await
+            else {
+                return (StatusCode::NOT_FOUND, "not found").into_response();
+            };
+            result
+        }
+    };
     Json(ServerResponse::new(rpc_id, result)).into_response()
 }
 

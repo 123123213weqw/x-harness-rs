@@ -103,6 +103,25 @@ impl ApiBackend for BasicHost {
         }
     }
 
+    async fn call_dynamic(
+        &self,
+        _rpc_id: RpcId,
+        endpoint: &str,
+        payload: Value,
+        _cancellation: CancellationToken,
+    ) -> Option<RpcResult> {
+        let result = match endpoint {
+            "commands/list" => self.commands_list(&payload).await.map(Some),
+            "commands/execute" => self.commands_execute(&payload).await,
+            _ => return None,
+        };
+        Some(match result {
+            Ok(Some(value)) => RpcResult::success(value),
+            Ok(None) => RpcResult::Success { value: None },
+            Err(error) => RpcResult::failure(error),
+        })
+    }
+
     async fn respond(&self, response: ClientResponse) -> RpcReceipt {
         self.respond_pending(response).await
     }
@@ -243,6 +262,133 @@ impl ApiBackend for BasicHost {
 }
 
 impl BasicHost {
+    async fn commands_list(&self, payload: &Value) -> Result<Value, RpcError> {
+        let args = payload
+            .get("args")
+            .ok_or_else(|| bad_request("commands/list requires args"))?;
+        let session_id = required_string(args, "agentId")?;
+        if !self.state.read().await.sessions.contains_key(&session_id) {
+            return Err(session_not_found(&session_id));
+        }
+        Ok(json!([{
+            "name": "permission",
+            "description": "Switch the permission preset (sandbox mode + approval policy)",
+            "input": {"hint": "<preset>"},
+        }]))
+    }
+
+    async fn commands_execute(&self, payload: &Value) -> Result<Option<Value>, RpcError> {
+        let args = payload
+            .get("args")
+            .ok_or_else(|| bad_request("commands/execute requires args"))?;
+        let session_id = required_string(args, "agentId")?;
+        let line = required_string(args, "line")?;
+        let images = required_array(args, "images")?;
+
+        let Some(raw_input) = permission_command_input(&line) else {
+            return Ok(None);
+        };
+        let command_id = self.mint_id("command");
+        self.append_session_event(
+            &session_id,
+            "command/run",
+            json!({
+                "commandId": command_id,
+                "name": "permission",
+                "args": raw_input,
+                "source": {"kind": "user"},
+            }),
+            None,
+        )
+        .await?;
+
+        let result = if !images.is_empty() {
+            json!({"kind": "error", "text": "/permission does not accept image attachments"})
+        } else if raw_input.trim().is_empty() {
+            let current = self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?
+                .permission_preset;
+            json!({
+                "kind": "success",
+                "text": format!(
+                    "current preset {} (available: workspace-write, danger-full-access)",
+                    current.as_str()
+                ),
+            })
+        } else if let Some(preset) = crate::PermissionPreset::parse(raw_input.trim()) {
+            let busy = {
+                let mut state = self.state.write().await;
+                let session = state
+                    .sessions
+                    .get_mut(&session_id)
+                    .ok_or_else(|| session_not_found(&session_id))?;
+                if session.running {
+                    true
+                } else {
+                    session.permission_preset = preset;
+                    false
+                }
+            };
+            if busy {
+                json!({
+                    "kind": "error",
+                    "text": "cannot change permissions while the session is running",
+                })
+            } else {
+                self.append_session_event(
+                    &session_id,
+                    "permission/preset",
+                    json!({"preset": preset.as_str()}),
+                    None,
+                )
+                .await?;
+                self.append_session_event(
+                    &session_id,
+                    "sandbox/mode",
+                    json!({"mode": preset.sandbox_mode()}),
+                    None,
+                )
+                .await?;
+                self.append_session_event(
+                    &session_id,
+                    "approval/policy",
+                    json!({"policy": preset.approval_policy()}),
+                    None,
+                )
+                .await?;
+                self.push_projection(&session_id, "permissions", preset.select())
+                    .await;
+                json!({"kind": "success", "text": format!("preset {}", preset.as_str())})
+            }
+        } else {
+            json!({
+                "kind": "error",
+                "text": format!(
+                    "unknown preset {:?} (available: workspace-write, danger-full-access)",
+                    raw_input.trim()
+                ),
+            })
+        };
+
+        self.append_session_event(
+            &session_id,
+            "command/done",
+            json!({
+                "commandId": command_id,
+                "kind": result["kind"],
+                "text": result["text"],
+            }),
+            None,
+        )
+        .await?;
+        Ok(Some(json!({"commandId": command_id, "result": result})))
+    }
+
     async fn session_list(&self, payload: &Value) -> Result<Value, RpcError> {
         require_object(payload)?;
         let state = self.state.read().await;
@@ -357,6 +503,13 @@ impl BasicHost {
         }
         let now = now_ms();
         let effective_preset = preset.or_else(|| Some("coding".to_owned()));
+        let permission_preset = state
+            .settings
+            .get("permission")
+            .and_then(|namespace| namespace.value.get("defaultPreset"))
+            .and_then(Value::as_str)
+            .and_then(crate::PermissionPreset::parse)
+            .unwrap_or_default();
         let record = SessionRecord {
             session_id: session_id.clone(),
             created_at: now,
@@ -369,6 +522,7 @@ impl BasicHost {
             agent_preset: effective_preset.clone(),
             title: None,
             model: ModelSelection::from_config(&self.config),
+            permission_preset,
             events: Vec::new(),
             messages: Vec::new(),
             queue: Default::default(),
@@ -557,6 +711,7 @@ impl BasicHost {
             agent_preset: source.agent_preset.clone(),
             title: source.title.clone(),
             model: source.model.clone(),
+            permission_preset: source.permission_preset,
             events: child_events,
             messages: source.messages.clone(),
             queue: Default::default(),
@@ -1446,6 +1601,9 @@ impl BasicHost {
             .ok_or_else(|| bad_request("patch must be an object"))?
             .clone();
         let expected = optional_u64(payload, "expectedRevision")?;
+        if ns == "permission" {
+            validate_permission_patch(&patch)?;
+        }
         let mut state = self.state.write().await;
         let namespace = state
             .settings
@@ -1473,6 +1631,9 @@ impl BasicHost {
             .ok_or_else(|| bad_request("section must be an object"))?
             .clone();
         let expected = optional_u64(payload, "expectedRevision")?;
+        if ns == "permission" {
+            validate_permission_section(&section)?;
+        }
         let mut state = self.state.write().await;
         let namespace = state
             .settings
@@ -1520,12 +1681,22 @@ impl BasicHost {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             match kind {
-                "set" => set_json_path(
-                    &mut namespace.user,
-                    &path,
-                    op.get("value").cloned().unwrap_or(Value::Null),
-                )?,
-                "unset" => unset_json_path(&mut namespace.user, &path)?,
+                "set" => {
+                    let value = op.get("value").cloned().unwrap_or(Value::Null);
+                    if ns == "permission" {
+                        if path.as_slice() != ["defaultPreset"] {
+                            return Err(settings_rejected(&ns));
+                        }
+                        validate_permission_value(&value)?;
+                    }
+                    set_json_path(&mut namespace.user, &path, value)?
+                }
+                "unset" => {
+                    if ns == "permission" {
+                        return Err(settings_rejected(&ns));
+                    }
+                    unset_json_path(&mut namespace.user, &path)?
+                }
                 _ => return Err(bad_request("settings op must be set or unset")),
             }
         }
@@ -1773,6 +1944,37 @@ fn preset_not_found(preset: &str) -> RpcError {
     )
 }
 
+fn validate_permission_value(value: &Value) -> Result<(), RpcError> {
+    let Some(value) = value.as_str() else {
+        return Err(settings_rejected("permission"));
+    };
+    if crate::PermissionPreset::parse(value).is_none() {
+        return Err(settings_rejected("permission"));
+    }
+    Ok(())
+}
+
+fn validate_permission_patch(patch: &Map<String, Value>) -> Result<(), RpcError> {
+    if patch.keys().any(|key| key != "defaultPreset") {
+        return Err(settings_rejected("permission"));
+    }
+    if let Some(value) = patch.get("defaultPreset") {
+        validate_permission_value(value)?;
+    }
+    Ok(())
+}
+
+fn validate_permission_section(section: &Map<String, Value>) -> Result<(), RpcError> {
+    if section.len() != 1 {
+        return Err(settings_rejected("permission"));
+    }
+    validate_permission_value(
+        section
+            .get("defaultPreset")
+            .ok_or_else(|| settings_rejected("permission"))?,
+    )
+}
+
 fn settings_rejected(ns: &str) -> RpcError {
     rpc_error(
         RpcErrorCode::SettingsRejected,
@@ -1831,6 +2033,15 @@ fn visible_text(content: &[Value]) -> String {
                 .flatten()
         })
         .collect::<String>()
+}
+
+fn permission_command_input(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("/permission")?;
+    if rest.is_empty() || matches!(rest.chars().next(), Some(' ' | '\t' | '\n' | '\r')) {
+        Some(rest)
+    } else {
+        None
+    }
 }
 
 #[derive(Clone, Debug)]

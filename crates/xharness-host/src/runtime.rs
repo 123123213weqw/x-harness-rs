@@ -7,7 +7,7 @@ use xharness_core::{
     LoopResult, LoopRun, ModelProvider,
 };
 
-use crate::SessionToolFactory;
+use crate::{PermissionPreset, SessionToolFactory};
 
 /// Provider/model selection requested by one Host session.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,6 +33,7 @@ pub struct AgentTurnRequest {
     pub session_id: String,
     pub cwd: String,
     pub route: ModelRoute,
+    pub permission: PermissionPreset,
     pub messages: Vec<AgentMessage>,
 }
 
@@ -139,7 +140,7 @@ impl AgentRuntime for LoopAgentRuntime {
         let provider = Arc::clone(self.provider.as_ref().expect("route checked provider"));
         let tools = self
             .tool_factory
-            .tools(&request.session_id, &request.cwd)
+            .tools(&request.session_id, &request.cwd, request.permission)
             .await
             .map_err(|message| AgentRuntimeError::Preparation { message })?;
         let mut loop_request = LoopRequest::new(provider, request.messages);
@@ -173,6 +174,7 @@ mod tests {
                 session_id: "session".to_owned(),
                 cwd: "/workspace".to_owned(),
                 route,
+                permission: PermissionPreset::WorkspaceWrite,
                 messages: vec![AgentMessage::user("hello")],
             })
             .await

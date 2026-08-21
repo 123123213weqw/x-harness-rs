@@ -16,6 +16,12 @@ Read-only Cwd Root。`NativePlatform::new` 必须使用同一权限边界初始�
 `prepare_spawn` 只应用 Sandbox Policy、不启动进程；`spawn` 先 Prepare 再 Launch，
 返回受管 `ProcessHandle`。
 
+`DangerFullAccess` 必须来自 Host 已确认的 Session Permission Preset。该模式下 Process 原样
+透传；结构化文件能力以 `/` 为根，因此允许绝对路径。为保持 Coding Agent 的正常相对路径
+语义，`NativePlatform::resolve_file` 仍把相对路径接到 canonical Session Workspace，再转换为
+根能力。`NativePlatform::workspace_root` 与 `filesystem().workspace_root()` 在 Full access 下
+有意不同：前者是默认 Cwd，后者是 `/`。
+
 平台还必须提供无副作用、可缓存的 `CapabilityReport`：FS Read/Mutation、Restricted Process、
 PTY、Network 和具体 Sandbox Backend 的 Available/Unavailable Reason。报告用于 Host/UI 和
 下一 Step 的 Tool Projection；它不能自动改变 Policy，也不能把 unavailable 变成 Full Access。
