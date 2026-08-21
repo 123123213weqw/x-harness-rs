@@ -8,7 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 use xharness_agent::{
     AgentCommandError, AgentEvent, AgentRegistry, AgentSupervisor, DurableAgentHandle,
     InboxMessage, LeaseManager, RegistryError, TurnRequestFactory,
@@ -92,6 +92,32 @@ pub trait AgentRuntime: Send + Sync + 'static {
     fn has_available_route(&self) -> bool;
 
     fn can_route(&self, route: &ModelRoute) -> bool;
+
+    /// Durably admit one future turn before the Host acknowledges the client.
+    /// Ephemeral runtimes use the default no-op and construct work in
+    /// `start_turn`; durable runtimes must flush the input before returning.
+    async fn admit_turn(&self, _request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
+        Ok(())
+    }
+
+    /// Remove a still-pending input. The default is a no-op for ephemeral
+    /// runtimes whose queue is owned entirely by the Host.
+    async fn remove_pending_input(
+        &self,
+        _session_id: &str,
+        _input_id: &str,
+    ) -> Result<(), AgentRuntimeError> {
+        Ok(())
+    }
+
+    /// Replace a still-pending input in place while preserving its identity.
+    async fn replace_pending_input(
+        &self,
+        _session_id: &str,
+        _message: AgentMessage,
+    ) -> Result<(), AgentRuntimeError> {
+        Ok(())
+    }
 
     async fn start_turn(
         &self,
@@ -215,7 +241,14 @@ pub struct DurableLoopAgentRuntime {
     provider_available: bool,
     sessions: Arc<RwLock<HashMap<String, DurableSessionConfig>>>,
     supervisor: AgentSupervisor,
+    prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
     next_control_id: Arc<AtomicU64>,
+}
+
+struct PreparedDurableTurn {
+    handle: DurableAgentHandle,
+    events: broadcast::Receiver<AgentEvent>,
+    input_id: String,
 }
 
 impl DurableLoopAgentRuntime {
@@ -245,31 +278,19 @@ impl DurableLoopAgentRuntime {
             provider_available,
             sessions,
             supervisor: AgentSupervisor::new(registry, factory, event_capacity),
+            prepared: Mutex::new(HashMap::new()),
             next_control_id: Arc::new(AtomicU64::new(1)),
         }
     }
-}
 
-#[async_trait]
-impl AgentRuntime for DurableLoopAgentRuntime {
-    fn has_available_route(&self) -> bool {
-        self.provider_available
-    }
-
-    fn can_route(&self, route: &ModelRoute) -> bool {
-        self.provider_available
-            && route.provider == self.provider_id
-            && route.model == self.model_id
-    }
-
-    async fn start_turn(
+    fn validate_turn_input(
         &self,
-        request: AgentTurnRequest,
-    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        request: &AgentTurnRequest,
+    ) -> Result<(AgentMessage, String), AgentRuntimeError> {
         if !self.can_route(&request.route) {
             return Err(AgentRuntimeError::ModelUnavailable {
-                provider: request.route.provider,
-                model: request.route.model,
+                provider: request.route.provider.clone(),
+                model: request.route.model.clone(),
             });
         }
         let input = request
@@ -286,6 +307,14 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .ok_or_else(|| AgentRuntimeError::Preparation {
                 message: "durable turn user message requires a stable id".to_owned(),
             })?;
+        Ok((input, input_id))
+    }
+
+    async fn prepare_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<PreparedDurableTurn, AgentRuntimeError> {
+        let (input, input_id) = self.validate_turn_input(&request)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -303,15 +332,131 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         let events = handle.subscribe();
         handle
             .followup(InboxMessage {
-                id: input_id,
+                id: input_id.clone(),
                 message: input,
                 source: None,
             })
             .await
             .map_err(agent_command_error)?;
-        Ok(Box::new(DurableRunningTurn {
+        Ok(PreparedDurableTurn {
             handle,
             events,
+            input_id,
+        })
+    }
+}
+
+#[async_trait]
+impl AgentRuntime for DurableLoopAgentRuntime {
+    fn has_available_route(&self) -> bool {
+        self.provider_available
+    }
+
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        self.provider_available
+            && route.provider == self.provider_id
+            && route.model == self.model_id
+    }
+
+    async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
+        let (_, input_id) = self.validate_turn_input(&request)?;
+        let key = (request.session_id.clone(), input_id);
+        let mut prepared_turns = self.prepared.lock().await;
+        if prepared_turns.contains_key(&key) {
+            // Retried HTTP admission with the same stable RPC/message ID is
+            // idempotent while the prepared turn remains attached.
+            return Ok(());
+        }
+        let prepared = self.prepare_turn(request).await?;
+        prepared_turns.insert(key, prepared);
+        Ok(())
+    }
+
+    async fn remove_pending_input(
+        &self,
+        session_id: &str,
+        input_id: &str,
+    ) -> Result<(), AgentRuntimeError> {
+        let handle = self.supervisor.get(session_id).await.ok_or_else(|| {
+            AgentRuntimeError::Preparation {
+                message: format!("durable agent {session_id:?} is not active"),
+            }
+        })?;
+        let removed = handle.inbox().remove(input_id).await.map_err(|error| {
+            AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            }
+        })?;
+        if removed.is_none() {
+            return Err(AgentRuntimeError::Preparation {
+                message: format!("durable input {input_id:?} is no longer pending"),
+            });
+        }
+        self.prepared
+            .lock()
+            .await
+            .remove(&(session_id.to_owned(), input_id.to_owned()));
+        Ok(())
+    }
+
+    async fn replace_pending_input(
+        &self,
+        session_id: &str,
+        mut message: AgentMessage,
+    ) -> Result<(), AgentRuntimeError> {
+        if message.role != Role::User {
+            return Err(AgentRuntimeError::Preparation {
+                message: "durable queued input must have the user role".to_owned(),
+            });
+        }
+        let input_id = message
+            .id
+            .clone()
+            .ok_or_else(|| AgentRuntimeError::Preparation {
+                message: "durable queued input requires a stable id".to_owned(),
+            })?;
+        message.id = Some(input_id.clone());
+        let handle = self.supervisor.get(session_id).await.ok_or_else(|| {
+            AgentRuntimeError::Preparation {
+                message: format!("durable agent {session_id:?} is not active"),
+            }
+        })?;
+        let replaced = handle
+            .inbox()
+            .replace(
+                &input_id,
+                InboxMessage {
+                    id: input_id.clone(),
+                    message,
+                    source: None,
+                },
+            )
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })?;
+        if replaced.is_none() {
+            return Err(AgentRuntimeError::Preparation {
+                message: format!("durable input {input_id:?} is no longer pending"),
+            });
+        }
+        Ok(())
+    }
+
+    async fn start_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        let (_, input_id) = self.validate_turn_input(&request)?;
+        let key = (request.session_id.clone(), input_id.clone());
+        let prepared = match self.prepared.lock().await.remove(&key) {
+            Some(prepared) => prepared,
+            None => self.prepare_turn(request).await?,
+        };
+        Ok(Box::new(DurableRunningTurn {
+            handle: prepared.handle,
+            events: prepared.events,
+            target_input_id: prepared.input_id,
             turn: None,
             result: None,
             terminal: false,
@@ -323,6 +468,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
 struct DurableRunningTurn {
     handle: DurableAgentHandle,
     events: broadcast::Receiver<AgentEvent>,
+    target_input_id: String,
     turn: Option<u32>,
     result: Option<LoopResult>,
     terminal: bool,
@@ -364,7 +510,12 @@ impl DurableRunningTurn {
     async fn receive_event(&mut self) -> Option<LoopEvent> {
         while !self.terminal {
             match self.events.recv().await {
-                Ok(AgentEvent::TurnStarted { turn }) if self.turn.is_none() => {
+                Ok(AgentEvent::TurnStarted { turn, input_ids })
+                    if self.turn.is_none()
+                        && input_ids
+                            .iter()
+                            .any(|input_id| input_id == &self.target_input_id) =>
+                {
                     self.turn = Some(turn);
                 }
                 Ok(AgentEvent::TurnEvent { turn, event }) if self.turn == Some(turn) => {
@@ -458,11 +609,18 @@ fn loop_control_error(error: AgentCommandError) -> LoopControlError {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::VecDeque, sync::Mutex};
+    use std::{
+        collections::VecDeque,
+        sync::{
+            atomic::{AtomicUsize, Ordering as AtomicOrdering},
+            Mutex,
+        },
+    };
 
     use super::*;
     use crate::NoTools;
     use futures::stream;
+    use tokio::sync::Notify;
     use tokio_util::sync::CancellationToken;
     use xharness_agent::MemoryLeaseManager;
     use xharness_core::{
@@ -473,6 +631,11 @@ mod tests {
 
     struct ScriptProvider {
         answers: Mutex<VecDeque<String>>,
+    }
+
+    struct BlockingFirstProvider {
+        attempts: AtomicUsize,
+        release: Arc<Notify>,
     }
 
     #[async_trait]
@@ -493,6 +656,27 @@ mod tests {
             let answer = self.answers.lock().unwrap().pop_front().unwrap();
             Ok(Box::pin(stream::iter([
                 Ok(ProviderEvent::TextDelta(answer)),
+                Ok(ProviderEvent::Completed {
+                    finish_reason: Some(FinishReason::Stop),
+                    usage: None,
+                    provider_items: Vec::new(),
+                }),
+            ])))
+        }
+    }
+
+    #[async_trait]
+    impl ModelProvider for BlockingFirstProvider {
+        async fn stream(
+            &self,
+            _request: ProviderRequest,
+            _cancellation: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            if self.attempts.fetch_add(1, AtomicOrdering::SeqCst) == 0 {
+                self.release.notified().await;
+            }
+            Ok(Box::pin(stream::iter([
+                Ok(ProviderEvent::TextDelta("released".to_owned())),
                 Ok(ProviderEvent::Completed {
                     finish_reason: Some(FinishReason::Stop),
                     usage: None,
@@ -554,31 +738,37 @@ mod tests {
             64,
         );
 
-        let mut first = runtime
-            .start_turn(AgentTurnRequest {
-                session_id: "durable-host".to_owned(),
-                cwd: "/workspace".to_owned(),
-                route: ModelRoute::new("test", "test-model"),
-                permission: PermissionPreset::WorkspaceWrite,
-                messages: vec![AgentMessage::user("first").with_id("prompt-1")],
-            })
-            .await
-            .unwrap();
+        let first_request = AgentTurnRequest {
+            session_id: "durable-host".to_owned(),
+            cwd: "/workspace".to_owned(),
+            route: ModelRoute::new("test", "test-model"),
+            permission: PermissionPreset::WorkspaceWrite,
+            messages: vec![AgentMessage::user("first").with_id("prompt-1")],
+        };
+        runtime.admit_turn(first_request.clone()).await.unwrap();
+        let admitted = store.load("durable-host").await.unwrap().unwrap();
+        assert!(admitted.events().iter().any(|event| {
+            matches!(
+                event.data(),
+                xharness_session::EventData::AgentInboxSpliced { inserted, .. }
+                    if inserted.iter().any(|message| message.id == "prompt-1")
+            )
+        }));
+        let mut first = runtime.start_turn(first_request).await.unwrap();
         while first.next_event().await.is_some() {}
         assert_eq!(first.result().await.final_text, "first answer");
 
-        let mut second = runtime
-            .start_turn(AgentTurnRequest {
-                session_id: "durable-host".to_owned(),
-                cwd: "/workspace".to_owned(),
-                route: ModelRoute::new("test", "test-model"),
-                permission: PermissionPreset::WorkspaceWrite,
-                // The durable Session, not this compatibility DTO, supplies
-                // the prior turn to the second model request.
-                messages: vec![AgentMessage::user("second").with_id("prompt-2")],
-            })
-            .await
-            .unwrap();
+        let second_request = AgentTurnRequest {
+            session_id: "durable-host".to_owned(),
+            cwd: "/workspace".to_owned(),
+            route: ModelRoute::new("test", "test-model"),
+            permission: PermissionPreset::WorkspaceWrite,
+            // The durable Session, not this compatibility DTO, supplies the
+            // prior turn to the second model request.
+            messages: vec![AgentMessage::user("second").with_id("prompt-2")],
+        };
+        runtime.admit_turn(second_request.clone()).await.unwrap();
+        let mut second = runtime.start_turn(second_request).await.unwrap();
         while second.next_event().await.is_some() {}
         assert_eq!(second.result().await.final_text, "second answer");
 
@@ -592,5 +782,134 @@ mod tests {
             contents,
             ["first", "first answer", "second", "second answer"]
         );
+    }
+
+    #[tokio::test]
+    async fn multiple_pre_admitted_turns_keep_their_own_buffered_event_streams() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+            answers: Mutex::new(VecDeque::from([
+                "answer-a".to_owned(),
+                "answer-b".to_owned(),
+            ])),
+        });
+        let runtime = DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            store,
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        );
+        let request_a = AgentTurnRequest {
+            session_id: "buffered-turns".to_owned(),
+            cwd: "/workspace".to_owned(),
+            route: ModelRoute::new("test", "test-model"),
+            permission: PermissionPreset::WorkspaceWrite,
+            messages: vec![AgentMessage::user("a").with_id("prompt-a")],
+        };
+        let request_b = AgentTurnRequest {
+            messages: vec![AgentMessage::user("b").with_id("prompt-b")],
+            ..request_a.clone()
+        };
+
+        runtime.admit_turn(request_a.clone()).await.unwrap();
+        runtime.admit_turn(request_b.clone()).await.unwrap();
+        // The durable worker is allowed to finish both turns before either
+        // Web projection starts polling. Per-admission receivers retain the
+        // frames and correlate by claimed stable input ID.
+        tokio::task::yield_now().await;
+        let mut turn_a = runtime.start_turn(request_a).await.unwrap();
+        let mut turn_b = runtime.start_turn(request_b).await.unwrap();
+        while turn_a.next_event().await.is_some() {}
+        while turn_b.next_event().await.is_some() {}
+        assert_eq!(turn_a.result().await.final_text, "answer-a");
+        assert_eq!(turn_b.result().await.final_text, "answer-b");
+    }
+
+    #[tokio::test]
+    async fn durable_queue_replace_and_remove_update_the_inbox_before_web_projection() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let release = Arc::new(Notify::new());
+        let provider: Arc<dyn ModelProvider> = Arc::new(BlockingFirstProvider {
+            attempts: AtomicUsize::new(0),
+            release: Arc::clone(&release),
+        });
+        let runtime = DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        );
+        let first = AgentTurnRequest {
+            session_id: "queue-mutations".to_owned(),
+            cwd: "/workspace".to_owned(),
+            route: ModelRoute::new("test", "test-model"),
+            permission: PermissionPreset::WorkspaceWrite,
+            messages: vec![AgentMessage::user("first").with_id("prompt-first")],
+        };
+        let queued = AgentTurnRequest {
+            messages: vec![AgentMessage::user("old").with_id("prompt-queued")],
+            ..first.clone()
+        };
+        runtime.admit_turn(first.clone()).await.unwrap();
+        for _ in 0..100 {
+            let session = store.load("queue-mutations").await.unwrap().unwrap();
+            if session.events().iter().any(|event| {
+                matches!(
+                    event.data(),
+                    xharness_session::EventData::UserMessage { message }
+                        if message.id.as_deref() == Some("prompt-first")
+                )
+            }) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(store
+            .load("queue-mutations")
+            .await
+            .unwrap()
+            .unwrap()
+            .events()
+            .iter()
+            .any(|event| matches!(
+                event.data(),
+                xharness_session::EventData::UserMessage { message }
+                    if message.id.as_deref() == Some("prompt-first")
+            )));
+        runtime.admit_turn(queued).await.unwrap();
+
+        runtime
+            .replace_pending_input(
+                "queue-mutations",
+                AgentMessage::user("edited").with_id("prompt-queued"),
+            )
+            .await
+            .unwrap();
+        let session = store.load("queue-mutations").await.unwrap().unwrap();
+        let inbox = xharness_agent::InboxProjection::from_session(&session).unwrap();
+        assert_eq!(inbox.next_turn().len(), 1);
+        assert_eq!(inbox.next_turn()[0].message.content, "edited");
+
+        runtime
+            .remove_pending_input("queue-mutations", "prompt-queued")
+            .await
+            .unwrap();
+        let session = store.load("queue-mutations").await.unwrap().unwrap();
+        assert!(!xharness_agent::InboxProjection::from_session(&session)
+            .unwrap()
+            .has_pending());
+
+        let mut running = runtime.start_turn(first).await.unwrap();
+        release.notify_one();
+        while running.next_event().await.is_some() {}
+        assert_eq!(running.result().await.final_text, "released");
     }
 }

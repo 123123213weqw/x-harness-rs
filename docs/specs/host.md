@@ -17,9 +17,10 @@ Bundle、Platform、Terminal 或 Web Runtime。`xharness-host-app` 负责选择�
 `xharness-host` 可执行文件。未来 CLI、Daemon 或嵌入式宿主可以直接复用控制面库，而无需
 链接默认 Web Server 和原生工具组合。
 
-当前 `BasicHost` 有意把控制面状态放在内存中。它是可执行的兼容基线，不是最终持久
-Agent Store。未来替换成持久 Agent/inbox 时，禁止改变 52 个方法名、四象限 RPC 信封
-和事件帧形状。
+当前 `BasicHost` 仍把 Workspace、Session 摘要、Web Queue Projection 和 Driver Attachment
+放在内存中，但 Prompt Admission、模型历史和 Agent Driver 已切到持久 Session/Inbox Store。
+它仍是迁移中的兼容基线，不是最终持久 Host Store；继续替换时禁止改变 52 个方法名、四象限
+RPC 信封和事件帧形状。
 
 ## 组合结构
 
@@ -51,11 +52,15 @@ Chat Completions 或 Responses，禁止自动回退。
 队列/事件投影只依赖这个契约，不再直接创建 Loop、调用 Tool Factory 或持有 Provider/Context。
 `LoopAgentRuntime` 保留给内嵌测试和兼容调用。正式 `xharness-host-app` 已使用
 `DurableLoopAgentRuntime`：JSONL Session 是模型历史真源，File Lease 排除另一进程同时驱动相同
-Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；52 个 RPC 和 Web 投影代码没有改变。
+Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；`AgentRuntime::admit_turn`、
+`remove_pending_input` 和 `replace_pending_input` 把持久准入与 Web Queue 变更置于统一边界，
+52 个 RPC 和 Web 投影代码没有改变。
 
-当前仍是迁移中间态：`BasicHost` 的待运行 Prompt FIFO、Workspace、Session 摘要和 Web Event
-Projection 仍在内存中。下一阶段必须让 `session.prompt` 在返回成功前完成 Durable Inbox Append，
-并从 Session Log 恢复 Web Projection，之后才能删除 FIFO 和内存历史。
+当前仍是迁移中间态：`session.prompt` 已在返回成功前完成 Durable Inbox Append + Flush，
+RPC ID 同时是稳定 Inbox ID；Queue Edit/Remove 先修改持久 Inbox，再更新内存 Projection。
+`BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责，但 Workspace、Session 摘要和
+Web Event Projection 仍在内存中。下一阶段必须从 Session Log 和持久目录恢复这些投影，之后才能
+删除兼容 FIFO 和内存历史。
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
@@ -88,8 +93,10 @@ HTTP 404。当前先实现 Web 权限控件依赖的 `commands/list` 和 `comman
 
 ## Turn 驱动器
 
-`session.prompt` 保留客户端 RPC ID 作为队列输入 ID，追加 Web `turn/start` 和
-`user/message`，然后通过 `AgentRuntime` 启动 `RunningTurn`。运行事件按顺序投影为 `step/start`、
+`session.prompt` 保留客户端 RPC ID 作为队列输入 ID，先通过 `AgentRuntime::admit_turn` Flush
+Durable Inbox，再加入 Web Projection 并返回成功。正式 Agent 领取时通过
+`AgentEvent::TurnStarted.input_ids` 将预准入消息和对应 `RunningTurn` 绑定；Host 再追加 Web
+`turn/start` 和 `user/message`。运行事件按顺序投影为 `step/start`、
 `assistant/chunk`、`tool/call`、`tool/result`、`assistant/message`、`step/end` 和
 `turn/end`。
 
@@ -180,10 +187,11 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 
 ## 当前限制
 
-- 进程退出后会丢失 Host 状态、Credential Override、Attachment、Settings、Preset、
-  Goal、Queue 和 Pending Approval。
-- 持久 `xharness-session`/JSONL 尚未成为 Host 状态源，因此不能承诺重启续跑或跨进程
-  Lease。
+- 进程退出后会丢失 Host 的 Workspace/Session 枚举、Credential Override、Attachment、Settings、
+  Preset、Goal、Web Queue Projection 和 Pending Approval；Durable Session/Inbox 文件本身保留，
+  但启动时尚未自动枚举、重建并重新附着 Web Driver。
+- 持久 `xharness-session`/JSONL 已是模型历史和 Pending Input 真源，File Lease 已用于 Agent；
+  由于缺少 Host 目录恢复、持久 RPC Receipt 和硬崩溃矩阵，仍不能对外承诺完整重启续跑。
 - Subagent 方法目前只有血缘和继续对话，没有自主 Spawn。
 - Attachment 是有界 metadata/data-URL 桥，不是计划中的内容寻址多模态 Blob Store。
 - 事件广播有界，但 lag 后没有 replay cursor。

@@ -99,7 +99,7 @@ impl BasicHost {
         content: Vec<Value>,
         source: Value,
     ) -> Result<(), RpcError> {
-        let steer_control = {
+        let (steer_control, admission_request) = {
             let state = self.state.read().await;
             let session = state.sessions.get(session_id).ok_or_else(|| {
                 rpc_error(
@@ -124,14 +124,27 @@ impl BasicHost {
                 ));
             }
             if mode == "steer" && session.running {
-                session.control.clone()
+                (session.control.clone(), None)
             } else {
-                None
+                let mut messages = session.messages.clone();
+                messages.push(
+                    AgentMessage::new(Role::User, text.clone()).with_id(rpc_id.as_str().to_owned()),
+                );
+                (
+                    None,
+                    Some(AgentTurnRequest {
+                        session_id: session_id.to_owned(),
+                        cwd: session.cwd.clone(),
+                        route,
+                        permission: session.permission_preset,
+                        messages,
+                    }),
+                )
             }
         };
 
         if let Some(control) = steer_control {
-            let message = AgentMessage::new(Role::User, text);
+            let message = AgentMessage::new(Role::User, text).with_id(rpc_id.as_str().to_owned());
             let (acknowledgement, accepted) = oneshot::channel();
             control
                 .send(DriverCommand {
@@ -170,6 +183,17 @@ impl BasicHost {
             )
             .await?;
             return Ok(());
+        }
+
+        if let Some(admission_request) = admission_request {
+            // A durable runtime flushes this input before returning. Only
+            // after that receipt may the Web API acknowledge session.prompt.
+            // Ephemeral runtimes implement this as a no-op and retain the
+            // legacy Host-owned queue behavior.
+            self.agent_runtime
+                .admit_turn(admission_request)
+                .await
+                .map_err(agent_runtime_error)?;
         }
 
         let mut start_driver = None;
@@ -621,7 +645,7 @@ pub(crate) fn rpc_error(
     }
 }
 
-fn agent_runtime_error(error: AgentRuntimeError) -> RpcError {
+pub(crate) fn agent_runtime_error(error: AgentRuntimeError) -> RpcError {
     match error {
         AgentRuntimeError::ModelUnavailable { provider, model } => rpc_error(
             RpcErrorCode::ModelUnavailable,
