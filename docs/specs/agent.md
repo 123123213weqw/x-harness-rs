@@ -94,10 +94,16 @@ Steer 进入 `user/message` 后如果进程在删除 Pending 项之前崩溃，�
 `reconcile_consumed()`，因此不会重复交给模型。`AgentSupervisor` 保证同一进程每个 Agent 只有
 一个 Worker；Worker 在没有 Pending Wake 时不持有 Provider 或 Tool Task。
 
+正式 `xharness-host-app` 现在默认组合 `DurableLoopAgentRuntime`、`JsonlSessionStore` 和
+`FileLeaseManager`。Host 启动 Turn 时，最后一条带稳定 ID 的用户消息进入 Durable Inbox；Loop
+从 Session Log 派生旧历史，并把 Claim 删除、`turn/start` 和 `user/message` 写入同一 Revision。
+第二个 Turn 不再依赖 Host 兼容 DTO 中携带的旧历史。
+
 ## 当前限制
 
-- Durable Inbox、Lease、Supervisor、多 Turn Driver 和 Active Turn Steering 已实现，但
-  `BasicHost` 仍使用内存 FIFO。
+- Durable Inbox、Lease、Supervisor、多 Turn Driver 和 Active Turn Steering 已实现，正式
+  Host 的实际 Turn 已走持久 Runtime；但 `BasicHost` 的 Admission FIFO 和 Web Projection 仍在
+  内存中，HTTP 成功回执还没有直接绑定到 Inbox Flush。
 - Pause、Approval 与 Event Subscription 仍属于当前 `LoopRun` 控制面；尚未成为可恢复 Agent
   Activation 状态。
 - 没有远程 Fencing Epoch、Scheduler、Subagent 或 Workflow。

@@ -31,6 +31,7 @@ DeepSeek Web UI / future CLI
 ## 规范与路线图
 
 - [总体架构](docs/architecture.md)
+- [全面复刻主控计划](docs/FULL_REPLICATION.md)
 - [逐模块规范索引](docs/specs/README.md)
 - [上下文预算与压缩](docs/specs/context.md)
 - [Prompt 组装与注入](docs/specs/prompt.md)
@@ -52,6 +53,10 @@ Developer ID 签名、公证和本机安装验证。
 > 历史、每个 Step 固定发送全部工具、没有请求前 Token Guard；`AgentPreset.content` 也尚未
 > 作为 System Prompt 注入。大文件任务可能超过模型真实上下文。Linux Bubblewrap Probe 失败时，
 > `bash/glob/grep/terminal_open` 会按设计 fail closed。详见[运行诊断](docs/operations.md)。
+
+正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；当前尚未持久化
+Web Workspace/Session Projection，且 `session.prompt` 成功回执还没有直接绑定到 Durable Inbox
+Flush，因此这是持久 Host 迁移的第一阶段，不是完整的重启恢复。
 
 ## 工作区模块
 

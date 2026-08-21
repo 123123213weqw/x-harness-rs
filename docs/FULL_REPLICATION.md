@@ -1,0 +1,174 @@
+# XHarness 全面复刻主控计划
+
+**建立日期：** 2026-08-21  
+**冻结兼容基线：** `deepseek-harness@141eb6fef8`  
+**已发现上游远端 HEAD：** `b150a551b8d4`（尚未纳入兼容基线）  
+**执行原则：** 复刻可观察行为、协议和生命周期，不逐行翻译 TypeScript，也不复制 Cordis/HMR。
+
+本文是全面复刻工作的主控面板；稳定任务 ID、详细验收条件和完成状态继续维护在
+[`TODO.md`](TODO.md)。每次上游升级先生成差异清单，禁止直接把未知语义混入 Rust 主线。
+
+## 一、完成定义
+
+一个任务只有同时满足以下条件才能勾选完成：
+
+1. 有中文规范，明确正常、失败、取消、恢复和权限语义。
+2. Rust 实现没有把 Provider、平台或 Web DTO 泄漏到错误层级。
+3. 单元、集成、协议或浏览器测试覆盖主要路径和至少一个失败路径。
+4. Rust 源码同步到 `WZU_Server`，远程通过整个 Workspace 的 Check、Test 和 Clippy。
+5. 平台相关功能还必须通过对应 Linux/macOS 原生验证。
+6. 更新本文件、`TODO.md`、对应 Crate Spec 和用户文档。
+7. 如果改变 Web 可观察行为，更新冻结协议 Fixture 和兼容矩阵。
+
+## 二、兼容分级
+
+| 等级 | 含义 |
+| --- | --- |
+| `exact` | 方法、事件、字段、顺序、错误和恢复行为均与冻结上游一致 |
+| `behavioral` | 线协议兼容，Rust 内部实现不同，但用户可观察行为一致 |
+| `partial` | 已有基础行为，存在已记录差异 |
+| `planned` | 已进入稳定 TODO，但尚无兼容承诺 |
+| `not-applicable` | Cordis/HMR 等内部机制由 Rust 等价抽象替代 |
+
+## 三、模块总图
+
+```text
+DeepSeek Web UI / CLI / ACP
+                |
+        xharness-api/server
+                |
+          xharness-host
+                |
+          xharness-agent
+                |
+ prompt / context / token / llm registry
+                |
+          xharness-core
+                |
+          xharness-tools
+                |
+ process / fs / sandbox / terminal / web / git / mcp
+                |
+        Linux / macOS platform
+                |
+ session / jsonl / blob / credential-reference
+```
+
+## 四、里程碑主表
+
+| 里程碑 | 目标 | 当前状态 | 阻塞后续 |
+| --- | --- | --- | --- |
+| `M00` | 冻结上游目录、RPC、事件、工具、Prompt、Settings 兼容基线 | 进行中 | 全部 |
+| `M01` | 持久 Agent 接管 Web Host，重启不丢输入、不重复副作用 | 进行中 | Web、Subagent |
+| `M02` | 统一 Tool Runtime、Execution ID 和结构化 Shutdown | 部分完成 | MCP、Jobs |
+| `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | 部分完成 | 长上下文、质量 |
+| `M04` | Linux/macOS 原生工具、Readiness 和动态工具投影 | 部分完成 | 日常使用 |
+| `M05` | Web 持久状态、游标续传、认证和完整 UI Projection | 部分完成 | 产品发布 |
+| `M06` | Git、MCP、Skills、LSP、本地代码索引 | 未开始 | 高级 Coding |
+| `M07` | 多模态、Blob、Session Branch/Import/Export | 未开始 | 多模态 Agent |
+| `M08` | Subagent、Workflow、Scheduler、Remote Execution | 未开始 | 团队 Agent |
+| `M09` | 安装包、签名、公证、观测、配额、Fuzz 和安全发布 | 部分完成 | 正式版 |
+
+任何时刻只有一条阻塞链作为主要开发线：
+
+```text
+M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
+        → M04 平台工具 → M05 Web 产品 → M06/M07 → M08 → M09
+```
+
+## 五、当前执行批次
+
+### Batch A：兼容基线与持久 Web Agent
+
+> 当前进展：正式 Host 已切到 `DurableLoopAgentRuntime + JSONL + File Lease`，连续 Turn 历史由
+> Session Log 重放；但 HTTP Admission、Web Projection 和重启枚举仍依赖内存 Host，因此
+> `A-05/A-06/A-09` 尚不能勾选。
+
+- [ ] `A-01` 抽取冻结上游 52 RPC、动态 RPC、Host/Mux Frame、Session Event 目录。
+- [ ] `A-02` 抽取上游工具、Prompt Section、Settings、Profile、Service Definition 目录。
+- [ ] `A-03` 生成 `docs/compat/` 机器可读 JSON 和中文矩阵。
+- [ ] `A-04` 对远端 `b150a551b8d4` 生成相对 `141eb6fef8` 的增量审计，不修改上游工作树。
+- [ ] `A-05` 为 Host 建立持久 Session/Agent Backend，删除内存 Prompt FIFO 的真源地位。
+- [ ] `A-06` `session.prompt` 先写 Durable Inbox，再返回成功回执。
+- [ ] `A-07` Agent Claim、`turn/start`、`user/message` 在同一 CAS Revision 提交。
+- [ ] `A-08` 把 Agent Event 确定性投影为冻结 Web Session Event。
+- [ ] `A-09` 重启恢复 Workspace、Session、Inbox、运行终态和未决 Outcome。
+- [ ] `A-10` 补 enqueue/claim/request/tool-call/tool-result/turn-end 七个硬崩溃点。
+
+### Batch B：工具身份与终止语义
+
+- [ ] `B-01` Core 全面迁移到 `xharness-tools`，删除重复调度器。
+- [ ] `B-02` 内部 `execution_id` 与 `provider_call_id` 分离并稳定持久化。
+- [ ] `B-03` Approval、Journal、Middleware、Event、Result 全链使用同一 Execution ID。
+- [ ] `B-04` Provider/Tool/Process 放入结构化 Task Scope。
+- [ ] `B-05` Cancel 先 Signal，再 Join/强制清理，最后发布终态。
+- [ ] `B-06` 逃逸后代、Runtime Drop、Handler Abort 和迟到副作用回归。
+
+### Batch C：Prompt、Context、Token、Provider
+
+- [ ] `C-01` 实现有序 Prompt Registry 和版本化 Request Header。
+- [ ] `C-02` 真实注入 Coding Preset，而不是只在 Web 中保存文本。
+- [ ] `C-03` 实现 Provider/Model/Purpose Registry 和能力发现。
+- [ ] `C-04` 实现 Tokenizer 抽象与安全估算后备。
+- [ ] `C-05` Provider I/O 前计量 System/消息/工具 Schema/协议模板/输出预留。
+- [ ] `C-06` 固化 `64196 > 53248` 为 Provider Attempt=0 的回归。
+- [ ] `C-07` 分页 Read、Tool Result Spill 和 Head/Relevant/Tail Surface。
+- [ ] `C-08` Surface Replace/摘要不删除原 Event Log。
+
+### Batch D：平台与 14+ 工具
+
+- [ ] `D-01` 启动时探测 Sandbox、PTY、Search、Browser、Git、LSP 能力。
+- [ ] `D-02` 不可用工具从模型请求和 Web 工具目录中同时移除。
+- [ ] `D-03` 扩展 FS：list/mkdir/move/copy/delete/patch/image/binary/paged-read。
+- [ ] `D-04` 后台 Job Registry、重启 Outcome、Spill 和 Process-tree 清理。
+- [ ] `D-05` Terminal Resize、OSC133、Foreground PGID、Settle Reason。
+- [ ] `D-06` Web Search Provider、引用对象、正文提取、缓存和 SSRF/Rebinding。
+- [ ] `D-07` Linux/macOS 等价语义测试；不要求底层系统调用相同。
+
+### Batch E：Web 产品闭环
+
+- [ ] `E-01` 事件改为按 Byte 有界 Journal + Cursor Subscription。
+- [ ] `E-02` WebSocket 支持 Cursor Resume、Lag、Reconnect 和 Session Mux。
+- [ ] `E-03` History 从 Session Log 重建，不依赖进程内 `Vec<Value>`。
+- [ ] `E-04` Approval/Terminal/File/Web/Usage/Recovery Projection 全量对齐。
+- [ ] `E-05` Health、Readiness、诊断包和部署状态接口。
+- [ ] `E-06` 默认 Loopback；远程模式增加 Auth、Origin、Owner/Workspace 隔离。
+- [ ] `E-07` Settings/Profile/Credential Reference 持久化且日志永不含 Secret。
+- [ ] `E-08` 真实 Chromium 覆盖刷新、断线、Host 重启和审批恢复。
+
+### Batch F：生态与高级能力
+
+- [ ] `F-01` Git 安全 Argv 工具与 Worktree 感知。
+- [ ] `F-02` MCP Stdio/HTTP Client、Namespace、Lifecycle 和 Policy Mapping。
+- [ ] `F-03` Skills 发现、版本、Scope、Token Budget 和请求审计。
+- [ ] `F-04` Owner-scoped LSP、Diagnostic、Definition/Reference/Symbol。
+- [ ] `F-05` Ignore-aware 本地代码索引。
+- [ ] `F-06` Typed Content Block、Blob Store、图片/文件 Provider Encoding。
+- [ ] `F-07` Session Branch、Ancestry、Compaction Surface、导入/导出。
+
+### Batch G：多 Agent、Workflow 与生产发布
+
+- [ ] `G-01` Child Agent Activation、父子事件、Continuation 和有界并发。
+- [ ] `G-02` Workflow DAG、Checkpoint、Idempotency、Manual Gate。
+- [ ] `G-03` Scheduler、Recurring、Missed-run Policy 和执行历史。
+- [ ] `G-04` Remote Platform/Workspace Sync/Capability Attestation。
+- [ ] `G-05` Linux `.deb` 干净 VM 矩阵、AppArmor/bwrap 安装后探测。
+- [ ] `G-06` macOS 签名、公证、安装、Web TLS 和真实 Provider Loop。
+- [ ] `G-07` OpenTelemetry、TTFT/TPOT、Token/Cache/Tool 指标和配额。
+- [ ] `G-08` Fuzz、Fault Injection、Benchmark、SBOM、License、签名构件。
+
+## 六、上游同步规则
+
+1. `xharness-api::UPSTREAM_CONTRACT_REVISION` 始终指向已通过兼容测试的提交。
+2. 检测到新 HEAD 只创建 Delta：新增、删除、字段变化、语义变化、测试变化。
+3. Delta 必须逐项映射到稳定 TODO ID，禁止直接把上游代码合并到 Rust 仓库。
+4. Web dist 升级前必须先通过旧版与新版双版本协议测试。
+5. 上游内部重构若不改变可观察行为，标记为 `not-applicable`，不制造 Rust 复杂度。
+
+## 七、完成后的产品形态
+
+- 同一套 Rust 核心同时运行在 macOS 本地与 Linux 服务器。
+- DeepSeek Harness Web 可以直接连接 Rust Host。
+- CLI、Web、未来 ACP 共享同一个长期 Agent 和 Session 真源。
+- Provider、工具、平台和存储均可替换，但 Loop 与 Web 协议不需要跟着重写。
+- 崩溃恢复、权限、工具副作用和上下文预算都有可执行测试，而不是依赖提示词约定。

@@ -5,6 +5,11 @@
 本文记录当前 Rust Web Host 的运行边界。生产能力以源码和各项规范为准；这里不给尚未实现的
 自动降级制造假象。
 
+Host 默认把 Agent Session JSONL 和跨进程 Lease 保存在平台数据目录的 `sessions/` 与
+`leases/`：macOS 为 `~/Library/Application Support/XHarness`，Linux 为
+`${XDG_DATA_HOME:-~/.local/share}/xharness`。可用 `XHARNESS_STATE_DIR` 或 `--state-dir` 覆盖；
+测试、临时部署和多实例运行必须使用独立目录。
+
 ## 启动前检查
 
 1. 明确 Provider 协议：`chat` 或 `responses`，禁止自动回退。
@@ -23,7 +28,8 @@
 - `session.prompt` 可驱动真实 Rust Loop。
 - 每个模型 Step 当前固定注入 14 个工具的 name/description/Schema。
 - Preset 文本目前没有作为 System Prompt 注入。
-- Host 状态、队列、审批和消息历史仍主要在内存中，重启不会完整恢复。
+- 模型历史和实际 Turn 已写 JSONL Session；Web 状态、Admission 队列和审批投影仍在内存中，
+  重启不会完整恢复。
 - 当前没有请求前 Token Guard 或自动上下文压缩。
 
 ## Sandbox Probe 失败

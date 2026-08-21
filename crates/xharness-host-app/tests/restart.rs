@@ -63,6 +63,8 @@ fn spawn_host(address: SocketAddr, workspace: &Path) -> HostProcess {
             &workspace.to_string_lossy(),
             "--model",
             "unconfigured",
+            "--state-dir",
+            &workspace.join(".xharness-state").to_string_lossy(),
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())

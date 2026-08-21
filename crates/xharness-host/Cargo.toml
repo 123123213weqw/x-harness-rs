@@ -16,7 +16,9 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 xharness-api = { path = "../xharness-api" }
+xharness-agent = { path = "../xharness-agent" }
 xharness-core = { path = "../xharness-core" }
+xharness-session = { path = "../xharness-session" }
 
 [dev-dependencies]
 tower.workspace = true

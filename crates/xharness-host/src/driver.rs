@@ -265,9 +265,9 @@ impl BasicHost {
             })?;
             let turn = session.next_turn;
             session.next_turn = session.next_turn.saturating_add(1);
-            session
-                .messages
-                .push(AgentMessage::new(Role::User, prompt.text.clone()));
+            session.messages.push(
+                AgentMessage::new(Role::User, prompt.text.clone()).with_id(prompt.id.clone()),
+            );
             (
                 turn,
                 session.cwd.clone(),
