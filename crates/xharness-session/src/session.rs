@@ -632,7 +632,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     ));
                 }
             }
-            EventData::SandboxMode { .. } | EventData::ApprovalPolicy { .. } => {}
+            EventData::SandboxMode { .. }
+            | EventData::ApprovalPolicy { .. }
+            | EventData::PlanMode { .. } => {}
             EventData::CommandRun {
                 command_id, name, ..
             } => {

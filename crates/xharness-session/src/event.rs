@@ -472,6 +472,9 @@ pub enum EventData {
         #[serde(flatten)]
         change: GoalChange,
     },
+    /// Last-wins log-only collaboration mode selection.
+    #[serde(rename = "plan/mode")]
+    PlanMode { active: bool },
     /// One durable provider retry scheduled after a failed request attempt.
     #[serde(rename = "llm/retry")]
     LlmRetry {

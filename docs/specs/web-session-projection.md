@@ -57,7 +57,12 @@ Full access 的冻结线值为 `danger-full-access`，不是内部实现细节 `
 Goal 的每个 Mutation 先 Flush `goal/change` 全快照或 Clear Tombstone；History、尾页 `goal`
 Projection 与重启恢复均折叠同一事件流。
 
-冻结 48 个 Session Event 中目前已有 24 个强类型事件；其余 Compaction、Plan、Feedback、
+Idle `/plan` 与 `/plan off` 按 `command/run → plan/mode → command/done` 持久化。Session
+Projection 暴露 `plan={active,pending}`；当前稳定日志只恢复 `active`，因此进程重启后
+`pending=false`。运行中的 Pending Pre-step、带 Message/Image 的 Plan Steering 和
+`exit_plan_mode` 工具仍未实现，Host 必须明确报错而不是丢弃输入。
+
+冻结 48 个 Session Event 中目前已有 25 个强类型事件；其余 Compaction、完整 Plan、Feedback、
 Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能提前标记完成。
 
 ## 失败语义
@@ -77,4 +82,6 @@ Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不�
 - Ephemeral Runtime 的既有 Loop 投影测试继续通过。
 - Approval Asked 必须先于 UI Request 和 Tool Side Effect 持久化；Decided 必须先于 Tool Start。
 - 每个 Retry 必须按 `retry → retry-started → 下一 Provider Attempt` 排序，运行与重启投影一致。
+- Idle Plan 切换必须在 RPC 成功前 Flush；重启后 History 与 Projection 的 `active` 必须相同，
+  不支持的运行中或多模态输入必须失败且不得改变当前状态。
 - Rust Check/Test/Clippy 必须在 `WZU_Server` 执行。

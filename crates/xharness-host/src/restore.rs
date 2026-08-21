@@ -118,6 +118,7 @@ impl BasicHost {
                 .unwrap_or_default();
             let blank = messages.is_empty() && !inbox.has_pending();
             let permission = restored_permission(&session);
+            let plan_active = restored_plan_mode(&session);
             let goal = restored_goal(&session);
             let record = SessionRecord {
                 session_id: session_id.clone(),
@@ -136,6 +137,7 @@ impl BasicHost {
                     reasoning_effort: route.reasoning_effort.clone(),
                 },
                 permission_preset: permission,
+                plan_active,
                 goal: goal.clone(),
                 events,
                 messages,
@@ -268,6 +270,18 @@ pub(crate) fn restored_title(session: &Session) -> Option<String> {
         };
         Some(title.clone())
     })
+}
+
+pub(crate) fn restored_plan_mode(session: &Session) -> bool {
+    session
+        .events()
+        .iter()
+        .rev()
+        .find_map(|event| match event.data() {
+            EventData::PlanMode { active } => Some(*active),
+            _ => None,
+        })
+        .unwrap_or(false)
 }
 
 pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
@@ -403,6 +417,7 @@ fn restored_web_event(
         | EventData::CommandDone { .. }
         | EventData::SessionTitle { .. }
         | EventData::GoalChange { .. }
+        | EventData::PlanMode { .. }
         | EventData::LlmRetry { .. }
         | EventData::LlmRetryStarted { .. } => tagged_event_data(event.data()),
         EventData::TurnStart { turn } => (
@@ -982,6 +997,22 @@ mod tests {
             )
             .await;
         assert!(matches!(selected, RpcResult::Success { .. }));
+        let plan = live
+            .call_dynamic(
+                RpcId::new("policy-plan"),
+                "commands/execute",
+                json!({
+                    "args": {
+                        "agentId": "policy-session",
+                        "line": "/plan",
+                        "images": [],
+                    }
+                }),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(plan, RpcResult::Success { .. }));
 
         let durable = store.load("policy-session").await.unwrap().unwrap();
         assert_eq!(
@@ -1000,6 +1031,7 @@ mod tests {
                     EventData::ApprovalPolicy { .. } => "approval/policy",
                     EventData::CommandDone { .. } => "command/done",
                     EventData::SessionTitle { .. } => "session/title",
+                    EventData::PlanMode { .. } => "plan/mode",
                     _ => "other",
                 })
                 .collect::<Vec<_>>(),
@@ -1015,6 +1047,9 @@ mod tests {
                 "command/done",
                 "session/title",
                 "agent-preset/selected",
+                "command/run",
+                "plan/mode",
+                "command/done",
             ]
         );
 
@@ -1040,6 +1075,11 @@ mod tests {
             assert_eq!(record.permission_preset, PermissionPreset::DangerFullAccess);
             assert_eq!(record.title.as_deref(), Some("Durable policy"));
             assert_eq!(record.agent_preset.as_deref(), Some("coding"));
+            assert!(record.plan_active);
+            assert_eq!(
+                record.projection_values()["plan"],
+                json!({"active": true, "pending": false})
+            );
             record.events.clone()
         };
         let live_events = live.state.read().await.sessions["policy-session"]

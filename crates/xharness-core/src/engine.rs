@@ -651,6 +651,7 @@ impl Runner {
                                     | SessionEventData::CommandDone { .. }
                                     | SessionEventData::SessionTitle { .. }
                                     | SessionEventData::GoalChange { .. }
+                                    | SessionEventData::PlanMode { .. }
                             )
                         })
                     {

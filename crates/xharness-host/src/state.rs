@@ -213,6 +213,7 @@ pub struct SessionRecord {
     pub title: Option<String>,
     pub model: ModelSelection,
     pub permission_preset: PermissionPreset,
+    pub plan_active: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<GoalState>,
     pub events: Vec<Value>,
@@ -270,6 +271,10 @@ impl SessionRecord {
             );
         }
         values.insert("permissions".to_owned(), self.permission_preset.select());
+        values.insert(
+            "plan".to_owned(),
+            json!({"active": self.plan_active, "pending": false}),
+        );
         values.insert(
             "goal".to_owned(),
             self.goal

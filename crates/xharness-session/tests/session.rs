@@ -226,6 +226,7 @@ fn every_first_version_event_round_trips_through_serde() {
             GoalSnapshotOperation::Create,
             10,
         ),
+        event(EventData::PlanMode { active: true }),
         event(EventData::LlmRetry {
             retry_id: "retry-1".to_owned(),
             turn: 1,

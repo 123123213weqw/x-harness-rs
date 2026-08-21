@@ -18,13 +18,14 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
 
 ## 事件词汇
 
-当前强类型 Log 覆盖冻结目录中的 24 个事件：
+当前强类型 Log 覆盖冻结目录中的 25 个事件：
 
 - Agent/权限控制面：`agent-preset/selected`、`agent/inbox/spliced`、`permission/preset`、
   `sandbox/mode`、`approval/policy`；
 - 审批和命令审计：`approval/asked`、`approval/decided`、`command/run`、`command/done`；
 - Session 元数据：`session/title`（latest-wins、log-only，不进入模型历史）；
 - 长期任务：`goal/change`（version 1 全快照或递增 Revision 的 Clear Tombstone）；
+- 交互模式：`plan/mode`（latest-wins、log-only，只保存 `active`，不进入模型历史）；
 - Provider 生命周期：`request/header`、`llm/retry`、`llm/retry-started`、`assistant/chunk`、
   `assistant/message`；
 - Turn/Step 和工具：`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、
@@ -50,6 +51,9 @@ Goal Change 必须保持同一 ID 的 Revision 连续递增；Create 从新 ID �
 Edit 只能修改 Objective/Max Rounds，Pause/Resume/Complete/Block 必须满足 Phase 转移，Clear 保留
 下一 Revision 的 Tombstone。时间不得倒退，Blocked Reason 只允许随 Blocked Phase 出现。
 
+Plan Mode 当前只持久化已经接受的稳定状态：不存在事件等价于 `active=false`，恢复时折叠最后一条
+`plan/mode`。运行中尚未到达 Pre-step 的 Pending 选择不是稳定状态，不能伪造成 `plan/mode`。
+
 ## 投影与恢复
 
 `derive_messages()` 必须确定、无副作用。它忽略只用于审计的 Chunk 和边界，同时逐字节
@@ -74,6 +78,8 @@ Request Header 必须记录本次实际使用的消息 Revision、压缩 Policy 
 
 - Durable Inbox Event、Claim Batch 和本机 Lease 已由 `xharness-agent` 接入 Host；但 Workspace、
   Settings、Pending Approval、通用 Mutation Receipt 仍没有统一持久控制面。
+- Plan Mode 已有 Idle 状态日志，但运行中 Pending Pre-step、带 Message/Image 的 Steering、
+  Plan Prompt Section 和 `exit_plan_mode` 工具尚未实现。
 - 尚无 Branch、Compaction Surface、Attachment Store 或远程 Multi-writer Fencing。
 - Message Content 仍以文本为主，尚无强类型多模态 Block。
 - Query Index 和二级投影不属于本 Crate。

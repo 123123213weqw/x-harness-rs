@@ -277,11 +277,18 @@ impl BasicHost {
         if !self.state.read().await.sessions.contains_key(&session_id) {
             return Err(session_not_found(&session_id));
         }
-        Ok(json!([{
-            "name": "permission",
-            "description": "Switch the permission preset (sandbox mode + approval policy)",
-            "input": {"hint": "<preset>"},
-        }]))
+        Ok(json!([
+            {
+                "name": "permission",
+                "description": "Switch the permission preset (sandbox mode + approval policy)",
+                "input": {"hint": "<preset>"},
+            },
+            {
+                "name": "plan",
+                "description": "Enter or leave plan mode",
+                "input": {"hint": "[off|message]", "images": true},
+            }
+        ]))
     }
 
     async fn commands_execute(&self, payload: &Value) -> Result<Option<Value>, RpcError> {
@@ -292,6 +299,13 @@ impl BasicHost {
         let _session_guard = self.lock_admission(&session_id).await;
         let line = required_string(args, "line")?;
         let images = required_array(args, "images")?;
+
+        if let Some(raw_input) = plan_command_input(&line) {
+            return self
+                .execute_plan_command(&session_id, raw_input, images)
+                .await
+                .map(Some);
+        }
 
         let Some(raw_input) = permission_command_input(&line) else {
             return Ok(None);
@@ -381,6 +395,105 @@ impl BasicHost {
         )
         .await?;
         Ok(Some(json!({"commandId": command_id, "result": result})))
+    }
+
+    async fn execute_plan_command(
+        &self,
+        session_id: &str,
+        raw_input: &str,
+        images: &[Value],
+    ) -> Result<Value, RpcError> {
+        let command_id = self.mint_id("command");
+        self.commit_session_events(
+            session_id,
+            vec![SessionEventData::CommandRun {
+                command_id: command_id.clone(),
+                name: "plan".to_owned(),
+                args: Some(raw_input.to_owned()),
+                source: CommandSource::User,
+            }
+            .into()],
+        )
+        .await?;
+
+        let message = raw_input.trim();
+        let result = if message == "off" && !images.is_empty() {
+            json!({"kind": "error", "text": "Image attachments cannot accompany /plan off."})
+        } else if (message != "off" && !message.is_empty()) || !images.is_empty() {
+            json!({
+                "kind": "error",
+                "text": "Plan-mode messages and images require the pending pre-step steering path, which is not available in this host build.",
+            })
+        } else {
+            let (running, current) = {
+                let state = self.state.read().await;
+                let session = state
+                    .sessions
+                    .get(session_id)
+                    .ok_or_else(|| session_not_found(session_id))?;
+                (session.running, session.plan_active)
+            };
+            let wanted = message != "off";
+            if running {
+                json!({
+                    "kind": "error",
+                    "text": "cannot switch plan mode while the session is running until pending pre-step selection is implemented",
+                })
+            } else if current == wanted {
+                json!({
+                    "kind": "success",
+                    "text": if wanted {
+                        "Plan mode is already active."
+                    } else {
+                        "Plan mode is already inactive."
+                    },
+                })
+            } else {
+                self.commit_session_events(
+                    session_id,
+                    vec![SessionEventData::PlanMode { active: wanted }.into()],
+                )
+                .await?;
+                self.state
+                    .write()
+                    .await
+                    .sessions
+                    .get_mut(session_id)
+                    .ok_or_else(|| session_not_found(session_id))?
+                    .plan_active = wanted;
+                self.push_projection(
+                    session_id,
+                    "plan",
+                    json!({"active": wanted, "pending": false}),
+                )
+                .await;
+                json!({
+                    "kind": "success",
+                    "text": if wanted {
+                        "Plan mode on. Use /plan off to leave."
+                    } else {
+                        "Plan mode off."
+                    },
+                })
+            }
+        };
+
+        let kind = match result["kind"].as_str() {
+            Some("success") => CommandResultKind::Success,
+            _ => CommandResultKind::Error,
+        };
+        self.commit_session_events(
+            session_id,
+            vec![SessionEventData::CommandDone {
+                command_id: command_id.clone(),
+                kind,
+                text: result["text"].as_str().map(str::to_owned),
+                source_event_seq: None,
+            }
+            .into()],
+        )
+        .await?;
+        Ok(json!({"commandId": command_id, "result": result}))
     }
 
     async fn session_list(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -523,6 +636,7 @@ impl BasicHost {
             title: None,
             model: ModelSelection::from_config(&self.config),
             permission_preset,
+            plan_active: false,
             goal: None,
             events: Vec::new(),
             messages: Vec::new(),
@@ -752,6 +866,7 @@ impl BasicHost {
             title: source.title.clone(),
             model: source.model.clone(),
             permission_preset: source.permission_preset,
+            plan_active: source.plan_active,
             goal: source.goal.clone(),
             events: child_events,
             messages: source.messages.clone(),
@@ -2322,6 +2437,15 @@ fn visible_text(content: &[Value]) -> String {
 
 fn permission_command_input(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("/permission")?;
+    if rest.is_empty() || matches!(rest.chars().next(), Some(' ' | '\t' | '\n' | '\r')) {
+        Some(rest)
+    } else {
+        None
+    }
+}
+
+fn plan_command_input(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("/plan")?;
     if rest.is_empty() || matches!(rest.chars().next(), Some(' ' | '\t' | '\n' | '\r')) {
         Some(rest)
     } else {
