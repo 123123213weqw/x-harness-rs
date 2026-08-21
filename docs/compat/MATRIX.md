@@ -8,8 +8,16 @@
 | 目录 | 上游数量 | Rust 已覆盖 | 说明 |
 | --- | ---: | ---: | --- |
 | 固定 RPC | 52 | 52 | 名称 exact，业务语义仍按方法验收 |
+| 动态 Typert RPC | 26 | 2 | 端点由 Service Namespace + Remote Method 组成 |
+| Mux Frame | 10 | 10 | 判别字段名称 exact，业务字段另测 |
+| Host Frame | 10 | 10 | 判别字段名称 exact，业务字段另测 |
+| Forwarded Host Event | 11 | 1 | Frame 通用形状已支持，生产者逐项迁移 |
 | Session Event | 48 | 12 | 未覆盖事件进入稳定 TODO |
 | 静态 Literal Tool | 53 | 14 | 动态 Tool 另行人工审计 |
+| Prompt Component | 37 | — | Section/Context/Tool Provider/Variable 分开记录 |
+| Settings Namespace | 5 | 1 | Rust 当前仅有产品启动所需基线 |
+| Service Definition | 69 | — | 68 个静态 Key，Rust 用 Trait/Registry 等价替代 |
+| Service Provision | 18 | — | ctx.provide 组合点保留表达式和来源 |
 
 ## 固定 RPC
 
@@ -67,6 +75,85 @@
 | `llm.providers` | 是 | `partial` |
 | `llm.models` | 是 | `partial` |
 | `llm.discoverModels` | 是 | `partial` |
+
+## 动态 Typert RPC
+
+| 上游端点 | Rust | 等级 |
+| --- | --- | --- |
+| `commands/execute` | 是 | `partial` |
+| `commands/list` | 是 | `partial` |
+| `dynamicCordisRunner/getClientCode` | 否 | `planned` |
+| `dynamicCordisRunner/inventory` | 否 | `planned` |
+| `dynamicCordisRunner/invoke` | 否 | `planned` |
+| `dynamicCordisRunner/reportClientGuardFailure` | 否 | `planned` |
+| `dynamicCordisRunner/reportRenderFailure` | 否 | `planned` |
+| `dynamicCordisRunner/resolveInspectQuery` | 否 | `planned` |
+| `dynamicCordisRunner/resolveRequestRun` | 否 | `planned` |
+| `dynamicCordisRunner/runHostHalf` | 否 | `planned` |
+| `dynamicCordisRunner/settleUserRun` | 否 | `planned` |
+| `dynamicCordisRunner/stopFromPanel` | 否 | `planned` |
+| `dynamicCordisRunner/syncInspectManifest` | 否 | `planned` |
+| `dynamicCordisRunner/undefineFromPanel` | 否 | `planned` |
+| `fileReferences/list` | 否 | `planned` |
+| `goals/clear` | 否 | `planned` |
+| `goals/complete` | 否 | `planned` |
+| `goals/create` | 否 | `planned` |
+| `goals/edit` | 否 | `planned` |
+| `goals/pause` | 否 | `planned` |
+| `goals/resume` | 否 | `planned` |
+| `messageFeedback/delete` | 否 | `planned` |
+| `messageFeedback/list` | 否 | `planned` |
+| `messageFeedback/put` | 否 | `planned` |
+| `pluginInventory/list` | 否 | `planned` |
+| `sessionReferenceResolver/candidates` | 否 | `planned` |
+
+## Mux Frame
+
+| 判别值 | Rust 强类型 Frame | 等级 |
+| --- | --- | --- |
+| `session/event` | 是 | `behavioral` |
+| `session/subscribed` | 是 | `behavioral` |
+| `approval/requested` | 是 | `behavioral` |
+| `approval/resolved` | 是 | `behavioral` |
+| `question/requested` | 是 | `behavioral` |
+| `question/resolved` | 是 | `behavioral` |
+| `session/queue` | 是 | `behavioral` |
+| `session/jobs` | 是 | `behavioral` |
+| `session/projection` | 是 | `behavioral` |
+| `stream/error` | 是 | `behavioral` |
+
+## Host Frame
+
+| 判别值 | Rust 强类型 Frame | 等级 |
+| --- | --- | --- |
+| `host/session-added` | 是 | `behavioral` |
+| `host/session-removed` | 是 | `behavioral` |
+| `host/session-status` | 是 | `behavioral` |
+| `host/agent-error` | 是 | `behavioral` |
+| `host/workspace-changed` | 是 | `behavioral` |
+| `host/workspace-removed` | 是 | `behavioral` |
+| `host/workspace-order-changed` | 是 | `behavioral` |
+| `host/archived-sessions-changed` | 是 | `behavioral` |
+| `host/remote-event` | 是 | `behavioral` |
+| `stream/error` | 是 | `behavioral` |
+
+## Forwarded Host Event
+
+`host/remote-event` 的通用 Frame 已实现；下表表示 Rust Host 是否已有对应生产者。
+
+| 事件 | Rust 生产者 | 等级 |
+| --- | --- | --- |
+| `agent-preset/selected` | 否 | `planned` |
+| `commands/change` | 否 | `planned` |
+| `credentials/updated` | 否 | `planned` |
+| `cordis/request-run` | 否 | `planned` |
+| `cordis/request-run-resolved` | 否 | `planned` |
+| `cordis/dynamic-package` | 否 | `planned` |
+| `cordis/dynamic-retract` | 否 | `planned` |
+| `cordis/inspect-query` | 否 | `planned` |
+| `cordis/inspect-query-resolved` | 否 | `planned` |
+| `llm/adapters-updated` | 否 | `planned` |
+| `settings/document-updated` | 是 | `partial` |
 
 ## Session Event
 
@@ -180,3 +267,32 @@
 | `web_fetch` | 是 | `partial` |
 | `web_search` | 是 | `partial` |
 | `write` | 是 | `partial` |
+
+## Prompt Component
+
+| 类型 | 上游注册点 | Rust 状态 |
+| --- | ---: | --- |
+| Section | 28 | `planned` |
+| Runtime Context | 3 | `planned` |
+| Tool Provider | 2 | `planned` |
+| Variable | 4 | `planned` |
+
+每个注册点的名称/表达式、文件和行号位于机器可读 JSON；这里不把 UI Preset 文本误算为运行时 Section。
+
+## Settings Namespace
+
+| 上游 Namespace | Rust | 等级 |
+| --- | --- | --- |
+| `agent-presets` | 否 | `planned` |
+| `locale` | 否 | `planned` |
+| `ui-conversation` | 否 | `planned` |
+| `ui-onboarding` | 是 | `partial` |
+| `ui-theme` | 否 | `planned` |
+
+## Service Definition
+
+Service 是上游 Cordis 组合目录；Rust 是否完成以对应 Trait/Registry 的行为验收为准，
+此表不把同名 Class 当作复刻目标。完整 Class、Base、Key 与来源位于机器可读 JSON。
+
+已记录 `69` 个定义，其中 `68` 个是静态 Service Key；动态或缺失 Key 保留原表达式供人工审计。
+另记录 `18` 个 `ctx.provide(...)` 组合点。

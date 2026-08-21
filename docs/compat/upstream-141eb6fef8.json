@@ -25,6 +25,253 @@
       "source": "apps/cli/config/agent-presets/standard/preset.yml"
     }
   ],
+  "dynamic_remote_registrations": [
+    {
+      "class": "CommandRuntime",
+      "endpoint": "commands/execute",
+      "line": 328,
+      "method": "execute",
+      "namespace": "commands",
+      "source": "packages/interaction/commands/src/index.ts"
+    },
+    {
+      "class": "CommandRuntime",
+      "endpoint": "commands/list",
+      "line": 284,
+      "method": "list",
+      "namespace": "commands",
+      "source": "packages/interaction/commands/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/getClientCode",
+      "line": 383,
+      "method": "getClientCode",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/inventory",
+      "line": 524,
+      "method": "inventory",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/invoke",
+      "line": 740,
+      "method": "invoke",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/reportClientGuardFailure",
+      "line": 717,
+      "method": "reportClientGuardFailure",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/reportRenderFailure",
+      "line": 683,
+      "method": "reportRenderFailure",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/resolveInspectQuery",
+      "line": 510,
+      "method": "resolveInspectQuery",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/resolveRequestRun",
+      "line": 412,
+      "method": "resolveRequestRun",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/runHostHalf",
+      "line": 324,
+      "method": "runHostHalf",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/settleUserRun",
+      "line": 437,
+      "method": "settleUserRun",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/stopFromPanel",
+      "line": 479,
+      "method": "stopFromPanel",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/syncInspectManifest",
+      "line": 497,
+      "method": "syncInspectManifest",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "DynamicCordisRunnerService",
+      "endpoint": "dynamicCordisRunner/undefineFromPanel",
+      "line": 226,
+      "method": "undefineFromPanel",
+      "namespace": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "class": "FileReferenceService",
+      "endpoint": "fileReferences/list",
+      "line": 53,
+      "method": "list",
+      "namespace": "fileReferences",
+      "source": "packages/context/file-reference/src/index.ts"
+    },
+    {
+      "class": "GoalService",
+      "endpoint": "goals/clear",
+      "line": 376,
+      "method": "clear",
+      "namespace": "goals",
+      "source": "packages/goal/goal/src/index.ts"
+    },
+    {
+      "class": "GoalService",
+      "endpoint": "goals/complete",
+      "line": 336,
+      "method": "complete",
+      "namespace": "goals",
+      "source": "packages/goal/goal/src/index.ts"
+    },
+    {
+      "class": "GoalService",
+      "endpoint": "goals/create",
+      "line": 585,
+      "method": "create",
+      "namespace": "goals",
+      "source": "packages/goal/goal/src/index.ts"
+    },
+    {
+      "class": "GoalService",
+      "endpoint": "goals/edit",
+      "line": 276,
+      "method": "edit",
+      "namespace": "goals",
+      "source": "packages/goal/goal/src/index.ts"
+    },
+    {
+      "class": "GoalService",
+      "endpoint": "goals/pause",
+      "line": 298,
+      "method": "pause",
+      "namespace": "goals",
+      "source": "packages/goal/goal/src/index.ts"
+    },
+    {
+      "class": "GoalService",
+      "endpoint": "goals/resume",
+      "line": 310,
+      "method": "resume",
+      "namespace": "goals",
+      "source": "packages/goal/goal/src/index.ts"
+    },
+    {
+      "class": "MessageFeedbackService",
+      "endpoint": "messageFeedback/delete",
+      "line": 271,
+      "method": "delete",
+      "namespace": "messageFeedback",
+      "source": "packages/feedback/message-feedback/src/index.ts"
+    },
+    {
+      "class": "MessageFeedbackService",
+      "endpoint": "messageFeedback/list",
+      "line": 189,
+      "method": "list",
+      "namespace": "messageFeedback",
+      "source": "packages/feedback/message-feedback/src/index.ts"
+    },
+    {
+      "class": "MessageFeedbackService",
+      "endpoint": "messageFeedback/put",
+      "line": 205,
+      "method": "put",
+      "namespace": "messageFeedback",
+      "source": "packages/feedback/message-feedback/src/index.ts"
+    },
+    {
+      "class": "PluginInventoryGateway",
+      "endpoint": "pluginInventory/list",
+      "line": 56,
+      "method": "list",
+      "namespace": "pluginInventory",
+      "source": "packages/host/plugin-inventory/src/index.ts"
+    },
+    {
+      "class": "SessionReferenceResolver",
+      "endpoint": "sessionReferenceResolver/candidates",
+      "line": 217,
+      "method": "candidates",
+      "namespace": "sessionReferenceResolver",
+      "source": "packages/context/session-reference/src/index.ts"
+    }
+  ],
+  "forwarded_remote_events": [
+    "agent-preset/selected",
+    "commands/change",
+    "credentials/updated",
+    "cordis/request-run",
+    "cordis/request-run-resolved",
+    "cordis/dynamic-package",
+    "cordis/dynamic-retract",
+    "cordis/inspect-query",
+    "cordis/inspect-query-resolved",
+    "llm/adapters-updated",
+    "settings/document-updated"
+  ],
+  "host_frame_discriminants": [
+    "host/session-added",
+    "host/session-removed",
+    "host/session-status",
+    "host/agent-error",
+    "host/workspace-changed",
+    "host/workspace-removed",
+    "host/workspace-order-changed",
+    "host/archived-sessions-changed",
+    "host/remote-event",
+    "stream/error"
+  ],
+  "mux_frame_discriminants": [
+    "session/event",
+    "session/subscribed",
+    "approval/requested",
+    "approval/resolved",
+    "question/requested",
+    "question/resolved",
+    "session/queue",
+    "session/jobs",
+    "session/projection",
+    "stream/error"
+  ],
   "packages": [
     "@deepseek-ai/dsh-acp",
     "@deepseek-ai/dsh-acp-demo",
@@ -260,6 +507,26 @@
     "@fixture/workspace",
     "@fixture/write"
   ],
+  "prompt_context_registrations": [
+    {
+      "expression": "'approval:policy'",
+      "line": 205,
+      "literal": "approval:policy",
+      "source": "packages/interaction/user-approval/src/index.ts"
+    },
+    {
+      "expression": "'sandbox:policy'",
+      "line": 113,
+      "literal": "sandbox:policy",
+      "source": "packages/sandbox/sandbox-policy/src/index.ts"
+    },
+    {
+      "expression": "'subagent:delegation'",
+      "line": 170,
+      "literal": "subagent:delegation",
+      "source": "packages/subagent/subagent/src/child-agent.ts"
+    }
+  ],
   "prompt_section_registrations": [
     {
       "expression": "HARNESS_SOURCE_SECTION",
@@ -430,6 +697,46 @@
       "source": "packages/workflow/tool-workflow/src/index.ts"
     }
   ],
+  "prompt_tool_provider_registrations": [
+    {
+      "expression": "<dynamic-or-missing>",
+      "line": 434,
+      "literal": null,
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "expression": "context => this.wireSchemas(context.scope",
+      "line": 832,
+      "literal": null,
+      "source": "packages/core/tools/src/index.ts"
+    }
+  ],
+  "prompt_variable_registrations": [
+    {
+      "expression": "'provider'",
+      "line": 351,
+      "literal": "provider",
+      "source": "packages/core/agent-loop/src/index.ts"
+    },
+    {
+      "expression": "'model'",
+      "line": 352,
+      "literal": "model",
+      "source": "packages/core/agent-loop/src/index.ts"
+    },
+    {
+      "expression": "'cwd'",
+      "line": 353,
+      "literal": "cwd",
+      "source": "packages/core/agent-loop/src/index.ts"
+    },
+    {
+      "expression": "<dynamic-or-missing>",
+      "line": 453,
+      "literal": null,
+      "source": "packages/core/system-prompt/src/index.ts"
+    }
+  ],
   "rpc_methods": [
     "session.list",
     "session.search",
@@ -484,7 +791,671 @@
     "llm.models",
     "llm.discoverModels"
   ],
-  "schema_version": 1,
+  "schema_version": 2,
+  "service_definitions": [
+    {
+      "base": "Service",
+      "class": "ClientRemoteService",
+      "key": "remote",
+      "key_expression": "'remote'",
+      "line": 88,
+      "source": "packages/api/gateway/src/client/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "RemoteNamespaceService",
+      "key": null,
+      "key_expression": "remoteServiceKey(name",
+      "line": 425,
+      "source": "packages/api/gateway/src/client/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "TypertGatewayService",
+      "key": "typertGateway",
+      "key_expression": "'typertGateway'",
+      "line": 90,
+      "source": "packages/api/gateway/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "AttachmentStore",
+      "key": "attachments",
+      "key_expression": "'attachments'",
+      "line": 33,
+      "source": "packages/attachment/attachment/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "HostConnectionService",
+      "key": "connection",
+      "key_expression": "'connection'",
+      "line": 43,
+      "source": "packages/client/connection/src/rpc-host.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ClientModuleRegistry",
+      "key": "clientModules",
+      "key_expression": "'clientModules'",
+      "line": 295,
+      "source": "packages/client/modules/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SlotRegistry",
+      "key": "slots",
+      "key_expression": "'slots'",
+      "line": 93,
+      "source": "packages/client/runtime/src/client/slots.ts"
+    },
+    {
+      "base": "Service",
+      "class": "CommandUiRuntime",
+      "key": "commandUi",
+      "key_expression": "'commandUi'",
+      "line": 121,
+      "source": "packages/client/ui-commands/src/client/service.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ConversationController",
+      "key": "conversation",
+      "key_expression": "'conversation'",
+      "line": 92,
+      "source": "packages/client/ui-conversation/src/client/service.ts"
+    },
+    {
+      "base": "Service",
+      "class": "InputTriggerService",
+      "key": "inputTriggers",
+      "key_expression": "'inputTriggers'",
+      "line": 28,
+      "source": "packages/client/ui-input-trigger/src/client/service.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ModelDirectoryResolver",
+      "key": "modelDirectories",
+      "key_expression": "'modelDirectories'",
+      "line": 34,
+      "source": "packages/client/ui-model-selection/src/client/service.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SettingsSchemaService",
+      "key": "settingsSchema",
+      "key_expression": "'settingsSchema'",
+      "line": 39,
+      "source": "packages/client/ui-settings/src/client/schema.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SettingsScopeBinder",
+      "key": "settingsScope",
+      "key_expression": "'settingsScope'",
+      "line": 239,
+      "source": "packages/client/ui-settings/src/client/settings-scope.ts"
+    },
+    {
+      "base": "Service",
+      "class": "CodeRuntime",
+      "key": "codeRuntime",
+      "key_expression": "'codeRuntime'",
+      "line": 102,
+      "source": "packages/code-runtime/code-runtime/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ToolResultPruner",
+      "key": "toolResultPruner",
+      "key_expression": "'toolResultPruner'",
+      "line": 44,
+      "source": "packages/compaction/compaction-tool-result-pruner/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "CompactionEngine",
+      "key": "compaction",
+      "key_expression": "'compaction'",
+      "line": 96,
+      "source": "packages/compaction/compaction/src/index.ts"
+    },
+    {
+      "base": "TypertRemoteService",
+      "class": "FileReferenceService",
+      "key": "fileReferences",
+      "key_expression": "'fileReferences'",
+      "line": 27,
+      "source": "packages/context/file-reference/src/index.ts"
+    },
+    {
+      "base": "TypertRemoteService",
+      "class": "SessionReferenceResolver",
+      "key": "sessionReferenceResolver",
+      "key_expression": "'sessionReferenceResolver'",
+      "line": 75,
+      "source": "packages/context/session-reference/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "AgentDefaultModelConfig",
+      "key": "agentDefaultModel",
+      "key_expression": "'agentDefaultModel'",
+      "line": 64,
+      "source": "packages/core/agent-default-model/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "AgentLoop",
+      "key": "agentLoop",
+      "key_expression": "'agentLoop'",
+      "line": 296,
+      "source": "packages/core/agent-loop/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "AgentRegistry",
+      "key": "agents",
+      "key_expression": "'agents'",
+      "line": 256,
+      "source": "packages/core/agent/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SessionStore",
+      "key": "sessions",
+      "key_expression": "'sessions'",
+      "line": 792,
+      "source": "packages/core/session/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SystemPrompt",
+      "key": "systemPrompt",
+      "key_expression": "'systemPrompt'",
+      "line": 338,
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ToolRuntime",
+      "key": "tools",
+      "key_expression": "'tools'",
+      "line": 787,
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "CredentialProvider",
+      "key": "credentials",
+      "key_expression": "'credentials'",
+      "line": 60,
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "E2BRuntime",
+      "key": "e2b",
+      "key_expression": "'e2b'",
+      "line": 74,
+      "source": "packages/e2b/e2b/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "TeamService",
+      "key": "agentTeams",
+      "key_expression": "'agentTeams'",
+      "line": 56,
+      "source": "packages/experimental/agent-team/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ClientTimerService",
+      "key": "timer",
+      "key_expression": "'timer'",
+      "line": 30,
+      "source": "packages/extensions/cordis-client-runner/src/client/timer.ts"
+    },
+    {
+      "base": "TypertRemoteService",
+      "class": "DynamicCordisRunnerService",
+      "key": "dynamicCordisRunner",
+      "key_expression": "'dynamicCordisRunner'",
+      "line": 124,
+      "source": "packages/extensions/cordis-host-runner/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "CordisInspectRegistryService",
+      "key": "cordisInspect",
+      "key_expression": "'cordisInspect'",
+      "line": 46,
+      "source": "packages/extensions/cordis-host-runner/src/inspect-registry.ts"
+    },
+    {
+      "base": "TypertRemoteService",
+      "class": "MessageFeedbackService",
+      "key": "messageFeedback",
+      "key_expression": "'messageFeedback'",
+      "line": 150,
+      "source": "packages/feedback/message-feedback/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "FileSystem",
+      "key": "fs",
+      "key_expression": "'fs'",
+      "line": 86,
+      "source": "packages/fs/fs/src/index.ts"
+    },
+    {
+      "base": "TypertRemoteService",
+      "class": "GoalService",
+      "key": "goals",
+      "key_expression": "'goals'",
+      "line": 183,
+      "source": "packages/goal/goal/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ApiProxyService",
+      "key": "apiProxy",
+      "key_expression": "'apiProxy'",
+      "line": 69,
+      "source": "packages/host/apiproxy/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "DirectoryPicker",
+      "key": "directoryPicker",
+      "key_expression": "'directoryPicker'",
+      "line": 131,
+      "source": "packages/host/directory-picker/src/index.ts"
+    },
+    {
+      "base": "TypertRemoteService",
+      "class": "PluginInventoryGateway",
+      "key": "pluginInventory",
+      "key_expression": "'pluginInventory'",
+      "line": 43,
+      "source": "packages/host/plugin-inventory/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "WebServer",
+      "key": "webServer",
+      "key_expression": "'webServer'",
+      "line": 59,
+      "source": "packages/host/webserver/src/index.ts"
+    },
+    {
+      "base": "TypertRemoteService",
+      "class": "CommandRuntime",
+      "key": "commands",
+      "key_expression": "'commands'",
+      "line": 250,
+      "source": "packages/interaction/commands/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "PermissionPresetService",
+      "key": "permissionPresets",
+      "key_expression": "'permissionPresets'",
+      "line": 159,
+      "source": "packages/interaction/permission-presets/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ApprovalService",
+      "key": "approval",
+      "key_expression": "'approval'",
+      "line": 192,
+      "source": "packages/interaction/user-approval/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "UserQuestionService",
+      "key": "userQuestions",
+      "key_expression": "'userQuestions'",
+      "line": 51,
+      "source": "packages/interaction/user-questions/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "JobRegistry",
+      "key": "jobs",
+      "key_expression": "'jobs'",
+      "line": 62,
+      "source": "packages/jobs/jobs/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "LlmRuntime",
+      "key": "llm",
+      "key_expression": "'llm'",
+      "line": 284,
+      "source": "packages/llm/llm/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "TokenMeter",
+      "key": "tokenMeter",
+      "key_expression": "'tokenMeter'",
+      "line": 74,
+      "source": "packages/llm/token-meter/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "Lsp",
+      "key": "lsp",
+      "key_expression": "'lsp'",
+      "line": 82,
+      "source": "packages/lsp/lsp/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "PlanModeController",
+      "key": "planMode",
+      "key_expression": "'planMode'",
+      "line": 188,
+      "source": "packages/plan/plan-mode/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "AgentPresets",
+      "key": "agentPresets",
+      "key_expression": "'agentPresets'",
+      "line": 82,
+      "source": "packages/preset/agent-presets/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "InvariantRegistry",
+      "key": "invariants",
+      "key_expression": "'invariants'",
+      "line": 94,
+      "source": "packages/runtime-diagnostics/invariants/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SandboxPolicyService",
+      "key": "sandboxPolicy",
+      "key_expression": "'sandboxPolicy'",
+      "line": 91,
+      "source": "packages/sandbox/sandbox-policy/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SandboxProvider",
+      "key": "sandbox",
+      "key_expression": "'sandbox'",
+      "line": 158,
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SessionQueryEngine",
+      "key": "sessionQuery",
+      "key_expression": "'sessionQuery'",
+      "line": 81,
+      "source": "packages/session-query/session-query/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SessionPersistence",
+      "key": "sessionPersistence",
+      "key_expression": "'sessionPersistence'",
+      "line": 84,
+      "source": "packages/session/session-persistence/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SessionProjectionCache",
+      "key": "sessionProjectionCache",
+      "key_expression": "'sessionProjectionCache'",
+      "line": 71,
+      "source": "packages/session/session-projection-cache/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SessionProjectionRegistry",
+      "key": "sessionProjections",
+      "key_expression": "'sessionProjections'",
+      "line": 171,
+      "source": "packages/session/session-projection/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SessionTelemetryBackend",
+      "key": "sessionTelemetry",
+      "key_expression": "'sessionTelemetry'",
+      "line": 148,
+      "source": "packages/session/session-telemetry/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SessionTitleService",
+      "key": "sessionTitle",
+      "key_expression": "'sessionTitle'",
+      "line": 261,
+      "source": "packages/session/session-title/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SettingsProvider",
+      "key": "settings",
+      "key_expression": "'settings'",
+      "line": 350,
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ShellEnvRegistry",
+      "key": "shellEnv",
+      "key_expression": "'shellEnv'",
+      "line": 89,
+      "source": "packages/shell/shell-env/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "ShellExecutor",
+      "key": "shell",
+      "key_expression": "'shell'",
+      "line": 65,
+      "source": "packages/shell/shell/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SkillRegistry",
+      "key": "skills",
+      "key_expression": "'skills'",
+      "line": 357,
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SpillStore",
+      "key": "spillStore",
+      "key_expression": "'spillStore'",
+      "line": 45,
+      "source": "packages/spill/spill/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "Storage",
+      "key": "storage",
+      "key_expression": "'storage'",
+      "line": 47,
+      "source": "packages/storage/storage/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SubagentRuntime",
+      "key": "subagents",
+      "key_expression": "'subagents'",
+      "line": 171,
+      "source": "packages/subagent/subagent/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "SubprocessRuntime",
+      "key": "subprocess",
+      "key_expression": "'subprocess'",
+      "line": 102,
+      "source": "packages/subprocess/subprocess/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "TerminalSessionService",
+      "key": "terminals",
+      "key_expression": "'terminals'",
+      "line": 105,
+      "source": "packages/terminal/terminal/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "TypertRegistry",
+      "key": "typert",
+      "key_expression": "'typert'",
+      "line": 446,
+      "source": "packages/typert/registry/src/service.ts"
+    },
+    {
+      "base": "Service",
+      "class": "WebRuntime",
+      "key": "web",
+      "key_expression": "'web'",
+      "line": 74,
+      "source": "packages/web/web/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "WorkflowEngine",
+      "key": "workflowEngine",
+      "key_expression": "'workflowEngine'",
+      "line": 157,
+      "source": "packages/workflow/workflow/src/index.ts"
+    },
+    {
+      "base": "Service",
+      "class": "WorkspaceRegistry",
+      "key": "workspaceRegistry",
+      "key_expression": "'workspaceRegistry'",
+      "line": 92,
+      "source": "packages/workspace/workspace/src/index.ts"
+    }
+  ],
+  "service_provisions": [
+    {
+      "expression": "'dshHomePath'",
+      "line": 770,
+      "literal": "dshHomePath",
+      "source": "packages/boot/app-boot/src/index.ts"
+    },
+    {
+      "expression": "'cmdlineArgs'",
+      "line": 70,
+      "literal": "cmdlineArgs",
+      "source": "packages/boot/cmdline/src/index.ts"
+    },
+    {
+      "expression": "'appExit'",
+      "line": 71,
+      "literal": "appExit",
+      "source": "packages/boot/cmdline/src/index.ts"
+    },
+    {
+      "expression": "HEADLESS_STARTUP_SERVICE",
+      "line": 54,
+      "literal": "headlessStartup",
+      "source": "packages/bundle/headless/src/startup.ts"
+    },
+    {
+      "expression": "WEB_RUNTIME_SERVICE",
+      "line": 232,
+      "literal": "webRuntime",
+      "source": "packages/bundle/web-app/src/index.ts"
+    },
+    {
+      "expression": "WEB_STARTUP_SERVICE",
+      "line": 80,
+      "literal": "webStartup",
+      "source": "packages/bundle/web-app/src/startup.ts"
+    },
+    {
+      "expression": "'connection'",
+      "line": 143,
+      "literal": "connection",
+      "source": "packages/client/connection/src/client/index.ts"
+    },
+    {
+      "expression": "'locale'",
+      "line": 397,
+      "literal": "locale",
+      "source": "packages/client/locale/src/client/index.ts"
+    },
+    {
+      "expression": "'chatFileMentions'",
+      "line": 65,
+      "literal": "chatFileMentions",
+      "source": "packages/client/ui-deliverables/src/client/index.ts"
+    },
+    {
+      "expression": "'theme'",
+      "line": 389,
+      "literal": "theme",
+      "source": "packages/client/ui-theme/src/client/index.ts"
+    },
+    {
+      "expression": "'dynamicCordisRunner'",
+      "line": 290,
+      "literal": "dynamicCordisRunner",
+      "source": "packages/extensions/cordis-client-runner/src/client/index.ts"
+    },
+    {
+      "expression": "'cordisInspect'",
+      "line": 149,
+      "literal": "cordisInspect",
+      "source": "packages/extensions/cordis-client-runner/src/client/inspect-registry.ts"
+    },
+    {
+      "expression": "'sessionLogDownload'",
+      "line": 34,
+      "literal": "sessionLogDownload",
+      "source": "packages/session-query/session-log-export/src/client/index.ts"
+    },
+    {
+      "expression": "storageBackendServiceKey('json'",
+      "line": 113,
+      "literal": null,
+      "source": "packages/storage/storage-json/src/index.ts"
+    },
+    {
+      "expression": "storageBackendServiceKey('sqlite'",
+      "line": 167,
+      "literal": null,
+      "source": "packages/storage/storage-sqlite/src/index.ts"
+    },
+    {
+      "expression": "'sessions'",
+      "line": 224,
+      "literal": "sessions",
+      "source": "packages/test-support/client-runtime/src/index.ts"
+    },
+    {
+      "expression": "'workspaces'",
+      "line": 225,
+      "literal": "workspaces",
+      "source": "packages/test-support/client-runtime/src/index.ts"
+    },
+    {
+      "expression": "'remote'",
+      "line": 31,
+      "literal": "remote",
+      "source": "packages/test-support/client-runtime/src/remote.ts"
+    }
+  ],
   "session_events": [
     "agent-preset/selected",
     "agent/inbox/spliced",
@@ -534,6 +1505,44 @@
     "turn/start",
     "user/message",
     "web/deepseek-search-llm-request"
+  ],
+  "settings_registrations": [
+    {
+      "expression": "settingsNamespace(LOCALE_SETTINGS_NAMESPACE)",
+      "line": 18,
+      "literal": "locale",
+      "source": "packages/client/locale/src/index.ts"
+    },
+    {
+      "expression": "settingsNamespace(CONVERSATION_SETTINGS_NAMESPACE)",
+      "line": 18,
+      "literal": "ui-conversation",
+      "source": "packages/client/ui-conversation/src/index.ts"
+    },
+    {
+      "expression": "settingsNamespace(ONBOARDING_SETTINGS_NAMESPACE)",
+      "line": 22,
+      "literal": "ui-onboarding",
+      "source": "packages/client/ui-settings-general/src/index.ts"
+    },
+    {
+      "expression": "THEME_NAMESPACE",
+      "line": 35,
+      "literal": "ui-theme",
+      "source": "packages/client/ui-theme/src/index.ts"
+    },
+    {
+      "expression": "settingsNamespace(SETTINGS_NAMESPACE)",
+      "line": 142,
+      "literal": "agent-presets",
+      "source": "packages/preset/agent-presets/src/index.ts"
+    },
+    {
+      "expression": "ns",
+      "line": 871,
+      "literal": null,
+      "source": "packages/settings/settings/src/index.ts"
+    }
   ],
   "tool_registrations": [
     {
