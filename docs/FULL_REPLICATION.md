@@ -7,6 +7,7 @@
 
 本文是全面复刻工作的主控面板；稳定任务 ID、详细验收条件和完成状态继续维护在
 [`TODO.md`](TODO.md)。每次上游升级先生成差异清单，禁止直接把未知语义混入 Rust 主线。
+冻结基线的机器可读目录与逐项矩阵见 [`compat/MATRIX.md`](compat/MATRIX.md)。
 
 ## 一、完成定义
 
@@ -82,7 +83,9 @@ M00 基线 → M01 持久 Host → M02 工具/Shutdown → M03 Context/Prompt
 
 > 当前进展：正式 Host 已切到 `DurableLoopAgentRuntime + JSONL + File Lease`，连续 Turn 历史由
 > Session Log 重放；但 HTTP Admission、Web Projection 和重启枚举仍依赖内存 Host，因此
-> `A-05/A-06/A-09` 尚不能勾选。
+> `A-05/A-06/A-09` 尚不能勾选。静态目录生成器已记录 52 RPC、48 Session Event、63 个 Tool
+> 注册点、28 个 Prompt Section 注册点、4 个 Preset 和 233 个 Package；动态 Remote、Frame
+> Schema、Settings/Service Definition 仍待加入后才能完成 `A-01/A-02/A-03`。
 
 - [ ] `A-01` 抽取冻结上游 52 RPC、动态 RPC、Host/Mux Frame、Session Event 目录。
 - [ ] `A-02` 抽取上游工具、Prompt Section、Settings、Profile、Service Definition 目录。

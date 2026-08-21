@@ -32,6 +32,7 @@ DeepSeek Web UI / future CLI
 
 - [总体架构](docs/architecture.md)
 - [全面复刻主控计划](docs/FULL_REPLICATION.md)
+- [冻结上游兼容矩阵](docs/compat/MATRIX.md)
 - [逐模块规范索引](docs/specs/README.md)
 - [上下文预算与压缩](docs/specs/context.md)
 - [Prompt 组装与注入](docs/specs/prompt.md)
