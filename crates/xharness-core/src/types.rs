@@ -474,6 +474,11 @@ pub struct LoopRequest {
     /// Hard admission guard evaluated after context projection and before any
     /// provider I/O. Production hosts should always configure one.
     pub token_guard: Option<xharness_token::TokenGuard>,
+    /// Formal policy-aware tool runtime. New hosts should set this instead of
+    /// populating the legacy `tools` compatibility registrations.
+    pub tool_executor: Option<xharness_tools::ToolExecutor>,
+    /// Temporary compatibility registrations. Removed after every embedder
+    /// has migrated to `tool_executor`.
     pub tools: Vec<ToolSpec>,
     pub session_id: Option<String>,
     pub session_store: Arc<dyn crate::SessionStore>,
@@ -496,6 +501,7 @@ impl LoopRequest {
             messages,
             prompt: None,
             token_guard: None,
+            tool_executor: None,
             tools: Vec::new(),
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
@@ -523,6 +529,11 @@ impl LoopRequest {
         if !self.journal_prelude.is_empty() && self.journal_store.is_none() {
             return Err(LoopValidationError::new(
                 "journal_prelude requires journal_store",
+            ));
+        }
+        if self.tool_executor.is_some() && !self.tools.is_empty() {
+            return Err(LoopValidationError::new(
+                "tool_executor and legacy tools cannot be configured together",
             ));
         }
         let mut names = HashSet::with_capacity(self.tools.len());

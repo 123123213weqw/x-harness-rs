@@ -8,6 +8,7 @@ use xharness_core::{
 use xharness_platform::{NativePlatform, PlatformConfig};
 use xharness_provider_openai::{OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig};
 use xharness_terminal::TerminalRegistry;
+use xharness_tools::ToolExecutor;
 use xharness_web::WebRuntime;
 
 struct LiveWorkspace(PathBuf);
@@ -55,7 +56,7 @@ async fn live_model_calls_real_tool_and_finishes_the_loop() {
         "live-session",
         "live-agent",
     );
-    let tools = bundle.core_specs().await.unwrap();
+    let tool_executor = ToolExecutor::new(bundle.registry().await.unwrap());
     let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
         OpenAiProtocol::ChatCompletions,
         base_url,
@@ -70,7 +71,7 @@ async fn live_model_calls_real_tool_and_finishes_the_loop() {
         "After the tool succeeds, do not call another tool and reply with exactly `DONE`."
     );
     let mut request = LoopRequest::new(Arc::new(provider), vec![AgentMessage::user(prompt)]);
-    request.tools = tools;
+    request.tool_executor = Some(tool_executor);
     let mut run = LoopEngine.start(request);
 
     let mut started = Vec::new();

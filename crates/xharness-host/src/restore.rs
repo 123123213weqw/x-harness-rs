@@ -927,13 +927,14 @@ mod tests {
     use xharness_control::{ControlRevision, ControlStore, JsonlControlStore};
     use xharness_core::{
         FinishReason, IdentityContextPolicy, ModelProvider, ProviderError, ProviderEvent,
-        ProviderRequest, ProviderStream, ToolResult, ToolSpec,
+        ProviderRequest, ProviderStream,
     };
     use xharness_session::{
         ApprovalOutcome, EventData, LlmFailure, LlmRetryMode, MemorySessionStore, Message,
         RequestHeader, Revision, Session, SessionEvent, SessionHeader, Store, ToolCall,
         ToolOutcome, ToolResultData, TurnEndReason,
     };
+    use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, ToolSpec};
 
     use super::*;
     use crate::{
@@ -1013,23 +1014,35 @@ mod tests {
 
     #[async_trait]
     impl SessionToolFactory for ApprovalRecoveryTools {
-        async fn tools(
+        async fn executor(
             &self,
             _session_id: &str,
             _cwd: &str,
             _permission: PermissionPreset,
-        ) -> Result<Vec<ToolSpec>, String> {
+        ) -> Result<ToolExecutor, String> {
             let executions = Arc::clone(&self.executions);
-            Ok(vec![ToolSpec::new(
-                "guarded",
-                "approval recovery fixture",
-                serde_json::json!({"type":"object"}),
-                move |_, _| {
-                    executions.fetch_add(1, Ordering::SeqCst);
-                    async { ToolResult::success("recovered tool result") }
-                },
-            )
-            .requires_approval()])
+            let registry = Arc::new(ToolRegistry::new());
+            registry
+                .register(
+                    ToolSpec::new(
+                        ToolDefinition::new(
+                            "guarded",
+                            "approval recovery fixture",
+                            serde_json::json!({"type":"object"}),
+                        ),
+                        move |_context| {
+                            let executions = Arc::clone(&executions);
+                            async move {
+                                executions.fetch_add(1, Ordering::SeqCst);
+                                Ok(ToolOutput::text("recovered tool result"))
+                            }
+                        },
+                    )
+                    .requiring_approval(true),
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(ToolExecutor::new(registry))
         }
     }
 

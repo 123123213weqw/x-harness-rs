@@ -221,7 +221,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 基础工具：`bash/read/write/edit/glob/grep`
 - 持久 PTY：`terminal_open/send/read/signal/close/list`
 - Web：`web_search/web_fetch`
-- `CodingToolBundle::core_specs()` 可直接接入当前 `LoopRequest.tools`
+- `CodingToolBundle::specs()` 经 Capability 投影后注册为 `ToolExecutor`，直接接入
+  `LoopRequest.tool_executor`
 - 变更类工具默认要求宿主审批；`read/glob/grep/web` 可安全并行
 - `read` 默认 32 KiB/400 行，支持 `offset`、`start_line`、`limit`、`line_limit` 和版本绑定
   `next_cursor`；大结果 Spill 仍属于上下文 P0 修复

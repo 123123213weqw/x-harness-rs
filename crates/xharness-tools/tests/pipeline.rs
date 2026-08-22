@@ -81,6 +81,32 @@ async fn caller_supplied_execution_id_reaches_context_and_result_unchanged() {
     assert_eq!(seen.lock().await.as_slice(), ["session/turn/step/call"]);
 }
 
+struct CountingApproval(Arc<AtomicUsize>);
+
+#[async_trait]
+impl ApprovalProvider for CountingApproval {
+    async fn request_approval(
+        &self,
+        _request: ApprovalRequest,
+    ) -> Result<ApprovalDecision, MiddlewareError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(ApprovalDecision::Approved)
+    }
+}
+
+#[tokio::test]
+async fn durable_request_can_force_approval_after_registry_reprojection() {
+    let approvals = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register(successful_spec("safe")).await.unwrap();
+    let result = ToolExecutor::new(registry)
+        .with_approval_provider(Arc::new(CountingApproval(Arc::clone(&approvals))))
+        .execute(ToolRequest::new("safe", r#"{"value":"x"}"#).requiring_approval(true))
+        .await;
+    assert!(result.is_ok());
+    assert_eq!(approvals.load(Ordering::SeqCst), 1);
+}
+
 #[tokio::test]
 async fn registry_rejects_duplicate_names_atomically() {
     let registry = ToolRegistry::new();

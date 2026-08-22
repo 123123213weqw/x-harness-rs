@@ -50,17 +50,9 @@ async fn executor(workspace: &TempWorkspace) -> ToolExecutor {
         "session",
         "owner",
     );
-    let core_specs = bundle.core_specs().await.unwrap();
-    assert_eq!(core_specs.len(), STANDARD_TOOL_COUNT);
-    assert!(
-        core_specs
-            .iter()
-            .find(|spec| spec.definition.name == "write")
-            .unwrap()
-            .requires_approval
-    );
     let registry = bundle.registry().await.unwrap();
     assert_eq!(registry.len().await, STANDARD_TOOL_COUNT);
+    assert!(registry.get("write").await.unwrap().requires_approval);
     let names: Vec<String> = registry
         .definitions()
         .await

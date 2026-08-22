@@ -19,12 +19,13 @@ use xharness_api::{
 use xharness_core::{
     ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface, FinishReason,
     ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Role,
-    SurfaceEdit, SurfaceEditKind, TokenUsage, ToolResult, ToolSpec,
+    SurfaceEdit, SurfaceEditKind, TokenUsage,
 };
 use xharness_host::{
     AgentRuntime, AgentRuntimeError, AgentTurnRequest, BasicHost, HostConfig, LoopAgentRuntime,
     ModelRoute, NoTools, PermissionPreset, RunningTurn, SessionToolFactory,
 };
+use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, ToolSpec};
 
 struct TextProvider;
 
@@ -1273,26 +1274,35 @@ struct OneTool {
 
 #[async_trait]
 impl SessionToolFactory for OneTool {
-    async fn tools(
+    async fn executor(
         &self,
         _session_id: &str,
         _cwd: &str,
         _permission: PermissionPreset,
-    ) -> Result<Vec<ToolSpec>, String> {
+    ) -> Result<ToolExecutor, String> {
         let executed = Arc::clone(&self.executed);
-        Ok(vec![ToolSpec::new(
-            "gated",
-            "approval test",
-            json!({"type": "object", "properties": {}}),
-            move |_arguments, _cancellation| {
-                let executed = Arc::clone(&executed);
-                async move {
-                    executed.store(true, Ordering::SeqCst);
-                    ToolResult::success("ok")
-                }
-            },
-        )
-        .requires_approval()])
+        let registry = Arc::new(ToolRegistry::new());
+        registry
+            .register(
+                ToolSpec::new(
+                    ToolDefinition::new(
+                        "gated",
+                        "approval test",
+                        json!({"type": "object", "properties": {}}),
+                    ),
+                    move |_context| {
+                        let executed = Arc::clone(&executed);
+                        async move {
+                            executed.store(true, Ordering::SeqCst);
+                            Ok(ToolOutput::text("ok"))
+                        }
+                    },
+                )
+                .requiring_approval(true),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(ToolExecutor::new(registry))
     }
 }
 

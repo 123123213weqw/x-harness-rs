@@ -33,6 +33,9 @@ pub struct ToolRequest {
     pub arguments_json: String,
     pub cancellation: CancellationToken,
     pub execution_id: Option<ExecutionId>,
+    /// Fail-safe per-invocation override, used when a durable pending approval
+    /// is resumed under a newly projected registry.
+    pub requires_approval: bool,
 }
 
 impl ToolRequest {
@@ -42,6 +45,7 @@ impl ToolRequest {
             arguments_json: arguments_json.into(),
             cancellation: CancellationToken::new(),
             execution_id: None,
+            requires_approval: false,
         }
     }
 
@@ -59,6 +63,11 @@ impl ToolRequest {
     ) -> Result<Self, crate::ExecutionIdError> {
         self.execution_id = Some(ExecutionId::new(execution_id)?);
         Ok(self)
+    }
+
+    pub fn requiring_approval(mut self, required: bool) -> Self {
+        self.requires_approval = required;
+        self
     }
 }
 
@@ -300,7 +309,12 @@ impl ToolExecutor {
         } else if let Some(failure) = self.run_pre(&context).await {
             ToolOutcome::failure(failure)
         } else {
-            let verdict = self.run_guards(&context, spec.requires_approval).await;
+            let verdict = self
+                .run_guards(
+                    &context,
+                    spec.requires_approval || request.requires_approval,
+                )
+                .await;
             match verdict {
                 GuardVerdict::Deny { reasons } => ToolOutcome::failure(ToolFailure::new(
                     ToolFailureKind::GuardDenied,

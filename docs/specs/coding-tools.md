@@ -7,12 +7,12 @@
 
 `CodingToolBundle` 绑定一个 `NativePlatform`、`TerminalRegistry`、`WebRuntime`、Session ID
 和 Owner ID。`specs()` 返回正式 `xharness-tools` Spec；`register/registry` 填充唯一
-Registry；`core_specs()` 把同一个 Executor 适配到当前 `xharness-core::ToolSpec`，并把 Core
-已落账的 Durable Execution ID 原样绑定到内部 `ToolRequest`。
+Registry；生产 Host 将投影后的 Spec 注册为一个 `ToolExecutor`，直接赋给
+`LoopRequest.tool_executor`。Core 已落账的 Durable Execution ID 原样绑定到内部 `ToolRequest`。
 
-兼容桥禁止绕过正式 Schema 校验、并发、Timeout 或 Result Mapping。桥仍存在期间，交互式
-审批由 Core 管理，因此目前仍有 Core 与 Executor 两层调度/审批边界；两层已经使用相同
-Execution ID，下一阶段将删除外层重复执行语义。
+旧 `core_specs()` 兼容桥和自动批准 Provider 已删除。交互式审批由 Core 的 Runtime Bridge
+实现 `ApprovalProvider`，真正的 Schema、Policy、调度、Timeout 和 Handler 生命周期只有正式
+Executor 一层。
 
 v0 只暴露以下 14 个稳定模型工具名：
 
@@ -37,7 +37,7 @@ v0 只暴露以下 14 个稳定模型工具名：
 Metadata。Process Tool 报告 PID、Exit Code/Signal、Termination Reason、两条输出流、
 Truncation 和总 Byte Count。
 
-`core_specs()` 仍能生成完整的 14 工具候选集；正式 Host 会在每个模型 Step 前根据平台
+`specs()` 生成完整的 14 工具候选集；正式 Host 会在每个模型 Step 前根据平台
 Readiness、Search Provider 和现存 Terminal 投影稳定子集。最小 Coding System Prompt 已由独立
 `xharness-prompt` 注入，工具定义仍是另一条协议字段。Profile/Step 级进一步裁剪和完整选择审计
 仍待实现。

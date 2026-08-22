@@ -13,7 +13,6 @@ use std::{
     time::Duration,
 };
 
-use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use xharness_fs::{ReadCursor, ReadLimits, ReadOutcome, ReadStart};
@@ -21,9 +20,8 @@ use xharness_platform::NativePlatform;
 use xharness_process::{ProcessOutput, SpawnSpec};
 use xharness_terminal::{TerminalOpenSpec, TerminalRegistry, TerminalSignal};
 use xharness_tools::{
-    ApprovalDecision, ApprovalProvider, ApprovalRequest, MiddlewareError, RegistryError,
-    ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolExecutor, ToolHandlerError,
-    ToolOutput, ToolRegistry, ToolRequest, ToolSpec,
+    RegistryError, ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolHandlerError,
+    ToolOutput, ToolRegistry, ToolSpec,
 };
 use xharness_web::WebRuntime;
 
@@ -92,60 +90,6 @@ impl CodingToolBundle {
         let registry = Arc::new(ToolRegistry::new());
         self.register(&registry).await?;
         Ok(registry)
-    }
-
-    /// Build the compatibility registrations consumed by the current
-    /// `xharness-core` loop. Core owns the user approval handshake; the inner
-    /// policy executor receives only that already-approved invocation.
-    pub async fn core_specs(&self) -> Result<Vec<xharness_core::ToolSpec>, RegistryError> {
-        let registry = self.registry().await?;
-        let executor = Arc::new(
-            ToolExecutor::new(Arc::clone(&registry))
-                .with_approval_provider(Arc::new(CoreDelegatedApproval)),
-        );
-        let mut output = Vec::with_capacity(STANDARD_TOOL_COUNT);
-        for definition in registry.definitions().await {
-            let spec = registry
-                .get(&definition.name)
-                .await
-                .expect("definition came from the same registry");
-            let name = definition.name.clone();
-            let executor = Arc::clone(&executor);
-            let mut core = xharness_core::ToolSpec::new_contextual(
-                definition.name,
-                definition.description,
-                definition.parameters,
-                move |invocation| {
-                    let executor = Arc::clone(&executor);
-                    let name = name.clone();
-                    async move {
-                        let arguments_json = serde_json::to_string(&invocation.arguments)
-                            .unwrap_or_else(|_| "{}".to_owned());
-                        let request = match ToolRequest::new(name, arguments_json)
-                            .with_cancellation(invocation.cancellation)
-                            .with_execution_id(invocation.execution_id)
-                        {
-                            Ok(request) => request,
-                            Err(error) => {
-                                return xharness_core::ToolResult::failure(error.to_string());
-                            }
-                        };
-                        let result = executor.execute(request).await;
-                        bridge_result(result)
-                    }
-                },
-            )
-            .timeout(spec.timeout);
-            core.concurrency = match spec.concurrency {
-                ToolConcurrency::Parallel => xharness_core::ToolConcurrency::Parallel,
-                ToolConcurrency::Keyed => xharness_core::ToolConcurrency::Keyed,
-                ToolConcurrency::Exclusive => xharness_core::ToolConcurrency::Exclusive,
-            };
-            core.resource_key_resolver = spec.resource_key_resolver.clone();
-            core.requires_approval = spec.requires_approval;
-            output.push(core);
-        }
-        Ok(output)
     }
 
     fn bash_spec(&self) -> ToolSpec {
@@ -780,32 +724,6 @@ impl CodingToolBundle {
         )
         .with_concurrency(ToolConcurrency::Parallel)
         .with_timeout(Duration::from_secs(35))
-    }
-}
-
-struct CoreDelegatedApproval;
-
-#[async_trait]
-impl ApprovalProvider for CoreDelegatedApproval {
-    async fn request_approval(
-        &self,
-        _request: ApprovalRequest,
-    ) -> Result<ApprovalDecision, MiddlewareError> {
-        Ok(ApprovalDecision::Approved)
-    }
-}
-
-fn bridge_result(result: xharness_tools::ToolResult) -> xharness_core::ToolResult {
-    match (result.output, result.failure) {
-        (Some(output), None) => xharness_core::ToolResult {
-            ok: true,
-            content: output.content,
-            error: String::new(),
-            truncated: false,
-            metadata: output.metadata,
-        },
-        (_, Some(failure)) => xharness_core::ToolResult::failure(failure.message),
-        (None, None) => xharness_core::ToolResult::failure("tool executor returned no outcome"),
     }
 }
 

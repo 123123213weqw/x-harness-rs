@@ -23,6 +23,11 @@ use xharness_session::{
     SessionInspection, SessionTitleSource, Store as EventStore, StoreError, ToolOutcome,
     TurnEndReason,
 };
+use xharness_tools::{
+    ToolDefinition as RuntimeToolDefinition, ToolExecutor as RuntimeToolExecutor,
+    ToolOutput as RuntimeToolOutput, ToolRegistry as RuntimeToolRegistry,
+    ToolSpec as RuntimeToolSpec,
+};
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
 
@@ -1275,6 +1280,86 @@ async fn approval_blocks_tool_start_until_host_approves() {
             (approval_id, Some(ApprovalOutcome::AllowedOnce)),
         ]
     );
+}
+
+#[tokio::test]
+async fn formal_tool_runtime_owns_approval_lifecycle_and_batch_execution() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "provider-runtime", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("done".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new(
+                    "guarded",
+                    "guarded",
+                    json!({"type":"object","additionalProperties":false}),
+                ),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            assert!(context.execution_id.as_str().contains("xh-"));
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("allowed"))
+                        }
+                    }
+                },
+            )
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.session_id = Some("formal-tool-runtime".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+    let mut run = LoopEngine.start(request);
+
+    let call_id = loop {
+        let event = run.next().await.unwrap();
+        if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
+            break call.id;
+        }
+    };
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    run.send(LoopCommand::ApproveTool {
+        call_id: call_id.clone(),
+    })
+    .await
+    .unwrap();
+
+    let mut saw_started = false;
+    let mut saw_completed = false;
+    while let Some(event) = run.next().await {
+        match event.kind {
+            LoopEventKind::ToolStarted(call) if call.id == call_id => saw_started = true,
+            LoopEventKind::ToolCompleted { call, result } if call.id == call_id => {
+                assert!(result.ok);
+                saw_completed = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_started && saw_completed);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    let session = journal.load("formal-tool-runtime").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ToolResult { result, .. } if result.call_id == call_id
+    )));
 }
 
 #[tokio::test]
