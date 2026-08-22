@@ -480,9 +480,19 @@ impl ToolExecutor {
         }
 
         if let Some(lifecycle) = &self.lifecycle {
-            let notified = AssertUnwindSafe(lifecycle.started(context))
-                .catch_unwind()
-                .await;
+            let notified = AssertUnwindSafe(lifecycle.started(context)).catch_unwind();
+            tokio::pin!(notified);
+            let notified = tokio::select! {
+                biased;
+                _ = request_cancellation.cancelled() => {
+                    context.cancellation.cancel();
+                    return ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::Cancelled,
+                        "tool invocation was cancelled before lifecycle acknowledgement",
+                    ));
+                }
+                notified = &mut notified => notified,
+            };
             match notified {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => {

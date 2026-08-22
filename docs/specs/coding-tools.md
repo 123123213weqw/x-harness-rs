@@ -1,7 +1,7 @@
 # 标准 Coding 工具包规范
 
 **Crate：** `xharness-coding-tools`
-**状态：** 14 个工具已实现；正式 Registry 和 Core 兼容桥均可使用。
+**状态：** 14 个工具已实现；生产 Host 已统一使用正式 Registry/Executor。
 
 ## 组合
 
@@ -75,6 +75,19 @@ Core 对超限单结果使用确定性 Head/Tail Envelope；单个结果未超�
 确定性集成测试注册全部 14 个名称，并执行真实 Write → Read → Edit → Bash 流程。
 可选 Live Test 把全部 Schema 发给 V100 上的 Qwen，观察模型选择 `write`、请求审批、真实
 修改文件、重放 Tool Result、进入第二个模型 Step，最终 `Completed`。
+
+正式 Runtime 的回归矩阵还固定以下边界：
+
+- Registry Definition 是模型请求中 Tool Schema 的唯一来源；旧 Core Spec 与新 Executor 同时
+  配置必须在 Provider I/O 前失败。
+- 未知工具、坏 JSON 和 Schema Error 只生成失败 Tool Result，不触发 Lifecycle/Handler，也不
+  中止整个 Agent Loop。
+- 多个并行 Approval 必须全部可见，决议按 Execution ID 关联；拒绝绝不触发 Tool Started。
+- Batch 的空输入、零并发、重复 Order、并发上限、Keyed FIFO、Exclusive Barrier、完成顺序和
+  模型重放顺序均有确定性测试。
+- Cancel/Drop 会广播到每个 Call；Cooperative Handler 清理和 Pending Lifecycle Ack 收敛后，
+  Batch/Run 才能结束。Durable SIGKILL Matrix 使用同一正式 Runtime 覆盖 Tool Call、Approval
+  Asked、Tool Result、Step End 和 Turn End 切点。
 
 ## 当前限制
 

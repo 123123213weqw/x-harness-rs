@@ -24,9 +24,9 @@ use xharness_session::{
     TurnEndReason,
 };
 use xharness_tools::{
-    ToolDefinition as RuntimeToolDefinition, ToolExecutor as RuntimeToolExecutor,
-    ToolOutput as RuntimeToolOutput, ToolRegistry as RuntimeToolRegistry,
-    ToolSpec as RuntimeToolSpec,
+    ToolConcurrency as RuntimeToolConcurrency, ToolDefinition as RuntimeToolDefinition,
+    ToolExecutor as RuntimeToolExecutor, ToolOutput as RuntimeToolOutput,
+    ToolRegistry as RuntimeToolRegistry, ToolSpec as RuntimeToolSpec,
 };
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
@@ -363,7 +363,7 @@ async fn result_does_not_require_draining_more_events_than_the_legacy_buffer() {
         .collect::<Vec<_>>();
     script.push(Ok(completed()));
     let provider = Arc::new(ScriptProvider::new([script]));
-    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
     request.config.event_buffer = 1;
     let mut run = LoopEngine.start(request);
 
@@ -853,6 +853,22 @@ fn loop_request_validation_rejects_invalid_config_and_tools() {
         .contains("duplicate tool name"));
 
     let mut request = LoopRequest::new(provider.clone(), vec![]);
+    request.tool_executor = Some(RuntimeToolExecutor::new(Arc::new(
+        RuntimeToolRegistry::new(),
+    )));
+    request.tools.push(ToolSpec::new(
+        "legacy",
+        "legacy",
+        json!({"type":"object"}),
+        |_, _| async { ToolResult::success("") },
+    ));
+    assert!(request
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("cannot be configured together"));
+
+    let mut request = LoopRequest::new(provider.clone(), vec![]);
     request.tools.push(
         ToolSpec::new("zero-timeout", "zero", json!({}), |_, _| async {
             ToolResult::success("")
@@ -925,12 +941,28 @@ async fn cancellation_stops_a_running_tool() {
         Ok(tool_delta(0, "wait", "wait", "{}")),
         Ok(completed_for_calls()),
     ]]));
-    let tool = ToolSpec::new("wait", "wait", json!({}), |_, token| async move {
-        token.cancelled().await;
-        ToolResult::failure("cancelled")
-    });
+    let cleaned = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(RuntimeToolSpec::new(
+            RuntimeToolDefinition::new("wait", "wait", json!({"type":"object"})),
+            {
+                let cleaned = Arc::clone(&cleaned);
+                move |context| {
+                    let cleaned = Arc::clone(&cleaned);
+                    async move {
+                        context.cancellation.cancelled().await;
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        cleaned.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("cancelled"))
+                    }
+                }
+            },
+        ))
+        .await
+        .unwrap();
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
     while let Some(event) = run.next().await {
         if matches!(event.kind, LoopEventKind::ToolStarted(_)) {
@@ -938,6 +970,7 @@ async fn cancellation_stops_a_running_tool() {
         }
     }
     assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+    assert_eq!(cleaned.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -1321,7 +1354,7 @@ async fn formal_tool_runtime_owns_approval_lifecycle_and_batch_execution() {
         .await
         .unwrap();
     let journal = Arc::new(EventMemorySessionStore::default());
-    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
     request.session_id = Some("formal-tool-runtime".to_owned());
     request.journal_store = Some(journal.clone());
     request.tool_executor = Some(RuntimeToolExecutor::new(registry));
@@ -1355,11 +1388,79 @@ async fn formal_tool_runtime_owns_approval_lifecycle_and_batch_execution() {
     assert!(saw_started && saw_completed);
     assert_eq!(executions.load(Ordering::SeqCst), 1);
     assert_eq!(run.result().await.status, LoopStatus::Completed);
+    let requests = provider.requests();
+    assert_eq!(requests[0].tools.len(), 1);
+    assert_eq!(requests[0].tools[0].name, "guarded");
+    assert_eq!(requests[0].tools[0].description, "guarded");
+    assert_eq!(requests[0].tools[0].parameters["type"], "object");
     let session = journal.load("formal-tool-runtime").await.unwrap().unwrap();
     assert!(session.events().iter().any(|event| matches!(
         event.data(),
         SessionEventData::ToolResult { result, .. } if result.call_id == call_id
     )));
+}
+
+#[tokio::test]
+async fn formal_tool_runtime_materializes_unknown_and_invalid_calls_without_starting_handlers() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "unknown", "missing", "{}")),
+            Ok(tool_delta(1, "malformed", "guarded", "{")),
+            Ok(tool_delta(2, "schema", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("handled".to_owned())),
+            Ok(completed()),
+        ],
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(RuntimeToolSpec::new(
+            RuntimeToolDefinition::new(
+                "guarded",
+                "guarded",
+                json!({
+                    "type":"object",
+                    "required":["value"],
+                    "properties":{"value":{"type":"string"}},
+                    "additionalProperties":false
+                }),
+            ),
+            {
+                let executions = Arc::clone(&executions);
+                move |_context| {
+                    let executions = Arc::clone(&executions);
+                    async move {
+                        executions.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("must not run"))
+                    }
+                }
+            },
+        ))
+        .await
+        .unwrap();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+
+    let (events, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text, "handled");
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event.kind, LoopEventKind::ToolStarted(_))));
+    let tool_messages = result
+        .messages
+        .iter()
+        .filter(|message| message.role == Role::Tool)
+        .collect::<Vec<_>>();
+    assert_eq!(tool_messages.len(), 3);
+    assert!(tool_messages[0].content.contains("unknown tool"));
+    assert!(tool_messages[1].content.contains("valid JSON"));
+    assert!(tool_messages[2].content.contains("required property"));
 }
 
 #[tokio::test]
@@ -1420,18 +1521,30 @@ async fn restart_resumes_undecided_approval_without_replaying_or_unknowning_the_
         Ok(completed()),
     ]]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("guarded", "guarded", json!({"type":"object"}), {
-        let executions = Arc::clone(&executions);
-        move |_, _| {
-            executions.fetch_add(1, Ordering::SeqCst);
-            async { ToolResult::success("recovered result") }
-        }
-    })
-    .requires_approval();
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("recovered result"))
+                        }
+                    }
+                },
+            )
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
     let mut request = LoopRequest::new(provider.clone(), Vec::new());
     request.session_id = Some("resume-approval".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
 
     let event = run.next().await.unwrap();
@@ -1497,18 +1610,23 @@ async fn cancellation_closes_every_durable_pending_approval() {
         Ok(tool_delta(1, "second", "guarded", "{}")),
         Ok(completed_for_calls()),
     ]]));
-    let tool = ToolSpec::new(
-        "guarded",
-        "guarded",
-        json!({"type":"object"}),
-        |_, _| async { ToolResult::success("must not run") },
-    )
-    .requires_approval();
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                |_context| async { Ok(RuntimeToolOutput::text("must not run")) },
+            )
+            .with_concurrency(RuntimeToolConcurrency::Parallel)
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
     let journal = Arc::new(EventMemorySessionStore::default());
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
     request.session_id = Some("cancel-pending-approvals".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
 
     let mut asked = Vec::new();
@@ -1558,16 +1676,29 @@ async fn duplicate_provider_call_ids_get_unique_approval_ids() {
         ],
     ]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("guarded", "guarded", json!({}), {
-        let executions = executions.clone();
-        move |_, _| {
-            executions.fetch_add(1, Ordering::SeqCst);
-            async { ToolResult::success("allowed") }
-        }
-    })
-    .requires_approval();
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("allowed"))
+                        }
+                    }
+                },
+            )
+            .with_concurrency(RuntimeToolConcurrency::Parallel)
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
 
     let mut approval_ids = Vec::new();
@@ -1607,16 +1738,28 @@ async fn rejected_tool_never_runs_and_failure_is_written_back() {
         ],
     ]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("guarded", "guarded", json!({}), {
-        let executions = executions.clone();
-        move |_, _| {
-            executions.fetch_add(1, Ordering::SeqCst);
-            async { ToolResult::success("unexpected") }
-        }
-    })
-    .requires_approval();
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new("guarded", "guarded", json!({"type":"object"})),
+                {
+                    let executions = Arc::clone(&executions);
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(RuntimeToolOutput::text("unexpected"))
+                        }
+                    }
+                },
+            )
+            .requiring_approval(true),
+        )
+        .await
+        .unwrap();
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
 
     while let Some(event) = run.next().await {
@@ -1638,7 +1781,7 @@ async fn rejected_tool_never_runs_and_failure_is_written_back() {
     let result = run.result().await;
     assert!(!saw_started);
     assert_eq!(executions.load(Ordering::SeqCst), 0);
-    assert!(result.messages[2].content.contains("tool rejected"));
+    assert!(result.messages[2].content.contains("approval denied"));
     assert!(result.messages[2].content.contains("unsafe arguments"));
 }
 
@@ -2441,11 +2584,35 @@ async fn durable_crash_cut_matrix_closes_or_preserves_each_authoritative_boundar
 
 #[tokio::test]
 async fn cancel_command_is_acknowledged_before_the_run_stops() {
-    let provider = Arc::new(GatedProvider::new());
-    let request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(tool_delta(0, "wait", "wait", "{}")),
+        Ok(completed_for_calls()),
+    ]]));
+    let cleaned = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(RuntimeToolSpec::new(
+            RuntimeToolDefinition::new("wait", "wait", json!({"type":"object"})),
+            {
+                let cleaned = Arc::clone(&cleaned);
+                move |context| {
+                    let cleaned = Arc::clone(&cleaned);
+                    async move {
+                        context.cancellation.cancelled().await;
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        cleaned.fetch_add(1, Ordering::SeqCst);
+                        Ok(RuntimeToolOutput::text("cancelled"))
+                    }
+                }
+            },
+        ))
+        .await
+        .unwrap();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
     while let Some(event) = run.next().await {
-        if matches!(event.kind, LoopEventKind::TextDelta(ref text) if text == "partial") {
+        if matches!(event.kind, LoopEventKind::ToolStarted(_)) {
             break;
         }
     }
@@ -2453,6 +2620,7 @@ async fn cancel_command_is_acknowledged_before_the_run_stops() {
     assert_eq!(run.send(LoopCommand::Cancel).await, Ok(()));
     while run.next().await.is_some() {}
     assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+    assert_eq!(cleaned.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
