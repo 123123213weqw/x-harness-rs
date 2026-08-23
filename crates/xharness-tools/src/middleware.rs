@@ -123,6 +123,17 @@ pub trait ApprovalProvider: Send + Sync + 'static {
     ) -> Result<ApprovalDecision, MiddlewareError>;
 }
 
+/// Host-facing lifecycle seam invoked after policy, approval and concurrency
+/// admission, immediately before the handler can perform a side effect.
+///
+/// Implementations may durably publish a `tool/started` boundary and must
+/// return only after that boundary is visible. Failure is fail-closed: the
+/// handler is not entered.
+#[async_trait]
+pub trait ToolLifecycle: Send + Sync + 'static {
+    async fn started(&self, context: &ToolExecutionContext) -> Result<(), MiddlewareError>;
+}
+
 /// One around link. Calling `next.run(context)` enters the following link or
 /// the handler. An around middleware may deliberately short-circuit.
 pub trait AroundMiddleware: Send + Sync + 'static {

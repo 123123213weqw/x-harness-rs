@@ -1,0 +1,108 @@
+# Host 启动恢复规范
+
+**涉及 Crate：** `xharness-session`、`xharness-session-jsonl`、`xharness-agent`、
+`xharness-host`、`xharness-host-app`  
+**状态：** Agent Session 与 Host Control 双日志恢复已实现并通过真实进程重启测试。
+
+## 目标与真源
+
+Host 进程退出后，已经成功 Flush 的 Session、模型历史和 Pending Input 不能从 Web 中消失，
+也不能为了重新附着 Web Driver 而再次 Append 同一输入。Append-only Session Log 是唯一真源；
+`BasicHost.sessions/events/projected_queue` 都只是可以丢弃并重建的 Web Projection；其中 `events` 只保留
+按 Event 数和序列化 Byte 双预算限制的连续尾部，完整 History 始终从 Session Store 查询。
+
+## 固定恢复顺序
+
+1. HTTP Listener 暴露前先加载并校验 Host Control Log，恢复 Workspace/Settings/Mutation Receipt。
+2. 调用 Session `Store::list_headers()`；枚举结果必须已排序、已验证。
+3. 对每个 Header 完整 `load()`，重放 `InboxProjection` 和 `derive_messages()`。
+4. 从最后一个 `session/model-selected` 或 `request/header`（按日志顺序 latest-wins）恢复
+   Provider/Model/Reasoning Route；两者都没有时使用当前配置。
+5. 从 Header CWD 恢复 Workspace 归属；当前配置目录映射到 `workspace-default`，其他目录生成
+   确定性的 recovered Workspace。
+6. 再次应用 Control Workspace 顺序/Tombstone，避免 Session 归属覆盖用户定制。
+7. 把所有强类型事件确定性转换为 Web Event；Durable Turn 的一基坐标转换成 Web 的零基坐标。
+8. 对每个 Pending `next-turn` 输入，先创建独立 Agent Event Receiver 和 Prepared Turn。若日志
+   存在未决 `approval/asked`，同时以稳定 Approval ID 创建 Recovery Receiver。
+9. 所有 Receiver 就绪后才调用 `recover_open_turn()` 和 `wake()`；Activation 本身禁止自动执行
+   旧输入或旧审批。
+10. Runtime 返回的 Pending 数必须与 Host Projection 相同，否则启动 fail closed。
+11. 最后创建进程内 Control Channel 和 Web Driver。Host 开始监听后，客户端可从
+   `session.list/history` 获取恢复基线。
+
+新 `followup()` 仍会自动 Wake；显式 Wake 只用于“输入在本进程启动前已经持久化”的恢复路径。
+
+## 失败语义
+
+- JSONL 损坏、Symlink、Header 不匹配、Inbox Replay 失败或 Runtime/Projection 数量不一致：
+  整体恢复失败，Host 不监听端口。
+- 历史 Model Route 当前不可用：Session 和 Queue 仍显示，记录 `HostRestoreIssue`，但不启动 Driver。
+- 仅有 `next-step`、没有 `next-turn`：保留等待，不凭空制造 Turn；下一次 Followup 原子领取它。
+- Tool Call 已记录但无 Result：下一次 Core Journal 初始化追加 `outcome_unknown`，禁止自动重放
+  工具；但未决 Approval 证明工具尚未获准，必须走下一条交互恢复规则。
+- `approval/asked` 已 Flush、`approval/decided` 缺失：保持原开放 Turn/Step，重新投影一个可回答的
+  `approval/requested` Server RPC。Allowed-once 后首次执行，Rejected 后写 Tool Error；不新增
+  User Message 或 Turn。
+- 其他开放 Turn/Step：下一次 Core Journal 初始化闭合为 `Interrupted`；Provider 流不恢复。
+
+## 数据保真
+
+Web Prompt 的结构化 `content` 与 `source` 保存在 `InboxMessage.source` 元数据封装中，重启后可
+恢复 Attachment/Text Block 的 Queue 外观。旧日志没有这段元数据时退化为一个 Text Block，并标记
+`restored=true`；不得因此修改模型可见纯文本。
+
+`session.prompt` 和 `subagent.prompt` 还要在同一元数据封装中保存 `rpcFingerprint` 与
+`rpcSessionId`。Fingerprint 是带版本号的 Mode、原始 Content 和 Timezone 的规范 JSON SHA-256。
+Host 启动时扫描完整 Inbox Insert 历史（包括已消费输入）重建会话内 Receipt 索引；因此响应丢失后
+使用相同 RPC ID 和 Payload 重试必须直接返回原成功语义，既不重复创建 Attachment，也不调用
+Runtime。相同 ID 配不同 Payload 必须返回 `SessionConflict`。每会话 Admission Gate 保证并发重试
+也只有一个写入者；Fork 不继承 Receipt，因为 `rpcSessionId` 必须等于当前 Session。
+
+Queue Edit 必须同时替换 Durable Message 和这段元数据；Queue Remove 必须先成功修改 Durable
+Inbox，再改变 Web Projection。
+
+Queue Baseline 必须从同一 Session Cut 折叠完整 `next-turn + next-step`，顺序和 Placement 分别为
+`queued`、User Source 的 `steering`、非 User Source 的 `context`。Mux 重连必须为所有 Session 发送
+Subscribed/Projection，并为非空 Inbox 发送完整 Queue Snapshot；空列表通过最近一次实时 `[]`
+收敛。Host Driver FIFO 不得作为重连基线或 Queue Item 存在性的证据。
+
+## 当前不承诺
+
+- Workspace 用户标题、顺序、Session 顺序、归档与 Settings 已有独立 Control Log；Credential
+  Reference 与 Attachment Blob 尚未持久化。Pending Approval 已由 Session Log 恢复；Agent/
+  Permission Preset、Goal 和展开的 Sandbox/Approval Policy 已进入 Session Log。
+- Prompt RPC Receipt、Permission Command Receipt、Workspace/Settings 共 9 个变更 RPC，以及
+  Session Rename/Model Select、Preset Select 和 6 个 Goal RPC 的 Session 原子 Receipt 已可恢复；
+  Session Create/Fork、Queue/Cancel/Attachment、Preset Copy/Remove 等仍未统一接入。
+- Web History 已按权威 Session Cursor 分页查询、使用有界尾缓存并增量广播；Queue 已按权威
+  Durable Inbox 发送实时完整快照和重连 Baseline；Workspace/Settings
+  等非 Session 投影仍没有统一持久查询接口。
+- Idle Plan Mode 的最终 `active` 状态已由最后一条 `plan/mode` 恢复；运行中尚未接受的 Pending
+  Pre-step 选择不是可恢复状态，当前重启后一律投影为 `pending=false`。
+- queued-to-steer 是 Remove + Steer 两步，不是崩溃原子 Move。
+
+## 验收
+
+- Memory/JSONL Store 枚举排序，忽略非 Session 文件，损坏/Symlink fail closed。
+- Worker 对已存在 Pending Input 保持休眠，订阅后显式 Wake 才执行。
+- Runtime 恢复 Pending Input 后只出现一次 Inbox Insert 和一次 User Message。
+- 同 RPC ID + Prompt Payload 的并发/重启重试只出现一次 Inbox Insert；Payload 不同则冲突。
+- 七点通用日志前缀覆盖 Admission/Claim/Request/Tool Call/Tool Result/Step End/Turn End；真实
+  子进程 SIGKILL 矩阵另覆盖 Approval Asked，共八点，验证 Interrupted、OutcomeUnknown、未批准
+  工具不执行、权威结果保留和同目录重启。
+- Host 单元测试恢复 History、模型路由、Workspace、Web Event 与 Pending Turn。
+- Host 重启测试恢复同一 Approval/Execution/Provider Call ID；响应前执行计数和 Provider Attempt
+  均为零，Allowed-once 后恰好执行一次并从下一 Step 继续。
+- Session 创建与 `/permission` 切换在返回前 Flush 强类型事件；Full access 重启后仍为
+  `danger-full-access + never`，Command Run/Done 顺序不变。
+- `session.rename` 和 `agentPreset.select` 在返回前 Flush，重启后保留 Title/Preset；显式用户标题
+  使用空 `messageSeqs` 与 `source={kind:"user"}`，不进入模型消息。
+- `session.selectModel` 在返回前把 Route 与 Receipt 原子 Flush；重启后即使尚未产生新的
+  `request/header` 也恢复 Provider/Model/Reasoning Effort。上述 Session/Goal/Preset RPC 的相同 ID
+  重试逐字返回原响应，不同 Payload 冲突且不追加第二个状态事件。
+- Goal Mutation 使用全快照或 Clear Tombstone；Host 重启恢复 Revision、Phase、Objective、Round
+  Budget、时间和 History/Projection，不依赖旧进程的 `goals` Map。
+- `/plan` 与 `/plan off` 的成功状态在返回前 Flush；Host 重启恢复最后的 Active 状态且不重放命令。
+- 真实 `xharness-host` 子进程在相同 State Dir 和端口重启后，`workspace.list`、`session.list`、
+  `session.history` 与 WebSocket Carrier 均恢复。
+- 所有 Rust 测试必须同步到 `WZU_Server`，远程通过 Workspace Check/Test/Clippy。

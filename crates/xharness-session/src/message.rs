@@ -27,9 +27,13 @@ impl MessageRole {
 /// One provider-neutral tool invocation assembled from model deltas.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCall {
-    /// Provider-issued call identity. It must be non-empty and unique in one
-    /// session log.
+    /// Harness execution identity. It must be non-empty and globally unique
+    /// in one session log; approvals, audit events and results use this ID.
     pub id: String,
+    /// Provider-native call identity used only when replaying the model wire
+    /// protocol. Older logs omit it and fall back to `id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_call_id: Option<String>,
     /// Position in the assistant message's tool-call list.
     pub index: usize,
     /// Registered tool name.
@@ -39,9 +43,21 @@ pub struct ToolCall {
     pub arguments_json: String,
 }
 
+impl ToolCall {
+    /// Identity that protocol adapters must use for assistant tool calls and
+    /// their corresponding tool output.
+    pub fn provider_id(&self) -> &str {
+        self.provider_call_id.as_deref().unwrap_or(&self.id)
+    }
+}
+
 /// Provider-neutral message used by [`crate::derive_messages`].
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Message {
+    /// Stable harness identity for durable user/assistant inputs. Providers do
+    /// not receive this field unless an adapter explicitly maps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub role: MessageRole,
     #[serde(default)]
     pub content: String,
@@ -49,6 +65,8 @@ pub struct Message {
     pub reasoning: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
+    /// Provider-native call identity associated with a tool result message.
+    /// Durable execution identity remains in `tool/call` and `tool/result`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
     /// Opaque provider-owned state needed for a lossless stateless replay.
@@ -74,6 +92,11 @@ impl Message {
 
     pub fn system(content: impl Into<String>) -> Self {
         Self::new(MessageRole::System, content)
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn user(content: impl Into<String>) -> Self {

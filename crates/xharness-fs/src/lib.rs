@@ -103,12 +103,40 @@ impl FsVersion {
     }
 
     pub fn sha256_hex(&self) -> String {
-        let mut output = String::with_capacity(64);
-        for byte in self.sha256 {
-            use std::fmt::Write as _;
-            let _ = write!(output, "{byte:02x}");
-        }
-        output
+        encode_sha256(&self.sha256)
+    }
+}
+
+fn encode_sha256(digest: &[u8; 32]) -> String {
+    let mut output = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(output, "{byte:02x}");
+    }
+    output
+}
+
+fn decode_sha256(value: &str) -> Option<[u8; 32]> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 64 {
+        return None;
+    }
+    let mut output = [0u8; 32];
+    for (index, slot) in output.iter_mut().enumerate() {
+        let start = index * 2;
+        *slot = decode_hex_nibble(bytes[start])?
+            .checked_mul(16)?
+            .checked_add(decode_hex_nibble(bytes[start + 1])?)?;
+    }
+    Some(output)
+}
+
+fn decode_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 
@@ -161,6 +189,89 @@ pub struct ReadLimits {
     pub max_line_bytes: usize,
 }
 
+/// Version-bound continuation for a paged read. The cursor is opaque to the
+/// model-facing tool: its embedded content hash prevents stitching pages from
+/// different file versions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadCursor {
+    offset: u64,
+    sha256: [u8; 32],
+    limits: ReadLimits,
+}
+
+impl ReadCursor {
+    pub const fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    pub const fn limits(&self) -> ReadLimits {
+        self.limits
+    }
+
+    pub fn encode(&self) -> String {
+        format!(
+            "v1:{}:{}:{}:{}:{}",
+            self.offset,
+            self.limits.max_bytes,
+            self.limits.max_lines,
+            self.limits.max_line_bytes,
+            encode_sha256(&self.sha256)
+        )
+    }
+
+    pub fn parse(value: &str) -> Result<Self, FsError> {
+        let mut parts = value.split(':');
+        if parts.next() != Some("v1") {
+            return Err(FsError::InvalidReadCursor);
+        }
+        let offset = parts
+            .next()
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or(FsError::InvalidReadCursor)?;
+        let max_bytes = parse_cursor_usize(parts.next())?;
+        let max_lines = parse_cursor_usize(parts.next())?;
+        let max_line_bytes = parse_cursor_usize(parts.next())?;
+        let sha256 = parts
+            .next()
+            .and_then(decode_sha256)
+            .ok_or(FsError::InvalidReadCursor)?;
+        if parts.next().is_some() {
+            return Err(FsError::InvalidReadCursor);
+        }
+        if max_bytes == 0 || max_lines == 0 || max_line_bytes == 0 {
+            return Err(FsError::InvalidReadCursor);
+        }
+        Ok(Self {
+            offset,
+            sha256,
+            limits: ReadLimits {
+                max_bytes,
+                max_lines,
+                max_line_bytes,
+            },
+        })
+    }
+}
+
+fn parse_cursor_usize(value: Option<&str>) -> Result<usize, FsError> {
+    value
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or(FsError::InvalidReadCursor)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReadStart {
+    Byte(u64),
+    Line(u64),
+    Cursor(ReadCursor),
+}
+
+impl Default for ReadStart {
+    fn default() -> Self {
+        Self::Byte(0)
+    }
+}
+
 impl Default for ReadLimits {
     fn default() -> Self {
         Self {
@@ -187,11 +298,16 @@ pub struct FileRead {
     pub bytes_read: u64,
     pub truncated: bool,
     pub diagnostics: Vec<ReadDiagnostic>,
+    pub page_start_offset: u64,
+    pub page_start_line: u64,
+    pub captured_bytes: u64,
+    pub total_bytes: u64,
+    pub next_cursor: Option<ReadCursor>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadOutcome {
-    File(FileRead),
+    File(Box<FileRead>),
     Absent,
 }
 
@@ -233,6 +349,12 @@ pub enum FsError {
     EditInvalidUtf8 { display: String, offset: usize },
     #[error("file changed while it was being inspected: {display:?}")]
     ConcurrentModification { display: String },
+    #[error("invalid read range: line numbers are one-based")]
+    InvalidReadRange,
+    #[error("invalid or unsupported read cursor")]
+    InvalidReadCursor,
+    #[error("read cursor is stale because the file content changed: {display:?}")]
+    StaleReadCursor { display: String },
     #[error("observation store lock is poisoned")]
     ObservationStorePoisoned,
     #[error("filesystem worker stopped unexpectedly")]
@@ -374,6 +496,17 @@ impl FsService {
         target: &FsTarget,
         limits: ReadLimits,
     ) -> Result<ReadOutcome, FsError> {
+        self.read_page(session_id, target, ReadStart::default(), limits)
+            .await
+    }
+
+    pub async fn read_page(
+        &self,
+        session_id: &str,
+        target: &FsTarget,
+        start: ReadStart,
+        limits: ReadLimits,
+    ) -> Result<ReadOutcome, FsError> {
         validate_session_id(session_id)?;
         let (record, guard) = self.lock_target(target).await?;
         let root = self.inner.root.clone();
@@ -384,14 +517,14 @@ impl FsService {
         run_blocking(move || {
             let _guard = guard;
             let physical = physical_target(&root, root_fd.as_ref(), &record)?;
-            match scan_limited(&root, &physical, limits)? {
+            match scan_limited(&root, &physical, start, limits)? {
                 Some(read) => {
                     observations.record(
                         &session_id,
                         &key,
                         Observation::Version(read.version.clone()),
                     )?;
-                    Ok(ReadOutcome::File(read))
+                    Ok(ReadOutcome::File(Box::new(read)))
                 }
                 None => {
                     observations.record(&session_id, &key, Observation::Absent)?;
@@ -905,8 +1038,16 @@ fn read_full(root: &Path, target: &PhysicalTarget) -> Result<(Vec<u8>, FsVersion
 fn scan_limited(
     root: &Path,
     target: &PhysicalTarget,
+    start: ReadStart,
     limits: ReadLimits,
 ) -> Result<Option<FileRead>, FsError> {
+    if matches!(&start, ReadStart::Line(0)) {
+        return Err(FsError::InvalidReadRange);
+    }
+    let limits = match &start {
+        ReadStart::Cursor(cursor) => cursor.limits,
+        _ => limits,
+    };
     let Some(mut file) = open_regular_contained(root, target)? else {
         return Ok(None);
     };
@@ -918,6 +1059,8 @@ fn scan_limited(
     let mut digest = Sha256::new();
     let mut capture = LimitedCapture::new(limits);
     let mut bytes_read = 0u64;
+    let mut source_line = 1u64;
+    let mut page_start = None;
     let mut buffer = [0u8; 32 * 1024];
     loop {
         let count = file
@@ -928,7 +1071,22 @@ fn scan_limited(
         }
         bytes_read = bytes_read.saturating_add(count as u64);
         digest.update(&buffer[..count]);
-        capture.push(&buffer[..count]);
+        let chunk_start = bytes_read.saturating_sub(count as u64);
+        for (index, byte) in buffer[..count].iter().enumerate() {
+            let source_offset = chunk_start.saturating_add(index as u64);
+            let selected = match &start {
+                ReadStart::Byte(offset) => source_offset >= *offset,
+                ReadStart::Line(line) => source_line >= *line,
+                ReadStart::Cursor(cursor) => source_offset >= cursor.offset,
+            };
+            if selected && !capture.stopped {
+                page_start.get_or_insert((source_offset, source_line));
+                capture.push_byte(*byte);
+            }
+            if *byte == b'\n' {
+                source_line = source_line.saturating_add(1);
+            }
+        }
     }
     let after = MetadataStamp::from_metadata(
         &file
@@ -941,14 +1099,40 @@ fn scan_limited(
         });
     }
     let version = after.into_version(digest.finalize().into());
-    let (text, mut utf8_diagnostics) = decode_capture(capture.bytes, capture.stopped);
+    if let ReadStart::Cursor(cursor) = &start {
+        if cursor.sha256 != *version.sha256() {
+            return Err(FsError::StaleReadCursor {
+                display: target.display.clone(),
+            });
+        }
+    }
+    let (page_start_offset, page_start_line) = page_start.unwrap_or((bytes_read, source_line));
+    let raw_captured_bytes = capture.bytes.len() as u64;
+    let (text, mut utf8_diagnostics, captured_bytes) =
+        decode_capture(capture.bytes, capture.stopped);
     capture.diagnostics.append(&mut utf8_diagnostics);
+    let continuation_bytes = if captured_bytes == 0 {
+        raw_captured_bytes
+    } else {
+        captured_bytes
+    };
+    let next_offset = page_start_offset.saturating_add(continuation_bytes);
+    let next_cursor = (capture.stopped && next_offset < bytes_read).then(|| ReadCursor {
+        offset: next_offset,
+        sha256: *version.sha256(),
+        limits,
+    });
     Ok(Some(FileRead {
         text,
         version,
         bytes_read,
         truncated: capture.stopped,
         diagnostics: capture.diagnostics,
+        page_start_offset,
+        page_start_line,
+        captured_bytes,
+        total_bytes: bytes_read,
+        next_cursor,
     }))
 }
 
@@ -973,37 +1157,35 @@ impl LimitedCapture {
         }
     }
 
-    fn push(&mut self, bytes: &[u8]) {
+    fn push_byte(&mut self, byte: u8) {
         if self.stopped {
             return;
         }
-        for byte in bytes {
-            if self.completed_lines >= self.limits.max_lines {
-                self.stop(ReadDiagnostic::LineLimit {
-                    limit: self.limits.max_lines,
-                });
-                break;
-            }
-            if self.bytes.len() >= self.limits.max_bytes {
-                self.stop(ReadDiagnostic::ByteLimit {
-                    limit: self.limits.max_bytes,
-                });
-                break;
-            }
-            if *byte != b'\n' && self.current_line_bytes >= self.limits.max_line_bytes {
-                self.stop(ReadDiagnostic::LongLine {
-                    line: self.completed_lines + 1,
-                    limit: self.limits.max_line_bytes,
-                });
-                break;
-            }
-            self.bytes.push(*byte);
-            if *byte == b'\n' {
-                self.completed_lines += 1;
-                self.current_line_bytes = 0;
-            } else {
-                self.current_line_bytes += 1;
-            }
+        if self.completed_lines >= self.limits.max_lines {
+            self.stop(ReadDiagnostic::LineLimit {
+                limit: self.limits.max_lines,
+            });
+            return;
+        }
+        if self.bytes.len() >= self.limits.max_bytes {
+            self.stop(ReadDiagnostic::ByteLimit {
+                limit: self.limits.max_bytes,
+            });
+            return;
+        }
+        if byte != b'\n' && self.current_line_bytes >= self.limits.max_line_bytes {
+            self.stop(ReadDiagnostic::LongLine {
+                line: self.completed_lines + 1,
+                limit: self.limits.max_line_bytes,
+            });
+            return;
+        }
+        self.bytes.push(byte);
+        if byte == b'\n' {
+            self.completed_lines += 1;
+            self.current_line_bytes = 0;
+        } else {
+            self.current_line_bytes += 1;
         }
     }
 
@@ -1013,10 +1195,11 @@ impl LimitedCapture {
     }
 }
 
-fn decode_capture(bytes: Vec<u8>, was_truncated: bool) -> (String, Vec<ReadDiagnostic>) {
+fn decode_capture(bytes: Vec<u8>, was_truncated: bool) -> (String, Vec<ReadDiagnostic>, u64) {
     let mut output = String::new();
     let mut diagnostics = Vec::new();
     let mut cursor = 0usize;
+    let mut consumed = bytes.len();
     while cursor < bytes.len() {
         match std::str::from_utf8(&bytes[cursor..]) {
             Ok(valid) => {
@@ -1040,6 +1223,7 @@ fn decode_capture(bytes: Vec<u8>, was_truncated: bool) -> (String, Vec<ReadDiagn
                         cursor = valid_end + invalid_len;
                     }
                     None if was_truncated => {
+                        consumed = valid_end;
                         diagnostics.push(ReadDiagnostic::Utf8BoundaryTrimmed {
                             bytes: bytes.len() - valid_end,
                         });
@@ -1056,7 +1240,7 @@ fn decode_capture(bytes: Vec<u8>, was_truncated: bool) -> (String, Vec<ReadDiagn
             }
         }
     }
-    (output, diagnostics)
+    (output, diagnostics, consumed as u64)
 }
 
 #[derive(Clone, Copy)]

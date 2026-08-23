@@ -1,7 +1,8 @@
 //! Unix process runtime used by local XHarness tools.
 //!
 //! Commands are always spawned as an executable plus an argument vector;
-//! there is no implicit shell. Every child starts a new session/process group,
+//! there is no implicit shell. Every child starts a dedicated process group
+//! (and, on Linux, a new session),
 //! receives an explicitly supplied working directory and environment, and has
 //! bounded stdout/stderr capture. Cancellation and timeouts signal the whole
 //! process group with `SIGTERM`, then `SIGKILL` after the configured grace.
@@ -23,10 +24,14 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "macos")]
+use nix::unistd::setpgid;
+#[cfg(not(target_os = "macos"))]
+use nix::unistd::setsid;
 use nix::{
     errno::Errno,
     sys::signal::{killpg, Signal},
-    unistd::{setsid, Pid},
+    unistd::Pid,
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
@@ -221,14 +226,22 @@ impl ProcessRuntime {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        // SAFETY: `setsid` is a single async-signal-safe syscall and the
-        // closure captures no state. It is the only operation performed in
-        // the post-fork/pre-exec child.
+        // SAFETY: the closure captures no state and performs exactly one
+        // async-signal-safe syscall in the post-fork/pre-exec child. Linux
+        // gets a fresh session as well as a process group. On macOS, keeping
+        // the child in the parent's session while assigning a fresh process
+        // group is intentional: hosted/sandboxed macOS runners may reject a
+        // cross-session `killpg(2)` with EPERM even for same-uid children.
+        // A dedicated process group still gives the lifecycle runtime the
+        // required tree-wide TERM/KILL semantics; hard containment remains a
+        // responsibility of the platform sandbox.
         unsafe {
             command.pre_exec(|| {
-                setsid()
-                    .map(|_| ())
-                    .map_err(|error| io::Error::from_raw_os_error(error as i32))
+                #[cfg(target_os = "macos")]
+                let result = setpgid(Pid::from_raw(0), Pid::from_raw(0));
+                #[cfg(not(target_os = "macos"))]
+                let result = setsid().map(|_| ());
+                result.map_err(|error| io::Error::from_raw_os_error(error as i32))
             });
         }
 

@@ -157,7 +157,10 @@ async fn cancel_kills_the_session_leader_and_descendant_tree() {
 
     let (process_group, session) = proc_group_and_session(leader_pid);
     assert_eq!(process_group, leader_pid);
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(session, leader_pid);
+    #[cfg(target_os = "macos")]
+    assert_ne!(session, leader_pid);
     assert!(handle.cancel());
     let output = handle.wait().await.unwrap();
     assert_eq!(output.termination, TerminationReason::Cancelled);

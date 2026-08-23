@@ -1,0 +1,42 @@
+{
+  "default": {
+    "provider": "llama-4080",
+    "model": "qwen3.8-27b"
+  },
+  "providers": [
+    {
+      "id": "llama-4080",
+      "display_name": "RTX 4080",
+      "kind": "openai-compatible",
+      "base_url": "http://127.0.0.1:19626/v1",
+      "protocol": "chat",
+      "models": [
+        {
+          "id": "qwen3.8-27b",
+          "upstream_model": "/home/wzu/wangyue/models/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q3_K_M.gguf",
+          "display_name": "Qwen3.8 27B · 4080",
+          "context_window_tokens": 53248,
+          "max_output_tokens": 8192,
+          "token_safety_margin": 1024
+        }
+      ]
+    },
+    {
+      "id": "llama-v100",
+      "display_name": "V100 Server",
+      "kind": "openai-compatible",
+      "base_url": "http://127.0.0.1:8000/v1",
+      "protocol": "chat",
+      "models": [
+        {
+          "id": "qwen3.5-9b",
+          "upstream_model": "qwen3.5-9b-v100",
+          "display_name": "Qwen3.5 9B · V100",
+          "context_window_tokens": 32768,
+          "max_output_tokens": 4096,
+          "token_safety_margin": 1024
+        }
+      ]
+    }
+  ]
+}

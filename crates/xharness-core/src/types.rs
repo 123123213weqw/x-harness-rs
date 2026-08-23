@@ -61,8 +61,18 @@ pub enum ToolConcurrency {
     Exclusive,
 }
 
+#[derive(Clone, Debug)]
+pub struct ToolInvocation {
+    /// Durable Harness identity shared by Journal, Approval and Tool pipeline.
+    pub execution_id: String,
+    /// Provider-native identity retained only for wire replay correlation.
+    pub provider_call_id: Option<String>,
+    pub arguments: Value,
+    pub cancellation: CancellationToken,
+}
+
 pub type ToolHandler =
-    Arc<dyn Fn(Value, CancellationToken) -> BoxFuture<'static, ToolResult> + Send + Sync + 'static>;
+    Arc<dyn Fn(ToolInvocation) -> BoxFuture<'static, ToolResult> + Send + Sync + 'static>;
 pub type ResourceKeyResolver = Arc<dyn Fn(&Value) -> Option<String> + Send + Sync + 'static>;
 
 #[derive(Clone)]
@@ -92,6 +102,9 @@ pub struct ProviderRequest {
     pub messages: Vec<AgentMessage>,
     pub tools: Vec<ToolDefinition>,
     pub step: usize,
+    /// Provider-neutral generation ceiling. Adapters map this to their native
+    /// `max_tokens`/`max_output_tokens` request field.
+    pub max_output_tokens: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -279,7 +292,7 @@ pub enum LoopControlError {
     Rejected(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LoopEventKind {
     TextDelta(String),
     ReasoningDelta(String),
@@ -289,9 +302,11 @@ pub enum LoopEventKind {
         result: ToolResult,
     },
     ToolApprovalRequested {
+        approval_id: String,
         call: ToolCall,
     },
     ToolApprovalResolved {
+        approval_id: String,
         call: ToolCall,
         approved: bool,
         reason: Option<String>,
@@ -304,8 +319,16 @@ pub enum LoopEventKind {
     RunResumed,
     ModelInterrupted,
     ModelRetry {
+        retry_id: String,
         attempt: usize,
+        max_retries: usize,
         error: String,
+    },
+    /// The subscriber fell behind the bounded event journal. `resume_seq` is
+    /// the first event sequence still available for deterministic replay.
+    EventsLagged {
+        missed: u64,
+        resume_seq: u64,
     },
     RunCompleted {
         text: String,
@@ -317,7 +340,7 @@ pub enum LoopEventKind {
     LimitReached,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoopEvent {
     pub seq: u64,
     pub run_id: String,
@@ -368,10 +391,12 @@ pub struct LoopConfig {
     pub max_tool_concurrency: usize,
     pub tool_result_limit_bytes: usize,
     pub provider_retries: usize,
-    /// Retained for configuration compatibility. Loop events are delivered
-    /// through a non-blocking unbounded channel, so this value is not currently
-    /// used as a channel capacity.
+    /// Maximum number of events retained by the non-blocking in-memory event
+    /// journal. Slow subscribers receive an explicit lag record.
     pub event_buffer: usize,
+    /// Aggregate serialized-byte budget of retained loop events. The journal
+    /// evicts oldest events until both count and byte budgets are satisfied.
+    pub event_buffer_bytes: usize,
     pub command_buffer: usize,
 }
 
@@ -397,6 +422,7 @@ impl Default for LoopConfig {
             tool_result_limit_bytes: 256 * 1024,
             provider_retries: 2,
             event_buffer: 128,
+            event_buffer_bytes: 8 * 1024 * 1024,
             command_buffer: 64,
         }
     }
@@ -425,6 +451,16 @@ impl LoopConfig {
                 "command_buffer must be greater than zero",
             ));
         }
+        if self.event_buffer == 0 {
+            return Err(LoopValidationError::new(
+                "event_buffer must be greater than zero",
+            ));
+        }
+        if self.event_buffer_bytes == 0 {
+            return Err(LoopValidationError::new(
+                "event_buffer_bytes must be greater than zero",
+            ));
+        }
         Ok(())
     }
 }
@@ -432,6 +468,17 @@ impl LoopConfig {
 pub struct LoopRequest {
     pub provider: Arc<dyn ModelProvider>,
     pub messages: Vec<AgentMessage>,
+    /// Deterministic model-facing System Prompt. It is reassembled for each
+    /// turn and never becomes transcript history.
+    pub prompt: Option<xharness_prompt::PromptAssembly>,
+    /// Hard admission guard evaluated after context projection and before any
+    /// provider I/O. Production hosts should always configure one.
+    pub token_guard: Option<xharness_token::TokenGuard>,
+    /// Formal policy-aware tool runtime. New hosts should set this instead of
+    /// populating the legacy `tools` compatibility registrations.
+    pub tool_executor: Option<xharness_tools::ToolExecutor>,
+    /// Temporary compatibility registrations. Removed after every embedder
+    /// has migrated to `tool_executor`.
     pub tools: Vec<ToolSpec>,
     pub session_id: Option<String>,
     pub session_store: Arc<dyn crate::SessionStore>,
@@ -439,6 +486,10 @@ pub struct LoopRequest {
     /// restoration for this run; the legacy `session_store` remains a v0
     /// migration bridge.
     pub journal_store: Option<Arc<dyn xharness_session::Store>>,
+    /// Durable control-plane facts committed in the same atomic batch as the
+    /// next `turn/start` and new user input. Long-lived agents use this to
+    /// claim inbox messages without a crash window between dequeue and turn.
+    pub journal_prelude: Vec<xharness_session::SessionEvent>,
     pub context_policy: Arc<dyn crate::ContextPolicy>,
     pub config: LoopConfig,
 }
@@ -448,10 +499,14 @@ impl LoopRequest {
         Self {
             provider,
             messages,
+            prompt: None,
+            token_guard: None,
+            tool_executor: None,
             tools: Vec::new(),
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
             journal_store: None,
+            journal_prelude: Vec::new(),
             context_policy: Arc::new(crate::IdentityContextPolicy),
             config: LoopConfig::default(),
         }
@@ -461,6 +516,26 @@ impl LoopRequest {
     /// provider, session store, context policy, or any tool handler.
     pub fn validate(&self) -> Result<(), LoopValidationError> {
         self.config.validate()?;
+        if self.prompt.is_some()
+            && self
+                .messages
+                .iter()
+                .any(|message| message.role == Role::System)
+        {
+            return Err(LoopValidationError::new(
+                "prompt assembly and explicit system messages cannot be combined",
+            ));
+        }
+        if !self.journal_prelude.is_empty() && self.journal_store.is_none() {
+            return Err(LoopValidationError::new(
+                "journal_prelude requires journal_store",
+            ));
+        }
+        if self.tool_executor.is_some() && !self.tools.is_empty() {
+            return Err(LoopValidationError::new(
+                "tool_executor and legacy tools cannot be configured together",
+            ));
+        }
         let mut names = HashSet::with_capacity(self.tools.len());
         for (index, tool) in self.tools.iter().enumerate() {
             let name = tool.definition.name.as_str();

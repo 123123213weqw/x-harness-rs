@@ -11,12 +11,16 @@ async-trait.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
 xharness-context = { path = "../xharness-context" }
+xharness-prompt = { path = "../xharness-prompt" }
 xharness-session = { path = "../xharness-session" }
+xharness-token = { path = "../xharness-token" }
+xharness-tools = { path = "../xharness-tools" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

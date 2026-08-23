@@ -14,9 +14,9 @@
 Pending/Event 字节预算和错误 Body 预算。流预算为零的配置必须在网络 I/O 前失败。
 Debug 输出必须隐藏 API Key。
 
-当前 Config 不包含权威 `context_window_tokens`，Provider 也不会自动查询 llama.cpp 的启动
-参数。未来模型能力必须由 LLM Registry/部署配置显式提供给 Prepared Call；Adapter 禁止根据
-一次 400 错误猜窗口后自动重发。
+Provider Config 不自动查询 llama.cpp 的启动参数。正式 Host 通过 `xharness-token` 的显式部署
+配置把窗口绑定到 Prepared Call；未来模型能力由 LLM Registry 提供。Adapter 禁止根据一次
+400 错误猜窗口后自动重发。
 
 端点派生规则：
 
@@ -36,6 +36,9 @@ Chat 使用 Assistant `tool_calls` 和 `role=tool` 结果。Responses 使用 `st
 无状态完整重放、原生 Function Call/Output Item，并保留 Reasoning 端点重放所需的 Opaque
 Provider Item。
 
+Prepared Call 的 Provider-neutral `max_output_tokens` 在 Chat Completions 映射为 `max_tokens`，
+在 Responses 映射为 `max_output_tokens`。该值来自已验证 Token Budget 的输出预留。
+
 ## 流归一化
 
 SSE Parser 必须处理任意字节切分、被拆开的 UTF-8 字符、CRLF、注释、多行 `data:`、
@@ -54,12 +57,19 @@ Provider Error。Usage 桶必须互不重叠：未缓存输入、可见输出、
 - 协议截断/Incomplete 必须转成强类型 Finish Reason，不能伪装成功。
 - 流结束但没有合法生命周期 Completion 属于错误。
 
+## Tool Call 身份重放
+
+Core 持久化的 `ToolCall.id` 是全 Session 唯一 Execution ID，`provider_call_id` 是线协议原生
+身份。Chat Assistant `tool_calls[].id`、Chat Tool `tool_call_id`、Responses
+`function_call.call_id` 和 `function_call_output.call_id` 必须成对使用 Provider ID；Approval、
+Journal 与 Web Audit 继续使用 Execution ID。Responses 存在 Opaque Provider Item 时仍原样重放，
+Tool Result 从对应持久 Tool Call 恢复 Provider ID。旧日志没有该字段时回退到 Execution ID。
+
 ## 当前限制
 
 - 每个 Adapter 实例只绑定一个 Provider/Model。
-- Provider 路由和按用途选模型属于后续 LLM Registry。
-- 在 namespaced Journal ID 能无歧义重放前，Responses 的 Execution ID 与 Provider 原生
-  Call ID 仍需显式稳定映射。
+- Host 层 [`ModelRegistry`](model-registry.md) 已能把多个 Adapter 实例绑定到不同公共路由；按
+  Purpose 选模型仍未实现。
 - Tool Schema/Prompt 缓存依赖具体 Provider，本层不控制。
 - 尚无统一模型 Capability（Context Window、最大输出、Tokenizer、工具/多模态支持）注册表。
 

@@ -10,6 +10,10 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use tokio::{process::Command, time};
 use tokio_tungstenite::connect_async;
+use xharness_session::{
+    EventData, Message, RequestHeader, Revision, SessionHeader, Store, TurnEndReason,
+};
+use xharness_session_jsonl::JsonlSessionStore;
 
 struct TempWorkspace(PathBuf);
 
@@ -63,6 +67,8 @@ fn spawn_host(address: SocketAddr, workspace: &Path) -> HostProcess {
             &workspace.to_string_lossy(),
             "--model",
             "unconfigured",
+            "--state-dir",
+            &workspace.join(".xharness-state").to_string_lossy(),
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -74,13 +80,22 @@ fn spawn_host(address: SocketAddr, workspace: &Path) -> HostProcess {
 }
 
 async fn workspace_list(client: &Client, address: SocketAddr) -> Option<Value> {
+    rpc_call(client, address, "workspace.list", json!({})).await
+}
+
+async fn rpc_call(
+    client: &Client,
+    address: SocketAddr,
+    method: &str,
+    payload: Value,
+) -> Option<Value> {
     let response = client
-        .post(format!("http://{address}/api/workspace.list"))
+        .post(format!("http://{address}/api/{method}"))
         .json(&json!({
             "type": "client-request",
-            "rpcId": "restart-test",
-            "method": "workspace.list",
-            "payload": {},
+            "rpcId": format!("restart-test-{method}"),
+            "method": method,
+            "payload": payload,
         }))
         .send()
         .await
@@ -113,6 +128,46 @@ async fn wait_for_workspace(client: &Client, address: SocketAddr, expected: &Pat
 #[tokio::test]
 async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
     let workspace = TempWorkspace::new();
+    let custom_workspace = workspace.0.join("custom-workspace");
+    std::fs::create_dir(&custom_workspace).unwrap();
+    let store = JsonlSessionStore::new(workspace.0.join(".xharness-state/sessions")).unwrap();
+    let mut header = SessionHeader::new("persisted-session");
+    header.cwd = Some(workspace.0.to_string_lossy().into_owned());
+    store.create(header).await.unwrap();
+    store
+        .append(
+            "persisted-session",
+            Revision::ZERO,
+            vec![
+                EventData::TurnStart { turn: 1 }.into(),
+                EventData::UserMessage {
+                    message: Message::user("survive restart").with_id("persisted-prompt"),
+                }
+                .into(),
+                EventData::StepStart { turn: 1, step: 1 }.into(),
+                EventData::RequestHeader {
+                    header: RequestHeader::new("openai-compatible", "unconfigured"),
+                }
+                .into(),
+                EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: Message::assistant("still here"),
+                    usage: None,
+                }
+                .into(),
+                EventData::StepEnd { turn: 1, step: 1 }.into(),
+                EventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Completed,
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    store.flush("persisted-session").await.unwrap();
+
     let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));
     let client = Client::new();
 
@@ -125,6 +180,63 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
             .len(),
         1
     );
+    let first_sessions = rpc_call(&client, address, "session.list", json!({}))
+        .await
+        .expect("first Host lists restored sessions");
+    assert_eq!(
+        first_sessions["result"]["value"]["items"][0]["sessionId"],
+        "persisted-session"
+    );
+    let first_history = rpc_call(
+        &client,
+        address,
+        "session.history",
+        json!({"sessionId": "persisted-session"}),
+    )
+    .await
+    .expect("first Host projects restored history");
+    assert!(first_history["result"]["value"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["event"]["type"] == "assistant/message"));
+    let created_workspace = rpc_call(
+        &client,
+        address,
+        "workspace.create",
+        json!({"path": custom_workspace.to_string_lossy()}),
+    )
+    .await
+    .expect("first Host persists a custom workspace");
+    let custom_workspace_id = created_workspace["result"]["value"]["workspace"]["workspaceId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let renamed = rpc_call(
+        &client,
+        address,
+        "workspace.rename",
+        json!({"workspaceId": custom_workspace_id, "title": "Restart durable"}),
+    )
+    .await
+    .expect("first Host persists workspace metadata");
+    assert_eq!(
+        renamed["result"]["value"]["workspace"]["title"],
+        "Restart durable"
+    );
+    let settings = rpc_call(
+        &client,
+        address,
+        "settings.replace",
+        json!({
+            "ns": "ui-onboarding",
+            "section": {"welcomeNoticeVersion": "restart-v1"},
+            "expectedRevision": 0,
+        }),
+    )
+    .await
+    .expect("first Host persists settings");
+    assert_eq!(settings["result"]["value"]["revision"], 1);
     let (mut first_socket, _) = connect_async(format!("ws://{address}/api/events.host"))
         .await
         .expect("first websocket connects");
@@ -142,13 +254,39 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
 
     let second = spawn_host(address, &workspace.0);
     let second_list = wait_for_workspace(&client, address, &workspace.0).await;
+    let second_workspaces = second_list["result"]["value"]["items"].as_array().unwrap();
+    assert_eq!(second_workspaces.len(), 2);
+    assert!(second_workspaces.iter().any(|item| {
+        item["workspaceId"] == custom_workspace_id && item["title"] == "Restart durable"
+    }));
+    let second_sessions = rpc_call(&client, address, "session.list", json!({}))
+        .await
+        .expect("second Host lists restored sessions");
     assert_eq!(
-        second_list["result"]["value"]["items"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
+        second_sessions["result"]["value"]["items"][0]["sessionId"],
+        "persisted-session"
     );
+    let second_settings = rpc_call(&client, address, "settings.describe", json!({}))
+        .await
+        .expect("second Host restores settings");
+    assert!(second_settings["result"]["value"]["namespaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|namespace| {
+            namespace["ns"] == "ui-onboarding"
+                && namespace["value"]["welcomeNoticeVersion"] == "restart-v1"
+                && namespace["revision"] == 1
+        }));
+    let replayed_create = rpc_call(
+        &client,
+        address,
+        "workspace.create",
+        json!({"path": custom_workspace.to_string_lossy()}),
+    )
+    .await
+    .expect("second Host replays the original mutation receipt");
+    assert_eq!(replayed_create, created_workspace);
     let (_second_socket, _) = connect_async(format!("ws://{address}/api/events.host"))
         .await
         .expect("new websocket connects after restart");

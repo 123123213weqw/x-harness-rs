@@ -11,16 +11,21 @@ use std::{
 use async_trait::async_trait;
 use futures::{stream, StreamExt};
 use serde_json::{json, Value};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
     ApiBackend, ClientResponse, ClientResponseKind, RpcId, RpcMethod, RpcReceipt, RpcResult,
 };
 use xharness_core::{
     ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface, FinishReason,
-    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, SurfaceEdit,
-    SurfaceEditKind, TokenUsage, ToolResult, ToolSpec,
+    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Role,
+    SurfaceEdit, SurfaceEditKind, TokenUsage,
 };
-use xharness_host::{BasicHost, HostConfig, NoTools, PermissionPreset, SessionToolFactory};
+use xharness_host::{
+    AgentRuntime, AgentRuntimeError, AgentTurnRequest, BasicHost, HostConfig, LoopAgentRuntime,
+    ModelDescriptor, ModelRoute, NoTools, PermissionPreset, RunningTurn, SessionToolFactory,
+};
+use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, ToolSpec};
 
 struct TextProvider;
 
@@ -88,13 +93,124 @@ impl ModelProvider for CapturingProvider {
 
 struct CompactingPolicy;
 
+struct GatedAdmissionRuntime {
+    inner: LoopAgentRuntime,
+    entered: Arc<AtomicBool>,
+    release: Arc<Notify>,
+    admitted_message_id: Arc<Mutex<Option<String>>>,
+}
+
+struct GatedPersistenceRuntime {
+    inner: LoopAgentRuntime,
+    entered: Arc<AtomicBool>,
+    release: Arc<Notify>,
+    persist_calls: Arc<Mutex<usize>>,
+}
+
+struct CatalogRuntime;
+
+#[async_trait]
+impl AgentRuntime for CatalogRuntime {
+    fn has_available_route(&self) -> bool {
+        true
+    }
+
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        matches!(
+            (route.provider.as_str(), route.model.as_str()),
+            ("gpu-4080", "qwen-4080") | ("gpu-v100", "qwen-v100")
+        )
+    }
+
+    fn model_catalog(&self) -> Vec<ModelDescriptor> {
+        vec![
+            ModelDescriptor::new("gpu-4080", "RTX 4080", "qwen-4080", "Qwen · 4080"),
+            ModelDescriptor::new("gpu-v100", "V100 Server", "qwen-v100", "Qwen · V100"),
+        ]
+    }
+
+    async fn start_turn(
+        &self,
+        _request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "catalog fixture does not execute turns".to_owned(),
+        })
+    }
+}
+
+#[async_trait]
+impl AgentRuntime for GatedAdmissionRuntime {
+    fn has_available_route(&self) -> bool {
+        self.inner.has_available_route()
+    }
+
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        self.inner.can_route(route)
+    }
+
+    async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
+        *self.admitted_message_id.lock().unwrap() = request
+            .messages
+            .last()
+            .and_then(|message| message.id.clone());
+        self.entered.store(true, Ordering::SeqCst);
+        self.release.notified().await;
+        Ok(())
+    }
+
+    async fn start_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.inner.start_turn(request).await
+    }
+}
+
+#[async_trait]
+impl AgentRuntime for GatedPersistenceRuntime {
+    fn has_available_route(&self) -> bool {
+        self.inner.has_available_route()
+    }
+
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        self.inner.can_route(route)
+    }
+
+    async fn persist_session_events(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _events: Vec<xharness_session::SessionEvent>,
+    ) -> Result<bool, AgentRuntimeError> {
+        *self.persist_calls.lock().unwrap() += 1;
+        self.entered.store(true, Ordering::SeqCst);
+        self.release.notified().await;
+        Ok(false)
+    }
+
+    async fn start_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.inner.start_turn(request).await
+    }
+}
+
 #[async_trait]
 impl ContextPolicy for CompactingPolicy {
     async fn prepare(&self, request: ContextRequest) -> Result<ContextSurface, ContextError> {
+        let mut messages = request
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .cloned()
+            .collect::<Vec<_>>();
+        messages.push(xharness_core::AgentMessage::user("host projected context"));
         Ok(ContextSurface::transformed(
             ContextPolicyId::new("host-test", 1),
             request.messages.len(),
-            vec![xharness_core::AgentMessage::user("host projected context")],
+            messages,
             vec![SurfaceEdit::new(
                 0,
                 request.messages.len(),
@@ -210,6 +326,7 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
         panic!("commands/list failed: {listed:?}");
     };
     assert_eq!(listed[0]["name"], "permission");
+    assert_eq!(listed[1]["name"], "plan");
 
     let switched = fx
         .host
@@ -251,6 +368,10 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
     assert_eq!(
         types,
         [
+            "agent-preset/selected",
+            "permission/preset",
+            "sandbox/mode",
+            "approval/policy",
             "command/run",
             "permission/preset",
             "sandbox/mode",
@@ -262,10 +383,11 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
         .as_array()
         .unwrap()
         .iter()
+        .rev()
         .find(|entry| entry["event"]["type"] == "sandbox/mode")
         .unwrap();
-    assert_eq!(sandbox_event["event"]["data"]["enabled"], false);
-    assert_eq!(sandbox_event["event"]["data"]["mode"], "disabled");
+    assert!(sandbox_event["event"]["data"].get("enabled").is_none());
+    assert_eq!(sandbox_event["event"]["data"]["mode"], "danger-full-access");
 
     let settings = fx.value(RpcMethod::SettingsDescribe, json!({})).await;
     let permission = settings["namespaces"]
@@ -307,6 +429,96 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
         second_history["projections"]["values"]["permissions"]["currentValue"],
         "danger-full-access"
     );
+}
+
+#[tokio::test]
+async fn idle_plan_command_is_log_backed_and_unsupported_payloads_fail_without_flipping() {
+    let mut fx = Fixture::new();
+    let created = fx
+        .value(
+            RpcMethod::SessionCreate,
+            json!({"cwd": fx.root.to_string_lossy()}),
+        )
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap().to_owned();
+
+    let unsupported = fx
+        .host
+        .call_dynamic(
+            RpcId::new("plan-message"),
+            "commands/execute",
+            json!({
+                "args": {
+                    "agentId": session_id,
+                    "line": "/plan investigate first",
+                    "images": [],
+                }
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let RpcResult::Success {
+        value: Some(unsupported),
+    } = unsupported
+    else {
+        panic!("plan command failed at transport level: {unsupported:?}");
+    };
+    assert_eq!(unsupported["result"]["kind"], "error");
+
+    let enabled = fx
+        .host
+        .call_dynamic(
+            RpcId::new("plan-on"),
+            "commands/execute",
+            json!({"args": {"agentId": session_id, "line": "/plan", "images": []}}),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(enabled.is_ok());
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId": session_id}))
+        .await;
+    assert_eq!(
+        history["projections"]["values"]["plan"],
+        json!({"active": true, "pending": false})
+    );
+    assert_eq!(
+        history["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry["event"]["type"] == "plan/mode")
+            .count(),
+        1
+    );
+
+    let rejected_off = fx
+        .host
+        .call_dynamic(
+            RpcId::new("plan-off-image"),
+            "commands/execute",
+            json!({
+                "args": {
+                    "agentId": session_id,
+                    "line": "/plan off",
+                    "images": [{"type": "image", "data": "ignored"}],
+                }
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let RpcResult::Success {
+        value: Some(rejected_off),
+    } = rejected_off
+    else {
+        panic!("plan off command failed at transport level: {rejected_off:?}");
+    };
+    assert_eq!(rejected_off["result"]["kind"], "error");
+    let snapshot = fx.host.snapshot().await;
+    assert_eq!(snapshot["sessions"][0]["planActive"], true);
 }
 
 #[tokio::test]
@@ -378,7 +590,8 @@ async fn host_injects_the_configured_context_policy_into_each_turn() {
     {
         let requests = provider.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].messages[0].content, "host projected context");
+        assert_eq!(requests[0].messages[0].role, Role::System);
+        assert_eq!(requests[0].messages[1].content, "host projected context");
     }
 
     let snapshot = host.snapshot().await;
@@ -386,6 +599,75 @@ async fn host_injects_the_configured_context_policy_into_each_turn() {
         snapshot["sessions"][0]["messages"][0]["content"],
         "full host history"
     );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_prompt() {
+    let root = std::env::temp_dir().join(format!("xharness-host-prompt-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "capture".to_owned();
+    config.model_id = "capture-model".to_owned();
+    let provider = Arc::new(CapturingProvider::default());
+    let host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+
+    let created = host
+        .call(
+            RpcId::new("prompt-create"),
+            RpcMethod::SessionCreate,
+            json!({"cwd": root}),
+            CancellationToken::new(),
+        )
+        .await;
+    let session_id = match created {
+        RpcResult::Success { value: Some(value) } => {
+            value["sessionId"].as_str().unwrap().to_owned()
+        }
+        other => panic!("create failed: {other:?}"),
+    };
+    let selected = host
+        .call_dynamic(
+            RpcId::new("prompt-plan"),
+            "commands/execute",
+            json!({"args": {"agentId": session_id, "line": "/plan", "images": []}}),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("plan command is mounted");
+    assert!(matches!(selected, RpcResult::Success { .. }));
+
+    assert!(host
+        .call(
+            RpcId::new("prompt-run"),
+            RpcMethod::SessionPrompt,
+            json!({
+                "sessionId": session_id,
+                "mode": "queue",
+                "content": [{"type": "text", "text": "show the exact prompt"}],
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .is_ok());
+
+    for _ in 0..100 {
+        if !provider.requests.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let requests = provider.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].messages[0].role, Role::System);
+    let system = &requests[0].messages[0].content;
+    assert!(system.contains("You are a coding agent."));
+    assert!(system.contains("workspace-write isolation"));
+    assert!(system.contains("continue only the needed page with next_cursor"));
+    assert!(system.contains("Once the evidence is sufficient, answer directly."));
+    assert!(system.contains("Plan mode is active."));
+    assert_eq!(requests[0].messages[1].content, "show the exact prompt");
+    drop(requests);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -412,7 +694,7 @@ async fn unroutable_session_model_is_rejected_before_prompt_queueing() {
         }
         other => panic!("create failed: {other:?}"),
     };
-    assert!(host
+    let selection = host
         .call(
             RpcId::new("route-select"),
             RpcMethod::SessionSelectModel,
@@ -423,22 +705,9 @@ async fn unroutable_session_model_is_rejected_before_prompt_queueing() {
             }),
             CancellationToken::new(),
         )
-        .await
-        .is_ok());
-    let prompt = host
-        .call(
-            RpcId::new("route-prompt"),
-            RpcMethod::SessionPrompt,
-            json!({
-                "sessionId": session_id,
-                "mode": "queue",
-                "content": [{"type": "text", "text": "must not run"}],
-            }),
-            CancellationToken::new(),
-        )
         .await;
     assert!(matches!(
-        prompt,
+        selection,
         RpcResult::Failure {
             error: xharness_api::RpcError {
                 code: xharness_api::RpcErrorCode::ModelUnavailable,
@@ -449,7 +718,335 @@ async fn unroutable_session_model_is_rejected_before_prompt_queueing() {
     assert!(provider.requests.lock().unwrap().is_empty());
     let snapshot = host.snapshot().await;
     assert_eq!(snapshot["sessions"][0]["running"], false);
+    assert_eq!(snapshot["sessions"][0]["model"]["model"], "capture-model");
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
+    let root = std::env::temp_dir().join(format!("xharness-host-catalog-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "gpu-4080".to_owned();
+    config.provider_display_name = "RTX 4080".to_owned();
+    config.model_id = "qwen-4080".to_owned();
+    let host = BasicHost::with_agent_runtime(config, Arc::new(CatalogRuntime));
+
+    let providers = host
+        .call(
+            RpcId::new("catalog-providers"),
+            RpcMethod::LlmProviders,
+            json!({}),
+            CancellationToken::new(),
+        )
+        .await;
+    let providers = match providers {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("provider catalog failed: {other:?}"),
+    };
+    assert_eq!(providers["providers"].as_array().unwrap().len(), 2);
+    assert_eq!(providers["providers"][1]["provider"], "gpu-v100");
+
+    let models = host
+        .call(
+            RpcId::new("catalog-models"),
+            RpcMethod::LlmModels,
+            json!({}),
+            CancellationToken::new(),
+        )
+        .await;
+    let models = match models {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("model catalog failed: {other:?}"),
+    };
+    assert_eq!(models["groups"].as_array().unwrap().len(), 2);
+    assert_eq!(models["groups"][1]["models"][0]["id"], "qwen-v100");
+
+    let created = host
+        .call(
+            RpcId::new("catalog-create"),
+            RpcMethod::SessionCreate,
+            json!({"cwd": root}),
+            CancellationToken::new(),
+        )
+        .await;
+    let session_id = match created {
+        RpcResult::Success { value: Some(value) } => {
+            value["sessionId"].as_str().unwrap().to_owned()
+        }
+        other => panic!("session create failed: {other:?}"),
+    };
+    let selected = host
+        .call(
+            RpcId::new("catalog-select"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "gpu-v100",
+                "model": "qwen-v100",
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(selected, RpcResult::Success { .. }));
+    let current = host
+        .call(
+            RpcId::new("catalog-current"),
+            RpcMethod::SessionModels,
+            json!({"sessionId": session_id}),
+            CancellationToken::new(),
+        )
+        .await;
+    let current = match current {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("session models failed: {other:?}"),
+    };
+    assert_eq!(current["current"]["provider"], "gpu-v100");
+    assert_eq!(current["current"]["model"], "qwen-v100");
+    assert_eq!(current["routable"], true);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_id() {
+    let root = std::env::temp_dir().join(format!("xharness-host-admission-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "test".to_owned();
+    config.model_id = "test-model".to_owned();
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(Notify::new());
+    let admitted_message_id = Arc::new(Mutex::new(None));
+    let runtime = Arc::new(GatedAdmissionRuntime {
+        inner: LoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(Arc::new(TextProvider)),
+            Arc::new(NoTools),
+            Arc::new(xharness_core::IdentityContextPolicy),
+        ),
+        entered: Arc::clone(&entered),
+        release: Arc::clone(&release),
+        admitted_message_id: Arc::clone(&admitted_message_id),
+    });
+    let host = BasicHost::with_agent_runtime(config, runtime);
+    let created = host
+        .call(
+            RpcId::new("admission-create"),
+            RpcMethod::SessionCreate,
+            json!({"cwd": root}),
+            CancellationToken::new(),
+        )
+        .await;
+    let session_id = match created {
+        RpcResult::Success { value: Some(value) } => {
+            value["sessionId"].as_str().unwrap().to_owned()
+        }
+        other => panic!("create failed: {other:?}"),
+    };
+
+    let prompt_host = Arc::clone(&host);
+    let prompt = tokio::spawn(async move {
+        prompt_host
+            .call(
+                RpcId::new("admission-prompt"),
+                RpcMethod::SessionPrompt,
+                json!({
+                    "sessionId": session_id,
+                    "mode": "queue",
+                    "content": [{"type": "text", "text": "persist before ack"}],
+                }),
+                CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !entered.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("session.prompt never reached runtime admission");
+    assert!(entered.load(Ordering::SeqCst));
+    assert!(
+        !prompt.is_finished(),
+        "HTTP receipt escaped before admission"
+    );
+    assert_eq!(
+        admitted_message_id.lock().unwrap().as_deref(),
+        Some("admission-prompt")
+    );
+
+    release.notify_one();
+    assert!(prompt.await.unwrap().is_ok());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_named_session_create_waits_for_the_initial_event_flush() {
+    let root =
+        std::env::temp_dir().join(format!("xharness-host-create-fence-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config = HostConfig::new(&root);
+    config.provider_id = "test".to_owned();
+    config.model_id = "test-model".to_owned();
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(Notify::new());
+    let persist_calls = Arc::new(Mutex::new(0));
+    let runtime = Arc::new(GatedPersistenceRuntime {
+        inner: LoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(Arc::new(TextProvider)),
+            Arc::new(NoTools),
+            Arc::new(xharness_core::IdentityContextPolicy),
+        ),
+        entered: Arc::clone(&entered),
+        release: Arc::clone(&release),
+        persist_calls: Arc::clone(&persist_calls),
+    });
+    let host = BasicHost::with_agent_runtime(config, runtime);
+    let payload = json!({
+        "sessionId": "durable-create",
+        "cwd": root,
+        "agentPreset": "coding",
+    });
+
+    let first_host = Arc::clone(&host);
+    let first_payload = payload.clone();
+    let first = tokio::spawn(async move {
+        first_host
+            .call(
+                RpcId::new("create-first"),
+                RpcMethod::SessionCreate,
+                first_payload,
+                CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !entered.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("session.create never reached the persistence barrier");
+
+    let second_host = Arc::clone(&host);
+    let second = tokio::spawn(async move {
+        second_host
+            .call(
+                RpcId::new("create-second"),
+                RpcMethod::SessionCreate,
+                payload,
+                CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    assert!(
+        !second.is_finished(),
+        "idempotent create escaped before the first durable receipt"
+    );
+
+    release.notify_one();
+    let first = first.await.unwrap();
+    let second = second.await.unwrap();
+    assert!(first.is_ok());
+    assert_eq!(first, second);
+    assert_eq!(*persist_calls.lock().unwrap(), 1);
+
+    let snapshot = host.snapshot().await;
+    let events = snapshot["sessions"][0]["events"]
+        .as_array()
+        .expect("session events");
+    assert_eq!(
+        events
+            .iter()
+            .filter_map(|event| event["type"].as_str())
+            .collect::<Vec<_>>(),
+        [
+            "agent-preset/selected",
+            "permission/preset",
+            "sandbox/mode",
+            "approval/policy",
+        ]
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_prompt_retry_is_admitted_once_and_payload_reuse_conflicts() {
+    let mut fx = Fixture::new();
+    let created = fx
+        .value(
+            RpcMethod::SessionCreate,
+            json!({"cwd": fx.root.to_string_lossy()}),
+        )
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap().to_owned();
+    let payload = json!({
+        "sessionId": session_id,
+        "mode": "queue",
+        "content": [{"type": "text", "text": "exactly once"}],
+    });
+    let first_host = Arc::clone(&fx.host);
+    let second_host = Arc::clone(&fx.host);
+    let first_payload = payload.clone();
+    let second_payload = payload.clone();
+    let (first, second) = tokio::join!(
+        first_host.call(
+            RpcId::new("same-prompt-rpc"),
+            RpcMethod::SessionPrompt,
+            first_payload,
+            CancellationToken::new(),
+        ),
+        second_host.call(
+            RpcId::new("same-prompt-rpc"),
+            RpcMethod::SessionPrompt,
+            second_payload,
+            CancellationToken::new(),
+        ),
+    );
+    assert!(matches!(first, RpcResult::Success { .. }));
+    assert!(matches!(second, RpcResult::Success { .. }));
+    fx.wait_for_assistant(&session_id).await;
+
+    let conflict = fx
+        .host
+        .call(
+            RpcId::new("same-prompt-rpc"),
+            RpcMethod::SessionPrompt,
+            json!({
+                "sessionId": session_id,
+                "mode": "queue",
+                "content": [{"type": "text", "text": "must conflict"}],
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(
+        conflict,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::SessionConflict,
+                ..
+            }
+        }
+    ));
+
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId": session_id}))
+        .await;
+    assert_eq!(
+        history["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry["event"]["type"] == "user/message")
+            .count(),
+        1
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -620,7 +1217,7 @@ async fn every_upstream_rpc_has_baseline_behavior() {
     for (method, status) in [
         (RpcMethod::GoalPause, "paused"),
         (RpcMethod::GoalResume, "active"),
-        (RpcMethod::GoalComplete, "completed"),
+        (RpcMethod::GoalComplete, "complete"),
     ] {
         let response = fx
             .value(method, json!({"sessionId": session_id, "ref": goal_ref}))
@@ -782,26 +1379,35 @@ struct OneTool {
 
 #[async_trait]
 impl SessionToolFactory for OneTool {
-    async fn tools(
+    async fn executor(
         &self,
         _session_id: &str,
         _cwd: &str,
         _permission: PermissionPreset,
-    ) -> Result<Vec<ToolSpec>, String> {
+    ) -> Result<ToolExecutor, String> {
         let executed = Arc::clone(&self.executed);
-        Ok(vec![ToolSpec::new(
-            "gated",
-            "approval test",
-            json!({"type": "object", "properties": {}}),
-            move |_arguments, _cancellation| {
-                let executed = Arc::clone(&executed);
-                async move {
-                    executed.store(true, Ordering::SeqCst);
-                    ToolResult::success("ok")
-                }
-            },
-        )
-        .requires_approval()])
+        let registry = Arc::new(ToolRegistry::new());
+        registry
+            .register(
+                ToolSpec::new(
+                    ToolDefinition::new(
+                        "gated",
+                        "approval test",
+                        json!({"type": "object", "properties": {}}),
+                    ),
+                    move |_context| {
+                        let executed = Arc::clone(&executed);
+                        async move {
+                            executed.store(true, Ordering::SeqCst);
+                            Ok(ToolOutput::text("ok"))
+                        }
+                    },
+                )
+                .requiring_approval(true),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(ToolExecutor::new(registry))
     }
 }
 

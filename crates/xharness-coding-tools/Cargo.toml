@@ -11,13 +11,11 @@ default = ["rustls-tls"]
 rustls-tls = ["xharness-web/rustls-tls"]
 
 [dependencies]
-async-trait.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 xharness-fs = { path = "../xharness-fs" }
-xharness-core = { path = "../xharness-core" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-process = { path = "../xharness-process" }
 xharness-terminal = { path = "../xharness-terminal" }
@@ -25,6 +23,8 @@ xharness-tools = { path = "../xharness-tools" }
 xharness-web = { path = "../xharness-web", default-features = false }
 
 [dev-dependencies]
+async-trait.workspace = true
 futures.workspace = true
+xharness-core = { path = "../xharness-core" }
 xharness-sandbox = { path = "../xharness-sandbox" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }

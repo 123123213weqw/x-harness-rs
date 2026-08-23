@@ -2,28 +2,40 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
     },
     task::{Context, Poll},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use async_trait::async_trait;
 use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt};
+use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
 use xharness_session::{
-    AssistantChunk, EventData as SessionEventData, RequestHeader, Revision, SessionHeader,
+    ApprovalOutcome, AssistantChunk, EventData as SessionEventData, LlmFailure, LlmRetryMode,
+    PendingToolApproval, RequestHeader, Revision, SessionEvent, SessionHeader,
     Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
+};
+use xharness_tools::{
+    ApprovalDecision as RuntimeApprovalDecision, ApprovalProvider as RuntimeApprovalProvider,
+    ApprovalRequest as RuntimeApprovalRequest, MiddlewareError as RuntimeMiddlewareError,
+    ToolBatchEvent as RuntimeBatchEvent, ToolBatchRequest as RuntimeBatchRequest,
+    ToolBatchRun as RuntimeBatchRun, ToolExecutionContext as RuntimeExecutionContext,
+    ToolLifecycle as RuntimeToolLifecycle, ToolRequest as RuntimeToolRequest,
 };
 
 use crate::{
     tool_result_for_model, AgentMessage, ContextRequest, ContextSurface, FinishReason,
     InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind, LoopRequest,
     LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role, SessionSnapshot,
-    StepUsage, TokenUsage, ToolCall, ToolConcurrency, ToolResult, ToolSpec,
+    StepUsage, TokenBudgetReport, TokenEstimateRequest, TokenUsage, ToolCall, ToolConcurrency,
+    ToolResult, ToolSpec,
 };
 
 static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -37,10 +49,182 @@ enum StopReason {
 
 pub struct LoopRun {
     pub run_id: String,
-    events: UnboundedReceiverStream<LoopEvent>,
+    events: LoopEventStream,
+    event_journal: Arc<EventJournal>,
     result: watch::Receiver<Option<LoopResult>>,
     cancellation: CancellationToken,
+    consumer_dropped: Arc<AtomicBool>,
     command_tx: mpsc::Sender<CommandEnvelope>,
+}
+
+/// Non-blocking cursor subscription over one run's bounded event journal.
+///
+/// Items remain ordered by their real event `seq`. When the requested cursor
+/// has already been evicted, the stream first yields `EventsLagged` with the
+/// earliest still-readable `resume_seq`.
+pub struct LoopEventStream {
+    journal: Arc<EventJournal>,
+    wake: WatchStream<u64>,
+    next_seq: u64,
+    run_id: String,
+}
+
+struct EventJournal {
+    state: Mutex<EventJournalState>,
+    wake: watch::Sender<u64>,
+    max_events: usize,
+    max_bytes: usize,
+}
+
+struct EventJournalState {
+    events: VecDeque<BufferedLoopEvent>,
+    bytes: usize,
+    next_seq: u64,
+    last_step: usize,
+    closed: bool,
+}
+
+struct BufferedLoopEvent {
+    event: LoopEvent,
+    bytes: usize,
+}
+
+impl EventJournal {
+    fn new(max_events: usize, max_bytes: usize) -> Arc<Self> {
+        let (wake, _) = watch::channel(0);
+        Arc::new(Self {
+            state: Mutex::new(EventJournalState {
+                events: VecDeque::new(),
+                bytes: 0,
+                next_seq: 1,
+                last_step: 0,
+                closed: false,
+            }),
+            wake,
+            max_events,
+            max_bytes,
+        })
+    }
+
+    fn subscribe(self: &Arc<Self>, run_id: String, next_seq: u64) -> LoopEventStream {
+        LoopEventStream {
+            journal: Arc::clone(self),
+            wake: WatchStream::new(self.wake.subscribe()),
+            next_seq: next_seq.max(1),
+            run_id,
+        }
+    }
+
+    fn append(&self, event: LoopEvent) -> Result<(), serde_json::Error> {
+        let bytes = serde_json::to_vec(&event)?.len();
+        let generation = {
+            let mut state = self.state.lock().expect("event journal mutex poisoned");
+            debug_assert_eq!(event.seq, state.next_seq);
+            state.next_seq = event.seq.saturating_add(1);
+            state.last_step = event.step;
+            state.bytes = state.bytes.saturating_add(bytes);
+            state.events.push_back(BufferedLoopEvent { event, bytes });
+            while state.events.len() > self.max_events || state.bytes > self.max_bytes {
+                let removed = state
+                    .events
+                    .pop_front()
+                    .expect("an over-budget event journal is non-empty");
+                state.bytes = state.bytes.saturating_sub(removed.bytes);
+            }
+            state.next_seq
+        };
+        self.wake.send_replace(generation);
+        Ok(())
+    }
+
+    fn close(&self) {
+        let generation = {
+            let mut state = self.state.lock().expect("event journal mutex poisoned");
+            state.closed = true;
+            state.next_seq
+        };
+        self.wake.send_replace(generation);
+    }
+}
+
+impl Stream for LoopEventStream {
+    type Item = LoopEvent;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            enum Read {
+                Event(Box<LoopEvent>),
+                Lagged {
+                    missed: u64,
+                    resume_seq: u64,
+                    step: usize,
+                },
+                Closed,
+                Pending,
+            }
+
+            let read = {
+                let state = self
+                    .journal
+                    .state
+                    .lock()
+                    .expect("event journal mutex poisoned");
+                let earliest = state
+                    .events
+                    .front()
+                    .map_or(state.next_seq, |buffered| buffered.event.seq);
+                if self.next_seq < earliest {
+                    Read::Lagged {
+                        missed: earliest - self.next_seq,
+                        resume_seq: earliest,
+                        step: state
+                            .events
+                            .front()
+                            .map_or(state.last_step, |buffered| buffered.event.step),
+                    }
+                } else if self.next_seq < state.next_seq {
+                    let offset = usize::try_from(self.next_seq - earliest).ok();
+                    match offset.and_then(|offset| state.events.get(offset)) {
+                        Some(buffered) => Read::Event(Box::new(buffered.event.clone())),
+                        None => Read::Lagged {
+                            missed: state.next_seq.saturating_sub(self.next_seq),
+                            resume_seq: state.next_seq,
+                            step: state.last_step,
+                        },
+                    }
+                } else if state.closed {
+                    Read::Closed
+                } else {
+                    Read::Pending
+                }
+            };
+
+            match read {
+                Read::Event(event) => {
+                    self.next_seq = event.seq.saturating_add(1);
+                    return Poll::Ready(Some(*event));
+                }
+                Read::Lagged {
+                    missed,
+                    resume_seq,
+                    step,
+                } => {
+                    self.next_seq = resume_seq;
+                    return Poll::Ready(Some(LoopEvent {
+                        seq: resume_seq.saturating_sub(1),
+                        run_id: self.run_id.clone(),
+                        step,
+                        kind: LoopEventKind::EventsLagged { missed, resume_seq },
+                    }));
+                }
+                Read::Closed => return Poll::Ready(None),
+                Read::Pending => match Pin::new(&mut self.wake).poll_next(context) {
+                    Poll::Ready(Some(_)) => continue,
+                    Poll::Ready(None) | Poll::Pending => return Poll::Pending,
+                },
+            }
+        }
+    }
 }
 
 struct CommandEnvelope {
@@ -52,6 +236,13 @@ impl LoopRun {
     /// Returns this run as a stream. It can only be consumed once, in order.
     pub fn events(&mut self) -> &mut Self {
         self
+    }
+
+    /// Create an additional event subscription beginning at the given next
+    /// sequence cursor. A stale cursor receives one explicit lag record before
+    /// continuing from the retained journal head.
+    pub fn subscribe_events_from(&self, next_seq: u64) -> LoopEventStream {
+        self.event_journal.subscribe(self.run_id.clone(), next_seq)
     }
 
     pub fn cancel(&self) {
@@ -105,6 +296,7 @@ impl Stream for LoopRun {
 
 impl Drop for LoopRun {
     fn drop(&mut self) {
+        self.consumer_dropped.store(true, Ordering::Release);
         self.cancellation.cancel();
     }
 }
@@ -117,15 +309,20 @@ impl LoopEngine {
         let startup_error = request.validate().err().map(|error| error.to_string());
         let run_id = new_run_id();
         let cancellation = CancellationToken::new();
+        let consumer_dropped = Arc::new(AtomicBool::new(false));
         // Invalid zero-sized command buffers are reported as normal failed
         // runs rather than panicking inside `tokio::sync::mpsc::channel`.
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let event_journal = EventJournal::new(
+            request.config.event_buffer.max(1),
+            request.config.event_buffer_bytes.max(1),
+        );
         let (command_tx, command_rx) = mpsc::channel(request.config.command_buffer.max(1));
         let (result_tx, result_rx) = watch::channel(None);
         let journal = request.journal_store.clone().map(|store| JournalState {
             store,
             session_id: request.session_id.clone().unwrap_or_else(|| run_id.clone()),
             revision: Revision::ZERO,
+            next_seq: 0,
             turn: 0,
             step_open: false,
             turn_open: false,
@@ -134,7 +331,8 @@ impl LoopEngine {
             run_id: run_id.clone(),
             request,
             cancellation: cancellation.clone(),
-            event_tx,
+            consumer_dropped: Arc::clone(&consumer_dropped),
+            event_journal: Arc::clone(&event_journal),
             seq: 0,
             messages: Vec::new(),
             final_text: String::new(),
@@ -150,16 +348,21 @@ impl LoopEngine {
             approval_decisions: HashMap::new(),
             startup_error,
             journal,
+            recovered_tool_batch: None,
         };
+        let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
             let result = runner.run().await;
+            runner_journal.close();
             let _ = result_tx.send(Some(result));
         });
         LoopRun {
+            events: event_journal.subscribe(run_id.clone(), 1),
+            event_journal,
             run_id,
-            events: UnboundedReceiverStream::new(event_rx),
             result: result_rx,
             cancellation,
+            consumer_dropped,
             command_tx,
         }
     }
@@ -177,6 +380,9 @@ fn new_run_id() -> String {
 fn normalize_tool_call_ids(calls: &mut [ToolCall], run_id: &str, step: usize, namespace_all: bool) {
     let mut used = HashSet::with_capacity(calls.len());
     for (ordinal, call) in calls.iter_mut().enumerate() {
+        if call.provider_call_id.is_none() && !call.id.is_empty() {
+            call.provider_call_id = Some(call.id.clone());
+        }
         if !namespace_all && !call.id.is_empty() && used.insert(call.id.clone()) {
             continue;
         }
@@ -196,7 +402,8 @@ struct Runner {
     run_id: String,
     request: LoopRequest,
     cancellation: CancellationToken,
-    event_tx: mpsc::UnboundedSender<LoopEvent>,
+    consumer_dropped: Arc<AtomicBool>,
+    event_journal: Arc<EventJournal>,
     seq: u64,
     messages: Vec<AgentMessage>,
     final_text: String,
@@ -212,12 +419,14 @@ struct Runner {
     approval_decisions: HashMap<String, ApprovalDecision>,
     startup_error: Option<String>,
     journal: Option<JournalState>,
+    recovered_tool_batch: Option<RecoveredToolBatch>,
 }
 
 struct JournalState {
     store: Arc<dyn EventSessionStore>,
     session_id: String,
     revision: Revision,
+    next_seq: u64,
     turn: u32,
     step_open: bool,
     turn_open: bool,
@@ -300,15 +509,23 @@ impl Runner {
         self.restore_messages().await?;
         self.snapshot("input_saved", true).await?;
 
+        if let Some(recovery) = self.recovered_tool_batch.take() {
+            self.tool_batch_complete = false;
+            self.resume_tool_batch(recovery).await?;
+            self.tool_batch_complete = true;
+            self.journal_step_end().await?;
+            self.reload_journal_messages().await?;
+            self.snapshot("recovered_tool_batch_saved", true).await?;
+        }
+
         while self.step < self.request.config.max_steps {
             self.settle_control_at_boundary().await?;
             self.step += 1;
             self.journal_step_start().await?;
-            let context_tools = self
-                .request
-                .tools
+            let tool_definitions = self.tool_definitions().await;
+            let context_tools = tool_definitions
                 .iter()
-                .map(|tool| serde_json::to_value(&tool.definition))
+                .map(serde_json::to_value)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| {
                     RunFailure::Failed(format!("could not serialize tool schema: {error}"))
@@ -319,7 +536,7 @@ impl Runner {
                     self.request.provider.model_name(),
                 )
                 .with_step(self.step)
-                .with_tools(context_tools);
+                .with_tools(context_tools.clone());
             let prepared = self
                 .request
                 .context_policy
@@ -329,10 +546,13 @@ impl Runner {
             prepared
                 .validate()
                 .map_err(|error| RunFailure::Failed(error.to_string()))?;
-            self.journal_request_header(&prepared).await?;
+            self.validate_prompt_surface(&prepared)?;
+            let token_budget = self.check_token_budget(&prepared, &context_tools)?;
+            self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
+                .await?;
             let prepared = prepared.into_messages();
 
-            let mut model = self.model_round(prepared).await?;
+            let mut model = self.model_round(prepared, tool_definitions).await?;
             // The durable session contract requires call ids to be globally
             // unique, while providers only guarantee identity within a single
             // response. Journal-backed runs therefore use harness execution
@@ -348,6 +568,7 @@ impl Runner {
                 if !model.text.is_empty() || !model.reasoning.is_empty() {
                     self.final_text = model.text.clone();
                     self.messages.push(AgentMessage {
+                        id: None,
                         role: Role::Assistant,
                         content: model.text,
                         reasoning: model.reasoning,
@@ -394,6 +615,7 @@ impl Runner {
                 None
             };
             let assistant = AgentMessage {
+                id: None,
                 role: Role::Assistant,
                 content: model.text.clone(),
                 reasoning: model.reasoning,
@@ -456,6 +678,61 @@ impl Runner {
         });
     }
 
+    fn validate_prompt_surface(&self, surface: &ContextSurface) -> Result<(), RunFailure> {
+        let Some(prompt) = &self.request.prompt else {
+            return Ok(());
+        };
+        let systems = surface
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .collect::<Vec<_>>();
+        if systems.len() != 1
+            || surface.messages.first() != systems.first().copied()
+            || systems[0].content != prompt.system()
+        {
+            return Err(RunFailure::Failed(
+                "context policy removed, duplicated, reordered, or modified the assembled system prompt"
+                    .to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn check_token_budget(
+        &self,
+        surface: &ContextSurface,
+        tools: &[Value],
+    ) -> Result<Option<TokenBudgetReport>, RunFailure> {
+        let Some(guard) = &self.request.token_guard else {
+            return Ok(None);
+        };
+        let mut system_messages = Vec::new();
+        let mut conversation_messages = Vec::new();
+        for message in &surface.messages {
+            let encoded = serde_json::to_value(message).map_err(|error| {
+                RunFailure::Failed(format!(
+                    "could not serialize message for token guard: {error}"
+                ))
+            })?;
+            if message.role == Role::System {
+                system_messages.push(encoded);
+            } else {
+                conversation_messages.push(encoded);
+            }
+        }
+        guard
+            .check(&TokenEstimateRequest {
+                provider: self.request.provider.provider_name().to_owned(),
+                model: self.request.provider.model_name().map(str::to_owned),
+                system_messages,
+                conversation_messages,
+                tools: tools.to_vec(),
+            })
+            .map(Some)
+            .map_err(|error| RunFailure::Failed(format!("token budget rejected request: {error}")))
+    }
+
     async fn initialize_journal(&mut self) -> Result<(), RunFailure> {
         let Some(journal) = self.journal.as_ref() else {
             return Ok(());
@@ -475,7 +752,6 @@ impl Runner {
                     })?,
             };
 
-        let mut recovery = session.outcome_unknown_recovery();
         let last_turn = session
             .events()
             .iter()
@@ -489,8 +765,9 @@ impl Runner {
                 matches!(event.data(), SessionEventData::TurnEnd { turn: closed, .. } if *closed == turn)
             })
         });
-        if let Some(turn) = last_turn.filter(|_| !last_turn_closed) {
-            let mut open_step = None;
+        let open_turn = last_turn.filter(|_| !last_turn_closed);
+        let mut open_step = None;
+        if let Some(turn) = open_turn {
             for event in session.events().iter().rev() {
                 match event.data() {
                     SessionEventData::StepEnd {
@@ -507,6 +784,58 @@ impl Runner {
                     _ => {}
                 }
             }
+        }
+
+        let pending_approvals = match (open_turn, open_step) {
+            (Some(turn), Some(step)) => session
+                .pending_tool_approvals()
+                .into_iter()
+                .filter(|approval| approval.turn == turn && approval.step == step)
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        if !pending_approvals.is_empty() {
+            if !self.request.messages.is_empty() || !self.request.journal_prelude.is_empty() {
+                return Err(RunFailure::Failed(
+                    "session has a pending tool approval; resume it before admitting new input"
+                        .to_owned(),
+                ));
+            }
+            let turn = open_turn.expect("pending approval belongs to an open turn");
+            let step = open_step.expect("pending approval belongs to an open step");
+            let pending_by_call = pending_approvals
+                .into_iter()
+                .map(|approval| (approval.call_id.clone(), approval))
+                .collect::<HashMap<_, _>>();
+            let calls = xharness_session::incomplete_tool_calls(session.events())
+                .into_iter()
+                .filter(|pending| pending.turn == turn && pending.step == step)
+                .map(|pending| RecoveredToolCall {
+                    approval: pending_by_call.get(&pending.call.id).cloned(),
+                    call: pending.call,
+                })
+                .collect::<Vec<_>>();
+            if !calls.iter().any(|call| call.approval.is_some()) {
+                return Err(RunFailure::Failed(
+                    "session approval recovery lost its referenced tool call".to_owned(),
+                ));
+            }
+            self.messages = self.prompt_prefixed(session.derive_messages());
+            self.step = usize::try_from(step)
+                .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+            self.recovered_tool_batch = Some(RecoveredToolBatch { calls });
+            if let Some(journal) = self.journal.as_mut() {
+                journal.revision = session.revision();
+                journal.next_seq = session.next_seq();
+                journal.turn = turn;
+                journal.step_open = true;
+                journal.turn_open = true;
+            }
+            return Ok(());
+        }
+
+        let mut recovery = session.outcome_unknown_recovery();
+        if let Some(turn) = open_turn {
             if let Some(step) = open_step {
                 recovery.push(SessionEventData::StepEnd { turn, step }.into());
             }
@@ -539,22 +868,27 @@ impl Runner {
                 })?;
         }
 
-        self.messages = session.derive_messages();
+        self.messages = self.prompt_prefixed(session.derive_messages());
         let next_turn = last_turn
             .unwrap_or_default()
             .checked_add(1)
             .ok_or_else(|| RunFailure::Failed("session turn counter overflow".to_owned()))?;
         if let Some(journal) = self.journal.as_mut() {
             journal.revision = session.revision();
+            journal.next_seq = session.next_seq();
             journal.turn = next_turn;
         }
 
-        let mut events = vec![SessionEventData::TurnStart { turn: next_turn }];
+        let mut events = vec![SessionEventData::TurnStart { turn: next_turn }.into()];
+        events.extend(self.request.journal_prelude.clone());
         for message in &self.request.messages {
             match message.role {
-                Role::User => events.push(SessionEventData::UserMessage {
-                    message: message.clone(),
-                }),
+                Role::User => events.push(
+                    SessionEventData::UserMessage {
+                        message: message.clone(),
+                    }
+                    .into(),
+                ),
                 Role::System => {}
                 Role::Assistant | Role::Tool => {
                     return Err(RunFailure::Failed(
@@ -564,7 +898,7 @@ impl Runner {
                 }
             }
         }
-        self.journal_append(events, true).await?;
+        self.journal_append_events(events, true).await?;
         if let Some(journal) = self.journal.as_mut() {
             journal.turn_open = true;
         }
@@ -572,9 +906,39 @@ impl Runner {
         Ok(())
     }
 
+    async fn reload_journal_messages(&mut self) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let store = Arc::clone(&journal.store);
+        let session_id = journal.session_id.clone();
+        let session = store
+            .load(&session_id)
+            .await
+            .map_err(|error| RunFailure::Failed(format!("session journal reload failed: {error}")))?
+            .ok_or_else(|| {
+                RunFailure::Failed("session journal disappeared during recovery".to_owned())
+            })?;
+        self.messages = self.prompt_prefixed(session.derive_messages());
+        if let Some(journal) = self.journal.as_mut() {
+            journal.revision = session.revision();
+            journal.next_seq = session.next_seq();
+        }
+        Ok(())
+    }
+
     async fn journal_append(
         &mut self,
         events: Vec<SessionEventData>,
+        flush: bool,
+    ) -> Result<(), RunFailure> {
+        self.journal_append_events(events.into_iter().map(Into::into).collect(), flush)
+            .await
+    }
+
+    async fn journal_append_events(
+        &mut self,
+        events: Vec<SessionEvent>,
         flush: bool,
     ) -> Result<(), RunFailure> {
         if events.is_empty() {
@@ -585,17 +949,76 @@ impl Runner {
         };
         let store = Arc::clone(&journal.store);
         let session_id = journal.session_id.clone();
-        let revision = journal.revision;
-        let receipt = store
-            .append(
-                &session_id,
-                revision,
-                events.into_iter().map(Into::into).collect(),
-            )
-            .await
-            .map_err(|error| {
-                RunFailure::Failed(format!("session journal append failed: {error}"))
-            })?;
+        let mut inbox_conflicts = 0usize;
+        let receipt = loop {
+            let (revision, next_seq) = self
+                .journal
+                .as_ref()
+                .map(|journal| (journal.revision, journal.next_seq))
+                .expect("journal checked above");
+            match store.append(&session_id, revision, events.clone()).await {
+                Ok(receipt) => break receipt,
+                Err(xharness_session::StoreError::RevisionConflict { .. }) => {
+                    inbox_conflicts = inbox_conflicts.saturating_add(1);
+                    if inbox_conflicts > 16 {
+                        return Err(RunFailure::Failed(
+                            "session journal stayed contended by external control writers"
+                                .to_owned(),
+                        ));
+                    }
+                    let session = store
+                        .load(&session_id)
+                        .await
+                        .map_err(|error| {
+                            RunFailure::Failed(format!(
+                                "session journal conflict reload failed: {error}"
+                            ))
+                        })?
+                        .ok_or_else(|| {
+                            RunFailure::Failed(
+                                "session journal disappeared during append conflict".to_owned(),
+                            )
+                        })?;
+                    let known = usize::try_from(next_seq).map_err(|_| {
+                        RunFailure::Failed("session journal sequence overflow".to_owned())
+                    })?;
+                    let intervening = session.events().get(known..).ok_or_else(|| {
+                        RunFailure::Failed(
+                            "session journal moved behind the active writer".to_owned(),
+                        )
+                    })?;
+                    if intervening.is_empty()
+                        || intervening.iter().any(|event| {
+                            !matches!(
+                                event.data(),
+                                SessionEventData::AgentInboxSpliced { .. }
+                                    | SessionEventData::SessionModelSelected { .. }
+                                    | SessionEventData::CommandRun { .. }
+                                    | SessionEventData::CommandDone { .. }
+                                    | SessionEventData::SessionTitle { .. }
+                                    | SessionEventData::GoalChange { .. }
+                                    | SessionEventData::SessionMutationCommitted { .. }
+                                    | SessionEventData::PlanMode { .. }
+                            )
+                        })
+                    {
+                        return Err(RunFailure::Failed(
+                            "session journal changed outside allowed external control events"
+                                .to_owned(),
+                        ));
+                    }
+                    if let Some(journal) = self.journal.as_mut() {
+                        journal.revision = session.revision();
+                        journal.next_seq = session.next_seq();
+                    }
+                }
+                Err(error) => {
+                    return Err(RunFailure::Failed(format!(
+                        "session journal append failed: {error}"
+                    )))
+                }
+            }
+        };
         if flush {
             store.flush(&session_id).await.map_err(|error| {
                 RunFailure::Failed(format!("session journal flush failed: {error}"))
@@ -603,6 +1026,9 @@ impl Runner {
         }
         if let Some(journal) = self.journal.as_mut() {
             journal.revision = receipt.revision;
+            journal.next_seq = receipt
+                .last_seq
+                .map_or(journal.next_seq, |sequence| sequence.saturating_add(1));
         }
         Ok(())
     }
@@ -622,7 +1048,12 @@ impl Runner {
         Ok(())
     }
 
-    async fn journal_request_header(&mut self, surface: &ContextSurface) -> Result<(), RunFailure> {
+    async fn journal_request_header(
+        &mut self,
+        surface: &ContextSurface,
+        tools: &[Value],
+        token_budget: Option<&TokenBudgetReport>,
+    ) -> Result<(), RunFailure> {
         if self.journal.is_none() {
             return Ok(());
         }
@@ -640,19 +1071,30 @@ impl Runner {
             .map(|message| message.content.as_str())
             .collect::<Vec<_>>()
             .join("\n\n");
-        let tools = self
-            .request
-            .tools
-            .iter()
-            .map(|tool| serde_json::to_value(&tool.definition))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                RunFailure::Failed(format!("could not serialize tool schema: {error}"))
-            })?;
         let mut header = RequestHeader::new(provider, model);
         header.system = (!system.is_empty()).then_some(system);
-        header.tools = tools;
+        header.options.insert(
+            "toolDefinitionsSha256".to_owned(),
+            Value::String(sha256_json(&tools)?),
+        );
+        header.tools = tools.to_vec();
         header.input = surface.messages.clone();
+        if let Some(prompt) = &self.request.prompt {
+            header.options.insert(
+                "prompt".to_owned(),
+                serde_json::to_value(prompt.audit()).map_err(|error| {
+                    RunFailure::Failed(format!("could not serialize prompt audit: {error}"))
+                })?,
+            );
+        }
+        if let Some(report) = token_budget {
+            header.options.insert(
+                "tokenBudget".to_owned(),
+                serde_json::to_value(report).map_err(|error| {
+                    RunFailure::Failed(format!("could not serialize token budget report: {error}"))
+                })?,
+            );
+        }
         header
             .options
             .insert("step".to_owned(), Value::from(self.step as u64));
@@ -734,17 +1176,137 @@ impl Runner {
                 step,
                 result: ToolResultData {
                     call_id: execution.call.id.clone(),
-                    outcome: if execution.result.ok {
-                        ToolOutcome::Success
-                    } else {
-                        ToolOutcome::Error
-                    },
+                    outcome: execution.outcome,
                     content: execution.model_text.clone(),
                     metadata: execution.result.metadata.clone(),
                 },
             })
             .collect();
         self.journal_append(events, true).await
+    }
+
+    fn approval_id(&self, order: usize) -> String {
+        format!("xh-approval-{}-{}-{order}", self.run_id, self.step)
+    }
+
+    async fn journal_approval_asked(
+        &mut self,
+        approval_id: &str,
+        call: &ToolCall,
+    ) -> Result<(), RunFailure> {
+        self.journal_append(
+            vec![SessionEventData::ApprovalAsked {
+                id: approval_id.to_owned(),
+                tool_name: call.name.clone(),
+                call_id: Some(call.id.clone()),
+                reason: Some("This tool requires explicit approval.".to_owned()),
+            }],
+            true,
+        )
+        .await
+    }
+
+    async fn journal_approval_decided(
+        &mut self,
+        approval_id: &str,
+        outcome: ApprovalOutcome,
+    ) -> Result<(), RunFailure> {
+        self.journal_append(
+            vec![SessionEventData::ApprovalDecided {
+                id: approval_id.to_owned(),
+                outcome,
+            }],
+            true,
+        )
+        .await
+    }
+
+    async fn journal_cancel_pending_approvals(
+        &mut self,
+        pending_approval_ids: &mut Vec<String>,
+    ) -> Result<(), RunFailure> {
+        let events = pending_approval_ids
+            .drain(..)
+            .map(|id| SessionEventData::ApprovalDecided {
+                id,
+                outcome: ApprovalOutcome::Cancelled,
+            })
+            .collect();
+        self.journal_append(events, true).await
+    }
+
+    fn model_retry_id(&self) -> String {
+        format!("xh-retry-{}-{}", self.run_id, self.step)
+    }
+
+    async fn journal_model_retry_scheduled(
+        &mut self,
+        retry_id: &str,
+        retry: usize,
+        max_retries: usize,
+        error: &ProviderError,
+    ) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        let retry = u32::try_from(retry)
+            .map_err(|_| RunFailure::Failed("provider retry counter overflow".to_owned()))?;
+        let max_retries = u32::try_from(max_retries)
+            .map_err(|_| RunFailure::Failed("provider retry limit overflow".to_owned()))?;
+        let provider = self.request.provider.provider_name().to_owned();
+        let failure = LlmFailure {
+            message: error.message.clone(),
+            code: error
+                .http_status
+                .map_or_else(|| "TRANSPORT".to_owned(), |status| format!("HTTP_{status}")),
+            status: error.http_status,
+            provider_retry_after_ms: None,
+            request_id: None,
+        };
+        self.journal_append(
+            vec![SessionEventData::LlmRetry {
+                retry_id: retry_id.to_owned(),
+                turn,
+                step,
+                provider,
+                mode: LlmRetryMode::Normal,
+                policy_key: format!("xharness:normal:{max_retries}"),
+                retry,
+                max_retries: Some(max_retries),
+                delay_ms: 0,
+                failure,
+            }],
+            true,
+        )
+        .await
+    }
+
+    async fn journal_model_retry_started(
+        &mut self,
+        retry_id: &str,
+        retry: usize,
+    ) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+        let retry = u32::try_from(retry)
+            .map_err(|_| RunFailure::Failed("provider retry counter overflow".to_owned()))?;
+        self.journal_append(
+            vec![SessionEventData::LlmRetryStarted {
+                retry_id: retry_id.to_owned(),
+                turn,
+                step,
+                retry,
+            }],
+            true,
+        )
+        .await
     }
 
     async fn journal_step_end(&mut self) -> Result<(), RunFailure> {
@@ -999,18 +1561,14 @@ impl Runner {
 
     fn ensure_running(&self) -> Result<(), RunFailure> {
         if self.cancellation.is_cancelled() {
-            Err(RunFailure::Stopped(if self.event_tx.is_closed() {
-                StopReason::ConsumerStopped
-            } else {
-                StopReason::Cancelled
-            }))
+            Err(self.stopped_failure())
         } else {
             Ok(())
         }
     }
 
     fn stopped_failure(&self) -> RunFailure {
-        RunFailure::Stopped(if self.event_tx.is_closed() {
+        RunFailure::Stopped(if self.consumer_dropped.load(Ordering::Acquire) {
             StopReason::ConsumerStopped
         } else {
             StopReason::Cancelled
@@ -1025,11 +1583,9 @@ impl Runner {
             step: self.step,
             kind,
         };
-        if self.event_tx.send(event).is_err() {
-            self.cancellation.cancel();
-            return Err(RunFailure::Stopped(StopReason::ConsumerStopped));
-        }
-        Ok(())
+        self.event_journal
+            .append(event)
+            .map_err(|error| RunFailure::Failed(format!("could not serialize loop event: {error}")))
     }
 
     async fn snapshot(&self, phase: &str, tool_batch_complete: bool) -> Result<(), RunFailure> {
@@ -1079,7 +1635,8 @@ impl Runner {
                                     &interrupted,
                                     self.request.config.tool_result_limit_bytes,
                                 );
-                                self.messages.push(AgentMessage::tool(call.id, content));
+                                self.messages
+                                    .push(AgentMessage::tool(call.provider_id(), content));
                             }
                             self.snapshot("interrupted_tool_batch_closed", true).await?;
                         }
@@ -1087,17 +1644,27 @@ impl Runner {
                 }
             }
         }
+        let history = std::mem::take(&mut self.messages);
+        self.messages = self.prompt_prefixed(history);
         self.messages.extend(self.request.messages.clone());
         Ok(())
     }
 
-    async fn model_round(&mut self, messages: Vec<AgentMessage>) -> Result<ModelRound, RunFailure> {
-        let tool_definitions = self
-            .request
-            .tools
-            .iter()
-            .map(|tool| tool.definition.clone())
-            .collect::<Vec<_>>();
+    fn prompt_prefixed(&self, messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
+        let Some(prompt) = &self.request.prompt else {
+            return messages;
+        };
+        let mut visible = Vec::with_capacity(messages.len().saturating_add(1));
+        visible.push(AgentMessage::system(prompt.system()));
+        visible.extend(messages);
+        visible
+    }
+
+    async fn model_round(
+        &mut self,
+        messages: Vec<AgentMessage>,
+        tool_definitions: Vec<crate::ToolDefinition>,
+    ) -> Result<ModelRound, RunFailure> {
         let max_attempts = self.request.config.provider_retries.saturating_add(1);
         let mut round = ModelRound::default();
 
@@ -1107,6 +1674,11 @@ impl Runner {
                 messages: messages.clone(),
                 tools: tool_definitions.clone(),
                 step: self.step,
+                max_output_tokens: self
+                    .request
+                    .token_guard
+                    .as_ref()
+                    .map(|guard| guard.budget().reserved_output_tokens),
             };
             let provider_cancellation = self.cancellation.child_token();
             let provider = self.request.provider.clone();
@@ -1148,11 +1720,22 @@ impl Runner {
                 Ok(stream) => stream,
                 Err(error) => {
                     if error.retryable && !round.saw_delta && attempt < max_attempts {
-                        self.emit(LoopEventKind::ModelRetry {
+                        let retry_id = self.model_retry_id();
+                        self.journal_model_retry_scheduled(
+                            &retry_id,
                             attempt,
-                            error: error.message,
+                            self.request.config.provider_retries,
+                            &error,
+                        )
+                        .await?;
+                        self.emit(LoopEventKind::ModelRetry {
+                            retry_id: retry_id.clone(),
+                            attempt,
+                            max_retries: self.request.config.provider_retries,
+                            error: error.message.clone(),
                         })
                         .await?;
+                        self.journal_model_retry_started(&retry_id, attempt).await?;
                         continue;
                     }
                     return Err(RunFailure::Failed(error.message));
@@ -1295,11 +1878,22 @@ impl Runner {
             }
             let error = failure.expect("an incomplete provider attempt has an error");
             if error.retryable && !round.saw_delta && attempt < max_attempts {
-                self.emit(LoopEventKind::ModelRetry {
+                let retry_id = self.model_retry_id();
+                self.journal_model_retry_scheduled(
+                    &retry_id,
                     attempt,
-                    error: error.message,
+                    self.request.config.provider_retries,
+                    &error,
+                )
+                .await?;
+                self.emit(LoopEventKind::ModelRetry {
+                    retry_id: retry_id.clone(),
+                    attempt,
+                    max_retries: self.request.config.provider_retries,
+                    error: error.message.clone(),
                 })
                 .await?;
+                self.journal_model_retry_started(&retry_id, attempt).await?;
                 continue;
             }
             return Err(RunFailure::Failed(error.message));
@@ -1309,20 +1903,543 @@ impl Runner {
         ))
     }
 
+    async fn tool_definitions(&self) -> Vec<crate::ToolDefinition> {
+        match &self.request.tool_executor {
+            Some(executor) => executor
+                .registry()
+                .definitions()
+                .await
+                .into_iter()
+                .map(|definition| crate::ToolDefinition {
+                    name: definition.name,
+                    description: definition.description,
+                    parameters: definition.parameters,
+                })
+                .collect(),
+            None => self
+                .request
+                .tools
+                .iter()
+                .map(|tool| tool.definition.clone())
+                .collect(),
+        }
+    }
+
     async fn execute_tool_batch(&mut self, calls: Vec<ToolCall>) -> Result<(), RunFailure> {
+        if self.request.tool_executor.is_some() {
+            return self.execute_runtime_tool_batch(calls).await;
+        }
         let mut scheduled = calls
             .into_iter()
             .enumerate()
             .map(|(order, call)| ScheduledTool::new(order, call, &self.request.tools))
             .collect::<Vec<_>>();
-        let mut active: FuturesUnordered<ToolFuture> = FuturesUnordered::new();
-        let mut active_modes = HashMap::<usize, (ToolConcurrency, String)>::new();
         let mut completed = std::iter::repeat_with(|| None)
             .take(scheduled.len())
             .collect::<Vec<Option<ToolExecution>>>();
-        let mut completed_count = self
+        let completed_count = self
             .resolve_tool_approvals(&mut scheduled, &mut completed)
             .await?;
+        self.run_tool_scheduler(&mut scheduled, &mut completed, completed_count)
+            .await?;
+        self.finalize_tool_batch(completed).await
+    }
+
+    async fn execute_runtime_tool_batch(&mut self, calls: Vec<ToolCall>) -> Result<(), RunFailure> {
+        let call_count = calls.len();
+        let calls = calls.into_iter().enumerate().collect::<Vec<_>>();
+        let completed = self.run_runtime_tool_batch(calls, &HashMap::new()).await?;
+        let mut ordered = std::iter::repeat_with(|| None)
+            .take(call_count)
+            .collect::<Vec<_>>();
+        for execution in completed {
+            let order = execution.order;
+            ordered[order] = Some(execution);
+        }
+        self.finalize_tool_batch(ordered).await
+    }
+
+    async fn run_runtime_tool_batch(
+        &mut self,
+        calls: Vec<(usize, ToolCall)>,
+        recovered_approvals: &HashMap<String, String>,
+    ) -> Result<Vec<ToolExecution>, RunFailure> {
+        let executor = self
+            .request
+            .tool_executor
+            .clone()
+            .expect("runtime path requires a configured tool executor");
+        let (signal_tx, mut signal_rx) = mpsc::unbounded_channel();
+        let bridge = Arc::new(CoreToolRuntimeBridge { signal_tx });
+        let executor = executor
+            .with_approval_provider(bridge.clone())
+            .with_lifecycle(bridge);
+        let mut requests = Vec::with_capacity(calls.len());
+        for (order, call) in &calls {
+            let request = RuntimeToolRequest::new(&call.name, &call.arguments_json)
+                .with_cancellation(self.cancellation.child_token())
+                .requiring_approval(recovered_approvals.contains_key(&call.id))
+                .with_execution_id(call.id.clone())
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
+            requests.push(RuntimeBatchRequest::new(*order, request));
+        }
+        let mut batch = executor
+            .start_batch(requests, self.request.config.max_tool_concurrency)
+            .await
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        let mut completion_count = 0usize;
+        let mut pending_approval_ids = Vec::<String>::new();
+        let mut pending_runtime_approvals = Vec::<PendingRuntimeApproval>::new();
+
+        while completion_count < calls.len() {
+            enum RuntimeInput {
+                Cancelled,
+                Command(Option<CommandEnvelope>),
+                Signal(Option<ToolRuntimeSignal>),
+                Batch(Option<RuntimeBatchEvent>),
+            }
+            let input = tokio::select! {
+                biased;
+                _ = self.cancellation.cancelled() => RuntimeInput::Cancelled,
+                command = self.command_rx.recv(), if self.command_open => {
+                    RuntimeInput::Command(command)
+                }
+                signal = signal_rx.recv() => RuntimeInput::Signal(signal),
+                event = batch.next_event() => RuntimeInput::Batch(event),
+            };
+            match input {
+                RuntimeInput::Cancelled => {
+                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
+                        .await?;
+                    return Err(self.stopped_failure());
+                }
+                RuntimeInput::Command(Some(envelope)) => {
+                    if let Err(failure) = self.handle_envelope(envelope, false).await {
+                        self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
+                }
+                RuntimeInput::Command(None) => {
+                    self.command_open = false;
+                }
+                RuntimeInput::Signal(Some(signal)) => {
+                    if let Err(failure) = self
+                        .handle_runtime_tool_signal(
+                            signal,
+                            &calls,
+                            recovered_approvals,
+                            &mut pending_approval_ids,
+                            &mut pending_runtime_approvals,
+                        )
+                        .await
+                    {
+                        self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
+                }
+                RuntimeInput::Signal(None) => {
+                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
+                        .await?;
+                    return Err(RunFailure::Failed(
+                        "tool runtime lifecycle channel closed before batch completion".to_owned(),
+                    ));
+                }
+                RuntimeInput::Batch(Some(RuntimeBatchEvent::Completed(completed))) => {
+                    let call = calls
+                        .iter()
+                        .find_map(|(order, call)| (*order == completed.order).then_some(call))
+                        .ok_or_else(|| {
+                            RunFailure::Failed(format!(
+                                "tool runtime returned invalid batch order {}",
+                                completed.order
+                            ))
+                        })?;
+                    if completed.result.execution_id.as_str() != call.id {
+                        batch.cancel();
+                        return Err(RunFailure::Failed(format!(
+                            "tool runtime execution id mismatch for order {}",
+                            completed.order
+                        )));
+                    }
+                    let result = runtime_tool_result(&completed.result);
+                    self.emit(LoopEventKind::ToolCompleted {
+                        call: call.clone(),
+                        result,
+                    })
+                    .await?;
+                    completion_count += 1;
+                }
+                RuntimeInput::Batch(None) => {
+                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
+                        .await?;
+                    return Err(RunFailure::Failed(
+                        "tool runtime batch stopped before every result completed".to_owned(),
+                    ));
+                }
+            }
+            self.resolve_runtime_approval_decisions(
+                &mut pending_runtime_approvals,
+                &mut pending_approval_ids,
+            )
+            .await?;
+        }
+
+        let ordered = batch
+            .result()
+            .await
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        let completed = ordered
+            .into_iter()
+            .map(|completed| {
+                let call = calls
+                    .iter()
+                    .find_map(|(order, call)| (*order == completed.order).then_some(call.clone()))
+                    .ok_or_else(|| {
+                        RunFailure::Failed(format!(
+                            "tool runtime returned invalid final order {}",
+                            completed.order
+                        ))
+                    })?;
+                let result = runtime_tool_result(&completed.result);
+                let (model_text, _) =
+                    tool_result_for_model(&result, self.request.config.tool_result_limit_bytes);
+                Ok(ToolExecution {
+                    order: completed.order,
+                    call,
+                    outcome: if result.ok {
+                        ToolOutcome::Success
+                    } else {
+                        ToolOutcome::Error
+                    },
+                    result,
+                    model_text,
+                })
+            })
+            .collect::<Result<Vec<_>, RunFailure>>()?;
+        Ok(completed)
+    }
+
+    async fn cancel_runtime_tool_batch(
+        &mut self,
+        batch: &mut RuntimeBatchRun,
+        pending_approval_ids: &mut Vec<String>,
+    ) -> Result<(), RunFailure> {
+        batch.cancel();
+        let journal = self
+            .journal_cancel_pending_approvals(pending_approval_ids)
+            .await;
+        let settled = tokio::time::timeout(
+            TOOL_CLEANUP_GRACE.saturating_add(Duration::from_secs(1)),
+            batch.result(),
+        )
+        .await;
+        journal?;
+        match settled {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(RunFailure::Failed(format!(
+                "cancelled tool batch failed to settle: {error}"
+            ))),
+            Err(_) => Err(RunFailure::Failed(
+                "cancelled tool batch exceeded its cleanup grace".to_owned(),
+            )),
+        }
+    }
+
+    async fn handle_runtime_tool_signal(
+        &mut self,
+        signal: ToolRuntimeSignal,
+        calls: &[(usize, ToolCall)],
+        recovered_approvals: &HashMap<String, String>,
+        pending_approval_ids: &mut Vec<String>,
+        pending_runtime_approvals: &mut Vec<PendingRuntimeApproval>,
+    ) -> Result<(), RunFailure> {
+        match signal {
+            ToolRuntimeSignal::Approval {
+                execution_id,
+                reasons,
+                response,
+            } => {
+                let _approval_reasons = reasons;
+                let (order, call) = calls
+                    .iter()
+                    .find(|(_, call)| call.id == execution_id)
+                    .ok_or_else(|| {
+                        RunFailure::Failed(format!(
+                            "tool runtime requested approval for unknown execution {execution_id:?}"
+                        ))
+                    })?;
+                let (approval_id, recovered) = match recovered_approvals.get(&execution_id) {
+                    Some(approval_id) => (approval_id.clone(), true),
+                    None => (self.approval_id(*order), false),
+                };
+                if !recovered {
+                    self.journal_approval_asked(&approval_id, call).await?;
+                }
+                pending_approval_ids.push(approval_id.clone());
+                self.emit(LoopEventKind::ToolApprovalRequested {
+                    approval_id: approval_id.clone(),
+                    call: call.clone(),
+                })
+                .await?;
+                pending_runtime_approvals.push(PendingRuntimeApproval {
+                    execution_id,
+                    approval_id,
+                    call: call.clone(),
+                    response,
+                });
+                Ok(())
+            }
+            ToolRuntimeSignal::Started {
+                execution_id,
+                acknowledgement,
+            } => {
+                let call = calls
+                    .iter()
+                    .find_map(|(_, call)| (call.id == execution_id).then_some(call))
+                    .ok_or_else(|| {
+                        RunFailure::Failed(format!(
+                            "tool runtime started unknown execution {execution_id:?}"
+                        ))
+                    })?;
+                self.emit(LoopEventKind::ToolStarted(call.clone())).await?;
+                acknowledgement.send(Ok(())).map_err(|_| {
+                    RunFailure::Failed(
+                        "tool runtime stopped before lifecycle acknowledgement".to_owned(),
+                    )
+                })?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn resolve_runtime_approval_decisions(
+        &mut self,
+        pending: &mut Vec<PendingRuntimeApproval>,
+        pending_approval_ids: &mut Vec<String>,
+    ) -> Result<(), RunFailure> {
+        if self.paused {
+            return Ok(());
+        }
+        let mut index = 0usize;
+        while index < pending.len() {
+            let Some(decision) = self.approval_decisions.remove(&pending[index].execution_id)
+            else {
+                index += 1;
+                continue;
+            };
+            let approval = pending.remove(index);
+            let (runtime, outcome, approved, reason) = match decision {
+                ApprovalDecision::Approved => (
+                    RuntimeApprovalDecision::Approved,
+                    ApprovalOutcome::AllowedOnce,
+                    true,
+                    None,
+                ),
+                ApprovalDecision::Rejected(reason) => {
+                    let reason = if reason.trim().is_empty() {
+                        "rejected by host".to_owned()
+                    } else {
+                        reason
+                    };
+                    (
+                        RuntimeApprovalDecision::Denied {
+                            reason: reason.clone(),
+                        },
+                        ApprovalOutcome::Rejected,
+                        false,
+                        Some(reason),
+                    )
+                }
+            };
+            self.journal_approval_decided(&approval.approval_id, outcome)
+                .await?;
+            pending_approval_ids.retain(|id| id != &approval.approval_id);
+            self.emit(LoopEventKind::ToolApprovalResolved {
+                approval_id: approval.approval_id,
+                call: approval.call,
+                approved,
+                reason,
+            })
+            .await?;
+            approval.response.send(Ok(runtime)).map_err(|_| {
+                RunFailure::Failed(
+                    "tool runtime stopped while receiving approval decision".to_owned(),
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    async fn resume_tool_batch(&mut self, recovery: RecoveredToolBatch) -> Result<(), RunFailure> {
+        if self.request.tool_executor.is_some() {
+            return self.resume_runtime_tool_batch(recovery).await;
+        }
+        let mut scheduled = recovery
+            .calls
+            .iter()
+            .enumerate()
+            .map(|(order, recovered)| {
+                ScheduledTool::new(order, recovered.call.clone(), &self.request.tools)
+            })
+            .collect::<Vec<_>>();
+        let mut completed = std::iter::repeat_with(|| None)
+            .take(scheduled.len())
+            .collect::<Vec<Option<ToolExecution>>>();
+        let mut completed_count = 0usize;
+        let mut pending_approval_ids = recovery
+            .calls
+            .iter()
+            .filter_map(|call| call.approval.as_ref().map(|approval| approval.id.clone()))
+            .collect::<Vec<_>>();
+
+        for (order, recovered) in recovery.calls.into_iter().enumerate() {
+            let Some(approval) = recovered.approval else {
+                scheduled[order].started = true;
+                let result = ToolResult::failure(xharness_session::OUTCOME_UNKNOWN_CONTENT);
+                let execution = ToolExecution {
+                    order,
+                    call: recovered.call,
+                    outcome: ToolOutcome::OutcomeUnknown,
+                    result,
+                    model_text: xharness_session::OUTCOME_UNKNOWN_CONTENT.to_owned(),
+                };
+                self.emit(LoopEventKind::ToolCompleted {
+                    call: execution.call.clone(),
+                    result: execution.result.clone(),
+                })
+                .await?;
+                completed[order] = Some(execution);
+                completed_count += 1;
+                continue;
+            };
+
+            self.emit(LoopEventKind::ToolApprovalRequested {
+                approval_id: approval.id.clone(),
+                call: recovered.call.clone(),
+            })
+            .await?;
+            let decision = match self.wait_for_approval(&recovered.call.id).await {
+                Ok(decision) => decision,
+                Err(failure) => {
+                    self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                        .await?;
+                    return Err(failure);
+                }
+            };
+            match decision {
+                ApprovalDecision::Approved => {
+                    self.journal_approval_decided(&approval.id, ApprovalOutcome::AllowedOnce)
+                        .await?;
+                    pending_approval_ids.retain(|pending| pending != &approval.id);
+                    self.emit(LoopEventKind::ToolApprovalResolved {
+                        approval_id: approval.id,
+                        call: recovered.call,
+                        approved: true,
+                        reason: None,
+                    })
+                    .await?;
+                }
+                ApprovalDecision::Rejected(reason) => {
+                    let reason = if reason.trim().is_empty() {
+                        "rejected by host".to_owned()
+                    } else {
+                        reason
+                    };
+                    self.journal_approval_decided(&approval.id, ApprovalOutcome::Rejected)
+                        .await?;
+                    pending_approval_ids.retain(|pending| pending != &approval.id);
+                    self.emit(LoopEventKind::ToolApprovalResolved {
+                        approval_id: approval.id,
+                        call: recovered.call.clone(),
+                        approved: false,
+                        reason: Some(reason.clone()),
+                    })
+                    .await?;
+                    scheduled[order].started = true;
+                    let result = ToolResult::failure(format!("tool rejected: {reason}"));
+                    let (model_text, _) =
+                        tool_result_for_model(&result, self.request.config.tool_result_limit_bytes);
+                    let execution = ToolExecution {
+                        order,
+                        call: recovered.call,
+                        outcome: ToolOutcome::Error,
+                        result,
+                        model_text,
+                    };
+                    self.emit(LoopEventKind::ToolCompleted {
+                        call: execution.call.clone(),
+                        result: execution.result.clone(),
+                    })
+                    .await?;
+                    completed[order] = Some(execution);
+                    completed_count += 1;
+                }
+            }
+        }
+
+        self.run_tool_scheduler(&mut scheduled, &mut completed, completed_count)
+            .await?;
+        self.finalize_tool_batch(completed).await
+    }
+
+    async fn resume_runtime_tool_batch(
+        &mut self,
+        recovery: RecoveredToolBatch,
+    ) -> Result<(), RunFailure> {
+        let call_count = recovery.calls.len();
+        let mut completed = std::iter::repeat_with(|| None)
+            .take(call_count)
+            .collect::<Vec<Option<ToolExecution>>>();
+        let mut pending = Vec::<(usize, ToolCall)>::new();
+        let mut recovered_approvals = HashMap::<String, String>::new();
+
+        for (order, recovered) in recovery.calls.into_iter().enumerate() {
+            match recovered.approval {
+                Some(approval) => {
+                    recovered_approvals.insert(recovered.call.id.clone(), approval.id);
+                    pending.push((order, recovered.call));
+                }
+                None => {
+                    let result = ToolResult::failure(xharness_session::OUTCOME_UNKNOWN_CONTENT);
+                    let execution = ToolExecution {
+                        order,
+                        call: recovered.call,
+                        outcome: ToolOutcome::OutcomeUnknown,
+                        result,
+                        model_text: xharness_session::OUTCOME_UNKNOWN_CONTENT.to_owned(),
+                    };
+                    self.emit(LoopEventKind::ToolCompleted {
+                        call: execution.call.clone(),
+                        result: execution.result.clone(),
+                    })
+                    .await?;
+                    completed[order] = Some(execution);
+                }
+            }
+        }
+
+        if !pending.is_empty() {
+            for execution in self
+                .run_runtime_tool_batch(pending, &recovered_approvals)
+                .await?
+            {
+                let order = execution.order;
+                completed[order] = Some(execution);
+            }
+        }
+        self.finalize_tool_batch(completed).await
+    }
+
+    async fn run_tool_scheduler(
+        &mut self,
+        scheduled: &mut [ScheduledTool],
+        completed: &mut [Option<ToolExecution>],
+        mut completed_count: usize,
+    ) -> Result<(), RunFailure> {
+        let mut active: FuturesUnordered<ToolFuture> = FuturesUnordered::new();
+        let mut active_modes = HashMap::<usize, (ToolConcurrency, String)>::new();
 
         while completed_count < scheduled.len() {
             self.drain_commands(false).await?;
@@ -1368,6 +2485,7 @@ impl Runner {
                 Completed(ToolExecution),
             }
             let input = tokio::select! {
+                biased;
                 _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
                 command = self.command_rx.recv(), if self.command_open => {
                     ToolInput::Command(command)
@@ -1398,11 +2516,20 @@ impl Runner {
             completed[order] = Some(execution);
         }
 
+        Ok(())
+    }
+
+    async fn finalize_tool_batch(
+        &mut self,
+        completed: Vec<Option<ToolExecution>>,
+    ) -> Result<(), RunFailure> {
         let completed = completed.into_iter().flatten().collect::<Vec<_>>();
         self.journal_tool_results(&completed).await?;
         for execution in completed {
-            self.messages
-                .push(AgentMessage::tool(execution.call.id, execution.model_text));
+            self.messages.push(AgentMessage::tool(
+                execution.call.provider_id(),
+                execution.model_text,
+            ));
         }
         Ok(())
     }
@@ -1412,27 +2539,62 @@ impl Runner {
         scheduled: &mut [ScheduledTool],
         completed: &mut [Option<ToolExecution>],
     ) -> Result<usize, RunFailure> {
-        let approval_calls = scheduled
+        let approval_requests = scheduled
             .iter()
             .filter(|item| item.requires_approval())
-            .map(|item| item.call.clone())
+            .map(|item| (item.order, self.approval_id(item.order), item.call.clone()))
             .collect::<Vec<_>>();
-        for call in &approval_calls {
-            self.emit(LoopEventKind::ToolApprovalRequested { call: call.clone() })
-                .await?;
+        let mut pending_approval_ids = Vec::<String>::new();
+        for (_, approval_id, call) in &approval_requests {
+            self.journal_approval_asked(approval_id, call).await?;
+            pending_approval_ids.push(approval_id.clone());
+            if let Err(failure) = self
+                .emit(LoopEventKind::ToolApprovalRequested {
+                    approval_id: approval_id.clone(),
+                    call: call.clone(),
+                })
+                .await
+            {
+                self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                    .await?;
+                return Err(failure);
+            }
         }
 
         let mut rejected_count = 0;
         for item in scheduled.iter_mut().filter(|item| item.requires_approval()) {
-            let decision = self.wait_for_approval(&item.call.id).await?;
+            let approval_id = approval_requests
+                .iter()
+                .find_map(|(order, approval_id, _)| {
+                    (*order == item.order).then_some(approval_id.clone())
+                })
+                .expect("every approval-required tool received an approval identity");
+            let decision = match self.wait_for_approval(&item.call.id).await {
+                Ok(decision) => decision,
+                Err(failure) => {
+                    self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                        .await?;
+                    return Err(failure);
+                }
+            };
             match decision {
                 ApprovalDecision::Approved => {
-                    self.emit(LoopEventKind::ToolApprovalResolved {
-                        call: item.call.clone(),
-                        approved: true,
-                        reason: None,
-                    })
-                    .await?;
+                    self.journal_approval_decided(&approval_id, ApprovalOutcome::AllowedOnce)
+                        .await?;
+                    pending_approval_ids.retain(|pending| pending != &approval_id);
+                    if let Err(failure) = self
+                        .emit(LoopEventKind::ToolApprovalResolved {
+                            approval_id,
+                            call: item.call.clone(),
+                            approved: true,
+                            reason: None,
+                        })
+                        .await
+                    {
+                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
                 }
                 ApprovalDecision::Rejected(reason) => {
                     let reason = if reason.trim().is_empty() {
@@ -1440,12 +2602,22 @@ impl Runner {
                     } else {
                         reason
                     };
-                    self.emit(LoopEventKind::ToolApprovalResolved {
-                        call: item.call.clone(),
-                        approved: false,
-                        reason: Some(reason.clone()),
-                    })
-                    .await?;
+                    self.journal_approval_decided(&approval_id, ApprovalOutcome::Rejected)
+                        .await?;
+                    pending_approval_ids.retain(|pending| pending != &approval_id);
+                    if let Err(failure) = self
+                        .emit(LoopEventKind::ToolApprovalResolved {
+                            approval_id,
+                            call: item.call.clone(),
+                            approved: false,
+                            reason: Some(reason.clone()),
+                        })
+                        .await
+                    {
+                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
                     item.started = true;
                     let result = ToolResult::failure(format!("tool rejected: {reason}"));
                     let (model_text, _) =
@@ -1453,14 +2625,21 @@ impl Runner {
                     let execution = ToolExecution {
                         order: item.order,
                         call: item.call.clone(),
+                        outcome: ToolOutcome::Error,
                         result,
                         model_text,
                     };
-                    self.emit(LoopEventKind::ToolCompleted {
-                        call: execution.call.clone(),
-                        result: execution.result.clone(),
-                    })
-                    .await?;
+                    if let Err(failure) = self
+                        .emit(LoopEventKind::ToolCompleted {
+                            call: execution.call.clone(),
+                            result: execution.result.clone(),
+                        })
+                        .await
+                    {
+                        self.journal_cancel_pending_approvals(&mut pending_approval_ids)
+                            .await?;
+                        return Err(failure);
+                    }
                     let order = execution.order;
                     completed[order] = Some(execution);
                     rejected_count += 1;
@@ -1517,6 +2696,14 @@ impl Runner {
     }
 }
 
+fn sha256_json(value: &impl Serialize) -> Result<String, RunFailure> {
+    let encoded = serde_json::to_vec(value)
+        .map_err(|error| RunFailure::Failed(format!("could not encode request audit: {error}")))?;
+    let mut digest = Sha256::new();
+    digest.update(encoded);
+    Ok(format!("{:x}", digest.finalize()))
+}
+
 #[derive(Default)]
 struct ModelRound {
     text: String,
@@ -1535,6 +2722,91 @@ struct ModelRound {
 enum ApprovalDecision {
     Approved,
     Rejected(String),
+}
+
+enum ToolRuntimeSignal {
+    Approval {
+        execution_id: String,
+        reasons: Vec<String>,
+        response: oneshot::Sender<Result<RuntimeApprovalDecision, RuntimeMiddlewareError>>,
+    },
+    Started {
+        execution_id: String,
+        acknowledgement: oneshot::Sender<Result<(), RuntimeMiddlewareError>>,
+    },
+}
+
+struct PendingRuntimeApproval {
+    execution_id: String,
+    approval_id: String,
+    call: ToolCall,
+    response: oneshot::Sender<Result<RuntimeApprovalDecision, RuntimeMiddlewareError>>,
+}
+
+struct CoreToolRuntimeBridge {
+    signal_tx: mpsc::UnboundedSender<ToolRuntimeSignal>,
+}
+
+#[async_trait]
+impl RuntimeApprovalProvider for CoreToolRuntimeBridge {
+    async fn request_approval(
+        &self,
+        request: RuntimeApprovalRequest,
+    ) -> Result<RuntimeApprovalDecision, RuntimeMiddlewareError> {
+        let (response, receiver) = oneshot::channel();
+        self.signal_tx
+            .send(ToolRuntimeSignal::Approval {
+                execution_id: request.context.execution_id.to_string(),
+                reasons: request.reasons,
+                response,
+            })
+            .map_err(|_| RuntimeMiddlewareError::new("core tool approval channel is closed"))?;
+        receiver
+            .await
+            .map_err(|_| RuntimeMiddlewareError::new("core tool approval response was dropped"))?
+    }
+}
+
+#[async_trait]
+impl RuntimeToolLifecycle for CoreToolRuntimeBridge {
+    async fn started(
+        &self,
+        context: &RuntimeExecutionContext,
+    ) -> Result<(), RuntimeMiddlewareError> {
+        let (acknowledgement, receiver) = oneshot::channel();
+        self.signal_tx
+            .send(ToolRuntimeSignal::Started {
+                execution_id: context.execution_id.to_string(),
+                acknowledgement,
+            })
+            .map_err(|_| RuntimeMiddlewareError::new("core tool lifecycle channel is closed"))?;
+        receiver.await.map_err(|_| {
+            RuntimeMiddlewareError::new("core tool lifecycle acknowledgement was dropped")
+        })?
+    }
+}
+
+fn runtime_tool_result(result: &xharness_tools::ToolResult) -> ToolResult {
+    match (&result.output, &result.failure) {
+        (Some(output), None) => ToolResult {
+            ok: true,
+            content: output.content.clone(),
+            error: String::new(),
+            truncated: false,
+            metadata: output.metadata.clone(),
+        },
+        (_, Some(failure)) => ToolResult::failure(failure.message.clone()),
+        (None, None) => ToolResult::failure("tool runtime returned neither output nor failure"),
+    }
+}
+
+struct RecoveredToolBatch {
+    calls: Vec<RecoveredToolCall>,
+}
+
+struct RecoveredToolCall {
+    call: ToolCall,
+    approval: Option<PendingToolApproval>,
 }
 
 #[derive(Clone)]
@@ -1614,6 +2886,7 @@ impl ScheduledTool {
 struct ToolExecution {
     order: usize,
     call: ToolCall,
+    outcome: ToolOutcome,
     result: ToolResult,
     model_text: String,
 }
@@ -1661,7 +2934,12 @@ async fn execute_tool(
         let handler_token = cancellation.child_token();
         let handler_cancellation = handler_token.clone();
         let future = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            handler(arguments, handler_token)
+            handler(crate::ToolInvocation {
+                execution_id: item.call.id.clone(),
+                provider_call_id: item.call.provider_call_id.clone(),
+                arguments,
+                cancellation: handler_token,
+            })
         }));
         match future {
             Err(_) => ToolResult::failure("tool handler panicked"),
@@ -1671,6 +2949,7 @@ async fn execute_tool(
                 let deadline = tokio::time::sleep(spec.timeout);
                 tokio::pin!(deadline);
                 tokio::select! {
+                    biased;
                     _ = cancellation.cancelled() => {
                         handler_cancellation.cancel();
                         let _ = tokio::time::timeout(TOOL_CLEANUP_GRACE, &mut caught).await;
@@ -1696,6 +2975,11 @@ async fn execute_tool(
     ToolExecution {
         order: item.order,
         call: item.call,
+        outcome: if result.ok {
+            ToolOutcome::Success
+        } else {
+            ToolOutcome::Error
+        },
         result,
         model_text,
     }

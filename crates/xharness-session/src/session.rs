@@ -2,7 +2,10 @@ use std::{collections::HashMap, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EventData, LoggedEvent, Message, MessageRole, Revision, Sequence, SessionEvent};
+use crate::{
+    EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole, Revision, Sequence,
+    SessionEvent,
+};
 
 /// On-disk format identity and immutable metadata outside the conversation
 /// event stream.
@@ -83,6 +86,8 @@ pub enum SessionError {
     InvalidMessageRole { seq: Sequence, role: &'static str },
     #[error("tool call id must not be empty at seq {seq}")]
     EmptyToolCallId { seq: Sequence },
+    #[error("provider-native tool call id must not be empty at seq {seq}")]
+    EmptyProviderToolCallId { seq: Sequence },
     #[error("tool name must not be empty at seq {seq}")]
     EmptyToolName { seq: Sequence },
     #[error("duplicate tool call id {call_id:?} at seq {seq}")]
@@ -102,6 +107,16 @@ pub enum SessionError {
         step: u32,
         position: usize,
     },
+    #[error("inbox message id must not be empty at seq {seq}")]
+    EmptyInboxMessageId { seq: Sequence },
+    #[error("inbox message {message_id:?} at seq {seq} must have the user role")]
+    InvalidInboxMessageRole { seq: Sequence, message_id: String },
+    #[error("inbox message {message_id:?} at seq {seq} must carry the same message id")]
+    InboxMessageIdMismatch { seq: Sequence, message_id: String },
+    #[error("duplicate pending inbox message id {message_id:?} at seq {seq}")]
+    DuplicateInboxMessage { seq: Sequence, message_id: String },
+    #[error("invalid inbox splice at seq {seq}: {message}")]
+    InvalidInboxSplice { seq: Sequence, message: String },
 }
 
 impl Session {
@@ -246,19 +261,85 @@ impl Session {
 /// Pure provider-history projection. Raw chunks, lifecycle boundaries, request
 /// headers, and tool-call audit facts never become a second message.
 pub fn derive_messages(events: &[LoggedEvent]) -> Vec<Message> {
-    events
-        .iter()
-        .filter_map(|logged| match logged.data() {
-            EventData::UserMessage { message } | EventData::AssistantMessage { message, .. } => {
-                Some(message.clone())
+    let mut provider_call_ids = HashMap::<String, String>::new();
+    let mut messages = Vec::new();
+    let mut call_order = Vec::<String>::new();
+    let mut tool_results = HashMap::<String, String>::new();
+
+    fn flush_tool_results(
+        messages: &mut Vec<Message>,
+        call_order: &mut Vec<String>,
+        tool_results: &mut HashMap<String, String>,
+        provider_call_ids: &HashMap<String, String>,
+    ) {
+        for call_id in call_order.drain(..) {
+            let Some(content) = tool_results.remove(&call_id) else {
+                continue;
+            };
+            messages.push(Message::tool(
+                provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
+                content,
+            ));
+        }
+        // A valid log associates results with the current assistant batch.
+        // Preserve a deterministic fallback for legacy snapshots whose audit
+        // events predate that lifecycle invariant.
+        let mut leftovers = tool_results.drain().collect::<Vec<_>>();
+        leftovers.sort_by(|left, right| left.0.cmp(&right.0));
+        for (call_id, content) in leftovers {
+            messages.push(Message::tool(
+                provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
+                content,
+            ));
+        }
+    }
+
+    for logged in events {
+        match logged.data() {
+            EventData::UserMessage { message } => {
+                flush_tool_results(
+                    &mut messages,
+                    &mut call_order,
+                    &mut tool_results,
+                    &provider_call_ids,
+                );
+                messages.push(message.clone());
             }
-            EventData::ToolResult { result, .. } => Some(Message::tool(
-                result.call_id.clone(),
-                result.content.clone(),
-            )),
-            _ => None,
-        })
-        .collect()
+            EventData::AssistantMessage { message, .. } => {
+                flush_tool_results(
+                    &mut messages,
+                    &mut call_order,
+                    &mut tool_results,
+                    &provider_call_ids,
+                );
+                for call in &message.tool_calls {
+                    provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
+                }
+                call_order.extend(message.tool_calls.iter().map(|call| call.id.clone()));
+                messages.push(message.clone());
+            }
+            EventData::ToolCall { call, .. } => {
+                provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
+            }
+            EventData::ToolResult { result, .. } => {
+                tool_results.insert(result.call_id.clone(), result.content.clone());
+            }
+            EventData::StepEnd { .. } | EventData::TurnEnd { .. } => flush_tool_results(
+                &mut messages,
+                &mut call_order,
+                &mut tool_results,
+                &provider_call_ids,
+            ),
+            _ => {}
+        }
+    }
+    flush_tool_results(
+        &mut messages,
+        &mut call_order,
+        &mut tool_results,
+        &provider_call_ids,
+    );
+    messages
 }
 
 fn validate_header(header: &SessionHeader) -> Result<(), SessionError> {
@@ -291,6 +372,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         turn: u32,
         step: u32,
         request_header_seen: bool,
+        request_provider: Option<String>,
         assistant_calls: Option<Vec<crate::ToolCall>>,
         mirrored_calls: usize,
     }
@@ -320,10 +402,22 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
 
     let mut current_logged_revision = Revision::ZERO;
     let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
+    let mut approvals = HashMap::<String, bool>::new();
+    let mut commands = HashMap::<String, bool>::new();
+    let mut retry_chains = HashMap::<(u32, u32, String, String), (String, u32)>::new();
+    let mut retry_owners = HashMap::<String, (u32, u32, String, String)>::new();
+    let mut scheduled_retries = HashMap::<(String, u32), (u32, u32)>::new();
+    let mut started_retries = std::collections::HashSet::<(String, u32)>::new();
+    let mut mutation_receipts = std::collections::HashSet::<String>::new();
+    let mut mutation_revisions = std::collections::HashSet::<u64>::new();
     let mut open_turn = None::<u32>;
     let mut last_turn = 0u32;
     let mut open_step = None::<StepState>;
     let mut last_step = 0u32;
+    let mut next_turn_inbox = Vec::<InboxMessage>::new();
+    let mut next_step_inbox = Vec::<InboxMessage>::new();
+    let mut current_goal = None::<(crate::GoalSnapshot, u64, u64, u64)>;
+    let mut seen_goal_ids = std::collections::HashSet::<String>::new();
     for (position, logged) in events.iter().enumerate() {
         let expected_seq = position as Sequence;
         if logged.seq != expected_seq {
@@ -361,6 +455,93 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
 
         match logged.data() {
+            EventData::AgentPresetSelected { agent_preset } => {
+                if agent_preset.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "agent-preset/selected value must be non-empty",
+                    ));
+                }
+            }
+            EventData::SessionModelSelected {
+                provider,
+                model,
+                reasoning_effort,
+            } => {
+                if provider.trim().is_empty()
+                    || model.trim().is_empty()
+                    || reasoning_effort
+                        .as_ref()
+                        .is_some_and(|value| value.trim().is_empty())
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "session/model-selected provider, model and optional reasoning effort must be non-empty",
+                    ));
+                }
+            }
+            EventData::AgentInboxSpliced {
+                target,
+                start,
+                removed_count,
+                inserted,
+                outcome,
+            } => {
+                let (target_inbox, other_inbox) = match target {
+                    InboxTarget::NextTurn => (&mut next_turn_inbox, &next_step_inbox),
+                    InboxTarget::NextStep => (&mut next_step_inbox, &next_turn_inbox),
+                };
+                let end = start.checked_add(*removed_count).ok_or_else(|| {
+                    SessionError::InvalidInboxSplice {
+                        seq: logged.seq,
+                        message: "splice range overflow".to_owned(),
+                    }
+                })?;
+                if *start > target_inbox.len() || end > target_inbox.len() {
+                    return Err(SessionError::InvalidInboxSplice {
+                        seq: logged.seq,
+                        message: format!(
+                            "range {start}..{end} exceeds {} pending items",
+                            target_inbox.len()
+                        ),
+                    });
+                }
+                if outcome.is_some() && *removed_count == 0 {
+                    return Err(SessionError::InvalidInboxSplice {
+                        seq: logged.seq,
+                        message: "discard outcome requires at least one removed message".to_owned(),
+                    });
+                }
+                for message in inserted {
+                    if message.id.is_empty() {
+                        return Err(SessionError::EmptyInboxMessageId { seq: logged.seq });
+                    }
+                    if message.message.role != MessageRole::User {
+                        return Err(SessionError::InvalidInboxMessageRole {
+                            seq: logged.seq,
+                            message_id: message.id.clone(),
+                        });
+                    }
+                    if message.message.id.as_deref() != Some(message.id.as_str()) {
+                        return Err(SessionError::InboxMessageIdMismatch {
+                            seq: logged.seq,
+                            message_id: message.id.clone(),
+                        });
+                    }
+                }
+                let mut candidate = target_inbox.clone();
+                candidate.splice(*start..end, inserted.iter().cloned());
+                let mut ids = std::collections::HashSet::new();
+                for message in candidate.iter().chain(other_inbox) {
+                    if !ids.insert(message.id.as_str()) {
+                        return Err(SessionError::DuplicateInboxMessage {
+                            seq: logged.seq,
+                            message_id: message.id.clone(),
+                        });
+                    }
+                }
+                *target_inbox = candidate;
+            }
             EventData::TurnStart { turn } => {
                 if open_turn.is_some() || open_step.is_some() {
                     return Err(lifecycle_error(logged.seq, "cannot nest a turn"));
@@ -434,7 +615,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 }
                 open_step = None;
             }
-            EventData::RequestHeader { .. } => {
+            EventData::RequestHeader { header } => {
                 let Some(state) = open_step.as_mut() else {
                     return Err(lifecycle_error(
                         logged.seq,
@@ -453,7 +634,503 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         "request/header cannot follow assistant/message",
                     ));
                 }
+                if header.provider.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "request/header provider must be non-empty",
+                    ));
+                }
                 state.request_header_seen = true;
+                state.request_provider = Some(header.provider.clone());
+            }
+            EventData::ApprovalAsked {
+                id,
+                tool_name,
+                call_id,
+                ..
+            } => {
+                if open_turn.is_none() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "approval/asked requires an open turn",
+                    ));
+                }
+                if id.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "approval/asked id must be non-empty",
+                    ));
+                }
+                if tool_name.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "approval/asked toolName must be non-empty",
+                    ));
+                }
+                if approvals.insert(id.clone(), false).is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!("approval/asked repeats id {id:?}"),
+                    ));
+                }
+                if let Some(call_id) = call_id {
+                    let Some((settled, _, _)) = calls.get(call_id) else {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("approval/asked references unknown call id {call_id:?}"),
+                        ));
+                    };
+                    if *settled {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("approval/asked references settled call id {call_id:?}"),
+                        ));
+                    }
+                }
+            }
+            EventData::ApprovalDecided { id, .. } => {
+                if open_turn.is_none() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "approval/decided requires an open turn",
+                    ));
+                }
+                match approvals.get_mut(id) {
+                    None => {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("approval/decided has no matching ask for id {id:?}"),
+                        ));
+                    }
+                    Some(true) => {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("approval/decided repeats id {id:?}"),
+                        ));
+                    }
+                    Some(decided) => *decided = true,
+                }
+            }
+            EventData::PermissionPreset { preset } => {
+                if preset.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "permission/preset name must be non-empty",
+                    ));
+                }
+            }
+            EventData::SandboxMode { .. }
+            | EventData::ApprovalPolicy { .. }
+            | EventData::PlanMode { .. } => {}
+            EventData::CommandRun {
+                command_id, name, ..
+            } => {
+                if command_id.trim().is_empty() || name.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "command/run commandId and name must be non-empty",
+                    ));
+                }
+                if commands.insert(command_id.clone(), false).is_some() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!("command/run repeats commandId {command_id:?}"),
+                    ));
+                }
+            }
+            EventData::CommandDone {
+                command_id,
+                kind,
+                source_event_seq,
+                ..
+            } => {
+                match commands.get_mut(command_id) {
+                    None => {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("command/done has no matching run for {command_id:?}"),
+                        ));
+                    }
+                    Some(true) => {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("command/done repeats commandId {command_id:?}"),
+                        ));
+                    }
+                    Some(done) => *done = true,
+                }
+                if let Some(source_seq) = source_event_seq {
+                    let target = usize::try_from(*source_seq)
+                        .ok()
+                        .and_then(|index| events.get(index));
+                    if *kind != crate::CommandResultKind::Success
+                        || *source_seq >= logged.seq
+                        || target.is_none_or(|target| {
+                            target.seq != *source_seq
+                                || matches!(
+                                    target.data(),
+                                    EventData::CommandRun { .. } | EventData::CommandDone { .. }
+                                )
+                        })
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "command/done carries an invalid sourceEventSeq",
+                        ));
+                    }
+                }
+            }
+            EventData::SessionTitle {
+                title,
+                message_seqs,
+                source,
+            } => {
+                if title.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "session/title title must be non-empty",
+                    ));
+                }
+                let user_owned = matches!(source, crate::SessionTitleSource::User);
+                if message_seqs.is_empty() != user_owned {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "session/title messageSeqs must be empty exactly for a user source",
+                    ));
+                }
+                if let crate::SessionTitleSource::Provider { provider, model } = source {
+                    if provider.trim().is_empty()
+                        || model.as_ref().is_some_and(|model| {
+                            model.provider.trim().is_empty() || model.model.trim().is_empty()
+                        })
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "session/title provider provenance must be non-empty",
+                        ));
+                    }
+                }
+            }
+            EventData::GoalChange { change } => match change {
+                crate::GoalChange::Snapshot(change) => {
+                    let goal = &change.goal;
+                    if change.version != 1
+                        || goal.id.trim().is_empty()
+                        || goal.objective.trim().is_empty()
+                        || goal.revision == 0
+                        || goal.max_goal_rounds == 0
+                        || change.rounds_started > goal.max_goal_rounds
+                        || change.updated_at < change.created_at
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "goal/change snapshot has invalid identity, limits or timestamps",
+                        ));
+                    }
+                    let blocked = matches!(goal.phase, crate::GoalPhase::Blocked);
+                    if blocked != goal.blocked_reason.is_some()
+                        || goal.blocked_reason.as_ref().is_some_and(|reason| {
+                            reason.code.trim().is_empty() || reason.message.trim().is_empty()
+                        })
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "goal/change blockedReason must exist exactly for blocked phase",
+                        ));
+                    }
+                    match change.operation {
+                        crate::GoalSnapshotOperation::Create => {
+                            if goal.revision != 1
+                                || goal.phase != crate::GoalPhase::Active
+                                || change.rounds_started != 0
+                                || current_goal.as_ref().is_some_and(|(current, ..)| {
+                                    current.phase != crate::GoalPhase::Complete
+                                })
+                                || !seen_goal_ids.insert(goal.id.clone())
+                            {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "goal create requires a fresh active revision-one goal",
+                                ));
+                            }
+                        }
+                        operation => {
+                            let Some((current, rounds, created_at, updated_at)) =
+                                current_goal.as_ref()
+                            else {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "non-create goal mutation requires a current goal",
+                                ));
+                            };
+                            if goal.id != current.id
+                                || goal.revision != current.revision.saturating_add(1)
+                                || change.created_at != *created_at
+                                || change.updated_at < *updated_at
+                                || change.rounds_started != *rounds
+                            {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "goal mutation must advance one revision without rewinding metadata",
+                                ));
+                            }
+                            let same_definition = goal.objective == current.objective
+                                && goal.max_goal_rounds == current.max_goal_rounds;
+                            let valid = match operation {
+                                crate::GoalSnapshotOperation::Edit => {
+                                    goal.phase == current.phase
+                                        && goal.blocked_reason == current.blocked_reason
+                                }
+                                crate::GoalSnapshotOperation::Pause => {
+                                    same_definition
+                                        && current.phase == crate::GoalPhase::Active
+                                        && goal.phase == crate::GoalPhase::Paused
+                                }
+                                crate::GoalSnapshotOperation::Resume => {
+                                    same_definition
+                                        && matches!(
+                                            current.phase,
+                                            crate::GoalPhase::Active
+                                                | crate::GoalPhase::Paused
+                                                | crate::GoalPhase::Blocked
+                                        )
+                                        && goal.phase == crate::GoalPhase::Active
+                                        && change.rounds_started < goal.max_goal_rounds
+                                }
+                                crate::GoalSnapshotOperation::Complete => {
+                                    same_definition
+                                        && current.phase != crate::GoalPhase::Complete
+                                        && goal.phase == crate::GoalPhase::Complete
+                                }
+                                crate::GoalSnapshotOperation::Block => {
+                                    same_definition
+                                        && current.phase == crate::GoalPhase::Active
+                                        && goal.phase == crate::GoalPhase::Blocked
+                                }
+                                crate::GoalSnapshotOperation::Create => false,
+                            };
+                            if !valid {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "goal/change has an invalid phase or definition transition",
+                                ));
+                            }
+                        }
+                    }
+                    current_goal = Some((
+                        goal.clone(),
+                        change.rounds_started,
+                        change.created_at,
+                        change.updated_at,
+                    ));
+                }
+                crate::GoalChange::Clear(change) => {
+                    let Some((current, _, _, updated_at)) = current_goal.as_ref() else {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "goal clear requires a current goal",
+                        ));
+                    };
+                    if change.version != 1
+                        || change.cleared.id != current.id
+                        || change.cleared.revision != current.revision.saturating_add(1)
+                        || change.cleared_at < *updated_at
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "goal clear tombstone has invalid identity, revision or timestamp",
+                        ));
+                    }
+                    current_goal = None;
+                }
+            },
+            EventData::SessionMutationCommitted { receipt } => {
+                let paired_with_state = position > 0
+                    && events[position - 1].revision == logged.revision
+                    && !matches!(
+                        events[position - 1].data(),
+                        EventData::SessionMutationCommitted { .. }
+                    );
+                let ends_revision = events
+                    .get(position.saturating_add(1))
+                    .is_none_or(|next| next.revision != logged.revision);
+                let fingerprint_is_valid = receipt.fingerprint.len() == 64
+                    && receipt
+                        .fingerprint
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase());
+                let response_seq_field_is_valid = receipt
+                    .response_event_seq_field
+                    .as_ref()
+                    .is_none_or(|field| {
+                        !field.trim().is_empty()
+                            && !field.contains('\0')
+                            && receipt
+                                .response
+                                .as_object()
+                                .is_some_and(|response| !response.contains_key(field))
+                    });
+                if receipt.rpc_id.trim().is_empty()
+                    || receipt.method.trim().is_empty()
+                    || !fingerprint_is_valid
+                    || !response_seq_field_is_valid
+                    || !paired_with_state
+                    || !ends_revision
+                    || contains_populated_secret(&receipt.response)
+                    || !mutation_receipts.insert(receipt.rpc_id.clone())
+                    || !mutation_revisions.insert(logged.revision.0)
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "xharness/mutation-committed must be unique, secret-free, valid and end a state-mutation revision",
+                    ));
+                }
+            }
+            EventData::LlmRetry {
+                retry_id,
+                turn,
+                step,
+                provider,
+                mode,
+                policy_key,
+                retry,
+                max_retries,
+                failure,
+                ..
+            } => {
+                let Some(state) = open_step.as_ref() else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry requires an open step",
+                    ));
+                };
+                if state.turn != *turn || state.step != *step {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry coordinates do not match the open step",
+                    ));
+                }
+                if retry_id.trim().is_empty()
+                    || provider.trim().is_empty()
+                    || policy_key.trim().is_empty()
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry identity, provider and policyKey must be non-empty",
+                    ));
+                }
+                if state.request_provider.as_deref() != Some(provider.as_str()) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry provider does not match request/header",
+                    ));
+                }
+                if *retry == 0 {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry retry must be positive",
+                    ));
+                }
+                match mode {
+                    crate::LlmRetryMode::Normal => {
+                        if max_retries.is_none_or(|maximum| maximum == 0 || *retry > maximum) {
+                            return Err(lifecycle_error(
+                                logged.seq,
+                                "normal llm/retry requires a positive maxRetries not below retry",
+                            ));
+                        }
+                    }
+                    crate::LlmRetryMode::Always => {
+                        if max_retries.is_some() {
+                            return Err(lifecycle_error(
+                                logged.seq,
+                                "always llm/retry must omit maxRetries",
+                            ));
+                        }
+                    }
+                }
+                if failure.message.trim().is_empty() || failure.code.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry failure message and code must be non-empty",
+                    ));
+                }
+                if failure
+                    .status
+                    .is_some_and(|status| !(100..=599).contains(&status))
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry failure status must be within 100..=599",
+                    ));
+                }
+                if failure.provider_retry_after_ms == Some(0) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry providerRetryAfterMs must be positive",
+                    ));
+                }
+                if failure.request_id.as_ref().is_some_and(|id| id.is_empty()) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry requestId must be non-empty when present",
+                    ));
+                }
+
+                let owner = (*turn, *step, provider.clone(), policy_key.clone());
+                if let Some(existing) = retry_owners.get(retry_id) {
+                    if existing != &owner {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            format!("llm/retry id {retry_id:?} is owned by another chain"),
+                        ));
+                    }
+                } else {
+                    retry_owners.insert(retry_id.clone(), owner.clone());
+                }
+                let chain = retry_chains.entry(owner).or_insert((retry_id.clone(), 0));
+                if chain.0 != *retry_id || retry != &(chain.1.saturating_add(1)) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry must preserve retryId and increment retry by one",
+                    ));
+                }
+                chain.1 = *retry;
+                if scheduled_retries
+                    .insert((retry_id.clone(), *retry), (*turn, *step))
+                    .is_some()
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry repeats one scheduled attempt",
+                    ));
+                }
+            }
+            EventData::LlmRetryStarted {
+                retry_id,
+                turn,
+                step,
+                retry,
+            } => {
+                if open_step.as_ref().map(|state| (state.turn, state.step)) != Some((*turn, *step))
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry-started coordinates do not match the open step",
+                    ));
+                }
+                if scheduled_retries.get(&(retry_id.clone(), *retry)) != Some(&(*turn, *step)) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry-started has no matching scheduled retry",
+                    ));
+                }
+                if !started_retries.insert((retry_id.clone(), *retry)) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "llm/retry-started repeats one scheduled attempt",
+                    ));
+                }
             }
             EventData::UserMessage { message } => {
                 if message.role != MessageRole::User {
@@ -524,6 +1201,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     if call.id.is_empty() {
                         return Err(SessionError::EmptyToolCallId { seq: logged.seq });
                     }
+                    if call.provider_call_id.as_deref() == Some("") {
+                        return Err(SessionError::EmptyProviderToolCallId { seq: logged.seq });
+                    }
                     if call.name.is_empty() {
                         return Err(SessionError::EmptyToolName { seq: logged.seq });
                     }
@@ -539,6 +1219,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
             EventData::ToolCall { turn, step, call } => {
                 if call.id.is_empty() {
                     return Err(SessionError::EmptyToolCallId { seq: logged.seq });
+                }
+                if call.provider_call_id.as_deref() == Some("") {
+                    return Err(SessionError::EmptyProviderToolCallId { seq: logged.seq });
                 }
                 if call.name.is_empty() {
                     return Err(SessionError::EmptyToolName { seq: logged.seq });
@@ -638,6 +1321,26 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         });
     }
     Ok(())
+}
+
+fn contains_populated_secret(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(object) => object.iter().any(|(key, value)| {
+            let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+            let sensitive = normalized.contains("password")
+                || normalized.contains("authorization")
+                || normalized.contains("apikey")
+                || normalized.ends_with("token")
+                || normalized.ends_with("secret");
+            let populated = !matches!(value, serde_json::Value::Null)
+                && !matches!(value, serde_json::Value::String(text) if text.is_empty())
+                && !matches!(value, serde_json::Value::Array(items) if items.is_empty())
+                && !matches!(value, serde_json::Value::Object(items) if items.is_empty());
+            (sensitive && populated) || contains_populated_secret(value)
+        }),
+        serde_json::Value::Array(values) => values.iter().any(contains_populated_secret),
+        _ => false,
+    }
 }
 
 pub(crate) fn unix_timestamp_ms() -> u64 {

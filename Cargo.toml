@@ -1,7 +1,9 @@
 [workspace]
 members = [
+    "crates/xharness-agent",
     "crates/xharness-api",
     "crates/xharness-context",
+    "crates/xharness-control",
     "crates/xharness-core",
     "crates/xharness-fs",
     "crates/xharness-host",
@@ -9,11 +11,13 @@ members = [
     "crates/xharness-provider-openai",
     "crates/xharness-process",
     "crates/xharness-platform",
+    "crates/xharness-prompt",
     "crates/xharness-sandbox",
     "crates/xharness-session",
     "crates/xharness-session-jsonl",
     "crates/xharness-server",
     "crates/xharness-terminal",
+    "crates/xharness-token",
     "crates/xharness-tools",
     "crates/xharness-web",
     "crates/xharness-coding-tools",
@@ -35,9 +39,10 @@ futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["http2", "json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10.9"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-tungstenite = "0.29"
 tokio-util = "0.7"
 tower = { version = "0.5", features = ["util"] }

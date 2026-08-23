@@ -10,7 +10,8 @@ XHarness 的编译期原生平台下层。它把以下能力组合成宿主唯�
 模型 Provider 和 Agent Loop 不依赖本 Crate；CLI/Daemon/Web Host 只在应用组合边界创建
 `NativePlatform`。受限 Sandbox Probe 失败必须 fail closed，不能静默退回裸执行。
 
-当前还缺面向 Host/UI 的 `CapabilityReport`。因此 Backend 已确认 Bubblewrap 不可用时，
-Host 仍可能把 `bash/glob/grep/terminal_open` 定义发给模型；该问题列为 `P0-13`。完整契约见
+`NativePlatform::capability_report()` 会对同一 Platform 组合缓存一次真实 Sandbox Probe，
+Host 据此移除确定不可用的进程/PTY 工具；Full access 则明确报告 `none-full-access`，不会为
+Readiness 创建 Sandbox。Web UI 的 Readiness 投影仍列为 `P0-13`。完整契约见
 [`../../docs/specs/platform.md`](../../docs/specs/platform.md)，运行故障见
 [`../../docs/operations.md`](../../docs/operations.md)。

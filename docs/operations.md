@@ -1,9 +1,14 @@
 # 运行、诊断与故障处理
 
-**最后核对：** 2026-08-21
+**最后核对：** 2026-08-22
 
 本文记录当前 Rust Web Host 的运行边界。生产能力以源码和各项规范为准；这里不给尚未实现的
 自动降级制造假象。
+
+Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保存在平台数据目录的
+`sessions/`、`control/` 与 `leases/`：macOS 为 `~/Library/Application Support/XHarness`，Linux 为
+`${XDG_DATA_HOME:-~/.local/share}/xharness`。可用 `XHARNESS_STATE_DIR` 或 `--state-dir` 覆盖；
+测试、临时部署和多实例运行必须使用独立目录。
 
 ## 启动前检查
 
@@ -21,10 +26,52 @@
 
 - 52 个上游兼容 RPC 有基础状态行为。
 - `session.prompt` 可驱动真实 Rust Loop。
-- 每个模型 Step 当前固定注入 14 个工具的 name/description/Schema。
-- Preset 文本目前没有作为 System Prompt 注入。
-- Host 状态、队列、审批和消息历史仍主要在内存中，重启不会完整恢复。
-- 当前没有请求前 Token Guard 或自动上下文压缩。
+- Coding Bundle 注册 14 个稳定工具名；每个模型 Step 只注入当前 Platform/Search/Terminal
+  Readiness 可用的子集。
+- Preset、权限、Workspace、Coding Workflow 和 Plan Policy 已通过 `xharness-prompt/v1` 真实注入
+  System Prompt；Request Header 保存版本和 Hash，System 不进入 Transcript。
+- 模型历史、实际 Turn 和 Admission Queue 已写 JSONL Session。启动会枚举并恢复 Session、History、
+  Header CWD 对应 Workspace 和 Pending Turn。Prompt RPC Receipt 由完整 Inbox 历史恢复，同 RPC ID
+  与 Payload 的请求可安全重试；Workspace 自定义元数据、Settings、审批和其他变更 RPC Receipt
+  仍在内存中，因此尚不是整个 API 的完整 Exactly-once 恢复。
+- 正式 Host 已安装请求前 Token Guard；配置模型时必须显式声明真实窗口。当前没有自动上下文
+  压缩，超限会在本地失败且 Provider Attempt 为零。
+- 一个 Host 可以从 `XHARNESS_PROVIDERS_FILE` 加载多个 OpenAI-compatible 路由。Web 只连接
+  Host，4080/V100 的 Base URL、协议、上游模型名和窗口预算由 Registry 分别管理。
+
+## 多 Provider 部署
+
+推荐让远端模型服务只监听服务器 loopback，再通过 SSH 转发到运行 Web Host 的机器：
+
+```bash
+ssh -N -L 127.0.0.1:19626:127.0.0.1:19626 WZU_4080
+ssh -N -J WZU_4080 -L 127.0.0.1:8000:127.0.0.1:8000 WZU_Server
+```
+
+随后复制并修改 `config/providers.example.json`，再用：
+
+```bash
+XHARNESS_PROVIDERS_FILE=/absolute/path/providers.json \
+xharness-host --bind 127.0.0.1:3082
+```
+
+启动检查必须分别请求每个 Base URL 的 `/models` 和一次最小生成；SSH Forward 存活不代表远端
+模型端口正在监听。配置修改目前需要重启 Host。历史 Session 若选择了已删除路由，仍可浏览，
+但 Pending Turn 必须保持 `model-unavailable`，禁止悄悄切到默认 GPU。
+
+当前 WZU_Server 的系统 vLLM/PyTorch CUDA 13 wheel 不包含 V100 `sm_70` kernel，会在启动时返回
+`no kernel image is available`。在完成原生 vLLM 重编译前，可用仓库中的单用户部署桥：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/v100-openai-transformers.py \
+  --model /path/to/Qwen3.5-9B \
+  --served-model qwen3.5-9b-v100 \
+  --context-window 32768 \
+  --host 127.0.0.1 --port 8000
+```
+
+该桥只负责把 Transformers/Qwen XML 工具调用正规化为流式 Chat Completions；Loop、审批、工具、
+Session 和路由仍全部在 Rust Host。它按单用户串行请求，不是高并发生产推理服务器。
 
 ## Sandbox Probe 失败
 
@@ -47,7 +94,7 @@ bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
 - Host 应把 Probe 结果投影为 Capability，并从下一 Step 移除 `bash/glob/grep/terminal_open`；
   只有存在历史 Terminal 时才保留相应的 read/signal/close 管理工具。
 - 只有操作者明确选择 `Full access` 时才允许关闭权限沙箱，并明确记录
-  `sandbox/mode={enabled:false,mode:"disabled"}`；进程仍必须由 Process Runtime 托管。
+  `sandbox/mode={mode:"danger-full-access"}`；进程仍必须由 Process Runtime 托管。
 
 ## Context 超窗
 
@@ -66,8 +113,20 @@ request (64196 tokens) exceeds the available context size (53248 tokens)
 - 不要整文件读取；先读取入口、符号附近或小范围行。
 - 服务端扩窗只能在显存和模型部署确实支持时使用，不能替代 Host 预算管理。
 
-正式修复由[上下文预算规范](specs/context.md)定义：请求前计量、输出预留、分页读取、确定性
-工具结果压缩和不修改原日志的 Surface Replace。
+当前 Hard Guard 已阻止再次向 Provider 发送超窗请求。启动示例：
+
+```bash
+XHARNESS_MODEL=your-model \
+XHARNESS_CONTEXT_WINDOW=53248 \
+XHARNESS_MAX_OUTPUT_TOKENS=4096 \
+XHARNESS_TOKEN_SAFETY_MARGIN=1024 \
+xharness-host
+```
+
+可使用等价参数 `--context-window`、`--max-output-tokens` 和 `--token-safety-margin`。Guard 将
+总窗口减去输出预留和安全余量后再接纳输入；Chat/Responses 同时收到对应的原生最大输出字段。
+后续分页读取、确定性工具结果压缩和不修改原日志的 Surface Replace 仍由
+[上下文预算规范](specs/context.md)定义。
 
 ## 诊断 Session
 

@@ -35,7 +35,7 @@ DeepSeek Web UI / future CLI
                |
   +------------+-------------+
   |                          |
-xharness-agent（计划）   prompt/context（计划）
+xharness-agent（迁移中） prompt/context/token
   |                          |
   +--------- xharness-core --+
               |          |
@@ -67,13 +67,18 @@ Session 原始事件
 ```
 
 当前已经把 Context 从 Core 拆成独立 `xharness-context`，并建立一次性 Surface、替换来源范围
-和 Request Header 审计边界。Host 仍使用 `IdentityContextPolicy`，没有 Prompt Registry、
-Token Meter 或实际压缩策略。这个缺口已经在真实 53,248-token 服务上触发 64,196-token
-请求失败，因此是 P0，而不是可选性能优化。
+和 Request Header 审计边界。`xharness-prompt/v1` 已把 Preset/权限/Workspace/Workflow/Plan
+按稳定顺序真实注入并记录 Hash。`xharness-token` 在 Surface 完成后执行统一 Hard Guard；正式
+Host 配置模型时必须声明真实窗口，并使用保守 Byte Meter、输出预留和安全余量。Host 仍使用
+`IdentityContextPolicy`，所以超限会在网络前本地失败，但尚不会自动压缩。
 
 Host 控制面也已完成两层解耦：原生部署组合移动到 `xharness-host-app`；BasicHost 只通过
 `AgentRuntime -> RunningTurn` 驱动 Turn。当前 `LoopAgentRuntime` 是 v0 Loop 的兼容适配器，
 未来 Durable Agent/Inbox 实现替换该适配器，不触碰 Web RPC。
+
+`xharness-agent` 已交付 `agent/inbox/spliced` 可重放事件、Next-turn/Next-step 投影、Claim 与
+Turn 输入同 Revision 提交、进程内 Registry、AgentSupervisor、多 Turn Driver、持久 Steering，
+以及 macOS/Linux 文件 Lease。当前仍在把 `BasicHost` 的内存 FIFO 迁移到这条路径。
 
 ## 模块职责
 
@@ -92,14 +97,17 @@ Transcript 投影和崩溃恢复。JSONL 是首个持久 Backend；后续 SQLite
 ### `xharness-context`
 
 拥有 `ContextRequest -> ContextSurface` 投影、Policy 身份、Surface Edit 结构验证和请求审计
-元数据。它不依赖任何推理后端，也不修改 Session 原始事件。当前只交付抽象和 Identity 策略；
-确定性裁剪、Token Budget 与 Summary 仍待实现。
+元数据。它不依赖任何推理后端，也不修改 Session 原始事件。当前交付抽象和 Identity 策略；
+确定性裁剪与 Summary 仍待实现。
 
-### `xharness-prompt` / Token 层（计划）
+### `xharness-prompt` / `xharness-token`
 
-Prompt Registry 将 Preset、Workspace、工具指导和 Provider Section 按稳定版本组装。Context
-层负责 Token 预算、工具结果 Reduce、Spill Reference 与 Surface Replace。两者共同产生可
-审计的 Prepared Call；UI 中存在 Preset 记录不代表 System Prompt 已经注入。
+当前最小 Assembler 已将 Preset、权限、Workspace、Coding Workflow 和 Plan Policy 按稳定版本
+组装，并把 System 与 Section/Assembly Hash 写入 Request Header。完整 Registry 后续增加动态
+Scope、Variable、Skill 和 Provider Section。Context 层负责 Token 预算、工具结果 Reduce、
+Spill Reference 与 Surface Replace。`xharness-token` 提供可替换 `TokenMeter`、保守 Byte 后备、
+强类型 Budget/Report/Error；Core 在 Provider I/O 前执行并将报告落 Request Header，同时把
+输出预留映射为 Provider Generation Ceiling。三者共同产生可审计的 Prepared Call。
 
 ### `xharness-tools`
 
@@ -141,8 +149,8 @@ terminal_signal terminal_close terminal_list
 web_search web_fetch
 ```
 
-“稳定名称”不表示每一轮都应该发送全部工具。最终工具投影由 Profile、当前 Step 与平台能力
-决定，并写入 Request Header。当前 Host 仍固定发送 14 个，属于待修复兼容行为。
+“稳定名称”不表示每一轮都应该发送全部工具。Host 已按平台、Search Provider 与现存 Terminal
+状态裁剪模型可见子集；最终工具投影还要加入 Profile/当前 Step 规则并完整写入 Request Header。
 
 ## Web 组合边界
 
@@ -158,7 +166,7 @@ Web UI 是 Session/Agent 状态的 Projection，不拥有模型历史。`xharnes
 2. Core 契约强化、Tool Registry 与原生 14 工具。**已实现基础版。**
 3. Web 兼容 API/Server/Host 和真实 Loop 投影。**已实现基础版。**
 4. 上下文预检、分页 Read、工具结果 Reduce、能力投影与真实 Prompt 注入。**当前 P0。**
-5. 长生命周期 Agent、Durable Inbox、Lease、结构化 Shutdown 与 CLI。**计划中。**
+5. 长生命周期 Agent、Durable Inbox、Lease、结构化 Shutdown 与 CLI。**Inbox/Lease 基础已实现，Driver 迁移中。**
 6. 认证、游标恢复、Attachment、Skills、MCP、LSP、Subagent 与 Workflow。**计划中。**
 
 先稳定事件、上下文和权限契约，再扩展 Web/Daemon/Subagent。否则每个客户端都会绑定临时内存

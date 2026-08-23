@@ -2,10 +2,13 @@ use std::sync::Arc;
 
 use serde_json::json;
 use xharness_session::{
-    derive_messages, incomplete_tool_calls, AssistantChunk, EventData, LoggedEvent,
-    MemorySessionStore, Message, MessageRole, RequestHeader, Revision, Session, SessionError,
-    SessionEvent, SessionHeader, Store, StoreError, ToolCall, ToolOutcome, ToolResultData,
-    TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
+    derive_messages, incomplete_tool_calls, ApprovalOutcome, ApprovalPolicy, AssistantChunk,
+    CommandResultKind, CommandSource, EventData, GoalChange, GoalChangeKind, GoalClearChange,
+    GoalClearOperation, GoalPhase, GoalRef, GoalSnapshot, GoalSnapshotChange,
+    GoalSnapshotOperation, LlmFailure, LlmRetryMode, LoggedEvent, MemorySessionStore, Message,
+    MessageRole, PolicySource, RequestHeader, Revision, Session, SessionError, SessionEvent,
+    SessionHeader, SessionMutationReceipt, SessionSandboxMode, SessionTitleSource, Store,
+    StoreError, ToolCall, ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
 };
 
 fn header(id: &str) -> SessionHeader {
@@ -24,10 +27,39 @@ fn event(data: EventData) -> SessionEvent {
 fn call(id: &str, index: usize) -> ToolCall {
     ToolCall {
         id: id.to_owned(),
+        provider_call_id: None,
         index,
         name: "read_file".to_owned(),
         arguments_json: r#"{"path":"README.md"}"#.to_owned(),
     }
+}
+
+fn goal_snapshot_event(
+    revision: u64,
+    objective: &str,
+    phase: GoalPhase,
+    max_goal_rounds: u64,
+    operation: GoalSnapshotOperation,
+    updated_at: u64,
+) -> SessionEvent {
+    event(EventData::GoalChange {
+        change: GoalChange::Snapshot(GoalSnapshotChange {
+            kind: GoalChangeKind::GoalChange,
+            version: 1,
+            operation,
+            goal: GoalSnapshot {
+                id: "goal-1".to_owned(),
+                revision,
+                objective: objective.to_owned(),
+                phase,
+                blocked_reason: None,
+                max_goal_rounds,
+            },
+            rounds_started: 0,
+            created_at: 10,
+            updated_at,
+        }),
+    })
 }
 
 #[test]
@@ -49,6 +81,16 @@ fn message_constructors_and_role_spellings_are_stable() {
         Message::assistant("world"),
         Message::new(MessageRole::Assistant, "world")
     );
+
+    let legacy: ToolCall = serde_json::from_value(json!({
+        "id": "legacy-call",
+        "index": 0,
+        "name": "read",
+        "arguments_json": "{}"
+    }))
+    .unwrap();
+    assert_eq!(legacy.provider_call_id, None);
+    assert_eq!(legacy.provider_id(), "legacy-call");
 }
 
 #[test]
@@ -143,8 +185,90 @@ fn restore_rejects_sequence_gaps_and_bad_revisions() {
 #[test]
 fn every_first_version_event_round_trips_through_serde() {
     let events = vec![
+        event(EventData::AgentPresetSelected {
+            agent_preset: "coding".to_owned(),
+        }),
+        event(EventData::SessionModelSelected {
+            provider: "openai".to_owned(),
+            model: "gpt-test".to_owned(),
+            reasoning_effort: Some("high".to_owned()),
+        }),
         event(EventData::RequestHeader {
             header: RequestHeader::new("openai", "gpt-test"),
+        }),
+        event(EventData::ApprovalAsked {
+            id: "approval-1".to_owned(),
+            tool_name: "bash".to_owned(),
+            call_id: Some("call-1".to_owned()),
+            reason: Some("requires permission".to_owned()),
+        }),
+        event(EventData::ApprovalDecided {
+            id: "approval-1".to_owned(),
+            outcome: ApprovalOutcome::AllowedOnce,
+        }),
+        event(EventData::PermissionPreset {
+            preset: "workspace-write".to_owned(),
+        }),
+        event(EventData::SandboxMode {
+            mode: SessionSandboxMode::WorkspaceWrite,
+            source: Some(PolicySource::Delegation),
+        }),
+        event(EventData::ApprovalPolicy {
+            policy: ApprovalPolicy::Ask,
+            source: None,
+        }),
+        event(EventData::CommandRun {
+            command_id: "command-1".to_owned(),
+            name: "permission".to_owned(),
+            args: Some(" danger-full-access".to_owned()),
+            source: CommandSource::User,
+        }),
+        event(EventData::CommandDone {
+            command_id: "command-1".to_owned(),
+            kind: CommandResultKind::Success,
+            text: Some("updated".to_owned()),
+            source_event_seq: None,
+        }),
+        event(EventData::SessionTitle {
+            title: "A durable title".to_owned(),
+            message_seqs: Vec::new(),
+            source: SessionTitleSource::User,
+        }),
+        event(EventData::SessionMutationCommitted {
+            receipt: SessionMutationReceipt {
+                rpc_id: "rpc-1".to_owned(),
+                method: "session.rename".to_owned(),
+                fingerprint: "a".repeat(64),
+                response: json!({"title": "A durable title"}),
+                response_event_seq_field: None,
+            },
+        }),
+        goal_snapshot_event(
+            1,
+            "Ship it",
+            GoalPhase::Active,
+            8,
+            GoalSnapshotOperation::Create,
+            10,
+        ),
+        event(EventData::PlanMode { active: true }),
+        event(EventData::LlmRetry {
+            retry_id: "retry-1".to_owned(),
+            turn: 1,
+            step: 1,
+            provider: "openai".to_owned(),
+            mode: LlmRetryMode::Normal,
+            policy_key: "normal:2".to_owned(),
+            retry: 1,
+            max_retries: Some(2),
+            delay_ms: 0,
+            failure: LlmFailure::transport("connection reset"),
+        }),
+        event(EventData::LlmRetryStarted {
+            retry_id: "retry-1".to_owned(),
+            turn: 1,
+            step: 1,
+            retry: 1,
         }),
         event(EventData::TurnStart { turn: 1 }),
         event(EventData::StepStart { turn: 1, step: 1 }),
@@ -185,13 +309,401 @@ fn every_first_version_event_round_trips_through_serde() {
         let decoded: SessionEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, candidate);
     }
+
+    let asked = serde_json::to_value(event(EventData::ApprovalAsked {
+        id: "approval-wire".to_owned(),
+        tool_name: "bash".to_owned(),
+        call_id: Some("call-wire".to_owned()),
+        reason: None,
+    }))
+    .unwrap();
+    assert_eq!(asked["type"], "approval/asked");
+    assert_eq!(asked["data"]["toolName"], "bash");
+    assert_eq!(asked["data"]["callId"], "call-wire");
+    assert!(asked["data"].get("tool_name").is_none());
+
+    let goal = serde_json::to_value(goal_snapshot_event(
+        1,
+        "Wire goal",
+        GoalPhase::Active,
+        8,
+        GoalSnapshotOperation::Create,
+        10,
+    ))
+    .unwrap();
+    assert_eq!(goal["type"], "goal/change");
+    assert_eq!(goal["data"]["kind"], "goal/change");
+    assert_eq!(goal["data"]["operation"], "create");
+    assert_eq!(goal["data"]["goal"]["maxGoalRounds"], 8);
+    assert!(goal["data"].get("change").is_none());
+}
+
+#[test]
+fn session_mutation_receipt_is_atomic_unique_and_secret_free() {
+    let mut session = Session::new(header("mutation-receipt")).unwrap();
+    let receipt = SessionMutationReceipt {
+        rpc_id: "rpc-preset".to_owned(),
+        method: "agentPreset.select".to_owned(),
+        fingerprint: "b".repeat(64),
+        response: json!({"agentPreset": "coding"}),
+        response_event_seq_field: None,
+    };
+    let committed = session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::AgentPresetSelected {
+                    agent_preset: "coding".to_owned(),
+                }),
+                event(EventData::SessionMutationCommitted {
+                    receipt: receipt.clone(),
+                }),
+            ],
+            500,
+        )
+        .unwrap();
+    assert_eq!(committed.revision, Revision(1));
+    assert_eq!(committed.events.len(), 2);
+    assert!(session.derive_messages().is_empty());
+
+    let duplicate = session
+        .append_batch_at(
+            Revision(1),
+            vec![
+                event(EventData::AgentPresetSelected {
+                    agent_preset: "coding".to_owned(),
+                }),
+                event(EventData::SessionMutationCommitted { receipt }),
+            ],
+            501,
+        )
+        .unwrap_err();
+    assert!(matches!(duplicate, SessionError::InvalidLifecycle { .. }));
+    assert_eq!(session.revision(), Revision(1));
+
+    let secret = session
+        .append_batch_at(
+            Revision(1),
+            vec![
+                event(EventData::AgentPresetSelected {
+                    agent_preset: "coding".to_owned(),
+                }),
+                event(EventData::SessionMutationCommitted {
+                    receipt: SessionMutationReceipt {
+                        rpc_id: "rpc-secret".to_owned(),
+                        method: "agentPreset.select".to_owned(),
+                        fingerprint: "c".repeat(64),
+                        response: json!({"apiKey": "must-not-persist"}),
+                        response_event_seq_field: None,
+                    },
+                }),
+            ],
+            502,
+        )
+        .unwrap_err();
+    assert!(matches!(secret, SessionError::InvalidLifecycle { .. }));
+    assert_eq!(session.revision(), Revision(1));
+}
+
+#[test]
+fn approval_audit_is_turn_enclosed_paired_and_call_correlated() {
+    let mut assistant = Message::assistant("");
+    assistant.tool_calls = vec![call("call-1", 0)];
+    let mut session = Session::new(header("approval-lifecycle")).unwrap();
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::UserMessage {
+                    message: Message::user("run"),
+                }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::RequestHeader {
+                    header: RequestHeader::new("openai", "gpt-test"),
+                }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("call-1", 0),
+                }),
+                event(EventData::ApprovalAsked {
+                    id: "approval-1".to_owned(),
+                    tool_name: "read_file".to_owned(),
+                    call_id: Some("call-1".to_owned()),
+                    reason: None,
+                }),
+                event(EventData::ApprovalDecided {
+                    id: "approval-1".to_owned(),
+                    outcome: ApprovalOutcome::Rejected,
+                }),
+                event(EventData::ToolResult {
+                    turn: 1,
+                    step: 1,
+                    result: ToolResultData::error("call-1", "rejected"),
+                }),
+            ],
+            1,
+        )
+        .unwrap();
+
+    let revision = session.revision();
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::ApprovalDecided {
+                id: "missing".to_owned(),
+                outcome: ApprovalOutcome::Rejected,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+}
+
+#[test]
+fn retry_audit_requires_request_route_and_ordered_started_pairs() {
+    let mut session = Session::new(header("retry-lifecycle")).unwrap();
+    let scheduled = EventData::LlmRetry {
+        retry_id: "retry-1".to_owned(),
+        turn: 1,
+        step: 1,
+        provider: "openai".to_owned(),
+        mode: LlmRetryMode::Normal,
+        policy_key: "normal:2".to_owned(),
+        retry: 1,
+        max_retries: Some(2),
+        delay_ms: 0,
+        failure: LlmFailure::transport("connection reset"),
+    };
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::UserMessage {
+                    message: Message::user("run"),
+                }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::RequestHeader {
+                    header: RequestHeader::new("openai", "gpt-test"),
+                }),
+                event(scheduled),
+                event(EventData::LlmRetryStarted {
+                    retry_id: "retry-1".to_owned(),
+                    turn: 1,
+                    step: 1,
+                    retry: 1,
+                }),
+            ],
+            1,
+        )
+        .unwrap();
+
+    let revision = session.revision();
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::LlmRetryStarted {
+                retry_id: "retry-1".to_owned(),
+                turn: 1,
+                step: 1,
+                retry: 1,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+}
+
+#[test]
+fn command_lifecycle_and_permission_policy_are_durable_outside_turns() {
+    let mut session = Session::new(header("command-policy")).unwrap();
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::CommandRun {
+                    command_id: "command-1".to_owned(),
+                    name: "permission".to_owned(),
+                    args: Some(" danger-full-access".to_owned()),
+                    source: CommandSource::User,
+                }),
+                event(EventData::PermissionPreset {
+                    preset: "danger-full-access".to_owned(),
+                }),
+                event(EventData::SandboxMode {
+                    mode: SessionSandboxMode::DangerFullAccess,
+                    source: None,
+                }),
+                event(EventData::ApprovalPolicy {
+                    policy: ApprovalPolicy::Never,
+                    source: None,
+                }),
+                event(EventData::CommandDone {
+                    command_id: "command-1".to_owned(),
+                    kind: CommandResultKind::Success,
+                    text: Some("preset danger-full-access".to_owned()),
+                    source_event_seq: Some(1),
+                }),
+            ],
+            1,
+        )
+        .unwrap();
+
+    let revision = session.revision();
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::CommandDone {
+                command_id: "command-1".to_owned(),
+                kind: CommandResultKind::Success,
+                text: None,
+                source_event_seq: None,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+}
+
+#[test]
+fn session_title_source_and_message_sequences_are_validated_atomically() {
+    let mut session = Session::new(header("title-lifecycle")).unwrap();
+    session
+        .append(
+            Revision::ZERO,
+            event(EventData::SessionTitle {
+                title: "User title".to_owned(),
+                message_seqs: Vec::new(),
+                source: SessionTitleSource::User,
+            }),
+        )
+        .unwrap();
+
+    let revision = session.revision();
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::SessionTitle {
+                title: "Invalid fallback".to_owned(),
+                message_seqs: Vec::new(),
+                source: SessionTitleSource::Fallback,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+
+    assert!(matches!(
+        session.append(
+            revision,
+            event(EventData::SessionTitle {
+                title: "Invalid user reference".to_owned(),
+                message_seqs: vec![0],
+                source: SessionTitleSource::User,
+            })
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
+}
+
+#[test]
+fn goal_changes_require_full_monotonic_snapshots_and_a_revisioned_tombstone() {
+    let mut session = Session::new(header("goal-lifecycle")).unwrap();
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                goal_snapshot_event(
+                    1,
+                    "Ship it",
+                    GoalPhase::Active,
+                    8,
+                    GoalSnapshotOperation::Create,
+                    10,
+                ),
+                goal_snapshot_event(
+                    2,
+                    "Ship safely",
+                    GoalPhase::Active,
+                    10,
+                    GoalSnapshotOperation::Edit,
+                    11,
+                ),
+                goal_snapshot_event(
+                    3,
+                    "Ship safely",
+                    GoalPhase::Paused,
+                    10,
+                    GoalSnapshotOperation::Pause,
+                    12,
+                ),
+                goal_snapshot_event(
+                    4,
+                    "Ship safely",
+                    GoalPhase::Active,
+                    10,
+                    GoalSnapshotOperation::Resume,
+                    13,
+                ),
+                goal_snapshot_event(
+                    5,
+                    "Ship safely",
+                    GoalPhase::Complete,
+                    10,
+                    GoalSnapshotOperation::Complete,
+                    14,
+                ),
+                event(EventData::GoalChange {
+                    change: GoalChange::Clear(GoalClearChange {
+                        kind: GoalChangeKind::GoalChange,
+                        version: 1,
+                        operation: GoalClearOperation::Clear,
+                        cleared: GoalRef {
+                            id: "goal-1".to_owned(),
+                            revision: 6,
+                        },
+                        cleared_at: 15,
+                    }),
+                }),
+            ],
+            15,
+        )
+        .unwrap();
+    let revision = session.revision();
+
+    assert!(matches!(
+        session.append(
+            revision,
+            goal_snapshot_event(
+                1,
+                "Reused identity",
+                GoalPhase::Active,
+                8,
+                GoalSnapshotOperation::Create,
+                16,
+            )
+        ),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+    assert_eq!(session.revision(), revision);
 }
 
 #[test]
 fn derive_messages_is_a_pure_surface_projection() {
     let mut assistant = Message::assistant("I will read it");
     assistant.reasoning = "need the file".to_owned();
-    assistant.tool_calls = vec![call("call-1", 0)];
+    let mut tool_call = call("execution-1", 0);
+    tool_call.provider_call_id = Some("provider-call-1".to_owned());
+    assistant.tool_calls = vec![tool_call.clone()];
     let mut session = Session::new(header("s1")).unwrap();
     session
         .append_batch_at(
@@ -219,12 +731,12 @@ fn derive_messages_is_a_pure_surface_projection() {
                 event(EventData::ToolCall {
                     turn: 1,
                     step: 1,
-                    call: call("call-1", 0),
+                    call: tool_call,
                 }),
                 event(EventData::ToolResult {
                     turn: 1,
                     step: 1,
-                    result: ToolResultData::success("call-1", "contents"),
+                    result: ToolResultData::success("execution-1", "contents"),
                 }),
                 event(EventData::StepEnd { turn: 1, step: 1 }),
             ],
@@ -235,7 +747,7 @@ fn derive_messages_is_a_pure_surface_projection() {
     let expected = vec![
         Message::user("read README"),
         assistant,
-        Message::tool("call-1", "contents"),
+        Message::tool("provider-call-1", "contents"),
     ];
     assert_eq!(session.derive_messages(), expected);
     assert_eq!(derive_messages(session.events()), expected);
@@ -251,6 +763,28 @@ fn message_roles_and_tool_pairing_are_validated_atomically() {
     assert!(matches!(
         session.append(Revision::ZERO, invalid_role),
         Err(SessionError::InvalidMessageRole { .. })
+    ));
+    assert!(session.events().is_empty());
+
+    let mut invalid_call = call("execution-1", 0);
+    invalid_call.provider_call_id = Some(String::new());
+    let mut assistant = Message::assistant("");
+    assistant.tool_calls.push(invalid_call);
+    assert!(matches!(
+        session.append_batch(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }),
+            ],
+        ),
+        Err(SessionError::EmptyProviderToolCallId { .. })
     ));
     assert!(session.events().is_empty());
 
@@ -329,9 +863,124 @@ fn incomplete_calls_produce_pure_outcome_unknown_recovery_candidates() {
     );
 }
 
+#[test]
+fn undecided_approval_is_projected_and_not_converted_to_outcome_unknown() {
+    let mut session = Session::new(header("approval-recovery")).unwrap();
+    let mut assistant = Message::assistant("waiting for approval");
+    assistant.tool_calls = vec![call("execution-1", 0), call("execution-2", 1)];
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("execution-1", 0),
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("execution-2", 1),
+                }),
+                event(EventData::ApprovalAsked {
+                    id: "approval-1".to_owned(),
+                    tool_name: "echo".to_owned(),
+                    call_id: Some("execution-1".to_owned()),
+                    reason: Some("needs user approval".to_owned()),
+                }),
+            ],
+            100,
+        )
+        .unwrap();
+
+    let pending = session.pending_tool_approvals();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].id, "approval-1");
+    assert_eq!(pending[0].call_id, "execution-1");
+    assert_eq!(pending[0].turn, 1);
+    assert_eq!(pending[0].step, 1);
+    assert_eq!(pending[0].call.id, "execution-1");
+
+    let recovery = session.outcome_unknown_recovery();
+    assert_eq!(recovery.len(), 1);
+    assert!(matches!(
+        recovery[0].data(),
+        EventData::ToolResult { result, .. }
+            if result.call_id == "execution-2"
+                && result.outcome == ToolOutcome::OutcomeUnknown
+    ));
+}
+
+#[test]
+fn message_projection_restores_tool_results_in_assistant_call_order() {
+    let mut session = Session::new(header("ordered-recovery-results")).unwrap();
+    let mut assistant = Message::assistant("");
+    assistant.tool_calls = vec![call("first", 0), call("second", 1)];
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::StepStart { turn: 1, step: 1 }),
+                event(EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("first", 0),
+                }),
+                event(EventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call("second", 1),
+                }),
+                // A recovery writer may obtain the second result before it
+                // can materialize the first one. Provider history must still
+                // follow the assistant call list, not append timing.
+                event(EventData::ToolResult {
+                    turn: 1,
+                    step: 1,
+                    result: ToolResultData::success("second", "result two"),
+                }),
+                event(EventData::ToolResult {
+                    turn: 1,
+                    step: 1,
+                    result: ToolResultData::success("first", "result one"),
+                }),
+                event(EventData::StepEnd { turn: 1, step: 1 }),
+                event(EventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Completed,
+                }),
+            ],
+            100,
+        )
+        .unwrap();
+
+    let messages = session.derive_messages();
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[1].tool_call_id.as_deref(), Some("first"));
+    assert_eq!(messages[1].content, "result one");
+    assert_eq!(messages[2].tool_call_id.as_deref(), Some("second"));
+    assert_eq!(messages[2].content, "result two");
+}
+
 #[tokio::test]
 async fn memory_store_create_load_flush_and_inspect_are_detached() {
     let store = MemorySessionStore::default();
+    store.create(header("z-session")).await.unwrap();
     let created = store.create(header("s1")).await.unwrap();
     assert_eq!(created.revision(), Revision::ZERO);
     assert!(matches!(
@@ -370,6 +1019,17 @@ async fn memory_store_create_load_flush_and_inspect_are_detached() {
     assert_eq!(inspection.revision, Revision(1));
     assert_eq!(inspection.next_seq, 2);
     assert_eq!(inspection.events.as_slice(), authoritative.events());
+
+    assert_eq!(
+        store
+            .list_headers()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|header| header.id)
+            .collect::<Vec<_>>(),
+        ["s1", "z-session"]
+    );
 }
 
 #[tokio::test]
