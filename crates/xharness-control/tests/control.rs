@@ -1,5 +1,11 @@
 use std::{
-    fs, fs::OpenOptions, io::Write, path::PathBuf, process::Command, sync::Arc, thread,
+    fs,
+    fs::OpenOptions,
+    io::Write,
+    path::PathBuf,
+    process::Command,
+    sync::{atomic::AtomicU64, atomic::Ordering, Arc},
+    thread,
     time::Duration,
 };
 
@@ -11,15 +17,18 @@ use xharness_control::{
 
 struct TestDir(PathBuf);
 
+static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
 impl TestDir {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "xharness-control-{}-{}",
+            "xharness-control-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed),
         ));
         fs::create_dir(&path).unwrap();
         Self(path)
