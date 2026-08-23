@@ -1,5 +1,8 @@
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
+mod config;
+
+use config::{ModelDeployment, SingleModelDeployment};
 use tokio::net::TcpListener;
 use xharness_agent::FileLeaseManager;
 use xharness_api::ApiBackend;
@@ -7,38 +10,34 @@ use xharness_control::{ControlStore, JsonlControlStore};
 use xharness_core::IdentityContextPolicy;
 use xharness_host::{BasicHost, DurableLoopAgentRuntime, HostConfig};
 use xharness_host_app::NativeToolFactory;
-use xharness_provider_openai::{OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig};
+use xharness_provider_openai::OpenAiProtocol;
 use xharness_server::{serve, web_router};
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
-use xharness_token::{TokenBudget, TokenGuard};
 use xharness_web::WebRuntime;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse()?;
     let workspace = std::fs::canonicalize(&args.workspace)?;
-    let mut config = HostConfig::new(&workspace);
-    config.provider_id = args.provider.clone();
-    config.provider_display_name = args.provider.clone();
-    config.model_id = args.model.clone();
-    config.token_guard = configured_token_guard(
-        &args.model,
-        args.context_window_tokens,
-        args.max_output_tokens,
-        args.token_safety_margin,
-    )?;
-
-    let provider = if args.model == "unconfigured" {
-        None
-    } else {
-        Some(Arc::new(OpenAiProvider::new(OpenAiProviderConfig::new(
-            args.protocol,
-            args.base_url,
-            args.api_key,
-            &args.model,
-        ))?) as Arc<dyn xharness_core::ModelProvider>)
+    let deployment = match &args.providers_file {
+        Some(path) => ModelDeployment::from_file(path)?,
+        None => ModelDeployment::single(SingleModelDeployment {
+            provider: args.provider.clone(),
+            model: args.model.clone(),
+            base_url: args.base_url.clone(),
+            api_key: args.api_key.clone(),
+            protocol: args.protocol,
+            context_window_tokens: args.context_window_tokens,
+            max_output_tokens: args.max_output_tokens,
+            token_safety_margin: args.token_safety_margin,
+        })?,
     };
+    let mut config = HostConfig::new(&workspace);
+    config.provider_id = deployment.default_route.provider.clone();
+    config.provider_display_name = deployment.default_provider_display_name.clone();
+    config.model_id = deployment.default_route.model.clone();
+    config.token_guard = deployment.default_token_guard.clone();
     let tools = NativeToolFactory::new(WebRuntime::default());
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
@@ -46,19 +45,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?);
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
-    let runtime = Arc::new(
-        DurableLoopAgentRuntime::new(
-            config.provider_id.clone(),
-            config.model_id.clone(),
-            provider,
-            tools,
-            Arc::new(IdentityContextPolicy),
-            Arc::clone(&store),
-            leases,
-            config.event_capacity,
-        )
-        .with_token_guard(config.token_guard.clone()),
-    );
+    let runtime = Arc::new(DurableLoopAgentRuntime::from_registry(
+        deployment.default_route,
+        deployment.registry,
+        tools,
+        Arc::new(IdentityContextPolicy),
+        Arc::clone(&store),
+        leases,
+        config.event_capacity,
+    )?);
     let host = BasicHost::with_agent_runtime_and_control_store(config, runtime, control_store);
     let restore = host.restore_from_store(store).await?;
     eprintln!(
@@ -100,6 +95,7 @@ struct Args {
     context_window_tokens: Option<u64>,
     max_output_tokens: u64,
     token_safety_margin: u64,
+    providers_file: Option<PathBuf>,
 }
 
 impl Args {
@@ -122,6 +118,7 @@ impl Args {
         let mut context_window_tokens = optional_env_u64("XHARNESS_CONTEXT_WINDOW")?;
         let mut max_output_tokens = env_u64("XHARNESS_MAX_OUTPUT_TOKENS", 4_096)?;
         let mut token_safety_margin = env_u64("XHARNESS_TOKEN_SAFETY_MARGIN", 1_024)?;
+        let mut providers_file = env::var_os("XHARNESS_PROVIDERS_FILE").map(PathBuf::from);
 
         let mut arguments = env::args().skip(1);
         while let Some(argument) = arguments.next() {
@@ -151,6 +148,7 @@ impl Args {
                 "--token-safety-margin" => {
                     token_safety_margin = parse_u64("--token-safety-margin", &value)?
                 }
+                "--providers-file" => providers_file = Some(PathBuf::from(value)),
                 _ => return Err(format!("unknown argument {argument:?}")),
             }
         }
@@ -167,6 +165,7 @@ impl Args {
             context_window_tokens,
             max_output_tokens,
             token_safety_margin,
+            providers_file,
         })
     }
 }
@@ -209,34 +208,7 @@ fn parse_u64(name: &str, value: &str) -> Result<u64, String> {
 }
 
 fn parse_protocol(value: &str) -> Result<OpenAiProtocol, String> {
-    match value {
-        "chat" | "chat-completions" => Ok(OpenAiProtocol::ChatCompletions),
-        "responses" => Ok(OpenAiProtocol::Responses),
-        _ => Err(format!(
-            "unsupported protocol {value:?}; use chat or responses"
-        )),
-    }
-}
-
-fn configured_token_guard(
-    model: &str,
-    context_window_tokens: Option<u64>,
-    max_output_tokens: u64,
-    token_safety_margin: u64,
-) -> Result<Option<TokenGuard>, String> {
-    if model == "unconfigured" {
-        return Ok(None);
-    }
-    let context_window_tokens = context_window_tokens.ok_or_else(|| {
-        "configured models require XHARNESS_CONTEXT_WINDOW or --context-window".to_owned()
-    })?;
-    TokenGuard::conservative(TokenBudget {
-        context_window_tokens,
-        reserved_output_tokens: max_output_tokens,
-        safety_margin_tokens: token_safety_margin,
-    })
-    .map(Some)
-    .map_err(|error| error.to_string())
+    config::parse_protocol(value)
 }
 
 #[cfg(test)]
@@ -244,19 +216,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn configured_model_requires_an_explicit_context_window() {
-        let error = configured_token_guard("model", None, 4_096, 1_024).unwrap_err();
-        assert!(error.contains("XHARNESS_CONTEXT_WINDOW"));
-    }
-
-    #[test]
-    fn configured_model_builds_a_hard_budget_and_unconfigured_skips_it() {
-        let guard = configured_token_guard("model", Some(53_248), 4_096, 1_024)
-            .unwrap()
-            .unwrap();
-        assert_eq!(guard.budget().available_input_tokens(), 48_128);
-        assert!(configured_token_guard("unconfigured", None, 4_096, 1_024)
-            .unwrap()
-            .is_none());
+    fn protocol_parser_remains_cli_compatible() {
+        assert_eq!(
+            parse_protocol("chat").unwrap(),
+            OpenAiProtocol::ChatCompletions
+        );
+        assert_eq!(
+            parse_protocol("responses").unwrap(),
+            OpenAiProtocol::Responses
+        );
     }
 }
