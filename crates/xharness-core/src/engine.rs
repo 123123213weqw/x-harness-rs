@@ -22,6 +22,10 @@ use xharness_session::{
     PendingToolApproval, RequestHeader, Revision, SessionEvent, SessionHeader,
     Store as EventSessionStore, ToolOutcome, ToolResultData, TurnEndReason,
 };
+
+/// Bound both crash-loss and memory growth without returning to one JSONL
+/// read/validate/append cycle per provider fragment.
+const STREAM_JOURNAL_BATCH_EVENTS: usize = 64;
 use xharness_tools::{
     ApprovalDecision as RuntimeApprovalDecision, ApprovalProvider as RuntimeApprovalProvider,
     ApprovalRequest as RuntimeApprovalRequest, MiddlewareError as RuntimeMiddlewareError,
@@ -1143,6 +1147,9 @@ impl Runner {
         journal
             .pending_stream_events
             .push(SessionEventData::AssistantChunk { turn, step, chunk }.into());
+        if journal.pending_stream_events.len() >= STREAM_JOURNAL_BATCH_EVENTS {
+            self.journal_append_events(Vec::new(), false).await?;
+        }
         Ok(())
     }
 
@@ -1816,6 +1823,13 @@ impl Runner {
                     }))) => {
                         round.saw_delta = true;
                         self.journal_chunk(AssistantChunk::ToolCallDelta {
+                            index,
+                            id: id.clone(),
+                            name: name.clone(),
+                            arguments_delta: arguments_delta.clone(),
+                        })
+                        .await?;
+                        self.emit(LoopEventKind::ToolCallDelta {
                             index,
                             id: id.clone(),
                             name: name.clone(),
