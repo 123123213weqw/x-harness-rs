@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -254,6 +254,73 @@ impl EventStore for FailAssistantJournal {
     }
 }
 
+#[derive(Clone, Default)]
+struct BlockingChunkJournal {
+    inner: EventMemorySessionStore,
+    chunk_append_started: Arc<Notify>,
+    release_chunk_append: Arc<Notify>,
+    blocked_once: Arc<AtomicBool>,
+    append_batches: Arc<Mutex<Vec<Vec<SessionEvent>>>>,
+}
+
+impl BlockingChunkJournal {
+    fn chunk_batches(&self) -> Vec<Vec<SessionEvent>> {
+        self.append_batches
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|events| {
+                events
+                    .iter()
+                    .any(|event| matches!(event.data(), SessionEventData::AssistantChunk { .. }))
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+#[async_trait]
+impl EventStore for BlockingChunkJournal {
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        self.inner.list_headers().await
+    }
+
+    async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
+        self.inner.create(header).await
+    }
+
+    async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
+        self.inner.load(session_id).await
+    }
+
+    async fn append(
+        &self,
+        session_id: &str,
+        expected_revision: Revision,
+        events: Vec<SessionEvent>,
+    ) -> Result<AppendReceipt, StoreError> {
+        let contains_chunk = events
+            .iter()
+            .any(|event| matches!(event.data(), SessionEventData::AssistantChunk { .. }));
+        if contains_chunk && !self.blocked_once.swap(true, Ordering::SeqCst) {
+            self.chunk_append_started.notify_one();
+            self.release_chunk_append.notified().await;
+        }
+        self.append_batches.lock().unwrap().push(events.clone());
+        self.inner
+            .append(session_id, expected_revision, events)
+            .await
+    }
+
+    async fn flush(&self, session_id: &str) -> Result<Revision, StoreError> {
+        self.inner.flush(session_id).await
+    }
+
+    async fn inspect(&self, session_id: &str) -> Result<Option<SessionInspection>, StoreError> {
+        self.inner.inspect(session_id).await
+    }
+}
+
 fn completed() -> ProviderEvent {
     ProviderEvent::Completed {
         finish_reason: Some(FinishReason::Stop),
@@ -300,6 +367,170 @@ async fn collect(mut run: LoopRun) -> (Vec<LoopEvent>, LoopResult) {
     }
     let result = run.result().await;
     (events, result)
+}
+
+#[tokio::test]
+async fn streaming_events_reach_consumers_before_chunk_journal_io_and_persist_as_one_batch() {
+    const DELTAS: usize = 32;
+    let mut script = (0..DELTAS)
+        .map(|_| Ok(ProviderEvent::TextDelta("x".to_owned())))
+        .collect::<Vec<_>>();
+    script.push(Ok(completed()));
+    let provider = Arc::new(ScriptProvider::new([script]));
+    let journal = Arc::new(BlockingChunkJournal::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("stream quickly")]);
+    request.session_id = Some("batched-stream-journal".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.config.event_buffer = DELTAS + 32;
+
+    let mut run = LoopEngine.start(request);
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        journal.chunk_append_started.notified(),
+    )
+    .await
+    .expect("the completed model round should reach its chunk journal boundary");
+
+    let mut text_deltas = 0usize;
+    while text_deltas < DELTAS {
+        let event = tokio::time::timeout(Duration::from_millis(100), run.next())
+            .await
+            .expect("consumer-visible deltas must not wait for durable chunk append")
+            .expect("run remains open while the durable chunk batch is blocked");
+        if matches!(event.kind, LoopEventKind::TextDelta(_)) {
+            text_deltas += 1;
+        }
+    }
+    assert_eq!(text_deltas, DELTAS);
+
+    journal.release_chunk_append.notify_one();
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text.len(), DELTAS);
+
+    let chunk_batches = journal.chunk_batches();
+    assert_eq!(chunk_batches.len(), 1);
+    assert_eq!(
+        chunk_batches[0]
+            .iter()
+            .filter(|event| matches!(event.data(), SessionEventData::AssistantChunk { .. }))
+            .count(),
+        DELTAS + 2,
+        "text deltas, usage, and finish reason should share one append batch"
+    );
+    let assistant_position = chunk_batches[0]
+        .iter()
+        .position(|event| matches!(event.data(), SessionEventData::AssistantMessage { .. }))
+        .expect("the completed assistant message is in the same semantic batch");
+    let final_chunk_position = chunk_batches[0]
+        .iter()
+        .rposition(|event| matches!(event.data(), SessionEventData::AssistantChunk { .. }))
+        .unwrap();
+    assert!(final_chunk_position < assistant_position);
+}
+
+#[tokio::test]
+async fn long_streams_checkpoint_in_bounded_batches_instead_of_per_delta() {
+    const DELTAS: usize = 130;
+    let mut script = (0..DELTAS)
+        .map(|_| Ok(ProviderEvent::TextDelta("x".to_owned())))
+        .collect::<Vec<_>>();
+    script.push(Ok(completed()));
+    let provider = Arc::new(ScriptProvider::new([script]));
+    let journal = Arc::new(BlockingChunkJournal::default());
+    journal.release_chunk_append.notify_one();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("bounded batches")]);
+    request.session_id = Some("bounded-stream-journal".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.config.event_buffer = DELTAS + 32;
+
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event.kind, LoopEventKind::TextDelta(_)))
+            .count(),
+        DELTAS
+    );
+
+    let chunk_counts = journal
+        .chunk_batches()
+        .iter()
+        .map(|batch| {
+            batch
+                .iter()
+                .filter(|event| matches!(event.data(), SessionEventData::AssistantChunk { .. }))
+                .count()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(chunk_counts, [64, 64, 4]);
+}
+
+#[tokio::test]
+async fn buffered_stream_chunks_are_closed_durably_when_the_provider_stream_fails() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::ReasoningDelta(
+            "partial reasoning".to_owned(),
+        )),
+        Ok(ProviderEvent::TextDelta("partial answer".to_owned())),
+        Err(ProviderError::new("stream broke after output")),
+    ]]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("fail after a delta")]);
+    request.session_id = Some("failed-buffered-stream".to_owned());
+    request.journal_store = Some(journal.clone());
+
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert!(events.iter().any(
+        |event| matches!(&event.kind, LoopEventKind::TextDelta(text) if text == "partial answer")
+    ));
+
+    let session = journal
+        .load("failed-buffered-stream")
+        .await
+        .unwrap()
+        .unwrap();
+    let event_kinds = session
+        .events()
+        .iter()
+        .map(|event| event.data())
+        .collect::<Vec<_>>();
+    let reasoning = event_kinds
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                SessionEventData::AssistantChunk {
+                    chunk: AssistantChunk::ReasoningDelta(text),
+                    ..
+                } if text == "partial reasoning"
+            )
+        })
+        .expect("partial reasoning remains recoverable");
+    let text = event_kinds
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                SessionEventData::AssistantChunk {
+                    chunk: AssistantChunk::TextDelta(text),
+                    ..
+                } if text == "partial answer"
+            )
+        })
+        .expect("partial text remains recoverable");
+    let step_end = event_kinds
+        .iter()
+        .position(|event| matches!(event, SessionEventData::StepEnd { .. }))
+        .expect("failed step is closed");
+    let turn_end = event_kinds
+        .iter()
+        .position(|event| matches!(event, SessionEventData::TurnEnd { .. }))
+        .expect("failed turn is closed");
+    assert!(reasoning < text && text < step_end && step_end < turn_end);
 }
 
 #[tokio::test]
