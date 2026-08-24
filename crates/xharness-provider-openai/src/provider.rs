@@ -1,17 +1,29 @@
-use std::{fmt, sync::Arc, time::Duration};
+use std::{
+    fmt,
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::{header, Client, Response};
 use tokio_util::sync::CancellationToken;
-use xharness_core::{ModelProvider, ProviderError, ProviderRequest, ProviderStream};
+use xharness_core::{
+    ModelProvider, ProviderError, ProviderInputTokenCount, ProviderRequest, ProviderStream,
+};
 
 use crate::{
-    build_openai_request, OpenAiProtocol, OpenAiStreamNormalizer, SseParser,
-    DEFAULT_SSE_EVENT_LIMIT_BYTES, DEFAULT_SSE_PENDING_LIMIT_BYTES,
+    build_openai_request, build_openai_token_count_request, OpenAiProtocol, OpenAiStreamNormalizer,
+    SseParser, DEFAULT_SSE_EVENT_LIMIT_BYTES, DEFAULT_SSE_PENDING_LIMIT_BYTES,
 };
 
 pub const DEFAULT_ERROR_BODY_LIMIT_BYTES: usize = 4 * 1024;
+const TOKEN_COUNT_UNKNOWN: u8 = 0;
+const TOKEN_COUNT_SUPPORTED: u8 = 1;
+const TOKEN_COUNT_UNSUPPORTED: u8 = 2;
 
 #[derive(Clone)]
 pub struct OpenAiProviderConfig {
@@ -53,6 +65,23 @@ impl OpenAiProviderConfig {
             OpenAiProtocol::Responses => format!("{base}/responses"),
         }
     }
+
+    fn token_count_endpoint(&self) -> String {
+        let base = self.base_url.trim_end_matches('/');
+        match self.protocol {
+            OpenAiProtocol::ChatCompletions => {
+                format!("{base}/chat/completions/input_tokens")
+            }
+            OpenAiProtocol::Responses => format!("{base}/responses/input_tokens"),
+        }
+    }
+
+    fn token_counter_id(&self) -> &'static str {
+        match self.protocol {
+            OpenAiProtocol::ChatCompletions => "openai-compatible/chat-input-tokens/v1",
+            OpenAiProtocol::Responses => "openai/responses-input-tokens/v1",
+        }
+    }
 }
 
 impl fmt::Debug for OpenAiProviderConfig {
@@ -76,6 +105,7 @@ impl fmt::Debug for OpenAiProviderConfig {
 pub struct OpenAiProvider {
     config: Arc<OpenAiProviderConfig>,
     client: Client,
+    token_count_support: Arc<AtomicU8>,
 }
 
 impl OpenAiProvider {
@@ -103,6 +133,7 @@ impl OpenAiProvider {
         Ok(Self {
             config: Arc::new(config),
             client,
+            token_count_support: Arc::new(AtomicU8::new(TOKEN_COUNT_UNKNOWN)),
         })
     }
 
@@ -119,6 +150,71 @@ impl ModelProvider for OpenAiProvider {
 
     fn model_name(&self) -> Option<&str> {
         Some(&self.config.model)
+    }
+
+    async fn count_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        if self.token_count_support.load(Ordering::Acquire) == TOKEN_COUNT_UNSUPPORTED {
+            return Ok(None);
+        }
+        let body =
+            build_openai_token_count_request(self.config.protocol, &self.config.model, request);
+        let pending = self
+            .client
+            .post(self.config.token_count_endpoint())
+            .bearer_auth(&self.config.api_key)
+            .json(&body)
+            .send();
+        let response = tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(ProviderError::new("OpenAI input token count cancelled"));
+            }
+            response = pending => response.map_err(|error| {
+                ProviderError::retryable(format!("OpenAI input token count network error: {error}"))
+            })?,
+        };
+        let status = response.status();
+        if matches!(status.as_u16(), 404 | 405 | 501) {
+            self.token_count_support
+                .store(TOKEN_COUNT_UNSUPPORTED, Ordering::Release);
+            return Ok(None);
+        }
+        if !status.is_success() {
+            let code = status.as_u16();
+            let body =
+                bounded_error_body(response, self.config.max_error_body_bytes, &cancellation)
+                    .await?;
+            let detail = if body.is_empty() {
+                format!("OpenAI input token count HTTP {code}")
+            } else {
+                format!("OpenAI input token count HTTP {code}: {body}")
+            };
+            return Err(ProviderError::http(code, detail));
+        }
+        let body =
+            bounded_error_body(response, self.config.max_error_body_bytes, &cancellation).await?;
+        let value: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
+            ProviderError::new(format!(
+                "invalid OpenAI input token count response: {error}"
+            ))
+        })?;
+        let input_tokens = value
+            .get("input_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                ProviderError::new(
+                    "invalid OpenAI input token count response: missing input_tokens",
+                )
+            })?;
+        self.token_count_support
+            .store(TOKEN_COUNT_SUPPORTED, Ordering::Release);
+        Ok(Some(ProviderInputTokenCount::exact_request(
+            self.config.token_counter_id(),
+            input_tokens,
+        )))
     }
 
     async fn stream(

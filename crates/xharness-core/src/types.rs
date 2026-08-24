@@ -236,6 +236,17 @@ pub trait ModelProvider: Send + Sync + 'static {
         None
     }
 
+    /// Count the complete structured request using a provider-native
+    /// capability when available. `Ok(None)` means the adapter has no exact
+    /// counter and the Core must use its configured local fallback meter.
+    async fn count_input_tokens(
+        &self,
+        _request: &ProviderRequest,
+        _cancellation: CancellationToken,
+    ) -> Result<Option<xharness_token::ProviderInputTokenCount>, ProviderError> {
+        Ok(None)
+    }
+
     async fn stream(
         &self,
         request: ProviderRequest,

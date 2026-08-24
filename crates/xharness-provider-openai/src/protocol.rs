@@ -78,6 +78,26 @@ pub fn build_openai_request(
     }
 }
 
+/// Build the body accepted by provider-native input-token counting endpoints.
+/// It intentionally starts from the generation encoder so messages, replay
+/// items and tool schemas cannot drift, then removes output-only controls.
+pub fn build_openai_token_count_request(
+    protocol: OpenAiProtocol,
+    model: &str,
+    request: &ProviderRequest,
+) -> Value {
+    let mut root = build_openai_request(protocol, model, request);
+    let Some(object) = root.as_object_mut() else {
+        return root;
+    };
+    object.remove("stream");
+    object.remove("stream_options");
+    object.remove("max_tokens");
+    object.remove("max_output_tokens");
+    object.remove("store");
+    root
+}
+
 fn encode_tool(protocol: OpenAiProtocol, tool: &ToolDefinition) -> Value {
     match protocol {
         OpenAiProtocol::ChatCompletions => json!({

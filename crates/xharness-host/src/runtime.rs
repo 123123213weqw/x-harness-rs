@@ -198,6 +198,14 @@ impl ModelProvider for RouteBoundProvider {
         Some(&self.model_id)
     }
 
+    async fn count_input_tokens(
+        &self,
+        request: &xharness_core::ProviderRequest,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Result<Option<xharness_core::ProviderInputTokenCount>, xharness_core::ProviderError> {
+        self.inner.count_input_tokens(request, cancellation).await
+    }
+
     async fn stream(
         &self,
         request: xharness_core::ProviderRequest,

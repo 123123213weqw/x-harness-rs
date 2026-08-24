@@ -14,6 +14,7 @@ pub use xharness_context::{
     IdentityContextPolicy, SurfaceEdit, SurfaceEditKind,
 };
 pub use xharness_token::{
-    ConservativeByteMeter, TokenBreakdown, TokenBudget, TokenBudgetError, TokenBudgetReport,
-    TokenEstimateRequest, TokenGuard, TokenMeter, TokenMeterError,
+    ConservativeByteMeter, ProviderInputTokenCount, TokenBreakdown, TokenBudget, TokenBudgetError,
+    TokenBudgetReport, TokenCountAccuracy, TokenEstimateRequest, TokenGuard, TokenMeter,
+    TokenMeterError,
 };
