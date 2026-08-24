@@ -52,6 +52,11 @@ enum StopReason {
     ConsumerStopped,
 }
 
+enum TokenBudgetCheck {
+    Ready(Option<TokenBudgetReport>),
+    Interrupted,
+}
+
 pub struct LoopRun {
     pub run_id: String,
     events: LoopEventStream,
@@ -560,12 +565,31 @@ impl Runner {
                 .validate()
                 .map_err(|error| RunFailure::Failed(error.to_string()))?;
             self.validate_prompt_surface(&prepared)?;
-            let token_budget = self.check_token_budget(&prepared, &context_tools)?;
+            let provider_request = ProviderRequest {
+                messages: prepared.messages.clone(),
+                tools: tool_definitions,
+                step: self.step,
+                max_output_tokens: self
+                    .request
+                    .token_guard
+                    .as_ref()
+                    .map(|guard| guard.budget().reserved_output_tokens),
+            };
+            let token_budget = match self
+                .check_token_budget(&provider_request, &prepared, &context_tools)
+                .await?
+            {
+                TokenBudgetCheck::Ready(report) => report,
+                TokenBudgetCheck::Interrupted => {
+                    self.journal_step_end().await?;
+                    self.settle_control_at_boundary().await?;
+                    continue;
+                }
+            };
             self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
                 .await?;
-            let prepared = prepared.into_messages();
 
-            let mut model = self.model_round(prepared, tool_definitions).await?;
+            let mut model = self.model_round(provider_request).await?;
             // The durable session contract requires call ids to be globally
             // unique, while providers only guarantee identity within a single
             // response. Journal-backed runs therefore use harness execution
@@ -712,14 +736,56 @@ impl Runner {
         Ok(())
     }
 
-    fn check_token_budget(
-        &self,
+    async fn check_token_budget(
+        &mut self,
+        provider_request: &ProviderRequest,
         surface: &ContextSurface,
         tools: &[Value],
-    ) -> Result<Option<TokenBudgetReport>, RunFailure> {
+    ) -> Result<TokenBudgetCheck, RunFailure> {
         let Some(guard) = &self.request.token_guard else {
-            return Ok(None);
+            return Ok(TokenBudgetCheck::Ready(None));
         };
+        let guard = guard.clone();
+        let provider_cancellation = self.cancellation.child_token();
+        let provider = self.request.provider.clone();
+        let mut count_future =
+            Box::pin(provider.count_input_tokens(provider_request, provider_cancellation.clone()));
+        let provider_count = loop {
+            enum CountProgress {
+                Command(Option<CommandEnvelope>),
+                Ready(Result<Option<crate::ProviderInputTokenCount>, ProviderError>),
+            }
+            let progress = tokio::select! {
+                _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
+                command = self.command_rx.recv(), if self.command_open => {
+                    CountProgress::Command(command)
+                }
+                count = &mut count_future => CountProgress::Ready(count),
+            };
+            match progress {
+                CountProgress::Ready(count) => {
+                    break count.map_err(|error| {
+                        RunFailure::Failed(format!("provider input token count failed: {error}"))
+                    })?
+                }
+                CountProgress::Command(Some(envelope)) => {
+                    let interrupt = self.handle_envelope(envelope, true).await?;
+                    if interrupt || self.paused {
+                        provider_cancellation.cancel();
+                        return Ok(TokenBudgetCheck::Interrupted);
+                    }
+                }
+                CountProgress::Command(None) => self.command_open = false,
+            }
+        };
+        if let Some(count) = provider_count {
+            return guard
+                .check_provider_count(&count)
+                .map(|report| TokenBudgetCheck::Ready(Some(report)))
+                .map_err(|error| {
+                    RunFailure::Failed(format!("token budget rejected request: {error}"))
+                });
+        }
         let mut system_messages = Vec::new();
         let mut conversation_messages = Vec::new();
         for message in &surface.messages {
@@ -742,7 +808,7 @@ impl Runner {
                 conversation_messages,
                 tools: tools.to_vec(),
             })
-            .map(Some)
+            .map(|report| TokenBudgetCheck::Ready(Some(report)))
             .map_err(|error| RunFailure::Failed(format!("token budget rejected request: {error}")))
     }
 
@@ -1697,30 +1763,16 @@ impl Runner {
         visible
     }
 
-    async fn model_round(
-        &mut self,
-        messages: Vec<AgentMessage>,
-        tool_definitions: Vec<crate::ToolDefinition>,
-    ) -> Result<ModelRound, RunFailure> {
+    async fn model_round(&mut self, request: ProviderRequest) -> Result<ModelRound, RunFailure> {
         let max_attempts = self.request.config.provider_retries.saturating_add(1);
         let mut round = ModelRound::default();
 
         for attempt in 1..=max_attempts {
             self.ensure_running()?;
-            let request = ProviderRequest {
-                messages: messages.clone(),
-                tools: tool_definitions.clone(),
-                step: self.step,
-                max_output_tokens: self
-                    .request
-                    .token_guard
-                    .as_ref()
-                    .map(|guard| guard.budget().reserved_output_tokens),
-            };
             let provider_cancellation = self.cancellation.child_token();
             let provider = self.request.provider.clone();
             let mut stream_future =
-                Box::pin(provider.stream(request, provider_cancellation.clone()));
+                Box::pin(provider.stream(request.clone(), provider_cancellation.clone()));
             let stream = loop {
                 enum ProviderStart {
                     Command(Option<CommandEnvelope>),
