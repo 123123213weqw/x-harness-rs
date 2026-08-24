@@ -59,7 +59,16 @@ fn unique_port() -> u16 {
 }
 
 fn spawn_host(address: SocketAddr, workspace: &Path) -> HostProcess {
-    let child = Command::new(env!("CARGO_BIN_EXE_xharness-host"))
+    spawn_host_with_extra(address, workspace, &[])
+}
+
+fn spawn_host_with_extra(
+    address: SocketAddr,
+    workspace: &Path,
+    extra_args: &[String],
+) -> HostProcess {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_xharness-host"));
+    command
         .args([
             "--bind",
             &address.to_string(),
@@ -70,12 +79,14 @@ fn spawn_host(address: SocketAddr, workspace: &Path) -> HostProcess {
             "--state-dir",
             &workspace.join(".xharness-state").to_string_lossy(),
         ])
+        .args(extra_args)
+        .env_remove("XHARNESS_DEBUG_TRACE")
+        .env_remove("XHARNESS_DEBUG_DIR")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("host process starts");
+        .kill_on_drop(true);
+    let child = command.spawn().expect("host process starts");
     HostProcess(child)
 }
 
@@ -292,4 +303,63 @@ async fn real_restart_restores_the_boot_workspace_and_websocket_carrier() {
         .expect("new websocket connects after restart");
 
     second.stop().await;
+}
+
+#[tokio::test]
+async fn full_debug_cli_writes_private_host_lifecycle_trace() {
+    let workspace = TempWorkspace::new();
+    let debug_dir = workspace.0.join("debug-traces");
+    let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));
+    let client = Client::new();
+    let extra_args = vec![
+        "--debug-trace".to_owned(),
+        "full".to_owned(),
+        "--debug-dir".to_owned(),
+        debug_dir.to_string_lossy().into_owned(),
+        "--api-key".to_owned(),
+        "literal-debug-secret".to_owned(),
+    ];
+    let host = spawn_host_with_extra(address, &workspace.0, &extra_args);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    host.stop().await;
+
+    let trace_dirs: Vec<PathBuf> = std::fs::read_dir(&debug_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_dir())
+        .collect();
+    assert_eq!(trace_dirs.len(), 1);
+    let events = std::fs::read_to_string(trace_dirs[0].join("events.jsonl")).unwrap();
+    let events: Vec<Value> = events
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0]["event"], "start");
+    assert_eq!(events[1]["event"], "restore");
+    assert_eq!(events[2]["event"], "listening");
+    assert!(!events
+        .iter()
+        .any(|event| event.to_string().contains("literal-debug-secret")));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&trace_dirs[0])
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(trace_dirs[0].join("events.jsonl"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
 }

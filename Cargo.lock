@@ -2213,6 +2213,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-debug"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
 name = "xharness-fs"
 version = "0.1.0"
 dependencies = [
@@ -2263,6 +2275,7 @@ dependencies = [
  "xharness-coding-tools",
  "xharness-control",
  "xharness-core",
+ "xharness-debug",
  "xharness-host",
  "xharness-platform",
  "xharness-provider-openai",
