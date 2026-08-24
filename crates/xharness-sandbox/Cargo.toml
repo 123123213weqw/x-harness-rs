@@ -8,9 +8,12 @@ description = "Fail-closed native Linux and macOS sandbox preparation for XHarne
 
 [dependencies]
 async-trait.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 xharness-process = { path = "../xharness-process" }
+
+xharness-debug = { path = "../xharness-debug" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

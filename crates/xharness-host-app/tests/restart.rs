@@ -334,10 +334,16 @@ async fn full_debug_cli_writes_private_host_lifecycle_trace() {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    assert_eq!(events.len(), 3);
+    assert!(events.len() >= 5);
     assert_eq!(events[0]["event"], "start");
     assert_eq!(events[1]["event"], "restore");
     assert_eq!(events[2]["event"], "listening");
+    assert!(events
+        .iter()
+        .any(|event| { event["layer"] == "server" && event["event"] == "rpc.request" }));
+    assert!(events
+        .iter()
+        .any(|event| { event["layer"] == "server" && event["event"] == "rpc.response" }));
     assert!(!events
         .iter()
         .any(|event| event.to_string().contains("literal-debug-secret")));

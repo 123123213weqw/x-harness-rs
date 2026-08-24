@@ -12,6 +12,7 @@ use std::{
 
 use tokio::sync::OnceCell;
 
+use xharness_debug::{DebugEvent, DebugRecorder};
 use xharness_fs::{FsError, FsService, FsTarget, ObservationStore};
 use xharness_process::{ProcessError, ProcessHandle, ProcessRuntime, SpawnSpec};
 use xharness_sandbox::{NativeSandbox, NetworkAccess, SandboxError, SandboxMode, SandboxPolicy};
@@ -164,6 +165,7 @@ pub struct NativePlatform {
     process: ProcessRuntime,
     sandbox: Option<NativeSandbox>,
     readiness: Arc<OnceCell<CapabilityReport>>,
+    debug: DebugRecorder,
 }
 
 impl NativePlatform {
@@ -171,9 +173,21 @@ impl NativePlatform {
         Self::with_observations(config, ObservationStore::default())
     }
 
+    pub fn with_debug(config: PlatformConfig, debug: DebugRecorder) -> Result<Self, PlatformError> {
+        Self::with_observations_and_debug(config, ObservationStore::default(), debug)
+    }
+
     pub fn with_observations(
         config: PlatformConfig,
         observations: ObservationStore,
+    ) -> Result<Self, PlatformError> {
+        Self::with_observations_and_debug(config, observations, DebugRecorder::disabled())
+    }
+
+    pub fn with_observations_and_debug(
+        config: PlatformConfig,
+        observations: ObservationStore,
+        debug: DebugRecorder,
     ) -> Result<Self, PlatformError> {
         let workspace_root =
             std::fs::canonicalize(&config.workspace_root).map_err(|source| FsError::Io {
@@ -192,7 +206,7 @@ impl NativePlatform {
             for root in config.allowed_cwd_roots {
                 policy = policy.allow_cwd_root(root);
             }
-            Some(NativeSandbox::new(policy))
+            Some(NativeSandbox::new(policy).with_debug(debug.clone()))
         } else {
             None
         };
@@ -200,9 +214,10 @@ impl NativePlatform {
             workspace_root,
             access: config.access,
             filesystem,
-            process: ProcessRuntime::new(),
+            process: ProcessRuntime::with_debug(debug.clone()),
             sandbox,
             readiness: Arc::new(OnceCell::new()),
+            debug,
         })
     }
 
@@ -260,10 +275,23 @@ impl NativePlatform {
     /// Probe native process confinement once and return a stable readiness
     /// report consumed by Host tool projection.
     pub async fn capability_report(&self) -> CapabilityReport {
-        self.readiness
+        let report = self
+            .readiness
             .get_or_init(|| async { self.probe_capabilities().await })
             .await
-            .clone()
+            .clone();
+        self.debug
+            .record_lossy(DebugEvent::new(
+                "platform",
+                "capability.report",
+                serde_json::json!({
+                    "workspace": self.workspace_root.to_string_lossy(),
+                    "access": format!("{:?}", self.access),
+                    "report": format!("{:?}", report),
+                }),
+            ))
+            .await;
+        report
     }
 
     async fn probe_capabilities(&self) -> CapabilityReport {

@@ -10,10 +10,13 @@ use std::{
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::{header, Client, Response};
+use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
-    ModelProvider, ProviderError, ProviderInputTokenCount, ProviderRequest, ProviderStream,
+    ModelProvider, ProviderError, ProviderEvent, ProviderInputTokenCount, ProviderRequest,
+    ProviderStream,
 };
+use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
 
 use crate::{
     build_openai_request, build_openai_token_count_request, OpenAiProtocol, OpenAiStreamNormalizer,
@@ -106,6 +109,7 @@ pub struct OpenAiProvider {
     config: Arc<OpenAiProviderConfig>,
     client: Client,
     token_count_support: Arc<AtomicU8>,
+    debug: DebugRecorder,
 }
 
 impl OpenAiProvider {
@@ -134,7 +138,13 @@ impl OpenAiProvider {
             config: Arc::new(config),
             client,
             token_count_support: Arc::new(AtomicU8::new(TOKEN_COUNT_UNKNOWN)),
+            debug: DebugRecorder::disabled(),
         })
+    }
+
+    pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
+        self.debug = debug;
+        self
     }
 
     pub fn config(&self) -> &OpenAiProviderConfig {
@@ -162,6 +172,12 @@ impl ModelProvider for OpenAiProvider {
         }
         let body =
             build_openai_token_count_request(self.config.protocol, &self.config.model, request);
+        self.trace(
+            &request.debug_scope,
+            "token_count.request",
+            json!({"endpoint": self.config.token_count_endpoint(), "body": &body}),
+        )
+        .await;
         let pending = self
             .client
             .post(self.config.token_count_endpoint())
@@ -177,6 +193,12 @@ impl ModelProvider for OpenAiProvider {
             })?,
         };
         let status = response.status();
+        self.trace(
+            &request.debug_scope,
+            "token_count.response_status",
+            json!({"status": status.as_u16()}),
+        )
+        .await;
         if matches!(status.as_u16(), 404 | 405 | 501) {
             self.token_count_support
                 .store(TOKEN_COUNT_UNSUPPORTED, Ordering::Release);
@@ -196,6 +218,12 @@ impl ModelProvider for OpenAiProvider {
         }
         let body =
             bounded_error_body(response, self.config.max_error_body_bytes, &cancellation).await?;
+        self.trace(
+            &request.debug_scope,
+            "token_count.response_body",
+            json!({"body": &body}),
+        )
+        .await;
         let value: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
             ProviderError::new(format!(
                 "invalid OpenAI input token count response: {error}"
@@ -223,6 +251,16 @@ impl ModelProvider for OpenAiProvider {
         cancellation: CancellationToken,
     ) -> Result<ProviderStream, ProviderError> {
         let body = build_openai_request(self.config.protocol, &self.config.model, &request);
+        self.trace(
+            &request.debug_scope,
+            "request",
+            json!({
+                "endpoint": self.config.endpoint(),
+                "protocol": format!("{:?}", self.config.protocol),
+                "body": &body,
+            }),
+        )
+        .await;
         let pending = self
             .client
             .post(self.config.endpoint())
@@ -240,11 +278,23 @@ impl ModelProvider for OpenAiProvider {
         };
 
         let status = response.status();
+        self.trace(
+            &request.debug_scope,
+            "response_status",
+            json!({"status": status.as_u16()}),
+        )
+        .await;
         if !status.is_success() {
             let code = status.as_u16();
             let body =
                 bounded_error_body(response, self.config.max_error_body_bytes, &cancellation)
                     .await?;
+            self.trace(
+                &request.debug_scope,
+                "response_error",
+                json!({"status": code, "body": &body}),
+            )
+            .await;
             let detail = if body.is_empty() {
                 format!("OpenAI HTTP {code}")
             } else {
@@ -256,6 +306,8 @@ impl ModelProvider for OpenAiProvider {
         let protocol = self.config.protocol;
         let max_sse_pending_bytes = self.config.max_sse_pending_bytes;
         let max_sse_event_bytes = self.config.max_sse_event_bytes;
+        let debug = self.debug.clone();
+        let debug_scope = request.debug_scope.clone();
         let output = async_stream::stream! {
             let mut bytes = response.bytes_stream();
             let mut parser = SseParser::with_limits(max_sse_pending_bytes, max_sse_event_bytes);
@@ -267,12 +319,25 @@ impl ModelProvider for OpenAiProvider {
                 };
                 match next {
                     Some(Ok(chunk)) => {
+                        debug.record_lossy(DebugEvent::new(
+                            "provider.openai",
+                            "sse.chunk",
+                            json!({
+                                "bytes": chunk.len(),
+                                "content": String::from_utf8_lossy(&chunk),
+                            }),
+                        ).with_scope(debug_scope.clone())).await;
                         match parser.feed_bytes(chunk, false) {
                             Ok(events) => {
                                 for event in events {
                                     match normalizer.consume(event) {
                                         Ok(provider_events) => {
                                             for provider_event in provider_events {
+                                                debug.record_lossy(DebugEvent::new(
+                                                    "provider.openai",
+                                                    "stream.event",
+                                                    provider_event_payload(&provider_event),
+                                                ).with_scope(debug_scope.clone())).await;
                                                 yield Ok(provider_event);
                                             }
                                         }
@@ -304,8 +369,13 @@ impl ModelProvider for OpenAiProvider {
                     for event in events {
                         match normalizer.consume(event) {
                             Ok(provider_events) => {
-                                for provider_event in provider_events {
-                                    yield Ok(provider_event);
+                                            for provider_event in provider_events {
+                                                debug.record_lossy(DebugEvent::new(
+                                                    "provider.openai",
+                                                    "stream.event",
+                                                    provider_event_payload(&provider_event),
+                                                ).with_scope(debug_scope.clone())).await;
+                                                yield Ok(provider_event);
                                 }
                             }
                             Err(error) => {
@@ -325,6 +395,47 @@ impl ModelProvider for OpenAiProvider {
             }
         };
         Ok(Box::pin(output))
+    }
+}
+
+impl OpenAiProvider {
+    async fn trace(&self, scope: &DebugScope, event: &str, payload: Value) {
+        self.debug
+            .record_lossy(
+                DebugEvent::new("provider.openai", event, payload).with_scope(scope.clone()),
+            )
+            .await;
+    }
+}
+
+fn provider_event_payload(event: &ProviderEvent) -> Value {
+    match event {
+        ProviderEvent::TextDelta(delta) => json!({"type": "text_delta", "delta": delta}),
+        ProviderEvent::ReasoningDelta(delta) => {
+            json!({"type": "reasoning_delta", "delta": delta})
+        }
+        ProviderEvent::ToolCallDelta {
+            index,
+            id,
+            name,
+            arguments_delta,
+        } => json!({
+            "type": "tool_call_delta",
+            "index": index,
+            "id": id,
+            "name": name,
+            "argumentsDelta": arguments_delta,
+        }),
+        ProviderEvent::Completed {
+            finish_reason,
+            usage,
+            provider_items,
+        } => json!({
+            "type": "completed",
+            "finishReason": finish_reason,
+            "usage": usage,
+            "providerItems": provider_items,
+        }),
     }
 }
 

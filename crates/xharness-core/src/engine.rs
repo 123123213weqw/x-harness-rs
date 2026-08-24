@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::WatchStream;
 use tokio_util::sync::CancellationToken;
+use xharness_debug::{DebugEvent, DebugScope};
 use xharness_session::{
     ApprovalOutcome, AssistantChunk, EventData as SessionEventData, LlmFailure, LlmRetryMode,
     PendingToolApproval, RequestHeader, Revision, SessionEvent, SessionHeader,
@@ -452,6 +453,16 @@ struct JournalState {
 
 impl Runner {
     async fn run(mut self) -> LoopResult {
+        self.debug(
+            "run.start",
+            json!({
+                "provider": self.request.provider.provider_name(),
+                "model": self.request.provider.model_name(),
+                "messageCount": self.request.messages.len(),
+                "maxSteps": self.request.config.max_steps,
+            }),
+        )
+        .await;
         if let Some(error) = self.startup_error.take() {
             self.messages = self.request.messages.clone();
             let _ = self
@@ -459,6 +470,16 @@ impl Runner {
                     error: error.clone(),
                 })
                 .await;
+            self.debug(
+                "run.end",
+                json!({
+                    "status": LoopStatus::Failed,
+                    "finalText": "",
+                    "messages": &self.messages,
+                    "error": &error,
+                }),
+            )
+            .await;
             return LoopResult {
                 status: LoopStatus::Failed,
                 final_text: String::new(),
@@ -512,6 +533,19 @@ impl Runner {
                 .await;
         }
         let _ = self.snapshot(phase, self.tool_batch_complete).await;
+        self.debug(
+            "run.end",
+            json!({
+                "status": status,
+                "finalText": &self.final_text,
+                "messages": &self.messages,
+                "usage": &self.usage,
+                "stepUsage": &self.step_usage,
+                "finishReason": &self.finish_reason,
+                "error": &error,
+            }),
+        )
+        .await;
         LoopResult {
             status,
             final_text: self.final_text,
@@ -565,6 +599,14 @@ impl Runner {
                 .validate()
                 .map_err(|error| RunFailure::Failed(error.to_string()))?;
             self.validate_prompt_surface(&prepared)?;
+            self.debug(
+                "context.prepared",
+                json!({
+                    "surface": &prepared,
+                    "tools": &context_tools,
+                }),
+            )
+            .await;
             let provider_request = ProviderRequest {
                 messages: prepared.messages.clone(),
                 tools: tool_definitions,
@@ -574,6 +616,7 @@ impl Runner {
                     .token_guard
                     .as_ref()
                     .map(|guard| guard.budget().reserved_output_tokens),
+                debug_scope: self.debug_scope(),
             };
             let token_budget = match self
                 .check_token_budget(&provider_request, &prepared, &context_tools)
@@ -586,6 +629,19 @@ impl Runner {
                     continue;
                 }
             };
+            self.debug(
+                "provider.request.prepared",
+                json!({
+                    "request": {
+                        "messages": &provider_request.messages,
+                        "tools": &provider_request.tools,
+                        "step": provider_request.step,
+                        "maxOutputTokens": provider_request.max_output_tokens,
+                    },
+                    "tokenBudget": &token_budget,
+                }),
+            )
+            .await;
             self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
                 .await?;
 
@@ -1686,9 +1742,30 @@ impl Runner {
             step: self.step,
             kind,
         };
+        self.debug("loop.event", json!({"event": &event})).await;
         self.event_journal
             .append(event)
             .map_err(|error| RunFailure::Failed(format!("could not serialize loop event: {error}")))
+    }
+
+    async fn debug(&self, event: &str, payload: Value) {
+        let scope = self.debug_scope();
+        self.request
+            .debug
+            .record_lossy(DebugEvent::new("core", event, payload).with_scope(scope))
+            .await;
+    }
+
+    fn debug_scope(&self) -> DebugScope {
+        let mut scope = DebugScope::default().with_run(self.run_id.clone());
+        if let Some(session_id) = self.request.session_id.as_ref() {
+            scope = scope.with_session(session_id.clone());
+        }
+        scope.step = u64::try_from(self.step).ok();
+        if let Some(journal) = self.journal.as_ref() {
+            scope.turn = Some(u64::from(journal.turn));
+        }
+        scope
     }
 
     async fn snapshot(&self, phase: &str, tool_batch_complete: bool) -> Result<(), RunFailure> {

@@ -22,5 +22,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["net"] }
 tokio-util.workspace = true
 
+xharness-debug = { path = "../xharness-debug" }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["io-util"] }

@@ -15,7 +15,8 @@ use xharness_api::{
     ApiBackend, ClientResponse, EventStream, MuxFrame, ReceiptRejection, RpcError, RpcErrorCode,
     RpcId, RpcMethod, RpcReceipt, RpcResult, SessionExport,
 };
-use xharness_server::{api_router, serve};
+use xharness_debug::{DebugRecorder, MemoryDebugSink};
+use xharness_server::{api_router, api_router_with_debug, serve};
 
 struct FixtureBackend;
 
@@ -170,6 +171,36 @@ async fn carrier_status_and_business_error_boundaries_match() {
     assert_eq!(body["rpcId"], "same");
     assert_eq!(body["result"]["ok"], false);
     assert_eq!(body["result"]["error"]["code"], "bad-request");
+}
+
+#[tokio::test]
+async fn full_debug_records_rpc_request_and_response_envelopes() {
+    let sink = Arc::new(MemoryDebugSink::default());
+    let router = api_router_with_debug(Arc::new(FixtureBackend), DebugRecorder::new(sink.clone()));
+    let response = router
+        .oneshot(post(
+            "/api/session.list",
+            json!({
+                "type": "client-request",
+                "rpcId": "debug-rpc",
+                "method": "session.list",
+                "payload": {"visible": true}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let events = sink.events().await;
+    assert!(events.iter().any(|event| {
+        event.event == "rpc.request"
+            && event.payload["body"]
+                .as_str()
+                .unwrap()
+                .contains("debug-rpc")
+    }));
+    assert!(events
+        .iter()
+        .any(|event| { event.event == "rpc.response" && event.payload["rpcId"] == "debug-rpc" }));
 }
 
 #[tokio::test]
