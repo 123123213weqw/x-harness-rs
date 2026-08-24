@@ -2,6 +2,7 @@
 members = [
     "crates/xharness-agent",
     "crates/xharness-api",
+    "crates/xharness-compaction",
     "crates/xharness-context",
     "crates/xharness-control",
     "crates/xharness-core",
