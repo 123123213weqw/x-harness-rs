@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use tokio::sync::{Barrier, Mutex, Notify};
 use tokio_util::sync::CancellationToken;
+use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_tools::{
     ApprovalDecision, ApprovalProvider, ApprovalRequest, AroundMiddleware, AroundNext,
     ExecutorConfigError, FinalizeMiddleware, GuardDecision, MiddlewareError, MonotonicGuard,
@@ -1039,4 +1040,35 @@ async fn batch_cancel_waits_for_each_cooperative_handler_to_quiesce() {
     assert!(results
         .iter()
         .all(|result| result.result.failure_kind() == Some(ToolFailureKind::Cancelled)));
+}
+
+#[tokio::test]
+async fn full_debug_records_validated_arguments_pipeline_and_final_result() {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register(successful_spec("debug")).await.unwrap();
+    let sink = Arc::new(MemoryDebugSink::default());
+    let result = ToolExecutor::new(registry)
+        .with_debug(DebugRecorder::new(sink.clone()))
+        .execute(
+            ToolRequest::new("debug", r#"{"value":"visible"}"#)
+                .with_execution_id("execution-debug")
+                .unwrap(),
+        )
+        .await;
+    assert!(result.is_ok());
+    let events = sink.events().await;
+    for expected in [
+        "execute.request",
+        "arguments.validated",
+        "pipeline.guards.completed",
+        "handler.started",
+        "handler.completed",
+        "execute.completed",
+    ] {
+        assert!(events.iter().any(|event| event.event == expected));
+    }
+    assert!(events.iter().any(|event| {
+        event.event == "execute.completed"
+            && event.payload["result"]["execution_id"] == "execution-debug"
+    }));
 }

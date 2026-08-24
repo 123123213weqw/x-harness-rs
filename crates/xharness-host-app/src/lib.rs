@@ -10,6 +10,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 use xharness_coding_tools::CodingToolBundle;
+use xharness_debug::DebugRecorder;
 use xharness_host::{PermissionPreset, SessionToolFactory};
 use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
 use xharness_terminal::TerminalRegistry;
@@ -23,6 +24,7 @@ pub struct NativeToolFactory {
     terminals: Arc<TerminalRegistry>,
     web: Arc<WebRuntime>,
     platforms: RwLock<BTreeMap<(String, PermissionPreset), Arc<NativePlatform>>>,
+    debug: DebugRecorder,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,10 +36,15 @@ pub struct NativeToolReadiness {
 
 impl NativeToolFactory {
     pub fn new(web: WebRuntime) -> Arc<Self> {
+        Self::new_with_debug(web, DebugRecorder::disabled())
+    }
+
+    pub fn new_with_debug(web: WebRuntime, debug: DebugRecorder) -> Arc<Self> {
         Arc::new(Self {
-            terminals: Arc::new(TerminalRegistry::with_defaults()),
+            terminals: Arc::new(TerminalRegistry::with_defaults().with_debug(debug.clone())),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
+            debug,
         })
     }
 
@@ -54,7 +61,10 @@ impl NativeToolFactory {
             PermissionPreset::WorkspaceWrite => PlatformConfig::new(cwd),
             PermissionPreset::DangerFullAccess => PlatformConfig::new(cwd).full_access(),
         };
-        let platform = Arc::new(NativePlatform::new(config).map_err(|error| error.to_string())?);
+        let platform = Arc::new(
+            NativePlatform::with_debug(config, self.debug.clone())
+                .map_err(|error| error.to_string())?,
+        );
         let mut platforms = self.platforms.write().await;
         Ok(platforms
             .entry(key)
@@ -128,7 +138,7 @@ impl SessionToolFactory for NativeToolFactory {
                 .await
                 .map_err(|error| error.to_string())?;
         }
-        Ok(ToolExecutor::new(registry))
+        Ok(ToolExecutor::new(registry).with_debug(self.debug.clone()))
     }
 }
 

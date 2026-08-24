@@ -361,8 +361,9 @@ Commit、Issue、PR 应引用这些 ID。
   **已完成 Debug Trace 抽象切片：** `xharness-debug` 提供默认零 I/O Noop、Full JSONL 单写者、
   全局 Sequence、64 KiB Content-addressed Blob、递归凭据脱敏、显式 `sync_data` Flush 和 Unix
   `0700/0600` 权限；Host App 已支持 `XHARNESS_DEBUG_TRACE=full`、`XHARNESS_DEBUG_DIR` 及
-  Start/Restore/Listening/Exit。**剩余：** Core/Provider/Tool/Process/Terminal/Sandbox/Web RPC
-  全量埋点、Trace Rotation/Retention、Diagnostic Bundle 和 OpenTelemetry Adapter。
+  Start/Restore/Listening/Exit；同一 Recorder 已贯通 Core Context/Loop、OpenAI Wire/SSE、Tool Pipeline、
+  Process 原始输出、PTY、Sandbox、Web Search/Fetch 和 Server RPC/WebSocket，并补跨层测试。
+  **剩余：** Trace Rotation/Retention、TTFT/TPOT 聚合、Diagnostic Bundle 和 OpenTelemetry Adapter。
 
 - [ ] `P2-06` **Settings 与 Profile。** Versioned YAML/TOML Profile、有序 Patch Layer、
   Validation/Dump、Migration，以及 Model/Tool/Policy Preset。

@@ -22,6 +22,8 @@ xharness-terminal = { path = "../xharness-terminal" }
 xharness-tools = { path = "../xharness-tools" }
 xharness-web = { path = "../xharness-web", default-features = false }
 
+xharness-debug = { path = "../xharness-debug" }
+
 [dev-dependencies]
 async-trait.workspace = true
 futures.workspace = true

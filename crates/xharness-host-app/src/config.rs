@@ -2,6 +2,7 @@ use std::{env, fs, path::Path, sync::Arc};
 
 use serde::Deserialize;
 use xharness_core::ModelProvider;
+use xharness_debug::DebugRecorder;
 use xharness_host::{ModelDescriptor, ModelRegistry, ModelRoute, RegisteredModel};
 use xharness_provider_openai::{OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig};
 use xharness_token::{TokenBudget, TokenGuard};
@@ -28,7 +29,10 @@ pub(crate) struct SingleModelDeployment {
 }
 
 impl ModelDeployment {
-    pub(crate) fn single(config: SingleModelDeployment) -> Result<Self, String> {
+    pub(crate) fn single_with_debug(
+        config: SingleModelDeployment,
+        debug: DebugRecorder,
+    ) -> Result<Self, String> {
         let default_route = ModelRoute::new(&config.provider, &config.model);
         if config.model == "unconfigured" {
             return Ok(Self {
@@ -51,7 +55,8 @@ impl ModelDeployment {
                 config.api_key,
                 &config.model,
             ))
-            .map_err(|error| error.to_string())?,
+            .map_err(|error| error.to_string())?
+            .with_debug(debug),
         );
         let mut registry = ModelRegistry::new();
         registry
@@ -76,7 +81,7 @@ impl ModelDeployment {
         })
     }
 
-    pub(crate) fn from_file(path: &Path) -> Result<Self, String> {
+    pub(crate) fn from_file_with_debug(path: &Path, debug: DebugRecorder) -> Result<Self, String> {
         let bytes = fs::read(path).map_err(|error| {
             format!("could not read provider config {}: {error}", path.display())
         })?;
@@ -86,7 +91,7 @@ impl ModelDeployment {
                 path.display()
             )
         })?;
-        config.build()
+        config.build_with_debug(debug)
     }
 }
 
@@ -98,14 +103,19 @@ struct ProviderFile {
 }
 
 impl ProviderFile {
+    #[cfg(test)]
     fn build(self) -> Result<ModelDeployment, String> {
+        self.build_with_debug(DebugRecorder::disabled())
+    }
+
+    fn build_with_debug(self, debug: DebugRecorder) -> Result<ModelDeployment, String> {
         if self.providers.is_empty() {
             return Err("provider config must declare at least one provider".to_owned());
         }
         let default_route = ModelRoute::new(&self.default.provider, &self.default.model);
         let mut registry = ModelRegistry::new();
         for provider in self.providers {
-            provider.register_models(&mut registry)?;
+            provider.register_models(&mut registry, debug.clone())?;
         }
         if !registry.can_route(&default_route) {
             return Err(format!(
@@ -156,7 +166,11 @@ struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    fn register_models(self, registry: &mut ModelRegistry) -> Result<(), String> {
+    fn register_models(
+        self,
+        registry: &mut ModelRegistry,
+        debug: DebugRecorder,
+    ) -> Result<(), String> {
         if self.kind != "openai-compatible" {
             return Err(format!(
                 "provider {:?} uses unsupported kind {:?}; only openai-compatible is available",
@@ -198,7 +212,8 @@ impl ProviderConfig {
                     &api_key,
                     upstream_model,
                 ))
-                .map_err(|error| error.to_string())?,
+                .map_err(|error| error.to_string())?
+                .with_debug(debug.clone()),
             );
             registry
                 .register(

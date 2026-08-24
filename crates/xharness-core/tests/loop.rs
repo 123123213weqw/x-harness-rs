@@ -14,6 +14,7 @@ use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use xharness_core::*;
+use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_prompt::{PromptAssembler, PromptSection};
 use xharness_session::{
     AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
@@ -3149,5 +3150,34 @@ async fn active_loop_adopts_intervening_durable_control_appends() {
                 reason: TurnEndReason::Completed
             }
         )
+    }));
+}
+
+#[tokio::test]
+async fn full_debug_records_correlated_loop_context_provider_and_terminal_events() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("hello".to_owned())),
+        Ok(completed()),
+    ]]));
+    let sink = Arc::new(MemoryDebugSink::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("debug me")]);
+    request.session_id = Some("debug-session".to_owned());
+    request.debug = DebugRecorder::new(sink.clone());
+    let mut run = LoopEngine.start(request);
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+
+    let events = sink.events().await;
+    for expected in [
+        "run.start",
+        "context.prepared",
+        "provider.request.prepared",
+        "loop.event",
+        "run.end",
+    ] {
+        assert!(events.iter().any(|event| event.event == expected));
+    }
+    assert!(events.iter().all(|event| {
+        event.scope.session_id.as_deref() == Some("debug-session") && event.scope.run_id.is_some()
     }));
 }

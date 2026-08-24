@@ -5,11 +5,15 @@ use std::{
     ffi::{OsStr, OsString},
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
+use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_process::{
     is_secret_env_name, scrub_secret_env, ProcessRuntime, SpawnSpec, TerminationReason,
 };
@@ -300,4 +304,31 @@ async fn wait_until_dead(pid: u32) {
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+#[tokio::test]
+async fn full_debug_preserves_spawn_raw_chunks_and_completion() {
+    let sink = Arc::new(MemoryDebugSink::default());
+    let output = ProcessRuntime::with_debug(DebugRecorder::new(sink.clone()))
+        .spawn(
+            SpawnSpec::new("/bin/sh", "/tmp")
+                .args(["-c", "printf out; printf err >&2"])
+                .debug_parent("tool-execution-7"),
+        )
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert!(output.status.success);
+    let events = sink.events().await;
+    assert!(events.iter().any(|event| {
+        event.event == "started" && event.payload["spec"]["parent"] == "tool-execution-7"
+    }));
+    assert!(events
+        .iter()
+        .any(|event| { event.event == "output.chunk" && event.payload["content"] == "out" }));
+    assert!(events
+        .iter()
+        .any(|event| { event.event == "output.chunk" && event.payload["content"] == "err" }));
+    assert!(events.iter().any(|event| event.event == "completed"));
 }
