@@ -97,7 +97,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "bash",
-                "Run one Bash command under the active session permission policy.",
+                "Run one Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled; output is already bounded, so do not pipe side-effecting commands through head or tail only to limit display.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -117,7 +117,14 @@ impl CodingToolBundle {
                     let cwd = resolve_cwd(&platform, optional_string(&context, "cwd"))?;
                     let timeout = command_timeout(optional_u64(&context, "timeout_ms"))?;
                     let spec = SpawnSpec::new("/bin/bash", cwd)
-                        .args(["--noprofile", "--norc", "-lc", command.as_str()])
+                        .args([
+                            "--noprofile",
+                            "--norc",
+                            "-o",
+                            "pipefail",
+                            "-lc",
+                            command.as_str(),
+                        ])
                         .timeout(timeout)
                         .envs(managed_environment());
                     let output = run_process(platform, spec, &context.cancellation).await?;
