@@ -157,6 +157,9 @@
 
 ## Session Event
 
+`xharness-compaction` 已有事件无关的配置与纯规划器；下列 `compaction/*` 仍标记为 `planned`，
+因为 Rust Session 尚未持久化 Start/Summary/Replace/End 事务，不能用算法存在代替线协议兼容。
+
 | 上游事件 | Rust 强类型事件 | 等级 |
 | --- | --- | --- |
 | `agent-preset/selected` | 是 | `partial` |

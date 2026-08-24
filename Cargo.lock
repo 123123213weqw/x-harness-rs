@@ -2155,6 +2155,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-compaction"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio-util",
+ "xharness-session",
+]
+
+[[package]]
 name = "xharness-context"
 version = "0.1.0"
 dependencies = [
@@ -2197,6 +2209,7 @@ dependencies = [
  "xharness-prompt",
  "xharness-session",
  "xharness-token",
+ "xharness-tools",
 ]
 
 [[package]]
@@ -2230,6 +2243,7 @@ dependencies = [
  "xharness-prompt",
  "xharness-session",
  "xharness-token",
+ "xharness-tools",
 ]
 
 [[package]]
@@ -2239,6 +2253,7 @@ dependencies = [
  "async-trait",
  "futures",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-tungstenite",
@@ -2256,6 +2271,7 @@ dependencies = [
  "xharness-session-jsonl",
  "xharness-terminal",
  "xharness-token",
+ "xharness-tools",
  "xharness-web",
 ]
 
