@@ -12,11 +12,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use nix::{
-    errno::Errno,
-    sys::signal::{kill, Signal},
-    unistd::Pid,
-};
+#[cfg(target_os = "linux")]
+use nix::sys::signal::Signal;
+use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_process::{
     is_secret_env_name, scrub_secret_env, ProcessRuntime, SpawnSpec, TerminationReason,
