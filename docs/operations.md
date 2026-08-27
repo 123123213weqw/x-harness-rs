@@ -1,6 +1,6 @@
 # 运行、诊断与故障处理
 
-**最后核对：** 2026-08-22
+**最后核对：** 2026-08-25
 
 本文记录当前 Rust Web Host 的运行边界。生产能力以源码和各项规范为准；这里不给尚未实现的
 自动降级制造假象。
@@ -32,10 +32,13 @@ Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保�
   System Prompt；Request Header 保存版本和 Hash，System 不进入 Transcript。
 - 模型历史、实际 Turn 和 Admission Queue 已写 JSONL Session。启动会枚举并恢复 Session、History、
   Header CWD 对应 Workspace 和 Pending Turn。Prompt RPC Receipt 由完整 Inbox 历史恢复，同 RPC ID
-  与 Payload 的请求可安全重试；Workspace 自定义元数据、Settings、审批和其他变更 RPC Receipt
-  仍在内存中，因此尚不是整个 API 的完整 Exactly-once 恢复。
-- 正式 Host 已安装请求前 Token Guard；配置模型时必须显式声明真实窗口。当前没有自动上下文
-  压缩，超限会在本地失败且 Provider Attempt 为零。
+  与 Payload 的请求可安全重试；Workspace 自定义元数据/排序/归档、Settings、Session Rename/
+  Model/Preset 和 Goal Receipt 已持久化。Create/Fork、Queue/Cancel/Attachment 等其余变更 RPC
+  尚未全部 Exactly-once。
+- 正式 Host 已安装请求前 Token Guard；优先使用 Provider 原生完整请求输入计数，不支持时回退
+  保守 Meter。配置模型时必须显式声明真实窗口。正式 Durable Host 默认启用 80% Pressure、请求
+  前 Hard Overflow 和无 Delta Provider Overflow 的有界 Compact 恢复；若压缩未安装、失败或仍然
+  超预算，请求会在本地失败且 Provider Generation Attempt 为零（原生 Token 计数请求不算生成）。
 - 一个 Host 可以从 `XHARNESS_PROVIDERS_FILE` 加载多个 OpenAI-compatible 路由。Web 只连接
   Host，4080/V100 的 Base URL、协议、上游模型名和窗口预算由 Registry 分别管理。
 
@@ -125,8 +128,84 @@ xharness-host
 
 可使用等价参数 `--context-window`、`--max-output-tokens` 和 `--token-safety-margin`。Guard 将
 总窗口减去输出预留和安全余量后再接纳输入；Chat/Responses 同时收到对应的原生最大输出字段。
-后续分页读取、确定性工具结果压缩和不修改原日志的 Surface Replace 仍由
-[上下文预算规范](specs/context.md)定义。
+分页读取、单结果确定性 Head/Tail、80% Pressure/硬超窗自动摘要和不修改原日志的
+Surface Replace 已进入正式 Durable Host。手动 `/compact`、生产 Pruner/Spill 和独立
+Summary Purpose 仍按[上下文预算规范](specs/context.md)继续实现。
+
+### Compact 消融
+
+Host 的 Compact 策略可显式切换：
+
+```bash
+# 默认生产策略
+xharness-host --compaction-config default
+
+# 真正关闭 Pressure 和 Overflow Compact，只保留 Token Guard
+xharness-host --compaction-config off
+
+# 自定义 Provider-neutral JSON 策略
+xharness-host --compaction-config /absolute/path/compaction.json
+```
+
+也可使用 `XHARNESS_COMPACTION_CONFIG`。注意 JSON 的 `auto=false` 只关闭 Pressure，仍保留硬超窗
+恢复；它与 `off` 是两个不同的消融组。
+
+在一台已运行 OpenAI-compatible 模型的服务器上执行完整四组：
+
+```bash
+python3 scripts/compaction-ablation.py \
+  --host-binary /absolute/path/xharness-host \
+  --base-url http://127.0.0.1:19627/v1 \
+  --provider llama.cpp \
+  --model /absolute/path/Qwen3.8-27B-Q3_K_M.gguf \
+  --workspace /tmp/xharness-compaction-workspaces \
+  --output /tmp/xharness-compaction-ablation \
+  --context-window 16384 \
+  --max-output-tokens 768 \
+  --token-safety-margin 256 \
+  --debug-trace
+```
+
+Runner 只使用 Python 标准库。每个 Variant 使用独立 Host/State/Session，并输出 `summary.json`、
+`summary.csv`、逐组 `result.json`、权威 `history.json` 和 Full Debug Trace。对延迟或 KV Cache 下结论
+时，还必须轮换 Variant 顺序并在组间重启/清空模型端 Prefix Cache；单进程顺序烟测只验证功能。
+
+## 关闭与进程收敛
+
+正常停止请发送 SIGINT 或 SIGTERM，不要直接 SIGKILL。Host 会按以下顺序收尾：
+
+1. 关闭 HTTP 新连接和 Agent 新 Admission。
+2. 向活动 Loop/Tool Batch 广播 Cancel，等待 Handler 和受管 Process Group 收敛。
+3. 关闭共享 Terminal Registry 中的所有 PTY。
+4. 写入并 Flush `host/shutdown.completed`，然后退出。
+
+默认 Backend Grace 是 10 秒。超时 Handler 会记为 `CleanupTimeout`，Worker Abort 会记为
+`forcedCleanup`，PTY/Factory 失败会进入 `cleanupErrors`；任一情况都使 Host 非零退出。
+已升级 WebSocket 在 Backend 静默后最多再 Drain 1 秒，之后只强制关闭 Transport，不影响
+Tool/Process 收尾判定。故障恢复测试中的 SIGKILL 仅用于模拟崩溃，不是运维停机方式。
+
+## Full Debug Trace
+
+默认 Debug 模式为 `off`，不会创建目录、文件或后台 Writer。需要完整定位 Provider、Tool、PTY、
+Sandbox、Process、Web 或 Server 问题时显式启动：
+
+```bash
+xharness-host \
+  --debug-trace full \
+  --debug-dir ~/.local/share/xharness/debug
+```
+
+等价环境变量为：
+
+```bash
+XHARNESS_DEBUG_TRACE=full
+XHARNESS_DEBUG_DIR=~/.local/share/xharness/debug
+```
+
+Full 模式记录跨层关联 Scope、全局 Sequence 和大 Payload Blob，递归隐藏 Password/Token/Secret/
+Authorization/API Key，并以用户私有目录/文件权限落盘。它是可删除的诊断旁路，不是 Session 真源；
+当前仍缺自动 Rotation/Retention、TTFT/TPOT 聚合和一键 Diagnostic Bundle。生产长期运行前应配置
+外部保留策略，问题复现后及时关闭 Full 模式。
 
 ## 诊断 Session
 

@@ -140,6 +140,20 @@ impl SessionToolFactory for NativeToolFactory {
         }
         Ok(ToolExecutor::new(registry).with_debug(self.debug.clone()))
     }
+
+    async fn shutdown(&self) -> Result<(), String> {
+        let report = self.terminals.shutdown().await;
+        if report.is_graceful() {
+            Ok(())
+        } else {
+            Err(format!(
+                "terminal shutdown closed {}/{} sessions: {}",
+                report.closed,
+                report.sessions,
+                report.errors.join("; ")
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -257,5 +271,52 @@ mod tests {
             names,
             ["edit", "read", "terminal_list", "web_fetch", "write"]
         );
+    }
+
+    #[tokio::test]
+    async fn native_factory_shutdown_closes_shared_persistent_terminals() {
+        let workspace = TempWorkspace::new();
+        let factory = NativeToolFactory::new(WebRuntime::default());
+        let executor = factory
+            .executor(
+                "terminal-shutdown",
+                &workspace.0.to_string_lossy(),
+                PermissionPreset::DangerFullAccess,
+            )
+            .await
+            .unwrap();
+        let opened = executor
+            .execute(xharness_tools::ToolRequest::new(
+                "terminal_open",
+                r#"{"name":"persistent"}"#,
+            ))
+            .await;
+        assert!(opened.is_ok(), "{opened:?}");
+        assert_eq!(
+            factory
+                .terminals
+                .list("terminal-shutdown")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+
+        SessionToolFactory::shutdown(factory.as_ref())
+            .await
+            .unwrap();
+        assert!(factory
+            .terminals
+            .list("terminal-shutdown")
+            .await
+            .unwrap()
+            .is_empty());
+        let late = executor
+            .execute(xharness_tools::ToolRequest::new(
+                "terminal_open",
+                r#"{"name":"late"}"#,
+            ))
+            .await;
+        assert!(!late.is_ok());
     }
 }

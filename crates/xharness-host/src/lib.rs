@@ -6,6 +6,7 @@
 
 mod control;
 mod driver;
+mod metrics;
 mod restore;
 mod rpc;
 mod runtime;
@@ -87,6 +88,12 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<ToolExecutor, String>;
+
+    /// Release factory-owned resources that outlive one Tool batch, such as
+    /// persistent PTYs. Stateless factories keep the default no-op.
+    async fn shutdown(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

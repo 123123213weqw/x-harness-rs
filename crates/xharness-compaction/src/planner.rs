@@ -231,18 +231,17 @@ pub fn select_compactable_range(
 fn validate_and_price_boundaries(nodes: &[SurfaceNode]) -> Result<Vec<bool>, CompactionError> {
     let mut pending = HashSet::new();
     let mut seen = HashSet::new();
-    let mut previous_seq = None;
+    let mut seen_seqs = HashSet::new();
     let mut balanced_before = Vec::with_capacity(nodes.len() + 1);
     balanced_before.push(true);
 
     for (index, node) in nodes.iter().enumerate() {
-        if previous_seq.is_some_and(|previous| previous >= node.seq) {
+        if !seen_seqs.insert(node.seq) {
             return Err(CompactionError::invalid_surface(format!(
-                "surface seq {} at index {index} is not strictly increasing",
+                "surface seq {} at index {index} is duplicated",
                 node.seq
             )));
         }
-        previous_seq = Some(node.seq);
         match &node.kind {
             SurfaceNodeKind::Plain => {}
             SurfaceNodeKind::AssistantToolCalls { call_ids } => {

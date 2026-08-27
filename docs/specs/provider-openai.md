@@ -22,6 +22,12 @@ Provider Config 不自动查询 llama.cpp 的启动参数。正式 Host 通过 `
 
 - Chat Completions：`<base>/chat/completions`
 - Responses：`<base>/responses`
+- Chat 输入计数：`<base>/chat/completions/input_tokens`
+- Responses 输入计数：`<base>/responses/input_tokens`
+
+输入计数请求从实际生成请求体派生，只移除流式和输出控制字段，确保 System、消息、Opaque Replay
+Item 与 Tool Schema 不会和正式请求漂移。404/405/501 表示端点不支持并缓存 Capability Miss；
+其他网络/HTTP/解析错误必须显式失败，禁止伪装成“不支持”后降低精度。
 
 ## 请求映射
 

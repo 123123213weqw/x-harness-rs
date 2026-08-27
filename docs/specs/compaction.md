@@ -1,8 +1,8 @@
 # 上下文压缩（Compact）规范
 
 **所属层：** `xharness-compaction`、`xharness-context`、`xharness-session`、`xharness-token`  
-**状态：** Provider-neutral 配置、压力规划、Tool Pair 安全范围、工具结果裁剪和摘要接口已实现；
-Session Replace 事务与 Host 自动触发尚未接线。
+**状态：** 自动 Pressure/Overflow、摘要、重计量、Session Replace 事务、Web 投影与崩溃恢复已
+接线到正式 Durable Host；手动 `/compact` 和生产 Tool Result Pruner Replace 尚待完成。
 
 ## 目的
 
@@ -117,22 +117,57 @@ Checkpoint Preamble
 提交前必须用相同 Token Meter 计算带 Frame 的摘要；如果摘要 Token 数不小于被遮蔽历史，必须
 拒绝替换。
 
-## 生产接线顺序
+## 已落地的生产接线
 
-当前 crate 只完成可测试的抽象和纯算法。下一阶段必须按以下顺序接线：
+1. Session 已有 `compaction/start`、`compaction/summary`、`compaction/end`、
+   `compaction/prune` 和 `UserMessage.surfaceReplace`；`derive_surface_messages()` 只遮蔽模型
+   Surface，原 Event Log 保持不变。
+2. Core 先 Flush Start，再执行异步同路由摘要；Summary + Checkpoint Replace + 成功 End 在一个
+   CAS Batch 内提交并 Flush。摘要失败写错误 End；未闭合 Start 在重启恢复为 interrupted End。
+3. 正式 Host 默认安装 `CompactionConfig::default()`。完整请求达到 80% 时自动 Pressure；Hard
+   Guard Overflow 在发普通模型请求前压缩；Provider 在无 Delta 前返回可识别的 400 Context
+   Overflow 时关闭当前 Step、压缩并在新 Step 重试。
+4. Checkpoint Frame 用同一 Provider-neutral 保守消息价格重新计量；不小于 Shadowed Token 的
+   摘要拒绝提交。成功 Replace 后重新构造完整请求，并再次走 Provider 原生计数/Token Guard。
+5. Web 投影公开全部 `compaction/*`，替换消息携带
+   `surfaceOp={op:"replace",start,end}` 与 `sourceEventSeqs`。
 
-1. Session 新增 `compaction/start`、`compaction/summary`、`compaction/end`、`compaction/prune`，
-   以及带 Source Seq 的 Surface Replace。
-2. 形成单写者事务：Start 落盘充当锁；异步摘要；重验 Surface；写 Summary；原子 Replace；End；
-   Flush。任何失败都尝试写 End，未闭合 Start 在恢复时视为中断事务。
-3. Core 在 Provider 请求前取得同模型权威 Token Count；先执行 Tool Result Pruner 并重新计量，
-   仍超阈值才请求摘要。
-4. Provider 把 HTTP 400/413 中的真实 Context Overflow 规范化为 typed error；只允许按
-   `maxOverflowRetries` 恢复，禁止匹配任意字符串后无限重试。
-5. Host 暴露自动配置、手动 `/compact` 和可观测事件；Web 只消费 Session 投影。
+当前自动摘要复用活跃 Provider/Model，保留相同 System、工具 Schema、被选消息和末尾 Compact
+Instruction，以尽可能复用 Prefix/KV Cache。配置若指定了不同摘要路由而 Host 尚未注册 Purpose
+Router，会明确失败，不会偷偷使用另一个模型。
 
-在以上事务接线完成前，生产 Host 仍使用 `IdentityContextPolicy + TokenGuard`：它能在请求前拒绝
-超窗，但不会自动压缩。
+## 消融开关与 4080 Qwen 验证
+
+正式 Host 支持从 CLI 或环境变量选择 Compact 策略：
+
+- `--compaction-config default` / `XHARNESS_COMPACTION_CONFIG=default`：安装默认自动策略；
+- `--compaction-config off`：完全不安装 Compaction Runtime，用于真正的无压缩对照组；
+- `--compaction-config /absolute/policy.json`：加载并校验一份 `CompactionConfig`；
+- JSON 中的 `auto=false` **不等于完全关闭**，它只关闭 Pressure，Provider/Hard Guard 的
+  Context Overflow 仍可以触发有界恢复。
+
+`scripts/compaction-ablation.py` 会为每个 Variant 创建独立 Workspace、State Dir 和 Durable
+Session，通过正式 Web RPC 驱动两轮任务，并保存 History、Debug Trace、Usage、Compact 事件、事实
+命中率、延迟和退出状态。内置四组为 `disabled`、`overflow_only`、`auto_default` 和
+`auto_aggressive`。
+
+2026-08-25 在 RTX 4080 的 Qwen3.8-27B `Q3_K_M`/llama.cpp 上完成首轮四组烟测：四组均精确
+回忆 3/3 事实；两个非 Auto 组 Compact 0 次，两个 Auto 组各完成 1 次
+`start/summary/end`；四个 Host 均正常退出、没有 Forced Kill。机器可读证据见
+[`docs/evidence/compaction-qwen-4080-20260825`](../evidence/compaction-qwen-4080-20260825/README.md)。
+该轮共用一个热推理进程，所以只能作为功能验证；延迟/KV Cache 性能结论必须增加多任务、多 Seed、
+轮换顺序，并在 Variant 间重启或清空 Provider Prefix Cache。
+
+## 剩余接线
+
+1. 把 `ToolResultPruner` 接成 `compaction/prune + tool/result replace` 的生产事务；目前单次模型
+   写回仍先经过 256 KiB Head/Tail Envelope，自动摘要可继续缩短历史，但 8,192 字符旧结果裁剪
+   尚未主动运行。
+2. 增加手动 `/compact` 和空闲 Session Maintenance Turn；当前只有自动 Pressure/Overflow。
+3. Provider 优先消费结构化错误码；为 OpenAI-compatible 私有部署保留的 400 文本分类必须继续
+   限定为“无任何 Delta + 有上限恢复”，不能泛化成任意字符串重试。
+4. 增加 Purpose Provider Registry、独立摘要路由、真实 SIGKILL/Flush 全切点矩阵和按模型精确
+   Tokenizer；当前 Range 节点价格是保守 JSON/UTF-8 价格，最终准入仍由请求级权威计数决定。
 
 ## 验收标准
 
@@ -142,4 +177,5 @@ Checkpoint Preamble
 - 多 Tool Call 并行批次不得在任意 Call/Result 之间切开。
 - Unicode 裁剪不产生无效 UTF-8，重复执行结果稳定且第二次不再裁剪。
 - 空摘要、截断摘要、图片摘要、摘要不变小、Surface Generation 改变都不能提交。
-- Session 事务测试必须覆盖崩溃在 Start、Summary、Replace、End 和 Flush 各阶段的恢复结果。
+- Session 测试已覆盖成功 Replace 不删除源历史和未闭合 Start 恢复；仍需真实 SIGKILL 覆盖
+  Summary、Replace、End、Flush 边界。

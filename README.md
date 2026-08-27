@@ -47,15 +47,19 @@ DeepSeek Web UI / future CLI
 
 CI 在 GitHub `macos-15` 的原生 ARM64 Runner 上检查和测试整个 Workspace，并执行真实的
 FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产出
-`xharness-host-darwin-arm64` Artifact，里面包含未签名的 Host 压缩包和 SHA-256 校验文件。
+`xharness-host-darwin-arm64` Artifact，里面包含未签名的 Host、同目录 `rg`、压缩包和 SHA-256
+校验文件。Host 会把自身目录置于受管工具 `PATH` 首位，LaunchAgent 的最小环境不会再导致
+`glob/grep` 报 `failed to spawn \"rg\"`。
 该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
 Developer ID 签名、公证和本机安装验证。
 
-> **当前可用性提醒（2026-08-22）：** Web/Loop/14 工具、版本化最小 Coding System Prompt 和
-> 请求前 Hard Token Guard 已经贯通。当前 Host 仍完整重放历史，但每个 Step 已按平台 Readiness
-> 动态发送可用工具；
-> 大文件任务超限时会在本地明确失败，但尚不会自动压缩。Linux Bubblewrap Probe 失败时，
-> `bash/glob/grep/terminal_open` 会按设计 fail closed。详见[运行诊断](docs/operations.md)。
+> **当前可用性提醒（2026-08-25）：** Web/持久 Agent/Loop/14 工具、版本化最小 Coding System
+> Prompt、Provider 原生输入计数、请求前 Hard Token Guard 与自动 Compact 已经贯通。无压力时
+> Host 逐字重放当前 Surface；达到 80% 或发生 Hard/Provider Overflow 时，会持久摘要安全头部、
+> 重新计量后继续。每个 Step 也已按平台 Readiness 动态发送可用工具。Linux Bubblewrap Probe 失败时，
+> `bash/glob/grep/terminal_open` 会按设计 fail closed。SIGINT/SIGTERM 已走 Agent→Loop→
+> Tool→Process/PTY 的结构化收尾，不合作清理会显式报告 Forced Cleanup。详见
+> [运行诊断](docs/operations.md)。
 
 正式 Host 二进制已默认使用 JSONL Durable Agent Session 和跨进程 File Lease；
 `session.prompt` 成功回执已绑定 Durable Inbox Flush。启动会枚举并恢复可由日志推导的
@@ -82,18 +86,20 @@ RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once �
 
 - 可复用的 Provider/平台无关 Host 控制面库
 - 52 个 RPC 已全部有基础状态行为，不再只是占位路由
-- Session/Workspace/预设/Goal/Settings/Credentials/模型目录的内存实现
+- Session/Workspace/预设/Goal/Settings/模型目录的有状态实现；权威 History/Queue 与部分设置已持久化
 - `session.prompt` 直接驱动真实 Rust Loop，并投影 turn/step/chunk/tool 事件
 - Prompt FIFO、运行时 Steering/Cancel、工具审批与 `/api/respond` 恢复
 - JSON Session export 与 Mux/Host 重连基线
 - 可显式注入 `ContextPolicy`，兼容构造器当前默认 Identity
 - BasicHost 只通过 `AgentRuntime -> RunningTurn` 驱动任务，不直接持有 Provider、工具工厂或
-  ContextPolicy；当前 `LoopAgentRuntime` 是可替换兼容实现
+  ContextPolicy；正式 Host 使用 `DurableLoopAgentRuntime`，`LoopAgentRuntime` 仅为兼容实现
 
 ### `xharness-host-app`
 
 - 组合 OpenAI-compatible Provider、HTTP/WS Server 和原生 14 工具
 - `NativeToolFactory` 按 Workspace 缓存 Platform、按 Session 隔离 Terminal
+- SIGINT/SIGTERM 先关闭新 Admission，再收敛 Agent/Loop/Tool/Process 和全部持久 PTY；
+  Forced Cleanup 导致非零退出
 - 当前每个模型 Step 按 Sandbox/Search/Terminal Readiness 投影 14 工具的可用子集；选中 Preset
   已经通过 `xharness-prompt/v1`
   成为 Provider 请求中的第一个 System Message
@@ -114,6 +120,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 进程内 Agent Registry；macOS/Linux File Lease 排除第二个进程同时驱动同一 Session
 - Idle/Running/Maintenance 生命周期状态机，从 Session 最后 Turn 坐标恢复
 - AgentSupervisor 自动连续消费多 Turn，Active Steer 先持久排队再中断并在恢复时按 ID 去重
+- AgentSupervisor 关闭新 Activation，对全部 Worker 共享 Deadline，等待活动 Loop 取消和
+  持久 Turn 闭合；超时 Abort 有显式 `forced_cleanup` 结果
 - 启动枚举、Pending Turn 先订阅后显式 Wake、无重复 Append 已完成
 - Prompt Admission 的持久 Receipt/冲突检测已完成
 - Pending Approval 可用原 Approval/Execution ID 在重启后恢复，回答前不会执行 Tool
@@ -126,7 +134,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 流式 `text_delta`、`reasoning_delta` 与工具生命周期事件
 - tool-call delta 聚合和多轮模型调用
 - 请求输出前的安全重试；已经产生 delta 后禁止重试
-- `parallel`、`keyed`、`exclusive` 工具调度，默认最多 8 路
+- 生产工具批次委托 `xharness-tools::ToolExecutor` 执行 `parallel/keyed/exclusive` 调度；Core
+  兼容调度 API 只服务尚未迁移的 Embedder/Test
 - 工具超时、取消、panic、未知工具和参数错误统一写回模型
 - 默认完整上下文重放，单个工具结果写回限制为 256 KiB；超限使用确定性 UTF-8 Head/Tail
   Envelope（含原始/遗漏 Byte 与 SHA-256），但这仍不是整体 Token 预算或持久 Spill
@@ -141,12 +150,14 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - Policy 输入同时包含 Provider、Model、Step 与全部工具 Schema
 - Surface 替换记录源消息范围、替换数量、原因和 Policy 版本
 - Core 在 Provider I/O 前验证 Surface，并把审计元数据写入 Request Header
-- 当前默认仍是 `IdentityContextPolicy`；Prune 与 Summary 是下一阶段
+- `IdentityContextPolicy` 仍负责无压缩时的逐字投影；正式 Durable Host 在 Token Guard 后接入
+  独立的持久 Compact Coordinator，不把压缩副作用藏进一次性 Policy
 
 ### `xharness-token`
 
 - Provider-neutral `TokenMeter`，不依赖 llama.cpp 或任一推理后端
-- 当前提供保守 UTF-8/JSON Byte Meter；后续精确 Tokenizer 实现同一 Trait
+- Core 优先使用 Provider 原生完整请求计数；Chat/Responses 已接入各自输入 Token 端点
+- 计数端点不支持时回退保守 UTF-8/JSON Byte Meter；后续本地精确 Tokenizer 实现同一 Trait
 - Core 在 Provider I/O 前执行 Hard Guard，预算报告写入 Request Header
 - 正式 Host 配置模型时强制声明 Context Window，并把输出预留下发给 Provider
 
@@ -156,6 +167,18 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 每个 Section、最终 System 和整个 Assembly 均有可审计版本/Hash
 - Core 在历史前注入 System，并把 Prompt Audit 与 Tool Definition Hash 写入 Request Header
 - System 不进入 Session Transcript；Chat Completions/Responses 请求体均有顺序测试
+
+### `xharness-compaction` / `xharness-debug`
+
+- Compaction 已实现 Provider-neutral 压力规划、80% 触发阈值、16% 最近尾部保留、Tool Pair
+  安全切点、Unicode Pruner、Checkpoint Frame 和 Summary Trait；正式 Durable Host 已启用请求前
+  Pressure、Hard Overflow、Provider 400 Context Overflow、摘要重计量和持久 Surface Replace
+- `compaction/start|summary|end|prune` 已进入 Session/Web 事件词汇；手动 `/compact` 与生产
+  Tool Result Pruner 仍是下一切片
+- Debug 默认 Noop 零 I/O；显式 Full 模式将 Host/Core/Provider/Tool/Process/PTY/Sandbox/Web/
+  Server 事件写入 Secret-safe JSONL，并把大 Payload 放入内容寻址 Blob
+- Full Debug 是可删除诊断旁路，不替代权威 Session；Rotation/Retention、指标聚合和 Diagnostic
+  Bundle 仍待实现
 
 ### `xharness-provider-openai`
 
@@ -196,6 +219,7 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 显式 cwd 与 `env_clear` 环境；提供 credential 变量清洗 helper
 - 每次调用建立独立 session/process group
 - timeout/cancel 执行 TERM → grace → KILL，并等待根进程退出
+- Supervisor 在 Runtime Abort 时同步 KILL 受管 Process Group；输出 EOF 只在有界 Grace 内等待
 - stdout/stderr 并行 drain，有界保留、总字节计数与 UTF-8 边界安全截断
 - 非零退出码是结构化正常结果，不会被误判为 runtime 异常
 - process group 只负责生命周期；真正的进程树硬隔离由下层原生沙箱提供
@@ -211,7 +235,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 ### `xharness-sandbox` / `xharness-platform`
 
 - `NativeSandbox` 编译期选择：Linux Bubblewrap、macOS Seatbelt
-- `ReadOnly / WorkspaceWrite / DangerFullAccess` 和独立网络能力
+- Sandbox 仅含 `ReadOnly / WorkspaceWrite` 和独立网络能力；`DangerFullAccess` 是 Host/Platform
+  权限预设，不伪装成沙箱模式
 - Restricted 模式后端不可用时 fail closed，不会静默裸跑
 - `NativePlatform` 是宿主唯一平台入口，组合 FS、Process 与 Sandbox；Loop 与 Provider
   不依赖操作系统实现
@@ -231,6 +256,7 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 
 - 真 PTY、owner/name 隔离、单调 cursor、按 bytes+lines 双重限制 scrollback
 - 信号发往终端 foreground process group，close 执行 TERM → grace → KILL
+- Registry Shutdown 会拒绝新 PTY，并一次收敛全部 Owner/Session 后返回清理报告
 - `web_fetch` 仅匿名 HTTP(S)、同源跳转、私网目标拒绝、响应和正文双重上限、HTML 转 Markdown
 - `web_search` 必须显式注入 Provider；当前包含可选的 Exa 实现，不伪造“本地搜索”
 
@@ -384,7 +410,8 @@ OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立�
 模型服务的真实上下文以部署参数为准。例如 llama.cpp 的 `-c 53248` 代表整个请求窗口，
 System、历史、工具 Schema、模板和输出预留都要共享它。配置模型但没有
 `XHARNESS_CONTEXT_WINDOW`（或 `--context-window`）时，正式 Host 会拒绝启动；超限请求在网络前
-失败。当前尚不会自动压缩，长任务开始前请阅读[上下文预算规范](docs/specs/context.md)。
+失败。正式 Durable Host 默认自动压缩；嵌入式 Core 只有显式提供 Journal、Token Guard 和
+Compaction Config 才启用。长任务细节见[上下文预算规范](docs/specs/context.md)。
 
 ## Linux `.deb`
 
@@ -423,7 +450,9 @@ panic、重试边界、取消、步骤限制、UTF-8 截断、并发上限、key
 历史顺序、异常批次恢复、消费者提前退出、消息注入、模型中断、暂停/恢复、工具审批、
 工具期间延迟 Steering、durable call-before-side-effect、outcome-unknown 恢复、JSONL
 CAS/损坏/断尾恢复、两个 OpenAI 协议的原生 HTTP 集成、真实 Host 进程重启、Full access
-Workspace 外读写/网络/进程清理，以及真实 Chromium 的权限确认和 retry #8 后完整基线恢复。
+Workspace 外读写/网络/进程清理、Runtime Drop、不合作 Handler、Bash Result 不早于
+Leader/Descendant 死亡、多 PTY Shutdown、真实 Host SIGTERM，以及真实 Chromium 的权限
+确认和 retry #8 后完整基线恢复。
 Loop 运行事件使用按数量与 Byte 双预算的非阻塞 Journal，测试覆盖慢消费者 Lag、Resume Cursor、
 完全不消费和单个超大事件。
 浏览器黑盒测试的环境变量和运行方法见
@@ -431,11 +460,11 @@ Loop 运行事件使用按数量与 Byte 双预算的非阻塞 Journal，测试�
 
 ## 路线图
 
-1. 大工具结果持久 Spill、历史 Surface 压缩和 Web Readiness 投影
-2. 完整 Prompt Registry、Provider-aware Tokenizer，并按 Profile/Step 进一步裁剪工具
-3. 把 `BasicHost` 迁移到长生命周期 Agent、durable inbox、single-writer lease
-4. CLI、配置/凭据边界与 macOS 原生发布验证
-5. Web Host 认证、断线游标恢复、健康检查与部署配置
+1. 删除 Core 旧 `LoopRequest.tools` 兼容 Scheduler，所有 Embedder/Test 统一到 `xharness-tools`
+2. 完成强类型配置与 Credential Reference Store，再补 Web Host 认证/Origin 策略
+3. WebSocket 持久 Cursor Resume、完整 Mutation Receipt 和 Web Readiness 投影
+4. macOS Live Provider/安装验证、Developer ID 签名与公证
+5. 大工具结果持久 Spill/Pruner、手动 `/compact`、完整 Prompt Registry 和 Purpose Router
 6. Skills、MCP、LSP、附件与 Subagent/Workflow 调度
 
 完整任务、优先级和验收条件见 [`docs/TODO.md`](docs/TODO.md)；架构边界与

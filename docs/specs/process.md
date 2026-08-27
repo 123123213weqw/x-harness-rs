@@ -25,6 +25,12 @@ Timeout、显式 Cancel 和 Handle Drop 都请求终止。Supervisor 先向 Proc
 TERM，等待配置的 Grace，再发送 KILL 并等待 Root Child。`TerminationReason` 必须区分
 Normal Exit、Timeout 和 Cancellation。
 
+Supervisor 内部还持有同步 `ProcessGroupGuard`：即使 Tokio Runtime 关闭或任务被
+Abort，Guard Drop 也会对受管 Process Group 发送 KILL，不把清理寄托给已停止的
+Async Runtime。Root/Group 终止后，Stdout/Stderr 只允许在有界
+`capture_drain_grace` 内等待 EOF；超时返回 `CaptureDrainTimedOut`，不能无限挂起或
+伪造成功结果。
+
 ## 安全边界
 
 Process Group 只用于生命周期协调，不是硬隔离。非受限进程的后代可以创建新 Session
@@ -39,11 +45,13 @@ Process Group 的取消、超时和清理。
 
 - 仅 Unix；尚无 Windows Job Object。
 - 尚无后台 Job Registry 或 Spill File。
-- 如果嵌入 Runtime 直接 Abort Supervisor Task，Process Group 清理只能 Best Effort；
-  Host 仍必须做结构化 Shutdown。
+- `FullAccess` 下主动 `setsid()` 逃离原 Process Group 的后代仍无法被本层硬回收；
+  保留 Pipe 的逃逸后代会被有界 Drain 检测为 Cleanup Failure。需要硬保证时必须使用
+  Linux PID Namespace/macOS Seatbelt 等受限后端，不能把 Process Group 当成安全边界。
 
 ## 验收标准
 
 测试必须覆盖直接 Argv/无 Shell Injection、显式 Cwd/Env、Secret Scrub、正常和非零退出、
 并发 Stdout/Stderr、Unicode 安全 Cap、Timeout Escalation、显式 Cancel 以及 Leader/
-Descendant 清理。
+Descendant 清理。还必须覆盖 Runtime Drop 时的同步最后清理、逃逸 Session 持有
+Pipe 时的有界失败，以及受限 PID Namespace 中后代的硬回收。

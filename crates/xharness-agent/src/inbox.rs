@@ -270,7 +270,7 @@ impl DurableInbox {
                 .events()
                 .iter()
                 .filter_map(|event| match event.data() {
-                    EventData::UserMessage { message } => message.id.as_deref(),
+                    EventData::UserMessage { message, .. } => message.id.as_deref(),
                     _ => None,
                 })
                 .collect::<HashSet<_>>();

@@ -2,6 +2,7 @@
 
 use std::{collections::BTreeMap, ffi::OsString, sync::Arc, time::Duration};
 
+use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_process::SpawnSpec;
 use xharness_terminal::{TerminalOpenSpec, TerminalRegistry};
@@ -82,4 +83,42 @@ async fn persistent_pty_is_owner_scoped_and_cursor_based() {
     let closed = registry.close("owner-a", "main").await.unwrap();
     assert!(!closed.running);
     assert!(registry.list("owner-a").await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn registry_shutdown_closes_all_ptys_and_rejects_new_sessions() {
+    let registry = TerminalRegistry::with_defaults();
+    let first = registry
+        .open(TerminalOpenSpec {
+            owner: "shutdown-a".into(),
+            name: "one".into(),
+            process: shell_spec(),
+        })
+        .await
+        .unwrap();
+    let second = registry
+        .open(TerminalOpenSpec {
+            owner: "shutdown-b".into(),
+            name: "two".into(),
+            process: shell_spec(),
+        })
+        .await
+        .unwrap();
+
+    let report = registry.shutdown().await;
+    assert!(report.is_graceful(), "{report:?}");
+    assert_eq!(report.sessions, 2);
+    assert_eq!(report.closed, 2);
+    for pid in [first.pid, second.pid] {
+        let pid = Pid::from_raw(i32::try_from(pid).unwrap());
+        assert!(matches!(kill(pid, None), Err(Errno::ESRCH)));
+    }
+    assert!(registry
+        .open(TerminalOpenSpec {
+            owner: "shutdown-c".into(),
+            name: "late".into(),
+            process: shell_spec(),
+        })
+        .await
+        .is_err());
 }

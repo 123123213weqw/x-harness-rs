@@ -18,7 +18,7 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
 
 ## 事件词汇
 
-当前强类型 Log 覆盖冻结目录中的 25 个事件：
+当前强类型 Log 覆盖冻结目录中的 29 个事件：
 
 - Agent/权限控制面：`agent-preset/selected`、`agent/inbox/spliced`、`permission/preset`、
   `sandbox/mode`、`approval/policy`；
@@ -31,6 +31,8 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
 - 交互模式：`plan/mode`（latest-wins、log-only，只保存 `active`，不进入模型历史）；
 - Provider 生命周期：`request/header`、`llm/retry`、`llm/retry-started`、`assistant/chunk`、
   `assistant/message`；
+- Context 压缩：`compaction/start`、`compaction/summary`、`compaction/end`、
+  `compaction/prune`；
 - Turn/Step 和工具：`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、
   `tool/call`、`tool/result`、`session/end-seed`。
 
@@ -70,14 +72,18 @@ RPC ID 和 Receipt Revision 在 Session 内唯一，Fingerprint 为 64 位小写
 
 ## 投影与恢复
 
-`derive_messages()` 必须确定、无副作用。它忽略只用于审计的 Chunk 和边界，同时逐字节
-保留完整 User、Assistant 和 Tool Message。Tool Result 投影会通过对应 `tool/call` 把内部
+`derive_messages()` 必须确定、无副作用，并返回**当前模型 Surface**。普通日志没有 Replace 时
+它逐字保留 User、Assistant 和 Tool Message；Checkpoint `user/message` 的 `surfaceReplace`
+只遮蔽当前 Surface 中列出的源 Sequence，原事件仍完整留在 Log。`derive_surface_messages()`
+额外返回每个可见消息的源 Sequence，供下一次压缩安全规划。Tool Result 投影会通过对应 `tool/call` 把内部
 Execution ID 还原为 Provider Native Call ID，确保无状态协议重放关联正确。
 同一 Assistant Tool Batch 的 Result 即使因崩溃恢复分多个 Append 写入，投影仍按 Assistant
 中的原始 Call Index 排序，不能按恢复写盘时序改变 Provider Transcript。
 
-完整 Transcript 与“下一次模型可见 Surface”必须分离。Context Policy 可以引用原始消息、
-追加 Summary/Spill Metadata 或选择 Surface Replace，但禁止覆盖/删除原始 Tool Result。
+完整人类 Transcript 必须从 append-origin 原事件读取，不能错误使用已经遮蔽旧节点的
+`derive_messages()`；下一次模型可见 Surface 则使用后者。Compact 成功事务先 Flush Start，再把
+Summary、Checkpoint Replace 和成功 End 放进同一 CAS Batch；错误 End 不改变 Surface，未闭合
+Start 在恢复时补 interrupted End。任何路径都禁止覆盖/删除原始 Tool Result。
 Request Header 必须记录本次实际使用的消息 Revision、压缩 Policy Version 和预算分项，确保
 诊断时能解释为何模型看到的是某个子集。
 
