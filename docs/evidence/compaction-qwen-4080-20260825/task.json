@@ -1,0 +1,14 @@
+{
+  "facts": [
+    "HARBOR-7319",
+    "QUARTZ-2846",
+    "CEDAR-9052"
+  ],
+  "historyLines": 500,
+  "followupLines": 200,
+  "firstPromptBytes": 36233,
+  "secondPromptBytes": 11738,
+  "contextWindow": 16384,
+  "maxOutputTokens": 768,
+  "tokenSafetyMargin": 256
+}

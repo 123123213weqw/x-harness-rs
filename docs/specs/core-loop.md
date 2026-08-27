@@ -16,8 +16,9 @@
 - `LoopRun::send(LoopCommand)` 只有在 Runner 接受命令后才能确认；这是“已排队”回执，
   不是持久化回执。
 - `LoopRun::cancel()` 必须协作式取消 Provider/Tool 工作。
-- `LoopRun::result()` 必须最终且仅进入 `Completed`、`Failed`、`Cancelled`、
-  `LimitReached` 之一。
+- `LoopRun::result()` 必须最终且仅进入 `Completed`、`MaxTokens`、`Failed`、
+  `Cancelled`、`LimitReached` 之一。`MaxTokens` 是保留了部分输出的正常结构化终态，
+  禁止降级成通用 Provider Error。
 - `LoopRequest::validate()` 必须在任何 Provider、Store、Policy 或 Tool I/O 前失败。
 
 ## Step 状态机
@@ -35,14 +36,31 @@
   -> 原子追加 assistant message
        | 无 call + Stop             -> Completed
        | 有 call + ToolCalls/legacy -> 审批 + 工具批次
+       | Length + 有续写预算         -> 丢弃残缺 Call，保存输出，下一 Step 续写
+       | Length + 无续写预算         -> MaxTokens
        | finish 组合非法            -> Failed
   -> 按原顺序追加工具结果
   -> 下一 Step
 ```
 
 显式 `Stop` 与工具调用同时出现时必须 fail closed。只有旧 Provider 缺失 finish reason 时，
-才可以根据是否存在工具调用推断。`Length`、`ContentFilter`、`Incomplete` 和未知终止原因
-禁止报告为完成答案。
+才可以根据是否存在工具调用推断。`Length` 必须保存 Text/Reasoning、丢弃残缺 Tool Call 及其
+不可安全裁剪的 Provider Replay Envelope，并进入有界续写或 `MaxTokens`；`ContentFilter`、
+`Incomplete` 和未知终止原因禁止报告为完成答案。
+
+## 长思考与输出续写
+
+- Reasoning 与可见正文共享模型输出额度，但 Harness 禁止设置很小的独立 Reasoning 硬上限。
+- 默认每次请求的目标输出由模型路由配置；Token Guard 根据真实输入动态选择不超过目标值、
+  不低于最小输出保留的 `selectedOutputTokens`。
+- Provider 返回 `Length` 后，Core 最多自动发起 2 次新请求；恢复指令只进入该次
+  `request/header`，不成为用户消息或 Session Transcript。
+- 纯 Reasoning 截断要求继续推理并产出最终答案；正文截断要求从断点继续且不重复；Tool Call
+  截断禁止拼接或执行残缺 JSON，下一请求必须重新发出完整调用。
+- 默认单 Turn 累计输出上限为 131,072 Token；Provider 有 Usage 时按
+  `output_tokens + reasoning_tokens` 累计。该上限约束失控循环，不用于提前压缩正常思考。
+- 多次续写产生的可见正文按 Provider 顺序拼接到 `LoopResult.final_text`；每次 Assistant
+  Message 仍独立持久化，保证流式审计和崩溃边界清晰。
 
 ## 流式输出与重试
 
@@ -111,6 +129,7 @@ Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只�
 ## 默认限制与当前不足
 
 - 默认最多 128 个模型 Step。
+- 默认最多 2 次输出续写、单 Turn 累计最多 131,072 个生成 Token。
 - 默认最多 8 个并发工具。
 - 嵌入式 Core 默认 `IdentityContextPolicy` 且不自动启用 Compact；正式 Durable Host 同时安装
   Hard Token Guard 与 `CompactionConfig`，可在 Pressure/Overflow 时持久 Replace 并重计量。

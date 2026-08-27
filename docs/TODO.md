@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**状态日期：** 2026-08-25
+**状态日期：** 2026-08-27
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -262,6 +262,21 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   Workspace Fmt、Check、Test 和 Clippy `-D warnings` 已通过；GitHub Linux 与原生 macOS
   ARM64 CI 通过并生成 Release。新版本已部署到本机 3082，双 V100 27B 真实流与强制重启前后
   Projection 等价验证均通过。
+- [x] `DONE-62` Web Context Inspector：Core 每个 Step 的 `request/header` 已保存经过
+  ContextPolicy、压缩和 Token Guard 后的完整 `input/tools/options`；Host 同时投影上游兼容的
+  `config/system/tools` 与 XHarness 审计扩展。前端在 `Chat | Trajectory` 后注册第三个
+  `Context` Tab，支持按请求切换、实际发送、压缩前/后、Diff、搜索、Token Budget、Tool Schema、
+  Raw JSON，以及 System/人类/Reasoning/回答/Tool Call/Tool Result/压缩 checkpoint 颜色分类。
+  产品插件进入静态模块图，具备 Node 烟雾测试和浏览器真实 Session 验证；规范见
+  [`specs/context-inspector.md`](specs/context-inspector.md)。
+- [x] `DONE-63` 长思考动态输出预算与安全续写：模型路由把目标输出、最小输出保留和安全余量
+  分离，Token Guard 根据本次真实输入生成 `selectedOutputTokens`；默认允许 2 次新请求续写和
+  131,072 Token 的 Turn 级累计上限，不设置独立的小 Reasoning 硬限制。`Length` 已成为
+  `MaxTokens` 一等终态，部分 Text/Reasoning 正常持久化，残缺 Tool Call/Replay Envelope 禁止
+  执行；纯思考、正文和 Tool Call 分别使用安全恢复指令。Host/Web 投影上游兼容的
+  `turn/end: max-tokens`，不再显示通用失败。V100 路由目标 49,152、最小保留 16,384、安全余量
+  4,096；4080 路由目标 16,384、最小保留 8,192。WZU_Server 的 Token/Core/Session/Host/
+  Host-app 定向测试全部通过。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

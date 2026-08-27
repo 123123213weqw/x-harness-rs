@@ -25,6 +25,7 @@ pub(crate) struct SingleModelDeployment {
     pub(crate) protocol: OpenAiProtocol,
     pub(crate) context_window_tokens: Option<u64>,
     pub(crate) max_output_tokens: u64,
+    pub(crate) minimum_output_tokens: Option<u64>,
     pub(crate) token_safety_margin: u64,
 }
 
@@ -46,6 +47,7 @@ impl ModelDeployment {
             &config.model,
             config.context_window_tokens,
             config.max_output_tokens,
+            config.minimum_output_tokens,
             config.token_safety_margin,
         )?;
         let provider: Arc<dyn ModelProvider> = Arc::new(
@@ -203,6 +205,7 @@ impl ProviderConfig {
                 &model.id,
                 Some(model.context_window_tokens),
                 model.max_output_tokens,
+                model.minimum_output_tokens,
                 model.token_safety_margin,
             )?;
             let adapter: Arc<dyn ModelProvider> = Arc::new(
@@ -245,6 +248,10 @@ struct ModelConfig {
     context_window_tokens: u64,
     #[serde(default = "default_max_output_tokens")]
     max_output_tokens: u64,
+    /// Minimum output room admitted before compaction/rejection. Omission
+    /// preserves the legacy fixed-output behavior for existing deployments.
+    #[serde(default)]
+    minimum_output_tokens: Option<u64>,
     #[serde(default = "default_token_safety_margin")]
     token_safety_margin: u64,
 }
@@ -279,6 +286,7 @@ pub(crate) fn token_guard(
     model: &str,
     context_window_tokens: Option<u64>,
     max_output_tokens: u64,
+    minimum_output_tokens: Option<u64>,
     token_safety_margin: u64,
 ) -> Result<Option<TokenGuard>, String> {
     if model == "unconfigured" {
@@ -290,6 +298,7 @@ pub(crate) fn token_guard(
     TokenGuard::conservative(TokenBudget {
         context_window_tokens,
         reserved_output_tokens: max_output_tokens,
+        minimum_output_tokens: minimum_output_tokens.unwrap_or(max_output_tokens),
         safety_margin_tokens: token_safety_margin,
     })
     .map(Some)
@@ -302,17 +311,17 @@ mod tests {
 
     #[test]
     fn configured_model_requires_an_explicit_context_window() {
-        let error = token_guard("model", None, 4_096, 1_024).unwrap_err();
+        let error = token_guard("model", None, 4_096, None, 1_024).unwrap_err();
         assert!(error.contains("XHARNESS_CONTEXT_WINDOW"));
     }
 
     #[test]
     fn configured_model_builds_a_hard_budget_and_unconfigured_skips_it() {
-        let guard = token_guard("model", Some(53_248), 4_096, 1_024)
+        let guard = token_guard("model", Some(53_248), 4_096, None, 1_024)
             .unwrap()
             .unwrap();
         assert_eq!(guard.budget().available_input_tokens(), 48_128);
-        assert!(token_guard("unconfigured", None, 4_096, 1_024)
+        assert!(token_guard("unconfigured", None, 4_096, None, 1_024)
             .unwrap()
             .is_none());
     }
@@ -342,6 +351,7 @@ mod tests {
                             "id": "qwen-v100",
                             "context_window_tokens": 32768,
                             "max_output_tokens": 4096,
+                            "minimum_output_tokens": 2048,
                             "token_safety_margin": 1024
                         }]
                     }
@@ -357,6 +367,12 @@ mod tests {
         assert!(deployment
             .registry
             .can_route(&ModelRoute::new("gpu-v100", "qwen-v100")));
+        let guard = deployment
+            .registry
+            .token_guard(&ModelRoute::new("gpu-v100", "qwen-v100"))
+            .unwrap();
+        assert_eq!(guard.budget().reserved_output_tokens, 4_096);
+        assert_eq!(guard.budget().minimum_output_tokens, 2_048);
         assert_eq!(deployment.registry.models().len(), 2);
     }
 

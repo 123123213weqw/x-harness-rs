@@ -1,0 +1,5 @@
+variant,quality,compactionStarts,compactionEnds,eventCount,historyBytes,stateBytes,hostExit,hostForcedKill,error
+disabled,1.0,0,0,224,287427,286828,0,False,
+overflow_only,1.0,0,0,529,341107,340744,0,False,
+auto_default,1.0,1,1,647,327864,328028,0,False,
+auto_aggressive,1.0,1,1,696,337346,337193,0,False,

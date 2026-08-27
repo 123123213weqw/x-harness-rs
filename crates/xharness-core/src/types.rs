@@ -276,6 +276,9 @@ pub trait ModelProvider: Send + Sync + 'static {
 #[serde(rename_all = "snake_case")]
 pub enum LoopStatus {
     Completed,
+    /// Provider reached its output ceiling after every configured safe
+    /// continuation was consumed. Partial assistant content is preserved.
+    MaxTokens,
     Failed,
     Cancelled,
     LimitReached,
@@ -380,6 +383,20 @@ pub enum LoopEventKind {
     RunCompleted {
         text: String,
     },
+    /// One incomplete provider output was safely committed and the loop will
+    /// issue a fresh continuation request. Truncated tool calls are never
+    /// carried into execution.
+    OutputContinuationScheduled {
+        attempt: usize,
+        max_attempts: usize,
+        cumulative_output_tokens: u64,
+    },
+    /// The turn ended at the configured cumulative/continuation ceiling.
+    RunMaxTokens {
+        text: String,
+        continuations: usize,
+        cumulative_output_tokens: u64,
+    },
     RunFailed {
         error: String,
     },
@@ -438,6 +455,12 @@ pub struct LoopConfig {
     pub max_tool_concurrency: usize,
     pub tool_result_limit_bytes: usize,
     pub provider_retries: usize,
+    /// Fresh model calls allowed after a provider reports an output-token
+    /// ceiling. A value of zero exposes max-tokens immediately.
+    pub max_output_continuations: usize,
+    /// Hard cumulative generation budget for one LoopRun. Reasoning and
+    /// visible output are counted together when provider usage is available.
+    pub max_turn_output_tokens: u64,
     /// Maximum number of events retained by the non-blocking in-memory event
     /// journal. Slow subscribers receive an explicit lag record.
     pub event_buffer: usize,
@@ -468,6 +491,8 @@ impl Default for LoopConfig {
             max_tool_concurrency: 8,
             tool_result_limit_bytes: 256 * 1024,
             provider_retries: 2,
+            max_output_continuations: 2,
+            max_turn_output_tokens: 131_072,
             event_buffer: 128,
             event_buffer_bytes: 8 * 1024 * 1024,
             command_buffer: 64,
@@ -485,6 +510,11 @@ impl LoopConfig {
         if self.max_tool_concurrency == 0 {
             return Err(LoopValidationError::new(
                 "max_tool_concurrency must be greater than zero",
+            ));
+        }
+        if self.max_turn_output_tokens == 0 {
+            return Err(LoopValidationError::new(
+                "max_turn_output_tokens must be greater than zero",
             ));
         }
         if self.tool_result_limit_bytes < crate::MIN_TOOL_RESULT_LIMIT_BYTES {

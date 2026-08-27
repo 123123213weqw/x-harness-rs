@@ -373,6 +373,10 @@ impl LoopEngine {
             usage: None,
             step_usage: Vec::new(),
             finish_reason: None,
+            pending_continuation: None,
+            continuation_text: String::new(),
+            output_continuations: 0,
+            cumulative_output_tokens: 0,
             step: 0,
             tool_batch_complete: true,
             command_rx,
@@ -446,6 +450,16 @@ fn estimate_message_tokens(message: &AgentMessage) -> Result<u64, RunFailure> {
         .max(1))
 }
 
+fn continuation_instruction(had_tool_call_fragments: bool, visible_text_is_empty: bool) -> String {
+    if had_tool_call_fragments {
+        return "The previous assistant output reached its token ceiling while emitting one or more tool calls. Those incomplete calls were discarded and were not executed. Continue from the preserved reasoning, then re-emit every required tool call as a complete, valid call. Do not refer to this recovery instruction.".to_owned();
+    }
+    if visible_text_is_empty {
+        return "Continue the unfinished reasoning from the preceding assistant message without restarting or repeating it. Complete the reasoning and provide the final answer. Do not refer to this recovery instruction.".to_owned();
+    }
+    "Continue exactly from where the preceding assistant response stopped. Do not repeat already emitted text, and close any unfinished Markdown or code structure naturally. Do not refer to this recovery instruction.".to_owned()
+}
+
 fn surface_node(seq: u64, message: &AgentMessage) -> Result<SurfaceNode, RunFailure> {
     let tokens = estimate_message_tokens(message)?;
     if !message.tool_calls.is_empty() {
@@ -482,6 +496,12 @@ struct Runner {
     usage: Option<TokenUsage>,
     step_usage: Vec<StepUsage>,
     finish_reason: Option<FinishReason>,
+    /// Ephemeral, model-facing continuation instruction. It is captured in
+    /// request/header for audit but never becomes user transcript history.
+    pending_continuation: Option<AgentMessage>,
+    continuation_text: String,
+    output_continuations: usize,
+    cumulative_output_tokens: u64,
     step: usize,
     tool_batch_complete: bool,
     command_rx: mpsc::Receiver<CommandEnvelope>,
@@ -556,6 +576,7 @@ impl Runner {
             Ok(status) => {
                 let phase = match status {
                     LoopStatus::Completed => "completed",
+                    LoopStatus::MaxTokens => "max_tokens",
                     LoopStatus::LimitReached => "limit_reached",
                     LoopStatus::Cancelled => "cancelled",
                     LoopStatus::Failed => "failed",
@@ -663,7 +684,11 @@ impl Runner {
                     .map_err(|error| {
                         RunFailure::Failed(format!("could not serialize tool schema: {error}"))
                     })?;
-                let context_request = ContextRequest::new(self.messages.clone())
+                let mut context_messages = self.messages.clone();
+                if let Some(continuation) = self.pending_continuation.clone() {
+                    context_messages.push(continuation);
+                }
+                let context_request = ContextRequest::new(context_messages)
                     .with_target(
                         self.request.provider.provider_name(),
                         self.request.provider.model_name(),
@@ -688,7 +713,7 @@ impl Runner {
                     }),
                 )
                 .await;
-                let provider_request = ProviderRequest {
+                let mut provider_request = ProviderRequest {
                     messages: prepared.messages.clone(),
                     tools: tool_definitions.clone(),
                     step: self.step,
@@ -728,6 +753,15 @@ impl Runner {
                                     }
                                 }
                             }
+                        }
+                        if let Some(report) = report.as_ref() {
+                            let turn_remaining = self
+                                .request
+                                .config
+                                .max_turn_output_tokens
+                                .saturating_sub(self.cumulative_output_tokens);
+                            provider_request.max_output_tokens =
+                                Some(report.selected_output_tokens.min(turn_remaining.max(1)));
                         }
                         break (provider_request, prepared, context_tools, report);
                     }
@@ -836,6 +870,10 @@ impl Runner {
                 }
                 Err(error) => return Err(error),
             };
+            // An ephemeral continuation instruction is consumed only after a
+            // provider request completes. Context-overflow recovery therefore
+            // retains it across compaction and retries.
+            self.pending_continuation = None;
             // The durable session contract requires call ids to be globally
             // unique, while providers only guarantee identity within a single
             // response. Journal-backed runs therefore use harness execution
@@ -879,6 +917,7 @@ impl Runner {
                 None if model.calls.is_empty() => FinishReason::Stop,
                 None => FinishReason::ToolCalls,
             };
+            let reached_output_limit = finish_reason == FinishReason::Length;
             let finish_error = if finish_reason_was_explicit
                 && finish_reason == FinishReason::Stop
                 && !model.calls.is_empty()
@@ -887,7 +926,7 @@ impl Runner {
                     "model protocol mismatch: finish reason was stop but tool calls were emitted"
                         .to_owned(),
                 )
-            } else if !finish_reason.is_success() {
+            } else if !finish_reason.is_success() && !reached_output_limit {
                 Some(format!(
                     "model output was not complete: {}",
                     finish_reason.description()
@@ -902,24 +941,66 @@ impl Runner {
                 role: Role::Assistant,
                 content: model.text.clone(),
                 reasoning: model.reasoning,
-                tool_calls: if finish_error.is_none() {
+                tool_calls: if finish_error.is_none() && !reached_output_limit {
                     model.calls.clone()
                 } else {
                     Vec::new()
                 },
                 tool_call_id: None,
-                provider_items: model.provider_items,
+                // Provider replay envelopes can contain the same incomplete
+                // tool-call blocks. Until adapters expose block-level replay
+                // pruning, dropping the envelope is the only safe portable
+                // choice for max-token continuations.
+                provider_items: if reached_output_limit {
+                    Vec::new()
+                } else {
+                    model.provider_items
+                },
                 interrupted: finish_error.is_some(),
             };
             self.journal_assistant_message(&assistant, model.usage.clone())
                 .await?;
-            self.final_text = model.text;
+            if reached_output_limit || !self.continuation_text.is_empty() {
+                self.continuation_text.push_str(&model.text);
+                self.final_text = self.continuation_text.clone();
+            } else {
+                self.final_text = model.text.clone();
+            }
             self.messages.push(assistant);
             self.snapshot("assistant_saved", true).await?;
 
             if let Some(error) = finish_error {
                 self.journal_step_end().await?;
                 return Err(RunFailure::Failed(error));
+            }
+
+            if reached_output_limit {
+                self.journal_step_end().await?;
+                let within_turn_budget =
+                    self.cumulative_output_tokens < self.request.config.max_turn_output_tokens;
+                if self.output_continuations < self.request.config.max_output_continuations
+                    && within_turn_budget
+                {
+                    self.output_continuations = self.output_continuations.saturating_add(1);
+                    self.pending_continuation = Some(AgentMessage::user(continuation_instruction(
+                        !model.calls.is_empty(),
+                        model.text.is_empty(),
+                    )));
+                    self.emit(LoopEventKind::OutputContinuationScheduled {
+                        attempt: self.output_continuations,
+                        max_attempts: self.request.config.max_output_continuations,
+                        cumulative_output_tokens: self.cumulative_output_tokens,
+                    })
+                    .await?;
+                    continue 'steps;
+                }
+                self.emit(LoopEventKind::RunMaxTokens {
+                    text: self.final_text.clone(),
+                    continuations: self.output_continuations,
+                    cumulative_output_tokens: self.cumulative_output_tokens,
+                })
+                .await?;
+                return Ok(LoopStatus::MaxTokens);
             }
 
             if model.calls.is_empty() {
@@ -951,6 +1032,10 @@ impl Runner {
         let Some(usage) = usage else {
             return;
         };
+        self.cumulative_output_tokens = self
+            .cumulative_output_tokens
+            .saturating_add(usage.output_tokens)
+            .saturating_add(usage.reasoning_tokens);
         self.usage
             .get_or_insert_with(TokenUsage::default)
             .saturating_add_assign(&usage);
@@ -2054,6 +2139,7 @@ impl Runner {
         }
         let reason = match status {
             LoopStatus::Completed => TurnEndReason::Completed,
+            LoopStatus::MaxTokens => TurnEndReason::MaxTokens,
             LoopStatus::Cancelled => TurnEndReason::Cancelled,
             LoopStatus::LimitReached => TurnEndReason::LimitReached,
             LoopStatus::Failed => TurnEndReason::Failed {
