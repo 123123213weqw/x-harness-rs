@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::Path,
     sync::Arc,
 };
@@ -12,6 +12,8 @@ use xharness_session::{
     AssistantChunk, EventData, LoggedEvent, Message, MessageRole, RequestHeader, Session, Store,
     StoreError, ToolOutcome, TurnEndReason,
 };
+
+const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;
 
 use crate::{
     metrics::{web_token_usage, MetricsProjectionState},
@@ -542,13 +544,20 @@ pub(crate) fn project_session_event_tail(
     let end = session.events().len();
     let prompts = prompt_views(session);
     let initial_request_header_seq = initial_request_header_seq(session);
+    let completed_steps = completed_assistant_steps(session);
     let max_events = max_events.max(1);
     let max_bytes = max_bytes.max(1);
     let mut reversed = Vec::new();
     let mut bytes = 0usize;
 
     for event in session.events().iter().rev().take(max_events) {
-        let projected = restored_web_event(event, route, &prompts, initial_request_header_seq);
+        let projected = restored_web_event(
+            event,
+            route,
+            &prompts,
+            initial_request_header_seq,
+            Some(&completed_steps),
+        );
         let event_bytes = serde_json::to_vec(&projected)
             .map(|encoded| encoded.len())
             .unwrap_or(max_bytes.saturating_add(1));
@@ -593,7 +602,7 @@ pub(crate) fn project_session_history(
         }
     }
     ProjectedHistoryPage {
-        events: project_session_event_range(session, route, start, end),
+        events: project_session_history_range(session, route, start, end),
         has_more: start > 0,
         as_of_seq: session.next_seq().checked_sub(1),
     }
@@ -611,8 +620,105 @@ fn project_session_event_range_with_prompts(
     let initial_request_header_seq = initial_request_header_seq(session);
     session.events()[start..end]
         .iter()
-        .map(|event| restored_web_event(event, route, prompts, initial_request_header_seq))
+        .map(|event| restored_web_event(event, route, prompts, initial_request_header_seq, None))
         .collect()
+}
+
+fn project_session_history_range(
+    session: &Session,
+    route: &ModelRoute,
+    start: usize,
+    end: usize,
+) -> Vec<Value> {
+    let end = end.min(session.events().len());
+    let start = start.min(end);
+    let prompts = prompt_views(session);
+    let initial_request_header_seq = initial_request_header_seq(session);
+    let completed_steps = completed_assistant_steps(session);
+    let mut projected = Vec::new();
+    for event in &session.events()[start..end] {
+        if is_folded_assistant_chunk(event, &completed_steps) {
+            continue;
+        }
+        let next = restored_web_event(event, route, &prompts, initial_request_header_seq, None);
+        if projected
+            .last_mut()
+            .is_some_and(|prior| merge_projected_history_chunk(prior, &next))
+        {
+            continue;
+        }
+        projected.push(next);
+    }
+    projected
+}
+
+/// History does not need one browser event per provider token. Preserve the
+/// complete partial text and its order while bounding each synthetic payload;
+/// live authoritative projection still uses exact durable sequence events.
+fn merge_projected_history_chunk(prior: &mut Value, next: &Value) -> bool {
+    if prior.get("type") != Some(&Value::String("assistant/chunk".to_owned()))
+        || next.get("type") != Some(&Value::String("assistant/chunk".to_owned()))
+    {
+        return false;
+    }
+
+    let Some(prior_data) = prior.get_mut("data").and_then(Value::as_object_mut) else {
+        return false;
+    };
+    let Some(next_data) = next.get("data").and_then(Value::as_object) else {
+        return false;
+    };
+    if prior_data.get("turn") != next_data.get("turn")
+        || prior_data.get("step") != next_data.get("step")
+    {
+        return false;
+    }
+
+    let Some(prior_chunk) = prior_data.get_mut("chunk").and_then(Value::as_object_mut) else {
+        return false;
+    };
+    let Some(next_chunk) = next_data.get("chunk").and_then(Value::as_object) else {
+        return false;
+    };
+    let kind = prior_chunk.get("type").and_then(Value::as_str);
+    if !matches!(kind, Some("text-delta" | "reasoning-delta"))
+        || kind != next_chunk.get("type").and_then(Value::as_str)
+    {
+        return false;
+    }
+    let Some(prior_text) = prior_chunk.get("text").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(next_text) = next_chunk.get("text").and_then(Value::as_str) else {
+        return false;
+    };
+    if prior_text.len().saturating_add(next_text.len()) > HISTORY_CHUNK_COALESCE_BYTES {
+        return false;
+    }
+    let mut merged = String::with_capacity(prior_text.len().saturating_add(next_text.len()));
+    merged.push_str(prior_text);
+    merged.push_str(next_text);
+    prior_chunk.insert("text".to_owned(), Value::String(merged));
+    true
+}
+
+fn completed_assistant_steps(session: &Session) -> BTreeSet<(u32, u32)> {
+    session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            EventData::AssistantMessage { turn, step, .. } => Some((*turn, *step)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn is_folded_assistant_chunk(event: &LoggedEvent, completed_steps: &BTreeSet<(u32, u32)>) -> bool {
+    matches!(
+        event.data(),
+        EventData::AssistantChunk { turn, step, .. }
+            if completed_steps.contains(&(*turn, *step))
+    )
 }
 
 fn initial_request_header_seq(session: &Session) -> Option<u64> {
@@ -646,7 +752,17 @@ fn restored_web_event(
     route: &ModelRoute,
     prompts: &BTreeMap<String, PromptView>,
     initial_request_header_seq: Option<u64>,
+    fold_completed_chunks: Option<&BTreeSet<(u32, u32)>>,
 ) -> Value {
+    if fold_completed_chunks.is_some_and(|completed| is_folded_assistant_chunk(event, completed)) {
+        return json!({
+            "type": "xharness/internal",
+            "seq": event.seq,
+            "time": event.timestamp_ms,
+            "data": {"kind": "folded-assistant-chunk"},
+            "hidden": true,
+        });
+    }
     let (event_type, data, surface_op) = match event.data() {
         EventData::AgentPresetSelected { .. }
         | EventData::SessionModelSelected { .. }
@@ -1292,6 +1408,94 @@ mod tests {
             .events
             .iter()
             .any(|event| event["data"].to_string().contains("question-5")));
+    }
+
+    #[test]
+    fn completed_stream_chunks_are_folded_for_tail_and_omitted_from_history() {
+        let mut session = Session::new(SessionHeader::new("folded-stream-history")).unwrap();
+        session
+            .append_batch_at(
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("question").with_id("fold-user"),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::AssistantChunk {
+                        turn: 1,
+                        step: 1,
+                        chunk: AssistantChunk::ReasoningDelta("old thought".to_owned()),
+                    }
+                    .into(),
+                    EventData::AssistantChunk {
+                        turn: 1,
+                        step: 1,
+                        chunk: AssistantChunk::TextDelta("old answer".to_owned()),
+                    }
+                    .into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: Message::assistant("old answer").with_id("fold-answer"),
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::StepEnd { turn: 1, step: 1 }.into(),
+                    EventData::StepStart { turn: 1, step: 2 }.into(),
+                    EventData::AssistantChunk {
+                        turn: 1,
+                        step: 2,
+                        chunk: AssistantChunk::ReasoningDelta("still running".to_owned()),
+                    }
+                    .into(),
+                    EventData::AssistantChunk {
+                        turn: 1,
+                        step: 2,
+                        chunk: AssistantChunk::ReasoningDelta(" and merged".to_owned()),
+                    }
+                    .into(),
+                ],
+                1,
+            )
+            .unwrap();
+        let route = ModelRoute::new("test", "test-model");
+
+        let tail = project_session_event_tail(&session, &route, usize::MAX, usize::MAX);
+        assert_eq!(tail.events.len(), session.events().len());
+        assert_eq!(tail.base_seq, 0);
+        assert_eq!(tail.next_seq, session.next_seq());
+        assert_eq!(tail.events[3]["type"], "xharness/internal");
+        assert_eq!(tail.events[4]["type"], "xharness/internal");
+        assert_eq!(tail.events[8]["type"], "assistant/chunk");
+        assert_eq!(tail.events[9]["type"], "assistant/chunk");
+
+        let history = project_session_history(&session, &route, None, 100);
+        let history_events = &history.events;
+        assert_eq!(
+            history_events
+                .iter()
+                .filter(|event| event["type"] == "assistant/chunk")
+                .count(),
+            1,
+            "only the incomplete step keeps replayable stream fragments"
+        );
+        let open_chunk = history_events
+            .iter()
+            .find(|event| event["type"] == "assistant/chunk")
+            .unwrap();
+        assert_eq!(
+            open_chunk["data"]["chunk"]["text"],
+            "still running and merged"
+        );
+        assert!(history_events
+            .iter()
+            .any(|event| event["type"] == "assistant/message"));
+        assert!(history_events
+            .iter()
+            .all(|event| event["data"]["chunk"]["text"] != "old answer"));
     }
 
     #[tokio::test]
@@ -3204,7 +3408,10 @@ mod tests {
         })
         .await
         .expect("live delta was held behind the durable completion batch");
-        assert_eq!(live["event"]["data"]["chunk"]["text"], "live-0");
+        let expected_first_batch = (0..64)
+            .map(|index| format!("live-{index}"))
+            .collect::<String>();
+        assert_eq!(live["event"]["data"]["chunk"]["text"], expected_first_batch);
         let live_seq = live["event"]["seq"].as_u64().unwrap();
         let before_finish = store.load("live-stream-session").await.unwrap().unwrap();
         assert_eq!(
@@ -3213,7 +3420,7 @@ mod tests {
                 .iter()
                 .filter(|event| matches!(event.data(), EventData::AssistantChunk { .. }))
                 .count(),
-            64
+            1
         );
         assert!(before_finish
             .events()
@@ -3244,7 +3451,7 @@ mod tests {
                 EventData::AssistantChunk {
                     chunk: AssistantChunk::TextDelta(text),
                     ..
-                } if text == "live-0" => Some(event.seq),
+                } if text == &expected_first_batch => Some(event.seq),
                 _ => None,
             })
             .expect("durable delta exists after the semantic boundary");

@@ -9,7 +9,7 @@ use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Read, Write},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
 };
@@ -28,6 +28,7 @@ const HEADER_RECORD: &str = "header";
 const BATCH_RECORD: &str = "batch";
 const FILE_SUFFIX: &str = ".jsonl";
 const MAX_SESSION_ID_BYTES: usize = 200;
+const FINGERPRINT_SAMPLE_BYTES: usize = 4 * 1_024;
 
 type SessionLock = AsyncMutex<()>;
 type LockTable = StdMutex<HashMap<PathBuf, Weak<SessionLock>>>;
@@ -43,6 +44,11 @@ static PROCESS_LOCKS: OnceLock<LockTable> = OnceLock::new();
 #[derive(Clone, Debug)]
 pub struct JsonlSessionStore {
     root: Arc<PathBuf>,
+    /// Detached logical snapshots keyed by the exact on-disk identity.  The
+    /// advisory file lock still owns cross-process CAS correctness; this cache
+    /// only removes the previous O(file-size) replay from every in-process
+    /// append/load/checkpoint.
+    cache: Arc<StdMutex<HashMap<PathBuf, CachedFile>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,12 +69,31 @@ struct BatchRecord {
     events: Vec<LoggedEvent>,
 }
 
+#[derive(Clone, Debug)]
 struct LoadedFile {
     session: Session,
     /// Prefix known to contain only accepted records.
     valid_len: u64,
     /// The accepted final record had no newline terminator.
     needs_separator: bool,
+}
+
+#[derive(Clone, Debug)]
+struct CachedFile {
+    fingerprint: FileFingerprint,
+    loaded: LoadedFile,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileFingerprint {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    changed_seconds: i64,
+    changed_nanoseconds: i64,
+    sample_hash: u64,
 }
 
 impl JsonlSessionStore {
@@ -92,6 +117,7 @@ impl JsonlSessionStore {
         }
         Ok(Self {
             root: Arc::new(root),
+            cache: Arc::new(StdMutex::new(HashMap::new())),
         })
     }
 
@@ -137,6 +163,7 @@ impl Store for JsonlSessionStore {
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
         let session_id = header.id.clone();
         let (path, guard) = self.locked_path(&session_id).await?;
+        let cache = Arc::clone(&self.cache);
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
@@ -162,6 +189,22 @@ impl Store for JsonlSessionStore {
                 return Err(backend_error("durably write session header", &path, error));
             }
             sync_parent_directory(&path)?;
+            let fingerprint = file_fingerprint(&path)?.ok_or_else(|| {
+                backend_message(format!(
+                    "session {} disappeared after creation",
+                    path.display()
+                ))
+            })?;
+            cache_store(
+                &cache,
+                &path,
+                fingerprint,
+                LoadedFile {
+                    session: session.clone(),
+                    valid_len: fingerprint.len,
+                    needs_separator: false,
+                },
+            )?;
             Ok(session)
         })
         .await
@@ -170,10 +213,12 @@ impl Store for JsonlSessionStore {
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
         let owned_id = session_id.to_owned();
         let (path, guard) = self.locked_path(session_id).await?;
+        let cache = Arc::clone(&self.cache);
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
-            load_file(&path, &owned_id).map(|loaded| loaded.map(|state| state.session))
+            load_file_cached(&path, &owned_id, &cache)
+                .map(|loaded| loaded.map(|state| state.session))
         })
         .await
     }
@@ -186,10 +231,16 @@ impl Store for JsonlSessionStore {
     ) -> Result<AppendReceipt, StoreError> {
         let owned_id = session_id.to_owned();
         let (path, guard) = self.locked_path(session_id).await?;
+        let cache = Arc::clone(&self.cache);
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
-            let Some(mut loaded) = load_file(&path, &owned_id)? else {
+            // Appends own the per-path process lock, so they can move the
+            // cached snapshot out instead of cloning a potentially huge
+            // Session before every stream checkpoint. A failed append may
+            // simply leave the cache cold; the next operation reparses the
+            // authoritative file under the same advisory lock.
+            let Some(mut loaded) = take_file_cached(&path, &owned_id, &cache)? else {
                 return Err(StoreError::NotFound {
                     session_id: owned_id,
                 });
@@ -197,6 +248,13 @@ impl Store for JsonlSessionStore {
 
             let actual_revision = loaded.session.revision();
             if actual_revision != expected_revision {
+                let fingerprint = file_fingerprint(&path)?.ok_or_else(|| {
+                    backend_message(format!(
+                        "session {} disappeared during revision check",
+                        path.display()
+                    ))
+                })?;
+                cache_store(&cache, &path, fingerprint, loaded)?;
                 return Err(StoreError::RevisionConflict {
                     session_id: owned_id,
                     expected: expected_revision,
@@ -209,6 +267,13 @@ impl Store for JsonlSessionStore {
                 .append_batch(expected_revision, events)
                 .map_err(StoreError::from)?;
             if receipt.events.is_empty() {
+                let fingerprint = file_fingerprint(&path)?.ok_or_else(|| {
+                    backend_message(format!(
+                        "session {} disappeared during empty append",
+                        path.display()
+                    ))
+                })?;
+                cache_store(&cache, &path, fingerprint, loaded)?;
                 return Ok(receipt);
             }
 
@@ -242,6 +307,15 @@ impl Store for JsonlSessionStore {
                 .map_err(|error| backend_error("append session batch", &path, error))?;
             file.flush()
                 .map_err(|error| backend_error("flush appended session batch", &path, error))?;
+            let fingerprint = fingerprint_from_metadata(
+                &path,
+                &file
+                    .metadata()
+                    .map_err(|error| backend_error("inspect appended session", &path, error))?,
+            )?;
+            loaded.valid_len = fingerprint.len;
+            loaded.needs_separator = false;
+            cache_store(&cache, &path, fingerprint, loaded)?;
             Ok(receipt)
         })
         .await
@@ -250,10 +324,11 @@ impl Store for JsonlSessionStore {
     async fn flush(&self, session_id: &str) -> Result<Revision, StoreError> {
         let owned_id = session_id.to_owned();
         let (path, guard) = self.locked_path(session_id).await?;
+        let cache = Arc::clone(&self.cache);
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
-            let Some(loaded) = load_file(&path, &owned_id)? else {
+            let Some(loaded) = take_file_cached(&path, &owned_id, &cache)? else {
                 return Err(StoreError::NotFound {
                     session_id: owned_id,
                 });
@@ -268,7 +343,15 @@ impl Store for JsonlSessionStore {
             file.sync_all()
                 .map_err(|error| backend_error("sync session data", &path, error))?;
             sync_parent_directory(&path)?;
-            Ok(loaded.session.revision())
+            let fingerprint = fingerprint_from_metadata(
+                &path,
+                &file
+                    .metadata()
+                    .map_err(|error| backend_error("inspect flushed session", &path, error))?,
+            )?;
+            let revision = loaded.session.revision();
+            cache_store(&cache, &path, fingerprint, loaded)?;
+            Ok(revision)
         })
         .await
     }
@@ -393,6 +476,162 @@ fn encode_line<T: Serialize>(record: &T, path: &Path) -> Result<Vec<u8>, StoreEr
     Ok(bytes)
 }
 
+fn load_file_cached(
+    path: &Path,
+    session_id: &str,
+    cache: &StdMutex<HashMap<PathBuf, CachedFile>>,
+) -> Result<Option<LoadedFile>, StoreError> {
+    let Some(fingerprint) = file_fingerprint(path)? else {
+        cache_remove(cache, path)?;
+        return Ok(None);
+    };
+    if let Some(loaded) = cache
+        .lock()
+        .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+        .get(path)
+        .filter(|entry| entry.fingerprint == fingerprint)
+        .map(|entry| entry.loaded.clone())
+    {
+        return Ok(Some(loaded));
+    }
+
+    let loaded = load_file(path, session_id)?;
+    let Some(loaded) = loaded else {
+        cache_remove(cache, path)?;
+        return Ok(None);
+    };
+    // A cooperating writer cannot mutate the file while the caller holds the
+    // advisory lock. Re-read metadata after parsing so a non-cooperating
+    // replacement never poisons the cache with a stale identity.
+    let fingerprint = file_fingerprint(path)?.ok_or_else(|| {
+        backend_message(format!(
+            "session {} disappeared while loading",
+            path.display()
+        ))
+    })?;
+    cache_store(cache, path, fingerprint, loaded.clone())?;
+    Ok(Some(loaded))
+}
+
+fn take_file_cached(
+    path: &Path,
+    session_id: &str,
+    cache: &StdMutex<HashMap<PathBuf, CachedFile>>,
+) -> Result<Option<LoadedFile>, StoreError> {
+    let Some(fingerprint) = file_fingerprint(path)? else {
+        cache_remove(cache, path)?;
+        return Ok(None);
+    };
+    if let Some(loaded) = cache
+        .lock()
+        .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+        .remove(path)
+        .filter(|entry| entry.fingerprint == fingerprint)
+        .map(|entry| entry.loaded)
+    {
+        return Ok(Some(loaded));
+    }
+
+    load_file(path, session_id)
+}
+
+fn cache_store(
+    cache: &StdMutex<HashMap<PathBuf, CachedFile>>,
+    path: &Path,
+    fingerprint: FileFingerprint,
+    loaded: LoadedFile,
+) -> Result<(), StoreError> {
+    cache
+        .lock()
+        .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+        .insert(
+            path.to_owned(),
+            CachedFile {
+                fingerprint,
+                loaded,
+            },
+        );
+    Ok(())
+}
+
+fn cache_remove(
+    cache: &StdMutex<HashMap<PathBuf, CachedFile>>,
+    path: &Path,
+) -> Result<(), StoreError> {
+    cache
+        .lock()
+        .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+        .remove(path);
+    Ok(())
+}
+
+fn file_fingerprint(path: &Path) -> Result<Option<FileFingerprint>, StoreError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(backend_error("inspect session path", path, error)),
+    };
+    fingerprint_from_metadata(path, &metadata).map(Some)
+}
+
+fn fingerprint_from_metadata(
+    path: &Path,
+    metadata: &fs::Metadata,
+) -> Result<FileFingerprint, StoreError> {
+    if metadata.file_type().is_symlink() {
+        return Err(corrupt(path, 1, "session path must not be a symbolic link"));
+    }
+    if !metadata.is_file() {
+        return Err(corrupt(path, 1, "session path is not a regular file"));
+    }
+    Ok(FileFingerprint {
+        dev: metadata.dev(),
+        ino: metadata.ino(),
+        len: metadata.len(),
+        modified_seconds: metadata.mtime(),
+        modified_nanoseconds: metadata.mtime_nsec(),
+        changed_seconds: metadata.ctime(),
+        changed_nanoseconds: metadata.ctime_nsec(),
+        sample_hash: sample_file_hash(path, metadata.len())?,
+    })
+}
+
+/// Metadata catches normal cooperating appends in O(1). A small positional
+/// sample also invalidates rapid same-length rewrites on filesystems whose
+/// timestamp granularity cannot distinguish two writes. Sampling remains
+/// bounded (at most 12 KiB) and therefore cannot regress into full-log replay.
+fn sample_file_hash(path: &Path, len: u64) -> Result<u64, StoreError> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|error| backend_error("open session fingerprint sample", path, error))?;
+    let sample_len = u64::try_from(FINGERPRINT_SAMPLE_BYTES).expect("sample size fits in u64");
+    let offsets = [
+        0,
+        (len / 2).saturating_sub(sample_len / 2),
+        len.saturating_sub(sample_len),
+    ];
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    let mut buffer = [0u8; FINGERPRINT_SAMPLE_BYTES];
+    for offset in offsets {
+        for byte in offset.to_le_bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+        let count = file
+            .read_at(&mut buffer, offset)
+            .map_err(|error| backend_error("read session fingerprint sample", path, error))?;
+        for byte in &buffer[..count] {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+        hash ^= u64::try_from(count).expect("sample count fits in u64");
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    Ok(hash)
+}
+
 fn load_file(path: &Path, session_id: &str) -> Result<Option<LoadedFile>, StoreError> {
     let path_metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -433,16 +672,18 @@ fn parse_file(path: &Path, session_id: &str, bytes: &[u8]) -> Result<LoadedFile,
     let header_record: HeaderRecord = serde_json::from_slice(header_line)
         .map_err(|error| corrupt(path, 1, format!("invalid header JSON: {error}")))?;
     validate_header_record(path, session_id, &header_record)?;
-    let mut session = Session::new(header_record.header).map_err(StoreError::from)?;
+    let header = header_record.header;
 
     if !header_terminated {
         return Ok(LoadedFile {
-            session,
+            session: Session::new(header).map_err(StoreError::from)?,
             valid_len: bytes.len() as u64,
             needs_separator: true,
         });
     }
 
+    let mut revision = Revision::ZERO;
+    let mut events = Vec::new();
     let mut line_number = 2usize;
     let mut valid_len = cursor as u64;
     let mut needs_separator = false;
@@ -456,7 +697,7 @@ fn parse_file(path: &Path, session_id: &str, bytes: &[u8]) -> Result<LoadedFile,
 
         match serde_json::from_slice::<BatchRecord>(line) {
             Ok(record) => {
-                apply_batch_record(path, line_number, &mut session, record)?;
+                extend_batch_record(path, line_number, &mut revision, &mut events, record)?;
                 valid_len = cursor as u64;
                 needs_separator = !terminated;
             }
@@ -480,6 +721,16 @@ fn parse_file(path: &Path, session_id: &str, bytes: &[u8]) -> Result<LoadedFile,
         line_number += 1;
     }
 
+    // Validate the complete logical cut exactly once. Replaying every JSONL
+    // batch through Session::append_batch_at revalidated the full prefix for
+    // each line and made cold restore quadratic in the number of checkpoints.
+    let session = Session::restore(header, revision, events).map_err(|error| {
+        corrupt(
+            path,
+            line_number.saturating_sub(1),
+            format!("invalid event log: {error}"),
+        )
+    })?;
     Ok(LoadedFile {
         session,
         valid_len,
@@ -539,10 +790,11 @@ fn validate_header_record(
     Ok(())
 }
 
-fn apply_batch_record(
+fn extend_batch_record(
     path: &Path,
     line_number: usize,
-    session: &mut Session,
+    revision: &mut Revision,
+    events: &mut Vec<LoggedEvent>,
     record: BatchRecord,
 ) -> Result<(), StoreError> {
     if record.record != BATCH_RECORD {
@@ -555,14 +807,13 @@ fn apply_batch_record(
     if record.events.is_empty() {
         return Err(corrupt(path, line_number, "persisted batch is empty"));
     }
-    if record.previous_revision != session.revision() {
+    if record.previous_revision != *revision {
         return Err(corrupt(
             path,
             line_number,
             format!(
                 "batch previous revision {:?} is not continuous from {:?}",
-                record.previous_revision,
-                session.revision()
+                record.previous_revision, revision
             ),
         ));
     }
@@ -583,22 +834,8 @@ fn apply_batch_record(
         ));
     }
 
-    let timestamp_ms = record.events[0].timestamp_ms;
-    let events = record
-        .events
-        .iter()
-        .map(|logged| logged.event.clone())
-        .collect();
-    let receipt = session
-        .append_batch_at(record.previous_revision, events, timestamp_ms)
-        .map_err(|error| corrupt(path, line_number, format!("invalid event log: {error}")))?;
-    if receipt.revision != record.revision || receipt.events != record.events {
-        return Err(corrupt(
-            path,
-            line_number,
-            "batch coordinates, timestamps, or revisions are not continuous",
-        ));
-    }
+    events.extend(record.events);
+    *revision = record.revision;
     Ok(())
 }
 

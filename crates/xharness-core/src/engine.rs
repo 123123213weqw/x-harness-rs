@@ -31,6 +31,7 @@ use xharness_session::{
 /// Bound both crash-loss and memory growth without returning to one JSONL
 /// read/validate/append cycle per provider fragment.
 const STREAM_JOURNAL_BATCH_EVENTS: usize = 64;
+const STREAM_JOURNAL_BATCH_BYTES: usize = 4 * 1_024;
 const STREAM_JOURNAL_BATCH_INTERVAL: Duration = Duration::from_millis(250);
 use xharness_tools::{
     ApprovalDecision as RuntimeApprovalDecision, ApprovalProvider as RuntimeApprovalProvider,
@@ -359,6 +360,7 @@ impl LoopEngine {
             step_open: false,
             turn_open: false,
             pending_stream_events: Vec::new(),
+            pending_stream_fragments: 0,
             stream_batch_started_at: None,
         });
         let runner = Runner {
@@ -528,6 +530,10 @@ struct JournalState {
     /// end, retry, or turn finalizer drains any remainder atomically before
     /// advancing the durable lifecycle.
     pending_stream_events: Vec<SessionEvent>,
+    /// Raw provider fragment count before adjacent text/reasoning deltas are
+    /// coalesced. This preserves a hard live-checkpoint bound even when a
+    /// provider emits many tiny tokens faster than the time threshold.
+    pending_stream_fragments: usize,
     stream_batch_started_at: Option<Instant>,
 }
 
@@ -1811,6 +1817,7 @@ impl Runner {
                 .map_or(journal.next_seq, |sequence| sequence.saturating_add(1));
             if !pending_stream_events.is_empty() {
                 journal.pending_stream_events.clear();
+                journal.pending_stream_fragments = 0;
                 journal.stream_batch_started_at = None;
             }
         }
@@ -1905,10 +1912,50 @@ impl Runner {
         if journal.pending_stream_events.is_empty() {
             journal.stream_batch_started_at = Some(Instant::now());
         }
-        journal
+        journal.pending_stream_fragments = journal.pending_stream_fragments.saturating_add(1);
+        let merged = journal
             .pending_stream_events
-            .push(SessionEventData::AssistantChunk { turn, step, chunk }.into());
-        let should_checkpoint = journal.pending_stream_events.len() >= STREAM_JOURNAL_BATCH_EVENTS
+            .last_mut()
+            .is_some_and(|event| match (event.data_mut(), &chunk) {
+                (
+                    SessionEventData::AssistantChunk {
+                        turn: prior_turn,
+                        step: prior_step,
+                        chunk: AssistantChunk::TextDelta(buffered),
+                    },
+                    AssistantChunk::TextDelta(delta),
+                ) if *prior_turn == turn && *prior_step == step => {
+                    buffered.push_str(delta);
+                    true
+                }
+                (
+                    SessionEventData::AssistantChunk {
+                        turn: prior_turn,
+                        step: prior_step,
+                        chunk: AssistantChunk::ReasoningDelta(buffered),
+                    },
+                    AssistantChunk::ReasoningDelta(delta),
+                ) if *prior_turn == turn && *prior_step == step => {
+                    buffered.push_str(delta);
+                    true
+                }
+                _ => false,
+            });
+        if !merged {
+            journal
+                .pending_stream_events
+                .push(SessionEventData::AssistantChunk { turn, step, chunk }.into());
+        }
+        let buffered_bytes = journal
+            .pending_stream_events
+            .iter()
+            .map(|event| match event.data() {
+                SessionEventData::AssistantChunk { chunk, .. } => assistant_chunk_bytes(chunk),
+                _ => 0,
+            })
+            .sum::<usize>();
+        let should_checkpoint = journal.pending_stream_fragments >= STREAM_JOURNAL_BATCH_EVENTS
+            || buffered_bytes >= STREAM_JOURNAL_BATCH_BYTES
             || journal
                 .stream_batch_started_at
                 .is_some_and(|started| started.elapsed() >= STREAM_JOURNAL_BATCH_INTERVAL);
@@ -3718,6 +3765,24 @@ impl ScheduledTool {
         self.spec
             .as_ref()
             .is_some_and(|spec| spec.requires_approval)
+    }
+}
+
+fn assistant_chunk_bytes(chunk: &AssistantChunk) -> usize {
+    match chunk {
+        AssistantChunk::TextDelta(value)
+        | AssistantChunk::ReasoningDelta(value)
+        | AssistantChunk::Finish { reason: value } => value.len(),
+        AssistantChunk::ToolCallDelta {
+            id,
+            name,
+            arguments_delta,
+            ..
+        } => id
+            .len()
+            .saturating_add(name.len())
+            .saturating_add(arguments_delta.len()),
+        AssistantChunk::Usage(value) | AssistantChunk::Provider(value) => value.to_string().len(),
     }
 }
 
