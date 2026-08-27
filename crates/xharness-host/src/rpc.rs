@@ -988,12 +988,8 @@ impl BasicHost {
                 .ok_or_else(|| session_not_found(&session_id))?;
             session.title = Some(title.clone());
         }
-        self.push_projection(
-            &session_id,
-            "sessionTitle",
-            json!({"title": title, "source": {"kind": "user"}}),
-        )
-        .await;
+        self.push_projection(&session_id, "title", json!(title))
+            .await;
         Ok(response)
     }
 

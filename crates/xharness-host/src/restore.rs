@@ -163,7 +163,11 @@ impl BasicHost {
                 running: false,
                 blank,
                 parent_session_id: None,
-                origin: Some("restored".to_owned()),
+                // `origin` is a frozen Web-wire discriminant. The upstream
+                // client accepts only `"subagent"`; ordinary sessions remain
+                // ordinary after a Host restart, so restoration must not leak
+                // an internal lifecycle marker into `session.list`.
+                origin: None,
                 cwd: cwd.clone(),
                 agent_preset: restored_agent_preset(&session),
                 title: restored_title(&session),
@@ -1538,6 +1542,10 @@ mod tests {
         assert_eq!(session.events.len(), 7);
         assert_eq!(session.events[0]["type"], "turn/start");
         assert_eq!(session.events[0]["data"]["turn"], 0);
+        assert!(
+            session.summary().get("origin").is_none(),
+            "ordinary restored sessions must remain compatible with the Web session.list origin enum"
+        );
         assert!(state
             .workspaces
             .values()
