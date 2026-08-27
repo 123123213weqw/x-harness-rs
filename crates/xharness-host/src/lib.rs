@@ -49,6 +49,7 @@ mod rpc;
 mod runtime;
 mod session_processor;
 mod settings_processor;
+pub use settings_processor::merge_model_layers;
 mod state;
 #[cfg(test)]
 mod statecheck;
@@ -74,8 +75,9 @@ use xharness_token::TokenGuard;
 use xharness_tools::{ToolExecutor, ToolRegistry};
 
 pub use model_settings::{
-    model_settings_schema, parse_model_settings, valid_credential_reference, ConfiguredModel,
-    ModelSettingsBackend, ModelSettingsDocument, ProviderProfile, MODEL_SETTINGS_NAMESPACE,
+    automatic_minimum_output_tokens, inherit_model_capabilities, model_settings_schema,
+    parse_model_settings, valid_credential_reference, ConfiguredModel, ModelSettingsBackend,
+    ModelSettingsDocument, ProviderProfile, MODEL_SETTINGS_NAMESPACE,
 };
 pub use plugin_backend::PluginBackend;
 pub use questions::{
