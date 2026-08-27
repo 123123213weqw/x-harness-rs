@@ -2936,6 +2936,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn authoritative_input_is_published_before_provider_ttft() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let release = Arc::new(Notify::new());
+        let provider = Arc::new(GatedProvider {
+            calls: AtomicUsize::new(0),
+            release: Arc::clone(&release),
+            answers: Mutex::new(VecDeque::from(["late answer".to_owned()])),
+        });
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider.clone()),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let host = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        let mut mux = host.mux_events();
+        let created = host
+            .call(
+                RpcId::new("input-before-ttft-create"),
+                RpcMethod::SessionCreate,
+                json!({"sessionId": "input-before-ttft", "cwd": cwd}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(created, RpcResult::Success { .. }));
+        let admitted = host
+            .call(
+                RpcId::new("input-before-ttft-prompt"),
+                RpcMethod::SessionPrompt,
+                json!({
+                    "sessionId": "input-before-ttft",
+                    "mode": "queue",
+                    "content": [{"type": "text", "text": "publish before TTFT"}],
+                }),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(admitted, RpcResult::Success { .. }));
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while provider.calls.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("provider request started and remained blocked before TTFT");
+
+        let (saw_dequeue, saw_user) = tokio::time::timeout(Duration::from_secs(2), async {
+            let mut saw_dequeue = false;
+            let mut saw_user = false;
+            loop {
+                let frame = mux.next().await.expect("mux remained open");
+                if frame.payload["type"] != "session/event"
+                    || frame.payload["sessionId"] != "input-before-ttft"
+                {
+                    continue;
+                }
+                match frame.payload["event"]["type"].as_str() {
+                    Some("agent/inbox/spliced")
+                        if frame.payload["event"]["data"]["removedCount"] == 1
+                            && frame.payload["event"]["data"]["inserted"] == json!([]) =>
+                    {
+                        saw_dequeue = true;
+                    }
+                    Some("user/message")
+                        if frame.payload["event"]["data"]["content"][0]["text"]
+                            == "publish before TTFT" =>
+                    {
+                        saw_user = true;
+                    }
+                    Some("assistant/chunk") => {
+                        panic!("assistant output cannot exist while the provider is TTFT-blocked")
+                    }
+                    _ => {}
+                }
+                if saw_dequeue && saw_user {
+                    break (saw_dequeue, saw_user);
+                }
+            }
+        })
+        .await
+        .expect("claimed input was held behind provider TTFT");
+        assert!(saw_dequeue && saw_user);
+
+        let before_ttft = store.load("input-before-ttft").await.unwrap().unwrap();
+        assert!(before_ttft.events().iter().any(|event| {
+            matches!(
+                event.data(),
+                EventData::UserMessage { message, .. }
+                    if message.content == "publish before TTFT"
+            )
+        }));
+        assert!(before_ttft
+            .events()
+            .iter()
+            .all(|event| !matches!(event.data(), EventData::AssistantChunk { .. })));
+
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let session = store.load("input-before-ttft").await.unwrap().unwrap();
+                if session
+                    .events()
+                    .iter()
+                    .any(|event| matches!(event.data(), EventData::TurnEnd { .. }))
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("durable turn completed after releasing the provider");
+    }
+
+    #[tokio::test]
     async fn authoritative_stream_checkpoint_is_published_before_model_completion() {
         let cwd = std::env::temp_dir();
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());

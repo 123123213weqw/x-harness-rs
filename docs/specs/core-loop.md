@@ -57,6 +57,10 @@
 
 ## Loop 事件投递
 
+初始输入完成 Session 恢复、快照保存及 Journal Flush 后，Core 必须在任何 Context Policy、
+Token 计量或 Provider I/O 前发送一次 `InputCommitted`。Durable Host 以此边界刷新 Inbox Claim、
+`turn/start` 与 `user/message`；不得等待首个模型 Delta 或 `StreamCheckpoint` 才公布用户消息。
+
 Loop 事件先按单调 `seq` 追加到进程内 Ring Journal，再由一个或多个 Subscription 非阻塞读取。
 Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只改变可读窗口，不改变已分配序号。
 慢消费者请求的 `next_seq` 早于当前窗口时，先收到

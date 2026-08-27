@@ -2180,6 +2180,10 @@ async fn restart_resumes_undecided_approval_without_replaying_or_unknowning_the_
     request.tool_executor = Some(RuntimeToolExecutor::new(registry));
     let mut run = LoopEngine.start(request);
 
+    assert!(matches!(
+        run.next().await.unwrap().kind,
+        LoopEventKind::InputCommitted
+    ));
     let event = run.next().await.unwrap();
     let kind = event.kind;
     let LoopEventKind::ToolApprovalRequested { approval_id, call } = kind else {
