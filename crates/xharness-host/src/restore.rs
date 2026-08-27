@@ -640,7 +640,6 @@ fn restored_web_event(
 ) -> Value {
     let (event_type, data, surface_op) = match event.data() {
         EventData::AgentPresetSelected { .. }
-        | EventData::AgentInboxSpliced { .. }
         | EventData::SessionModelSelected { .. }
         | EventData::RequestHeader { .. }
         | EventData::ApprovalAsked { .. }
@@ -659,6 +658,29 @@ fn restored_web_event(
         | EventData::CompactionSummary { .. }
         | EventData::CompactionEnd { .. }
         | EventData::CompactionPrune { .. } => tagged_event_data(event.data()),
+        EventData::AgentInboxSpliced {
+            target,
+            start,
+            removed_count,
+            inserted,
+            outcome,
+        } => {
+            let mut data = json!({
+                "target": target,
+                "start": start,
+                "removedCount": removed_count,
+                // The Web fold spreads this field unconditionally; an empty
+                // removal splice must therefore carry `[]` rather than rely on
+                // the durable enum's skip-empty serialization.
+                "inserted": inserted,
+            });
+            if let Some(outcome) = outcome {
+                data.as_object_mut()
+                    .expect("inbox splice data is an object")
+                    .insert("outcome".to_owned(), json!(outcome));
+            }
+            ("agent/inbox/spliced".to_owned(), data, None)
+        }
         EventData::SessionMutationCommitted { .. } => {
             return json!({
                 "type": "xharness/internal",
@@ -1776,6 +1798,63 @@ mod tests {
         assert!(projected
             .iter()
             .any(|event| event["type"] == "compaction/end"));
+    }
+
+    #[tokio::test]
+    async fn inbox_splice_projection_always_uses_the_web_camel_case_shape() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        store
+            .create(SessionHeader::new("inbox-splice-projection"))
+            .await
+            .unwrap();
+        store
+            .append(
+                "inbox-splice-projection",
+                Revision::ZERO,
+                vec![
+                    EventData::AgentInboxSpliced {
+                        target: InboxTarget::NextTurn,
+                        start: 0,
+                        removed_count: 0,
+                        inserted: vec![InboxMessage::user("input-1", "hello")],
+                        outcome: None,
+                    }
+                    .into(),
+                    EventData::AgentInboxSpliced {
+                        target: InboxTarget::NextTurn,
+                        start: 0,
+                        removed_count: 1,
+                        inserted: Vec::new(),
+                        outcome: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+
+        let session = store
+            .load("inbox-splice-projection")
+            .await
+            .unwrap()
+            .unwrap();
+        let route = ModelRoute {
+            provider: "test".to_owned(),
+            model: "test-model".to_owned(),
+            reasoning_effort: None,
+        };
+        let projected = project_session_event_range(&session, &route, 0, session.events().len());
+        assert_eq!(projected.len(), 2);
+        assert_eq!(projected[0]["data"]["removedCount"], 0);
+        assert_eq!(
+            projected[0]["data"]["inserted"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(projected[1]["data"]["removedCount"], 1);
+        assert_eq!(projected[1]["data"]["inserted"], json!([]));
+        assert!(projected
+            .iter()
+            .all(|event| event["data"].get("removed_count").is_none()));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
