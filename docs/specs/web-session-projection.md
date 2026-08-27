@@ -25,7 +25,8 @@ Token、Cache、TTFT、Decode 吞吐和 LLM/Tool Duration 的完整日志投影�
 
 1. Host 以 `authoritative_seq` 保存下一个待发布的 Session Sequence。
 2. 每次 History 查询、模型流事件和 Turn 终止时加载已验证的 Session Cut。
-3. 对每个 Logged Event 产生且只产生一个 Web Session Event；Web `seq/time` 直接使用日志坐标。
+3. 实时增量对每个 Logged Event 产生且只产生一个 Web Session Event；Web `seq/time` 直接使用
+   日志坐标。History Page 可以折叠纯流式 Chunk，但不能折叠 Message、Tool 或生命周期事实。
 4. History 用 `beforeSeq` 作为排他上界，向前扫描至 `maxMessages` 个
    `user/message | assistant/message | tool/result`，只投影该范围；`seq` 永远等于日志 Sequence。
 5. 运行缓存每次替换为满足 `session_event_cache_capacity` 与
@@ -43,6 +44,10 @@ Token、Cache、TTFT、Decode 吞吐和 LLM/Tool Duration 的完整日志投影�
 10. Core 的 `InputCommitted` 是 Admission 到 Provider 之间的强制同步边界。Host 收到后必须立即
     加载 Session Cut，发布 Inbox 删除、`turn/start` 和 `user/message`；这次迁移禁止依赖 TTFT、
     首个 Assistant Delta 或 64 Event/250 ms 的流批检查点。
+11. 已存在同 Turn/Step `assistant/message` 的 Text/Reasoning Chunk 在 History 中省略，最终
+    Assistant Message 是正文真源；尚未完成 Step 的相邻同类 Chunk 合并为不超过 64 KiB 的投影
+    块，必须保留完整部分输出和 Text/Reasoning 顺序。Host 连续尾缓存为了维持 `baseSeq/nextSeq`
+    不变量，为已折叠 Chunk 保留隐藏 `xharness/internal` 占位，不得重编号。
 
 ## 审批与模型重试
 
@@ -95,6 +100,8 @@ Projection 暴露 `plan={active,pending}`；当前稳定日志只恢复 `active`
   `projections` 必须逐字相等。
 - 结构化 User Content 和 Timezone 在 Claim 消费 Inbox 后仍可从完整历史恢复。
 - History 查询可以吸收尚未由 Driver 推送的日志尾部，但不能制造第二条 User/Assistant Message。
+- 完成 Step 的数万 Token Chunk 不得继续作为数万条浏览器 History Event 返回；未完成 Step 的
+  部分输出仍必须完整可恢复，并且单个合并投影不得超过 64 KiB。
 - Provider 在首 Token 前无限阻塞时，Inbox 删除和 `user/message` 仍必须在有限时间内实时发布。
 - 尾缓存驱逐后，`beforeSeq` 连续翻页仍必须返回完整历史；Host 重启不能改变页边界、事件内容或
   `projections.asOfSeq`。

@@ -701,6 +701,14 @@ impl SessionEvent {
         &self.0
     }
 
+    /// Mutate an unpublished event before it receives durable coordinates.
+    /// Persisted [`LoggedEvent`] values remain immutable; this seam exists so
+    /// stream producers can coalesce adjacent token fragments into one bounded
+    /// checkpoint instead of creating one durable record per provider delta.
+    pub const fn data_mut(&mut self) -> &mut EventData {
+        &mut self.0
+    }
+
     pub fn into_data(self) -> EventData {
         self.0
     }

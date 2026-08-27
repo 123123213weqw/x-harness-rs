@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +36,11 @@ impl SessionHeader {
 pub struct Session {
     header: SessionHeader,
     revision: Revision,
-    events: Vec<LoggedEvent>,
+    /// Immutable cuts share their already-validated prefix. `Arc::make_mut`
+    /// preserves detached snapshot semantics when a caller still owns an old
+    /// cut, while the ordinary single-writer path appends without cloning the
+    /// whole log.
+    events: Arc<Vec<LoggedEvent>>,
 }
 
 /// Result of one successful compare-and-swap append.
@@ -125,7 +129,7 @@ impl Session {
         Ok(Self {
             header,
             revision: Revision::ZERO,
-            events: Vec::new(),
+            events: Arc::new(Vec::new()),
         })
     }
 
@@ -141,7 +145,7 @@ impl Session {
         Ok(Self {
             header,
             revision,
-            events,
+            events: Arc::new(events),
         })
     }
 
@@ -154,7 +158,7 @@ impl Session {
     }
 
     pub fn events(&self) -> &[LoggedEvent] {
-        &self.events
+        self.events.as_slice()
     }
 
     pub fn next_seq(&self) -> Sequence {
@@ -227,12 +231,18 @@ impl Session {
             });
         }
 
-        // Validate the prospective whole log before committing any member.
-        let prospective: Vec<_> = self.events.iter().chain(&staged).cloned().collect();
-        validate_log(revision, &prospective)?;
-
         let previous_revision = self.revision;
-        self.events.extend(staged.iter().cloned());
+        // Extend the uniquely owned hot log before validation so the common
+        // path does not allocate and clone its entire immutable prefix. If an
+        // older Session cut is still alive, `make_mut` performs the required
+        // copy-on-write detachment. A rejected batch is rolled back in place.
+        let events = Arc::make_mut(&mut self.events);
+        let previous_len = events.len();
+        events.extend(staged.iter().cloned());
+        if let Err(error) = validate_log(revision, events) {
+            events.truncate(previous_len);
+            return Err(error);
+        }
         self.revision = revision;
         Ok(AppendReceipt {
             previous_revision,
@@ -245,14 +255,14 @@ impl Session {
 
     /// Pure provider-history projection over the immutable event snapshot.
     pub fn derive_messages(&self) -> Vec<Message> {
-        derive_messages(&self.events)
+        derive_messages(self.events())
     }
 
     /// Current model-facing surface with the durable source coordinate of
     /// every message. Compaction planners use these coordinates to journal an
     /// immutable head replacement without deleting source history.
     pub fn derive_surface_messages(&self) -> Vec<SurfaceMessage> {
-        derive_surface_messages(&self.events)
+        derive_surface_messages(self.events())
     }
 
     pub fn inspect(&self) -> SessionInspection {
@@ -260,7 +270,7 @@ impl Session {
             header: self.header.clone(),
             revision: self.revision,
             next_seq: self.next_seq(),
-            events: self.events.clone(),
+            events: self.events.as_ref().clone(),
         }
     }
 }
