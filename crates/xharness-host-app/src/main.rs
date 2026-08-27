@@ -78,6 +78,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     config.provider_id = deployment.default_route.provider.clone();
     config.provider_display_name = deployment.default_provider_display_name.clone();
     config.model_id = deployment.default_route.model.clone();
+    config.reasoning_effort = deployment.default_route.reasoning_effort.clone();
     config.token_guard = deployment.default_token_guard.clone();
     let web = WebRuntime::default().with_debug(debug.clone());
     let tools = NativeToolFactory::new_with_debug(web, debug.clone());

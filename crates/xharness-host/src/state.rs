@@ -109,7 +109,7 @@ impl ModelSelection {
         Self {
             provider: config.provider_id.clone(),
             model: config.model_id.clone(),
-            reasoning_effort: None,
+            reasoning_effort: config.reasoning_effort.clone(),
         }
     }
 }

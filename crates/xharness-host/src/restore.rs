@@ -1173,7 +1173,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        state::now_ms, DurableLoopAgentRuntime, HostConfig, NoTools, PermissionPreset,
+        state::now_ms, DurableLoopAgentRuntime, HostConfig, ModelDescriptor, ModelReasoning,
+        ModelReasoningEffort, ModelRegistry, NoTools, PermissionPreset, RegisteredModel,
         SessionToolFactory,
     };
 
@@ -2309,18 +2310,34 @@ mod tests {
     async fn permission_command_and_receipt_survive_a_host_restart() {
         let cwd = std::env::temp_dir();
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-        let runtime = Arc::new(DurableLoopAgentRuntime::new(
-            "test",
-            "selected-model",
-            Some(Arc::new(ApprovalRecoveryProvider {
-                requests: Arc::new(Mutex::new(Vec::new())),
-            })),
-            Arc::new(NoTools),
-            Arc::new(IdentityContextPolicy),
-            Arc::clone(&store),
-            Arc::new(MemoryLeaseManager::default()),
-            64,
-        ));
+        let make_runtime = |store: Arc<dyn Store>| {
+            let mut models = ModelRegistry::new();
+            models
+                .register(RegisteredModel::new(
+                    ModelDescriptor::new("test", "Test", "selected-model", "Selected model")
+                        .with_reasoning(
+                            ModelReasoning::new(vec![ModelReasoningEffort::new("high", "High")])
+                                .with_default("high"),
+                        ),
+                    Arc::new(ApprovalRecoveryProvider {
+                        requests: Arc::new(Mutex::new(Vec::new())),
+                    }),
+                ))
+                .unwrap();
+            Arc::new(
+                DurableLoopAgentRuntime::from_registry(
+                    ModelRoute::new("test", "selected-model"),
+                    models,
+                    Arc::new(NoTools),
+                    Arc::new(IdentityContextPolicy),
+                    store,
+                    Arc::new(MemoryLeaseManager::default()),
+                    64,
+                )
+                .unwrap(),
+            )
+        };
+        let runtime = make_runtime(Arc::clone(&store));
         let live = BasicHost::with_agent_runtime(config(&cwd), runtime);
         let created = live
             .call(
@@ -2443,18 +2460,7 @@ mod tests {
             ]
         );
 
-        let restarted_runtime = Arc::new(DurableLoopAgentRuntime::new(
-            "test",
-            "selected-model",
-            Some(Arc::new(ApprovalRecoveryProvider {
-                requests: Arc::new(Mutex::new(Vec::new())),
-            })),
-            Arc::new(NoTools),
-            Arc::new(IdentityContextPolicy),
-            Arc::clone(&store),
-            Arc::new(MemoryLeaseManager::default()),
-            64,
-        ));
+        let restarted_runtime = make_runtime(Arc::clone(&store));
         let restarted = BasicHost::with_agent_runtime(config(&cwd), restarted_runtime);
         let report = restarted
             .restore_from_store(Arc::clone(&store))

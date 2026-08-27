@@ -102,6 +102,10 @@ pub struct ProviderRequest {
     pub messages: Vec<AgentMessage>,
     pub tools: Vec<ToolDefinition>,
     pub step: usize,
+    /// Opaque model-owned reasoning level selected by the Host. Core does not
+    /// interpret this value; the concrete provider adapter validates and maps
+    /// it to its native wire request.
+    pub reasoning_effort: Option<String>,
     /// Provider-neutral generation ceiling. Adapters map this to their native
     /// `max_tokens`/`max_output_tokens` request field.
     pub max_output_tokens: Option<u64>,
@@ -548,6 +552,9 @@ pub struct LoopRequest {
     /// this run. Disabled by default and never changes loop semantics.
     pub debug: xharness_debug::DebugRecorder,
     pub messages: Vec<AgentMessage>,
+    /// Exact-model reasoning level selected for this run. The value is
+    /// provider-owned and is copied unchanged into every model request.
+    pub reasoning_effort: Option<String>,
     /// Deterministic model-facing System Prompt. It is reassembled for each
     /// turn and never becomes transcript history.
     pub prompt: Option<xharness_prompt::PromptAssembly>,
@@ -583,6 +590,7 @@ impl LoopRequest {
             provider,
             debug: xharness_debug::DebugRecorder::disabled(),
             messages,
+            reasoning_effort: None,
             prompt: None,
             token_guard: None,
             compaction: None,

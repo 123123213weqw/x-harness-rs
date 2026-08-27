@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt,
     sync::{
         atomic::{AtomicU8, Ordering},
@@ -10,7 +11,7 @@ use std::{
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::{header, Client, Response};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
     ModelProvider, ProviderError, ProviderEvent, ProviderInputTokenCount, ProviderRequest,
@@ -28,6 +29,98 @@ const TOKEN_COUNT_UNKNOWN: u8 = 0;
 const TOKEN_COUNT_SUPPORTED: u8 = 1;
 const TOKEN_COUNT_UNSUPPORTED: u8 = 2;
 
+const RESERVED_REASONING_PATCH_KEYS: &[&str] = &[
+    "model",
+    "messages",
+    "input",
+    "tools",
+    "stream",
+    "stream_options",
+    "store",
+    "max_tokens",
+    "max_output_tokens",
+];
+
+/// Adapter-owned mapping from public reasoning effort ids to OpenAI-compatible
+/// request fragments. The Host and browser treat effort ids as opaque; only
+/// this adapter knows whether an id becomes `reasoning_effort`,
+/// `chat_template_kwargs`, or another endpoint-specific extension.
+#[derive(Clone, Debug)]
+pub struct OpenAiReasoningProfile {
+    default_effort: Option<String>,
+    patches: HashMap<String, Map<String, Value>>,
+}
+
+impl OpenAiReasoningProfile {
+    pub fn new(
+        default_effort: Option<String>,
+        efforts: impl IntoIterator<Item = (String, Value)>,
+    ) -> Result<Self, ProviderError> {
+        let mut patches = HashMap::new();
+        for (id, patch) in efforts {
+            if id.trim().is_empty() {
+                return Err(ProviderError::new(
+                    "OpenAI reasoning effort id must not be empty",
+                ));
+            }
+            let patch = patch.as_object().cloned().ok_or_else(|| {
+                ProviderError::new(format!(
+                    "OpenAI reasoning effort {id:?} request patch must be a JSON object"
+                ))
+            })?;
+            if let Some(key) = patch
+                .keys()
+                .find(|key| RESERVED_REASONING_PATCH_KEYS.contains(&key.as_str()))
+            {
+                return Err(ProviderError::new(format!(
+                    "OpenAI reasoning effort {id:?} request patch cannot override reserved field {key:?}"
+                )));
+            }
+            if patches.insert(id.clone(), patch).is_some() {
+                return Err(ProviderError::new(format!(
+                    "OpenAI reasoning effort id {id:?} is declared more than once"
+                )));
+            }
+        }
+        if patches.is_empty() {
+            return Err(ProviderError::new(
+                "OpenAI reasoning profile must declare at least one effort",
+            ));
+        }
+        if let Some(default_effort) = default_effort.as_deref() {
+            if !patches.contains_key(default_effort) {
+                return Err(ProviderError::new(format!(
+                    "OpenAI default reasoning effort {default_effort:?} is not declared"
+                )));
+            }
+        }
+        Ok(Self {
+            default_effort,
+            patches,
+        })
+    }
+
+    pub fn default_effort(&self) -> Option<&str> {
+        self.default_effort.as_deref()
+    }
+
+    fn apply(&self, requested: Option<&str>, body: &mut Value) -> Result<(), ProviderError> {
+        let Some(effort) = requested.or(self.default_effort()) else {
+            return Ok(());
+        };
+        let patch = self.patches.get(effort).ok_or_else(|| {
+            ProviderError::new(format!(
+                "unsupported reasoning effort {effort:?} for this model"
+            ))
+        })?;
+        let root = body.as_object_mut().ok_or_else(|| {
+            ProviderError::new("OpenAI request encoder produced a non-object body")
+        })?;
+        root.extend(patch.clone());
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct OpenAiProviderConfig {
     pub protocol: OpenAiProtocol,
@@ -39,6 +132,7 @@ pub struct OpenAiProviderConfig {
     pub max_sse_pending_bytes: usize,
     pub max_sse_event_bytes: usize,
     pub max_error_body_bytes: usize,
+    pub reasoning: Option<OpenAiReasoningProfile>,
 }
 
 impl OpenAiProviderConfig {
@@ -58,7 +152,13 @@ impl OpenAiProviderConfig {
             max_sse_pending_bytes: DEFAULT_SSE_PENDING_LIMIT_BYTES,
             max_sse_event_bytes: DEFAULT_SSE_EVENT_LIMIT_BYTES,
             max_error_body_bytes: DEFAULT_ERROR_BODY_LIMIT_BYTES,
+            reasoning: None,
         }
+    }
+
+    pub fn with_reasoning_profile(mut self, reasoning: OpenAiReasoningProfile) -> Self {
+        self.reasoning = Some(reasoning);
+        self
     }
 
     fn endpoint(&self) -> String {
@@ -100,6 +200,10 @@ impl fmt::Debug for OpenAiProviderConfig {
             .field("max_sse_pending_bytes", &self.max_sse_pending_bytes)
             .field("max_sse_event_bytes", &self.max_sse_event_bytes)
             .field("max_error_body_bytes", &self.max_error_body_bytes)
+            .field(
+                "reasoning_efforts",
+                &self.reasoning.as_ref().map(|profile| profile.patches.len()),
+            )
             .finish()
     }
 }
@@ -150,6 +254,28 @@ impl OpenAiProvider {
     pub fn config(&self) -> &OpenAiProviderConfig {
         &self.config
     }
+
+    fn request_body(
+        &self,
+        request: &ProviderRequest,
+        token_count: bool,
+    ) -> Result<Value, ProviderError> {
+        let mut body = if token_count {
+            build_openai_token_count_request(self.config.protocol, &self.config.model, request)
+        } else {
+            build_openai_request(self.config.protocol, &self.config.model, request)
+        };
+        match &self.config.reasoning {
+            Some(profile) => profile.apply(request.reasoning_effort.as_deref(), &mut body)?,
+            None if request.reasoning_effort.is_some() => {
+                return Err(ProviderError::new(
+                    "reasoning effort was selected for a model without a reasoning profile",
+                ));
+            }
+            None => {}
+        }
+        Ok(body)
+    }
 }
 
 #[async_trait]
@@ -170,8 +296,7 @@ impl ModelProvider for OpenAiProvider {
         if self.token_count_support.load(Ordering::Acquire) == TOKEN_COUNT_UNSUPPORTED {
             return Ok(None);
         }
-        let body =
-            build_openai_token_count_request(self.config.protocol, &self.config.model, request);
+        let body = self.request_body(request, true)?;
         self.trace(
             &request.debug_scope,
             "token_count.request",
@@ -250,7 +375,7 @@ impl ModelProvider for OpenAiProvider {
         request: ProviderRequest,
         cancellation: CancellationToken,
     ) -> Result<ProviderStream, ProviderError> {
-        let body = build_openai_request(self.config.protocol, &self.config.model, &request);
+        let body = self.request_body(&request, false)?;
         self.trace(
             &request.debug_scope,
             "request",
@@ -486,4 +611,66 @@ async fn bounded_error_body(
         text.push_str(" [body read failed]");
     }
     Ok(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xharness_core::AgentMessage;
+
+    fn request(effort: Option<&str>) -> ProviderRequest {
+        ProviderRequest {
+            messages: vec![AgentMessage::user("hello")],
+            tools: Vec::new(),
+            step: 1,
+            reasoning_effort: effort.map(str::to_owned),
+            max_output_tokens: None,
+            debug_scope: Default::default(),
+        }
+    }
+
+    #[test]
+    fn exact_model_reasoning_profile_maps_public_ids_to_wire_fragments() {
+        let profile = OpenAiReasoningProfile::new(
+            Some("high".to_owned()),
+            [
+                (
+                    "off".to_owned(),
+                    json!({"chat_template_kwargs": {"enable_thinking": false}}),
+                ),
+                ("high".to_owned(), json!({"reasoning_effort": "ultra"})),
+            ],
+        )
+        .unwrap();
+        let provider = OpenAiProvider::new(
+            OpenAiProviderConfig::new(
+                OpenAiProtocol::ChatCompletions,
+                "http://localhost/v1",
+                "",
+                "model",
+            )
+            .with_reasoning_profile(profile),
+        )
+        .unwrap();
+
+        let default_body = provider.request_body(&request(None), false).unwrap();
+        assert_eq!(default_body["reasoning_effort"], "ultra");
+
+        let off_body = provider.request_body(&request(Some("off")), false).unwrap();
+        assert_eq!(off_body["chat_template_kwargs"]["enable_thinking"], false);
+        assert!(off_body.get("reasoning_effort").is_none());
+
+        let error = provider
+            .request_body(&request(Some("unknown")), false)
+            .unwrap_err();
+        assert!(error.message.contains("unsupported reasoning effort"));
+    }
+
+    #[test]
+    fn reasoning_profile_rejects_reserved_request_overrides() {
+        let error =
+            OpenAiReasoningProfile::new(None, [("bad".to_owned(), json!({"messages": []}))])
+                .unwrap_err();
+        assert!(error.message.contains("reserved field \"messages\""));
+    }
 }

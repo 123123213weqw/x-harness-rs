@@ -287,6 +287,14 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   11.94 MiB、44,881 Event（其中 44,557 Chunk）导致的反复全量回放和浏览器超大事件列表。
   冷启动解析先校验每行 Batch Revision，再对汇总后的完整 Cut 只运行一次 Session 生命周期校验，
   不再为每行重复校验此前全部前缀。
+- [x] `DONE-65` 精确模型推理强度：`ModelDescriptor` 为每条 Provider/Model 路由保存有序
+  Effort、说明和默认值，Web `session.models/llm.models` 只投影当前模型真实能力，现成模型菜单
+  动态显示并持久化选择。Session 选择与 Runtime 在写事件和网络前拒绝未知 Effort；Core 把
+  Opaque ID 贯穿每个 Provider Request，OpenAI-compatible Adapter 用每档 `request_patch` 映射
+  `reasoning_effort`、`chat_template_kwargs` 等端点原生字段，并禁止覆盖消息、工具、流和输出预算
+  等 Core 所有字段。默认值进入新 Session 和 `request/header`，模型切换不会继承旧强度；配置、
+  Registry、RPC、恢复与 Wire 映射均有回归测试，WZU_Server 全 Workspace Fmt、Check、Test 和
+  Clippy `-D warnings` 通过。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

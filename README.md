@@ -408,6 +408,13 @@ OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立�
 [`config/providers.example.json`](config/providers.example.json)，完整不变量见
 [LLM/Provider Registry 规范](docs/specs/model-registry.md)。旧的单接口参数保持兼容。
 
+推理强度同样属于精确模型路由，而不是前端全局枚举。模型可通过 `reasoning.efforts` 声明自己
+支持的 ID、显示名和说明，并用 `default_effort` 指定默认项；DeepSeek Harness 的模型菜单会只
+显示当前模型实际声明的选项。每项 `request_patch` 由 OpenAI-compatible Adapter 在请求发出前
+合并，可映射 `reasoning_effort`、llama.cpp 的 `chat_template_kwargs` 或其他端点扩展。Patch
+禁止覆盖 `model/messages/input/tools/stream/max_tokens` 等 Core 所有字段。选择值在网络前按精确
+模型校验，并持久化到 Session 与 `request/header`；切换到不支持推理等级的模型时不会继承旧值。
+
 模型服务的真实上下文以部署参数为准。例如 llama.cpp 的 `-c 53248` 代表整个请求窗口，
 System、历史、工具 Schema、模板和输出预留都要共享它。配置模型但没有
 `XHARNESS_CONTEXT_WINDOW`（或 `--context-window`）时，正式 Host 会拒绝启动；超限请求在网络前

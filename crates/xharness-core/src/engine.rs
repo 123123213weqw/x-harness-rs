@@ -723,6 +723,7 @@ impl Runner {
                     messages: prepared.messages.clone(),
                     tools: tool_definitions.clone(),
                     step: self.step,
+                    reasoning_effort: self.request.reasoning_effort.clone(),
                     max_output_tokens: self
                         .request
                         .token_guard
@@ -1448,6 +1449,7 @@ impl Runner {
             messages,
             tools: tool_definitions.to_vec(),
             step: self.step,
+            reasoning_effort: self.request.reasoning_effort.clone(),
             max_output_tokens: Some(plan.spec.max_tokens),
             debug_scope: self.debug_scope(),
         };

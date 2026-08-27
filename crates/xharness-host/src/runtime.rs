@@ -46,6 +46,55 @@ pub struct ModelDescriptor {
     pub provider_display_name: String,
     pub model: String,
     pub model_display_name: String,
+    /// Exact-model reasoning controls exposed to the browser. Absence means
+    /// this route does not support user-selectable reasoning strength.
+    pub reasoning: Option<ModelReasoning>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelReasoningEffort {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+impl ModelReasoningEffort {
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            description: None,
+        }
+    }
+
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelReasoning {
+    pub efforts: Vec<ModelReasoningEffort>,
+    pub default_effort: Option<String>,
+}
+
+impl ModelReasoning {
+    pub fn new(efforts: Vec<ModelReasoningEffort>) -> Self {
+        Self {
+            efforts,
+            default_effort: None,
+        }
+    }
+
+    pub fn with_default(mut self, effort: impl Into<String>) -> Self {
+        self.default_effort = Some(effort.into());
+        self
+    }
+
+    fn supports(&self, effort: &str) -> bool {
+        self.efforts.iter().any(|candidate| candidate.id == effort)
+    }
 }
 
 impl ModelDescriptor {
@@ -60,6 +109,20 @@ impl ModelDescriptor {
             provider_display_name: provider_display_name.into(),
             model: model.into(),
             model_display_name: model_display_name.into(),
+            reasoning: None,
+        }
+    }
+
+    pub fn with_reasoning(mut self, reasoning: ModelReasoning) -> Self {
+        self.reasoning = Some(reasoning);
+        self
+    }
+
+    fn supports_reasoning_effort(&self, effort: Option<&str>) -> bool {
+        match (effort, &self.reasoning) {
+            (None, _) => true,
+            (Some(effort), Some(reasoning)) => reasoning.supports(effort),
+            (Some(_), None) => false,
         }
     }
 
@@ -103,6 +166,12 @@ pub enum ModelRegistryError {
     EmptyDisplayName,
     #[error("model route {provider}/{model} is registered more than once")]
     DuplicateRoute { provider: String, model: String },
+    #[error("model route {provider}/{model} has an invalid reasoning profile: {message}")]
+    InvalidReasoning {
+        provider: String,
+        model: String,
+        message: String,
+    },
     #[error("default model route {provider}/{model} is not registered")]
     DefaultRouteUnavailable { provider: String, model: String },
 }
@@ -135,6 +204,41 @@ impl ModelRegistry {
         {
             return Err(ModelRegistryError::EmptyDisplayName);
         }
+        if let Some(reasoning) = &descriptor.reasoning {
+            if reasoning.efforts.is_empty() {
+                return Err(ModelRegistryError::InvalidReasoning {
+                    provider: descriptor.provider.clone(),
+                    model: descriptor.model.clone(),
+                    message: "at least one effort is required".to_owned(),
+                });
+            }
+            let mut ids = std::collections::HashSet::new();
+            for effort in &reasoning.efforts {
+                if effort.id.trim().is_empty() || effort.name.trim().is_empty() {
+                    return Err(ModelRegistryError::InvalidReasoning {
+                        provider: descriptor.provider.clone(),
+                        model: descriptor.model.clone(),
+                        message: "effort id and display name must be non-empty".to_owned(),
+                    });
+                }
+                if !ids.insert(effort.id.as_str()) {
+                    return Err(ModelRegistryError::InvalidReasoning {
+                        provider: descriptor.provider.clone(),
+                        model: descriptor.model.clone(),
+                        message: format!("effort {:?} is declared more than once", effort.id),
+                    });
+                }
+            }
+            if let Some(default) = reasoning.default_effort.as_deref() {
+                if !reasoning.supports(default) {
+                    return Err(ModelRegistryError::InvalidReasoning {
+                        provider: descriptor.provider.clone(),
+                        model: descriptor.model.clone(),
+                        message: format!("default effort {default:?} is not declared"),
+                    });
+                }
+            }
+        }
         let key = (descriptor.provider.clone(), descriptor.model.clone());
         if self.entries.contains_key(&key) {
             return Err(ModelRegistryError::DuplicateRoute {
@@ -154,7 +258,12 @@ impl ModelRegistry {
 
     pub fn can_route(&self, route: &ModelRoute) -> bool {
         self.entries
-            .contains_key(&(route.provider.clone(), route.model.clone()))
+            .get(&(route.provider.clone(), route.model.clone()))
+            .is_some_and(|model| {
+                model
+                    .descriptor
+                    .supports_reasoning_effort(route.reasoning_effort.as_deref())
+            })
     }
 
     pub fn models(&self) -> Vec<ModelDescriptor> {
@@ -467,6 +576,7 @@ impl AgentRuntime for LoopAgentRuntime {
         self.provider.is_some()
             && route.provider == self.provider_id
             && route.model == self.model_id
+            && route.reasoning_effort.is_none()
     }
 
     fn model_catalog(&self) -> Vec<ModelDescriptor> {
@@ -498,6 +608,7 @@ impl AgentRuntime for LoopAgentRuntime {
             .await
             .map_err(|message| AgentRuntimeError::Preparation { message })?;
         let mut loop_request = LoopRequest::new(provider, request.messages);
+        loop_request.reasoning_effort = request.route.reasoning_effort;
         loop_request.debug = self.debug.clone();
         loop_request.session_id = Some(request.session_id);
         loop_request.prompt = request.prompt;
@@ -550,6 +661,7 @@ impl TurnRequestFactory for DurableTurnFactory {
             .executor(agent_id, &config.cwd, config.permission)
             .await?;
         let mut request = LoopRequest::new(provider, input);
+        request.reasoning_effort = config.route.reasoning_effort;
         request.debug = self
             .debug
             .read()
@@ -1461,6 +1573,48 @@ mod tests {
             contents,
             ["first", "first answer", "second", "second answer"]
         );
+    }
+
+    #[test]
+    fn registry_validates_reasoning_per_exact_model_route() {
+        let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+            answers: Mutex::new(VecDeque::new()),
+        });
+        let descriptor = ModelDescriptor::new("gpu", "GPU", "thinker", "Thinker").with_reasoning(
+            ModelReasoning::new(vec![
+                ModelReasoningEffort::new("off", "Off"),
+                ModelReasoningEffort::new("high", "High"),
+            ])
+            .with_default("high"),
+        );
+        let mut registry = ModelRegistry::new();
+        registry
+            .register(RegisteredModel::new(descriptor, Arc::clone(&provider)))
+            .unwrap();
+
+        let mut high = ModelRoute::new("gpu", "thinker");
+        high.reasoning_effort = Some("high".to_owned());
+        assert!(registry.can_route(&high));
+        let mut unsupported = ModelRoute::new("gpu", "thinker");
+        unsupported.reasoning_effort = Some("max".to_owned());
+        assert!(!registry.can_route(&unsupported));
+        assert!(registry.can_route(&ModelRoute::new("gpu", "thinker")));
+        assert_eq!(
+            registry.models()[0]
+                .reasoning
+                .as_ref()
+                .and_then(|reasoning| reasoning.default_effort.as_deref()),
+            Some("high")
+        );
+
+        let invalid = ModelDescriptor::new("gpu", "GPU", "broken", "Broken").with_reasoning(
+            ModelReasoning::new(vec![ModelReasoningEffort::new("low", "Low")])
+                .with_default("missing"),
+        );
+        let error = registry
+            .register(RegisteredModel::new(invalid, provider))
+            .unwrap_err();
+        assert!(error.to_string().contains("default effort \"missing\""));
     }
 
     #[tokio::test]

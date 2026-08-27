@@ -3,8 +3,13 @@ use std::{env, fs, path::Path, sync::Arc};
 use serde::Deserialize;
 use xharness_core::ModelProvider;
 use xharness_debug::DebugRecorder;
-use xharness_host::{ModelDescriptor, ModelRegistry, ModelRoute, RegisteredModel};
-use xharness_provider_openai::{OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig};
+use xharness_host::{
+    ModelDescriptor, ModelReasoning, ModelReasoningEffort, ModelRegistry, ModelRoute,
+    RegisteredModel,
+};
+use xharness_provider_openai::{
+    OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig, OpenAiReasoningProfile,
+};
 use xharness_token::{TokenBudget, TokenGuard};
 
 const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 4_096;
@@ -114,16 +119,11 @@ impl ProviderFile {
         if self.providers.is_empty() {
             return Err("provider config must declare at least one provider".to_owned());
         }
-        let default_route = ModelRoute::new(&self.default.provider, &self.default.model);
+        let mut default_route = ModelRoute::new(&self.default.provider, &self.default.model);
+        default_route.reasoning_effort = self.default.reasoning_effort.clone();
         let mut registry = ModelRegistry::new();
         for provider in self.providers {
             provider.register_models(&mut registry, debug.clone())?;
-        }
-        if !registry.can_route(&default_route) {
-            return Err(format!(
-                "default model route {}/{} is not registered",
-                default_route.provider, default_route.model
-            ));
         }
         let default_model = registry
             .models()
@@ -131,7 +131,29 @@ impl ProviderFile {
             .find(|model| {
                 model.provider == default_route.provider && model.model == default_route.model
             })
-            .expect("default route was checked");
+            .ok_or_else(|| {
+                format!(
+                    "default model route {}/{} is not registered",
+                    default_route.provider, default_route.model
+                )
+            })?;
+        if default_route.reasoning_effort.is_none() {
+            default_route.reasoning_effort = default_model
+                .reasoning
+                .as_ref()
+                .and_then(|reasoning| reasoning.default_effort.clone());
+        }
+        if !registry.can_route(&default_route) {
+            return Err(format!(
+                "default model route {}/{} does not support reasoning effort {:?}",
+                default_route.provider,
+                default_route.model,
+                default_route
+                    .reasoning_effort
+                    .as_deref()
+                    .unwrap_or("provider-default")
+            ));
+        }
         let default_token_guard = registry.token_guard(&default_route);
         // Copy the default guard into the legacy HostConfig compatibility field;
         // runtime admission always resolves the same guard from the registry.
@@ -149,6 +171,8 @@ impl ProviderFile {
 struct RouteConfig {
     provider: String,
     model: String,
+    #[serde(default)]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,40 +221,68 @@ impl ProviderConfig {
         };
         let provider_display_name = self.display_name.unwrap_or_else(|| self.id.clone());
         for model in self.models {
-            let upstream_model = model
-                .upstream_model
-                .clone()
-                .unwrap_or_else(|| model.id.clone());
+            let ModelConfig {
+                id,
+                display_name,
+                upstream_model,
+                context_window_tokens,
+                max_output_tokens,
+                minimum_output_tokens,
+                token_safety_margin,
+                reasoning,
+            } = model;
+            let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
             let token_guard = token_guard(
-                &model.id,
-                Some(model.context_window_tokens),
-                model.max_output_tokens,
-                model.minimum_output_tokens,
-                model.token_safety_margin,
+                &id,
+                Some(context_window_tokens),
+                max_output_tokens,
+                minimum_output_tokens,
+                token_safety_margin,
             )?;
-            let adapter: Arc<dyn ModelProvider> = Arc::new(
-                OpenAiProvider::new(OpenAiProviderConfig::new(
-                    protocol,
-                    &self.base_url,
-                    &api_key,
-                    upstream_model,
-                ))
-                .map_err(|error| error.to_string())?
-                .with_debug(debug.clone()),
-            );
-            registry
-                .register(
-                    RegisteredModel::new(
-                        ModelDescriptor::new(
-                            &self.id,
-                            &provider_display_name,
-                            &model.id,
-                            model.display_name.unwrap_or_else(|| model.id.clone()),
-                        ),
-                        adapter,
-                    )
-                    .with_token_guard(token_guard),
+            let mut provider_config =
+                OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model);
+            if let Some(reasoning) = &reasoning {
+                let profile = OpenAiReasoningProfile::new(
+                    reasoning.default_effort.clone(),
+                    reasoning
+                        .efforts
+                        .iter()
+                        .map(|effort| (effort.id.clone(), effort.request_patch.clone())),
                 )
+                .map_err(|error| error.to_string())?;
+                provider_config = provider_config.with_reasoning_profile(profile);
+            }
+            let adapter: Arc<dyn ModelProvider> = Arc::new(
+                OpenAiProvider::new(provider_config)
+                    .map_err(|error| error.to_string())?
+                    .with_debug(debug.clone()),
+            );
+            let mut descriptor = ModelDescriptor::new(
+                &self.id,
+                &provider_display_name,
+                &id,
+                display_name.unwrap_or_else(|| id.clone()),
+            );
+            if let Some(reasoning) = reasoning {
+                let efforts = reasoning
+                    .efforts
+                    .into_iter()
+                    .map(|effort| {
+                        let mut public = ModelReasoningEffort::new(effort.id, effort.name);
+                        if let Some(description) = effort.description {
+                            public = public.with_description(description);
+                        }
+                        public
+                    })
+                    .collect();
+                let mut public = ModelReasoning::new(efforts);
+                if let Some(default) = reasoning.default_effort {
+                    public = public.with_default(default);
+                }
+                descriptor = descriptor.with_reasoning(public);
+            }
+            registry
+                .register(RegisteredModel::new(descriptor, adapter).with_token_guard(token_guard))
                 .map_err(|error| error.to_string())?;
         }
         Ok(())
@@ -254,6 +306,31 @@ struct ModelConfig {
     minimum_output_tokens: Option<u64>,
     #[serde(default = "default_token_safety_margin")]
     token_safety_margin: u64,
+    #[serde(default)]
+    reasoning: Option<ModelReasoningConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelReasoningConfig {
+    #[serde(default)]
+    default_effort: Option<String>,
+    efforts: Vec<ModelReasoningEffortConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelReasoningEffortConfig {
+    id: String,
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default = "empty_request_patch")]
+    request_patch: serde_json::Value,
+}
+
+fn empty_request_patch() -> serde_json::Value {
+    serde_json::json!({})
 }
 
 fn openai_compatible_kind() -> String {
@@ -391,5 +468,83 @@ mod tests {
         .unwrap();
         let error = config.build().err().unwrap();
         assert!(error.contains("default model route missing/missing is not registered"));
+    }
+
+    #[test]
+    fn provider_file_declares_exact_model_reasoning_and_materializes_its_default() {
+        let config: ProviderFile = serde_json::from_str(
+            r#"{
+                "default": {"provider": "gpu", "model": "qwen"},
+                "providers": [{
+                    "id": "gpu",
+                    "base_url": "http://127.0.0.1:8000/v1",
+                    "models": [{
+                        "id": "qwen",
+                        "context_window_tokens": 53248,
+                        "reasoning": {
+                            "default_effort": "high",
+                            "efforts": [
+                                {
+                                    "id": "off",
+                                    "name": "关闭",
+                                    "request_patch": {
+                                        "chat_template_kwargs": {"enable_thinking": false}
+                                    }
+                                },
+                                {
+                                    "id": "high",
+                                    "name": "高",
+                                    "description": "复杂任务",
+                                    "request_patch": {"reasoning_effort": "ultra"}
+                                }
+                            ]
+                        }
+                    }]
+                }]
+            }"#,
+        )
+        .unwrap();
+        let deployment = config.build().unwrap();
+        assert_eq!(
+            deployment.default_route.reasoning_effort.as_deref(),
+            Some("high")
+        );
+        let descriptor = &deployment.registry.models()[0];
+        let reasoning = descriptor.reasoning.as_ref().unwrap();
+        assert_eq!(reasoning.efforts.len(), 2);
+        assert_eq!(
+            reasoning.efforts[1].description.as_deref(),
+            Some("复杂任务")
+        );
+        let mut invalid = ModelRoute::new("gpu", "qwen");
+        invalid.reasoning_effort = Some("max".to_owned());
+        assert!(!deployment.registry.can_route(&invalid));
+    }
+
+    #[test]
+    fn provider_file_rejects_reasoning_patches_that_override_core_fields() {
+        let config: ProviderFile = serde_json::from_str(
+            r#"{
+                "default": {"provider": "gpu", "model": "qwen"},
+                "providers": [{
+                    "id": "gpu",
+                    "base_url": "http://127.0.0.1:8000/v1",
+                    "models": [{
+                        "id": "qwen",
+                        "context_window_tokens": 32768,
+                        "reasoning": {
+                            "efforts": [{
+                                "id": "bad",
+                                "name": "Bad",
+                                "request_patch": {"messages": []}
+                            }]
+                        }
+                    }]
+                }]
+            }"#,
+        )
+        .unwrap();
+        let error = config.build().err().unwrap();
+        assert!(error.contains("reserved field \"messages\""));
     }
 }

@@ -1,7 +1,7 @@
 # LLM / Provider Registry 规范
 
 **Crate：** `xharness-host`（Provider-neutral Registry 与路由）、`xharness-host-app`（配置和 Adapter 组合）  
-**状态：** Provider/Model 多路由、Web 发现和每路由 Token Guard 已实现；Purpose、能力发现和热重载计划中。
+**状态：** Provider/Model 多路由、Web 发现、每路由 Token Guard 和精确模型推理等级已实现；Purpose、其他能力发现和热重载计划中。
 
 ## 目标
 
@@ -43,6 +43,22 @@ Provider 显式声明：
 - 可选 `api_key_env` 凭据引用；配置文件禁止内联 Secret；
 - 一个或多个公共模型 ID、可选上游模型名、真实 Context Window、输出预留和安全余量。
 
+### 精确模型推理等级
+
+推理强度不能由前端维护一套全局词表。每个模型可选声明 `reasoning`：
+
+- `efforts` 是按 Adapter 首选顺序排列的 `{id,name,description?,request_patch}`；
+- `default_effort` 可选，但存在时必须引用同一模型已声明的 ID；
+- Browser 只接收 `id/name/description/defaultEffort`，不得看到 `request_patch`；
+- `request_patch` 必须是 JSON Object，由 OpenAI-compatible Adapter 映射到该端点的原生字段；
+- Patch 禁止覆盖模型、消息、工具、流、输出预算等 Core 所有字段；
+- 空 ID/展示名、重复 ID、未知默认值、非 Object Patch 或保留字段覆盖均在 Host 启动时失败。
+
+`reasoning_effort` 仍不参与 Registry Key，但 `can_route` 必须同时验证它属于目标模型。省略选择值
+表示使用该模型 Adapter 默认；模型配置有 `default_effort` 时，新 Session 和模型切换会物化该值。
+Loop/Core 只把 Opaque ID 传给 Adapter，不解释 `low/high/max`。Adapter 对正文请求和原生 Token
+Count 请求应用同一映射，使计量请求与实际请求保持一致。
+
 单接口环境变量和 CLI 参数继续作为兼容入口；未提供多路由文件时，它们构造只有一个条目的
 Registry。协议禁止根据错误自动回退。
 
@@ -69,9 +85,8 @@ Registry。协议禁止根据错误自动回退。
 ## 当前限制
 
 - Registry 启动后不可热重载；修改配置需要重启 Host。
-- `reasoning_effort` 已持久化但尚未统一映射到所有 Adapter 的原生请求字段。
 - 尚无按 `purpose`（主 Agent、标题、摘要、Subagent）选择模型。
-- Capability 目前由 Host/Tool Readiness 管理，尚未注册模型级 Tools、Vision、Reasoning、
+- Capability 目前由 Host/Tool Readiness 管理，除 Reasoning 外尚未注册模型级 Tools、Vision、
   Tokenizer 和最大输出能力。
 - 模型列表来自显式配置，不主动探测 `/v1/models`；这样可避免把偶然出现的服务当成稳定产品路由。
 
@@ -83,3 +98,5 @@ Registry。协议禁止根据错误自动回退。
 4. 未注册模型选择在持久化和 Prompt Admission 之前失败。
 5. 配置拒绝重复路由、未知 Adapter、缺失 Context Window、未注册默认路由和缺失的凭据环境变量。
 6. 单接口环境变量启动方式保持兼容。
+7. Web 只展示当前精确模型声明的推理等级；未知等级在 Session Event 持久化和 Provider I/O 前失败。
+8. Adapter 将公共 Effort ID 映射为模型自己的请求 Fragment，且保留字段不可被覆盖。

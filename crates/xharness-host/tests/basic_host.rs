@@ -23,7 +23,8 @@ use xharness_core::{
 };
 use xharness_host::{
     AgentRuntime, AgentRuntimeError, AgentTurnRequest, BasicHost, HostConfig, LoopAgentRuntime,
-    ModelDescriptor, ModelRoute, NoTools, PermissionPreset, RunningTurn, SessionToolFactory,
+    ModelDescriptor, ModelReasoning, ModelReasoningEffort, ModelRoute, NoTools, PermissionPreset,
+    RunningTurn, SessionToolFactory,
 };
 use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, ToolSpec};
 
@@ -116,16 +117,28 @@ impl AgentRuntime for CatalogRuntime {
     }
 
     fn can_route(&self, route: &ModelRoute) -> bool {
-        matches!(
-            (route.provider.as_str(), route.model.as_str()),
-            ("gpu-4080", "qwen-4080") | ("gpu-v100", "qwen-v100")
-        )
+        match (route.provider.as_str(), route.model.as_str()) {
+            ("gpu-4080", "qwen-4080") => route.reasoning_effort.is_none(),
+            ("gpu-v100", "qwen-v100") => matches!(
+                route.reasoning_effort.as_deref(),
+                None | Some("high") | Some("max")
+            ),
+            _ => false,
+        }
     }
 
     fn model_catalog(&self) -> Vec<ModelDescriptor> {
         vec![
             ModelDescriptor::new("gpu-4080", "RTX 4080", "qwen-4080", "Qwen · 4080"),
-            ModelDescriptor::new("gpu-v100", "V100 Server", "qwen-v100", "Qwen · V100"),
+            ModelDescriptor::new("gpu-v100", "V100 Server", "qwen-v100", "Qwen · V100")
+                .with_reasoning(
+                    ModelReasoning::new(vec![
+                        ModelReasoningEffort::new("high", "High")
+                            .with_description("Balanced reasoning"),
+                        ModelReasoningEffort::new("max", "Max"),
+                    ])
+                    .with_default("high"),
+                ),
         ]
     }
 
@@ -761,6 +774,14 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
     };
     assert_eq!(models["groups"].as_array().unwrap().len(), 2);
     assert_eq!(models["groups"][1]["models"][0]["id"], "qwen-v100");
+    assert_eq!(
+        models["groups"][1]["models"][0]["reasoning"]["defaultEffort"],
+        "high"
+    );
+    assert_eq!(
+        models["groups"][1]["models"][0]["reasoning"]["efforts"][0]["description"],
+        "Balanced reasoning"
+    );
 
     let created = host
         .call(
@@ -776,14 +797,32 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         }
         other => panic!("session create failed: {other:?}"),
     };
-    let selected = host
+    let selected_default = host
         .call(
-            RpcId::new("catalog-select"),
+            RpcId::new("catalog-select-default"),
             RpcMethod::SessionSelectModel,
             json!({
                 "sessionId": session_id,
                 "provider": "gpu-v100",
                 "model": "qwen-v100",
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    let selected_default = match selected_default {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("default model effort selection failed: {other:?}"),
+    };
+    assert_eq!(selected_default["selected"]["reasoningEffort"], "high");
+    let selected = host
+        .call(
+            RpcId::new("catalog-select-max"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "gpu-v100",
+                "model": "qwen-v100",
+                "reasoningEffort": "max",
             }),
             CancellationToken::new(),
         )
@@ -803,7 +842,30 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
     };
     assert_eq!(current["current"]["provider"], "gpu-v100");
     assert_eq!(current["current"]["model"], "qwen-v100");
+    assert_eq!(current["current"]["reasoningEffort"], "max");
     assert_eq!(current["routable"], true);
+    let rejected = host
+        .call(
+            RpcId::new("catalog-select-unsupported-effort"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "gpu-v100",
+                "model": "qwen-v100",
+                "reasoningEffort": "ultra",
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(
+        rejected,
+        RpcResult::Failure {
+            error: xharness_api::RpcError {
+                code: xharness_api::RpcErrorCode::ModelUnavailable,
+                ..
+            }
+        }
+    ));
     let _ = std::fs::remove_dir_all(root);
 }
 
