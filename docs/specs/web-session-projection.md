@@ -40,6 +40,9 @@ Token、Cache、TTFT、Decode 吞吐和 LLM/Tool Duration 的完整日志投影�
    `surfaceOp="append"`，浏览器不得把 Replace 当作人类原始聊天删除。
 9. 启动尾缓存、运行增量和 History Page 必须调用同一 `restored_web_event()` 纯投影；Search 与
    Fork 在 Durable Runtime 下也必须读取权威 Session，而不是只看缓存尾部。
+10. Core 的 `InputCommitted` 是 Admission 到 Provider 之间的强制同步边界。Host 收到后必须立即
+    加载 Session Cut，发布 Inbox 删除、`turn/start` 和 `user/message`；这次迁移禁止依赖 TTFT、
+    首个 Assistant Delta 或 64 Event/250 ms 的流批检查点。
 
 ## 审批与模型重试
 
@@ -92,6 +95,7 @@ Projection 暴露 `plan={active,pending}`；当前稳定日志只恢复 `active`
   `projections` 必须逐字相等。
 - 结构化 User Content 和 Timezone 在 Claim 消费 Inbox 后仍可从完整历史恢复。
 - History 查询可以吸收尚未由 Driver 推送的日志尾部，但不能制造第二条 User/Assistant Message。
+- Provider 在首 Token 前无限阻塞时，Inbox 删除和 `user/message` 仍必须在有限时间内实时发布。
 - 尾缓存驱逐后，`beforeSeq` 连续翻页仍必须返回完整历史；Host 重启不能改变页边界、事件内容或
   `projections.asOfSeq`。
 - Ephemeral Runtime 的既有 Loop 投影测试继续通过。

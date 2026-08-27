@@ -1125,7 +1125,8 @@ impl BasicHost {
                     "ephemeral loop projection lagged by {missed} events; resume cursor is {resume_seq}"
                 )));
             }
-            LoopEventKind::MessageInjected { .. }
+            LoopEventKind::InputCommitted
+            | LoopEventKind::MessageInjected { .. }
             | LoopEventKind::StreamCheckpoint
             | LoopEventKind::RunPaused
             | LoopEventKind::RunResumed
