@@ -17,6 +17,7 @@ tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
 xharness-context = { path = "../xharness-context" }
+xharness-compaction = { path = "../xharness-compaction" }
 xharness-prompt = { path = "../xharness-prompt" }
 xharness-session = { path = "../xharness-session" }
 xharness-token = { path = "../xharness-token" }

@@ -1,7 +1,8 @@
 # 原生平台门面规范
 
 **Crate：** `xharness-platform`
-**状态：** Linux 已实现并实测；macOS 已实现并交叉检查。
+**状态：** Linux 已实现并实测；macOS 已在 Apple Silicon 原生 CI 运行 FS、Process、PTY 和
+Seatbelt 集成测试。
 
 ## 目标
 
@@ -29,6 +30,12 @@ Read-only Cwd Root。`NativePlatform::new` 必须使用同一权限边界初始�
 PTY、Network 和具体 Sandbox Backend 的 Available/Unavailable Reason。报告用于 Host/UI 和
 下一 Step 的 Tool Projection；它不能自动改变 Policy，也不能把 unavailable 变成 Full Access。
 
+macOS GUI/LaunchAgent 默认只提供 `/usr/bin:/bin:/usr/sbin:/sbin`，不能依赖交互式 Shell 的
+Homebrew 或 Cargo PATH。Coding Tool 的受管 PATH 必须依次合并 Host 可执行文件目录、继承 PATH、
+用户 `.local/bin/.cargo/bin` 和常见系统目录。macOS Release 必须把 ARM64 `rg` 与
+`xharness-host` 放在同一目录；这样 `glob/grep` 不依赖用户预装 Homebrew，也不会因为 launchd
+环境变窄而在第一步失败。
+
 支持目标为 `target_os=linux` 和 `target_os=macos`。在定义 Backend 契约前，不支持的平台
 应故意编译失败。`PlatformKind::CURRENT` 在编译期选择，禁止运行时 Probe 决定。
 
@@ -45,10 +52,11 @@ core/provider/session ----------------X（禁止原生依赖）
 
 ## 当前限制
 
-- 尚无面向 CLI/UI 的 Host Capability Report。
-- 因此当前 Host 即使已经缓存 Bubblewrap Probe 失败，仍会向模型发送依赖它的工具定义。
+- 模型请求侧已经消费缓存的 Capability Report，并移除不可用的
+  `bash/glob/grep/terminal_open`；Web Workspace Readiness/工具目录尚未完整投影同一报告。
 - 尚无运行时 Backend Plugin 或 Remote-execution Platform。
-- macOS 仍需要真实原生集成运行和打包产物验证。
+- macOS 已产生未签名 ARM64 Host 构件，并在本机完成双 V100 Provider → `glob` → bundled `rg` →
+  Tool Result → 最终回答的真实 Loop；仍需要开发者签名、公证和正式安装包验证。
 
 ## 验收标准
 

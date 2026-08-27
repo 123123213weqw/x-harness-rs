@@ -87,6 +87,10 @@ pub enum ToolFailureKind {
     Lifecycle,
     Handler,
     TimedOut,
+    /// Cancellation/timeout was signalled but the owned handler future did
+    /// not settle within the executor cleanup grace. The caller must not
+    /// report ordinary quiescent cancellation.
+    CleanupTimeout,
     Panicked,
     Cancelled,
     PostProcess,
@@ -604,19 +608,35 @@ impl ToolExecutor {
                 context.cancellation.cancel();
                 // Cancellation is cooperative. Give the handler a bounded window to
                 // tear down owned subprocesses before reporting the tool as settled.
-                let _ = tokio::time::timeout(HANDLER_CLEANUP_GRACE, &mut chain).await;
-                ToolOutcome::failure(ToolFailure::new(
-                    ToolFailureKind::Cancelled,
-                    "tool invocation was cancelled during handler execution",
-                ))
+                match tokio::time::timeout(HANDLER_CLEANUP_GRACE, &mut chain).await {
+                    Ok(_) => ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::Cancelled,
+                        "tool invocation was cancelled during handler execution",
+                    )),
+                    Err(_) => ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::CleanupTimeout,
+                        format!(
+                            "tool handler did not quiesce within {} ms after cancellation",
+                            duration_ms(HANDLER_CLEANUP_GRACE)
+                        ),
+                    )),
+                }
             }
             _ = &mut deadline => {
                 context.cancellation.cancel();
-                let _ = tokio::time::timeout(HANDLER_CLEANUP_GRACE, &mut chain).await;
-                ToolOutcome::failure(ToolFailure::retryable(
-                    ToolFailureKind::TimedOut,
-                    format!("tool execution exceeded {} ms", duration_ms(spec.timeout)),
-                ))
+                match tokio::time::timeout(HANDLER_CLEANUP_GRACE, &mut chain).await {
+                    Ok(_) => ToolOutcome::failure(ToolFailure::retryable(
+                        ToolFailureKind::TimedOut,
+                        format!("tool execution exceeded {} ms", duration_ms(spec.timeout)),
+                    )),
+                    Err(_) => ToolOutcome::failure(ToolFailure::new(
+                        ToolFailureKind::CleanupTimeout,
+                        format!(
+                            "tool handler did not quiesce within {} ms after timeout",
+                            duration_ms(HANDLER_CLEANUP_GRACE)
+                        ),
+                    )),
+                }
             }
             outcome = &mut chain => match outcome {
                 Err(panic) => ToolOutcome::failure(ToolFailure::new(

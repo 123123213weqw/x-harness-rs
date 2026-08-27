@@ -1,8 +1,15 @@
-use std::sync::Arc;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use futures::StreamExt;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use tokio_util::sync::CancellationToken;
 use xharness_core::{
     AgentMessage, InjectionMode, LoopCommand, LoopControlError, LoopEngine, LoopEvent, LoopRequest,
     LoopResult,
@@ -60,6 +67,40 @@ pub enum AgentCommandError {
     Failed(String),
 }
 
+/// Settlement of one owned Agent worker during runtime shutdown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentShutdownOutcome {
+    /// The active Loop accepted cancellation and published its terminal result
+    /// before the shared shutdown deadline.
+    Graceful,
+    /// The worker exceeded the deadline and its task had to be aborted. The
+    /// process layer still performs synchronous last-resort group cleanup.
+    ForcedCleanup,
+}
+
+/// Aggregate, bounded shutdown result for one process-local supervisor.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AgentShutdownReport {
+    pub workers: usize,
+    pub graceful: usize,
+    pub forced_cleanup: usize,
+    pub cleanup_errors: Vec<String>,
+}
+
+impl AgentShutdownReport {
+    pub const fn is_graceful(&self) -> bool {
+        self.forced_cleanup == 0 && self.cleanup_errors.is_empty()
+    }
+}
+
+struct WorkerDoneGuard(watch::Sender<bool>);
+
+impl Drop for WorkerDoneGuard {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
+}
+
 /// Stable internal work identity used to correlate a restarted approval turn
 /// with the Host subscriber that was attached before the worker was woken.
 pub fn approval_recovery_work_id(approval_id: &str) -> String {
@@ -92,6 +133,9 @@ pub struct DurableAgentHandle {
     commands: mpsc::Sender<CommandEnvelope>,
     events: broadcast::Sender<AgentEvent>,
     status: watch::Receiver<AgentStatus>,
+    shutdown: CancellationToken,
+    stopped: watch::Receiver<bool>,
+    abort: tokio::task::AbortHandle,
 }
 
 impl DurableAgentHandle {
@@ -107,6 +151,8 @@ impl DurableAgentHandle {
         let (commands, command_rx) = mpsc::channel(64);
         let (events, _) = broadcast::channel(event_capacity.max(16));
         let (status_tx, status) = watch::channel(AgentStatus::Idle);
+        let shutdown = activation.cancellation();
+        let (stopped_tx, stopped) = watch::channel(false);
         let worker = DriverWorker {
             activation: Arc::clone(&activation),
             factory,
@@ -115,13 +161,21 @@ impl DurableAgentHandle {
             status: status_tx,
             wake_requested: false,
             recovery_requested: false,
+            shutdown: shutdown.clone(),
         };
-        tokio::spawn(worker.run());
+        let task = tokio::spawn(async move {
+            let _done = WorkerDoneGuard(stopped_tx);
+            worker.run().await;
+        });
+        let abort = task.abort_handle();
         Self {
             activation,
             commands,
             events,
             status,
+            shutdown,
+            stopped,
+            abort,
         }
     }
 
@@ -156,6 +210,32 @@ impl DurableAgentHandle {
                 .await
                 .map_err(|_| AgentCommandError::Closed)?;
         }
+    }
+
+    pub fn request_shutdown(&self) {
+        self.shutdown.cancel();
+    }
+
+    pub async fn when_stopped(&self) {
+        let mut stopped = self.stopped.clone();
+        while !*stopped.borrow_and_update() {
+            if stopped.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    pub async fn shutdown(&self, grace: Duration) -> AgentShutdownOutcome {
+        self.request_shutdown();
+        if tokio::time::timeout(grace, self.when_stopped())
+            .await
+            .is_ok()
+        {
+            return AgentShutdownOutcome::Graceful;
+        }
+        self.abort.abort();
+        self.when_stopped().await;
+        AgentShutdownOutcome::ForcedCleanup
     }
 
     pub async fn followup(&self, message: InboxMessage) -> Result<(), AgentCommandError> {
@@ -233,6 +313,7 @@ pub struct AgentSupervisor {
     factory: Arc<dyn TurnRequestFactory>,
     event_capacity: usize,
     handles: tokio::sync::Mutex<std::collections::HashMap<String, DurableAgentHandle>>,
+    closed: AtomicBool,
 }
 
 impl AgentSupervisor {
@@ -246,6 +327,7 @@ impl AgentSupervisor {
             factory,
             event_capacity,
             handles: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -253,8 +335,14 @@ impl AgentSupervisor {
         &self,
         header: xharness_session::SessionHeader,
     ) -> Result<DurableAgentHandle, RegistryError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(RegistryError::Unavailable);
+        }
         let id = header.id.clone();
         let mut handles = self.handles.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(RegistryError::Unavailable);
+        }
         if let Some(handle) = handles.get(&id) {
             return Ok(handle.clone());
         }
@@ -268,6 +356,37 @@ impl AgentSupervisor {
     pub async fn get(&self, agent_id: &str) -> Option<DurableAgentHandle> {
         self.handles.lock().await.get(agent_id).cloned()
     }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
+    /// Stop admission, signal every worker together, then await each worker
+    /// against one shared deadline. A late worker is explicitly classified as
+    /// forced cleanup instead of being silently detached from Host shutdown.
+    pub async fn shutdown(&self, grace: Duration) -> AgentShutdownReport {
+        self.closed.store(true, Ordering::Release);
+        let handles = {
+            let mut active = self.handles.lock().await;
+            active.drain().map(|(_, handle)| handle).collect::<Vec<_>>()
+        };
+        for handle in &handles {
+            handle.request_shutdown();
+        }
+        let deadline = tokio::time::Instant::now() + grace;
+        let mut report = AgentShutdownReport {
+            workers: handles.len(),
+            ..AgentShutdownReport::default()
+        };
+        for handle in handles {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match handle.shutdown(remaining).await {
+                AgentShutdownOutcome::Graceful => report.graceful += 1,
+                AgentShutdownOutcome::ForcedCleanup => report.forced_cleanup += 1,
+            }
+        }
+        report
+    }
 }
 
 struct DriverWorker {
@@ -278,6 +397,7 @@ struct DriverWorker {
     status: watch::Sender<AgentStatus>,
     wake_requested: bool,
     recovery_requested: bool,
+    shutdown: CancellationToken,
 }
 
 impl DriverWorker {
@@ -286,9 +406,15 @@ impl DriverWorker {
             self.publish_error(error.to_string());
         }
         loop {
+            if self.shutdown.is_cancelled() {
+                return;
+            }
             if self.recovery_requested {
                 self.recovery_requested = false;
                 if let Err(error) = self.drive_recovery().await {
+                    if self.shutdown.is_cancelled() {
+                        return;
+                    }
                     self.publish_error(error.to_string());
                     return;
                 }
@@ -305,16 +431,23 @@ impl DriverWorker {
                 self.wake_requested = false;
                 if !snapshot.next_turn().is_empty() {
                     if let Err(error) = self.drive_pending().await {
+                        if self.shutdown.is_cancelled() {
+                            return;
+                        }
                         self.publish_error(error.to_string());
                         return;
                     }
                 }
                 continue;
             }
-            let Some(envelope) = self.commands.recv().await else {
-                return;
-            };
-            self.handle_idle(envelope).await;
+            tokio::select! {
+                biased;
+                _ = self.shutdown.cancelled() => return,
+                envelope = self.commands.recv() => match envelope {
+                    Some(envelope) => self.handle_idle(envelope).await,
+                    None => return,
+                }
+            }
         }
     }
 
@@ -334,6 +467,9 @@ impl DriverWorker {
 
     async fn drive_pending_inner(&mut self) -> Result<(), AgentCommandError> {
         loop {
+            if self.shutdown.is_cancelled() {
+                return Err(AgentCommandError::Closed);
+            }
             let claim = self
                 .activation
                 .inbox()
@@ -396,6 +532,9 @@ impl DriverWorker {
     }
 
     async fn drive_recovery_inner(&mut self) -> Result<(), AgentCommandError> {
+        if self.shutdown.is_cancelled() {
+            return Err(AgentCommandError::Closed);
+        }
         let session = self
             .activation
             .inbox()
@@ -443,6 +582,16 @@ impl DriverWorker {
         let mut run = LoopEngine.start(request);
         loop {
             tokio::select! {
+                biased;
+                _ = self.shutdown.cancelled() => {
+                    let _ = run.send(LoopCommand::Cancel).await;
+                    while let Some(event) = run.next().await {
+                        let _ = self.events.send(AgentEvent::TurnEvent { turn, event });
+                    }
+                    let result = run.result().await;
+                    let _ = self.events.send(AgentEvent::TurnFinished { turn, result });
+                    return Err(AgentCommandError::Closed);
+                }
                 event = run.next() => match event {
                     Some(event) => { let _ = self.events.send(AgentEvent::TurnEvent { turn, event }); }
                     None => break,
@@ -451,8 +600,11 @@ impl DriverWorker {
                     Some(command) => self.handle_active(command, &run).await,
                     None => {
                         let _ = run.send(LoopCommand::Cancel).await;
-                        while run.next().await.is_some() {}
-                        let _ = run.result().await;
+                        while let Some(event) = run.next().await {
+                            let _ = self.events.send(AgentEvent::TurnEvent { turn, event });
+                        }
+                        let result = run.result().await;
+                        let _ = self.events.send(AgentEvent::TurnFinished { turn, result });
                         return Err(AgentCommandError::Closed);
                     }
                 }

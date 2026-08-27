@@ -65,12 +65,12 @@ Agent，连续 Turn 由 Durable Inbox/AgentSupervisor 执行；`AgentRuntime::ad
 Token Guard 相互分离。Web 的 `llm.providers`、`llm.models`、`session.models` 直接投影该
 Registry；未注册选择在写入 Session 前返回 `model-unavailable`。
 
-当前仍是迁移中间态：`session.prompt` 已在返回成功前完成 Durable Inbox Append + Flush，
+持久 Agent 主链路已经完成：`session.prompt` 在返回成功前完成 Durable Inbox Append + Flush，
 RPC ID 同时是稳定 Inbox ID；Queue Edit/Remove 先修改持久 Inbox，再更新内存 Projection。
-`BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责。它现在能从 Session Log 和
-JSONL 目录确定性重建可推导投影；History 已直接按 Cursor 查询权威日志且内存只留有界尾部，
-下一阶段要让 Queue 也直接按 Cursor 查询持久投影，并把通用 Mutation Receipt 扩展到其他
-Session/Goal/Preset/Attachment RPC，补 Credential Reference，最终删除兼容缓存。
+`BasicHost` 的 FIFO 仅剩进程内 Driver Attachment/Projection 职责。Host 能从 Session Log 和 JSONL
+目录确定性重建可推导投影；History 直接按 Cursor 查询权威日志且内存只留有界尾部，Queue 从完整
+Durable Inbox 历史折叠 `next-turn + next-step`。剩余迁移工作是把通用 Mutation Receipt 扩展到
+Create/Fork/Cancel/Attachment 等 RPC、补 Credential Reference，并继续减少可丢弃兼容缓存。
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
@@ -118,10 +118,11 @@ Durable Inbox，再加入 Web Projection 并返回成功。正式 Agent 领取�
 Projection。Steering 交给活跃 `RunningTurn`；取消只停止当前 Turn，不删除排队输入。File Lease
 提供单机跨进程所有权；远程多主机仍需要 Fencing Epoch。
 
-每个 Step 当前通过默认 `IdentityContextPolicy` 完整重放 `session.messages`。Host 已按平台能力
-投影工具，并从选中 Registry Route 读取真实 Context Window、输出预留和安全余量，在 Provider
-I/O 前执行 Token Guard。完整自动 Context Compaction、Provider-aware 精确 Tokenizer 和按模型
-Capability 进一步裁剪仍未实现。
+每个 Step 无压力时通过默认 `IdentityContextPolicy` 完整重放当前 Session Surface。Host 已按
+平台能力投影工具，并从选中 Registry Route 读取真实 Context Window、输出预留和安全余量；正式
+Durable Runtime 默认安装 `CompactionConfig`，在 80% Pressure、Hard Overflow 或无 Delta 的
+Provider Context Overflow 时提交持久 Checkpoint Replace、重新计量后再继续。手动 `/compact`、
+Provider Purpose Router、按模型精确本地 Tokenizer 和 Capability 进一步裁剪仍未实现。
 
 ## 审批与事件流
 
@@ -201,10 +202,27 @@ web_search web_fetch
 缓存的 Platform 让文件观察记录跨 Turn 保留。Terminal Owner 是 Session ID。注入真实
 Search Provider 前，搜索明确不可用；网页抓取仍可使用。
 
-Platform 初始化还必须暴露 Readiness。当前 Bubblewrap Probe 错误只会在调用 Process Tool
-时作为工具结果出现，下一 Step 仍保留同一批工具；目标行为是将 Probe 失败投影给 UI，并从
-后续工具集合移除 `bash/glob/grep/terminal_open`；已有 Terminal 的管理工具按 Session 状态
-保留，同时保持受限模式 fail closed。
+Platform 初始化暴露可缓存 Readiness。正式 Host 已在后续模型 Step 从工具集合移除已确认不可用的
+`bash/glob/grep/terminal_open`；已有 Terminal 的管理工具仍按 Session 状态保留，同时保持受限模式
+fail closed。尚未完成的是把同一结构化原因投影给 Web Workspace Readiness/工具目录，而不是模型
+请求侧裁剪。
+
+## Host 结构化关闭
+
+`xharness-host-app` 在 HTTP Server 停止接受新连接后，必须调用
+`AgentRuntime::shutdown(10s)`，而不是直接退出 Tokio Runtime。Durable Runtime 使用
+同一 Deadline 依次收敛 Agent Supervisor 和 `SessionToolFactory`：前者取消/等待活动
+Loop，后者关闭共享 Terminal Registry 中的持久 PTY。
+
+关闭结果通过 `AgentShutdownReport { workers, graceful, forced_cleanup,
+cleanup_errors }` 返回，并记录 `host/shutdown.completed` Debug Event 后 Flush。只有
+`forced_cleanup == 0 && cleanup_errors.is_empty()` 时二进制才能以成功状态退出；
+超时 Abort、PTY 关闭错误和 Tool Factory 清理超时必须成为显式失败。
+二进制收到 SIGINT 或 SIGTERM 时先解决 Axum Shutdown Future 关闭 Accept Loop，再收敛
+Backend。由于 Hyper Graceful Shutdown 不会主动关闭已升级 WebSocket，Backend 完全静默后
+只再给 Transport 1 秒 Drain；仍未退出时 Abort 纯 Carrier Task，并在 Debug Event 中记录
+`transportForcedClose=true`。该 Abort 发生在 Provider/Tool/Process/PTY 全部收敛之后，不能用来
+代替 Backend Cleanup。
 
 ## Session 导出
 
@@ -214,10 +232,10 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 
 ## 当前限制
 
-- 进程退出后会丢失 Workspace 用户标题/排序/归档、Credential Override、Attachment、Settings 和
-  用户自定义 Preset 文档。Pending Approval 已能恢复；可从 Session Log 推导的 Workspace/Session/History/
-  Queue、选中 Preset、Title、Permission 和 Goal 会在
-  启动时恢复并重新附着 Driver，但 Web Projection 本身仍是进程内缓存。
+- Workspace 用户标题/排序/归档和 Settings 已进入 Host Control Log；Session/History/Queue、选中
+  Preset、Title、Model、Permission 和 Goal 从 Session Log 恢复并重新附着 Driver。Credential
+  Override、Attachment Blob 与用户自定义 Preset 文档仍未完整持久化；Web Projection 本身仍是
+  可丢弃的进程内缓存。
 - 持久 `xharness-session`/JSONL 已是模型历史和 Pending Input 真源，File Lease 已用于 Agent；
   审批恢复与八点硬崩溃矩阵已完成，但其他 Mutation RPC 仍缺少通用持久 Receipt，因此不能对外
   承诺整个 Web API 的 Exactly-once 语义。
@@ -229,8 +247,9 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 - Credential 更新只是进程内配置，不能重建已经运行中的 Provider。
 - 最小 Prompt 和 Hard Token Guard 已真实注入；完整 Section Registry 与用户 Preset 持久化尚未完成。
 - Plan Mode 目前只完成 Idle 状态持久化；完整 Pre-step Steering、Prompt Section 和退出工具待补。
-- 没有自动 Compaction；完整文件结果可能在下一 Step 被本地 Hard Guard 拒绝，但不会再发送已知
-  超窗请求触发 Provider Context 400。
+- 正式 Durable Host 已安装自动 Compaction，可处理 80% Pressure、请求前 Hard Overflow
+  和 Provider 无 Delta Context 400；手动 `/compact`、生产 Tool-result Pruner/Spill 和独立
+  Summary Purpose 路由仍待完成。
 - Full access 会关闭逐工具审批；正式 Host 已按 Sandbox/Search/Terminal Readiness 动态裁剪
   模型工具，但 Web UI 尚未显示同一能力报告。
 
@@ -241,3 +260,5 @@ Workspace/Session/Fork/Settings/Goal/Export 状态变化；通过 ClientResponse
 真实的审批工具。发布门禁还必须在 Linux 上启动 Host 二进制做 HTTP 烟测，并对 macOS
 目标做交叉检查。新增门禁必须解析实际 Provider Request，断言 System Prompt/工具子集，
 并重放 `64,196 > 53,248` 上下文样本和 Sandbox Probe 不可用后的动态工具投影。
+结构化关闭门禁还必须证明：活动 Turn 取消并持久闭合后才停 Worker，所有
+持久 PTY 已退出，关闭后新 Admission 被拒绝，Forced Cleanup 导致二进制非零退出。

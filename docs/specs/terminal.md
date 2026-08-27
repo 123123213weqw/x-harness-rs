@@ -16,6 +16,10 @@ ASCII 字母、数字、`.`、`_`、`-`，只需在同一 Owner 内唯一。所�
 Byte Cursor 开始返回输出。`list` 只报告当前 Owner 的 Session。`close` 删除 Session，
 发送 TERM，等待配置 Grace，再发送 KILL（必要时回退到杀 Root Child），最后等待退出。
 
+`TerminalRegistry::shutdown()` 先关闭新 Session Admission，再对注册表中每个 PTY 执行
+同一 TERM→Grace→KILL→Wait 路径，并返回包含总数、已关闭数和错误的
+`TerminalShutdownReport`。Host 不得在 Registry 报告失败时静默退出。
+
 Coding Bundle 中的 `terminal_open` 必须先经过 `NativePlatform::prepare_spawn`。Restricted
 Sandbox Probe 不可用时禁止创建裸 PTY；Host 应从下一模型 Step 移除 `terminal_open`。只有
 存在历史 Session 时才投影对应的 read/send/signal/close，并按原权限边界收尾，禁止跨模式
@@ -44,4 +48,5 @@ Child Process。
 ## 验收标准
 
 真实 Interactive Shell 测试必须覆盖 Open、Owner 隔离、Name 唯一、Send、按 Cursor
-增量 Read、Status/List、Signal、Close，以及无残留 Root Process 的有界清理。
+增量 Read、Status/List、Signal、Close，以及无残留 Root Process 的有界清理。还必须覆盖
+Registry Shutdown 一次关闭多个 PTY、确认 PID 消失，并拒绝关闭后的新 Session。

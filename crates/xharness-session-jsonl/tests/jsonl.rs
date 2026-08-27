@@ -67,6 +67,7 @@ fn turn_start(turn: u32) -> SessionEvent {
 fn user_message(content: &str) -> SessionEvent {
     EventData::UserMessage {
         message: Message::user(content),
+        surface_replace: None,
     }
     .into()
 }

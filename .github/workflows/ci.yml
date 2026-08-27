@@ -41,8 +41,11 @@ jobs:
         run: cargo build --locked --release -p xharness-host-app
       - name: Package native host
         run: |
-          mkdir -p dist
-          tar -C target/release -czf dist/xharness-host-darwin-arm64.tar.gz xharness-host
+          command -v rg >/dev/null || brew install ripgrep
+          mkdir -p dist/xharness-host-darwin-arm64
+          cp target/release/xharness-host dist/xharness-host-darwin-arm64/
+          cp "$(command -v rg)" dist/xharness-host-darwin-arm64/
+          tar -C dist/xharness-host-darwin-arm64 -czf dist/xharness-host-darwin-arm64.tar.gz xharness-host rg
           cd dist
           shasum -a 256 xharness-host-darwin-arm64.tar.gz > xharness-host-darwin-arm64.tar.gz.sha256
       - name: Upload native host

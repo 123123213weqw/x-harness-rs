@@ -4,6 +4,10 @@
 **状态：** 权威可游标 History、有界 Host 尾缓存、重启等价以及 Approval/Provider Retry
 强类型投影已实现；完整冻结事件词汇仍在迁移。
 
+Token、Cache、TTFT、Decode 吞吐和 LLM/Tool Duration 的完整日志投影由
+[`metrics-projection.md`](metrics-projection.md) 单独规范；在该规范完成前，Usage 字段命名和
+`tokenUsage/sessionStats` 均属于当前 Web 投影缺口。
+
 ## 真源与边界
 
 正式 Durable Runtime 的 Append-only `Session` 是模型历史与浏览器 History 的共同真源。
@@ -31,7 +35,10 @@
    Text/Image Content Block、Source、RPC ID 与 Timezone；旧日志缺元数据时才退化为纯文本。
 7. Assistant、Tool、Turn、Step、Request Header 和 Inbox Event 均从同一个 Logged Event 生成；
    Host 不得再为 Durable Turn 人工追加另一份 `turn/start/user/message/assistant/message`。
-8. 启动尾缓存、运行增量和 History Page 必须调用同一 `restored_web_event()` 纯投影；Search 与
+8. Compact Checkpoint 的 `surfaceReplace` 投影为
+   `surfaceOp={op:"replace",start,end}` 和 `sourceEventSeqs`；普通消息仍使用字符串
+   `surfaceOp="append"`，浏览器不得把 Replace 当作人类原始聊天删除。
+9. 启动尾缓存、运行增量和 History Page 必须调用同一 `restored_web_event()` 纯投影；Search 与
    Fork 在 Durable Runtime 下也必须读取权威 Session，而不是只看缓存尾部。
 
 ## 审批与模型重试
@@ -67,8 +74,9 @@ Projection 暴露 `plan={active,pending}`；当前稳定日志只恢复 `active`
 `pending=false`。运行中的 Pending Pre-step、带 Message/Image 的 Plan Steering 和
 `exit_plan_mode` 工具仍未实现，Host 必须明确报错而不是丢弃输入。
 
-冻结 48 个 Session Event 中目前已有 25 个强类型事件；其余 Compaction、完整 Plan、Feedback、
-Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能提前标记完成。
+冻结 48 个 Session Event 中目前已有 29 个强类型事件；Compaction 四事件已完成基础事务和投影，
+其余完整 Plan、Feedback、Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能
+提前标记完成。
 
 ## 失败语义
 

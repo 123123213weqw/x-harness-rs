@@ -7,11 +7,13 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        mpsc as std_mpsc, Arc,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(target_os = "linux")]
+use nix::sys::signal::Signal;
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_process::{
@@ -174,6 +176,92 @@ async fn cancel_kills_the_session_leader_and_descendant_tree() {
     wait_until_dead(child_pid).await;
 }
 
+#[test]
+fn dropping_tokio_runtime_kills_the_managed_process_group() {
+    let dir = TestDir::new();
+    let child_pid_file = dir.path().join("runtime-drop-child.pid");
+    let (pids_tx, pids_rx) = std_mpsc::sync_channel(1);
+    let (drop_tx, drop_rx) = std_mpsc::sync_channel::<()>(1);
+    let thread_file = child_pid_file.clone();
+    let worker = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let handle = runtime.block_on(async {
+            let handle = ProcessRuntime::new()
+                .spawn(
+                    SpawnSpec::new("/bin/sh", thread_file.parent().unwrap())
+                        .args([
+                            OsString::from("-c"),
+                            OsString::from(
+                                "trap '' TERM; /bin/sleep 30 & child=$!; printf '%s' \"$child\" > \"$1\"; wait \"$child\"",
+                            ),
+                            OsString::from("xharness-runtime-drop"),
+                            thread_file.clone().into_os_string(),
+                        ])
+                        .termination_grace(Duration::from_secs(30)),
+                )
+                .unwrap();
+            let child = wait_for_pid_file(&thread_file).await;
+            pids_tx.send((handle.pid(), child)).unwrap();
+            handle
+        });
+        drop_rx.recv().unwrap();
+        // Drop the caller-owned handle immediately before destroying Tokio.
+        // The supervisor's synchronous group guard is what makes task abort
+        // kill both the leader and descendant without an async cleanup poll.
+        drop(handle);
+        drop(runtime);
+    });
+
+    let (leader, child) = pids_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(process_exists(leader));
+    assert!(process_exists(child));
+    drop_tx.send(()).unwrap();
+    worker.join().unwrap();
+
+    wait_until_dead_sync(leader);
+    wait_until_dead_sync(child);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn escaped_session_holding_output_is_a_bounded_cleanup_failure() {
+    let dir = TestDir::new();
+    let escaped_pid_file = dir.path().join("escaped.pid");
+    let handle = ProcessRuntime::new()
+        .spawn(
+            SpawnSpec::new("/bin/sh", dir.path())
+                .args([
+                    OsString::from("-c"),
+                    OsString::from(
+                        "setsid /bin/sh -c 'printf \"%s\" \"$$\" > \"$1\"; exec /bin/sleep 30' escaped \"$1\" & while [ ! -s \"$1\" ]; do /bin/sleep 0.01; done; exit 0",
+                    ),
+                    OsString::from("xharness-escaped-session"),
+                    escaped_pid_file.clone().into_os_string(),
+                ])
+                .capture_drain_grace(Duration::from_millis(50)),
+        )
+        .unwrap();
+    let escaped = wait_for_pid_file(&escaped_pid_file).await;
+    let started = Instant::now();
+    let error = handle.wait().await.unwrap_err();
+    assert!(matches!(
+        error,
+        xharness_process::ProcessError::CaptureDrainTimedOut { .. }
+    ));
+    assert!(started.elapsed() < Duration::from_secs(2));
+
+    // Full access deliberately cannot hard-contain a child that creates a new
+    // session. The important contract is that it is reported as cleanup
+    // failure instead of hanging or publishing a successful tool result.
+    let escaped = Pid::from_raw(i32::try_from(escaped).unwrap());
+    let _ = kill(escaped, Signal::SIGKILL);
+    wait_until_dead(u32::try_from(escaped.as_raw()).unwrap()).await;
+}
+
 #[tokio::test]
 async fn capture_is_bounded_and_never_splits_valid_unicode() {
     let dir = TestDir::new();
@@ -303,6 +391,19 @@ async fn wait_until_dead(pid: u32) {
             "pid {pid} is still alive"
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+fn process_exists(pid: u32) -> bool {
+    let pid = Pid::from_raw(i32::try_from(pid).unwrap());
+    !matches!(kill(pid, None), Err(Errno::ESRCH))
+}
+
+fn wait_until_dead_sync(pid: u32) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while process_exists(pid) {
+        assert!(Instant::now() < deadline, "pid {pid} is still alive");
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 

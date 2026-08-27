@@ -1,8 +1,9 @@
 # 上下文预算与压缩规范
 
 **所属层：** `xharness-context`、`xharness-token`、`xharness-prompt`
-**状态：** Surface 抽象和请求前硬预算已实现；Compact 纯规划见
-[`compaction.md`](compaction.md)，生产 Session Replace 接线、精确 Tokenizer 仍待实现。
+**状态：** Surface 抽象、请求前硬预算、自动 Compact Session Replace 已实现；按模型本地精确
+Tokenizer、手动 Compact 与生产 Tool Result Pruner 仍待实现。详见
+[`compaction.md`](compaction.md)。
 
 ## 已落地的抽象边界
 
@@ -48,13 +49,15 @@ input_tokens + reserved_output_tokens + safety_margin_tokens
     <= context_window_tokens
 ```
 
-`xharness-token::TokenMeter` 是统一抽象，不依赖 llama.cpp。当前
-`ConservativeByteMeter` 按 Provider-neutral JSON 的 UTF-8 字节数并加入显式消息/工具/请求框架
-开销；对普通 Byte-BPE 家族宁可过估。后续同模型 Tokenizer 可实现同一 Trait，替换 Meter 而不
-改变 Core、Host 或 Context Policy。本地 OpenAI-compatible 端点如果能提供同模型 Tokenizer，
-应优先做精确计量；否则采用保守估计。
-估计不确定性不能通过减少安全余量来掩盖。超过预算必须在 Provider 网络 I/O 前返回结构化
-`context_budget_exceeded`，并携带各分项，禁止把上游 HTTP 400 当成正常控制流。
+`xharness-token::TokenMeter` 是统一抽象，不依赖 llama.cpp。当前 Core 会先让 Provider 对最终
+结构化请求执行原生输入 Token 计数；OpenAI-compatible Chat/Responses 分别支持
+`/chat/completions/input_tokens` 与 `/responses/input_tokens`。端点返回 404/405/501 时会缓存为
+能力缺失，再由 `ConservativeByteMeter` 按 Provider-neutral JSON 的 UTF-8 字节数及显式
+消息/工具/请求框架开销保守估算。其他计数错误不会静默回退。独立的本地 Tokenizer 仍可实现
+同一 Trait，而不改变 Core、Host 或 Context Policy。
+估计不确定性不能通过减少安全余量来掩盖。超过预算时 Durable Host 必须先尝试一次有上限的
+安全 Compact；没有安全范围或重计量仍超限才返回结构化失败。兼容 Provider 若在没有任何 Delta
+前返回已分类的 400 Context Overflow，可进入同一有上限恢复路径；其他 HTTP 400 仍是普通失败。
 
 ## 工具结果治理
 
@@ -96,16 +99,19 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 400 拒绝。主要来源是三个完整文件结果：约 20,115、26,953 和 6,848 tokens；最后一批
 并行读取单次增加约 33,800 tokens。
 
-该样本已成为固定回归：测试构造 64,196 输入估计和 53,248 可用输入预算，Core 在网络请求前
-明确失败并断言 Provider Attempt 为零。自动分页/压缩尚未实现，因此当前行为是本地拒绝，而非
-再次发送超窗请求。
+该样本已成为固定回归：未配置 Compact 的嵌入式 Core 构造 64,196 输入估计和 53,248 窗口，
+在网络请求前明确失败并断言 Provider Attempt 为零；正式 Durable Host 已在同一 Hard Guard 前
+接入自动 Compact。另有回归分别覆盖 80% 压力压缩后重计量、本地 Hard Overflow 恢复和无 Delta
+的 Provider 400 Context Overflow 在新 Step 恢复。
 
 ## 当前实现差距
 
-- Host 仍安装 `IdentityContextPolicy`，原样返回全部消息；超限时会拒绝，但不会自动腾出空间。
-- `xharness-compaction` 已按 0.8 阈值、0.16 尾部、8,192 摘要上限实现纯配置和安全范围规划，
-  但尚未接入 Session Replace 事务，因此不能把“规划完成”误报成“生产自动压缩已启用”。
-- 当前正式 Host 安装保守 Byte Meter；Provider-aware 精确 Tokenizer 尚未实现。
+- Host 的普通投影仍安装 `IdentityContextPolicy`；独立 Durable Compact Coordinator 已按 0.8
+  阈值、0.16 尾部、8,192 摘要上限自动改写当前 Session Surface，并在每次成功后重新计量。
+- `compaction/start|summary|end|prune`、Checkpoint Replace、Web 投影和未闭合 Start 恢复已
+  落地；手动 `/compact`、生产 Pruner Replace 与全 SIGKILL 切点矩阵尚未完成。
+- Provider 原生完整请求计数已接入；不支持计数端点的模型使用保守 Byte Meter。按模型注册本地
+  Tokenizer 与统一 Capability Catalog 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。
 - `read` 已分页；其他工具结果仍缺统一 Spill/Reduce。
 - Host 已按 Platform/Search/Terminal Readiness 发送工具子集；Profile/Step 级投影仍待实现。
@@ -116,4 +122,5 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
 
 测试必须覆盖精确/估算 Tokenizer、模板和工具开销、未知窗口、预留输出、单个与多个大工具结果、
 Unicode 截断、Surface Replace 后的 Tool 配对、摘要失败回退、动态工具子集，以及上述
-64,196/53,248 回归样本。任何超过预算的请求都必须证明 Provider 尝试次数为零。
+64,196/53,248 回归样本。未启用 Compact 的超预算请求必须证明 Provider 尝试次数为零；启用时
+必须证明只在 Durable Replace 成功且重新计量通过后才发普通模型请求。

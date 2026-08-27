@@ -79,6 +79,10 @@ Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只�
   Turn/Step 上重发同一 Approval ID。该 Call 不能转成 Outcome Unknown，也不能在用户再次响应前
   执行。已 Decided Allowed 但缺 Result 的 Call 仍按 Outcome Unknown 处理，禁止重放。
 - 取消/超时必须取消 Handler Token，并在 drop Handler Future 前提供有界清理时间。
+- 正式 `ToolExecutor` 路径在取消时先向整个 Batch 广播 Signal，再 Join Batch Result，
+  最后才允许 Loop 发布终态。Handler 在清理 Grace 内不收敛时物化为
+  `CleanupTimeout`，Loop 必须返回 `Failed/forced cleanup`，禁止伪装成已静默的
+  `Cancelled`。
 - 模型可见工具结果默认上限 256 KiB；超限优先使用确定性 `head_tail/v1` Envelope，记录
   原始/遗漏 Byte 和 SHA-256。所有合法配置上限下都必须保持 UTF-8 和 JSON 有效；极小预算使用
   最小合法后备。
@@ -104,15 +108,18 @@ Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只�
 
 - 默认最多 128 个模型 Step。
 - 默认最多 8 个并发工具。
-- 默认 `IdentityContextPolicy` 完整重放全部消息，没有 Summary 或 Surface Replace；正式 Host
-  安装 Hard Token Guard，超限会本地失败，但不会自动腾出空间。
+- 嵌入式 Core 默认 `IdentityContextPolicy` 且不自动启用 Compact；正式 Durable Host 同时安装
+  Hard Token Guard 与 `CompactionConfig`，可在 Pressure/Overflow 时持久 Replace 并重计量。
 - 嵌入式 Core 允许宿主不安装 Token Guard；正式 Host 配置模型时缺少窗口会拒绝启动。
 - 事件已使用按数量和序列化 Byte 双预算的非阻塞 Ring Journal；WebSocket 跨连接 Cursor 尚未完成。
 - `LoopRun` 表示一次 Run，不是带持久 Inbox 的长生命周期 Agent。
 - Provider 自有 replay 状态当前仍以 JSON Value 暴露。
+- 旧 `LoopRequest.tools` 兼容 Scheduler 仍待 `P0-03` 删除；正式 Host 和 14 个原生工具
+  已统一走具备有界 Signal/Join 的 `xharness-tools::ToolExecutor`。
 
-完整目标契约见[上下文预算与压缩规范](context.md)。Hard Guard 已封住已知超窗发送路径；在
-分页、Reduce 和 Surface Replace 落地前，仍不能宣称长任务能自动连续完成。
+完整目标契约见[上下文预算与压缩规范](context.md)。Hard Guard、自动 Summary Surface Replace
+和重计量已封住已知超窗发送路径；手动 Compact、生产 Pruner/Spill 与逐模型精确 Tokenizer 仍是
+长任务效率和可控性的主要剩余项。
 
 ## 验收标准
 
@@ -121,3 +128,5 @@ Journal 同时限制保留事件数和事件 JSON 序列化总 Byte；驱逐只�
 重复 Provider ID，以及不消费事件的宿主。
 另必须固定重放 `64,196 tokens -> 53,248 context` 样本，断言网络请求前被拦截，并验证三路
 并行大 Tool Result 不会绕过整体预算。
+结构化终止回归还必须证明：不合作 Handler 不能被报告为普通 Cancelled，且 Bash
+取消 Result 发布时受管 Leader/Descendant 已经消失。

@@ -19,7 +19,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 |---|---|---|
 | `xharness-api` | [Web 线协议](api.md) | 已实现 52 个 RPC 及 frame/envelope 目录 |
 | `xharness-server` | [Web 服务承载层](server.md) | 已实现 HTTP/WS/静态资源承载 |
-| `xharness-host` / `host-app` | [有状态 Web Host](host.md)、[LLM/Provider Registry](model-registry.md)、[启动恢复](host-restore.md)、[Web Session 投影](web-session-projection.md) | 52 个基础行为；多 Provider/Model 路由；History 直接刷新权威 Session；可恢复 Queue/Pending Turn |
+| `xharness-host` / `host-app` | [有状态 Web Host](host.md)、[LLM/Provider Registry](model-registry.md)、[启动恢复](host-restore.md)、[Web Session 投影](web-session-projection.md)、[模型性能与 Token 投影](metrics-projection.md) | 52 个基础行为；多 Provider/Model 路由；History 直接刷新权威 Session；可恢复 Queue/Pending Turn；完整性能投影计划中 |
 | `xharness-agent` | [长生命周期 Agent](agent.md) | Inbox、Supervisor、多 Turn/Steer、Registry、本机 Lease 与恢复 Wake 已实现 |
 | `xharness-core` | [核心 Agent Loop](core-loop.md) | 已实现，已在 Linux 测试 |
 | `xharness-provider-openai` | [OpenAI-compatible Provider](provider-openai.md) | 已实现，协议和真实 Chat 已测试 |
@@ -28,13 +28,13 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-tools` | [工具注册与执行管线](tools.md) | 已实现 |
 | `xharness-process` | [子进程运行时](process.md) | 已在 Unix 实现 |
 | `xharness-fs` | [工作区文件系统](filesystem.md) | 已在 Linux/macOS 实现 |
-| `xharness-sandbox` | [原生沙箱](sandbox.md) | Bubblewrap 已实现并实测；Seatbelt 已交叉检查 |
-| `xharness-platform` | [原生平台门面](platform.md) | 已在 Linux/macOS 实现 |
+| `xharness-sandbox` | [原生沙箱](sandbox.md) | Bubblewrap 已在 Linux 实测；Seatbelt 已在 macOS ARM64 原生 CI 实测 |
+| `xharness-platform` | [原生平台门面](platform.md) | Linux/macOS 已实现并原生测试；模型侧 Capability 投影已接通 |
 | `xharness-terminal` | [持久 PTY](terminal.md) | 已在 Unix 实现 |
 | `xharness-web` | [网页搜索与抓取](web.md) | 已实现 |
 | `xharness-coding-tools` | [标准 14 工具包](coding-tools.md) | 已实现并通过真实 Loop 测试 |
-| `xharness-context` | [上下文预算](context.md) | Surface 抽象已实现；生产 Host 当前仍为 Identity Policy |
-| `xharness-compaction` | [上下文压缩](compaction.md) | 配置、压力规划、Tool Pair 安全范围、裁剪与摘要接口已实现；Session 事务待接线 |
+| `xharness-context` | [上下文预算](context.md) | Surface 抽象、原生/后备 Token Guard 与 Durable Compact 接线已实现 |
+| `xharness-compaction` | [上下文压缩](compaction.md) | 自动 Pressure/Overflow、摘要重计量、Session Replace 与 Web 投影已接线；手动命令/生产 Pruner 待完成 |
 | `xharness-debug` | [Full Debug Trace](debug-trace.md) | Host/Core/Provider/Tool/Process/Terminal/Sandbox/Web/Server 全链路 Debug Trace 已接线 |
 | `xharness-token` | [上下文预算与压缩](context.md) | TokenMeter、保守后备与请求前 Hard Guard 已实现 |
 | `xharness-prompt` | [Prompt 组装与注入](prompt.md) | v1 最小确定性注入已实现；完整 Registry 计划中 |

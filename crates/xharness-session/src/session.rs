@@ -248,6 +248,13 @@ impl Session {
         derive_messages(&self.events)
     }
 
+    /// Current model-facing surface with the durable source coordinate of
+    /// every message. Compaction planners use these coordinates to journal an
+    /// immutable head replacement without deleting source history.
+    pub fn derive_surface_messages(&self) -> Vec<SurfaceMessage> {
+        derive_surface_messages(&self.events)
+    }
+
     pub fn inspect(&self) -> SessionInspection {
         SessionInspection {
             header: self.header.clone(),
@@ -261,49 +268,109 @@ impl Session {
 /// Pure provider-history projection. Raw chunks, lifecycle boundaries, request
 /// headers, and tool-call audit facts never become a second message.
 pub fn derive_messages(events: &[LoggedEvent]) -> Vec<Message> {
+    derive_surface_messages(events)
+        .into_iter()
+        .map(|node| node.message)
+        .collect()
+}
+
+/// One visible provider-history node and the event that introduced it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurfaceMessage {
+    pub seq: Sequence,
+    pub message: Message,
+}
+
+/// Pure current-surface projection. Replacement checkpoints shadow immutable
+/// source nodes but never rewrite or delete the underlying event log.
+pub fn derive_surface_messages(events: &[LoggedEvent]) -> Vec<SurfaceMessage> {
     let mut provider_call_ids = HashMap::<String, String>::new();
     let mut messages = Vec::new();
     let mut call_order = Vec::<String>::new();
-    let mut tool_results = HashMap::<String, String>::new();
+    let mut tool_results = HashMap::<String, (Sequence, String)>::new();
 
     fn flush_tool_results(
-        messages: &mut Vec<Message>,
+        messages: &mut Vec<SurfaceMessage>,
         call_order: &mut Vec<String>,
-        tool_results: &mut HashMap<String, String>,
+        tool_results: &mut HashMap<String, (Sequence, String)>,
         provider_call_ids: &HashMap<String, String>,
     ) {
         for call_id in call_order.drain(..) {
-            let Some(content) = tool_results.remove(&call_id) else {
+            let Some((seq, content)) = tool_results.remove(&call_id) else {
                 continue;
             };
-            messages.push(Message::tool(
-                provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
-                content,
-            ));
+            messages.push(SurfaceMessage {
+                seq,
+                message: Message::tool(
+                    provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
+                    content,
+                ),
+            });
         }
         // A valid log associates results with the current assistant batch.
         // Preserve a deterministic fallback for legacy snapshots whose audit
         // events predate that lifecycle invariant.
         let mut leftovers = tool_results.drain().collect::<Vec<_>>();
         leftovers.sort_by(|left, right| left.0.cmp(&right.0));
-        for (call_id, content) in leftovers {
-            messages.push(Message::tool(
-                provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
-                content,
-            ));
+        for (call_id, (seq, content)) in leftovers {
+            messages.push(SurfaceMessage {
+                seq,
+                message: Message::tool(
+                    provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
+                    content,
+                ),
+            });
+        }
+    }
+
+    fn replace_surface(
+        messages: &mut Vec<SurfaceMessage>,
+        seq: Sequence,
+        message: Message,
+        replace: &crate::SurfaceReplace,
+    ) {
+        let positions = replace
+            .shadowed_seqs
+            .iter()
+            .filter_map(|shadowed| messages.iter().position(|node| node.seq == *shadowed))
+            .collect::<Vec<_>>();
+        let contiguous = positions.len() == replace.shadowed_seqs.len()
+            && positions
+                .windows(2)
+                .all(|pair| pair[1] == pair[0].saturating_add(1));
+        if contiguous && !positions.is_empty() {
+            let start = positions[0];
+            let end = positions[positions.len() - 1];
+            messages.splice(start..=end, [SurfaceMessage { seq, message }]);
+        } else {
+            // `Session` validation rejects this shape. Keep the pure helper
+            // lossless for callers that project an unchecked legacy slice.
+            messages.push(SurfaceMessage { seq, message });
         }
     }
 
     for logged in events {
         match logged.data() {
-            EventData::UserMessage { message } => {
+            EventData::UserMessage {
+                message,
+                surface_replace,
+            } => {
                 flush_tool_results(
                     &mut messages,
                     &mut call_order,
                     &mut tool_results,
                     &provider_call_ids,
                 );
-                messages.push(message.clone());
+                match surface_replace {
+                    Some(replace) => {
+                        replace_surface(&mut messages, logged.seq, message.clone(), replace)
+                    }
+                    None => messages.push(SurfaceMessage {
+                        seq: logged.seq,
+                        message: message.clone(),
+                    }),
+                }
             }
             EventData::AssistantMessage { message, .. } => {
                 flush_tool_results(
@@ -316,13 +383,16 @@ pub fn derive_messages(events: &[LoggedEvent]) -> Vec<Message> {
                     provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
                 }
                 call_order.extend(message.tool_calls.iter().map(|call| call.id.clone()));
-                messages.push(message.clone());
+                messages.push(SurfaceMessage {
+                    seq: logged.seq,
+                    message: message.clone(),
+                });
             }
             EventData::ToolCall { call, .. } => {
                 provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
             }
             EventData::ToolResult { result, .. } => {
-                tool_results.insert(result.call_id.clone(), result.content.clone());
+                tool_results.insert(result.call_id.clone(), (logged.seq, result.content.clone()));
             }
             EventData::StepEnd { .. } | EventData::TurnEnd { .. } => flush_tool_results(
                 &mut messages,
@@ -377,6 +447,15 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         mirrored_calls: usize,
     }
 
+    #[derive(Default)]
+    struct CompactionState {
+        source_command_id: Option<String>,
+        turn: Option<u32>,
+        summary: Option<(crate::SequenceRange, Vec<Sequence>)>,
+        replacement: bool,
+        ended: bool,
+    }
+
     fn lifecycle_error(seq: Sequence, message: impl Into<String>) -> SessionError {
         SessionError::InvalidLifecycle {
             seq,
@@ -410,6 +489,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut started_retries = std::collections::HashSet::<(String, u32)>::new();
     let mut mutation_receipts = std::collections::HashSet::<String>::new();
     let mut mutation_revisions = std::collections::HashSet::<u64>::new();
+    let mut compactions = HashMap::<String, CompactionState>::new();
     let mut open_turn = None::<u32>;
     let mut last_turn = 0u32;
     let mut open_step = None::<StepState>;
@@ -1132,18 +1212,177 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     ));
                 }
             }
-            EventData::UserMessage { message } => {
+            EventData::CompactionStart {
+                compaction_id,
+                source_command_id,
+                turn,
+            } => {
+                if compaction_id.trim().is_empty()
+                    || source_command_id
+                        .as_ref()
+                        .is_some_and(|value| value.trim().is_empty())
+                    || turn.is_some_and(|turn| open_turn != Some(turn))
+                    || compactions.contains_key(compaction_id)
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "compaction/start has invalid identity, turn or duplicate id",
+                    ));
+                }
+                compactions.insert(
+                    compaction_id.clone(),
+                    CompactionState {
+                        source_command_id: source_command_id.clone(),
+                        turn: *turn,
+                        ..CompactionState::default()
+                    },
+                );
+            }
+            EventData::CompactionSummary {
+                compaction_id,
+                source_command_id,
+                summary,
+                shadowed_range,
+                shadowed_seqs,
+                shadowed_token_count,
+                provider,
+                model,
+                max_tokens,
+                ..
+            } => {
+                let Some(state) = compactions.get_mut(compaction_id) else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "compaction/summary has no matching start",
+                    ));
+                };
+                let range_is_valid = !shadowed_seqs.is_empty()
+                    && shadowed_seqs.first() == Some(&shadowed_range.start)
+                    && shadowed_seqs.last() == Some(&shadowed_range.end)
+                    && shadowed_seqs
+                        .iter()
+                        .collect::<std::collections::HashSet<_>>()
+                        .len()
+                        == shadowed_seqs.len();
+                let surface = derive_surface_messages(&events[..position]);
+                let positions = shadowed_seqs
+                    .iter()
+                    .filter_map(|seq| surface.iter().position(|node| node.seq == *seq))
+                    .collect::<Vec<_>>();
+                let surface_is_contiguous = positions.len() == shadowed_seqs.len()
+                    && positions
+                        .windows(2)
+                        .all(|pair| pair[1] == pair[0].saturating_add(1));
+                if state.ended
+                    || state.summary.is_some()
+                    || state.source_command_id != *source_command_id
+                    || summary.trim().is_empty()
+                    || provider.trim().is_empty()
+                    || model.trim().is_empty()
+                    || *shadowed_token_count == 0
+                    || max_tokens == &Some(0)
+                    || !range_is_valid
+                    || !surface_is_contiguous
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "compaction/summary is invalid or does not name a contiguous current-surface range",
+                    ));
+                }
+                state.summary = Some((*shadowed_range, shadowed_seqs.clone()));
+            }
+            EventData::CompactionEnd {
+                compaction_id,
+                source_command_id,
+                turn,
+                error,
+            } => {
+                let Some(state) = compactions.get_mut(compaction_id) else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "compaction/end has no matching start",
+                    ));
+                };
+                let success_shape = state.summary.is_some() && state.replacement;
+                let failure_shape = state.summary.is_none() && !state.replacement;
+                if state.ended
+                    || state.source_command_id != *source_command_id
+                    || state.turn != *turn
+                    || error.as_ref().is_some_and(|value| value.trim().is_empty())
+                    || (error.is_none() && !success_shape)
+                    || (error.is_some() && !failure_shape)
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "compaction/end does not close one valid success or failure transaction",
+                    ));
+                }
+                state.ended = true;
+            }
+            EventData::CompactionPrune {
+                shadowed_range,
+                shadowed_seqs,
+                shadowed_token_count,
+            } => {
+                if shadowed_seqs.is_empty()
+                    || shadowed_seqs.first() != Some(&shadowed_range.start)
+                    || shadowed_seqs.last() != Some(&shadowed_range.end)
+                    || shadowed_seqs
+                        .iter()
+                        .collect::<std::collections::HashSet<_>>()
+                        .len()
+                        != shadowed_seqs.len()
+                    || *shadowed_token_count == 0
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "compaction/prune has invalid range or accounting",
+                    ));
+                }
+            }
+            EventData::UserMessage {
+                message,
+                surface_replace,
+            } => {
                 if message.role != MessageRole::User {
                     return Err(SessionError::InvalidMessageRole {
                         seq: logged.seq,
                         role: "user",
                     });
                 }
-                if open_turn.is_none() || open_step.is_some() {
+                if open_turn.is_none() || (open_step.is_some() && surface_replace.is_none()) {
                     return Err(lifecycle_error(
                         logged.seq,
                         "user/message requires an open turn at a step boundary",
                     ));
+                }
+                if let Some(replace) = surface_replace {
+                    let Some(state) = compactions.get_mut(&replace.compaction_id) else {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "surface replacement has no matching compaction/start",
+                        ));
+                    };
+                    let immediately_follows_summary = position > 0
+                        && events[position - 1].revision == logged.revision
+                        && matches!(
+                            events[position - 1].data(),
+                            EventData::CompactionSummary { compaction_id, .. }
+                                if compaction_id == &replace.compaction_id
+                        );
+                    if state.ended
+                        || state.replacement
+                        || state.summary.as_ref().is_none_or(|(range, seqs)| {
+                            *range != replace.shadowed_range || seqs != &replace.shadowed_seqs
+                        })
+                        || !immediately_follows_summary
+                    {
+                        return Err(lifecycle_error(
+                            logged.seq,
+                            "surface replacement must immediately and exactly mirror its compaction summary",
+                        ));
+                    }
+                    state.replacement = true;
                 }
             }
             EventData::AssistantChunk { turn, step, .. } => {

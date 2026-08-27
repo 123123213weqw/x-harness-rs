@@ -14,6 +14,7 @@ use xharness_session::{
 };
 
 use crate::{
+    metrics::{web_token_usage, MetricsProjectionState},
     runtime::{AgentSessionRequest, ModelRoute},
     state::{
         DriverCommand, GoalState, ModelSelection, QueuePlacement, QueuedPrompt, SessionRecord,
@@ -128,6 +129,9 @@ impl BasicHost {
             let admissions = restored_admissions(&session);
             let projected_queue_len = queue.len();
             let pending_approval_count = session.pending_tool_approvals().len();
+            let metric_events =
+                project_session_event_range(&session, &route, 0, session.events().len());
+            let metrics = MetricsProjectionState::rebuild(metric_events.iter());
             let tail = project_session_event_tail(
                 &session,
                 &route,
@@ -174,6 +178,7 @@ impl BasicHost {
                 events: tail.events,
                 event_base_seq: tail.base_seq,
                 event_cache_bytes: tail.bytes,
+                metrics,
                 messages,
                 queue,
                 projected_queue,
@@ -645,7 +650,11 @@ fn restored_web_event(
         | EventData::GoalChange { .. }
         | EventData::PlanMode { .. }
         | EventData::LlmRetry { .. }
-        | EventData::LlmRetryStarted { .. } => tagged_event_data(event.data()),
+        | EventData::LlmRetryStarted { .. }
+        | EventData::CompactionStart { .. }
+        | EventData::CompactionSummary { .. }
+        | EventData::CompactionEnd { .. }
+        | EventData::CompactionPrune { .. } => tagged_event_data(event.data()),
         EventData::SessionMutationCommitted { .. } => {
             return json!({
                 "type": "xharness/internal",
@@ -678,10 +687,22 @@ fn restored_web_event(
             json!({"turn": web_turn(*turn), "step": step}),
             None,
         ),
-        EventData::UserMessage { message } => (
+        EventData::UserMessage {
+            message,
+            surface_replace,
+        } => (
             "user/message".to_owned(),
             web_message(message, route, event.seq, prompts),
-            Some("append"),
+            Some(surface_replace.as_ref().map_or_else(
+                || json!("append"),
+                |replace| {
+                    json!({
+                        "op": "replace",
+                        "start": replace.shadowed_range.start,
+                        "end": replace.shadowed_range.end,
+                    })
+                },
+            )),
         ),
         EventData::AssistantChunk { turn, step, chunk } => (
             "assistant/chunk".to_owned(),
@@ -697,16 +718,19 @@ fn restored_web_event(
             step,
             message,
             usage,
-        } => (
-            "assistant/message".to_owned(),
-            json!({
+        } => {
+            let mut data = json!({
                 "turn": web_turn(*turn),
                 "step": step,
                 "message": web_message(message, route, event.seq, prompts),
-                "usage": usage,
-            }),
-            Some("append"),
-        ),
+            });
+            if let Some(usage) = usage.as_ref().and_then(web_token_usage) {
+                data.as_object_mut()
+                    .expect("assistant message data is an object")
+                    .insert("usage".to_owned(), usage);
+            }
+            ("assistant/message".to_owned(), data, Some(json!("append")))
+        }
         EventData::ToolCall { turn, step, call } => (
             "tool/call".to_owned(),
             json!({
@@ -735,7 +759,7 @@ fn restored_web_event(
                     "source": {"kind": "tool", "callId": result.call_id},
                 },
             }),
-            Some("append"),
+            Some(json!("append")),
         ),
         EventData::SessionEndSeed => tagged_event_data(event.data()),
     };
@@ -748,12 +772,21 @@ fn restored_web_event(
     if let Some(surface_op) = surface_op {
         web.as_object_mut()
             .expect("restored event is an object")
-            .insert("surfaceOp".to_owned(), json!(surface_op));
+            .insert("surfaceOp".to_owned(), surface_op);
+    }
+    if let EventData::UserMessage {
+        surface_replace: Some(replace),
+        ..
+    } = event.data()
+    {
+        web.as_object_mut()
+            .expect("restored event is an object")
+            .insert("sourceEventSeqs".to_owned(), json!(replace.shadowed_seqs));
     }
     web
 }
 
-fn tagged_event_data(event: &EventData) -> (String, Value, Option<&'static str>) {
+fn tagged_event_data(event: &EventData) -> (String, Value, Option<Value>) {
     let mut value = serde_json::to_value(event).expect("EventData is serializable");
     let object = value
         .as_object_mut()
@@ -812,7 +845,10 @@ fn web_assistant_chunk(chunk: &AssistantChunk) -> Value {
             "name": name,
             "argumentsDelta": arguments_delta,
         }),
-        AssistantChunk::Usage(usage) => json!({"type": "usage", "usage": usage}),
+        AssistantChunk::Usage(usage) => web_token_usage(usage).map_or_else(
+            || json!({"type": "provider", "item": {"kind": "invalid-usage"}}),
+            |usage| json!({"type": "usage", "usage": usage}),
+        ),
         AssistantChunk::Finish { reason } => json!({"type": "finish", "reason": reason}),
         AssistantChunk::Provider(item) => json!({"type": "provider", "item": item}),
     }
@@ -927,12 +963,12 @@ mod tests {
     use xharness_control::{ControlRevision, ControlStore, JsonlControlStore};
     use xharness_core::{
         FinishReason, IdentityContextPolicy, ModelProvider, ProviderError, ProviderEvent,
-        ProviderRequest, ProviderStream,
+        ProviderRequest, ProviderStream, TokenUsage,
     };
     use xharness_session::{
         ApprovalOutcome, AssistantChunk, EventData, LlmFailure, LlmRetryMode, MemorySessionStore,
-        Message, RequestHeader, Revision, Session, SessionEvent, SessionHeader, Store, ToolCall,
-        ToolOutcome, ToolResultData, TurnEndReason,
+        Message, RequestHeader, Revision, SequenceRange, Session, SessionEvent, SessionHeader,
+        Store, SurfaceReplace, ToolCall, ToolOutcome, ToolResultData, TurnEndReason,
     };
     use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, ToolSpec};
 
@@ -1012,7 +1048,13 @@ mod tests {
                 Ok(ProviderEvent::TextDelta(answer)),
                 Ok(ProviderEvent::Completed {
                     finish_reason: Some(FinishReason::Stop),
-                    usage: None,
+                    usage: Some(TokenUsage {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                        cache_read_tokens: 90,
+                        cache_write_tokens: 2,
+                        reasoning_tokens: 3,
+                    }),
                     provider_items: Vec::new(),
                 }),
             ])))
@@ -1101,6 +1143,7 @@ mod tests {
             EventData::TurnStart { turn }.into(),
             EventData::UserMessage {
                 message: Message::user(user).with_id(format!("user-{turn}")),
+                surface_replace: None,
             }
             .into(),
             EventData::StepStart { turn, step: 1 }.into(),
@@ -1450,6 +1493,7 @@ mod tests {
                     SessionEvent::from(EventData::TurnStart { turn: 1 }),
                     EventData::UserMessage {
                         message: Message::user("hello").with_id("prompt-history"),
+                        surface_replace: None,
                     }
                     .into(),
                     EventData::StepStart { turn: 1, step: 1 }.into(),
@@ -1524,6 +1568,7 @@ mod tests {
                     EventData::TurnStart { turn: 1 }.into(),
                     EventData::UserMessage {
                         message: Message::user("inspect"),
+                        surface_replace: None,
                     }
                     .into(),
                     EventData::StepStart { turn: 1, step: 1 }.into(),
@@ -1629,6 +1674,102 @@ mod tests {
             .all(|event| event.get("surfaceOp").is_none()));
     }
 
+    #[tokio::test]
+    async fn compaction_projects_a_replace_surface_operation_with_source_evidence() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        store
+            .create(SessionHeader::new("compaction-projection"))
+            .await
+            .unwrap();
+        store
+            .append(
+                "compaction-projection",
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("large history"),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::CompactionStart {
+                        compaction_id: "compact-1".to_owned(),
+                        source_command_id: None,
+                        turn: Some(1),
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let shadowed_range = SequenceRange { start: 1, end: 1 };
+        store
+            .append(
+                "compaction-projection",
+                Revision(1),
+                vec![
+                    EventData::CompactionSummary {
+                        compaction_id: "compact-1".to_owned(),
+                        source_command_id: None,
+                        summary: "summary".to_owned(),
+                        shadowed_range,
+                        shadowed_seqs: vec![1],
+                        shadowed_token_count: 128,
+                        provider: "test".to_owned(),
+                        model: "test-model".to_owned(),
+                        max_tokens: Some(64),
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::UserMessage {
+                        message: Message::user("checkpoint"),
+                        surface_replace: Some(SurfaceReplace {
+                            compaction_id: "compact-1".to_owned(),
+                            shadowed_range,
+                            shadowed_seqs: vec![1],
+                        }),
+                    }
+                    .into(),
+                    EventData::CompactionEnd {
+                        compaction_id: "compact-1".to_owned(),
+                        source_command_id: None,
+                        turn: Some(1),
+                        error: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+
+        let session = store.load("compaction-projection").await.unwrap().unwrap();
+        let route = ModelRoute {
+            provider: "test".to_owned(),
+            model: "test-model".to_owned(),
+            reasoning_effort: None,
+        };
+        let projected = project_session_event_range(&session, &route, 0, session.events().len());
+        let replacement = projected
+            .iter()
+            .find(|event| event["data"]["content"][0]["text"] == "checkpoint")
+            .expect("checkpoint event is projected");
+        assert_eq!(
+            replacement["surfaceOp"],
+            json!({"op": "replace", "start": 1, "end": 1})
+        );
+        assert_eq!(replacement["sourceEventSeqs"], json!([1]));
+        assert!(projected
+            .iter()
+            .any(|event| event["type"] == "compaction/start"));
+        assert!(projected
+            .iter()
+            .any(|event| event["type"] == "compaction/summary"));
+        assert!(projected
+            .iter()
+            .any(|event| event["type"] == "compaction/end"));
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn restore_reattaches_pending_approval_and_executes_only_after_web_response() {
         let cwd = std::env::temp_dir();
@@ -1653,6 +1794,7 @@ mod tests {
                     EventData::TurnStart { turn: 1 }.into(),
                     EventData::UserMessage {
                         message: Message::user("run guarded tool").with_id("original-prompt"),
+                        surface_replace: None,
                     }
                     .into(),
                     EventData::StepStart { turn: 1, step: 1 }.into(),
@@ -2514,6 +2656,7 @@ mod tests {
             64,
         ));
         let live = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        let mut mux = live.mux_events();
         let created = live
             .call(
                 RpcId::new("projection-create"),
@@ -2556,6 +2699,49 @@ mod tests {
         })
         .await
         .expect("live turn completes");
+        let seen_metric_frames = Arc::new(Mutex::new(Vec::new()));
+        let seen_in_stream = Arc::clone(&seen_metric_frames);
+        let live_metrics = tokio::time::timeout(Duration::from_secs(2), async {
+            let mut token_usage = None;
+            let mut session_stats = None;
+            loop {
+                let frame = mux.next().await.expect("mux remained open");
+                if frame.payload["type"] != "session/projection"
+                    || frame.payload["sessionId"] != "projection-session"
+                {
+                    continue;
+                }
+                seen_in_stream.lock().unwrap().push(frame.payload.clone());
+                match frame.payload["key"].as_str() {
+                    Some("tokenUsage") => token_usage = Some(frame.payload["value"].clone()),
+                    Some("sessionStats") if frame.payload["value"]["steps"].as_u64() == Some(1) => {
+                        session_stats = Some(frame.payload["value"].clone())
+                    }
+                    _ => {}
+                }
+                if let (Some(token_usage), Some(session_stats)) = (&token_usage, &session_stats) {
+                    break (token_usage.clone(), session_stats.clone());
+                }
+            }
+        })
+        .await;
+        let (live_token_usage, live_session_stats) = live_metrics.unwrap_or_else(|_| {
+            panic!(
+                "live metric projection frames were not published: {:?}",
+                seen_metric_frames.lock().unwrap()
+            )
+        });
+        assert_eq!(
+            live_token_usage,
+            json!({
+                "uncachedInputTokens": 10,
+                "outputTokens": 5,
+                "cacheReadTokens": 90,
+                "cacheWriteTokens": 2,
+            })
+        );
+        assert_eq!(live_session_stats["turns"], 1);
+        assert_eq!(live_session_stats["steps"], 1);
         let live_history = live
             .call(
                 RpcId::new("projection-live-history"),
@@ -2606,6 +2792,46 @@ mod tests {
             live_history["projections"],
             restarted_history["projections"]
         );
+        assert_eq!(
+            live_history["projections"]["values"]["tokenUsage"],
+            json!({
+                "uncachedInputTokens": 10,
+                "outputTokens": 5,
+                "cacheReadTokens": 90,
+                "cacheWriteTokens": 2,
+            })
+        );
+        assert_eq!(
+            live_history["projections"]["values"]["sessionStats"]["turns"],
+            1
+        );
+        assert_eq!(
+            live_history["projections"]["values"]["sessionStats"]["steps"],
+            1
+        );
+        assert_eq!(
+            live_history["projections"]["values"]["sessionStats"]["ttftSteps"],
+            1
+        );
+        let assistant = live_history["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["event"]["type"] == "assistant/message")
+            .unwrap();
+        assert_eq!(
+            assistant["event"]["data"]["usage"],
+            json!({
+                "inputTokens": 10,
+                "outputTokens": 5,
+                "cacheReadTokens": 90,
+                "cacheWriteTokens": 2,
+                "reasoningTokens": 3,
+            })
+        );
+        assert!(assistant["event"]["data"]["usage"]
+            .get("input_tokens")
+            .is_none());
         let user = live_history["events"]
             .as_array()
             .unwrap()

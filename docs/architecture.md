@@ -35,7 +35,7 @@ DeepSeek Web UI / future CLI
                |
   +------------+-------------+
   |                          |
-xharness-agent（迁移中） prompt/context/token
+xharness-agent（正式运行时） prompt/context/token/compaction
   |                          |
   +--------- xharness-core --+
               |          |
@@ -69,16 +69,19 @@ Session 原始事件
 当前已经把 Context 从 Core 拆成独立 `xharness-context`，并建立一次性 Surface、替换来源范围
 和 Request Header 审计边界。`xharness-prompt/v1` 已把 Preset/权限/Workspace/Workflow/Plan
 按稳定顺序真实注入并记录 Hash。`xharness-token` 在 Surface 完成后执行统一 Hard Guard；正式
-Host 配置模型时必须声明真实窗口，并使用保守 Byte Meter、输出预留和安全余量。Host 仍使用
-`IdentityContextPolicy`，所以超限会在网络前本地失败，但尚不会自动压缩。
+Host 配置模型时必须声明真实窗口，并使用保守 Byte Meter、输出预留和安全余量。无压力时仍由
+`IdentityContextPolicy` 逐字投影；达到 80% 或 Hard/Provider Overflow 时，Core 通过 Durable
+Session 事务摘要安全头部、重计量并重试，压缩结果在重启后仍是权威 Surface。
 
 Host 控制面也已完成两层解耦：原生部署组合移动到 `xharness-host-app`；BasicHost 只通过
-`AgentRuntime -> RunningTurn` 驱动 Turn。当前 `LoopAgentRuntime` 是 v0 Loop 的兼容适配器，
-未来 Durable Agent/Inbox 实现替换该适配器，不触碰 Web RPC。
+`AgentRuntime -> RunningTurn` 驱动 Turn。正式二进制已经使用
+`DurableLoopAgentRuntime + JSONL Store + File Lease`；`LoopAgentRuntime` 只保留给内嵌测试和
+兼容调用，不再是生产 Host 路径。
 
 `xharness-agent` 已交付 `agent/inbox/spliced` 可重放事件、Next-turn/Next-step 投影、Claim 与
 Turn 输入同 Revision 提交、进程内 Registry、AgentSupervisor、多 Turn Driver、持久 Steering，
-以及 macOS/Linux 文件 Lease。当前仍在把 `BasicHost` 的内存 FIFO 迁移到这条路径。
+以及 macOS/Linux 文件 Lease。Web Queue 已从完整 Durable Inbox 历史折叠；BasicHost 的 FIFO
+只保存运行 Turn 的 Attachment/投影关系，不再是输入真源。
 
 ## 模块职责
 
@@ -97,8 +100,10 @@ Transcript 投影和崩溃恢复。JSONL 是首个持久 Backend；后续 SQLite
 ### `xharness-context`
 
 拥有 `ContextRequest -> ContextSurface` 投影、Policy 身份、Surface Edit 结构验证和请求审计
-元数据。它不依赖任何推理后端，也不修改 Session 原始事件。当前交付抽象和 Identity 策略；
-确定性裁剪与 Summary 仍待实现。
+元数据。它不依赖任何推理后端，也不修改 Session 原始事件。当前已有 Identity 策略，以及独立
+`xharness-compaction` 的确定性压力规划、Tool Pair 安全切点、Pruner 和 Summary 接口。Session
+Surface Replace 事务、正式 Host 自动 Pressure/Overflow 触发、摘要重计量和中断 Start 恢复已
+接线；手动命令与生产 Pruner 仍待完成。
 
 ### `xharness-prompt` / `xharness-token`
 
@@ -106,8 +111,9 @@ Transcript 投影和崩溃恢复。JSONL 是首个持久 Backend；后续 SQLite
 组装，并把 System 与 Section/Assembly Hash 写入 Request Header。完整 Registry 后续增加动态
 Scope、Variable、Skill 和 Provider Section。Context 层负责 Token 预算、工具结果 Reduce、
 Spill Reference 与 Surface Replace。`xharness-token` 提供可替换 `TokenMeter`、保守 Byte 后备、
-强类型 Budget/Report/Error；Core 在 Provider I/O 前执行并将报告落 Request Header，同时把
-输出预留映射为 Provider Generation Ceiling。三者共同产生可审计的 Prepared Call。
+强类型 Budget/Report/Error；Core 优先调用 Provider 原生完整请求 Token 计数端点，不支持时再用
+保守 Meter，并在 Provider I/O 前将预算报告落入 Request Header，同时把输出预留映射为 Provider
+Generation Ceiling。三者共同产生可审计的 Prepared Call。
 
 ### `xharness-tools`
 
@@ -140,6 +146,11 @@ PTY 是独立的 owner-scoped 持久服务，不是“一次性 Bash 的长时�
 `FullAccess` 必须由操作者显式选择。它位于 Platform 权限层而不是 Sandbox Mode 内：关闭
 Seatbelt/Bubblewrap 权限隔离，但仍通过 Process Runtime 托管进程生命周期。
 
+关闭链路与调用链路方向相反：Host 先关闭新 Admission，Agent Supervisor 向活动
+Loop 发送 Cancel，Loop 向正式 Tool Batch 广播 Signal 并 Join，工具等待 Process Group
+或返回显式 Cleanup Failure，最后 Host 关闭共享 PTY Registry。超过共享 Deadline
+只能记为 Forced Cleanup，不能对外报告为安全 Cancelled。
+
 标准 Coding Bundle 的 14 个稳定名称为：
 
 ```text
@@ -165,8 +176,9 @@ Web UI 是 Session/Agent 状态的 Projection，不拥有模型历史。`xharnes
 1. 事件溯源 Session、Memory/JSONL Store。**已实现。**
 2. Core 契约强化、Tool Registry 与原生 14 工具。**已实现基础版。**
 3. Web 兼容 API/Server/Host 和真实 Loop 投影。**已实现基础版。**
-4. 上下文预检、分页 Read、工具结果 Reduce、能力投影与真实 Prompt 注入。**当前 P0。**
-5. 长生命周期 Agent、Durable Inbox、Lease、结构化 Shutdown 与 CLI。**Inbox/Lease 基础已实现，Driver 迁移中。**
+4. 上下文预检、分页 Read、工具结果 Reduce、能力投影、真实 Prompt 与自动 Compact。
+   **已实现基础版；手动 Compact/生产 Pruner/Spill 待完成。**
+5. 长生命周期 Agent、Durable Inbox、Lease、正式 Host 接管与结构化 Shutdown。**已实现。**
 6. 认证、游标恢复、Attachment、Skills、MCP、LSP、Subagent 与 Workflow。**计划中。**
 
 先稳定事件、上下文和权限契约，再扩展 Web/Daemon/Subagent。否则每个客户端都会绑定临时内存

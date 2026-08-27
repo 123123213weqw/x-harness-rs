@@ -6,6 +6,7 @@ use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopSta
 use xharness_session::SessionEvent;
 
 use crate::{
+    metrics::web_token_usage_from_core,
     restore::{
         project_session_event_range, project_session_event_tail, restored_agent_preset,
         restored_goal, restored_permission, restored_plan_mode, restored_queue,
@@ -145,8 +146,15 @@ impl BasicHost {
                         "authoritative session {session_id:?} moved behind cursor {previous}"
                     )));
                 }
-                let new_events =
+                let projected_events =
                     project_session_event_range(&session, &route, start, session.events().len());
+                let new_events = projected_events
+                    .into_iter()
+                    .map(|event| {
+                        let updates = record.metrics.apply(&event);
+                        (event, updates)
+                    })
+                    .collect::<Vec<_>>();
                 record.replace_authoritative_tail(
                     tail.base_seq,
                     tail.next_seq,
@@ -180,12 +188,22 @@ impl BasicHost {
             }
             (new_events, queue_changed)
         };
-        for event in new_events {
+        for (event, updates) in new_events {
+            let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
             self.push_mux(json!({
                 "type": "session/event",
                 "sessionId": session_id,
                 "event": event,
             }));
+            for update in updates {
+                self.push_mux(json!({
+                    "type": "session/projection",
+                    "sessionId": session_id,
+                    "key": update.key,
+                    "value": update.value,
+                    "seq": seq,
+                }));
+            }
         }
         if queue_changed {
             self.emit_queue(session_id).await;
@@ -200,7 +218,7 @@ impl BasicHost {
         data: Value,
         surface_op: Option<&str>,
     ) -> Result<Value, RpcError> {
-        let event = {
+        let (event, metric_updates) = {
             let mut state = self.state.write().await;
             let session = state.sessions.get_mut(session_id).ok_or_else(|| {
                 rpc_error(
@@ -232,13 +250,24 @@ impl BasicHost {
                 .event_cache_bytes
                 .saturating_add(serde_json::to_vec(&event).map_or(0, |encoded| encoded.len()));
             session.events.push(event.clone());
-            event
+            let metric_updates = session.metrics.apply(&event);
+            (event, metric_updates)
         };
+        let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
         self.push_mux(json!({
             "type": "session/event",
             "sessionId": session_id,
             "event": event,
         }));
+        for update in metric_updates {
+            self.push_mux(json!({
+                "type": "session/projection",
+                "sessionId": session_id,
+                "key": update.key,
+                "value": update.value,
+                "seq": seq,
+            }));
+        }
         Ok(event)
     }
 
@@ -716,16 +745,7 @@ impl BasicHost {
             if let Some(usage) = &result.usage {
                 data.as_object_mut()
                     .expect("assistant data is object")
-                    .insert(
-                        "usage".to_owned(),
-                        json!({
-                            "inputTokens": usage.input_tokens,
-                            "outputTokens": usage.output_tokens,
-                            "cacheReadTokens": usage.cache_read_tokens,
-                            "cacheWriteTokens": usage.cache_write_tokens,
-                            "reasoningTokens": usage.reasoning_tokens,
-                        }),
-                    );
+                    .insert("usage".to_owned(), web_token_usage_from_core(usage));
             }
             self.append_session_event(session_id, "assistant/message", data, Some("append"))
                 .await?;

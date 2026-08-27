@@ -792,17 +792,54 @@ fn json_output(value: Value) -> ToolOutput {
 
 fn managed_environment() -> BTreeMap<OsString, OsString> {
     let mut environment = BTreeMap::new();
-    environment.insert(
-        OsString::from("PATH"),
-        std::env::var_os("PATH")
-            .unwrap_or_else(|| OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")),
-    );
+    environment.insert(OsString::from("PATH"), managed_path());
     environment.insert(OsString::from("LANG"), OsString::from("C.UTF-8"));
     environment.insert(OsString::from("TERM"), OsString::from("xterm-256color"));
     environment.insert(OsString::from("NO_COLOR"), OsString::from("1"));
     environment.insert(OsString::from("PAGER"), OsString::from("cat"));
     environment.insert(OsString::from("GIT_PAGER"), OsString::from("cat"));
     environment
+}
+
+/// Build a deterministic executable search path instead of trusting the
+/// sparse `/usr/bin:/bin:/usr/sbin:/sbin` environment supplied by launchd.
+/// Release archives place helper binaries such as `rg` beside the Host, so
+/// the current executable directory must win over inherited system paths.
+fn managed_path() -> OsString {
+    let mut paths = Vec::<PathBuf>::new();
+    let mut push = |path: PathBuf| {
+        if !path.as_os_str().is_empty() && !paths.contains(&path) {
+            paths.push(path);
+        }
+    };
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(parent) = executable.parent() {
+            push(parent.to_owned());
+        }
+    }
+    if let Some(inherited) = std::env::var_os("PATH") {
+        for path in std::env::split_paths(&inherited) {
+            push(path);
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        push(home.join(".local/bin"));
+        push(home.join(".cargo/bin"));
+    }
+    for path in [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ] {
+        push(PathBuf::from(path));
+    }
+    std::env::join_paths(paths).unwrap_or_else(|_| {
+        OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+    })
 }
 
 fn resolve_cwd(
@@ -894,4 +931,25 @@ fn path_key(arguments: &Value) -> Option<String> {
 
 fn name_key(arguments: &Value) -> Option<String> {
     arguments.get("name")?.as_str().map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::managed_path;
+
+    #[test]
+    fn managed_path_keeps_system_and_package_search_locations() {
+        let paths = std::env::split_paths(&managed_path()).collect::<Vec<_>>();
+        assert!(paths
+            .iter()
+            .any(|path| path == std::path::Path::new("/usr/bin")));
+        assert!(paths
+            .iter()
+            .any(|path| path == std::path::Path::new("/usr/local/bin")));
+        let executable = std::env::current_exe().unwrap();
+        assert_eq!(
+            paths.first().map(|path| path.as_path()),
+            executable.parent()
+        );
+    }
 }
