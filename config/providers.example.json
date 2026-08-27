@@ -17,6 +17,7 @@
           "display_name": "Qwen3.8 27B · 4080",
           "context_window_tokens": 53248,
           "max_output_tokens": 8192,
+          "minimum_output_tokens": 4096,
           "token_safety_margin": 1024
         }
       ]
@@ -34,6 +35,7 @@
           "display_name": "Qwen3.5 9B · V100",
           "context_window_tokens": 32768,
           "max_output_tokens": 4096,
+          "minimum_output_tokens": 4096,
           "token_safety_margin": 1024
         }
       ]

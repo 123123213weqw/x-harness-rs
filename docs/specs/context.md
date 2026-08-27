@@ -36,7 +36,9 @@ System Prompt、消息历史、工具定义、Provider 模板开销和本轮最�
 一次 Prepared Call 至少记录下列值：
 
 - `context_window_tokens`：模型或部署显式声明的总窗口；未知时禁止假装无限。
-- `reserved_output_tokens`：为本轮输出和 Tool Call 参数保留的预算。
+- `reserved_output_tokens`：本轮首选/目标输出上限。
+- `minimum_output_tokens`：允许发请求的最小输出保留；低于该值必须先压缩或拒绝。
+- `selected_output_tokens`：结合本次真实输入后实际下发给 Provider 的动态上限。
 - `safety_margin_tokens`：覆盖模板/Tokenizer 偏差的安全余量。
 - `estimated_input_tokens` 或权威 Tokenizer 得到的 `measured_input_tokens`。
 - `tool_schema_tokens`、`system_tokens`、`message_tokens` 和 `provider_overhead_tokens`。
@@ -45,9 +47,18 @@ System Prompt、消息历史、工具定义、Provider 模板开销和本轮最�
 硬约束：
 
 ```text
-input_tokens + reserved_output_tokens + safety_margin_tokens
+input_tokens + minimum_output_tokens + safety_margin_tokens
     <= context_window_tokens
+
+selected_output_tokens = min(
+    reserved_output_tokens,
+    context_window_tokens - input_tokens - safety_margin_tokens
+)
 ```
+
+`selected_output_tokens` 必须不低于 `minimum_output_tokens`。该模型允许长思考时，路由应配置较大
+目标输出，同时保留一个较小但仍可完成有效响应的最小值。Pressure Compact 在发请求前运行；因此
+长历史优先被压缩，为 Reasoning/正文让出空间，而不是把每轮输出静默挤回固定的小额度。
 
 `xharness-token::TokenMeter` 是统一抽象，不依赖 llama.cpp。当前 Core 会先让 Provider 对最终
 结构化请求执行原生输入 Token 计数；OpenAI-compatible Chat/Responses 分别支持

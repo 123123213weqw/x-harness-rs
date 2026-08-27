@@ -146,6 +146,10 @@ pub enum AssistantChunk {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TurnEndReason {
     Completed,
+    /// The provider exhausted the generation ceiling and the loop had no
+    /// remaining safe continuation budget. Partial assistant output remains
+    /// part of the durable surface.
+    MaxTokens,
     Cancelled,
     LimitReached,
     Failed {
