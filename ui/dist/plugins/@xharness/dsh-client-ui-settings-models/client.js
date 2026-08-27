@@ -453,7 +453,7 @@ function CustomProviderCard(props) {
     // Rows are checked by the same per-row validator the editor cards use, so a
     // bad row is named by its position here too. Capacities have route-level
     // fallbacks; what a route cannot default is at least one model.
-    const modelFailure = (0, DeepSeekModelsEditor_1.validateDeepSeekModels)(models);
+    const modelFailure = (0, DeepSeekModelsEditor_1.validateDeepSeekModels)(models) ?? (0, DeepSeekModelsEditor_1.validateOutputBudgets)(models);
     const keyFailure = (0, apiKey_1.apiKeyFailure)(keyDraft);
     // The typed key with paste whitespace removed. A blank field yields an empty
     // string, which the create path reads as "no key supplied" — a route may
@@ -773,6 +773,7 @@ exports.parseCapacity = parseCapacity;
 exports.formatCapacity = formatCapacity;
 exports.modelDrafts = modelDrafts;
 exports.validateDeepSeekModels = validateDeepSeekModels;
+exports.validateOutputBudgets = validateOutputBudgets;
 exports.DeepSeekModelsEditor = DeepSeekModelsEditor;
 const jsx_runtime_1 = require("react/jsx-runtime");
 const runtime_types_1 = require("../shared/runtime-types");
@@ -873,6 +874,36 @@ function validateDeepSeekModels(value) {
         if (maxTokens !== undefined
             && (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens <= 0)) {
             return { index, key: 'modelMaxTokensInvalid' };
+        }
+    }
+    return undefined;
+}
+/** Cross-field budget validation mirrors the native adaptive output policy.
+ * Hidden minimum reserves survive later manual edits and must be checked too.
+ * Unknown deployment maxima use 4096; a context capacity is not an output cap.
+ */
+function validateOutputBudgets(value, providerValue = {}, fallbackValue = {}) {
+    const provider = (0, runtime_types_1.isObjectRecord)(providerValue) ? providerValue : {};
+    const fallback = (0, runtime_types_1.isObjectRecord)(fallbackValue) ? fallbackValue : {};
+    const sameRoute = ['baseURL', 'api'].every(key => (provider[key] ?? fallback[key]) === fallback[key]);
+    const defaults = sameRoute ? fallback : {};
+    const baseModels = modelDrafts(defaults['models']);
+    const countValid = (count) => typeof count === 'number' && Number.isInteger(count) && count > 0 && count <= 1000000000;
+    for (const [index, model] of modelDrafts(value).entries()) {
+        const baseModel = baseModels.find(row => row['id'] === model['id']
+            && (row['upstreamModel'] ?? row['id']) === (model['upstreamModel'] ?? model['id']));
+        const maximum = model['maxTokens'] ?? baseModel?.['maxTokens']
+            ?? provider['maxTokens'] ?? defaults['maxTokens'] ?? 4096;
+        const context = model['contextWindow'] ?? provider['defaultContextWindow']
+            ?? fallback['defaultContextWindow'] ?? 32768;
+        const margin = model['tokenSafetyMargin'] ?? 1024;
+        if (!countValid(maximum) || !countValid(context)
+            || typeof margin !== 'number' || !Number.isInteger(margin) || margin < 0 || margin > 1000000000) {
+            return { index, key: 'modelOutputBudgetInvalid' };
+        }
+        const minimum = model['minimumOutputTokens'] ?? Math.min(maximum, 1024);
+        if (!countValid(minimum) || minimum > maximum || minimum + margin >= context) {
+            return { index, key: 'modelOutputBudgetInvalid' };
         }
     }
     return undefined;
@@ -1645,6 +1676,7 @@ function ProviderEditor(props) {
     const root = (0, react_1.useMemo)(() => schema.rehydrate(namespace.schema), [namespace.schema, schema]);
     const node = (0, react_1.useMemo)(() => schema.nodeAtPath(root, settingsPath), [root, schema, settingsPath]);
     const fallback = schema.getPath(namespace.value, settingsPath);
+    const budgetDefaults = schema.getPath(namespace.base, settingsPath);
     const disabled = props.readOnly || busy;
     const layout = layoutOf(namespace.ns);
     const keyRef = refFor(schema, namespace, settingsPath, props.provider);
@@ -1683,7 +1715,8 @@ function ProviderEditor(props) {
     };
     // The model list is validated by the same per-row checker for both families,
     // so a bad row is named by its position rather than by a blanket message.
-    const modelFailure = (0, DeepSeekModelsEditor_1.validateDeepSeekModels)(schema.getPath(draft, ['models']));
+    const modelFailure = (0, DeepSeekModelsEditor_1.validateDeepSeekModels)(schema.getPath(draft, ['models']))
+        ?? (0, DeepSeekModelsEditor_1.validateOutputBudgets)(schema.getPath(draft, ['models']), draft, budgetDefaults);
     const keyFailure = (0, apiKey_1.apiKeyFailure)(keyDraft);
     // What a probe or a write must carry: the typed key with paste whitespace
     // removed. A blank field yields an empty string, which both call sites read
@@ -1727,7 +1760,8 @@ function ProviderEditor(props) {
             // with a bad row; it stays because the schema check below would refuse
             // the write with a message naming a path instead of the row, and because
             // nothing but this function decides what is written.
-            const failure = (0, DeepSeekModelsEditor_1.validateDeepSeekModels)(schema.getPath(next, ['models']));
+            const failure = (0, DeepSeekModelsEditor_1.validateDeepSeekModels)(schema.getPath(next, ['models']))
+                ?? (0, DeepSeekModelsEditor_1.validateOutputBudgets)(schema.getPath(next, ['models']), next, budgetDefaults);
             /* v8 ignore next 3 -- unreachable from the card: the same failure disables submit */
             if (failure !== undefined) {
                 return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`;
@@ -2119,6 +2153,7 @@ exports.en = {
     modelIdDuplicate: 'Model ID must be unique.',
     modelNameInvalid: 'Display name cannot be empty.',
     modelContextInvalid: 'Context window must be a positive count, like 131072, 256K, or 1M.',
+    modelOutputBudgetInvalid: 'Minimum output must not exceed the maximum; minimum plus safety margin must fit the context.',
     modelMaxTokensInvalid: 'Max output tokens must be a positive count, like 8192, 64K, or 1M.',
     advancedHint: 'Other fields live in settings.yaml; edit that section directly.',
     modelCapacityInvalid: 'A capacity must be a number, optionally suffixed K or M.',
@@ -2217,6 +2252,7 @@ exports.zh = {
     modelIdDuplicate: '模型 ID 不能重复。',
     modelNameInvalid: '显示名称不能为空。',
     modelContextInvalid: '上下文窗口必须是正数，例如 131072、256K 或 1M。',
+    modelOutputBudgetInvalid: '最小输出不能超过最大输出；最小输出与安全余量之和必须小于上下文窗口。',
     modelMaxTokensInvalid: '最大输出 token 数必须是正数，例如 8192、64K 或 1M。',
     advancedHint: '其余字段在 settings.yaml 中，请直接编辑对应段。',
     modelCapacityInvalid: '容量需为数字，可加 K 或 M 后缀。',
