@@ -842,8 +842,9 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
   产品插件进入静态模块图，具备 Node 烟雾测试和浏览器真实 Session 验证；规范见
   [`specs/context-inspector.md`](specs/context-inspector.md)。
 - [x] `DONE-63` 长思考动态输出预算与安全续写：模型路由把目标输出、最小输出保留和安全余量
-  分离，Token Guard 根据本次真实输入生成 `selectedOutputTokens`；默认允许 2 次新请求续写和
-  131,072 Token 的 Turn 级累计上限，不设置独立的小 Reasoning 硬限制。`Length` 已成为
+  分离，Token Guard 根据本次真实输入生成 `selectedOutputTokens`；默认只限制单次模型请求，
+  不再默认设置续写次数或 Turn 累计输出硬上限。显式任务预算仍可配置；累计用量只统计，
+  不设置独立的小 Reasoning 硬限制。`Length` 已成为
   `MaxTokens` 一等终态，部分 Text/Reasoning 正常持久化，残缺 Tool Call/Replay Envelope 禁止
   执行；纯思考、正文和 Tool Call 分别使用安全恢复指令。Host/Web 投影上游兼容的
   `turn/end: max-tokens`，不再显示通用失败。V100 路由目标 49,152、最小保留 16,384、安全余量
