@@ -733,6 +733,22 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 state.request_header_seen = true;
                 state.request_provider = Some(header.provider.clone());
             }
+            EventData::RequestContext {
+                provider, model, ..
+            } => {
+                if open_step.is_none() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "request/context requires an open step",
+                    ));
+                }
+                if provider.trim().is_empty() || model.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "request/context provider and model must be non-empty",
+                    ));
+                }
+            }
             EventData::ApprovalAsked {
                 id,
                 tool_name,

@@ -15,6 +15,7 @@
 - 输入、输出和缓存 Token；
 - Prompt Cache 命中率；
 - LLM 与工具累计耗时；
+- 输入框底部无文字 Context 占用圆环；
 - 刷新、History 分页和 Host 重启后的同一结果。
 
 本阶段只完成确定性 Session 投影和 Web 契约，不把 OpenTelemetry、计费、Provider
@@ -123,6 +124,38 @@ Token/s = decodeTokens / (decodeMs / 1000)
 `tool-call-delta`。空 Heartbeat 和空 Delta 不得计为首 Token。取消后没有组装 Assistant
 Message 的部分流不进入耗时聚合；`turn/end` 必须清理未完成的 Tool Call 计时状态。
 
+### 4.4 `request/context` 与 `contextPressure`
+
+Core 在路由或容量变化时，紧随 `request/header` 持久化：
+
+```json
+{
+  "type": "request/context",
+  "data": {
+    "provider": "llama.cpp-v100",
+    "model": "qwen3.8-27b-uncensored",
+    "contextWindow": 262144
+  }
+}
+```
+
+Host 从权威日志重建并实时发布：
+
+```json
+{
+  "pressureTokens": 1830,
+  "projectedTokens": 1830,
+  "contextWindow": 262144
+}
+```
+
+- `pressureTokens`：Provider 最近一次 Usage 的 Input、Cache Read、Cache Write 之和；
+- `projectedTokens`：最近一次 Token Guard 对完整下一请求的计量；
+- `contextWindow`：最近一条 `request/context` 的模型容量；
+- 新日志以 `request/context` 为真源；没有该事件的旧日志允许从
+  `request/header.options.tokenBudget.contextWindowTokens` 恢复一次兼容分母；
+- 前端优先使用 `projectedTokens`，否则回退 `pressureTokens`，并绘制无文字占用圆环。
+
 ## 五、后端模块设计
 
 ### 5.1 Web Usage Mapper
@@ -141,6 +174,7 @@ Message 的部分流不进入耗时聚合；`turn/end` 必须清理未完成的 
 
 - `TokenUsageProjectionState`：Totals 与当前 Step 的最后 Usage Sample；
 - `SessionStatsProjectionState`：Totals、Open Step、Last Turn 与 Pending Tool Calls；
+- `ContextPressureProjectionState`：最近 Provider 样本、预计请求 Token 与 Route Capacity；
 - `apply(event)`：返回发生变化的 Projection Key；
 - `view()`：只返回冻结的 Web Value；
 - `rebuild(session)`：从完整 Session Cut 确定性重放。
@@ -149,7 +183,7 @@ Message 的部分流不进入耗时聚合；`turn/end` 必须清理未完成的 
 
 ### 5.3 Host 集成
 
-- Session 创建时以零值初始化两个 Projection；
+- Session 创建时以零值初始化三个 Projection；
 - Durable Session 恢复时从权威日志重建；
 - `sync_authoritative_session()` 对新增事件增量 Apply；
 - 每次 Projection 变化都发送带对应 Event `seq` 的 `session/projection` Frame；

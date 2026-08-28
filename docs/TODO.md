@@ -122,7 +122,7 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   退出；成功选择以 `command/run → plan/mode → command/done` Flush 并投影 `{active,pending}`，
   重启从最后事件恢复。运行中 Pending Pre-step、附带 Message/Image Steering 和 `exit_plan_mode`
   仍归 `P0-14/P1-01`，当前 fail explicit 而非静默丢输入；加上 `DONE-57` 的四个 Compaction
-  事件后，48 个冻结事件当前强类型覆盖 29 个。
+  事件和 `DONE-66` 的 `request/context` 后，48 个冻结事件当前强类型覆盖 30 个。
 - [x] `DONE-35` 真实最小 Coding System Prompt：新增 `xharness-prompt` 确定性有序组装器，
   将选中 Preset、权限、Workspace、Coding 工作流和 Plan Policy 组装为每轮第一个 System
   Message；Request Header 保存 Assembler/Assembly/Section/System Hash 与 Tool Definition Hash，
@@ -295,6 +295,10 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   等 Core 所有字段。默认值进入新 Session 和 `request/header`，模型切换不会继承旧强度；配置、
   Registry、RPC、恢复与 Wire 映射均有回归测试，WZU_Server 全 Workspace Fmt、Check、Test 和
   Clippy `-D warnings` 通过。
+- [x] `DONE-66` 输入框 Context 占用圆环：Core 在路由或容量变化时持久化标准
+  `request/context`；Host 新增可重建、可增量发布的 `contextPressure` Projection，并为旧
+  `request/header.options.tokenBudget` 日志保留容量迁移。Context 工具栏移除重复 Token 文本，
+  直接启用聊天输入框原生无文字圆环及其按需详情面板。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

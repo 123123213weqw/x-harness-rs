@@ -82,7 +82,8 @@ Projection 暴露 `plan={active,pending}`；当前稳定日志只恢复 `active`
 `pending=false`。运行中的 Pending Pre-step、带 Message/Image 的 Plan Steering 和
 `exit_plan_mode` 工具仍未实现，Host 必须明确报错而不是丢弃输入。
 
-冻结 48 个 Session Event 中目前已有 29 个强类型事件；Compaction 四事件已完成基础事务和投影，
+冻结 48 个 Session Event 中目前已有 30 个强类型事件；`request/context` 已驱动输入框 Context
+占用圆环，Compaction 四事件已完成基础事务和投影，
 其余完整 Plan、Feedback、Subagent/Team/Workflow 等仍在兼容矩阵中逐项迁移，因此 `A-08` 不能
 提前标记完成。
 

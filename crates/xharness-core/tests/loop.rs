@@ -1405,6 +1405,22 @@ async fn provider_exact_count_prevents_conservative_byte_false_positive() {
         header.options["tokenBudget"]["estimate"]["totalInputTokens"],
         70_857
     );
+    let contexts = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::RequestContext {
+                provider,
+                model,
+                context_window,
+            } => Some((provider, model, context_window)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(contexts.len(), 1);
+    assert_eq!(contexts[0].0, &header.provider);
+    assert_eq!(contexts[0].1, &header.model);
+    assert_eq!(*contexts[0].2, Some(262_144));
 }
 
 #[tokio::test]
@@ -2810,6 +2826,14 @@ async fn event_journal_records_model_input_and_tool_call_before_side_effects() {
     assert_eq!(
         request_header.options["context"]["visible_message_count"],
         1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event.data(), SessionEventData::RequestContext { .. }))
+            .count(),
+        1,
+        "unchanged route capacity is logged once across model steps"
     );
 }
 

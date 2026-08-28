@@ -781,7 +781,8 @@ fn restored_web_event(
         | EventData::CompactionStart { .. }
         | EventData::CompactionSummary { .. }
         | EventData::CompactionEnd { .. }
-        | EventData::CompactionPrune { .. } => tagged_event_data(event.data()),
+        | EventData::CompactionPrune { .. }
+        | EventData::RequestContext { .. } => tagged_event_data(event.data()),
         EventData::RequestHeader { header } => {
             web_request_header(header, initial_request_header_seq == Some(event.seq))
         }

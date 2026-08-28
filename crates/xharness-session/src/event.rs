@@ -457,6 +457,19 @@ pub enum EventData {
     },
     #[serde(rename = "request/header")]
     RequestHeader { header: RequestHeader },
+    /// Registration-bound route metadata used by context-pressure projections.
+    /// It is log-only and never enters provider-visible message history.
+    #[serde(rename = "request/context")]
+    RequestContext {
+        provider: String,
+        model: String,
+        #[serde(
+            rename = "contextWindow",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        context_window: Option<u64>,
+    },
     /// Log-only audit fact written before an approval answerer is consulted.
     #[serde(rename = "approval/asked")]
     ApprovalAsked {

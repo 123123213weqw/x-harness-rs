@@ -76,7 +76,7 @@ Chat | Trajectory | Context
 
 - 按 Step 切换 RequestHeader 快照；
 - `实际发送 / 压缩前 / 压缩后 / Diff`；
-- Token Budget、Policy、消息数量和模型路由；
+- Token Meter、Policy、消息数量和模型路由；
 - System、用户、reasoning、正文、Tool Call、Tool Result、压缩摘要的颜色标记；
 - Tool Schema 与 Raw JSON 折叠查看；
 - 上下文搜索。
@@ -94,4 +94,8 @@ Chat | Trajectory | Context
 
 - Rust Host 测试确认 Web request/header 同时保留兼容字段和完整 input；
 - Client 插件烟雾测试确认注册第三个 Tab、事件 Definition 和 Snapshot Builder；
-- 浏览器验证 Tab 可见、Request Step 可选、Token Budget 和颜色块正常展示。
+- 浏览器验证 Tab 可见、Request Step 可选、Token Meter 和颜色块正常展示。
+
+具体 Token 用量不在 Context 工具栏重复显示。Host 通过标准 `request/context` 与
+`contextPressure` Projection 驱动输入框底部原生无文字圆环；圆环填充比例表示下一次请求
+预计占用的 Context Window，Hover/点击才显示详细数字。

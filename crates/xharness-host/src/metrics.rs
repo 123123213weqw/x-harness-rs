@@ -18,6 +18,7 @@ pub(crate) struct MetricsProjectionUpdate {
 pub(crate) struct MetricsProjectionState {
     token_usage: TokenUsageProjectionState,
     session_stats: SessionStatsProjectionState,
+    context_pressure: ContextPressureProjectionState,
 }
 
 impl MetricsProjectionState {
@@ -35,13 +36,16 @@ impl MetricsProjectionState {
     pub(crate) fn apply(&mut self, event: &Value) -> Vec<MetricsProjectionUpdate> {
         let token_before = self.token_usage.view();
         let stats_before = self.session_stats.view();
+        let pressure_before = self.context_pressure.view();
 
         self.token_usage.apply(event);
         self.session_stats.apply(event);
+        self.context_pressure.apply(event);
 
         let token_after = self.token_usage.view();
         let stats_after = self.session_stats.view();
-        let mut updates = Vec::with_capacity(2);
+        let pressure_after = self.context_pressure.view();
+        let mut updates = Vec::with_capacity(3);
         if token_after != token_before {
             updates.push(MetricsProjectionUpdate {
                 key: "tokenUsage",
@@ -54,6 +58,12 @@ impl MetricsProjectionState {
                 value: stats_after,
             });
         }
+        if pressure_after != pressure_before {
+            updates.push(MetricsProjectionUpdate {
+                key: "contextPressure",
+                value: pressure_after,
+            });
+        }
         updates
     }
 
@@ -63,6 +73,102 @@ impl MetricsProjectionState {
 
     pub(crate) fn session_stats(&self) -> Value {
         self.session_stats.view()
+    }
+
+    pub(crate) fn context_pressure(&self) -> Value {
+        self.context_pressure.view()
+    }
+}
+
+/// Latest provider prompt pressure paired with the latest known route
+/// capacity. `request/context` is authoritative for new logs; the request
+/// header fallback keeps pre-migration sessions useful after restart.
+#[derive(Clone, Debug, Default)]
+struct ContextPressureProjectionState {
+    pressure_tokens: Option<u64>,
+    projected_tokens: Option<u64>,
+    context_window: Option<u64>,
+    request_context_seen: bool,
+}
+
+impl ContextPressureProjectionState {
+    fn apply(&mut self, event: &Value) {
+        let Some(event_type) = event.get("type").and_then(Value::as_str) else {
+            return;
+        };
+        let Some(data) = event.get("data") else {
+            return;
+        };
+        match event_type {
+            "request/header" => {
+                let token_budget = data.pointer("/header/options/tokenBudget");
+                self.projected_tokens = token_budget
+                    .and_then(|budget| budget.get("estimate"))
+                    .and_then(|estimate| {
+                        estimate
+                            .get("totalInputTokens")
+                            .or_else(|| estimate.get("total_input_tokens"))
+                    })
+                    .and_then(Value::as_u64);
+                if !self.request_context_seen {
+                    self.context_window = token_budget
+                        .and_then(|budget| {
+                            budget
+                                .get("contextWindowTokens")
+                                .or_else(|| budget.get("context_window_tokens"))
+                        })
+                        .and_then(Value::as_u64);
+                }
+            }
+            "request/context" => {
+                self.request_context_seen = true;
+                self.context_window = data
+                    .get("contextWindow")
+                    .or_else(|| data.get("context_window"))
+                    .and_then(Value::as_u64);
+            }
+            "assistant/chunk" | "assistant/message" => {
+                let Some((_turn, _step, usage)) = usage_sample(event) else {
+                    return;
+                };
+                let Some(usage) = web_token_usage(usage) else {
+                    return;
+                };
+                self.pressure_tokens = Some(
+                    usage
+                        .get("inputTokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default()
+                        .saturating_add(
+                            usage
+                                .get("cacheReadTokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or_default(),
+                        )
+                        .saturating_add(
+                            usage
+                                .get("cacheWriteTokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or_default(),
+                        ),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn view(&self) -> Value {
+        let mut value = Map::new();
+        if let Some(tokens) = self.pressure_tokens {
+            value.insert("pressureTokens".to_owned(), json!(tokens));
+        }
+        if let Some(tokens) = self.projected_tokens {
+            value.insert("projectedTokens".to_owned(), json!(tokens));
+        }
+        if let Some(tokens) = self.context_window {
+            value.insert("contextWindow".to_owned(), json!(tokens));
+        }
+        Value::Object(value)
     }
 }
 
@@ -487,6 +593,62 @@ mod tests {
                 "cacheReadTokens": 8,
                 "cacheWriteTokens": 4,
             })
+        );
+    }
+
+    #[test]
+    fn context_pressure_uses_request_context_and_latest_provider_sample() {
+        let header = event(
+            1,
+            10,
+            "request/header",
+            json!({"header": {"options": {"tokenBudget": {
+                "contextWindowTokens": 262_144,
+                "estimate": {"totalInputTokens": 1_830}
+            }}}}),
+        );
+        let context = event(
+            2,
+            11,
+            "request/context",
+            json!({"provider": "llama.cpp-v100", "model": "qwen", "contextWindow": 53_248}),
+        );
+        let usage = event(
+            3,
+            12,
+            "assistant/message",
+            json!({
+                "turn": 0,
+                "step": 1,
+                "usage": {"inputTokens": 130, "cacheReadTokens": 1_700, "cacheWriteTokens": 20, "outputTokens": 4}
+            }),
+        );
+        let state = MetricsProjectionState::rebuild([&header, &context, &usage]);
+        assert_eq!(
+            state.context_pressure(),
+            json!({
+                "pressureTokens": 1_850,
+                "projectedTokens": 1_830,
+                "contextWindow": 53_248,
+            })
+        );
+    }
+
+    #[test]
+    fn context_pressure_recovers_legacy_capacity_from_request_header() {
+        let header = event(
+            1,
+            10,
+            "request/header",
+            json!({"header": {"options": {"tokenBudget": {
+                "context_window_tokens": 262_144,
+                "estimate": {"total_input_tokens": 1_830}
+            }}}}),
+        );
+        let state = MetricsProjectionState::rebuild([&header]);
+        assert_eq!(
+            state.context_pressure(),
+            json!({"projectedTokens": 1_830, "contextWindow": 262_144})
         );
     }
 

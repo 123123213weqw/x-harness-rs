@@ -18,7 +18,7 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
 
 ## 事件词汇
 
-当前强类型 Log 覆盖冻结目录中的 29 个事件：
+当前强类型 Log 覆盖冻结目录中的事件包括：
 
 - Agent/权限控制面：`agent-preset/selected`、`agent/inbox/spliced`、`permission/preset`、
   `sandbox/mode`、`approval/policy`；
@@ -29,8 +29,9 @@ Header 和有序 append-only Log 组成；派生消息必须是纯投影。
   上游 48 Event 覆盖数；
 - 长期任务：`goal/change`（version 1 全快照或递增 Revision 的 Clear Tombstone）；
 - 交互模式：`plan/mode`（latest-wins、log-only，只保存 `active`，不进入模型历史）；
-- Provider 生命周期：`request/header`、`llm/retry`、`llm/retry-started`、`assistant/chunk`、
-  `assistant/message`；
+- Provider 生命周期：`request/header`、`request/context`、`llm/retry`、
+  `llm/retry-started`、`assistant/chunk`、`assistant/message`；其中 `request/context`
+  只保存 Provider、Model 与可选 Context Window，不进入模型历史；
 - Context 压缩：`compaction/start`、`compaction/summary`、`compaction/end`、
   `compaction/prune`；
 - Turn/Step 和工具：`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、
