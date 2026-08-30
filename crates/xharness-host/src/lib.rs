@@ -40,6 +40,7 @@ mod model_settings;
 mod permission_tests;
 mod plugin_backend;
 pub use github_backend::GitHubBackend;
+mod model_settings_layers;
 mod preference_settings;
 mod preset_processor;
 mod questions;
@@ -49,7 +50,7 @@ mod rpc;
 mod runtime;
 mod session_processor;
 mod settings_processor;
-pub use settings_processor::merge_model_layers;
+pub use model_settings_layers::merge_model_layers;
 mod state;
 #[cfg(test)]
 mod statecheck;
