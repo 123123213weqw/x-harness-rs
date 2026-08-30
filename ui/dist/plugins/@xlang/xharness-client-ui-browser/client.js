@@ -454,6 +454,8 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
                 onUpdate({ title: payload.value || item.title });
             else if (payload.kind === 'navigation-policy')
                 sampleLocation();
+            else if (payload.kind === 'location-error')
+                setError(payload.value || 'Native address updates are unavailable');
             else if (payload.kind === 'loading') {
                 pageVersion++;
                 loading = true;
