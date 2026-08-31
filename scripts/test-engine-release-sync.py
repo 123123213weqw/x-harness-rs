@@ -91,6 +91,8 @@ class PureContracts(unittest.TestCase):
                 args=run.call_args.args[0]
                 self.assertIn('-q',args); self.assertIn('=https',args); self.assertNotIn('-L',args)
                 self.assertIn('--max-filesize',args); self.assertNotIn('--insecure',args)
+                self.assertIn('--retry-all-errors',args)
+                self.assertEqual(args[args.index('--retry')+1], '2')
 
     def test_truncated_and_oversize_public_payloads(self):
         def fake(url,path,limit,**kwargs): path.write_bytes(b'123')
