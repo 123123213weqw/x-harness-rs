@@ -129,13 +129,17 @@ def curl_public(url, output, limit, *, head=False):
     # TLS alert/EOF failures (curl 35) are not retried by --retry alone. These
     # are bounded retries of idempotent public GET/HEAD, NEVER the SSH write.
     command = ['curl', '-q', '--proto', '=https', '--fail', '--silent', '--show-error',
-        '--connect-timeout', '20', '--max-time', '300', '--retry', '2', '--retry-delay', '2',
+        '--connect-timeout', '20', '--max-time', str(max(300, min(10800, limit // 12288 + 60))),
+        '--retry', '2', '--retry-delay', '2',
         '--retry-all-errors',
-        '--max-filesize', str(limit), '-H', 'Accept-Encoding: identity',
+        '--max-filesize', str(MAX_TOTAL if head else limit), '-H', 'Accept-Encoding: identity',
         '-H', 'Cache-Control: no-cache', '--output', str(output), '--write-out', '%{http_code}']
     if head:
+        # curl applies --max-filesize to HEAD's declared installer size even
+        # though it writes only headers. Keep the installer quota here and
+        # independently bound the resulting header file below.
         command += ['--head']
-    result = subprocess.run([*command, url], check=True, capture_output=True, text=True, timeout=930)
+    result = subprocess.run([*command, url], check=True, capture_output=True, text=True, timeout=3 * max(300, min(10800, limit // 12288 + 60)) + 30)
     require(result.stdout == '200', 'Public file is unavailable or redirected')
     require(output.is_file() and output.stat().st_size <= limit, 'Public file exceeds limit')
 
@@ -476,7 +480,7 @@ def publish(work, key, known_hosts):
     error = None
     try:
         with (work / 'upload.tar').open('rb') as payload:
-            subprocess.run([*ssh_arguments(key, known_hosts), command], stdin=payload, check=True, timeout=1200)
+            subprocess.run([*ssh_arguments(key, known_hosts), command], stdin=payload, check=True, timeout=10800)
     except (OSError, subprocess.SubprocessError) as caught:
         error = type(caught).__name__
     # No automatic SSH resend: read back the authoritative public state first.
