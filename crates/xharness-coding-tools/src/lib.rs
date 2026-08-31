@@ -712,10 +712,16 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "web_fetch",
-                "Fetch one anonymous public HTTP(S) page with bounded content extraction.",
+                "Fetch one anonymous public HTTP(S) page as a bounded reader summary. Scripts, styles and boilerplate are removed; use focus when looking for specific facts.",
                 json!({
                     "type": "object",
-                    "properties": {"url": {"type": "string"}},
+                    "properties": {
+                        "url": {"type": "string"},
+                        "focus": {
+                            "type": "string",
+                            "description": "Optional topic or question used to rank relevant page sections."
+                        }
+                    },
                     "required": ["url"],
                     "additionalProperties": false
                 }),
@@ -723,8 +729,10 @@ impl CodingToolBundle {
             move |context| {
                 let web = Arc::clone(&web);
                 async move {
+                    let url = required_string(&context, "url")?;
+                    let focus = optional_string(&context, "focus");
                     let result = web
-                        .fetch(&required_string(&context, "url")?, &context.cancellation)
+                        .fetch_with_focus(&url, focus, &context.cancellation)
                         .await
                         .map_err(handler_error)?;
                     Ok(json_output(

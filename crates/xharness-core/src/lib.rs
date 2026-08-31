@@ -11,7 +11,7 @@ pub use tool::{tool_result_for_model, MIN_TOOL_RESULT_LIMIT_BYTES};
 pub use types::*;
 pub use xharness_context::{
     ContextError, ContextPolicy, ContextPolicyId, ContextRequest, ContextSurface,
-    IdentityContextPolicy, SurfaceEdit, SurfaceEditKind,
+    IdentityContextPolicy, SurfaceEdit, SurfaceEditKind, ToolResultPruningContextPolicy,
 };
 pub use xharness_token::{
     ConservativeByteMeter, ProviderInputTokenCount, TokenBreakdown, TokenBudget, TokenBudgetError,

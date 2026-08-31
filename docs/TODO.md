@@ -303,6 +303,14 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   Tool Definitions 移出模型输入正文；新增第四个 `Harness` Tab，从选中 RequestHeader 快照
   重建 Prompt Assembly、最终 System Prompt、可搜索 Tool Registry、Context Policy 和 Runtime
   Route。浏览器已验证 13 个真实模型可见工具与 4 个 Prompt Section，无新增后端协议。
+- [x] `DONE-68` Web Reader 摘要与当前批次大结果保护：`web_fetch` 的模型可见预算从 100,000
+  字符降为 8,000，HTML 在 Markdown 前移除 Script/Style/Template/SVG 等噪声，并用确定性
+  `reader-extractive/v1` 按标题、章节、表格、前部和可选 Focus 选段；响应报告 Source/Extracted
+  字符与算法版本。正式 Host 同时从 `IdentityContextPolicy` 切换到 8,192 字符的
+  `ToolResultPruningContextPolicy`，旧 Session 或最新未可 Compact 的大工具结果在请求 Surface
+  上形成 `tool_result_pruned/v1` Envelope，原始日志与 Tool Call ID 不变。该修复针对真实回归：
+  Codeforces 抓取读取 261,147 Byte、写回 102,434 Byte，连续两次 Compact 后仍以
+  `120811 > 118784` 被请求前 Token Guard 拒绝。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -391,8 +399,9 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   Head/Relevant/Tail、元数据和引用。不得破坏 Observation CAS。
   已完成：模型 Schema 的 Byte/Line 起点、页大小/行数和版本绑定 Cursor；默认 32 KiB/400 行，
   Cursor 延续原限制且文件变化后拒绝拼接；单结果超限使用带 Hash/Byte 统计的确定性 Head/Tail
-  Envelope；通用 Durable Surface Replace 已由 `DONE-57` 完成。剩余：原始大输出持久
-  Spill/Reference、Relevant 片段选择，以及把生产 Tool Result Pruner 接入该 Replace 事务。
+  Envelope；通用 Durable Surface Replace 已由 `DONE-57` 完成；生产请求侧 Tool Result Pruner
+  与 Web Focus Relevant 选段由 `DONE-68` 接入。剩余：原始大输出持久 Spill/Reference，以及把
+  Pruner 的一次性 Edit 接入持久 Replace 事务。
 
 - [ ] `P0-13` **Platform Readiness 与动态工具投影。** 模型请求侧已完成：Host 缓存
   Sandbox/Search/PTY Readiness，并在每个 Step 只发送实际可用工具；已确认失败的 Sandbox 不会
@@ -459,8 +468,9 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
 - [ ] `P1-09` **多模态 Message 与 Attachment。** 强类型 Text/Image/File Block、内容寻址
   Blob Store、Image Metadata/Budget、Provider Encoding，用持久 Reference 替代内联大数据。
 
-- [ ] `P1-10` **Web 质量。** 更多 Search Provider、稳定 Source/Citation Object、内容去重、
-  更好的正文提取、Cache，以及作为独立高信任 Capability 的可选登录态 Browser。
+- [ ] `P1-10` **Web 质量。** `DONE-68` 已完成脚本去噪、8,000 字符 Reader 抽取摘要与 Focus
+  选段。剩余：更多 Search Provider、稳定 Source/Citation Object、跨请求内容去重、完整
+  Readability/Cache，以及作为独立高信任 Capability 的可选登录态 Browser。
 
 - [ ] `P1-11` **Session Branch 与 Projection。** 从 Revision Fork、不可变 Ancestry、命名
   Branch、Inspect/Query API 和确定性 Transcript Export/Import。Compaction Surface Event 与

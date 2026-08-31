@@ -8,7 +8,7 @@ use xharness_agent::FileLeaseManager;
 use xharness_api::ApiBackend;
 use xharness_compaction::CompactionConfig;
 use xharness_control::{ControlStore, JsonlControlStore};
-use xharness_core::IdentityContextPolicy;
+use xharness_core::ToolResultPruningContextPolicy;
 use xharness_debug::{DebugEvent, DebugRecorder, DebugTraceConfig, DebugTraceMode};
 use xharness_host::{AgentRuntime, BasicHost, DurableLoopAgentRuntime, HostConfig};
 use xharness_host_app::NativeToolFactory;
@@ -93,7 +93,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
             deployment.default_route,
             deployment.registry,
             tools,
-            Arc::new(IdentityContextPolicy),
+            Arc::new(ToolResultPruningContextPolicy::default()),
             Arc::clone(&store),
             leases,
             config.event_capacity,

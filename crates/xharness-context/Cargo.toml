@@ -11,6 +11,7 @@ async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+xharness-compaction = { path = "../xharness-compaction" }
 xharness-session = { path = "../xharness-session" }
 
 [dev-dependencies]

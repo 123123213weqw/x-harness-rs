@@ -31,7 +31,7 @@ v0 只暴露以下 14 个稳定模型工具名：
 | `terminal_close` | `name` | 按 name keyed | 是 | 终止、等待并删除 Terminal |
 | `terminal_list` | 无 | parallel | 否 | 列出当前 Owner 的 Terminal |
 | `web_search` | `query` | parallel | 否 | 用配置 Provider 搜索，可选 Limit |
-| `web_fetch` | `url` | parallel | 否 | 匿名、有界抓取公共页面 |
+| `web_fetch` | `url`, 可选 `focus` | parallel | 否 | 匿名抓取并返回最多 8,000 字符的 Reader 摘要 |
 
 全部 Schema 设置 `additionalProperties=false`。Result 是 JSON Text，并在可用时携带强类型
 Metadata。Process Tool 报告 PID、Exit Code/Signal、Termination Reason、两条输出流、
@@ -54,7 +54,8 @@ LaunchAgent 的最小环境不要求用户自行安装 ripgrep。Linux `.deb` �
 
 `bash` 用于有权威完成状态的一次性命令。需要持久/交互状态时使用 `terminal_*`。
 `terminal_send` 的 Settle 只代表观察完成，后续进度要用 `terminal_read`/Status。
-`web_search` 用于发现来源，`web_fetch` 用于抓取一个已知 URL。
+`web_search` 用于发现来源，`web_fetch` 用于抓取一个已知 URL。Fetch 默认自动去除脚本/样式并
+生成确定性抽取摘要；目标问题明确时传 `focus` 提高相关段落排名，不允许要求整页原文塞回上下文。
 
 如果 Sandbox Probe 已经返回确定性不可用，模型不应再次调用 `bash/glob/grep/terminal_open`；
 Host 必须在下一 Step 移除这些进程启动工具，而不是只靠错误字符串提示模型。已有 Terminal 的

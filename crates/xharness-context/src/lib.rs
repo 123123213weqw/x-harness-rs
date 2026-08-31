@@ -6,8 +6,10 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use xharness_session::Message;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use xharness_compaction::{ToolResultPruner, ToolResultPrunerConfig};
+use xharness_session::{Message, MessageRole};
 
 /// Everything the context layer can inspect before a provider request is
 /// prepared.
@@ -232,6 +234,78 @@ impl ContextPolicy for IdentityContextPolicy {
     }
 }
 
+/// Production-safe projection that deterministically shortens oversized tool
+/// observations while preserving the immutable session transcript.  This is
+/// deliberately model-free, so it also protects the request used to run the
+/// normal LLM compaction coordinator.
+#[derive(Clone, Debug, Default)]
+pub struct ToolResultPruningContextPolicy {
+    pruner: ToolResultPruner,
+}
+
+impl ToolResultPruningContextPolicy {
+    pub fn new(config: ToolResultPrunerConfig) -> Result<Self, ContextError> {
+        let pruner = ToolResultPruner::new(config)
+            .map_err(|error| ContextError::policy(error.to_string()))?;
+        Ok(Self { pruner })
+    }
+
+    pub fn config(&self) -> &ToolResultPrunerConfig {
+        self.pruner.config()
+    }
+}
+
+#[async_trait]
+impl ContextPolicy for ToolResultPruningContextPolicy {
+    async fn prepare(&self, request: ContextRequest) -> Result<ContextSurface, ContextError> {
+        let source_message_count = request.messages.len();
+        let mut call_names = HashMap::new();
+        for message in &request.messages {
+            for call in &message.tool_calls {
+                call_names.insert(call.provider_id().to_owned(), call.name.clone());
+            }
+        }
+
+        let mut messages = request.messages;
+        let mut edits = Vec::new();
+        for (index, message) in messages.iter_mut().enumerate() {
+            if message.role != MessageRole::Tool {
+                continue;
+            }
+            let Some(pruned) = self.pruner.prune(&message.content) else {
+                continue;
+            };
+            let call_id = message.tool_call_id.as_deref().unwrap_or("unknown");
+            let tool = call_names
+                .get(call_id)
+                .map(String::as_str)
+                .unwrap_or("unknown");
+            message.content = json!({
+                "format": "tool_result_pruned/v1",
+                "tool": tool,
+                "call_id": call_id,
+                "chars_before": pruned.chars_before,
+                "chars_removed": pruned.chars_removed,
+                "content": pruned.text,
+            })
+            .to_string();
+            edits.push(SurfaceEdit::new(
+                index,
+                index + 1,
+                1,
+                SurfaceEditKind::ToolResultPruned,
+            ));
+        }
+
+        Ok(ContextSurface::transformed(
+            ContextPolicyId::new("tool-result-pruning", 1),
+            source_message_count,
+            messages,
+            edits,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +359,65 @@ mod tests {
             .with_tools(vec![json!({"name": "read"})]);
         let surface = IdentityContextPolicy.prepare(request).await.unwrap();
         assert_eq!(surface.messages, vec![Message::user("hello")]);
+    }
+
+    #[tokio::test]
+    async fn tool_result_policy_prunes_large_observations_without_breaking_call_identity() {
+        let marker_chars = xharness_compaction::PRUNE_MARKER.chars().count();
+        let policy = ToolResultPruningContextPolicy::new(ToolResultPrunerConfig {
+            threshold_chars: marker_chars + 12,
+            head_chars: 8,
+            tail_chars: 4,
+        })
+        .unwrap();
+        let assistant = Message {
+            role: MessageRole::Assistant,
+            tool_calls: vec![ToolCall {
+                id: "execution-1".to_owned(),
+                provider_call_id: Some("provider-1".to_owned()),
+                index: 0,
+                name: "web_fetch".to_owned(),
+                arguments_json: r#"{"url":"https://example.com"}"#.to_owned(),
+            }],
+            ..Message::default()
+        };
+        let source = "甲乙丙丁".repeat(marker_chars + 20);
+        let tool = Message::tool("provider-1", &source);
+        let surface = policy
+            .prepare(ContextRequest::new(vec![assistant.clone(), tool.clone()]))
+            .await
+            .unwrap();
+        surface.validate().unwrap();
+
+        assert_eq!(surface.source_message_count, 2);
+        assert_eq!(surface.messages[0], assistant);
+        assert_eq!(
+            surface.messages[1].tool_call_id.as_deref(),
+            Some("provider-1")
+        );
+        assert_ne!(surface.messages[1].content, source);
+        let envelope: Value = serde_json::from_str(&surface.messages[1].content).unwrap();
+        assert_eq!(envelope["format"], "tool_result_pruned/v1");
+        assert_eq!(envelope["tool"], "web_fetch");
+        assert_eq!(envelope["call_id"], "provider-1");
+        assert!(envelope["content"]
+            .as_str()
+            .unwrap()
+            .contains("middle pruned"));
+        assert_eq!(surface.edits.len(), 1);
+        assert_eq!(surface.edits[0].source_start, 1);
+        assert_eq!(surface.edits[0].kind, SurfaceEditKind::ToolResultPruned);
+        assert_eq!(tool.content, source, "source transcript remains untouched");
+    }
+
+    #[tokio::test]
+    async fn tool_result_policy_keeps_small_results_exactly() {
+        let source = vec![Message::tool("provider-1", "small")];
+        let surface = ToolResultPruningContextPolicy::default()
+            .prepare(ContextRequest::new(source.clone()))
+            .await
+            .unwrap();
+        assert_eq!(surface.messages, source);
+        assert!(surface.edits.is_empty());
     }
 }
