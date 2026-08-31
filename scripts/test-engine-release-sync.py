@@ -91,6 +91,14 @@ class PureContracts(unittest.TestCase):
                 args=run.call_args.args[0]
                 self.assertIn('-q',args); self.assertIn('=https',args); self.assertNotIn('-L',args)
                 self.assertIn('--max-filesize',args); self.assertNotIn('--insecure',args)
+                self.assertIn('--retry-all-errors',args)
+                self.assertEqual(args[args.index('--retry')+1], '2')
+                self.assertEqual(args[args.index('--max-time')+1], '300')
+                m.curl_public(m.ORIGIN+'/installer', output, 100, head=True)
+                head_args=run.call_args.args[0]
+                self.assertIn('--head',head_args)
+                self.assertEqual(head_args[head_args.index('--max-filesize')+1],str(m.MAX_TOTAL))
+                self.assertEqual(head_args[head_args.index('--max-time')+1],'300')
 
     def test_truncated_and_oversize_public_payloads(self):
         def fake(url,path,limit,**kwargs): path.write_bytes(b'123')
@@ -330,7 +338,10 @@ class WorkflowContracts(unittest.TestCase):
         for prohibited in ['cargo build','tauri build','systemctl','rsync','scp ','pull_request_target','XHARNESS_PLUGIN_PUBLISH_SSH_KEY']:
             self.assertNotIn(prohibited,text)
         self.assertIn('path: dist/engine-sync/audit/',text)
-        self.assertNotIn('path: dist/engine-sync/export/',text)
+        self.assertNotIn('path: dist/engine-sync/export/\n',text)
+        self.assertIn('timeout-minutes: 350',text)
+        self.assertIn('name: engine-release-signed-envelope',text)
+        self.assertNotIn('dist/engine-sync/export/*\n',text)
 
 
 if __name__=='__main__': unittest.main(verbosity=2)
