@@ -116,9 +116,11 @@ publication. No proprietary receiver code is copied into this public repository.
 Post-publication acceptance fetches the signed feed, catalog, all installer bodies
 and export metadata over unauthenticated HTTPS and compares bytes/hashes. Public
 curl calls disable curlrc, enforce HTTPS/no redirects, have time/size bounds and
-bounded GET retries. curl is used because the deployed XS TLS stack rejects the
-current system Python OpenSSL client's handshake on macOS; no certificate checks
-are disabled. Installer body read-back uses bounded temporary disk, not a full
+bounded GET/HEAD retries (including TLS alerts/EOF, which curl's plain `--retry`
+does not cover). The local system Python HTTPS client returned a TLS alert; one
+hosted CI prepare also hit curl exit 35 after an earlier successful dry-run. The
+transport root cause is not established by these observations. curl keeps the
+HTTPS read-back bounded and diagnostic, without disabling certificate checks. Installer body read-back uses bounded temporary disk, not a full
 in-memory buffer.
 
 ## Failure semantics
