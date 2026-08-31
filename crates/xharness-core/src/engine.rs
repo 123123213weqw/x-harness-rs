@@ -3037,6 +3037,9 @@ impl Runner {
                 }
             }
             self.journal_append(events, true).await?;
+            // MessageInjected only acknowledges acceptance into the in-memory
+            // pending list. Publish consumption only after user/message is durable.
+            self.emit(LoopEventKind::InputCommitted).await?;
         }
         if self.journal.is_none() {
             if let Some(message) = pending
