@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**状态日期：** 2026-08-27
+**状态日期：** 2026-09-01
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -18,6 +18,10 @@ Commit、Issue、PR 应引用这些 ID。
 OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 14 个
 Coding Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
 
+当前共有 `DONE-01`—`DONE-68` 六十八个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
+Web 对话重启恢复、模型性能指标投影、长思考输出预算、大 Session 热路径、逐模型推理强度、
+Context 占用圆环、Harness 构造视图，以及 Web Fetch 大结果直接挤爆 Context 的回归。
+
 以下能力已经完成主体，不应再描述成“尚未接入”：
 
 - 长生命周期 Agent 已接管正式 Host；输入先 Flush 再确认，Claim 与 `turn/start + user/message`
@@ -28,16 +32,18 @@ Coding Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和
 - 自动 Context Compaction 已接入正式 Durable Host：80% Pressure、请求前 Hard Overflow 和
   Provider 无 Delta 的 400 Context Overflow 都会进入有界压缩恢复；成功后重新构造并计量请求，
   Session/Web 使用不删除原 Event Log 的 Surface Replace。
+- `web_fetch` 已使用 8,000 字符的确定性 Reader 摘要；历史或当前批次遗留的大 Tool Result 会先
+  经过 8,192 字符的请求侧 Pruner，再进入 Compact 与 Token Guard。原始 Session Event 不丢失。
 - Platform/Search/Terminal Readiness 已裁剪每个模型 Step 的工具定义；尚缺 Web Readiness 投影。
 - 正式 Host 已实现结构化 Shutdown：关闭 Admission，Signal/Join Agent、Loop、Tool
   和 Process，收尾持久 PTY；超时清理会显式报告 Forced Cleanup。
 - macOS ARM64 已在原生 GitHub Runner 运行 Workspace、FS、Process、PTY、Seatbelt 测试并生成
   未签名构件；剩余是 Live Provider、签名、公证和安装验证。
 
-当前最短阻塞链调整为：**删除 Core 旧 Tool 兼容层 →
-Credential Reference/配置 → WebSocket Cursor Resume → macOS 签名/公证与发布验证**。生产 Tool
-Result Pruner、手动 `/compact` 和独立摘要 Purpose 路由作为 Context P1 后续并行推进；MCP、Skills、
-LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
+当前最短阻塞链调整为：**大结果持久 Spill/Reference 与 Pruner Replace → 删除 Core 旧 Tool
+兼容层 → Credential Reference/配置 → 远程 Web Auth/DNS Rebinding → WebSocket Cursor Resume →
+macOS 签名/公证与发布验证**。手动 `/compact`、独立摘要 Purpose 路由和精确 Tokenizer 作为
+Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
 
 ## 已完成基础能力
 
@@ -133,8 +139,8 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   完成后、Provider I/O 前计量 System/消息/工具/协议开销并预留输出与安全余量，预算报告写入
   Request Header。Chat/Responses 分别下发 `max_tokens`/`max_output_tokens`；固定
   `64196 > 53248` 回归验证 Provider Attempt 为零。当前保守 UTF-8/JSON Byte Meter 保证宁可
-  过估，不把精确 Tokenizer 绑定到 llama.cpp；自动 Pressure/Overflow 已在 `P1-03` 接线，精确
-  Adapter、手动 Compact 与生产 Pruner 仍归该项。
+  过估，不把精确 Tokenizer 绑定到 llama.cpp；自动 Pressure/Overflow 已在 `P1-03` 接线，请求侧
+  通用 Pruner 已由 `DONE-68` 接入。精确 Adapter、手动 Compact 与持久 Pruner Replace 仍归该项。
 - [x] `DONE-37` 模型 `read` 分页：默认页从 256 KiB/2,000 行降为 32 KiB/400 行，暴露
   `offset`、`start_line`、`limit`、`line_limit` 与 Opaque `next_cursor`。Cursor 固定原页限制并
   绑定完整文件 SHA-256，文件变化后继续读取 fail stale；底层仍完整计算 Version 并保持
@@ -445,9 +451,9 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
   `surfaceReplace`、当前 Surface 投影、Start/成功批次/End/Flush 事务、未闭合 Start 恢复、摘要
   变小校验、完成后重新计量、请求前 Pressure/Hard Overflow、Provider 400 Context Overflow
   恢复、正式 Durable Host 默认启用、Web `surfaceOp={op:replace,start,end}` 投影及回归测试。
-  **剩余：** 手动 `/compact`、Purpose 路由到独立摘要模型、生产 Tool Result Pruner Replace、
-  Provider 结构化错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点矩阵和按模型本地精确
-  Tokenizer。
+  **剩余：** 手动 `/compact`、Purpose 路由到独立摘要模型、把 `DONE-68` 的请求侧 Tool Result
+  Pruner 接入持久 Replace、Provider 结构化错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点
+  矩阵和按模型本地精确 Tokenizer。
 
 - [ ] `P1-04` **动态 Tool Projection。** 每个 Profile/Step 只发送相关工具，同时保持 Schema
   稳定。与始终发送 14 工具比较 Token/Cache 消耗和工具选择质量。
@@ -481,11 +487,12 @@ LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
 
 ## P2 — Host、API 与 UI
 
-- [ ] `P2-01` **持久 Agent-backed Web API。** Carrier、52 方法目录、内存 CRUD、Start/
-  Steer/Cancel/Approve、History Projection、Optional Capability Response 和 Export Body 已完成。
-  正式 Host 的 Prompt Admission、模型历史和 Agent Driver 已使用持久 Session/Inbox Store；
-  下一步把 Workspace/Session/Queue/History Projection、Approval 和枚举索引从 `BasicHost`
-  内存迁出，并增加 Health/Readiness，同时保持冻结的线协议。
+- [ ] `P2-01` **持久 Agent-backed Web API。** Carrier、52 方法目录、Start/Steer/Cancel/Approve、
+  History Projection、Optional Capability Response 和 Export Body 已完成。正式 Host 的 Prompt
+  Admission、模型历史、Agent Driver、Workspace 元数据/排序、Session 排序/归档、Settings、
+  Durable Queue、权威 History Cursor 和 Pending Approval 均已由 Session/Inbox/Control Log 重建。
+  **剩余：** Session Create/Fork/Cancel/Attachment、Preset Copy/Remove 等 RPC 的通用持久 Receipt，
+  Credential Reference，以及 Health/Readiness；继续缩小 `BasicHost` 中仅用于兼容投影的内存缓存。
 
 - [ ] `P2-02` **流式传输增强。** 提供带 Cursor Resume、Lag Detection、Reconnect 和
   Per-session Multiplexing 的 WebSocket/SSE 下行事件流。
