@@ -788,7 +788,15 @@ const fn rejected(reason: ReceiptRejection) -> RpcReceipt {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
+    use futures::{stream, StreamExt};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex as StdMutex,
+    };
+    use xharness_core::{
+        AgentMessage, FinishReason, LoopEngine, LoopRequest, LoopStatus, ModelProvider,
+        ProviderError, ProviderEvent, ProviderRequest, ProviderStream, TokenUsage,
+    };
     use xharness_interaction::{
         AnswerDestination, AskUserQuestionRequest, QuestionOption, QuestionSpec,
     };
@@ -810,6 +818,48 @@ mod tests {
                 .unwrap()
                 .push(invocation.interaction_id.clone());
             Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct QuestionLoopProvider(AtomicUsize);
+
+    #[async_trait]
+    impl ModelProvider for QuestionLoopProvider {
+        async fn stream(
+            &self,
+            _request: ProviderRequest,
+            _cancellation: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            let step = self.0.fetch_add(1, Ordering::SeqCst);
+            let events = if step == 0 {
+                vec![
+                    Ok(ProviderEvent::ToolCallDelta {
+                        index: 0,
+                        id: "provider-question".to_owned(),
+                        name: xharness_interaction::ASK_USER_QUESTION_TOOL.to_owned(),
+                        arguments_delta: serde_json::to_string(&request(
+                            AnswerDestination::Context,
+                        ))
+                        .unwrap(),
+                    }),
+                    Ok(ProviderEvent::Completed {
+                        finish_reason: Some(FinishReason::ToolCalls),
+                        usage: Some(TokenUsage::default()),
+                        provider_items: Vec::new(),
+                    }),
+                ]
+            } else {
+                vec![
+                    Ok(ProviderEvent::TextDelta("continued".to_owned())),
+                    Ok(ProviderEvent::Completed {
+                        finish_reason: Some(FinishReason::Stop),
+                        usage: Some(TokenUsage::default()),
+                        provider_items: Vec::new(),
+                    }),
+                ]
+            };
+            Ok(Box::pin(stream::iter(events)))
         }
     }
 
@@ -1020,6 +1070,68 @@ mod tests {
             .unwrap();
         assert_eq!(observed, resolution);
         assert!(hub.baseline().await.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn live_core_tool_batch_continues_without_restarting_after_the_web_answer() {
+        let concrete = Arc::new(MemorySessionStore::default());
+        let store: Arc<dyn Store> = concrete;
+        store
+            .create(SessionHeader::new("live-question-loop"))
+            .await
+            .unwrap();
+        let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        let mut frames = hub.subscribe();
+        let registry = Arc::new(xharness_tools::ToolRegistry::new());
+        xharness_interaction::AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
+            Arc::clone(&hub),
+            "live-question-loop",
+            "/workspace",
+        )))
+        .register(&registry)
+        .await
+        .unwrap();
+        let mut request = LoopRequest::new(
+            Arc::new(QuestionLoopProvider::default()),
+            vec![AgentMessage::user("ask")],
+        );
+        request.session_id = Some("live-question-loop".to_owned());
+        request.journal_store = Some(store.clone());
+        request.tool_executor = Some(xharness_tools::ToolExecutor::new(registry));
+        let mut run = LoopEngine.start(request);
+        let completed = tokio::spawn(async move {
+            while run.next().await.is_some() {}
+            run.result().await
+        });
+
+        let frame = frames.recv().await.unwrap();
+        assert_eq!(frame.payload["type"], "question/requested");
+        assert_eq!(
+            hub.respond(ClientResponse {
+                kind: ClientResponseKind::ClientResponse,
+                rpc_id: frame.rpc_id,
+                result: RpcResult::success(json!({
+                    "sessionId": "live-question-loop",
+                    "answer": {"answers": [{
+                        "id": "target",
+                        "selected": ["本机"],
+                    }]},
+                })),
+            })
+            .await,
+            RpcReceipt::Accepted
+        );
+        let result = tokio::time::timeout(Duration::from_secs(3), completed)
+            .await
+            .expect("live question tool batch stayed blocked after answer")
+            .unwrap();
+        assert_eq!(
+            result.status,
+            LoopStatus::Completed,
+            "live question loop failed: {:?}",
+            result.error
+        );
+        assert_eq!(result.final_text, "continued");
     }
 
     #[tokio::test]
