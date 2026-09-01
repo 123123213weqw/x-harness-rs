@@ -7,8 +7,8 @@ use crate::{
     SessionEvent,
 };
 use xharness_interaction::{
-    QuestionAnswer, QuestionInteraction, QuestionStateError, QuestionTerminalState,
-    ASK_USER_QUESTION_TOOL,
+    AskUserQuestionRequest, QuestionAnswer, QuestionInteraction, QuestionStateError,
+    QuestionTerminalState, ASK_USER_QUESTION_TOOL,
 };
 
 /// On-disk format identity and immutable metadata outside the conversation
@@ -503,6 +503,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut questions = HashMap::<String, QuestionInteraction>::new();
     let mut question_by_call = HashMap::<String, String>::new();
     let mut call_names = HashMap::<String, String>::new();
+    let mut call_arguments = HashMap::<String, String>::new();
     let mut commands = HashMap::<String, bool>::new();
     let mut retry_chains = HashMap::<(u32, u32, String, String), (String, u32)>::new();
     let mut retry_owners = HashMap::<String, (u32, u32, String, String)>::new();
@@ -857,6 +858,13 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     || open != Some((*call_turn, *call_step))
                     || call_names.get(&invocation.execution_id).map(String::as_str)
                         != Some(ASK_USER_QUESTION_TOOL)
+                    || call_arguments
+                        .get(&invocation.execution_id)
+                        .and_then(|arguments| {
+                            serde_json::from_str::<AskUserQuestionRequest>(arguments).ok()
+                        })
+                        .as_ref()
+                        != Some(&invocation.request)
                     || invocation.interaction_id.trim().is_empty()
                     || question_by_call.contains_key(&invocation.execution_id)
                     || questions.contains_key(&invocation.interaction_id)
@@ -1654,6 +1662,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     });
                 }
                 call_names.insert(call.id.clone(), call.name.clone());
+                if call.name == ASK_USER_QUESTION_TOOL {
+                    call_arguments.insert(call.id.clone(), call.arguments_json.clone());
+                }
             }
             EventData::ToolResult { turn, step, result } => match calls.get_mut(&result.call_id) {
                 None => {

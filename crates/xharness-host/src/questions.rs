@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -190,12 +190,60 @@ impl DurableQuestionHub {
             let _ = self.events.send(question_requested_frame(&pending));
         }
         let mut settlement = pending.settlement.subscribe();
+        let mut durable_poll = tokio::time::interval(Duration::from_millis(500));
+        durable_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // `interval` fires immediately once. Consume that tick because the
+        // durable state was folded just above; subsequent ticks are the
+        // fallback for answers committed by another Host/process or a missed
+        // process-local notification.
+        durable_poll.tick().await;
         loop {
             if let Some(result) = settlement.borrow().clone() {
                 return settlement_result(result);
             }
             tokio::select! {
                 biased;
+                changed = settlement.changed() => {
+                    if changed.is_err() {
+                        return Err(QuestionProviderError {
+                            message: "question answer channel closed before settlement".to_owned(),
+                            retryable: true,
+                        });
+                    }
+                }
+                _ = durable_poll.tick() => {
+                    let durable = self
+                        .question_state(session_id, &pending.invocation.interaction_id)
+                        .await
+                        .map_err(provider_error)?
+                        .ok_or_else(|| QuestionProviderError {
+                            message: "durable question disappeared before settlement".to_owned(),
+                            retryable: true,
+                        })?;
+                    if durable.0.invocation() != &pending.invocation {
+                        return Err(QuestionProviderError::new(
+                            "durable question identity changed while waiting",
+                        ));
+                    }
+                    match durable.1 {
+                        QuestionTerminalState::Pending => {}
+                        QuestionTerminalState::Resolved(resolution) => {
+                            self.persist_agent_markdown(
+                                &pending.workspace,
+                                &pending.invocation,
+                                &resolution,
+                            )
+                            .await
+                            .map_err(provider_error)?;
+                            self.finish_pending(&pending, QuestionOutcome::Answered).await;
+                            return Ok(resolution);
+                        }
+                        QuestionTerminalState::Cancelled(reason) => {
+                            self.finish_pending(&pending, QuestionOutcome::Cancelled).await;
+                            return Err(QuestionProviderError::new(reason));
+                        }
+                    }
+                }
                 _ = cancellation.cancelled() => {
                     // Cancellation detaches this execution but deliberately
                     // leaves the durable interaction pending. Shutdown and
@@ -204,14 +252,6 @@ impl DurableQuestionHub {
                         message: "ask_user_question execution detached before the user answered".to_owned(),
                         retryable: true,
                     });
-                }
-                changed = settlement.changed() => {
-                    if changed.is_err() {
-                        return Err(QuestionProviderError {
-                            message: "question answer channel closed before settlement".to_owned(),
-                            retryable: true,
-                        });
-                    }
                 }
             }
         }
@@ -328,10 +368,15 @@ impl DurableQuestionHub {
     }
 
     async fn finish_pending(&self, pending: &PendingQuestion, outcome: QuestionOutcome) {
-        self.pending
+        let removed = self
+            .pending
             .write()
             .await
-            .remove(&pending.invocation.interaction_id);
+            .remove(&pending.invocation.interaction_id)
+            .is_some();
+        if !removed {
+            return;
+        }
         let payload = json!({
             "type": "question/resolved",
             "sessionId": pending.session_id,
@@ -921,6 +966,60 @@ mod tests {
             )
             .await;
         assert!(matches!(conflicting, Err(QuestionHubError::BadResponse(_))));
+    }
+
+    #[tokio::test]
+    async fn durable_provider_observes_a_resolution_committed_outside_its_process_channel() {
+        let concrete = Arc::new(MemorySessionStore::default());
+        let store: Arc<dyn Store> = concrete;
+        session_with_question_call(&store, "external-settlement").await;
+        let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        let mut frames = hub.subscribe();
+        let invocation =
+            QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+        let provider =
+            DurableQuestionProvider::new(Arc::clone(&hub), "external-settlement", "/workspace");
+        let waiting =
+            tokio::spawn(async move { provider.ask(invocation, CancellationToken::new()).await });
+        frames.recv().await.unwrap();
+
+        let mut interaction = QuestionInteraction::new(QuestionInvocation::new(
+            "execution-1",
+            request(AnswerDestination::AgentMarkdown),
+        ))
+        .unwrap();
+        let resolution = interaction
+            .resolve(
+                ResolveAction::Continue,
+                vec![QuestionAnswer {
+                    question_id: "target".to_owned(),
+                    selected_option_id: Some("local".to_owned()),
+                    custom_text: None,
+                }],
+            )
+            .unwrap();
+        let session = store.load("external-settlement").await.unwrap().unwrap();
+        store
+            .append(
+                "external-settlement",
+                session.revision(),
+                vec![EventData::QuestionResolved {
+                    interaction_id: "question:execution-1".to_owned(),
+                    resolution: resolution.clone(),
+                }
+                .into()],
+            )
+            .await
+            .unwrap();
+        store.flush("external-settlement").await.unwrap();
+
+        let observed = tokio::time::timeout(Duration::from_secs(2), waiting)
+            .await
+            .expect("durable settlement poll did not wake")
+            .unwrap()
+            .unwrap();
+        assert_eq!(observed, resolution);
+        assert!(hub.baseline().await.is_empty());
     }
 
     #[tokio::test]
