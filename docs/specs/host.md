@@ -2,7 +2,7 @@
 
 **Crate：** `xharness-host`（控制面库）、`xharness-host-app`（原生组合与二进制）
 **状态：** 上游 52 个固定 RPC 已有内存基础实现；另接通 Typert `commands/list`、
-`commands/execute` 动态端点、权限投影、真实 Rust Loop、14 个原生工具、流式投影、审批链路
+`commands/execute` 动态端点、权限投影、真实 Rust Loop、11 个 Coding/Job/Web 工具、流式投影、审批链路
 和 Session 导出。
 **兼容快照：** `deepseek-harness@141eb6fef8`。
 
@@ -13,7 +13,7 @@
 `xharness-platform` 及其下层。
 
 Host 已从部署组合中抽离：控制面库不再依赖 OpenAI Adapter、HTTP Server、Coding Tool
-Bundle、Platform、Terminal 或 Web Runtime。`xharness-host-app` 负责选择这些实现并生成
+Bundle、Platform、Job 或 Web Runtime。`xharness-host-app` 负责选择这些实现并生成
 `xharness-host` 可执行文件。未来 CLI、Daemon 或嵌入式宿主可以直接复用控制面库，而无需
 链接默认 Web Server 和原生工具组合。
 
@@ -43,7 +43,7 @@ LoopEngine + ModelProvider   SessionToolFactory
                                   |
                  host-app::NativeToolFactory
                                   |
-               platform + terminal + web（14 工具）
+             platform + jobs + web（11 工具）
 ```
 
 `xharness-host-app` 二进制负责组合这些层，默认只绑定 loopback。Provider 协议必须显式选择
@@ -188,23 +188,21 @@ Workspace 解析。
 ## 原生工具
 
 `xharness-host-app::NativeToolFactory` 为每个 canonical Workspace 与 Permission Preset 组合缓存一个
-`NativePlatform`，并共享按
-Owner 隔离的 Terminal 和 Web runtime。每个 Session 通过
-`CodingToolBundle::specs()` 得到稳定的 14 工具，Readiness 投影后注册为正式 `ToolExecutor`：
+`NativePlatform`，并共享按 Owner 隔离的 Job Registry 和 Web runtime。每个 Session 通过
+`CodingToolBundle::specs()` 得到稳定的 11 工具，Readiness 投影后注册为正式 `ToolExecutor`：
 
 ```text
-bash read write edit glob grep
-terminal_open terminal_send terminal_read
-terminal_signal terminal_close terminal_list
+bash job_output job_list job_kill
+read write edit glob grep
 web_search web_fetch
 ```
 
-缓存的 Platform 让文件观察记录跨 Turn 保留。Terminal Owner 是 Session ID。注入真实
+缓存的 Platform 让文件观察记录跨 Turn 保留。Job Owner 是 Session ID。注入真实
 Search Provider 前，搜索明确不可用；网页抓取仍可使用。
 
 Platform 初始化暴露可缓存 Readiness。正式 Host 已在后续模型 Step 从工具集合移除已确认不可用的
-`bash/glob/grep/terminal_open`；已有 Terminal 的管理工具仍按 Session 状态保留，同时保持受限模式
-fail closed。尚未完成的是把同一结构化原因投影给 Web Workspace Readiness/工具目录，而不是模型
+`bash/glob/grep`；Job 控制工具仍保留以收敛历史任务，同时保持受限模式 fail closed。
+尚未完成的是把同一结构化原因投影给 Web Workspace Readiness/工具目录，而不是模型
 请求侧裁剪。
 
 ## Host 结构化关闭
@@ -212,16 +210,16 @@ fail closed。尚未完成的是把同一结构化原因投影给 Web Workspace 
 `xharness-host-app` 在 HTTP Server 停止接受新连接后，必须调用
 `AgentRuntime::shutdown(10s)`，而不是直接退出 Tokio Runtime。Durable Runtime 使用
 同一 Deadline 依次收敛 Agent Supervisor 和 `SessionToolFactory`：前者取消/等待活动
-Loop，后者关闭共享 Terminal Registry 中的持久 PTY。
+Loop，后者取消并等待共享 Job Registry 中的活跃任务。
 
 关闭结果通过 `AgentShutdownReport { workers, graceful, forced_cleanup,
 cleanup_errors }` 返回，并记录 `host/shutdown.completed` Debug Event 后 Flush。只有
 `forced_cleanup == 0 && cleanup_errors.is_empty()` 时二进制才能以成功状态退出；
-超时 Abort、PTY 关闭错误和 Tool Factory 清理超时必须成为显式失败。
+超时 Abort、Job Cancel/Wait 错误和 Tool Factory 清理超时必须成为显式失败。
 二进制收到 SIGINT 或 SIGTERM 时先解决 Axum Shutdown Future 关闭 Accept Loop，再收敛
 Backend。由于 Hyper Graceful Shutdown 不会主动关闭已升级 WebSocket，Backend 完全静默后
 只再给 Transport 1 秒 Drain；仍未退出时 Abort 纯 Carrier Task，并在 Debug Event 中记录
-`transportForcedClose=true`。该 Abort 发生在 Provider/Tool/Process/PTY 全部收敛之后，不能用来
+`transportForcedClose=true`。该 Abort 发生在 Provider/Tool/Job/Process 全部收敛之后，不能用来
 代替 Backend Cleanup。
 
 ## Session 导出
@@ -250,7 +248,7 @@ Content-Type 和下载文件名，并把 Session 不存在映射为 HTTP 404。�
 - 正式 Durable Host 已安装自动 Compaction，可处理 80% Pressure、请求前 Hard Overflow
   和 Provider 无 Delta Context 400；手动 `/compact`、生产 Tool-result Pruner/Spill 和独立
   Summary Purpose 路由仍待完成。
-- Full access 会关闭逐工具审批；正式 Host 已按 Sandbox/Search/Terminal Readiness 动态裁剪
+- Full access 会关闭逐工具审批；正式 Host 已按 Sandbox/Search Readiness 动态裁剪
   模型工具，但 Web UI 尚未显示同一能力报告。
 
 ## 验收标准
@@ -261,4 +259,4 @@ Workspace/Session/Fork/Settings/Goal/Export 状态变化；通过 ClientResponse
 目标做交叉检查。新增门禁必须解析实际 Provider Request，断言 System Prompt/工具子集，
 并重放 `64,196 > 53,248` 上下文样本和 Sandbox Probe 不可用后的动态工具投影。
 结构化关闭门禁还必须证明：活动 Turn 取消并持久闭合后才停 Worker，所有
-持久 PTY 已退出，关闭后新 Admission 被拒绝，Forced Cleanup 导致二进制非零退出。
+活跃 Job/Process 已退出，关闭后新 Admission 被拒绝，Forced Cleanup 导致二进制非零退出。

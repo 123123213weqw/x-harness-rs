@@ -19,6 +19,12 @@ Stdout/Stderr 必须并发 Drain，避免 Pipe Deadlock。每条流报告保留�
 是否截断。Cap 必须保持有效 UTF-8 Scalar 边界；源数据中真实非法字节可以 Lossy 表示。
 非零 Exit Status 是正常的结构化 `ProcessOutput`，不是 Runtime Error。
 
+`ProcessHandle::output_observer()` 另提供可 Clone、非消费的实时窗口。调用者以 stdout/stderr
+绝对 Cursor 读取 `ProcessOutputSnapshot`，再用单调 Revision 等待变化。窗口与最终 Capture 使用
+相同 per-stream Cap，但 Final Capture 保留 Head，Live Observer 保留 Tail；Cursor 落在已淘汰区域
+时明确 `truncated=true`。Supervisor 无论成功或基础设施失败都必须发布 `finished` Revision。
+Job Producer 可将该观察面转换成自己的单消费输出，但 Process Runtime 本身不持有模型 Cursor。
+
 ## 终止
 
 Timeout、显式 Cancel 和 Handle Drop 都请求终止。Supervisor 先向 Process Group 发送
@@ -44,7 +50,7 @@ Process Group 的取消、超时和清理。
 ## 当前限制
 
 - 仅 Unix；尚无 Windows Job Object。
-- 尚无后台 Job Registry 或 Spill File。
+- 后台 Job Registry 已在独立 `xharness-jobs` 实现；Process 层仍无 Spill File。
 - `FullAccess` 下主动 `setsid()` 逃离原 Process Group 的后代仍无法被本层硬回收；
   保留 Pipe 的逃逸后代会被有界 Drain 检测为 Cleanup Failure。需要硬保证时必须使用
   Linux PID Namespace/macOS Seatbelt 等受限后端，不能把 Process Group 当成安全边界。
@@ -52,6 +58,6 @@ Process Group 的取消、超时和清理。
 ## 验收标准
 
 测试必须覆盖直接 Argv/无 Shell Injection、显式 Cwd/Env、Secret Scrub、正常和非零退出、
-并发 Stdout/Stderr、Unicode 安全 Cap、Timeout Escalation、显式 Cancel 以及 Leader/
+并发 Stdout/Stderr、Live Observer 的增量/Tail/Revision、Unicode 安全 Cap、Timeout Escalation、显式 Cancel 以及 Leader/
 Descendant 清理。还必须覆盖 Runtime Drop 时的同步最后清理、逃逸 Session 持有
 Pipe 时的有界失败，以及受限 PID Namespace 中后代的硬回收。

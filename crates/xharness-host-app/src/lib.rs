@@ -2,7 +2,7 @@
 //! plane.
 //!
 //! This crate owns OS-facing tool construction. The Host library itself stays
-//! independent from Linux/macOS process, filesystem, sandbox, terminal and Web
+//! independent from Linux/macOS process, filesystem, sandbox, jobs and Web
 //! implementations.
 
 use std::{
@@ -24,16 +24,17 @@ use xharness_host::{
     PermissionPreset, SessionToolFactory,
 };
 use xharness_interaction::{AskUserQuestionTool, QuestionInvocation, QuestionResolution};
+use xharness_jobs::JobRegistry;
 use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
-use xharness_terminal::TerminalRegistry;
 use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
 use xharness_web::WebRuntime;
 
-/// Native Linux/macOS implementation of the standard fourteen-tool factory.
+/// Native Linux/macOS implementation of the standard coding-tool factory.
 /// Platforms are cached per canonical workspace so filesystem observations
-/// survive across turns, while terminal ownership remains per session.
+/// survive across turns. Background jobs are shared by the factory and fenced
+/// by session owner so they remain collectable across model turns.
 pub struct NativeToolFactory {
-    terminals: Arc<TerminalRegistry>,
+    jobs: Arc<JobRegistry>,
     web: Arc<WebRuntime>,
     platforms: RwLock<BTreeMap<(String, PermissionPreset), Arc<NativePlatform>>>,
     debug: DebugRecorder,
@@ -44,7 +45,6 @@ pub struct NativeToolFactory {
 pub struct NativeToolReadiness {
     pub platform: CapabilityReport,
     pub search_available: bool,
-    pub existing_terminals: usize,
 }
 
 impl NativeToolFactory {
@@ -54,7 +54,7 @@ impl NativeToolFactory {
 
     pub fn new_with_debug(web: WebRuntime, debug: DebugRecorder) -> Arc<Self> {
         Arc::new(Self {
-            terminals: Arc::new(TerminalRegistry::with_defaults().with_debug(debug.clone())),
+            jobs: Arc::new(JobRegistry::default()),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
             debug,
@@ -68,7 +68,7 @@ impl NativeToolFactory {
         questions: Arc<DurableQuestionHub>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            terminals: Arc::new(TerminalRegistry::with_defaults().with_debug(debug.clone())),
+            jobs: Arc::new(JobRegistry::default()),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
             debug,
@@ -102,34 +102,22 @@ impl NativeToolFactory {
 
     pub async fn readiness(
         &self,
-        session_id: &str,
+        _session_id: &str,
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<NativeToolReadiness, String> {
         let platform = self.platform(cwd, permission).await?;
-        let terminals = self
-            .terminals
-            .list(session_id)
-            .await
-            .map_err(|error| error.to_string())?;
         Ok(NativeToolReadiness {
             platform: platform.capability_report().await,
             search_available: self.web.has_search_provider(),
-            existing_terminals: terminals.len(),
         })
     }
 }
 
 fn project_tools(specs: &mut Vec<ToolSpec>, readiness: &NativeToolReadiness) {
     let process_available = readiness.platform.restricted_process.is_available();
-    let terminal_open_available = readiness.platform.terminal_open.is_available();
-    let terminal_management_available = terminal_open_available || readiness.existing_terminals > 0;
     specs.retain(|spec| match spec.definition.name.as_str() {
         "bash" | "glob" | "grep" => process_available,
-        "terminal_open" => terminal_open_available,
-        "terminal_send" | "terminal_read" | "terminal_signal" | "terminal_close" => {
-            terminal_management_available
-        }
         "web_search" => readiness.search_available,
         _ => true,
     });
@@ -147,7 +135,7 @@ impl SessionToolFactory for NativeToolFactory {
         let readiness = self.readiness(session_id, cwd, permission).await?;
         let mut specs = CodingToolBundle::new(
             platform,
-            Arc::clone(&self.terminals),
+            Arc::clone(&self.jobs),
             Arc::clone(&self.web),
             session_id,
             session_id,
@@ -180,15 +168,13 @@ impl SessionToolFactory for NativeToolFactory {
     }
 
     async fn shutdown(&self) -> Result<(), String> {
-        let report = self.terminals.shutdown().await;
+        let report = self.jobs.shutdown(std::time::Duration::from_secs(8)).await;
         if report.is_graceful() {
             Ok(())
         } else {
             Err(format!(
-                "terminal shutdown closed {}/{} sessions: {}",
-                report.closed,
-                report.sessions,
-                report.errors.join("; ")
+                "job shutdown handled {} jobs with {} cancellation failures and {} timeouts",
+                report.jobs, report.cancellation_failures, report.timed_out
             ))
         }
     }
@@ -370,7 +356,7 @@ mod tests {
             Arc::new(NativePlatform::new(PlatformConfig::new(&workspace.0).full_access()).unwrap());
         let mut specs = CodingToolBundle::new(
             platform,
-            Arc::new(TerminalRegistry::with_defaults()),
+            Arc::new(JobRegistry::default()),
             Arc::new(WebRuntime::default()),
             "session",
             "session",
@@ -394,7 +380,6 @@ mod tests {
                     sandbox_backend: "bubblewrap".to_owned(),
                 },
                 search_available: false,
-                existing_terminals: 0,
             },
         );
         let mut names = specs
@@ -404,17 +389,25 @@ mod tests {
         names.sort_unstable();
         assert_eq!(
             names,
-            ["edit", "read", "terminal_list", "web_fetch", "write"]
+            [
+                "edit",
+                "job_kill",
+                "job_list",
+                "job_output",
+                "read",
+                "web_fetch",
+                "write"
+            ]
         );
     }
 
     #[tokio::test]
-    async fn native_factory_shutdown_closes_shared_persistent_terminals() {
+    async fn native_factory_shutdown_cancels_shared_background_jobs() {
         let workspace = TempWorkspace::new();
         let factory = NativeToolFactory::new(WebRuntime::default());
         let executor = factory
             .executor(
-                "terminal-shutdown",
+                "job-shutdown",
                 &workspace.0.to_string_lossy(),
                 PermissionPreset::DangerFullAccess,
             )
@@ -422,34 +415,21 @@ mod tests {
             .unwrap();
         let opened = executor
             .execute(xharness_tools::ToolRequest::new(
-                "terminal_open",
-                r#"{"name":"persistent"}"#,
+                "bash",
+                r#"{"command":"sleep 30","run_in_background":true}"#,
             ))
             .await;
         assert!(opened.is_ok(), "{opened:?}");
-        assert_eq!(
-            factory
-                .terminals
-                .list("terminal-shutdown")
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(factory.jobs.list("job-shutdown").len(), 1);
 
         SessionToolFactory::shutdown(factory.as_ref())
             .await
             .unwrap();
-        assert!(factory
-            .terminals
-            .list("terminal-shutdown")
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(factory.jobs.list("job-shutdown")[0].status.is_terminal());
         let late = executor
             .execute(xharness_tools::ToolRequest::new(
-                "terminal_open",
-                r#"{"name":"late"}"#,
+                "bash",
+                r#"{"command":"sleep 30","run_in_background":true}"#,
             ))
             .await;
         assert!(!late.is_ok());

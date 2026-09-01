@@ -15,12 +15,13 @@ Commit、Issue、PR 应引用这些 ID。
 
 当前正式 `xharness-host-app` 已具备可日常使用的本地 Coding Agent 主链路：Web RPC、
 `DurableLoopAgentRuntime`、双层 Durable Inbox、JSONL Session、File Lease、Prompt/Token Guard、
-OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 14 个
-Coding Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
+OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 11 个
+Coding/Job/Web Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
 
-当前共有 `DONE-01`—`DONE-68` 六十八个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
+当前共有 `DONE-01`—`DONE-70` 七十个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
 Web 对话重启恢复、模型性能指标投影、长思考输出预算、大 Session 热路径、逐模型推理强度、
-Context 占用圆环、Harness 构造视图，以及 Web Fetch 大结果直接挤爆 Context 的回归。
+Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Context 的回归，以及后台 Job
+第一阶段。
 
 以下能力已经完成主体，不应再描述成“尚未接入”：
 
@@ -34,9 +35,9 @@ Context 占用圆环、Harness 构造视图，以及 Web Fetch 大结果直接�
   Session/Web 使用不删除原 Event Log 的 Surface Replace。
 - `web_fetch` 已使用 8,000 字符的确定性 Reader 摘要；历史或当前批次遗留的大 Tool Result 会先
   经过 8,192 字符的请求侧 Pruner，再进入 Compact 与 Token Guard。原始 Session Event 不丢失。
-- Platform/Search/Terminal Readiness 已裁剪每个模型 Step 的工具定义；尚缺 Web Readiness 投影。
-- 正式 Host 已实现结构化 Shutdown：关闭 Admission，Signal/Join Agent、Loop、Tool
-  和 Process，收尾持久 PTY；超时清理会显式报告 Forced Cleanup。
+- Platform/Search Readiness 已裁剪每个模型 Step 的工具定义；尚缺 Web Readiness 投影。
+- 正式 Host 已实现结构化 Shutdown：关闭 Admission，Signal/Join Agent、Loop、Tool、Job
+  和 Process；超时清理会显式报告 Forced Cleanup。
 - macOS ARM64 已在原生 GitHub Runner 运行 Workspace、FS、Process、PTY、Seatbelt 测试并生成
   未签名构件；剩余是 Live Provider、签名、公证和安装验证。
 
@@ -58,17 +59,17 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] `DONE-09` Linux Bubblewrap、macOS Seatbelt 和平台抽象。
 - [x] `DONE-10` 按 Owner 隔离的持久 PTY Runtime。
 - [x] `DONE-11` 匿名有界 Web Fetch 和可插拔 Search。
-- [x] `DONE-12` 标准 14 个 Coding Tool。
+- [x] `DONE-12` 标准 11 个 Coding/Job/Web Tool；旧六个 Terminal Tool 已退出默认模型面。
 - [x] `DONE-13` 真实 V100 Qwen 工具 Loop：模型 → 审批 → 写入 → 重放 → 最终回答。
 - [x] `DONE-14` 每 Crate 规范和总路线图。
 - [x] `DONE-15` Web 线协议第一阶段：52 RPC、四象限信封、Mux/Host Frame、HTTP、
   下行 WebSocket、`/api/respond`、Export/Static 路由骨架。
-- [x] `DONE-16` Web Host 基线：52 RPC 全部有状态行为；真实 Loop Turn、14 个原生工具、
+- [x] `DONE-16` Web Host 基线：52 RPC 全部有状态行为；真实 Loop Turn、原生工具、
   审批响应、Mux/Host 事件投影、JSON Export 和 Loopback Server Binary 全部接通。
 - [x] `DONE-17` Context 第一阶段抽象：独立 `xharness-context`、一次性 Surface、Edit 来源
   范围校验、Policy 版本与 Request Header 审计。
 - [x] `DONE-18` Host 组合解耦：`xharness-host` 只保留 Provider/平台无关控制面，
-  `xharness-host-app` 组合 OpenAI Adapter、Server、Platform、Terminal、Web 和原生工具；
+  `xharness-host-app` 组合 OpenAI Adapter、Server、Platform、Job、Web 和原生工具；
   Host 可显式注入 ContextPolicy。
 - [x] `DONE-19` Host Turn Runtime 解耦：定义 `AgentRuntime`、`AgentTurnRequest`、
   `RunningTurn` 和 `ModelRoute`，BasicHost 不再直接持有 Provider/ToolFactory/ContextPolicy 或
@@ -152,8 +153,8 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   宿主，但持久内容寻址 Spill/Reference 与历史 Surface Replace 尚未实现。
 - [x] `DONE-39` 原生平台 Readiness 与模型工具动态投影：`NativePlatform` 对同一 Workspace/
   Permission 组合只 Probe 一次并缓存强类型 `CapabilityReport`；Host 在每次模型 Step 前根据
-  Sandbox、Search Provider 与现存 Terminal 状态裁剪工具。受限进程不可用时移除
-  `bash/glob/grep/terminal_open`，未配置 Search 时移除 `web_search`；Full access 明确报告
+  Sandbox 与 Search Provider 状态裁剪工具。受限进程不可用时移除 `bash/glob/grep`，仍保留
+  Job 控制器收敛历史任务；未配置 Search 时移除 `web_search`；Full access 明确报告
   `none-full-access`，不会为探测偷偷创建 Sandbox。确定性测试覆盖不可用能力的模型可见子集。
 - [x] `DONE-40` Tool 双重身份与 Provider Replay：每个调用分别持久化全 Session 唯一的
   Harness `execution_id` 与 Provider 原生 `provider_call_id`；Journal、Approval、Tool Result 和
@@ -209,8 +210,8 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   `tool_executor` 边界，模型 Tool Definition、Context/Token Budget、Request Header、Fresh Batch 与
   Pending Approval Recovery 均读取同一个 Registry/Executor。Core 通过 Channel Bridge 把 Web
   Command 转为正式 Approval Provider，并在 `ToolLifecycle::started` Ack 前发布 Tool Started；
-  Completion 真实顺序投影、Result 模型顺序落账。`SessionToolFactory` 现在返回 Executor，原生 14
-  工具、Full Access 裁剪和 Durable Host 默认全部走新路径；`core_specs()`、自动批准适配器及
+  Completion 真实顺序投影、Result 模型顺序落账。`SessionToolFactory` 现在返回 Executor，原生
+  Tool Bundle、Full Access 裁剪和 Durable Host 默认全部走新路径；`core_specs()`、自动批准适配器及
   Coding Tools 对 Core 的生产依赖已删除。旧 `LoopRequest.tools` 仅为尚未迁移的 Embedder/Test
   保留，不能和新 Executor 同时配置。
 - [x] `DONE-50` 正式 Tool Runtime 回归矩阵：Core 的恢复审批、并行审批、拒绝、重复 Provider
@@ -322,6 +323,17 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   HTTP Client，直接 Reserved/Private IP 仍拒绝。`web_fetch` 明确独立于 Session 进程权限，
   Workspace-write 下可用而 Bash 网络仍隔离。Seatbelt 仅额外允许精确的 `/dev/null` 字符设备
   写入，修复 `command 2>/dev/null` 的假失败，不扩大 Workspace 外普通文件写权限。
+- [x] `DONE-70` 通用后台 Job 第一阶段：新增生产者无关 `xharness-jobs`，实现
+  Reserve-before-side-effect/Commit、按 Kind 单调 ID、Owner Fence、`running/stopping/completed/
+  killed/failed` First-wins、每 Owner 10 个活跃任务、100 条终态保留、每流 256 KiB 未读 Tail、
+  Wait Timeout、幂等 Kill、Cancel Hook 异常零状态变更、Lease Drop Force-fail、三类 Lifecycle
+  Broadcast 与有界 Shutdown。`bash` 新增 `run_in_background=true` 并用 Process Live Observer
+  增量喂入 Job；模型新增 `job_output/job_list/job_kill`，旧六个 `terminal_*` 从默认 Tool Schema
+  移除；Host 同步注入 Job 跨 Step 选择规则，模型输出隐藏 Owner/PID/通知账本。WZU_Server 定向
+  测试覆盖全部五态、动态配置、Owner/容量/历史保留/UTF-8/丢输出、非零退出、Kill、进程树和
+  Shutdown Cancel 异常/超时 Corner Case，并提供可选 DeepSeek PTY/nohup 行为测试。2026-09-01
+  DeepSeek V4 Flash 实测正确选择 `bash(run_in_background=true) -> job_output(wait=true)`，未生成
+  `nohup/&/PTY/screen/tmux`。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -475,20 +487,23 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Compact 安全切点；未决 Question 始终留在当前开放 Step，不参与 Compact。
 
 - [ ] `P1-04` **动态 Tool Projection。** 每个 Profile/Step 只发送相关工具，同时保持 Schema
-  稳定。与始终发送 14 工具比较 Token/Cache 消耗和工具选择质量。
+  稳定。与始终发送 11 工具比较 Token/Cache 消耗和工具选择质量。
 
 - [ ] `P1-05` **更完整的 Tool Description。** 增加何时用、何时不用、前置条件、输出语义、
-  `bash` 与 Terminal 选择指导；使用固定工具选择数据集评估。
+  `bash` 前台/Job 后台选择指导；使用固定工具选择数据集和 DeepSeek 的 PTY/nohup 提示做评估。
 
 - [ ] `P1-06` **扩展 FS Tool。** 增加目录创建/列表、安全 Delete/Move/Copy、Binary/Image
   Read、Unified Diff/Patch、按行读取和显式 Spill Reference；继续保持 Observation CAS 和审批。
 
-- [ ] `P1-07` **后台 Job。** One-shot Bash `run_in_background`、Owner-scoped Job Registry、
-  Status/Read/Cancel、有界 Spill、重启后 Outcome 语义和 Process-tree 清理。
+- [ ] `P1-07` **后台 Job 后续。** 第一阶段已完成 One-shot Bash `run_in_background`、Owner-scoped
+  Job Registry、三个控制工具、内存 Tail、五态、Process-tree 清理与 Lifecycle Broadcast。
+  剩余：Finished Notice 自动注入 Busy Agent 或唤醒 Idle Agent、全量 Spill 文件、Host 崩溃后的
+  Outcome Unknown/Orphan Reconciliation（禁止自动重放命令）、Web Job List Projection，以及
+  Subagent/Workflow 等新 Producer 接入同一 Registry。
 
-- [ ] `P1-08` **补全 Terminal 协议。** Resize、OSC 133 Prompt Marker、Foreground-pgid/
-  Read-state Observation、Active-send 互斥，以及明确 Settle Reason：`stdin_read`、
-  `inferred_idle`、`timeout`、`session_exit`。
+- [ ] `P1-08` **专用交互 Terminal Profile。** 默认模型面已移除旧六工具。若 TUI/REPL 确有需求，
+  重新设计仅按 Profile 投影的 PTY 能力：Resize、OSC 133 Prompt Marker、Foreground-pgid、
+  Read-state Observation、Active-send 互斥和明确 Settle Reason；禁止再把持久 Shell 当后台 Job。
 
 - [ ] `P1-09` **多模态 Message 与 Attachment。** 强类型 Text/Image/File Block、内容寻址
   Blob Store、Image Metadata/Budget、Provider Encoding，用持久 Reference 替代内联大数据。

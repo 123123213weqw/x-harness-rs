@@ -23,13 +23,13 @@ xharness-control = { path = "../xharness-control" }
 xharness-debug = { path = "../xharness-debug" }
 xharness-host = { path = "../xharness-host" }
 xharness-interaction = { path = "../xharness-interaction" }
+xharness-jobs = { path = "../xharness-jobs" }
 xharness-agent = { path = "../xharness-agent" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }
 xharness-session = { path = "../xharness-session" }
 xharness-session-jsonl = { path = "../xharness-session-jsonl" }
 xharness-server = { path = "../xharness-server" }
-xharness-terminal = { path = "../xharness-terminal" }
 xharness-token = { path = "../xharness-token" }
 xharness-web = { path = "../xharness-web" }
 xharness-tools = { path = "../xharness-tools" }

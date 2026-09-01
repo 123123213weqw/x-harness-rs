@@ -104,14 +104,14 @@ Session 当前保存模型可见版本，原始结果只存在于运行时 `Tool
 
 工具 Schema 是模型请求的一部分。Host 应根据 Profile、平台可用性和当前 Step 投影稳定的工具
 子集。后端探测确认某工具不可用后，下一 Step 应移除该工具或明确标记不可用；例如 Restricted
-Process 不可用时移除 `bash/glob/grep/terminal_open`，但已有 Terminal 的管理工具按 Session
-状态决定。禁止继续让模型反复调用同一个必失败能力。动态投影必须记录在 Request Header，
+Process 不可用时移除 `bash/glob/grep`，但三个 Job 管理工具保留以收敛此前已启动的任务。
+禁止继续让模型反复调用同一个必失败能力。动态投影必须记录在 Request Header，
 便于重放。
 
 ## 已知回归样本：2026-08-21
 
 WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约 62,181 tokens，
-14 个工具定义及聊天模板再增加约 2,015 tokens，最终请求为 64,196 tokens，服务端以 HTTP
+事故发生时的 14 个工具定义及聊天模板再增加约 2,015 tokens，最终请求为 64,196 tokens，服务端以 HTTP
 400 拒绝。主要来源是三个完整文件结果：约 20,115、26,953 和 6,848 tokens；最后一批
 并行读取单次增加约 33,800 tokens。
 
@@ -131,7 +131,7 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
   Tokenizer 与统一 Capability Catalog 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。
 - `read` 已分页；其他工具结果仍缺统一 Spill/Reduce。
-- Host 已按 Platform/Search/Terminal Readiness 发送工具子集；Profile/Step 级投影仍待实现。
+- Host 已按 Platform/Search Readiness 发送工具子集；Profile/Step 级投影仍待实现。
 - 工具 Schema 和 System/Message/Protocol 分项已经记录；Provider 原生 Chat Template 的精确开销
   仍需要 Provider-aware Meter。
 

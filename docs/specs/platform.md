@@ -53,7 +53,8 @@ core/provider/session ----------------X（禁止原生依赖）
 ## 当前限制
 
 - 模型请求侧已经消费缓存的 Capability Report，并移除不可用的
-  `bash/glob/grep/terminal_open`；Web Workspace Readiness/工具目录尚未完整投影同一报告。
+  `bash/glob/grep`；三个 Job 控制工具仍保留用于收敛历史任务。Web Workspace Readiness/工具目录
+  尚未完整投影同一报告。
 - 尚无运行时 Backend Plugin 或 Remote-execution Platform。
 - macOS 已产生未签名 ARM64 Host 构件，并在本机完成双 V100 Provider → `glob` → bundled `rg` →
   Tool Result → 最终回答的真实 Loop；仍需要开发者签名、公证和正式安装包验证。
