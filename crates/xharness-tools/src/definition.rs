@@ -37,6 +37,30 @@ pub enum ToolConcurrency {
     Exclusive,
 }
 
+/// How the executor decides that a handler has exceeded its execution window.
+///
+/// `External` is reserved for durable human or external-system interactions.
+/// It removes the ordinary handler deadline, but cancellation and structured
+/// shutdown still have to settle within the executor cleanup grace.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolSettlement {
+    #[default]
+    Bounded,
+    External,
+}
+
+/// Whether one invocation may share a model-emitted tool batch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolBatchPolicy {
+    #[default]
+    Any,
+    /// Reject the complete batch before starting any handler when another
+    /// invocation is present. Used by durable human-interaction barriers.
+    Standalone,
+}
+
 /// Successful handler payload before pipeline finalization.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ToolOutput {
@@ -108,6 +132,8 @@ pub type ResourceKeyResolver = Arc<dyn Fn(&Value) -> Option<String> + Send + Syn
 pub struct ToolSpec {
     pub definition: ToolDefinition,
     pub timeout: Duration,
+    pub settlement: ToolSettlement,
+    pub batch_policy: ToolBatchPolicy,
     pub concurrency: ToolConcurrency,
     pub requires_approval: bool,
     pub resource_key_resolver: Option<ResourceKeyResolver>,
@@ -125,6 +151,8 @@ impl ToolSpec {
         Self {
             definition,
             timeout: Self::DEFAULT_TIMEOUT,
+            settlement: ToolSettlement::Bounded,
+            batch_policy: ToolBatchPolicy::Any,
             // Parallelism is an explicit capability claim. Unknown handlers
             // fail safe to the global exclusive lane.
             concurrency: ToolConcurrency::Exclusive,
@@ -136,6 +164,18 @@ impl ToolSpec {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Wait for an external durable settlement instead of applying the
+    /// ordinary handler deadline. Cancellation remains mandatory and bounded.
+    pub fn with_external_settlement(mut self) -> Self {
+        self.settlement = ToolSettlement::External;
+        self
+    }
+
+    pub fn requiring_standalone_batch(mut self) -> Self {
+        self.batch_policy = ToolBatchPolicy::Standalone;
         self
     }
 
@@ -164,6 +204,8 @@ impl fmt::Debug for ToolSpec {
             .debug_struct("ToolSpec")
             .field("definition", &self.definition)
             .field("timeout", &self.timeout)
+            .field("settlement", &self.settlement)
+            .field("batch_policy", &self.batch_policy)
             .field("concurrency", &self.concurrency)
             .field("requires_approval", &self.requires_approval)
             .field(

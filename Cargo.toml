@@ -10,6 +10,7 @@ members = [
     "crates/xharness-fs",
     "crates/xharness-host",
     "crates/xharness-host-app",
+    "crates/xharness-interaction",
     "crates/xharness-provider-openai",
     "crates/xharness-process",
     "crates/xharness-platform",

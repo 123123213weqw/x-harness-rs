@@ -2144,6 +2144,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "xharness-core",
+ "xharness-debug",
  "xharness-fs",
  "xharness-platform",
  "xharness-process",
@@ -2175,6 +2176,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "xharness-compaction",
  "xharness-session",
 ]
 
@@ -2205,7 +2207,9 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "xharness-compaction",
  "xharness-context",
+ "xharness-debug",
  "xharness-prompt",
  "xharness-session",
  "xharness-token",
@@ -2250,8 +2254,10 @@ dependencies = [
  "tower",
  "xharness-agent",
  "xharness-api",
+ "xharness-compaction",
  "xharness-control",
  "xharness-core",
+ "xharness-debug",
  "xharness-prompt",
  "xharness-session",
  "xharness-token",
@@ -2273,6 +2279,7 @@ dependencies = [
  "xharness-agent",
  "xharness-api",
  "xharness-coding-tools",
+ "xharness-compaction",
  "xharness-control",
  "xharness-core",
  "xharness-debug",
@@ -2289,11 +2296,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-interaction"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "xharness-tools",
+]
+
+[[package]]
 name = "xharness-platform"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "xharness-debug",
  "xharness-fs",
  "xharness-process",
  "xharness-sandbox",
@@ -2304,8 +2326,10 @@ name = "xharness-process"
 version = "0.1.0"
 dependencies = [
  "nix",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "xharness-debug",
 ]
 
 [[package]]
@@ -2332,6 +2356,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "xharness-core",
+ "xharness-debug",
 ]
 
 [[package]]
@@ -2339,8 +2364,10 @@ name = "xharness-sandbox"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "xharness-debug",
  "xharness-process",
 ]
 
@@ -2360,6 +2387,7 @@ dependencies = [
  "tower",
  "tower-http",
  "xharness-api",
+ "xharness-debug",
 ]
 
 [[package]]
@@ -2392,8 +2420,10 @@ version = "0.1.0"
 dependencies = [
  "nix",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "xharness-debug",
  "xharness-process",
 ]
 
@@ -2417,6 +2447,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
+ "xharness-debug",
 ]
 
 [[package]]
@@ -2433,6 +2464,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
+ "xharness-debug",
 ]
 
 [[package]]
