@@ -31,6 +31,9 @@ const DEFAULT_SEARCH_LIMIT: usize = 8;
 const MAX_URL_BYTES: usize = 2048;
 const MAX_READER_BLOCK_CHARS: usize = 2_000;
 const READER_SUMMARY_STRATEGY: &str = "reader-extractive/v1";
+const PUBLIC_DNS_ENDPOINT: &str = "https://cloudflare-dns.com/dns-query";
+const DNS_RECORD_A: u16 = 1;
+const DNS_RECORD_AAAA: u16 = 28;
 
 #[derive(Clone, Debug)]
 pub struct WebConfig {
@@ -148,7 +151,7 @@ pub trait SearchProvider: Send + Sync + 'static {
 
 #[derive(Clone)]
 pub struct WebRuntime {
-    client: Client,
+    resolver_client: Client,
     config: WebConfig,
     search: Option<Arc<dyn SearchProvider>>,
     debug: DebugRecorder,
@@ -157,13 +160,13 @@ pub struct WebRuntime {
 impl WebRuntime {
     pub fn new(config: WebConfig) -> Result<Self, WebError> {
         config.validate()?;
-        let client = Client::builder()
+        let resolver_client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(config.fetch_timeout)
             .user_agent("xharness-web/0.1")
             .build()?;
         Ok(Self {
-            client,
+            resolver_client,
             config,
             search: None,
             debug: DebugRecorder::disabled(),
@@ -281,9 +284,20 @@ impl WebRuntime {
         let mut current = requested.clone();
 
         for redirect_count in 0..=self.config.max_redirects {
-            validate_public_target(&current, self.config.allow_private_networks).await?;
-            let request = self
-                .client
+            let resolved = self.resolve_target(&current, cancellation).await?;
+            self.debug
+                .record_lossy(DebugEvent::new(
+                    "web",
+                    "fetch.resolved",
+                    json!({
+                        "url": current.to_string(),
+                        "source": resolved.source,
+                        "addressCount": resolved.addresses.len(),
+                    }),
+                ))
+                .await;
+            let client = fetch_client(&self.config, &current, &resolved.addresses)?;
+            let request = client
                 .get(current.clone())
                 .header(header::ACCEPT, "text/html,text/plain;q=0.9");
             let response = tokio::select! {
@@ -393,6 +407,83 @@ impl WebRuntime {
         }
         Err(WebError::RedirectLimit)
     }
+
+    async fn resolve_target(
+        &self,
+        url: &Url,
+        cancellation: &CancellationToken,
+    ) -> Result<ResolvedTarget, WebError> {
+        let host = url.host_str().ok_or(WebError::UnsupportedUrl)?;
+        let port = url
+            .port_or_known_default()
+            .ok_or(WebError::UnsupportedUrl)?;
+        let lookup = tokio::net::lookup_host((host, port));
+        let addresses: Vec<SocketAddr> = tokio::select! {
+            _ = cancellation.cancelled() => return Err(WebError::Cancelled),
+            result = lookup => result
+                .map_err(|_| WebError::ResolutionFailed(host.to_owned()))?
+                .collect(),
+        };
+        match classify_system_resolution(host, &addresses, self.config.allow_private_networks)? {
+            ResolutionDecision::UseSystem(source) => Ok(ResolvedTarget { addresses, source }),
+            ResolutionDecision::VerifyWithPublicDns => {
+                let addresses = self
+                    .resolve_with_public_dns(host, port, cancellation)
+                    .await?;
+                validate_verified_public_addresses(host, &addresses)?;
+                Ok(ResolvedTarget {
+                    addresses,
+                    source: "encrypted-public-dns",
+                })
+            }
+        }
+    }
+
+    async fn resolve_with_public_dns(
+        &self,
+        host: &str,
+        port: u16,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<SocketAddr>, WebError> {
+        let mut addresses = Vec::new();
+        for record_type in [DNS_RECORD_A, DNS_RECORD_AAAA] {
+            let request = self
+                .resolver_client
+                .get(PUBLIC_DNS_ENDPOINT)
+                .header(header::ACCEPT, "application/dns-json")
+                .query(&[("name", host), ("type", &record_type.to_string())]);
+            let response = tokio::select! {
+                _ = cancellation.cancelled() => return Err(WebError::Cancelled),
+                result = request.send() => result?,
+            };
+            if !response.status().is_success() {
+                return Err(WebError::ResolutionFailed(host.to_owned()));
+            }
+            let response: DnsJsonResponse = tokio::select! {
+                _ = cancellation.cancelled() => return Err(WebError::Cancelled),
+                result = response.json() => result?,
+            };
+            if response.status != 0 {
+                return Err(WebError::ResolutionFailed(host.to_owned()));
+            }
+            addresses.extend(response.answers.into_iter().filter_map(|answer| {
+                if !matches!(answer.record_type, DNS_RECORD_A | DNS_RECORD_AAAA) {
+                    return None;
+                }
+                answer
+                    .data
+                    .parse::<IpAddr>()
+                    .ok()
+                    .map(|ip| SocketAddr::new(ip, port))
+            }));
+        }
+        if addresses.is_empty() {
+            return Err(WebError::ResolutionFailed(host.to_owned()));
+        }
+        addresses.sort_unstable();
+        addresses.dedup();
+        Ok(addresses)
+    }
 }
 
 impl Default for WebRuntime {
@@ -483,6 +574,21 @@ struct ExaResult {
     published_date: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct DnsJsonResponse {
+    #[serde(rename = "Status")]
+    status: u16,
+    #[serde(default, rename = "Answer")]
+    answers: Vec<DnsJsonAnswer>,
+}
+
+#[derive(Deserialize)]
+struct DnsJsonAnswer {
+    #[serde(rename = "type")]
+    record_type: u16,
+    data: String,
+}
+
 #[async_trait]
 impl SearchProvider for ExaSearchProvider {
     fn id(&self) -> &str {
@@ -542,21 +648,72 @@ fn parse_url(raw: &str) -> Result<Url, WebError> {
     Ok(url)
 }
 
-async fn validate_public_target(url: &Url, allow_private: bool) -> Result<(), WebError> {
-    if allow_private {
-        return Ok(());
-    }
-    let host = url.host_str().ok_or(WebError::UnsupportedUrl)?;
+#[derive(Debug)]
+struct ResolvedTarget {
+    addresses: Vec<SocketAddr>,
+    source: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResolutionDecision {
+    UseSystem(&'static str),
+    VerifyWithPublicDns,
+}
+
+fn classify_system_resolution(
+    host: &str,
+    addresses: &[SocketAddr],
+    allow_private: bool,
+) -> Result<ResolutionDecision, WebError> {
     if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
-        return Err(WebError::PrivateNetworkDenied(host.to_owned()));
+        return if allow_private {
+            Ok(ResolutionDecision::UseSystem("system-private-allowed"))
+        } else {
+            Err(WebError::PrivateNetworkDenied(host.to_owned()))
+        };
     }
-    let port = url
-        .port_or_known_default()
-        .ok_or(WebError::UnsupportedUrl)?;
-    let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|_| WebError::ResolutionFailed(host.to_owned()))?
-        .collect();
+    if addresses.is_empty() {
+        return Err(WebError::ResolutionFailed(host.to_owned()));
+    }
+    if allow_private {
+        return Ok(ResolutionDecision::UseSystem("system-private-allowed"));
+    }
+
+    // IP literals never receive the Fake-IP exception. A direct request to a
+    // private/reserved address remains denied even on a machine that uses a
+    // transparent proxy.
+    if host.parse::<IpAddr>().is_ok() {
+        return if addresses.iter().all(|address| is_public_ip(address.ip())) {
+            Ok(ResolutionDecision::UseSystem("literal-public"))
+        } else {
+            Err(WebError::PrivateNetworkDenied(host.to_owned()))
+        };
+    }
+
+    if addresses.iter().all(|address| is_public_ip(address.ip())) {
+        return Ok(ResolutionDecision::UseSystem("system-public"));
+    }
+
+    // Clash/Surge-style TUN DNS commonly returns RFC 2544 benchmarking
+    // addresses from 198.18.0.0/15 for every public hostname. Do not blindly
+    // allow that reserved range: independently resolve the hostname over
+    // encrypted public DNS, validate the real addresses, and pin the HTTP
+    // client to those addresses before connecting.
+    if addresses
+        .iter()
+        .all(|address| is_public_ip(address.ip()) || is_fake_dns_ip(address.ip()))
+        && addresses.iter().any(|address| is_fake_dns_ip(address.ip()))
+    {
+        return Ok(ResolutionDecision::VerifyWithPublicDns);
+    }
+
+    Err(WebError::PrivateNetworkDenied(host.to_owned()))
+}
+
+fn validate_verified_public_addresses(
+    host: &str,
+    addresses: &[SocketAddr],
+) -> Result<(), WebError> {
     if addresses.is_empty() {
         return Err(WebError::ResolutionFailed(host.to_owned()));
     }
@@ -564,6 +721,31 @@ async fn validate_public_target(url: &Url, allow_private: bool) -> Result<(), We
         return Err(WebError::PrivateNetworkDenied(host.to_owned()));
     }
     Ok(())
+}
+
+fn fetch_client(
+    config: &WebConfig,
+    url: &Url,
+    addresses: &[SocketAddr],
+) -> Result<Client, WebError> {
+    let host = url.host_str().ok_or(WebError::UnsupportedUrl)?;
+    let mut builder = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(config.fetch_timeout)
+        .user_agent("xharness-web/0.1");
+    if host.parse::<IpAddr>().is_err() {
+        builder = builder.resolve_to_addrs(host, addresses);
+    }
+    Ok(builder.build()?)
+}
+
+fn is_fake_dns_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => ip.octets()[0] == 198 && matches!(ip.octets()[1], 18 | 19),
+        IpAddr::V6(ip) => ip
+            .to_ipv4_mapped()
+            .is_some_and(|mapped| is_fake_dns_ip(IpAddr::V4(mapped))),
+    }
 }
 
 fn is_public_ip(ip: IpAddr) -> bool {
@@ -883,4 +1065,90 @@ fn truncate_chars(content: String, limit: usize) -> (String, bool) {
         return (content, false);
     };
     (content[..index].to_owned(), true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    fn address(value: &str) -> SocketAddr {
+        value.parse().unwrap()
+    }
+
+    #[test]
+    fn public_system_resolution_is_used_directly() {
+        assert_eq!(
+            classify_system_resolution("example.com", &[address("93.184.216.34:443")], false)
+                .unwrap(),
+            ResolutionDecision::UseSystem("system-public")
+        );
+    }
+
+    #[test]
+    fn fake_ip_hostname_requires_encrypted_public_verification() {
+        assert_eq!(
+            classify_system_resolution("wttr.in", &[address("198.18.0.65:443")], false).unwrap(),
+            ResolutionDecision::VerifyWithPublicDns
+        );
+    }
+
+    #[test]
+    fn direct_fake_ip_and_real_private_targets_remain_denied() {
+        for (host, resolved) in [
+            ("198.18.0.65", "198.18.0.65:443"),
+            ("internal.example", "127.0.0.1:443"),
+            ("internal.example", "10.0.0.8:443"),
+        ] {
+            assert!(matches!(
+                classify_system_resolution(host, &[address(resolved)], false),
+                Err(WebError::PrivateNetworkDenied(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn encrypted_verification_must_return_only_public_addresses() {
+        assert!(
+            validate_verified_public_addresses("wttr.in", &[address("5.9.243.187:443")]).is_ok()
+        );
+        assert!(matches!(
+            validate_verified_public_addresses("internal.example", &[address("127.0.0.1:443")]),
+            Err(WebError::PrivateNetworkDenied(_))
+        ));
+    }
+
+    #[test]
+    fn mapped_fake_and_private_ipv4_addresses_keep_the_ipv4_policy() {
+        assert!(is_fake_dns_ip("::ffff:198.18.0.65".parse().unwrap()));
+        assert!(!is_public_ip("::ffff:127.0.0.1".parse().unwrap()));
+        assert!(is_public_ip("::ffff:93.184.216.34".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn fetch_client_connects_only_to_the_pinned_address() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0u8; 1024];
+            let read = stream.read(&mut request).await.unwrap();
+            assert!(String::from_utf8_lossy(&request[..read]).starts_with("GET /bound "));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                )
+                .await
+                .unwrap();
+        });
+
+        let url = Url::parse(&format!("http://rebind.invalid:{}/bound", address.port())).unwrap();
+        let client = fetch_client(&WebConfig::default(), &url, &[address]).unwrap();
+        let response = client.get(url).send().await.unwrap();
+        assert_eq!(response.text().await.unwrap(), "ok");
+        server.await.unwrap();
+    }
 }

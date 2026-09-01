@@ -115,6 +115,11 @@ impl SeatbeltSandbox {
 fn build_profile(policy: &SandboxPolicy, paths: &ValidatedPaths) -> Result<String, SandboxError> {
     let mut profile = String::from("(version 1)\n(allow default)\n");
     profile.push_str("(deny file-write*)\n");
+    // Shells and many standard Unix programs use /dev/null for harmless
+    // redirection. Denying this character device turns otherwise read-only
+    // commands such as `command 2>/dev/null` into false failures. Grant only
+    // this exact device; the rest of /dev remains covered by file-write deny.
+    profile.push_str("(allow file-write* (literal \"/dev/null\"))\n");
     if policy.mode() == SandboxMode::WorkspaceWrite {
         profile.push_str("(allow file-write* (subpath ");
         profile.push_str(&profile_string(&paths.workspace)?);
@@ -170,6 +175,7 @@ mod tests {
         )
         .unwrap();
         assert!(profile.contains("(deny file-write*)"));
+        assert!(profile.contains("(allow file-write* (literal \"/dev/null\"))"));
         assert!(profile.contains("/tmp/work \\\\\\\"space"));
         assert!(profile.contains("(deny network*)"));
     }
@@ -188,7 +194,9 @@ mod tests {
             &paths,
         )
         .unwrap();
-        assert_eq!(profile.matches("file-write*").count(), 1);
+        assert_eq!(profile.matches("file-write*").count(), 2);
+        assert!(profile.contains("(allow file-write* (literal \"/dev/null\"))"));
+        assert!(!profile.contains("(subpath"));
         assert!(!profile.contains("network"));
     }
 }

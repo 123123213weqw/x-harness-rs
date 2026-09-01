@@ -60,6 +60,9 @@ LaunchAgent 的最小环境不要求用户自行安装 ripgrep。Linux `.deb` �
 `terminal_send` 的 Settle 只代表观察完成，后续进度要用 `terminal_read`/Status。
 `web_search` 用于发现来源，`web_fetch` 用于抓取一个已知 URL。Fetch 默认自动去除脚本/样式并
 生成确定性抽取摘要；目标问题明确时传 `focus` 提高相关段落排名，不允许要求整页原文塞回上下文。
+Fetch 在 Host 内执行，不继承 Bash/PTY 的网络命名空间或 Seatbelt 网络权限；因此切换
+Workspace-write/Danger-full-access 不应改变 Fetch 结果。受限模式只阻止模型绕过 Web Policy
+直接用进程访问网络，Web Fetch 自身仍执行私网拒绝、加密公共 DNS 验证与连接地址固定。
 
 如果 Sandbox Probe 已经返回确定性不可用，模型不应再次调用 `bash/glob/grep/terminal_open`；
 Host 必须在下一 Step 移除这些进程启动工具，而不是只靠错误字符串提示模型。已有 Terminal 的

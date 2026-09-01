@@ -86,6 +86,26 @@ async fn real_seatbelt_allows_workspace_write_and_denies_outside_write() {
 }
 
 #[tokio::test]
+async fn real_seatbelt_allows_safe_dev_null_redirection() {
+    assert!(Path::new("/usr/bin/sandbox-exec").is_file());
+    let tree = TestTree::new();
+    let workspace = tree.directory("workspace-dev-null");
+    let sandbox = SeatbeltSandbox::new(SandboxPolicy::new(&workspace, SandboxMode::WorkspaceWrite));
+
+    let output = execute(
+        sandbox
+            .prepare(
+                SpawnSpec::new("/bin/bash", &workspace)
+                    .args(["-c", "printf harmless >/dev/null 2>&1"]),
+            )
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(output.status.success, "stderr={}", output.stderr.text);
+}
+
+#[tokio::test]
 async fn real_seatbelt_denies_network_when_policy_denies_it() {
     assert!(Path::new("/usr/bin/sandbox-exec").is_file());
     let tree = TestTree::new();

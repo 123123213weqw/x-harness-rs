@@ -98,6 +98,7 @@ async fn fetch_follows_same_origin_and_extracts_bounded_markdown() {
     let events = sink.events().await;
     for expected in [
         "fetch.request",
+        "fetch.resolved",
         "fetch.redirect",
         "fetch.chunk",
         "fetch.completed",
