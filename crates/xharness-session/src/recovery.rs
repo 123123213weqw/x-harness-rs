@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{EventData, LoggedEvent, Session, SessionEvent, ToolCall, ToolOutcome, ToolResultData};
+use xharness_interaction::{
+    QuestionAnswer, QuestionInteraction, QuestionInvocation, QuestionTerminalState,
+};
 
 pub const COMPACTION_INTERRUPTED_ERROR: &str =
     "compaction was interrupted before an authoritative replacement was committed";
@@ -31,6 +34,141 @@ pub struct PendingToolApproval {
     pub turn: u32,
     pub step: u32,
     pub call: ToolCall,
+}
+
+/// Durable state of one question-bearing tool call whose ordinary tool result
+/// has not yet committed. Re-executing this call is safe: its provider folds
+/// the stable interaction identity and either waits for the existing request
+/// or returns its already-durable resolution.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoverableUserQuestion {
+    pub turn: u32,
+    pub step: u32,
+    pub call: ToolCall,
+    pub invocation: QuestionInvocation,
+    pub draft: Vec<QuestionAnswer>,
+    pub terminal: QuestionTerminalState,
+}
+
+/// Pending subset projected to Web reconnect baselines.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingUserQuestion {
+    pub turn: u32,
+    pub step: u32,
+    pub call: ToolCall,
+    pub invocation: QuestionInvocation,
+    pub draft: Vec<QuestionAnswer>,
+}
+
+/// Fold all durable question events whose associated Tool call still lacks a
+/// result. The Session validator guarantees that every transition is valid.
+pub fn recoverable_user_questions(events: &[LoggedEvent]) -> Vec<RecoverableUserQuestion> {
+    let calls = events
+        .iter()
+        .filter_map(|event| match event.data() {
+            EventData::ToolCall { turn, step, call } => {
+                Some((call.id.clone(), (*turn, *step, call.clone())))
+            }
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+    let settled = events
+        .iter()
+        .filter_map(|event| match event.data() {
+            EventData::ToolResult { result, .. } => Some(result.call_id.as_str()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mut order = Vec::<String>::new();
+    let mut interactions = HashMap::<String, QuestionInteraction>::new();
+    for event in events {
+        match event.data() {
+            EventData::QuestionRequested { invocation } => {
+                order.push(invocation.interaction_id.clone());
+                interactions.insert(
+                    invocation.interaction_id.clone(),
+                    QuestionInteraction::new(invocation.clone())
+                        .expect("validated Session contains a valid question request"),
+                );
+            }
+            EventData::QuestionDraftUpdated {
+                interaction_id,
+                answers,
+            } => {
+                interactions
+                    .get_mut(interaction_id)
+                    .expect("validated Session draft references its request")
+                    .update_draft(answers.clone())
+                    .expect("validated Session contains a valid question draft");
+            }
+            EventData::QuestionResolved {
+                interaction_id,
+                resolution,
+            } => {
+                let answers = resolution
+                    .answers
+                    .iter()
+                    .map(|answer| QuestionAnswer {
+                        question_id: answer.question_id.clone(),
+                        selected_option_id: answer.selected_option_id.clone(),
+                        custom_text: answer.custom_text.clone(),
+                    })
+                    .collect();
+                interactions
+                    .get_mut(interaction_id)
+                    .expect("validated Session resolution references its request")
+                    .resolve(resolution.action, answers)
+                    .expect("validated Session contains a valid question resolution");
+            }
+            EventData::QuestionCancelled {
+                interaction_id,
+                reason,
+            } => {
+                interactions
+                    .get_mut(interaction_id)
+                    .expect("validated Session cancellation references its request")
+                    .cancel(reason.clone())
+                    .expect("validated Session contains a valid question cancellation");
+            }
+            _ => {}
+        }
+    }
+    order
+        .into_iter()
+        .filter_map(|interaction_id| {
+            let interaction = interactions.remove(&interaction_id)?;
+            let invocation = interaction.invocation().clone();
+            if settled.contains(invocation.execution_id.as_str()) {
+                return None;
+            }
+            let (turn, step, call) = calls.get(&invocation.execution_id)?.clone();
+            Some(RecoverableUserQuestion {
+                turn,
+                step,
+                call,
+                draft: interaction.draft(),
+                terminal: interaction.terminal_state(),
+                invocation,
+            })
+        })
+        .collect()
+}
+
+pub fn pending_user_questions(events: &[LoggedEvent]) -> Vec<PendingUserQuestion> {
+    recoverable_user_questions(events)
+        .into_iter()
+        .filter_map(|question| {
+            matches!(question.terminal, QuestionTerminalState::Pending).then_some(
+                PendingUserQuestion {
+                    turn: question.turn,
+                    step: question.step,
+                    call: question.call,
+                    invocation: question.invocation,
+                    draft: question.draft,
+                },
+            )
+        })
+        .collect()
 }
 
 /// Project undecided approval requests from an immutable Session cut.
@@ -124,9 +262,16 @@ pub fn outcome_unknown_recovery(events: &[LoggedEvent]) -> Vec<SessionEvent> {
         .into_iter()
         .map(|approval| approval.call_id)
         .collect::<HashSet<_>>();
+    let recoverable_questions = recoverable_user_questions(events)
+        .into_iter()
+        .map(|question| question.call.id)
+        .collect::<HashSet<_>>();
     incomplete_tool_calls(events)
         .into_iter()
-        .filter(|pending| !awaiting_approval.contains(&pending.call.id))
+        .filter(|pending| {
+            !awaiting_approval.contains(&pending.call.id)
+                && !recoverable_questions.contains(&pending.call.id)
+        })
         .map(|pending| {
             EventData::ToolResult {
                 turn: pending.turn,
@@ -190,5 +335,15 @@ impl Session {
     /// Undecided, tool-bound approvals that can be resumed interactively.
     pub fn pending_tool_approvals(&self) -> Vec<PendingToolApproval> {
         pending_tool_approvals(self.events())
+    }
+
+    /// Question calls that can be safely reattached or replayed after restart.
+    pub fn recoverable_user_questions(&self) -> Vec<RecoverableUserQuestion> {
+        recoverable_user_questions(self.events())
+    }
+
+    /// Unsettled user questions for Web reconnect baselines.
+    pub fn pending_user_questions(&self) -> Vec<PendingUserQuestion> {
+        pending_user_questions(self.events())
     }
 }

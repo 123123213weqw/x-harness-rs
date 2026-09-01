@@ -189,10 +189,10 @@ Coding Agent 日常使用。
 - [ ] `E-07` Settings/Profile/Credential Reference 持久化且日志永不含 Secret。
   Settings 已完成；Control Log 会拒绝非空 Secret 字段。Profile 与 Credential Reference 尚未完成。
 - [ ] `E-08` 真实 Chromium 覆盖刷新、断线、Host 重启和审批恢复。
-- [ ] `E-09` 持久 User Questions：`ask_user_question` 的公共类型、有限选项/自定义输入、
-  Draft/Continue/Cancel 状态机和 Tool Registry 接口已完成；剩余 Session Flush/Recovery、
-  `question/requested|resolved` Mux 投影、现有前端组件复用、受管 AGENTS.md Memory Sink 与 Compact
-  安全切点。
+- [x] `E-09` 持久 User Questions：`ask_user_question` 的公共类型、有限选项/自定义输入、
+  Draft/Continue/Cancel 状态机、Tool Registry、Session Flush/Recovery、
+  `question/requested|resolved` Mux 投影、现有前端组件复用和受管 AGENTS.md Memory Sink 已完成。
+  跨刷新 Draft 同步与 Compact 原子安全切点分别保留给 `E-08/P1-03`，不阻塞当前交互闭环。
 
 ### Batch F：生态与高级能力
 

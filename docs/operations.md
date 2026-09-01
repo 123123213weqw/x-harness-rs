@@ -26,8 +26,10 @@ Host 默认把 Agent Session JSONL、Host Control JSONL 和跨进程 Lease 保�
 
 - 52 个上游兼容 RPC 有基础状态行为。
 - `session.prompt` 可驱动真实 Rust Loop。
-- Coding Bundle 注册 14 个稳定工具名；每个模型 Step 只注入当前 Platform/Search/Terminal
-  Readiness 可用的子集。
+- Coding Bundle 注册 14 个稳定工具名，交互层另注册持久 `ask_user_question`；每个模型 Step 只注入
+  当前 Platform/Search/Terminal/Interaction Readiness 可用的子集。
+- 用户问题在 `question/requested` Flush 后才投影到 Web；回答或取消先 Flush 再恢复原 Tool Call。
+  Host 重启会以原 RPC/Execution ID 重新发布未决问题，等待期间不占用模型、Process 或 PTY。
 - Preset、权限、Workspace、Coding Workflow 和 Plan Policy 已通过 `xharness-prompt/v1` 真实注入
   System Prompt；Request Header 保存版本和 Hash，System 不进入 Transcript。
 - 模型历史、实际 Turn 和 Admission Queue 已写 JSONL Session。启动会枚举并恢复 Session、History、

@@ -12,6 +12,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+xharness-interaction = { path = "../xharness-interaction" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

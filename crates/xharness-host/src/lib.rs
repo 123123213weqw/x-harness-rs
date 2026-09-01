@@ -7,6 +7,7 @@
 mod control;
 mod driver;
 mod metrics;
+mod questions;
 mod restore;
 mod rpc;
 mod runtime;
@@ -29,6 +30,11 @@ use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider};
 use xharness_token::TokenGuard;
 use xharness_tools::{ToolExecutor, ToolRegistry};
 
+pub use questions::{
+    managed_agent_memory, update_agent_markdown, AgentMarkdownSink, DurableQuestionHub,
+    DurableQuestionProvider, NoopAgentMarkdownSink, QuestionHubError, AGENT_MEMORY_BEGIN,
+    AGENT_MEMORY_END,
+};
 pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
 pub use runtime::{
     AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
@@ -126,6 +132,7 @@ pub struct BasicHost {
     pub(crate) control_gate: Arc<Mutex<()>>,
     pub(crate) mux_tx: broadcast::Sender<ServerRequest>,
     pub(crate) host_tx: broadcast::Sender<ServerRequest>,
+    pub(crate) questions: Arc<DurableQuestionHub>,
     admission_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
     next_id: Arc<AtomicU64>,
 }
@@ -187,6 +194,22 @@ impl BasicHost {
         agent_runtime: Arc<dyn AgentRuntime>,
         control_store: Arc<dyn ControlStore>,
     ) -> Arc<Self> {
+        Self::with_agent_runtime_control_and_questions(
+            config,
+            agent_runtime,
+            control_store,
+            DurableQuestionHub::unavailable(),
+        )
+    }
+
+    /// Compose the Host with the same durable question hub used by its
+    /// session-scoped Tool factory.
+    pub fn with_agent_runtime_control_and_questions(
+        config: HostConfig,
+        agent_runtime: Arc<dyn AgentRuntime>,
+        control_store: Arc<dyn ControlStore>,
+        questions: Arc<DurableQuestionHub>,
+    ) -> Arc<Self> {
         let capacity = config.event_capacity.max(16);
         let (mux_tx, _) = broadcast::channel(capacity);
         let (host_tx, _) = broadcast::channel(capacity);
@@ -198,6 +221,7 @@ impl BasicHost {
             control_gate: Arc::new(Mutex::new(())),
             mux_tx,
             host_tx,
+            questions,
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
         })

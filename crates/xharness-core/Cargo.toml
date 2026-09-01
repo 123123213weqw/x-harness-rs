@@ -27,3 +27,4 @@ xharness-debug = { path = "../xharness-debug" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+xharness-interaction = { path = "../xharness-interaction" }

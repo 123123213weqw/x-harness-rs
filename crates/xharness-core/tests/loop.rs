@@ -16,6 +16,10 @@ use tokio_util::sync::CancellationToken;
 use xharness_compaction::CompactionConfig;
 use xharness_core::*;
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
+use xharness_interaction::{
+    AnswerDestination, AskUserQuestionRequest, QuestionAnswer, QuestionInteraction,
+    QuestionInvocation, QuestionOption, QuestionSpec, ResolveAction, ASK_USER_QUESTION_TOOL,
+};
 use xharness_prompt::{PromptAssembler, PromptSection};
 use xharness_session::{
     AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
@@ -2320,6 +2324,176 @@ async fn restart_resumes_undecided_approval_without_replaying_or_unknowning_the_
         SessionEventData::ToolResult { result, .. }
             if result.call_id == "execution-1"
                 && result.outcome == ToolOutcome::OutcomeUnknown
+    )));
+}
+
+#[tokio::test]
+async fn restart_replays_only_the_durable_user_question_call_and_keeps_its_identity() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    journal
+        .create(SessionHeader::new("resume-question"))
+        .await
+        .unwrap();
+    let question_request = AskUserQuestionRequest {
+        questions: vec![QuestionSpec {
+            id: "mode".to_owned(),
+            header: "模式".to_owned(),
+            question: "选择模式".to_owned(),
+            options: vec![QuestionOption {
+                id: "safe".to_owned(),
+                label: "安全".to_owned(),
+                description: None,
+                recommended: true,
+            }],
+            allow_custom: true,
+            destination: AnswerDestination::Context,
+        }],
+    };
+    let call = ToolCall {
+        id: "question-execution-1".to_owned(),
+        provider_call_id: Some("provider-question-1".to_owned()),
+        index: 0,
+        name: ASK_USER_QUESTION_TOOL.to_owned(),
+        arguments_json: serde_json::to_string(&question_request).unwrap(),
+    };
+    let invocation = QuestionInvocation::new(call.id.clone(), question_request.clone());
+    let mut assistant = AgentMessage::assistant("");
+    assistant.tool_calls.push(call.clone());
+    journal
+        .append(
+            "resume-question",
+            Revision::ZERO,
+            vec![
+                SessionEventData::TurnStart { turn: 1 }.into(),
+                SessionEventData::UserMessage {
+                    message: AgentMessage::user("run"),
+                    surface_replace: None,
+                }
+                .into(),
+                SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: assistant,
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::ToolCall {
+                    turn: 1,
+                    step: 1,
+                    call: call.clone(),
+                }
+                .into(),
+                SessionEventData::QuestionRequested {
+                    invocation: invocation.clone(),
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    journal.flush("resume-question").await.unwrap();
+
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("continued".to_owned())),
+        Ok(completed()),
+    ]]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    registry
+        .register(
+            RuntimeToolSpec::new(
+                RuntimeToolDefinition::new(
+                    ASK_USER_QUESTION_TOOL,
+                    "question",
+                    json!({"type":"object"}),
+                ),
+                {
+                    let executions = Arc::clone(&executions);
+                    let journal = Arc::clone(&journal);
+                    let invocation = invocation.clone();
+                    move |_context| {
+                        let executions = Arc::clone(&executions);
+                        let journal = Arc::clone(&journal);
+                        let invocation = invocation.clone();
+                        async move {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            let mut interaction = QuestionInteraction::new(invocation.clone())
+                                .map_err(|error| RuntimeToolHandlerError::new(error.to_string()))?;
+                            let resolution = interaction
+                                .resolve(
+                                    ResolveAction::Continue,
+                                    vec![QuestionAnswer {
+                                        question_id: "mode".to_owned(),
+                                        selected_option_id: Some("safe".to_owned()),
+                                        custom_text: None,
+                                    }],
+                                )
+                                .map_err(|error| RuntimeToolHandlerError::new(error.to_string()))?;
+                            let session = journal
+                                .load("resume-question")
+                                .await
+                                .map_err(|error| RuntimeToolHandlerError::new(error.to_string()))?
+                                .expect("session exists");
+                            journal
+                                .append(
+                                    "resume-question",
+                                    session.revision(),
+                                    vec![SessionEventData::QuestionResolved {
+                                        interaction_id: invocation.interaction_id,
+                                        resolution,
+                                    }
+                                    .into()],
+                                )
+                                .await
+                                .map_err(|error| RuntimeToolHandlerError::new(error.to_string()))?;
+                            journal
+                                .flush("resume-question")
+                                .await
+                                .map_err(|error| RuntimeToolHandlerError::new(error.to_string()))?;
+                            Ok(RuntimeToolOutput::text("answered"))
+                        }
+                    }
+                },
+            )
+            .with_external_settlement()
+            .requiring_standalone_batch(),
+        )
+        .await
+        .unwrap();
+    let mut request = LoopRequest::new(provider.clone(), Vec::new());
+    request.session_id = Some("resume-question".to_owned());
+    request.journal_store = Some(journal.clone());
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+    let (events, result) = collect(LoopEngine.start(request)).await;
+
+    assert_eq!(
+        result.status,
+        LoopStatus::Completed,
+        "question recovery failed: {:?}",
+        result.error
+    );
+    assert_eq!(result.final_text, "continued");
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.attempts(), 1);
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        LoopEventKind::ToolStarted(started) if started.id == call.id
+    )));
+    let session = journal.load("resume-question").await.unwrap().unwrap();
+    assert!(session.recoverable_user_questions().is_empty());
+    assert_eq!(
+        session
+            .events()
+            .iter()
+            .filter(|event| matches!(event.data(), SessionEventData::QuestionRequested { .. }))
+            .count(),
+        1
+    );
+    assert!(!session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::ToolResult { result, .. }
+            if result.call_id == call.id && result.outcome == ToolOutcome::OutcomeUnknown
     )));
 }
 

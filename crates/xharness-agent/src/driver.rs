@@ -107,6 +107,12 @@ pub fn approval_recovery_work_id(approval_id: &str) -> String {
     format!("approval-recovery:{approval_id}")
 }
 
+/// Stable internal work identity used to correlate a restarted user-question
+/// tool call with the Host subscriber attached before replay.
+pub fn question_recovery_work_id(interaction_id: &str) -> String {
+    format!("question-recovery:{interaction_id}")
+}
+
 enum DriverCommand {
     /// Explicitly start processing already-durable pending input. Activation
     /// itself never does this because resume callers must first attach event
@@ -249,7 +255,8 @@ impl DurableAgentHandle {
         self.send(DriverCommand::Wake).await
     }
 
-    /// Resume an undecided durable approval after subscribers have attached.
+    /// Resume a durable approval or user-question boundary after subscribers
+    /// have attached.
     pub async fn recover_open_turn(&self) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::RecoverOpenTurn).await
     }
@@ -543,18 +550,41 @@ impl DriverWorker {
             .await
             .map_err(|error| AgentCommandError::Failed(error.to_string()))?
             .ok_or_else(|| AgentCommandError::Failed("agent session disappeared".to_owned()))?;
-        let pending = session.pending_tool_approvals();
-        let first = pending.first().ok_or_else(|| {
-            AgentCommandError::Failed("agent has no pending durable approval to recover".to_owned())
-        })?;
-        if pending
+        let approvals = session.pending_tool_approvals();
+        let questions = session.recoverable_user_questions();
+        let coordinates = approvals
+            .first()
+            .map(|approval| (approval.turn, approval.step))
+            .or_else(|| {
+                questions
+                    .first()
+                    .map(|question| (question.turn, question.step))
+            })
+            .ok_or_else(|| {
+                AgentCommandError::Failed(
+                    "agent has no durable human interaction to recover".to_owned(),
+                )
+            })?;
+        if approvals
             .iter()
-            .any(|approval| approval.turn != first.turn || approval.step != first.step)
+            .any(|approval| (approval.turn, approval.step) != coordinates)
+            || questions
+                .iter()
+                .any(|question| (question.turn, question.step) != coordinates)
         {
             return Err(AgentCommandError::Failed(
-                "pending approvals span more than one open tool batch".to_owned(),
+                "recoverable interactions span more than one open tool batch".to_owned(),
             ));
         }
+        let work_id = approvals
+            .first()
+            .map(|approval| approval_recovery_work_id(&approval.id))
+            .or_else(|| {
+                questions
+                    .first()
+                    .map(|question| question_recovery_work_id(&question.invocation.interaction_id))
+            })
+            .expect("one recoverable interaction exists");
         let mut request = self
             .factory
             .build(self.activation.id(), Vec::new())
@@ -562,12 +592,8 @@ impl DriverWorker {
             .map_err(AgentCommandError::Failed)?;
         request.session_id = Some(self.activation.id().to_owned());
         request.journal_store = Some(self.activation.inbox().store());
-        self.drive_request(
-            request,
-            first.turn,
-            vec![approval_recovery_work_id(&first.id)],
-        )
-        .await
+        self.drive_request(request, coordinates.0, vec![work_id])
+            .await
     }
 
     async fn drive_request(

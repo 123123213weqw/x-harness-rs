@@ -10,8 +10,9 @@
 再使用原 Provider Call ID 继续同一个 Turn。该能力不是普通聊天提问，也不能靠一个仅存在于进程内的
 `LoopCommand` 实现。
 
-第一阶段冻结 Provider-neutral 类型、状态机和 Tool Registry 接口。Session/Host/Web 的正式持久接线
-属于后续切片；前端应复用现有 DeepSeek Harness User Questions 组件。
+当前实现已经把 Provider-neutral 类型、状态机、普通 Tool Registry、Session Journal、Host 恢复、
+`/api/respond` 和冻结版本的 DeepSeek Harness User Questions 组件贯通。问题等待期间不占用模型请求、
+Process 或 PTY；Host 重启后使用原 Interaction/Execution ID 重新发布同一张问题卡并继续原 Turn。
 
 ## 模型输入契约
 
@@ -80,6 +81,10 @@ Requested/Pending
 `question/requested`，在返回 Tool Result 前持久化并 Flush `question/resolved`。Provider 实例可以按
 Session 绑定，因此模型参数不需要携带 Session ID、文件路径或 Owner ID。
 
+生产 Host 使用 `DurableQuestionHub` 和按 Session/Workspace 绑定的 `DurableQuestionProvider`。
+`NativeToolFactory` 仍通过统一的 Registry 注册 `AskUserQuestionTool`，没有第二套绕过 Schema、策略或
+生命周期的隐藏执行器。
+
 ## 持久事件与恢复
 
 冻结事件类型：
@@ -89,7 +94,7 @@ Session 绑定，因此模型参数不需要携带 Session ID、文件路径或 
 - `question/resolved`；
 - `question/cancelled`。
 
-正式 Session 接线必须保证：
+当前 Session/Host 接线保证：
 
 1. Assistant Tool Call 先落账；
 2. `question/requested` Flush 后才向 Web 发布；
@@ -99,6 +104,22 @@ Session 绑定，因此模型参数不需要携带 Session ID、文件路径或 
 6. 相同 RPC ID/答案重放原响应，不同答案复用 ID fail closed；
 7. 未决 Question 不占用活跃 Provider、Process 或 PTY Task。
 
+## Web 兼容协议
+
+冻结前端不新增专用页面，直接复用上游问题组件：
+
+- Host 发送相关请求 `question/requested`，其 `rpcId` 等于稳定的 `interactionId`；Payload 为
+  `{type, sessionId, questions[]}`。
+- 有限选项在 Web 线上使用唯一 `label`，Host 在边界处映射回内部稳定 Option ID；因此同一问题内
+  重复 Label 在模型参数校验阶段即拒绝。
+- 浏览器通过 `POST /api/respond` 返回 `{sessionId, answer:{answers[]}}`；空答案和部分答案按
+  `Continue` 结算，完整答案自然得到 `answered`。
+- 显式取消使用失败响应的 `cancelled` 错误码。结算后 Host 额外广播纯推送
+  `question/resolved`，Outcome 为 `answered` 或 `cancelled`。
+- 卡片折叠/最小化不调用结算接口，前端组件保留当前草稿。Session 已冻结
+  `question/draft-updated` 事件供后续跨页面/跨进程草稿同步；冻结上游 UI 当前没有发送该事件，
+  因而浏览器整页刷新只恢复问题本身，不承诺恢复尚未提交的输入框文字。
+
 ## 长期与短期答案
 
 短期答案始终通过 Tool Result 进入当前 Context。`agent_markdown` 答案还需要由 Host 的受管 Memory
@@ -107,7 +128,8 @@ Sink 规范化后写入 AGENTS.md 的专用区段，并使用 CAS/原子写保�
 
 ## Compaction 后续任务
 
-第一阶段不改变 Compact。正式持久接线时必须补充以下规则：
+当前恢复链路已把未决问题排除在 OutcomeUnknown 重放之外；Compact 对 Question 原子边界的专门
+优化继续保留为后续任务：
 
 - 未解决的 Assistant Tool Call、`question/requested`、Draft 和关联 ID 禁止被 Compact；
 - Question 解决并生成 Tool Result 后，问、答、Tool Result 作为一个原子单元选取安全切点；
@@ -124,4 +146,5 @@ Sink 规范化后写入 AGENTS.md 的专用区段，并使用 CAS/原子写保�
 - `agent_markdown` 只产生受管目标，不接受 Path；
 - 普通 Tool Registry 注册、重复名检测、结构化 Tool Result；
 - External Settlement 不触发普通 Tool Timeout，Cancel 仍有界收敛；
-- 后续补充 Requested/Resolved/Tool Result 每个 Flush 切点的 SIGKILL 与 Web 重连恢复。
+- Requested/Resolved/Tool Result 的确定性恢复、Web 重连基线和 Host Restart 已覆盖；逐切点
+  外部 `SIGKILL` 扩展矩阵仍随 Compact 原子切点一起保留在 TODO。

@@ -6,6 +6,10 @@ use crate::{
     EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole, Revision, Sequence,
     SessionEvent,
 };
+use xharness_interaction::{
+    QuestionAnswer, QuestionInteraction, QuestionStateError, QuestionTerminalState,
+    ASK_USER_QUESTION_TOOL,
+};
 
 /// On-disk format identity and immutable metadata outside the conversation
 /// event stream.
@@ -473,6 +477,10 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
     }
 
+    fn question_transition_error(seq: Sequence, error: QuestionStateError) -> SessionError {
+        lifecycle_error(seq, format!("invalid user-question transition: {error}"))
+    }
+
     fn ensure_calls_mirrored(seq: Sequence, state: &StepState) -> Result<(), SessionError> {
         if let Some(calls) = &state.assistant_calls {
             if state.mirrored_calls != calls.len() {
@@ -492,6 +500,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     let mut current_logged_revision = Revision::ZERO;
     let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
     let mut approvals = HashMap::<String, bool>::new();
+    let mut questions = HashMap::<String, QuestionInteraction>::new();
+    let mut question_by_call = HashMap::<String, String>::new();
+    let mut call_names = HashMap::<String, String>::new();
     let mut commands = HashMap::<String, bool>::new();
     let mut retry_chains = HashMap::<(u32, u32, String, String), (String, u32)>::new();
     let mut retry_owners = HashMap::<String, (u32, u32, String, String)>::new();
@@ -703,6 +714,19 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ),
                     ));
                 }
+                if questions.values().any(|interaction| {
+                    matches!(interaction.terminal_state(), QuestionTerminalState::Pending)
+                        && calls
+                            .get(&interaction.invocation().execution_id)
+                            .is_some_and(|(settled, call_turn, call_step)| {
+                                !*settled && *call_turn == *turn && *call_step == *step
+                            })
+                }) {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "step/end cannot close a pending user question",
+                    ));
+                }
                 open_step = None;
             }
             EventData::RequestHeader { header } => {
@@ -816,6 +840,110 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     }
                     Some(decided) => *decided = true,
                 }
+            }
+            EventData::QuestionRequested { invocation } => {
+                let Some((settled, call_turn, call_step)) = calls.get(&invocation.execution_id)
+                else {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        format!(
+                            "question/requested references unknown call id {:?}",
+                            invocation.execution_id
+                        ),
+                    ));
+                };
+                let open = open_step.as_ref().map(|state| (state.turn, state.step));
+                if *settled
+                    || open != Some((*call_turn, *call_step))
+                    || call_names.get(&invocation.execution_id).map(String::as_str)
+                        != Some(ASK_USER_QUESTION_TOOL)
+                    || invocation.interaction_id.trim().is_empty()
+                    || question_by_call.contains_key(&invocation.execution_id)
+                    || questions.contains_key(&invocation.interaction_id)
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "question/requested must uniquely reference one open ask_user_question call",
+                    ));
+                }
+                let interaction =
+                    QuestionInteraction::new(invocation.clone()).map_err(|error| {
+                        lifecycle_error(logged.seq, format!("invalid question/requested: {error}"))
+                    })?;
+                question_by_call.insert(
+                    invocation.execution_id.clone(),
+                    invocation.interaction_id.clone(),
+                );
+                questions.insert(invocation.interaction_id.clone(), interaction);
+            }
+            EventData::QuestionDraftUpdated {
+                interaction_id,
+                answers,
+            } => {
+                let interaction = questions.get_mut(interaction_id).ok_or_else(|| {
+                    lifecycle_error(
+                        logged.seq,
+                        format!(
+                            "question/draft-updated references unknown interaction {interaction_id:?}"
+                        ),
+                    )
+                })?;
+                interaction
+                    .update_draft(answers.clone())
+                    .map_err(|error| question_transition_error(logged.seq, error))?;
+            }
+            EventData::QuestionResolved {
+                interaction_id,
+                resolution,
+            } => {
+                let interaction = questions.get_mut(interaction_id).ok_or_else(|| {
+                    lifecycle_error(
+                        logged.seq,
+                        format!(
+                            "question/resolved references unknown interaction {interaction_id:?}"
+                        ),
+                    )
+                })?;
+                let answers = resolution
+                    .answers
+                    .iter()
+                    .map(|answer| QuestionAnswer {
+                        question_id: answer.question_id.clone(),
+                        selected_option_id: answer.selected_option_id.clone(),
+                        custom_text: answer.custom_text.clone(),
+                    })
+                    .collect();
+                let canonical = interaction
+                    .resolve(resolution.action, answers)
+                    .map_err(|error| question_transition_error(logged.seq, error))?;
+                if canonical != *resolution {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "question/resolved does not match its requested questions and answers",
+                    ));
+                }
+            }
+            EventData::QuestionCancelled {
+                interaction_id,
+                reason,
+            } => {
+                if reason.trim().is_empty() {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "question/cancelled reason must be non-empty",
+                    ));
+                }
+                let interaction = questions.get_mut(interaction_id).ok_or_else(|| {
+                    lifecycle_error(
+                        logged.seq,
+                        format!(
+                            "question/cancelled references unknown interaction {interaction_id:?}"
+                        ),
+                    )
+                })?;
+                interaction
+                    .cancel(reason.clone())
+                    .map_err(|error| question_transition_error(logged.seq, error))?;
             }
             EventData::PermissionPreset { preset } => {
                 if preset.trim().is_empty() {
@@ -1525,6 +1653,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         call_id: call.id.clone(),
                     });
                 }
+                call_names.insert(call.id.clone(), call.name.clone());
             }
             EventData::ToolResult { turn, step, result } => match calls.get_mut(&result.call_id) {
                 None => {
@@ -1557,6 +1686,27 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                             return Err(lifecycle_error(
                                 logged.seq,
                                 "tool/result does not belong to the open step",
+                            ));
+                        }
+                    }
+                    if call_names.get(&result.call_id).map(String::as_str)
+                        == Some(ASK_USER_QUESTION_TOOL)
+                    {
+                        let interaction_id =
+                            question_by_call.get(&result.call_id).ok_or_else(|| {
+                                lifecycle_error(
+                                logged.seq,
+                                "ask_user_question tool/result has no durable question/requested",
+                            )
+                            })?;
+                        let terminal = questions
+                            .get(interaction_id)
+                            .expect("question call map references an interaction")
+                            .terminal_state();
+                        if matches!(terminal, QuestionTerminalState::Pending) {
+                            return Err(lifecycle_error(
+                                logged.seq,
+                                "ask_user_question tool/result cannot precede question settlement",
                             ));
                         }
                     }

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{Message, ToolCall};
+use xharness_interaction::{QuestionAnswer, QuestionInvocation, QuestionResolution};
 
 /// Monotonic position in a session log.
 pub type Sequence = u64;
@@ -486,6 +487,33 @@ pub enum EventData {
     ApprovalDecided {
         id: String,
         outcome: ApprovalOutcome,
+    },
+    /// Durable opening barrier for one model-requested human interaction.
+    /// The referenced tool call remains incomplete until this interaction is
+    /// resolved or cancelled and its ordinary `tool/result` is committed.
+    #[serde(rename = "question/requested")]
+    QuestionRequested { invocation: QuestionInvocation },
+    /// Optional durable draft checkpoint. The bundled Web UI keeps drafts in
+    /// memory, while alternative clients may use this event for reconnects.
+    #[serde(rename = "question/draft-updated")]
+    QuestionDraftUpdated {
+        #[serde(rename = "interactionId")]
+        interaction_id: String,
+        answers: Vec<QuestionAnswer>,
+    },
+    /// Authoritative human answer, persisted before the waiting Tool settles.
+    #[serde(rename = "question/resolved")]
+    QuestionResolved {
+        #[serde(rename = "interactionId")]
+        interaction_id: String,
+        resolution: QuestionResolution,
+    },
+    /// Authoritative cancellation of the pending human interaction.
+    #[serde(rename = "question/cancelled")]
+    QuestionCancelled {
+        #[serde(rename = "interactionId")]
+        interaction_id: String,
+        reason: String,
     },
     /// Named product preset whose fold controls sandbox and approval policy.
     #[serde(rename = "permission/preset")]

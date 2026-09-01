@@ -374,6 +374,8 @@ pub struct AgentResumeReport {
     /// Stable internal work id for one open approval turn that was attached
     /// and woken during startup recovery.
     pub recovered_approval_work_id: Option<String>,
+    /// Stable internal work id for one replay-safe user-question turn.
+    pub recovered_question_work_id: Option<String>,
 }
 
 /// A live turn owned by the Host driver. This seam prevents Web control-plane
@@ -1045,9 +1047,13 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 message: format!("durable session {:?} disappeared", request.session_id),
             })?;
         let pending_approvals = session.pending_tool_approvals();
+        let recoverable_questions = session.recoverable_user_questions();
         let recovered_approval_work_id = pending_approvals
             .first()
             .map(|first| xharness_agent::approval_recovery_work_id(&first.id));
+        let recovered_question_work_id = recoverable_questions.first().map(|first| {
+            xharness_agent::question_recovery_work_id(&first.invocation.interaction_id)
+        });
         if let Some(first) = pending_approvals.first() {
             if pending_approvals
                 .iter()
@@ -1055,6 +1061,20 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             {
                 return Err(AgentRuntimeError::Preparation {
                     message: "pending approvals span more than one open tool batch".to_owned(),
+                });
+            }
+        }
+        if let Some(first) = recoverable_questions.first() {
+            if recoverable_questions
+                .iter()
+                .any(|question| question.turn != first.turn || question.step != first.step)
+                || pending_approvals
+                    .iter()
+                    .any(|approval| approval.turn != first.turn || approval.step != first.step)
+            {
+                return Err(AgentRuntimeError::Preparation {
+                    message: "recoverable interactions span more than one open tool batch"
+                        .to_owned(),
                 });
             }
         }
@@ -1082,8 +1102,17 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                     input_id: work_id.clone(),
                 });
         }
+        if let Some(work_id) = &recovered_question_work_id {
+            prepared
+                .entry((request.session_id.clone(), work_id.clone()))
+                .or_insert_with(|| PreparedDurableTurn {
+                    handle: handle.clone(),
+                    events: handle.subscribe(),
+                    input_id: work_id.clone(),
+                });
+        }
         drop(prepared);
-        if recovered_approval_work_id.is_some() {
+        if recovered_approval_work_id.is_some() || recovered_question_work_id.is_some() {
             handle
                 .recover_open_turn()
                 .await
@@ -1096,6 +1125,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             pending_turns,
             pending_next_step,
             recovered_approval_work_id,
+            recovered_question_work_id,
         })
     }
 
