@@ -25,6 +25,7 @@ try{
    assert.equal(receipt.assistantEntryCount,implementation==='source'?1:0,'one reviewed Little X entry; frozen control stays unchanged')
    assert.equal(receipt.codeReviewEntryCount,implementation==='source'?1:0,'only the reviewed Code Review navigation is projected out of old/new text and button parity')
    assert.equal(receipt.sidebarSearchEntryCount,implementation==='source'?0:1,'source removes only the requested search entry; frozen positive control retains it')
+   assert.equal(receipt.accountEntryCount,implementation==='source'?1:0,'reviewed single account/settings entry; no extra control or fake identity')
    assert.equal(receipt.sidebarSearchInputCount,implementation==='source'?0:1,'source removes the search field; frozen reference stays immutable')
    outputs.push(receipt)
   }
