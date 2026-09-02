@@ -12,8 +12,8 @@
 | Mux Frame | 10 | 10 | 判别字段名称 exact，业务字段另测 |
 | Host Frame | 10 | 10 | 判别字段名称 exact，业务字段另测 |
 | Forwarded Host Event | 11 | 1 | Frame 通用形状已支持，生产者逐项迁移 |
-| Session Event | 48 | 25 | 未覆盖事件进入稳定 TODO |
-| 静态 Literal Tool | 53 | 14 | 动态 Tool 另行人工审计 |
+| Session Event | 48 | 26 | 未覆盖事件进入稳定 TODO |
+| 静态 Literal Tool | 53 | 15 | 动态 Tool 另行人工审计 |
 | Prompt Component | 37 | — | Section/Context/Tool Provider/Variable 分开记录 |
 | Settings Namespace | 5 | 1 | Rust 当前仅有产品启动所需基线 |
 | Service Definition | 69 | — | 68 个静态 Key，Rust 用 Trait/Registry 等价替代 |
@@ -186,7 +186,7 @@ Rust Session 已持久化 Compact Start/Summary/Checkpoint Replace/End，并由�
 | `request/context` | 是 | `full` |
 | `request/header` | 是 | `partial` |
 | `sandbox/mode` | 是 | `partial` |
-| `schedule/change` | 否 | `planned` |
+| `schedule/change` | 是 | `partial` |
 | `session/end-seed` | 是 | `partial` |
 | `session/title` | 是 | `partial` |
 | `session/title-llm-request` | 否 | `planned` |
@@ -232,9 +232,9 @@ Rust Session 已持久化 Compact Start/Summary/Checkpoint Replace/End，并由�
 | `glob` | 是 | `partial` |
 | `grep` | 是 | `partial` |
 | `interrupt_agent` | 否 | `planned` |
-| `job_kill` | 否 | `planned` |
-| `job_list` | 否 | `planned` |
-| `job_output` | 否 | `planned` |
+| `job_kill` | 是 | `partial` |
+| `job_list` | 是 | `partial` |
+| `job_output` | 是 | `partial` |
 | `list_agents` | 否 | `planned` |
 | `lsp` | 否 | `planned` |
 | `pwsh` | 否 | `planned` |
@@ -242,9 +242,9 @@ Rust Session 已持久化 Compact Start/Summary/Checkpoint Replace/End，并由�
 | `read` | 是 | `partial` |
 | `read_image` | 否 | `planned` |
 | `report` | 否 | `planned` |
-| `schedule_create` | 否 | `planned` |
-| `schedule_delete` | 否 | `planned` |
-| `schedule_list` | 否 | `planned` |
+| `schedule_create` | 是 | `partial` |
+| `schedule_delete` | 是 | `partial` |
+| `schedule_list` | 是 | `partial` |
 | `send_message` | 否 | `planned` |
 | `session_event_read` | 否 | `planned` |
 | `session_event_search` | 否 | `planned` |

@@ -16,7 +16,7 @@ mod state;
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
 };
@@ -134,6 +134,7 @@ pub struct BasicHost {
     pub(crate) host_tx: broadcast::Sender<ServerRequest>,
     pub(crate) questions: Arc<DurableQuestionHub>,
     admission_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
+    background_listener_started: Arc<AtomicBool>,
     next_id: Arc<AtomicU64>,
 }
 
@@ -223,6 +224,7 @@ impl BasicHost {
             host_tx,
             questions,
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            background_listener_started: Arc::new(AtomicBool::new(false)),
             next_id: Arc::new(AtomicU64::new(1)),
         })
     }

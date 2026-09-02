@@ -4,6 +4,7 @@
 **状态：** 11 个模型侧工具已实现；生产 Host 已统一使用正式 Registry/Executor。
 
 持久用户交互 `ask_user_question` 通过同一 Registry 注册，但由 `xharness-interaction` 提供；
+未来提醒 `schedule_create/list/delete` 也通过同一 Registry 注册，但由 `xharness-schedule` 提供；
 后台任务状态机由 `xharness-jobs` 提供，完整契约见[后台 Job](jobs.md)。底层
 `xharness-terminal` 仍保留为可复用 PTY 能力，但六个 `terminal_*` 工具已经退出默认模型面，
 避免模型在一次性 Bash、交互终端、`nohup` 和后台任务之间反复试错。
@@ -48,6 +49,8 @@ Readiness 尚未完整投影到 Web 工具目录。
 - 短命令使用前台 `bash`，默认 120 秒、最大 600 秒，Tool 外层保留 610 秒清理窗口。
 - 长时间、非交互命令使用 `run_in_background=true`；该模式不接受 `timeout_ms`，必须使用
   `job_output`/`job_kill` 控制。
+- “N 秒/某时/每隔多久后提醒我”使用 `schedule_create`，不要启动 Bash/Job 后再 `sleep`；Schedule
+  完整契约见[持久定时提醒](schedule.md)。
 - 每次 Bash 都是新 Shell；`cd`、变量、函数不会跨调用保存，应使用 `cwd`。
 - 禁止用 `&`、`nohup`、`disown`、`screen`、`tmux` 或 PTY 模拟受管后台任务。前台命令根进程
   退出后，Process Runtime 会清理同一受管进程组；这些技巧既不能获得可靠状态，也可能形成逃逸

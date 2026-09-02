@@ -192,6 +192,70 @@ async fn durable_driver_consumes_followups_across_multiple_turns() {
 }
 
 #[tokio::test]
+async fn maintenance_followup_is_admitted_only_at_an_idle_actor_boundary() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("maintenance-idle"))
+        .await
+        .unwrap();
+    let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+        scripts: Arc::new(Mutex::new(VecDeque::from([answer("reminded")]))),
+    });
+    let handle = DurableAgentHandle::start(activation, Arc::new(Factory { provider }), 64);
+    let mut events = handle.subscribe();
+
+    handle
+        .maintenance_followup(InboxMessage::user("reminder", "due"))
+        .await
+        .unwrap();
+    let result = loop {
+        if let AgentEvent::TurnFinished { result, .. } = events.recv().await.unwrap() {
+            break result;
+        }
+    };
+    assert_eq!(result.final_text, "reminded");
+    handle.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn maintenance_followup_rejects_a_busy_actor_without_queueing() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("maintenance-busy"))
+        .await
+        .unwrap();
+    let polled = Arc::new(tokio::sync::Notify::new());
+    let provider: Arc<dyn ModelProvider> = Arc::new(HangingProvider {
+        polled: Arc::clone(&polled),
+        stream_dropped: Arc::new(AtomicBool::new(false)),
+    });
+    let handle = DurableAgentHandle::start(activation, Arc::new(Factory { provider }), 64);
+    handle
+        .followup(InboxMessage::user("prompt", "stay busy"))
+        .await
+        .unwrap();
+    polled.notified().await;
+
+    assert!(matches!(
+        handle
+            .maintenance_followup(InboxMessage::user("reminder", "not yet"))
+            .await,
+        Err(xharness_agent::AgentCommandError::Busy)
+    ));
+    assert!(handle
+        .inbox()
+        .snapshot()
+        .await
+        .unwrap()
+        .next_turn()
+        .iter()
+        .all(|message| message.id != "reminder"));
+    handle.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
 async fn idle_injection_stays_pending_until_a_waking_message_arrives() {
     let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
     let registry = AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));

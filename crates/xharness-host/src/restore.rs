@@ -97,6 +97,7 @@ impl BasicHost {
         self: &Arc<Self>,
         store: Arc<dyn Store>,
     ) -> Result<HostRestoreReport, HostRestoreError> {
+        self.start_background_turn_listener();
         self.restore_control_state().await?;
         let headers = store.list_headers().await?;
         let mut report = HostRestoreReport {
@@ -133,6 +134,16 @@ impl BasicHost {
             let projected_queue_len = queue.len();
             let pending_approval_count = session.pending_tool_approvals().len();
             let recoverable_question_count = session.recoverable_user_questions().len();
+            let runtime_background_work = match self.agent_runtime.needs_session_resume(&session) {
+                Ok(required) => required,
+                Err(error) => {
+                    report.issues.push(HostRestoreIssue {
+                        session_id: session_id.clone(),
+                        message: error.to_string(),
+                    });
+                    false
+                }
+            };
             let metric_events =
                 project_session_event_range(&session, &route, 0, session.events().len());
             let metrics = MetricsProjectionState::rebuild(metric_events.iter());
@@ -210,6 +221,7 @@ impl BasicHost {
             if projected_queue_len > 0
                 || pending_approval_count > 0
                 || recoverable_question_count > 0
+                || runtime_background_work
             {
                 let prompt = self
                     .state
@@ -284,6 +296,15 @@ impl BasicHost {
                             session_id: session_id.clone(),
                             message: "runtime did not attach the durable user question".to_owned(),
                         });
+                        continue;
+                    }
+                    if runtime_report.pending_turns == 0
+                        && runtime_report.recovered_approval_work_id.is_none()
+                        && runtime_report.recovered_question_work_id.is_none()
+                    {
+                        // Timer-only activation is driven by the runtime's
+                        // background-turn notice. Starting an empty Host queue
+                        // driver here would race and clear its running state.
                         continue;
                     }
                     let (control_tx, control_rx) = mpsc::channel::<DriverCommand>(64);
@@ -801,6 +822,7 @@ fn restored_web_event(
         | EventData::CommandDone { .. }
         | EventData::SessionTitle { .. }
         | EventData::GoalChange { .. }
+        | EventData::ScheduleChange { .. }
         | EventData::PlanMode { .. }
         | EventData::LlmRetry { .. }
         | EventData::LlmRetryStarted { .. }

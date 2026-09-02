@@ -133,7 +133,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "bash",
-                "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work set run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Do not use shell &, nohup, disown, screen, tmux or a PTY to emulate managed background work. No shell state persists between calls.",
+                "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work that begins now set run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use schedule_create, not bash or sleep, for future reminders and delayed requests. Do not use shell &, nohup, disown, screen, tmux or a PTY to emulate managed background work. No shell state persists between calls.",
                 json!({
                     "type": "object",
                     "properties": {

@@ -17,6 +17,7 @@ members = [
     "crates/xharness-platform",
     "crates/xharness-prompt",
     "crates/xharness-sandbox",
+    "crates/xharness-schedule",
     "crates/xharness-session",
     "crates/xharness-session-jsonl",
     "crates/xharness-server",
@@ -39,6 +40,8 @@ async-stream = "0.3"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
 bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+chrono-tz = "0.10"
 futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["http2", "json", "stream"] }
 serde = { version = "1", features = ["derive"] }

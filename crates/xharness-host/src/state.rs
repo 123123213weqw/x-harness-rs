@@ -620,7 +620,7 @@ impl HostState {
                 .map_err(|error| format!("workspace path encoding failed: {error}"))?
         );
         let workflow = "Inspect before editing and make the smallest coherent change. For large files, use targeted search and bounded read pages; continue only the needed page with next_cursor instead of repeating or requesting the whole file. A tool error is an observation: diagnose it, change the approach, or report the limitation instead of retrying the same unavailable capability forever. Once the evidence is sufficient, answer directly. Preserve user work and verify changes with the strongest available checks.";
-        let background_jobs = "For long-running non-interactive commands, use bash with run_in_background=true and retain every returned job_id. Continue independent work instead of sleeping or busy-polling. Use job_output to collect relevant results and job_kill when work no longer matters. Do not emulate managed jobs with shell &, nohup, disown, screen, tmux, or a PTY.";
+        let background_jobs = "For long-running non-interactive commands that should begin now, use bash with run_in_background=true and retain every returned job_id. Continue independent work instead of sleeping or busy-polling. Use job_output to collect relevant results and job_kill when work no longer matters. For a future reminder, use schedule_create instead; never emulate a timer with bash or sleep. Do not emulate managed jobs with shell &, nohup, disown, screen, tmux, or a PTY. Use web_search for internet topics and grep only for text in the workspace.";
 
         let mut sections = vec![
             PromptSection::content_addressed(
@@ -630,7 +630,7 @@ impl HostState {
             PromptSection::new("permission/policy", "1", permission),
             PromptSection::content_addressed("workspace/context", workspace),
             PromptSection::new("coding/workflow", "2", workflow),
-            PromptSection::new("tool/jobs", "1", background_jobs),
+            PromptSection::new("tool/jobs", "2", background_jobs),
         ];
         let agent_markdown = std::path::Path::new(&session.cwd).join("AGENTS.md");
         if let Ok(bytes) = std::fs::read(&agent_markdown) {

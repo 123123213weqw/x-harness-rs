@@ -15,6 +15,7 @@ use xharness_host::{
 };
 use xharness_host_app::{ManagedAgentMarkdownSink, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
+use xharness_schedule::ScheduleManager;
 use xharness_server::{serve, web_router_with_debug};
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
@@ -87,8 +88,14 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let control_dir = args.state_dir.join("control");
     let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?);
     let questions = DurableQuestionHub::new(store.clone(), ManagedAgentMarkdownSink::new());
+    let schedules = ScheduleManager::new(Arc::clone(&store));
     let web = WebRuntime::default().with_debug(debug.clone());
-    let tools = NativeToolFactory::new_with_questions(web, debug.clone(), Arc::clone(&questions));
+    let tools = NativeToolFactory::new_with_questions_and_schedules(
+        web,
+        debug.clone(),
+        Arc::clone(&questions),
+        Arc::clone(&schedules),
+    );
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     let runtime = Arc::new(
@@ -102,7 +109,8 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
             config.event_capacity,
         )?
         .with_debug(debug.clone())
-        .with_compaction(args.compaction.clone()),
+        .with_compaction(args.compaction.clone())
+        .with_schedules(schedules),
     );
     let host_runtime: Arc<dyn AgentRuntime> = runtime.clone();
     let host = BasicHost::with_agent_runtime_control_and_questions(

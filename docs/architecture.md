@@ -163,6 +163,11 @@ web_search web_fetch
 `Exclusive + External Settlement + Standalone Batch`，由 Session/Host/Web 持久链路结算，不属于
 Platform Coding Bundle，也不会绕过统一 Schema、Guard、Lifecycle 和审计。
 
+Schedule 层同样复用正式 Registry，额外注册 `schedule_create/schedule_list/schedule_delete`。
+它不属于 Process/Job：规则写入 Session 的 `schedule/change`，可丢弃 Timer 只负责唤醒，实际
+投递通过 Idle-only Durable Agent Followup 进入普通 Loop/Web 投影。生产默认最多可见 15 个工具，
+但仍按平台、Profile 和 Step 动态裁剪。
+
 “稳定名称”不表示每一轮都应该发送全部工具。Host 已按平台与 Search Provider 状态裁剪模型
 可见子集；Process 不可用时仍保留 Job 控制器以收敛历史任务。最终工具投影还要加入 Profile/
 当前 Step 规则并完整写入 Request Header。底层 PTY Crate 保留，但旧六个 Terminal 工具不再进入
@@ -179,7 +184,7 @@ Web UI 是 Session/Agent 状态的 Projection，不拥有模型历史。`xharnes
 ## 交付顺序
 
 1. 事件溯源 Session、Memory/JSONL Store。**已实现。**
-2. Core 契约强化、Tool Registry 与原生 11 个 Coding/Job/Web 工具。**已实现基础版。**
+2. Core 契约强化、Tool Registry、原生 11 个 Coding/Job/Web 工具与 3 个 Schedule 工具。**已实现基础版。**
 3. Web 兼容 API/Server/Host 和真实 Loop 投影。**已实现基础版。**
 4. 上下文预检、分页 Read、工具结果 Reduce、能力投影、真实 Prompt 与自动 Compact。
    **已实现基础版；手动 Compact/生产 Pruner/Spill 待完成。**

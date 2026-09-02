@@ -21,6 +21,7 @@ use xharness_core::{
 };
 use xharness_debug::DebugRecorder;
 use xharness_prompt::PromptAssembly;
+use xharness_schedule::{ScheduleDeliveryNotice, ScheduleManager};
 use xharness_session::{Session, SessionEvent, SessionHeader, Store, StoreError};
 use xharness_token::TokenGuard;
 
@@ -467,6 +468,12 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(false)
     }
 
+    /// Whether startup must activate a session even when its ordinary inbox
+    /// and human-interaction recovery sets are empty.
+    fn needs_session_resume(&self, _session: &Session) -> Result<bool, AgentRuntimeError> {
+        Ok(false)
+    }
+
     /// Reattach already-durable work after a Host restart. Ephemeral runtimes
     /// have no authoritative inbox and therefore report no recovered work.
     async fn resume_session(
@@ -484,6 +491,13 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _work_id: &str,
     ) -> Result<Option<Box<dyn RunningTurn>>, AgentRuntimeError> {
         Ok(None)
+    }
+
+    /// Subscribe to runtime-originated ordinary turns such as due Schedule
+    /// reminders. The notice is emitted only after an event receiver has been
+    /// installed, so the Host can safely attach live projection.
+    fn subscribe_background_turns(&self) -> Option<broadcast::Receiver<ScheduleDeliveryNotice>> {
+        None
     }
 
     /// Durably admit one future turn before the Host acknowledges the client.
@@ -700,6 +714,7 @@ pub struct DurableLoopAgentRuntime {
     next_control_id: Arc<AtomicU64>,
     debug: Arc<StdRwLock<DebugRecorder>>,
     compaction: Arc<StdRwLock<Option<CompactionConfig>>>,
+    schedules: Option<Arc<ScheduleManager>>,
 }
 
 struct PreparedDurableTurn {
@@ -786,6 +801,7 @@ impl DurableLoopAgentRuntime {
             next_control_id: Arc::new(AtomicU64::new(1)),
             debug,
             compaction,
+            schedules: None,
         })
     }
 
@@ -810,6 +826,23 @@ impl DurableLoopAgentRuntime {
             .write()
             .expect("compaction config lock poisoned") = compaction;
         self
+    }
+
+    /// Install the durable session-local Schedule projection. Deployments
+    /// must pass this same manager to their Tool factory.
+    pub fn with_schedules(mut self, schedules: Arc<ScheduleManager>) -> Self {
+        self.schedules = Some(schedules);
+        self
+    }
+
+    async fn attach_schedules(&self, handle: &DurableAgentHandle) -> Result<(), AgentRuntimeError> {
+        if let Some(schedules) = &self.schedules {
+            schedules
+                .attach(handle.clone())
+                .await
+                .map_err(|message| AgentRuntimeError::Preparation { message })?;
+        }
+        Ok(())
     }
 
     fn validate_turn_input(
@@ -874,6 +907,7 @@ impl DurableLoopAgentRuntime {
             })
             .await
             .map_err(agent_command_error)?;
+        self.attach_schedules(&handle).await?;
         Ok(PreparedDurableTurn {
             handle,
             events,
@@ -921,6 +955,20 @@ impl AgentRuntime for DurableLoopAgentRuntime {
 
     fn has_authoritative_sessions(&self) -> bool {
         true
+    }
+
+    fn needs_session_resume(&self, session: &Session) -> Result<bool, AgentRuntimeError> {
+        match &self.schedules {
+            Some(_) => xharness_schedule::has_active_schedules(session)
+                .map_err(|message| AgentRuntimeError::Preparation { message }),
+            None => Ok(false),
+        }
+    }
+
+    fn subscribe_background_turns(&self) -> Option<broadcast::Receiver<ScheduleDeliveryNotice>> {
+        self.schedules
+            .as_ref()
+            .map(|schedules| schedules.subscribe_deliveries())
     }
 
     async fn authoritative_session(
@@ -1121,6 +1169,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         if pending_turns > 0 {
             handle.wake().await.map_err(agent_command_error)?;
         }
+        self.attach_schedules(&handle).await?;
         Ok(AgentResumeReport {
             pending_turns,
             pending_next_step,
@@ -1134,12 +1183,27 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         session_id: &str,
         work_id: &str,
     ) -> Result<Option<Box<dyn RunningTurn>>, AgentRuntimeError> {
-        Ok(self
+        if let Some(prepared) = self
             .prepared
             .lock()
             .await
             .remove(&(session_id.to_owned(), work_id.to_owned()))
-            .map(|prepared| self.running_from_prepared(prepared)))
+        {
+            return Ok(Some(self.running_from_prepared(prepared)));
+        }
+        let Some(schedules) = &self.schedules else {
+            return Ok(None);
+        };
+        Ok(schedules
+            .take_delivery(session_id, work_id)
+            .await
+            .map(|delivery| {
+                self.running_from_prepared(PreparedDurableTurn {
+                    handle: delivery.handle,
+                    events: delivery.events,
+                    input_id: delivery.input_id,
+                })
+            }))
     }
 
     async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
@@ -1243,7 +1307,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
 
     async fn shutdown(&self, grace: Duration) -> AgentShutdownReport {
         let deadline = tokio::time::Instant::now() + grace;
-        let mut report = self.supervisor.shutdown(grace).await;
+        let mut schedule_errors = Vec::new();
+        if let Some(schedules) = &self.schedules {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, schedules.shutdown()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => schedule_errors.push(error),
+                Err(_) => schedule_errors
+                    .push("schedule cleanup exceeded the runtime shutdown grace".to_owned()),
+            }
+        }
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let mut report = self.supervisor.shutdown(remaining).await;
+        report.cleanup_errors.append(&mut schedule_errors);
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         match tokio::time::timeout(remaining, self.tool_factory.shutdown()).await {
             Ok(Ok(())) => {}
@@ -1417,6 +1493,9 @@ fn loop_control_error(error: AgentCommandError) -> LoopControlError {
         AgentCommandError::Closed => LoopControlError::Closed,
         AgentCommandError::NoActiveTurn => {
             LoopControlError::Rejected("durable Agent has no active turn".to_owned())
+        }
+        AgentCommandError::Busy => {
+            LoopControlError::Rejected("durable Agent is busy with another activity".to_owned())
         }
         AgentCommandError::Failed(message) => LoopControlError::Rejected(message),
     }
@@ -1603,6 +1682,81 @@ mod tests {
             contents,
             ["first", "first answer", "second", "second answer"]
         );
+    }
+
+    #[tokio::test]
+    async fn durable_runtime_exposes_due_schedule_as_a_background_running_turn() {
+        use chrono::{SecondsFormat, Utc};
+        use xharness_session::{EventData, ScheduleChange, ScheduleKind, ScheduleRecord};
+
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let session = store
+            .create(SessionHeader::new("scheduled-runtime"))
+            .await
+            .unwrap();
+        let overdue = (Utc::now() - chrono::Duration::seconds(1))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        store
+            .append(
+                "scheduled-runtime",
+                session.revision(),
+                vec![SessionEvent::new(EventData::ScheduleChange {
+                    change: ScheduleChange::Create {
+                        version: 1,
+                        schedule: ScheduleRecord {
+                            id: "schedule-1".to_owned(),
+                            kind: ScheduleKind::After,
+                            prompt: "runtime reminder".to_owned(),
+                            after_seconds: Some(1),
+                            every_seconds: None,
+                            scheduled_at: overdue,
+                        },
+                    },
+                })],
+            )
+            .await
+            .unwrap();
+        store.flush("scheduled-runtime").await.unwrap();
+
+        let schedules = ScheduleManager::new(Arc::clone(&store));
+        let runtime = DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(Arc::new(ScriptProvider {
+                answers: Mutex::new(VecDeque::from(["scheduled answer".to_owned()])),
+            })),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        )
+        .with_schedules(Arc::clone(&schedules));
+        let session = store.load("scheduled-runtime").await.unwrap().unwrap();
+        assert!(runtime.needs_session_resume(&session).unwrap());
+        let mut notices = runtime.subscribe_background_turns().unwrap();
+        runtime
+            .resume_session(AgentSessionRequest {
+                session_id: "scheduled-runtime".to_owned(),
+                cwd: "/workspace".to_owned(),
+                route: ModelRoute::new("test", "test-model"),
+                permission: PermissionPreset::WorkspaceWrite,
+                prompt: None,
+            })
+            .await
+            .unwrap();
+        let notice = tokio::time::timeout(Duration::from_secs(2), notices.recv())
+            .await
+            .expect("schedule did not publish a background turn")
+            .unwrap();
+        let mut running = runtime
+            .take_resumed_turn(&notice.session_id, &notice.work_id)
+            .await
+            .unwrap()
+            .expect("schedule background receiver disappeared");
+        while running.next_event().await.is_some() {}
+        assert_eq!(running.result().await.final_text, "scheduled answer");
+        assert!(runtime.shutdown(Duration::from_secs(1)).await.is_graceful());
     }
 
     #[test]

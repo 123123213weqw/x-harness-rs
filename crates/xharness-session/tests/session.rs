@@ -10,10 +10,10 @@ use xharness_session::{
     CommandResultKind, CommandSource, EventData, GoalChange, GoalChangeKind, GoalClearChange,
     GoalClearOperation, GoalPhase, GoalRef, GoalSnapshot, GoalSnapshotChange,
     GoalSnapshotOperation, LlmFailure, LlmRetryMode, LoggedEvent, MemorySessionStore, Message,
-    MessageRole, PolicySource, RequestHeader, Revision, Session, SessionError, SessionEvent,
-    SessionHeader, SessionMutationReceipt, SessionSandboxMode, SessionTitleSource, Store,
-    StoreError, SurfaceReplace, ToolCall, ToolOutcome, ToolResultData, TurnEndReason,
-    OUTCOME_UNKNOWN_CONTENT,
+    MessageRole, PolicySource, RequestHeader, Revision, ScheduleChange, ScheduleKind,
+    ScheduleRecord, Session, SessionError, SessionEvent, SessionHeader, SessionMutationReceipt,
+    SessionSandboxMode, SessionTitleSource, Store, StoreError, SurfaceReplace, ToolCall,
+    ToolOutcome, ToolResultData, TurnEndReason, OUTCOME_UNKNOWN_CONTENT,
 };
 
 fn header(id: &str) -> SessionHeader {
@@ -490,6 +490,19 @@ fn every_first_version_event_round_trips_through_serde() {
             10,
         ),
         event(EventData::PlanMode { active: true }),
+        event(EventData::ScheduleChange {
+            change: ScheduleChange::Create {
+                version: 1,
+                schedule: ScheduleRecord {
+                    id: "schedule-1".to_owned(),
+                    kind: ScheduleKind::After,
+                    prompt: "remind me".to_owned(),
+                    after_seconds: Some(30),
+                    every_seconds: None,
+                    scheduled_at: "2026-09-02T00:00:30.000Z".to_owned(),
+                },
+            },
+        }),
         event(EventData::LlmRetry {
             retry_id: "retry-1".to_owned(),
             turn: 1,
@@ -575,6 +588,62 @@ fn every_first_version_event_round_trips_through_serde() {
     assert_eq!(goal["data"]["operation"], "create");
     assert_eq!(goal["data"]["goal"]["maxGoalRounds"], 8);
     assert!(goal["data"].get("change").is_none());
+
+    let schedule = serde_json::to_value(event(EventData::ScheduleChange {
+        change: ScheduleChange::Dispatch {
+            version: 1,
+            id: "schedule-1".to_owned(),
+            accepted_at: None,
+        },
+    }))
+    .unwrap();
+    assert_eq!(schedule["type"], "schedule/change");
+    assert_eq!(schedule["data"]["operation"], "dispatch");
+    assert_eq!(schedule["data"]["id"], "schedule-1");
+    assert!(schedule["data"].get("change").is_none());
+}
+
+#[test]
+fn schedule_stream_rejects_inactive_transitions_and_id_reuse() {
+    let create = || {
+        event(EventData::ScheduleChange {
+            change: ScheduleChange::Create {
+                version: 1,
+                schedule: ScheduleRecord {
+                    id: "schedule-1".to_owned(),
+                    kind: ScheduleKind::After,
+                    prompt: "remind".to_owned(),
+                    after_seconds: Some(30),
+                    every_seconds: None,
+                    scheduled_at: "2026-09-02T00:00:30.000Z".to_owned(),
+                },
+            },
+        })
+    };
+    let delete = || {
+        event(EventData::ScheduleChange {
+            change: ScheduleChange::Delete {
+                version: 1,
+                id: "schedule-1".to_owned(),
+            },
+        })
+    };
+
+    let mut valid = Session::new(header("schedule-valid")).unwrap();
+    valid
+        .append_batch(Revision::ZERO, vec![create(), delete()])
+        .unwrap();
+    let revision = valid.revision();
+    assert!(matches!(
+        valid.append(revision, create()),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
+
+    let mut inactive = Session::new(header("schedule-inactive")).unwrap();
+    assert!(matches!(
+        inactive.append(Revision::ZERO, delete()),
+        Err(SessionError::InvalidLifecycle { .. })
+    ));
 }
 
 #[test]

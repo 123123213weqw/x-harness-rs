@@ -1,3 +1,5 @@
+use std::sync::{atomic::Ordering, Arc};
+
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use xharness_agent::InboxProjection;
@@ -28,6 +30,97 @@ pub(crate) struct PromptAdmission {
 }
 
 impl BasicHost {
+    /// Bridge runtime-originated turns (currently durable Schedule delivery)
+    /// into the same live Web projection used by user-started turns.
+    pub(crate) fn start_background_turn_listener(self: &Arc<Self>) {
+        if self
+            .background_listener_started
+            .swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        let Some(mut notices) = self.agent_runtime.subscribe_background_turns() else {
+            return;
+        };
+        let host = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                match notices.recv().await {
+                    Ok(notice) => {
+                        let host = Arc::clone(&host);
+                        tokio::spawn(async move {
+                            if let Err(error) = host.start_background_turn(notice).await {
+                                host.push_host(json!({
+                                    "type": "host/agent-error",
+                                    "sessionId": error.0,
+                                    "message": error.1,
+                                }));
+                            }
+                        });
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        host.push_host(json!({
+                            "type": "host/agent-error",
+                            "message": format!("background turn listener lagged by {skipped} notice(s)"),
+                        }));
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
+    }
+
+    async fn start_background_turn(
+        self: &Arc<Self>,
+        notice: xharness_schedule::ScheduleDeliveryNotice,
+    ) -> Result<(), (String, String)> {
+        let session_id = notice.session_id;
+        let run = self
+            .agent_runtime
+            .take_resumed_turn(&session_id, &notice.work_id)
+            .await
+            .map_err(|error| (session_id.clone(), error.to_string()))?
+            .ok_or_else(|| {
+                (
+                    session_id.clone(),
+                    format!("runtime lost background work {:?}", notice.work_id),
+                )
+            })?;
+        let mut exclusive_control = None;
+        let already_running = {
+            let mut state = self.state.write().await;
+            let record = state.sessions.get_mut(&session_id).ok_or_else(|| {
+                (
+                    session_id.clone(),
+                    "background turn belongs to an unknown session".to_owned(),
+                )
+            })?;
+            let already_running = record.running;
+            if !already_running {
+                let (control_tx, control_rx) = mpsc::channel::<DriverCommand>(64);
+                record.running = true;
+                record.control = Some(control_tx);
+                exclusive_control = Some(control_rx);
+            }
+            already_running
+        };
+        if let Some(control_rx) = exclusive_control {
+            self.push_host(json!({
+                "type": "host/session-status",
+                "sessionId": session_id,
+                "running": true,
+            }));
+            let host = self.as_ref().clone();
+            tokio::spawn(
+                async move { host.drive_recovered_turn(session_id, run, control_rx).await },
+            );
+        } else if already_running {
+            let host = self.as_ref().clone();
+            tokio::spawn(async move { host.drive_background_projection(session_id, run).await });
+        }
+        Ok(())
+    }
+
     /// Commit log-only product facts through the runtime-owned Session when
     /// available, otherwise retain the legacy in-memory projection. The
     /// authoritative path flushes before it refreshes/broadcasts History.
@@ -591,6 +684,30 @@ impl BasicHost {
             }));
         }
         self.drive_session(session_id, control_rx).await;
+    }
+
+    /// Project a runtime-originated turn while an existing Host driver owns
+    /// the session control channel. Targeted durable event receivers keep this
+    /// projection independent from the user turn that follows it.
+    async fn drive_background_projection(self, session_id: String, mut run: Box<dyn RunningTurn>) {
+        let outcome = async {
+            while let Some(event) = run.next_event().await {
+                self.sync_authoritative_session(&session_id).await?;
+                self.project_authoritative_control_event(&session_id, event)
+                    .await?;
+            }
+            let _ = run.result().await;
+            self.sync_authoritative_session(&session_id).await?;
+            Ok::<(), RpcError>(())
+        }
+        .await;
+        if let Err(error) = outcome {
+            self.push_host(json!({
+                "type": "host/agent-error",
+                "sessionId": session_id,
+                "message": error.message,
+            }));
+        }
     }
 
     async fn run_turn(

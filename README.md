@@ -4,7 +4,7 @@
 可测试的 Agent Loop；macOS 作为首要本地开发平台，Linux 作为服务器平台。
 
 当前开发版已完成可嵌入 Loop、OpenAI-compatible Provider、append-only Session、
-11 个原生 Coding/Job/Web 工具与 1 个持久用户交互工具（均按运行时能力动态投影），以及兼容
+11 个原生 Coding/Job/Web 工具、3 个持久 Schedule 工具与 1 个持久用户交互工具（均按运行时能力动态投影），以及兼容
 DeepSeek Harness Web 的第一版
 Rust Host。目标不是
 把所有能力继续堆进一个 `while`，而是把模型、历史、工具策略、Web 投影和原生执行
@@ -38,6 +38,7 @@ DeepSeek Web UI / future CLI
 - [逐模块规范索引](docs/specs/README.md)
 - [上下文预算与压缩](docs/specs/context.md)
 - [用户提问与等待交互](docs/specs/user-questions.md)
+- [持久定时提醒](docs/specs/schedule.md)
 - [Prompt 组装与注入](docs/specs/prompt.md)
 - [运行、诊断与故障处理](docs/operations.md)
 - [Linux `.deb` 安装与沙箱自配置](docs/specs/linux-deb.md)
@@ -55,8 +56,8 @@ FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产�
 该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
 Developer ID 签名、公证和本机安装验证。
 
-> **当前可用性提醒（2026-09-01）：** Web/持久 Agent/Loop/11 个 Coding/Job/Web 工具与
-> `ask_user_question`、版本化最小 Coding System
+> **当前可用性提醒（2026-09-02）：** Web/持久 Agent/Loop/11 个 Coding/Job/Web 工具、
+> 3 个 Schedule 工具与 `ask_user_question`、版本化最小 Coding System
 > Prompt、Provider 原生输入计数、请求前 Hard Token Guard 与自动 Compact 已经贯通。无压力时
 > Host 逐字重放当前 Surface；达到 80% 或发生 Hard/Provider Overflow 时，会持久摘要安全头部、
 > 重新计量后继续。每个 Step 也已按平台 Readiness 动态发送可用工具。Linux Bubblewrap Probe 失败时，
@@ -99,8 +100,8 @@ RPC Receipt 尚未持久化，因此还不是整个 API 的完整 Exactly-once �
 
 ### `xharness-host-app`
 
-- 组合 OpenAI-compatible Provider、HTTP/WS Server、原生 11 个 Coding/Job/Web 工具和持久
-  `ask_user_question`
+- 组合 OpenAI-compatible Provider、HTTP/WS Server、原生 11 个 Coding/Job/Web 工具、持久
+  `schedule_create/list/delete` 和 `ask_user_question`
 - `NativeToolFactory` 按 Workspace 缓存 Platform、共享 Job Registry 并按 Session Owner 隔离
 - SIGINT/SIGTERM 先关闭新 Admission，再收敛 Agent/Loop/Tool/Job/Process；
   Forced Cleanup 导致非零退出
@@ -275,6 +276,13 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 每条流 256 KiB 未读 Tail、消费式输出、有限 Wait、幂等 Kill 和有界 Shutdown
 - Started/Stopping/Finished 广播 seam 已实现；自动唤醒 Idle Agent、持久 Spill 和崩溃后
   Orphan Reconciliation 留在后续 TODO
+
+### `xharness-schedule`
+
+- 复用正式 Tool Registry，提供 `schedule_create/list/delete`，与 Job 的“立即启动后台进程”明确分层
+- `schedule/change` 日志是持久真源；进程内 Timer 可丢弃，Host 重启后自动重挂或补发 overdue 提醒
+- 支持 `after`、显式 Offset/IANA 时区 `at` 与最小 5 分钟 `every`；周期漏跑只补最新一次
+- 只在 Agent Idle 边界投递注入安全的 reminder followup，并沿普通 RunningTurn 实时投影到 Web
 
 ### `xharness-terminal` / `xharness-web`
 

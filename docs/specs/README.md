@@ -28,6 +28,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-tools` | [工具注册与执行管线](tools.md) | 已实现 |
 | `xharness-process` | [子进程运行时](process.md) | 已在 Unix 实现 |
 | `xharness-jobs` | [后台 Job 注册表](jobs.md) | 已实现五态、Owner 隔离、增量输出与 Shutdown |
+| `xharness-schedule` | [持久定时提醒](schedule.md) | 已实现三工具、Session 事件、Idle-only 唤醒、重启恢复与 Web 实时投影 |
 | `xharness-fs` | [工作区文件系统](filesystem.md) | 已在 Linux/macOS 实现 |
 | `xharness-sandbox` | [原生沙箱](sandbox.md) | Bubblewrap 已在 Linux 实测；Seatbelt 已在 macOS ARM64 原生 CI 实测 |
 | `xharness-platform` | [原生平台门面](platform.md) | Linux/macOS 已实现并原生测试；模型侧 Capability 投影已接通 |
