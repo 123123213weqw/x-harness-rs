@@ -77,7 +77,7 @@ impl TurnRequestFactory for Factory {
         request.tool_executor = Some(ToolExecutor::new(registry));
         request.reasoning_effort = self.effort.clone();
         request.config.max_steps = 32;
-        request.config.max_turn_output_tokens = 65536;
+        request.config.max_turn_output_tokens = Some(65536);
         Ok(request)
     }
     async fn goal_report(&self, _: &str, r: &LoopResult) -> Result<Option<GoalReportBody>, String> {

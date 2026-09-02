@@ -1979,7 +1979,8 @@ async fn reaches_step_limit_without_fabricating_an_answer() {
     let mut scripts = Vec::new();
     for step in 0..3 {
         scripts.push(vec![
-            Ok(tool_delta(0, &format!("call-{step}"), "echo", "{}")),
+            Ok(tool_delta(0, &format!("call-{step}-a"), "echo", "{}")),
+            Ok(tool_delta(1, &format!("call-{step}-b"), "echo", "{}")),
             Ok(completed_for_calls()),
         ]);
     }
@@ -2067,7 +2068,7 @@ async fn length_finish_is_a_first_class_partial_turn_not_a_failure() {
         )),
     ]]));
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.config.max_output_continuations = 0;
+    request.config.max_output_continuations = Some(0);
     let (events, result) = collect(LoopEngine.start(request)).await;
 
     assert_eq!(result.status, LoopStatus::MaxTokens);
@@ -2134,6 +2135,362 @@ async fn length_finish_safely_continues_and_combines_visible_output() {
     assert!(!result.messages.iter().any(|message| {
         message.role == Role::User && message.content.contains("Continue exactly")
     }));
+}
+
+fn output_budget_request(provider: Arc<ScriptProvider>, per_call: u64) -> LoopRequest {
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("finish the task")]);
+    request.token_guard = Some(
+        TokenGuard::new(
+            Arc::new(FixedTokenMeter { total: 128 }),
+            TokenBudget::new(1_048_576, per_call),
+        )
+        .unwrap(),
+    );
+    request
+}
+
+#[test]
+fn output_budget_defaults_are_per_request_not_per_task() {
+    let config = LoopConfig::default();
+    assert_eq!(config.max_turn_output_tokens, None);
+    assert_eq!(config.max_output_continuations, None);
+    assert!(config.validate().is_ok());
+    let mut explicit = config;
+    explicit.max_turn_output_tokens = Some(0);
+    assert!(explicit.validate().is_err());
+}
+
+#[tokio::test]
+async fn output_budget_long_tool_task_with_two_calls_per_thought_keeps_each_requests_allowance() {
+    let mut scripts = Vec::new();
+    for step in 0..40 {
+        scripts.push(vec![
+            Ok(tool_delta(0, &format!("call-{step}-a"), "echo", "{}")),
+            Ok(tool_delta(1, &format!("call-{step}-b"), "echo", "{}")),
+            Ok(completed_with(
+                FinishReason::ToolCalls,
+                TokenUsage {
+                    output_tokens: 1000,
+                    reasoning_tokens: 3000,
+                    ..Default::default()
+                },
+            )),
+        ]);
+    }
+    scripts.push(vec![
+        Ok(ProviderEvent::TextDelta("done".into())),
+        Ok(completed()),
+    ]);
+    let provider = Arc::new(ScriptProvider::new(scripts));
+    let mut request = output_budget_request(provider.clone(), 8192);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    install_tool(
+        &mut request,
+        TestToolSpec::new("echo", "echo", json!({}), move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("ok") }
+        }),
+    )
+    .await;
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(calls.load(Ordering::SeqCst), 80);
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.requests().len(), 41);
+    assert!(provider
+        .requests()
+        .iter()
+        .all(|r| r.max_output_tokens == Some(8192)));
+    let usage = result.usage.unwrap();
+    assert_eq!(usage.output_tokens + usage.reasoning_tokens, 160_001);
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e.kind, LoopEventKind::RunMaxTokens { .. })));
+}
+
+#[tokio::test]
+async fn output_budget_default_continues_past_old_count_and_total_caps() {
+    let mut scripts = Vec::new();
+    for part in ["one ", "two ", "three ", "four "] {
+        scripts.push(vec![
+            Ok(ProviderEvent::TextDelta(part.into())),
+            Ok(completed_with(
+                FinishReason::Length,
+                TokenUsage {
+                    output_tokens: 1000,
+                    reasoning_tokens: 59_000,
+                    ..Default::default()
+                },
+            )),
+        ]);
+    }
+    scripts.push(vec![
+        Ok(ProviderEvent::TextDelta("done".into())),
+        Ok(completed()),
+    ]);
+    let provider = Arc::new(ScriptProvider::new(scripts));
+    let (events, result) =
+        collect(LoopEngine.start(output_budget_request(provider.clone(), 65536))).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(result.final_text, "one two three four done");
+    assert_eq!(provider.requests().len(), 5);
+    assert!(provider
+        .requests()
+        .iter()
+        .all(|r| r.max_output_tokens == Some(65536)));
+    assert!(events.iter().any(|e| matches!(
+        e.kind,
+        LoopEventKind::OutputContinuationScheduled {
+            attempt: 4,
+            max_attempts: None,
+            cumulative_output_tokens: 240_000
+        }
+    )));
+}
+
+#[tokio::test]
+async fn output_budget_same_generation_sequence_old_policy_stops_new_policy_finishes() {
+    for legacy in [true, false] {
+        let mut scripts = Vec::new();
+        for part in ["one ", "two ", "three ", "four "] {
+            scripts.push(vec![
+                Ok(ProviderEvent::TextDelta(part.into())),
+                Ok(completed_with(
+                    FinishReason::Length,
+                    TokenUsage {
+                        output_tokens: 1000,
+                        reasoning_tokens: 3000,
+                        ..Default::default()
+                    },
+                )),
+            ]);
+        }
+        scripts.push(vec![
+            Ok(ProviderEvent::TextDelta("done".into())),
+            Ok(completed()),
+        ]);
+        let provider = Arc::new(ScriptProvider::new(scripts));
+        let mut request = output_budget_request(provider.clone(), 8192);
+        if legacy {
+            // Policy A/B, not a claim of running an old installed binary.
+            request.config.max_output_continuations = Some(2);
+            request.config.max_turn_output_tokens = Some(131_072);
+        }
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        if legacy {
+            assert_eq!(result.status, LoopStatus::MaxTokens);
+            assert_eq!(provider.requests().len(), 3);
+            assert_eq!(result.final_text, "one two three ");
+        } else {
+            assert_eq!(result.status, LoopStatus::Completed);
+            assert_eq!(provider.requests().len(), 5);
+            assert_eq!(result.final_text, "one two three four done");
+        }
+    }
+}
+
+#[tokio::test]
+async fn output_budget_reasoning_only_can_continue_without_usage() {
+    let mut scripts = Vec::new();
+    for _ in 0..4 {
+        scripts.push(vec![
+            Ok(ProviderEvent::ReasoningDelta("still thinking".into())),
+            Ok(ProviderEvent::Completed {
+                finish_reason: Some(FinishReason::Length),
+                usage: None,
+                provider_items: Vec::new(),
+            }),
+        ]);
+    }
+    scripts.push(vec![
+        Ok(ProviderEvent::TextDelta("done".into())),
+        Ok(completed()),
+    ]);
+    let provider = Arc::new(ScriptProvider::new(scripts));
+    let (_, result) =
+        collect(LoopEngine.start(output_budget_request(provider.clone(), 8192))).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(result.final_text, "done");
+    assert_eq!(provider.requests().len(), 5);
+    assert!(provider.requests()[1]
+        .messages
+        .last()
+        .unwrap()
+        .content
+        .contains("unfinished reasoning"));
+}
+
+#[tokio::test]
+async fn output_budget_explicit_continuation_count_still_stops() {
+    let provider = Arc::new(ScriptProvider::new((0..2).map(|_| {
+        vec![
+            Ok(ProviderEvent::TextDelta("partial ".into())),
+            Ok(completed_with(FinishReason::Length, TokenUsage::default())),
+        ]
+    })));
+    let mut request = output_budget_request(provider.clone(), 8192);
+    request.config.max_output_continuations = Some(1);
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::MaxTokens);
+    assert_eq!(provider.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn output_budget_explicit_total_clamps_then_stops_without_one_token_request() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(ProviderEvent::TextDelta("first ".into())),
+            Ok(completed_with(
+                FinishReason::Length,
+                TokenUsage {
+                    output_tokens: 1000,
+                    reasoning_tokens: 3000,
+                    ..Default::default()
+                },
+            )),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("second".into())),
+            Ok(completed_with(
+                FinishReason::Length,
+                TokenUsage {
+                    output_tokens: 1000,
+                    ..Default::default()
+                },
+            )),
+        ],
+    ]));
+    let mut request = output_budget_request(provider.clone(), 8192);
+    request.config.max_turn_output_tokens = Some(5000);
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::MaxTokens);
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].max_output_tokens, Some(5000));
+    assert_eq!(requests[1].max_output_tokens, Some(1000));
+}
+
+#[tokio::test]
+async fn output_budget_explicit_total_without_guard_stops_at_tool_boundary() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(tool_delta(0, "complete-call", "echo", "{}")),
+        Ok(completed_with(
+            FinishReason::ToolCalls,
+            TokenUsage {
+                output_tokens: 5000,
+                ..Default::default()
+            },
+        )),
+    ]]));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("task")]);
+    request.config.max_turn_output_tokens = Some(5000);
+    install_tool(
+        &mut request,
+        TestToolSpec::new("echo", "echo", json!({}), move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("ok") }
+        }),
+    )
+    .await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::MaxTokens, "{:?}", result.error);
+    assert_eq!(provider.requests().len(), 1);
+    assert_eq!(provider.requests()[0].max_output_tokens, Some(5000));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn output_budget_truncated_tool_calls_are_reissued_not_executed() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "discarded", "echo", "{\"value\":")),
+            Ok(completed_with(FinishReason::Length, TokenUsage::default())),
+        ],
+        vec![
+            Ok(tool_delta(0, "valid", "echo", "{\"value\":7}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+    ]));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let mut request = output_budget_request(provider.clone(), 8192);
+    install_tool(
+        &mut request,
+        TestToolSpec::new("echo", "echo", json!({}), move |args, _| {
+            assert_eq!(args["value"], 7);
+            observed.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("ok") }
+        }),
+    )
+    .await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(!result
+        .messages
+        .iter()
+        .flat_map(|m| &m.tool_calls)
+        .any(|c| c.provider_id() == "discarded"));
+    assert!(provider.requests()[1]
+        .messages
+        .last()
+        .unwrap()
+        .content
+        .contains("not executed"));
+}
+
+#[tokio::test]
+async fn output_budget_empty_length_fails_without_paid_retry_loop() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed_with(
+        FinishReason::Length,
+        TokenUsage::default(),
+    ))]]));
+    let (_, result) =
+        collect(LoopEngine.start(output_budget_request(provider.clone(), 8192))).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.requests().len(), 1);
+    assert!(result.error.unwrap().contains("without resumable"));
+}
+
+#[tokio::test]
+async fn output_budget_unlimited_continuation_remains_cancellable() {
+    struct ThinkingProvider(AtomicUsize);
+    #[async_trait]
+    impl ModelProvider for ThinkingProvider {
+        async fn stream(
+            &self,
+            _: ProviderRequest,
+            _: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            if self.0.fetch_add(1, Ordering::SeqCst) < 3 {
+                Ok(Box::pin(stream::iter(vec![
+                    Ok(ProviderEvent::ReasoningDelta("thinking".into())),
+                    Ok(completed_with(FinishReason::Length, TokenUsage::default())),
+                ])))
+            } else {
+                Ok(Box::pin(stream::pending()))
+            }
+        }
+    }
+    let provider = Arc::new(ThinkingProvider(AtomicUsize::new(0)));
+    let mut run = LoopEngine.start(LoopRequest::new(provider, vec![AgentMessage::user("task")]));
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while let Some(event) = run.next().await {
+            if matches!(
+                event.kind,
+                LoopEventKind::OutputContinuationScheduled { attempt: 3, .. }
+            ) {
+                run.cancel();
+                break;
+            }
+        }
+        assert_eq!(run.result().await.status, LoopStatus::Cancelled);
+    })
+    .await
+    .unwrap();
 }
 
 #[test]
