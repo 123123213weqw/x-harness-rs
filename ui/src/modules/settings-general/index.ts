@@ -19,6 +19,7 @@ import type {
   SettingsOnboardingStep, SettingsRootInjected, SettingsSectionRow,
 } from './shell-contract'
 import { SettingsRoot } from './SettingsRoot'
+import { AccountEntry } from './AccountEntry'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome'
 import { GeneralSection } from './GeneralSection'
 import { SettingsDocumentAction } from './SettingsDocumentAction'
@@ -136,6 +137,7 @@ export function apply(ctx: ClientContext): void {
     name: 'sidebar.settings',
     children: {
       'settings.trigger': { kind: 'single', scope: 'root' },
+      'settings.account-entry': { kind: 'single', scope: 'root' },
       'settings.header': { kind: 'single', scope: 'root' },
       'settings.action': { kind: 'list', scope: 'root' },
       'settings.close': { kind: 'single', scope: 'root' },
@@ -147,6 +149,8 @@ export function apply(ctx: ClientContext): void {
 
   ctx.slots.inject('settings.trigger', () =>
     ctx.slots.register({ name: 'settings.trigger', locale: NS }, TriggerContent))
+  ctx.slots.inject('settings.account-entry', () =>
+    ctx.slots.register({ name: 'settings.account-entry', locale: NS }, AccountEntry))
   ctx.slots.inject('settings.header', () =>
     ctx.slots.register({ name: 'settings.header', locale: NS }, HeaderContent))
   if (documentInjected !== undefined) {
