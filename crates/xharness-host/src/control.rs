@@ -155,8 +155,7 @@ impl BasicHost {
                 .expect("settings namespaces were validated before projection");
             namespace.user = settings.user.clone();
             if settings.namespace == crate::MODEL_SETTINGS_NAMESPACE {
-                namespace.value =
-                    crate::settings_processor::merge_model_layers(&namespace.base, &namespace.user);
+                namespace.value = crate::merge_model_layers(&namespace.base, &namespace.user);
                 // Keep discovered capabilities for unchanged routes, but
                 // never let an old effective-provider snapshot hide new base
                 // providers delivered by an app upgrade.

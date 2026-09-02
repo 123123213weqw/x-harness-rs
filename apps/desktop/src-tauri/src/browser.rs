@@ -21,6 +21,50 @@ use url::Url;
 const MAX_LIVE_WEBVIEWS: usize = 16;
 const MAX_TAB_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
 
+/// WebView2 does not deliver fragment changes through Wry's navigation policy.
+/// Listen to the native Source property instead. This is only a resample hint:
+/// guests still have no IPC permission, and no frame-provided URL is trusted.
+#[cfg(windows)]
+fn watch_native_location(
+    child: &Webview,
+    app: AppHandle,
+    tab_id: String,
+    inspector: Arc<crate::browser_inspect::Inspector>,
+) -> Result<(), String> {
+    child
+        .with_webview(move |platform| {
+            // SAFETY: with_webview runs on the WebView2 owning UI apartment.
+            // Neither the controller nor view is moved to another thread.
+            let registration = unsafe { platform.controller().CoreWebView2() }.and_then(|view| {
+                let event_app = app.clone();
+                let event_id = tab_id.clone();
+                let callback =
+                    webview2_com::SourceChangedEventHandler::create(Box::new(move |_, _| {
+                        inspector.invalidate();
+                        emit(&event_app, &event_id, "navigation-policy", "");
+                        Ok(())
+                    }));
+                let mut token = 0;
+                // SAFETY: the token pointer is valid during this synchronous
+                // call. WebView2 retains the callback until the view closes.
+                // The callback owns no COM view/controller (no reference cycle).
+                unsafe { view.add_SourceChanged(&callback, &mut token) }
+            });
+            if registration.is_err() {
+                // Queuing with_webview is not proof that COM registration
+                // succeeded. Surface failure without exposing native details.
+                eprintln!("browser native location observer registration failed");
+                emit(
+                    &app,
+                    &tab_id,
+                    "location-error",
+                    "Native address updates are unavailable",
+                );
+            }
+        })
+        .map_err(|_| "could not schedule native address observer".to_string())
+}
+
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserBounds {
@@ -141,6 +185,36 @@ fn emit(app: &AppHandle, tab_id: &str, kind: &'static str, value: impl Into<Stri
             value: value.into(),
         },
     );
+}
+
+#[derive(Serialize)]
+pub struct BrowserPageState {
+    url: String,
+    loaded: bool,
+}
+
+/// Frame-agnostic navigation callbacks are hints, never address authority.
+/// Only the trusted shell may sample the native top-level location/readiness.
+#[tauri::command]
+pub async fn desktop_browser_page_state(
+    caller: Webview,
+    state: State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<BrowserPageState, String> {
+    ensure_main(&caller)?;
+    let inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+    if inner.active.as_deref() != Some(&tab_id) || inner.bounds.is_none() {
+        return Err("only the active, laid-out browser tab can be sampled".into());
+    }
+    let tab = inner.tabs.get(&tab_id).ok_or("browser tab is not open")?;
+    Ok(BrowserPageState {
+        url: tab
+            .webview
+            .url()
+            .map_err(|_| "browser URL unavailable")?
+            .to_string(),
+        loaded: tab.loaded.load(Ordering::SeqCst),
+    })
 }
 
 pub(super) fn ensure_main(webview: &Webview) -> Result<(), String> {
@@ -289,6 +363,9 @@ pub async fn desktop_browser_navigate(
         let clock = inner.clock;
         let tab = inner.tabs.get_mut(&tab_id).expect("tab was present");
         tab.last_used = clock;
+        // Explicit UI navigation is a top-level intent. Invalidate before it
+        // enters native dispatch, even if the old document is still visible.
+        tab.inspector.revoke();
         tab.loaded.store(false, Ordering::SeqCst);
         return tab
             .webview
@@ -339,15 +416,18 @@ pub async fn desktop_browser_navigate(
     let load_inspector = Arc::clone(&inspector);
     let loaded = Arc::new(AtomicBool::new(false));
     let load_ready = Arc::clone(&loaded);
-    let navigation_ready = Arc::clone(&loaded);
     let builder = WebviewBuilder::new(label, WebviewUrl::External(target))
         .data_directory(browser_data)
         .on_navigation(move |url| {
             if matches!(url.scheme(), "http" | "https") {
-                navigation_ready.store(false, Ordering::SeqCst);
-                navigation_inspector.delegation.navigate(url);
+                // Wry 0.55 also calls this policy for subframe navigations on
+                // WKWebView. It provides no main-frame bit. Do not publish its
+                // URL, reset top-level readiness or revoke the page's origin
+                // binding here. Still invalidate action refs conservatively.
                 navigation_inspector.invalidate();
-                emit(&event_app, &event_id, "url", url.as_str());
+                // Hash/history navigations need not emit a page-load callback.
+                // Ask the UI to sample WebView.url(), never this frame's URL.
+                emit(&event_app, &event_id, "navigation-policy", "");
                 true
             } else {
                 emit(&event_app, &event_id, "blocked-url", url.as_str());
@@ -364,11 +444,19 @@ pub async fn desktop_browser_navigate(
             );
             let status = match payload.event() {
                 PageLoadEvent::Started => {
+                    load_inspector.delegation.navigate(payload.url());
                     load_inspector.invalidate();
                     "loading"
                 }
-                PageLoadEvent::Finished => "loaded",
+                PageLoadEvent::Finished => {
+                    load_inspector.delegation.navigate(payload.url());
+                    "loaded"
+                }
             };
+            // Page-load callbacks carry the native top-level URL, unlike the
+            // navigation policy. Publish it before readiness so redirects are
+            // synchronized before the UI attempts an exact-origin binding.
+            emit(&load_app, &load_id, "url", payload.url().as_str());
             emit(&load_app, &load_id, status, payload.url().as_str());
         })
         .on_new_window(move |url, _| {
@@ -425,6 +513,13 @@ pub async fn desktop_browser_navigate(
             LogicalSize::new(bounds.width, bounds.height),
         )
         .map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    if let Err(error) =
+        watch_native_location(&child, app.clone(), tab_id.clone(), Arc::clone(&inspector))
+    {
+        let _ = child.close();
+        return Err(error);
+    }
     if inner.active.as_deref() != Some(&tab_id) {
         let _ = child.hide();
     }
