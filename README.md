@@ -168,8 +168,10 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - Surface 替换记录源消息范围、替换数量、原因和 Policy 版本
 - Core 在 Provider I/O 前验证 Surface，并把审计元数据写入 Request Header
 - `IdentityContextPolicy` 只保留给嵌入式兼容；正式 Durable Host 使用
-  `ToolResultPruningContextPolicy` 在请求 Surface 上确定性缩短超过 8,192 字符的 Tool Message，
-  再由独立持久 Compact Coordinator 处理历史范围
+  `ToolResultPruningContextPolicy`（投影身份 `context-history-pruning/v2`）在请求 Surface 上
+  确定性缩短超过 8,192 字符的 Tool Message、已成功的大型 `write/edit` 历史参数和已完成 Turn
+  reasoning，再由独立持久 Compact Coordinator 处理历史范围；Call/Result 拓扑、当前 Turn
+  reasoning、opaque Provider Item 和原始 Session 始终保留
 
 ### `xharness-token`
 
