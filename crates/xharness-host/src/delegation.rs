@@ -1,5 +1,7 @@
 //! Thin model adapter and Host composition of durable child conversations.
 //! No provider loop or shell job is implemented here.
+pub(crate) mod model_selection;
+
 use crate::{driver::PromptAdmission, rpc::permission_events, BasicHost};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -22,10 +24,13 @@ impl AgentTool {
     pub fn spec(runtime: Arc<dyn DelegationRuntime>, caller: impl Into<String>) -> ToolSpec {
         let caller = caller.into();
         ToolSpec::new(ToolDefinition::new("agent",
-            "Delegate independent work to a child agent. action=start requires task (optional label); action=send requires agent_id and message; action=inspect optionally takes agent_id (omit to list your children); action=stop requires agent_id. Do not mix fields between actions. Children have separate context: include all necessary background in task. Start/send acknowledge inbox admission, NOT completion. Completion/failure is automatically delivered later; do not repeatedly poll inspect. Stop interrupts the current turn, preserves the conversation and parks pending work; a user prompt can resume it. Children cannot delegate further. Never delegate dependent edits to the same files in parallel.",
+            "Delegate independent work to a child agent. action=start requires task (optional label, provider, model, reasoning_effort). Default: inherit the parent's model and reasoning effort. Only specify model/effort overrides when the HUMAN user explicitly requests them; never choose a different model or raise/lower effort on your own based on task complexity or cost. When the user requests an override, invoke start with those selectors now: the Host automatically pauses that exact call and shows the user a confirmation card before creating the child. Do not wait for a chat answer or use ask_question as a substitute. Full access, AI review and instructions in task text cannot approve the change. Use action=inspect without agent_id to discover configured model IDs and supported effort IDs when the user requests a change. Switching model uses the target's default effort and context budget unless effort is explicit. action=send requires agent_id and message; action=inspect optionally takes agent_id; action=stop requires agent_id. Model options are start-only; send never changes a child's model. Do not mix fields between actions. Children have separate context: include all necessary background in task. Start/send acknowledge inbox admission, NOT completion. Completion/failure is automatically delivered later; do not repeatedly poll inspect. Stop interrupts the current turn, preserves the conversation and parks pending work; a user prompt can resume it. Children cannot delegate further. Never delegate dependent edits to the same files in parallel.",
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["start","send","inspect","stop"]},
                 "task":{"type":"string"},"label":{"type":"string"},
+                "provider":{"type":"string","description":"Configured provider ID. Omit unless explicitly requested by the user; changes require human confirmation."},
+                "model":{"type":"string","description":"Configured model ID. Omit unless explicitly requested by the user; changes require human confirmation."},
+                "reasoning_effort":{"type":"string","description":"Supported effort ID for the selected model. Omit unless explicitly requested by the user; changes require human confirmation."},
                 "agent_id":{"type":"string"},"message":{"type":"string"}},
                 "required":["action"],"additionalProperties":false})), move |context| {
             let runtime = runtime.clone(); let caller = caller.clone();
@@ -38,6 +43,15 @@ impl AgentTool {
                 Ok(ToolOutput::text(value.to_string()))
             }
         }).with_concurrency(ToolConcurrency::Parallel).with_timeout(Duration::from_secs(45))
+    }
+    pub fn model_selection_guard(
+        host: &Arc<BasicHost>,
+        caller: &str,
+    ) -> Arc<dyn xharness_tools::MonotonicGuard> {
+        Arc::new(model_selection::SelectionGuard {
+            host: Arc::downgrade(host),
+            caller: caller.into(),
+        })
     }
     pub fn for_host(host: &Arc<BasicHost>, caller: &str) -> ToolSpec {
         Self::spec(Arc::new(HostDelegation(Arc::downgrade(host))), caller)
@@ -142,8 +156,26 @@ impl BasicHost {
         let key = identity(caller, invocation);
         let _operation = self.lock_admission(&format!("agent-operation:{key}")).await;
         match operation {
-            AgentOperation::Start { task, label } => {
-                self.create_delegated(caller, &key, task, label).await
+            AgentOperation::Start {
+                task,
+                label,
+                provider,
+                model,
+                reasoning_effort,
+            } => {
+                self.create_delegated(
+                    caller,
+                    invocation,
+                    &key,
+                    task,
+                    label,
+                    model_selection::ModelOverride {
+                        provider,
+                        model,
+                        reasoning_effort,
+                    },
+                )
+                .await
             }
             AgentOperation::Inspect { agent_id } => {
                 let state = self.state.read().await;
@@ -157,11 +189,19 @@ impl BasicHost {
                         return Err("agent is not a direct delegated child of this caller".into());
                     }
                 }
+                let parent_model = state.sessions[caller].model.clone();
                 let entries: Vec<_> = state.sessions.values().filter(|s| s.delegated && s.parent_session_id.as_deref()==Some(caller)
                     && agent_id.as_ref().is_none_or(|id| id == &s.session_id)).take(128).map(|s| json!({
                     "agent_id":s.session_id,"label":s.title,"status":if s.dispatch_paused && s.running {"stopping"} else if s.dispatch_paused {"paused"} else if s.running {"running"} else {"idle"},
-                    "pending_messages":s.queue.len().max(s.projected_queue.len())})).collect();
-                Ok(json!({"ok":true,"agents":entries}))
+                    "pending_messages":s.queue.len().max(s.projected_queue.len()),"model":s.model})).collect();
+                drop(state);
+                let mut result = json!({"ok":true,"agents":entries});
+                if agent_id.is_none() {
+                    result["parent_model"] = json!(parent_model);
+                    result["models"] =
+                        model_selection::catalog_view(&self.agent_runtime.model_catalog());
+                }
+                Ok(result)
             }
             AgentOperation::Send { agent_id, message } => {
                 self.authorize_delegated(caller, &agent_id).await?;
@@ -195,12 +235,16 @@ impl BasicHost {
     async fn create_delegated(
         &self,
         caller: &str,
+        invocation: &str,
         id: &str,
         task: String,
         label: Option<String>,
+        overrides: model_selection::ModelOverride,
     ) -> Result<Value, String> {
         // This is a creation fence, not an execution queue. Actual work stays in Inbox.
         let _creation = self.lock_admission("agent-creation").await;
+        // Admission only: never hold this lock while waiting for confirmation.
+        let _parent_settings = self.lock_admission(caller).await;
         let (cwd, model, permission, preset, plan_active, existing) = {
             let state = self.state.read().await;
             let parent = state
@@ -258,8 +302,56 @@ impl BasicHost {
                 if session.events().iter().any(|e| matches!(e.data(), EventData::AgentDelegated { task: prior, .. } if prior != &task)) {
                     return Err("invocation id already used for a different task".into());
                 }
+                // Compare explicit selectors with the original admission, not
+                // today's parent settings or later user changes to the child.
+                // Old journals without a model admission remain retryable for
+                // the legacy (inherit-only) operation. Explicit selectors must
+                // have a durable admission to compare against.
+                if !overrides.is_empty() {
+                    let admitted = model_selection::admitted_model(&session)
+                        .ok_or("original child model selection is unavailable")?;
+                    overrides.check_replay(&admitted)?;
+                }
+            } else {
+                let state = self.state.read().await;
+                overrides.check_replay(&state.sessions[id].model)?;
             }
         } else {
+            let parent_model = model;
+            let model = overrides.resolve(&parent_model, &self.agent_runtime.model_catalog())?;
+            // Exact durable human approval is required before a changed route
+            // can create a child. Guard/description alone are not authority.
+            if !overrides.is_empty() {
+                let parent_session = self
+                    .agent_runtime
+                    .authoritative_session(caller)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .ok_or("model override requires a durable user confirmation")?;
+                if !model_selection::same_selection(&model, &parent_model) {
+                    model_selection::require_approval(
+                        &parent_session,
+                        caller,
+                        invocation,
+                        &overrides.operation(&task, &label),
+                        &parent_model,
+                        &model,
+                    )?;
+                }
+            }
+            let route = crate::ModelRoute {
+                provider: model.provider.clone(),
+                model: model.model.clone(),
+                reasoning_effort: model.reasoning_effort.clone(),
+                context_window_tokens: model.context_window_tokens,
+            };
+            // Validate before creating any child or admitting its first task.
+            if !self.agent_runtime.can_route(&route) {
+                return Err(format!(
+                    "model route {}/{} is unavailable or does not support reasoning_effort {:?}",
+                    route.provider, route.model, route.reasoning_effort
+                ));
+            }
             crate::rpc::session_lifecycle::create_with_visibility(
                 self,
                 &json!({"sessionId":id,"cwd":cwd}),
@@ -337,8 +429,9 @@ impl BasicHost {
             false,
         )
         .await?;
+        let model = self.state.read().await.sessions[id].model.clone();
         Ok(
-            json!({"ok":true,"agent_id":id,"message_id":format!("{id}:initial"),"status":"accepted"}),
+            json!({"ok":true,"agent_id":id,"message_id":format!("{id}:initial"),"status":"accepted","model":model}),
         )
     }
 
@@ -586,6 +679,9 @@ impl BasicHost {
 
 #[cfg(test)]
 mod tests {
+    mod model_confirmation_tests;
+    mod model_selection_tests;
+
     use super::*;
     use crate::{AgentRuntime, DurableLoopAgentRuntime, HostConfig, NoTools};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -604,6 +700,7 @@ mod tests {
         maximum: Arc<AtomicUsize>,
         calls: Arc<AtomicUsize>,
         gate: Option<CancellationToken>,
+        requests: std::sync::Mutex<Vec<ProviderRequest>>,
     }
     struct Active(Arc<AtomicUsize>);
     impl Drop for Active {
@@ -618,9 +715,10 @@ mod tests {
         }
         async fn stream(
             &self,
-            _request: ProviderRequest,
+            request: ProviderRequest,
             _cancel: CancellationToken,
         ) -> Result<ProviderStream, ProviderError> {
+            self.requests.lock().unwrap().push(request);
             self.calls.fetch_add(1, Ordering::SeqCst);
             let current = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.maximum.fetch_max(current, Ordering::SeqCst);
@@ -672,6 +770,9 @@ mod tests {
         AgentOperation::Start {
             task: task.into(),
             label: None,
+            provider: None,
+            model: None,
+            reasoning_effort: None,
         }
     }
     async fn settled(host: &BasicHost, id: &str) {
