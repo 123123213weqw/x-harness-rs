@@ -1,0 +1,183 @@
+{
+  "default": {
+    "provider": "llama-local",
+    "model": "qwen-switch",
+    "reasoning_effort": "on"
+  },
+  "providers": [
+    {
+      "id": "llama-local",
+      "display_name": "llama.cpp (local)",
+      "kind": "openai-compatible",
+      "base_url": "http://127.0.0.1:8080/v1",
+      "protocol": "chat",
+      "models": [
+        {
+          "id": "qwen-switch",
+          "upstream_model": "local-model",
+          "fallback_context_window_tokens": 32768,
+          "max_output_tokens": 4096,
+          "minimum_output_tokens": 1024,
+          "reasoning": {
+            "default_effort": "on",
+            "efforts": [
+              {
+                "id": "off",
+                "name": "Off",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "enable_thinking": false
+                  }
+                }
+              },
+              {
+                "id": "on",
+                "name": "On",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "enable_thinking": true
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "native-effort",
+          "upstream_model": "gpt-oss-20b",
+          "fallback_context_window_tokens": 32768,
+          "max_output_tokens": 4096,
+          "minimum_output_tokens": 1024,
+          "reasoning": {
+            "default_effort": "medium",
+            "efforts": [
+              {
+                "id": "low",
+                "name": "low",
+                "request_patch": {
+                  "reasoning_effort": "low"
+                }
+              },
+              {
+                "id": "medium",
+                "name": "medium",
+                "request_patch": {
+                  "reasoning_effort": "medium"
+                }
+              },
+              {
+                "id": "high",
+                "name": "high",
+                "request_patch": {
+                  "reasoning_effort": "high"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "vllm-local",
+      "display_name": "vLLM (local)",
+      "kind": "openai-compatible",
+      "base_url": "http://127.0.0.1:8000/v1",
+      "protocol": "chat",
+      "models": [
+        {
+          "id": "qwen-switch",
+          "upstream_model": "Qwen/Qwen3-8B",
+          "fallback_context_window_tokens": 32768,
+          "max_output_tokens": 4096,
+          "minimum_output_tokens": 1024,
+          "reasoning": {
+            "default_effort": "on",
+            "efforts": [
+              {
+                "id": "off",
+                "name": "Off",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "enable_thinking": false
+                  }
+                }
+              },
+              {
+                "id": "on",
+                "name": "On",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "enable_thinking": true
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "thinking-switch",
+          "upstream_model": "deepseek-ai/DeepSeek-V3.1",
+          "fallback_context_window_tokens": 32768,
+          "max_output_tokens": 4096,
+          "minimum_output_tokens": 1024,
+          "reasoning": {
+            "default_effort": "on",
+            "efforts": [
+              {
+                "id": "off",
+                "name": "Off",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "thinking": false
+                  }
+                }
+              },
+              {
+                "id": "on",
+                "name": "On",
+                "request_patch": {
+                  "chat_template_kwargs": {
+                    "thinking": true
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "native-effort",
+          "upstream_model": "openai/gpt-oss-20b",
+          "fallback_context_window_tokens": 32768,
+          "max_output_tokens": 4096,
+          "minimum_output_tokens": 1024,
+          "reasoning": {
+            "default_effort": "medium",
+            "efforts": [
+              {
+                "id": "low",
+                "name": "low",
+                "request_patch": {
+                  "reasoning_effort": "low"
+                }
+              },
+              {
+                "id": "medium",
+                "name": "medium",
+                "request_patch": {
+                  "reasoning_effort": "medium"
+                }
+              },
+              {
+                "id": "high",
+                "name": "high",
+                "request_patch": {
+                  "reasoning_effort": "high"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
