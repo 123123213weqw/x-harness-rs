@@ -682,6 +682,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
 
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     lifecycle_probe(app, &url).await?;
+    subframe_navigation_probe(app).await?;
     let main = app.get_webview("main").ok_or("missing main view")?;
     browser::desktop_browser_bounds(
         main.clone(),
@@ -1067,6 +1068,164 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
         return Err("hidden tab was incorrectly inspected".into());
     }
     println!("Native Tauri DOM probe passed: observation, fill/select/click actual state, guest denial, duplicate/replacement/user-edit guards, callback timeout/expired action, hidden/hide-reselect races (no model/global OS input)");
+    Ok(())
+}
+
+// The real native engine, not a mocked URL event. A post-load iframe must not
+// replace the address, unbind the owner or reset a completed top-level load.
+async fn subframe_navigation_probe(app: &tauri::AppHandle) -> Result<(), String> {
+    let tab_id = "navigation-probe";
+    let main = app.get_webview("main").ok_or("missing main view")?;
+    let top = serve_fixture("<!doctype html><title>Top-level navigation fixture</title><h1>Top page</h1><button>Top action</button>".into());
+    let cross = serve_fixture("<!doctype html><h1>Cross-origin child</h1>".into());
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+    let captured = std::sync::Arc::clone(&events);
+    let listener = app.listen_any("xharness-browser-event", move |event| {
+        let payload: Value = serde_json::from_str(event.payload()).unwrap();
+        if payload["tabId"] == "navigation-probe" {
+            captured.lock().unwrap().push(payload);
+        }
+    });
+    browser::desktop_browser_activate(main.clone(), app.state(), Some(tab_id.into())).await?;
+    browser::desktop_browser_navigate(
+        app.clone(),
+        main.clone(),
+        app.state(),
+        tab_id.into(),
+        top.clone(),
+    )
+    .await?;
+    let (guest, inspector) = app
+        .state::<browser::BrowserState>()
+        .inspection_target(tab_id)?;
+    if browser::desktop_browser_page_state(guest.clone(), app.state(), tab_id.into())
+        .await
+        .is_ok()
+    {
+        return Err("guest caller was authorized to sample shell browser state".into());
+    }
+    for _ in 0..100 {
+        if events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"] == "loaded")
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let origin = url::Url::parse(&top)
+        .unwrap()
+        .origin()
+        .ascii_serialization();
+    browser_delegation::desktop_browser_delegate(
+        main.clone(),
+        app.state(),
+        tab_id.into(),
+        Some("frame-owner".into()),
+        true,
+        Some(origin),
+    )
+    .await?;
+    app.state::<browser::BrowserState>()
+        .loaded_receipt("frame-owner", tab_id)?;
+    for (index, destination) in [format!("{top}same-origin"), cross].iter().enumerate() {
+        let snapshot = browser_inspect::desktop_browser_inspect(
+            main.clone(),
+            app.state(),
+            tab_id.into(),
+            Default::default(),
+        )
+        .await?;
+        let epoch = inspector
+            .navigation_epoch
+            .load(std::sync::atomic::Ordering::SeqCst);
+        events.lock().unwrap().clear();
+        guest.eval(format!("{{const frame=document.createElement('iframe');frame.onload=()=>document.body.dataset.frameLoaded='{}';frame.src={};document.body.append(frame)}}",index,serde_json::to_string(destination).unwrap())).map_err(|error|error.to_string())?;
+        let marker = index.to_string();
+        let mut settled = false;
+        for _ in 0..100 {
+            if evidence(&guest, "({loaded:document.body.dataset.frameLoaded})").await?["loaded"]
+                .as_str()
+                == Some(marker.as_str())
+            {
+                settled = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        if !settled {
+            return Err("subframe fixture did not load".into());
+        }
+        if guest.url().map_err(|error| error.to_string())?.as_str() != top
+            || events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| event["kind"] == "url" && event["value"] != top)
+        {
+            return Err("subframe navigation polluted the top-level address".into());
+        }
+        app.state::<browser::BrowserState>()
+            .loaded_receipt("frame-owner", tab_id)
+            .map_err(|error| format!("subframe navigation reset readiness/binding: {error}"))?;
+        let page = serde_json::to_value(
+            browser::desktop_browser_page_state(main.clone(), app.state(), tab_id.into()).await?,
+        )
+        .unwrap();
+        if page["url"] != top || page["loaded"] != true {
+            return Err("authoritative page sample used a child URL or readiness".into());
+        }
+        // Conservative ref invalidation remains intact where the native engine
+        // reports the iframe policy. The owner/origin grant is NOT invalidated.
+        if inspector
+            .navigation_epoch
+            .load(std::sync::atomic::Ordering::SeqCst)
+            != epoch
+            && inspector
+                .claim(snapshot["frame_id"].as_str().unwrap(), None)
+                .is_ok()
+        {
+            return Err("navigation policy retained a stale action frame".into());
+        }
+    }
+    events.lock().unwrap().clear();
+    guest
+        .eval("location.hash='native-fragment'")
+        .map_err(|error| error.to_string())?;
+    let expected = format!("{top}#native-fragment");
+    let mut hash_settled = false;
+    for _ in 0..100 {
+        let page = serde_json::to_value(
+            browser::desktop_browser_page_state(main.clone(), app.state(), tab_id.into()).await?,
+        )
+        .unwrap();
+        if page["url"] == expected
+            && page["loaded"] == true
+            && events.lock().unwrap().iter().any(|event| {
+                event["kind"] == "navigation-policy"
+                    || (event["kind"] == "url" && event["value"] == expected)
+            })
+        {
+            hash_settled = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    if !hash_settled {
+        return Err(
+            "same-document navigation did not expose an authoritative location hint".into(),
+        );
+    }
+    app.state::<browser::BrowserState>()
+        .loaded_receipt("frame-owner", tab_id)?;
+    app.unlisten(listener);
+    browser::desktop_browser_close(main, app.state(), tab_id.into()).await?;
+    println!(
+        "SUBFRAME_NAVIGATION_EVIDENCE {}",
+        json!({"same_origin":"passed","cross_origin":"passed","same_document":"passed","top_level_address":"preserved","loaded_owner_receipt":"preserved","guest_caller":"denied","test_only":true})
+    );
     Ok(())
 }
 
