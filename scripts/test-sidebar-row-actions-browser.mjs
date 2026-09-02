@@ -23,7 +23,7 @@ try {
     return route.fulfill({body:readFileSync(local),contentType:types[extname(local)]??'application/octet-stream'})
   })
   await page.goto('http://127.0.0.1:39187/?fixture=1')
-  await page.getByRole('button',{name:'Settings',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Account & settings',exact:true}).waitFor()
   await page.setViewportSize({width:426,height:664})
   const opener=page.getByRole('button',{name:'Open sidebar',exact:true})
   await opener.waitFor()

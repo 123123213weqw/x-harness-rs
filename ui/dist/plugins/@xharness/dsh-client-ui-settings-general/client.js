@@ -12,6 +12,7 @@ exports.inject = exports.SettingsDocumentStore = void 0;
 exports.apply = apply;
 const dsh_client_ui_slots_1 = require("@xharness/dsh-client-ui-slots");
 const SettingsRoot_1 = require("./SettingsRoot");
+const AccountEntry_1 = require("./AccountEntry");
 const chrome_1 = require("./chrome");
 const GeneralSection_1 = require("./GeneralSection");
 const SettingsDocumentAction_1 = require("./SettingsDocumentAction");
@@ -20,6 +21,7 @@ const locales_1 = require("./locales");
 var settings_document_store_2 = require("./settings-document-store");
 Object.defineProperty(exports, "SettingsDocumentStore", { enumerable: true, get: function () { return settings_document_store_2.SettingsDocumentStore; } });
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
+const settings_navigation_1 = require("../shared/settings-navigation");
 const NS = 'settings';
 /**
  * Required services (cordis fiber inject). The target slots are declared by
@@ -62,6 +64,7 @@ function apply(ctx) {
     let onboardingVersion = -1;
     let onboardingSteps = [];
     const shellInjected = () => ({
+        subscribeOpenSection: listener => ctx.on(settings_navigation_1.OPEN_SETTINGS_SECTION, listener),
         hooks: {
             sections: {
                 getSnapshot: () => {
@@ -113,6 +116,7 @@ function apply(ctx) {
         name: 'sidebar.settings',
         children: {
             'settings.trigger': { kind: 'single', scope: 'root' },
+            'settings.account-entry': { kind: 'single', scope: 'root' },
             'settings.header': { kind: 'single', scope: 'root' },
             'settings.action': { kind: 'list', scope: 'root' },
             'settings.close': { kind: 'single', scope: 'root' },
@@ -122,6 +126,7 @@ function apply(ctx) {
         inject: shellInjected,
     }, SettingsRoot_1.SettingsRoot));
     ctx.slots.inject('settings.trigger', () => ctx.slots.register({ name: 'settings.trigger', locale: NS }, chrome_1.TriggerContent));
+    ctx.slots.inject('settings.account-entry', () => ctx.slots.register({ name: 'settings.account-entry', locale: NS }, AccountEntry_1.AccountEntry));
     ctx.slots.inject('settings.header', () => ctx.slots.register({ name: 'settings.header', locale: NS }, chrome_1.HeaderContent));
     if (documentInjected !== undefined) {
         ctx.slots.inject('settings.action', () => ctx.slots.register({
@@ -212,6 +217,7 @@ function SettingsRoot(props) {
         setActiveId(id);
         setOpen(true);
     }, []);
+    (0, react_1.useEffect)(() => props.subscribeOpenSection?.(openSection), [props.subscribeOpenSection, openSection]);
     // The ledger tick keeps the nav rows fresh: registrants re-register with
     // freshly localized text on locale change, and the trigger/header/close
     // seats re-render through their own outlets' subscriptions.
@@ -234,7 +240,7 @@ function SettingsRoot(props) {
             return new Set([...previous, id]);
         });
     }, []);
-    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, views_types_1.classNames)(SettingsRoot_styles_1.default.trigger, !wide && SettingsRoot_styles_1.default.rail), "aria-haspopup": "dialog", "aria-expanded": open, onClick: () => { setOpen(true); }, children: renderSlot('settings.trigger', { wide }) }), open && ((0, jsx_runtime_1.jsx)(SettingsPanel, { rows: rows, renderSlot: renderSlot, activeId: activeId, onSelect: setActiveId, onClose: close })), onboardingStep !== undefined && renderSlot('settings.onboarding', {
+    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [renderSlot('settings.account-entry', { wide, rows, openSection }, { fallback: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, views_types_1.classNames)(SettingsRoot_styles_1.default.trigger, !wide && SettingsRoot_styles_1.default.rail), "aria-haspopup": "dialog", "aria-expanded": open, onClick: () => { setOpen(true); }, children: renderSlot('settings.trigger', { wide }) }) }), open && ((0, jsx_runtime_1.jsx)(SettingsPanel, { rows: rows, renderSlot: renderSlot, activeId: activeId, onSelect: setActiveId, onClose: close })), onboardingStep !== undefined && renderSlot('settings.onboarding', {
                 stepId: onboardingStep.id,
                 complete: () => { completeOnboardingStep(onboardingStep.id); },
                 openSection,
@@ -302,6 +308,153 @@ exports.default = styles;
 
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.default = "._8OspXW_trigger{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:12px;flex:none;align-items:center;gap:8px;margin:4px -2px;padding:0 10px 0 8px;font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden}._8OspXW_trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}._8OspXW_trigger._8OspXW_rail{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;margin:8px 0 10px;padding:0}._8OspXW_triggerLabel{white-space:nowrap;overflow:hidden}._8OspXW_overlay{z-index:1000;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}._8OspXW_mask{background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);position:absolute;inset:0}._8OspXW_panel{z-index:1;background:var(--dsw-alias-bg-layer-2);width:800px;max-width:calc(100vw - 48px);height:min(800px,100vh - 48px);box-shadow:var(--dsw-shadow-lv3);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:24px;display:flex;position:relative;overflow:hidden}._8OspXW_nav{box-sizing:border-box;flex-direction:column;flex:none;gap:18px;width:188px;padding:22px 12px 0;display:flex}._8OspXW_navTitle{color:var(--dsw-alias-label-primary);padding:0 12px;font-size:16px;font-weight:500;line-height:24px}._8OspXW_navList{flex-direction:column;gap:4px;display:flex}._8OspXW_navCell{box-sizing:border-box;cursor:pointer;height:40px;color:var(--dsw-alias-label-primary);text-align:left;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:9px 16px 9px 12px;font-family:inherit;font-size:14px;font-weight:400;line-height:22px;display:flex}._8OspXW_navCell:hover{background:var(--dsw-specific-sidebar-nav-item-hover)}._8OspXW_navCell._8OspXW_active{background:var(--dsw-specific-sidebar-nav-item-active)}._8OspXW_navIcon{flex:none}._8OspXW_navLabel{white-space:nowrap;text-overflow:ellipsis;flex:1;min-width:0;overflow:hidden}._8OspXW_content{flex-direction:column;flex:1;min-width:0;display:flex}._8OspXW_header{box-sizing:border-box;flex:none;justify-content:space-between;align-items:flex-start;gap:8px;height:54px;padding:20px 14px 8px 10px;display:flex}._8OspXW_actions{justify-content:flex-end;align-items:center;gap:8px;min-width:0;margin-left:auto;display:flex}._8OspXW_close{cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:28px;justify-content:center;align-items:center;padding:0;display:inline-flex}._8OspXW_close:hover{background:var(--dsw-alias-interactive-bg-hover)}._8OspXW_options{flex:1;min-height:0;padding:0 24px 24px;overflow-y:auto}._8OspXW_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}\n@media(max-width:640px){._8OspXW_panel{max-width:calc(100vw - 24px);height:calc(100dvh - 24px);flex-direction:column;border-radius:20px}._8OspXW_nav{width:100%;padding:16px 16px 0;gap:12px}._8OspXW_navTitle{padding:0;min-height:28px}._8OspXW_navList{flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:4px}._8OspXW_navCell{flex:none;height:36px;padding:8px 12px}._8OspXW_content{min-height:0}._8OspXW_header{position:absolute;top:0;right:0;height:56px;padding:14px 10px;z-index:2}._8OspXW_options{padding:16px}._8OspXW_actions{max-width:160px}}\n";
+
+},
+"src/modules/settings-general/AccountEntry.js": function(module, exports, require) {
+// source: src/modules/settings-general/AccountEntry.tsx
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.accountMenuRows = accountMenuRows;
+exports.AccountEntry = AccountEntry;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
+const AccountEntry_styles_1 = __importDefault(require("./AccountEntry.styles"));
+/** Route by stable section IDs, never translated labels. Optional features
+ * disappear with their slot registration; Settings stays usable without login.
+ * This entry deliberately does not infer identity from a configured API key.
+ */
+function accountMenuRows(rows, t) {
+    return [
+        { id: 'managed-account', label: t('account.menu'), icon: 'account' },
+        { id: 'profile', label: t('account.profile'), icon: 'profile' },
+        { id: 'general', label: t('trigger'), icon: 'settings' },
+    ].filter(item => rows.some(row => row.id === item.id));
+}
+/** A single sidebar entry, with an upward body-portal menu. Reuses Menu's
+ * viewport clamp, outside-click/Escape handling and native-browser occlusion
+ * semantics. Authentication continues in the existing account section.
+ */
+function AccountEntry({ wide, rows, openSection, t }) {
+    const [open, setOpen] = (0, react_1.useState)(false);
+    const root = (0, react_1.useRef)(null);
+    const trigger = (0, react_1.useRef)(null);
+    const labels = (0, react_1.useRef)(new Map());
+    const firstFocus = (0, react_1.useRef)('first');
+    const entries = accountMenuRows(rows, t);
+    const buttons = () => entries.map(entry => labels.current.get(entry.id)?.closest('button'))
+        .filter((button) => button != null && !button.disabled);
+    const close = (0, react_1.useCallback)(() => setOpen(false), []);
+    // A sidebar collapse settles after its fade. Re-anchor the live menu at
+    // that layout commit; it must not dismiss a menu opened during the fade.
+    const getAnchorRect = (0, react_1.useCallback)(() => trigger.current?.getBoundingClientRect() ?? null, [wide]);
+    (0, react_1.useEffect)(() => {
+        if (!open)
+            return;
+        // Menu measures its portal while hidden. Focus after placement is visible,
+        // and cancel the frame if the entry closes/unmounts in the same commit.
+        const frame = requestAnimationFrame(() => {
+            if (document.activeElement !== trigger.current)
+                return;
+            const controls = buttons();
+            const target = firstFocus.current === 'last' ? controls.at(-1) : controls[0];
+            target?.focus();
+        });
+        return () => cancelAnimationFrame(frame);
+        // Opening focus is a view transition, not a reaction to locale/ledger changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
+    return (0, jsx_runtime_1.jsx)("span", { ref: root, className: AccountEntry_styles_1.default.root, "data-xh-account-entry": "", onMouseDownCapture: event => {
+            if (event.button !== 0 || !(event.target instanceof Node))
+                return;
+            const target = event.target;
+            const button = trigger.current?.contains(target) ? trigger.current
+                : buttons().find(control => control.contains(target));
+            if (!button)
+                return;
+            // Normalize pointer focus before blur can dismiss the portal. Safari
+            // otherwise blurs to the body and removes the item before its click.
+            event.preventDefault();
+            button.focus();
+        }, onBlur: event => {
+            const next = event.relatedTarget;
+            if (next instanceof Node && (root.current?.contains(next) || buttons().some(button => button.contains(next))))
+                return;
+            close();
+        }, onKeyDown: event => {
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+                return;
+            event.preventDefault();
+            if (!open) {
+                firstFocus.current = event.key === 'ArrowUp' || event.key === 'End' ? 'last' : 'first';
+                setOpen(true);
+                return;
+            }
+            const controls = buttons();
+            if (controls.length === 0)
+                return;
+            const current = controls.findIndex(button => button === document.activeElement);
+            const index = event.key === 'Home' ? 0 : event.key === 'End' ? controls.length - 1
+                : current < 0 ? (event.key === 'ArrowDown' ? 0 : controls.length - 1)
+                    : (current + (event.key === 'ArrowDown' ? 1 : -1) + controls.length) % controls.length;
+            controls[index]?.focus();
+        }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: open, portal: true, side: "top", className: AccountEntry_styles_1.default.menuAnchor, getAnchorRect: getAnchorRect, onClose: close, onSelect: section => {
+                if (!entries.some(entry => entry.id === section))
+                    return;
+                // The menu item is about to unmount. Give the modal a durable opener
+                // so closing Settings restores focus to this sidebar entry.
+                trigger.current?.focus();
+                close();
+                openSection(section);
+            }, items: [
+                { type: 'label', id: 'identity', text: t('account.local') },
+                ...entries.map(entry => ({ id: entry.id,
+                    label: (0, jsx_runtime_1.jsx)("span", { ref: element => { if (element)
+                            labels.current.set(entry.id, element);
+                        else
+                            labels.current.delete(entry.id); }, className: AccountEntry_styles_1.default.menuLabel, children: entry.label }),
+                    icon: entry.icon === 'account' ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconUserOutline16, { size: 16 })
+                        : entry.icon === 'profile' ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconDataOutline16, { size: 16 }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconSettingsOutline16, { size: 16 }),
+                })),
+            ], anchor: (0, jsx_runtime_1.jsxs)("button", { ref: trigger, type: "button", className: `${AccountEntry_styles_1.default.trigger} ${!wide ? AccountEntry_styles_1.default.rail : ''}`, "aria-label": t('account.trigger'), "aria-haspopup": "menu", "aria-expanded": open, title: !wide ? t('account.trigger') : undefined, "data-xh-account-trigger": "", onClick: () => {
+                    // WebKit does not focus buttons on pointer clicks by default. Give
+                    // the opening transition the same focus anchor as keyboard input.
+                    trigger.current?.focus();
+                    firstFocus.current = 'first';
+                    setOpen(value => !value);
+                }, children: [(0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.avatar, "aria-hidden": "true", children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconUserOutline16, { size: 18 }) }), wide && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("span", { className: AccountEntry_styles_1.default.identity, children: [(0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.name, children: t('account.name') }), (0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.caption, children: t('account.caption') })] }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { size: 14, className: AccountEntry_styles_1.default.chevron })] })] }) }) });
+}
+
+},
+"src/modules/settings-general/AccountEntry.styles.js": function(module, exports, require) {
+// source: src/modules/settings-general/AccountEntry.styles.ts
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const AccountEntry_css_1 = __importDefault(require("./AccountEntry.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)('@xharness/dsh-client-ui-settings-general/AccountEntry.module.css', '@xharness/dsh-client-ui-settings-general', AccountEntry_css_1.default);
+const styles = {
+    root: 'xhAccount_root', menuAnchor: 'xhAccount_anchor', trigger: 'xhAccount_trigger',
+    rail: 'xhAccount_rail', avatar: 'xhAccount_avatar', identity: 'xhAccount_identity',
+    name: 'xhAccount_name', caption: 'xhAccount_caption', chevron: 'xhAccount_chevron',
+    menuLabel: 'xhAccount_menuLabel',
+};
+exports.default = styles;
+
+},
+"src/modules/settings-general/AccountEntry.css": function(module, exports, require) {
+// source: src/modules/settings-general/AccountEntry.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".xhAccount_root,.xhAccount_anchor{display:flex;width:100%;min-width:0}\n.xhAccount_trigger{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;height:52px;margin:4px 0;padding:6px 8px;background:transparent;color:var(--dsw-alias-label-primary);border:0;border-radius:12px;font:inherit;text-align:left;cursor:pointer}\n.xhAccount_trigger:hover,.xhAccount_trigger[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover)}\n.xhAccount_trigger:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhAccount_avatar{display:flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-bg-layer-2)}\n.xhAccount_identity{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}\n.xhAccount_name{font-size:14px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.xhAccount_caption{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.xhAccount_chevron{flex:none;color:var(--dsw-alias-label-secondary)}\n.xhAccount_rail{width:36px;height:36px;padding:0;justify-content:center;border-radius:50%;margin:8px 0 10px}\n.xhAccount_menuLabel{display:block;min-width:204px;max-width:calc(100vw - 76px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\nbutton[role=menuitem]:has(.xhAccount_menuLabel):focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}\n";
 
 },
 "src/modules/settings-general/chrome.js": function(module, exports, require) {
@@ -581,6 +734,12 @@ exports.zh = {
     'openDocument': '打开配置文件',
     'openDocument.error': '无法打开配置文件',
     'general.nav': '通用设置',
+    'account.trigger': '账号与设置',
+    'account.name': 'XHarness',
+    'account.caption': '账号与设置',
+    'account.local': '本机工作区',
+    'account.menu': '账号与额度',
+    'account.profile': '使用档案',
 };
 /** English dictionary, checked complete against the zh key set. */
 exports.en = {
@@ -590,11 +749,27 @@ exports.en = {
     'openDocument': 'Open configuration file',
     'openDocument.error': 'Could not open configuration file',
     'general.nav': 'General',
+    'account.trigger': 'Account & settings',
+    'account.name': 'XHarness',
+    'account.caption': 'Account & settings',
+    'account.local': 'Local workspace',
+    'account.menu': 'Account & allowance',
+    'account.profile': 'Usage profile',
 };
+
+},
+"src/modules/shared/settings-navigation.js": function(module, exports, require) {
+// source: src/modules/shared/settings-navigation.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.OPEN_SETTINGS_SECTION = void 0;
+/** Root-context event: the settings shell owns navigation and modal state. */
+exports.OPEN_SETTINGS_SECTION = 'settings/open-section';
 
 }
 };
-const __dependencies = {"src/modules/settings-general/index.js":{"./SettingsRoot":"src/modules/settings-general/SettingsRoot.js","./chrome":"src/modules/settings-general/chrome.js","./GeneralSection":"src/modules/settings-general/GeneralSection.js","./SettingsDocumentAction":"src/modules/settings-general/SettingsDocumentAction.js","./settings-document-store":"src/modules/settings-general/settings-document-store.js","./locales":"src/modules/settings-general/locales.js"},"src/modules/settings-general/SettingsRoot.js":{"../views-types":"src/modules/views-types.js","./SettingsRoot.styles":"src/modules/settings-general/SettingsRoot.styles.js"},"src/modules/views-types.js":{},"src/modules/settings-general/SettingsRoot.styles.js":{"./SettingsRoot.css":"src/modules/settings-general/SettingsRoot.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsRoot.css":{},"src/modules/settings-general/chrome.js":{"./chrome.styles":"src/modules/settings-general/chrome.styles.js"},"src/modules/settings-general/chrome.styles.js":{"./chrome.css":"src/modules/settings-general/chrome.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/chrome.css":{},"src/modules/settings-general/GeneralSection.js":{"./GeneralSection.styles":"src/modules/settings-general/GeneralSection.styles.js"},"src/modules/settings-general/GeneralSection.styles.js":{"./GeneralSection.css":"src/modules/settings-general/GeneralSection.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/GeneralSection.css":{},"src/modules/settings-general/SettingsDocumentAction.js":{"./SettingsDocumentAction.styles":"src/modules/settings-general/SettingsDocumentAction.styles.js"},"src/modules/settings-general/SettingsDocumentAction.styles.js":{"./SettingsDocumentAction.css":"src/modules/settings-general/SettingsDocumentAction.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsDocumentAction.css":{},"src/modules/settings-general/settings-document-store.js":{},"src/modules/settings-general/locales.js":{}};
+const __dependencies = {"src/modules/settings-general/index.js":{"./SettingsRoot":"src/modules/settings-general/SettingsRoot.js","./AccountEntry":"src/modules/settings-general/AccountEntry.js","./chrome":"src/modules/settings-general/chrome.js","./GeneralSection":"src/modules/settings-general/GeneralSection.js","./SettingsDocumentAction":"src/modules/settings-general/SettingsDocumentAction.js","./settings-document-store":"src/modules/settings-general/settings-document-store.js","./locales":"src/modules/settings-general/locales.js","../shared/settings-navigation":"src/modules/shared/settings-navigation.js"},"src/modules/settings-general/SettingsRoot.js":{"../views-types":"src/modules/views-types.js","./SettingsRoot.styles":"src/modules/settings-general/SettingsRoot.styles.js"},"src/modules/views-types.js":{},"src/modules/settings-general/SettingsRoot.styles.js":{"./SettingsRoot.css":"src/modules/settings-general/SettingsRoot.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsRoot.css":{},"src/modules/settings-general/AccountEntry.js":{"./AccountEntry.styles":"src/modules/settings-general/AccountEntry.styles.js"},"src/modules/settings-general/AccountEntry.styles.js":{"./AccountEntry.css":"src/modules/settings-general/AccountEntry.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/AccountEntry.css":{},"src/modules/settings-general/chrome.js":{"./chrome.styles":"src/modules/settings-general/chrome.styles.js"},"src/modules/settings-general/chrome.styles.js":{"./chrome.css":"src/modules/settings-general/chrome.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/chrome.css":{},"src/modules/settings-general/GeneralSection.js":{"./GeneralSection.styles":"src/modules/settings-general/GeneralSection.styles.js"},"src/modules/settings-general/GeneralSection.styles.js":{"./GeneralSection.css":"src/modules/settings-general/GeneralSection.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/GeneralSection.css":{},"src/modules/settings-general/SettingsDocumentAction.js":{"./SettingsDocumentAction.styles":"src/modules/settings-general/SettingsDocumentAction.styles.js"},"src/modules/settings-general/SettingsDocumentAction.styles.js":{"./SettingsDocumentAction.css":"src/modules/settings-general/SettingsDocumentAction.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsDocumentAction.css":{},"src/modules/settings-general/settings-document-store.js":{},"src/modules/settings-general/locales.js":{},"src/modules/shared/settings-navigation.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

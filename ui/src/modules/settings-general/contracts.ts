@@ -12,6 +12,7 @@ export interface GeneralSlots extends SlotsService {
   subscribe(name: string, listener: () => void): () => void
 }
 export interface GeneralContext {
+  on(event: 'settings/open-section', listener: (section: string) => void): () => void
   effect(effect: () => void | (() => void), label: string): () => void
   get(name: 'connection'): GeneralConnection
   slots: GeneralSlots

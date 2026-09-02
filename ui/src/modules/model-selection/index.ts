@@ -9,6 +9,7 @@ export { ModelDirectoryResolver } from './service'
 export { XHarnessModelSelect } from './ModelSelect'
 export { xhModelInfo, xhContextSelection, xhReasoningStatus } from './ContextPane'
 
+import { OPEN_SETTINGS_SECTION } from '../shared/settings-navigation'
 const NS = 'model'
 function rowId(provider: string, model: string): string { return `${provider}/${model}` }
 function optionsOf(directory: SessionModelsResponse, t: Translation): PopupOption[] {
@@ -55,7 +56,7 @@ export function apply(ctx: ModelClientContext): void {
     scope.slots.inject('conversation.input.model', () => scope.slots.register({
       name: 'conversation.input.model', locale: NS, inject: (sessionId: string) => {
         const directory = models.directoryFor(sessionId), available = sessions.subagentAddress(sessionId) === undefined
-        return { available, directory: directory.store,
+        return { available, directory: directory.store, manageModels: () => { ctx.emit(OPEN_SETTINGS_SECTION, 'models') },
           load: (refreshCapabilities = false) => { if (available) return directory.load(refreshCapabilities).catch(() => {}) },
           select: (selection: ModelSelection) => available ? directory.select(selection).then(() => true, () => false) : Promise.resolve(false),
         }

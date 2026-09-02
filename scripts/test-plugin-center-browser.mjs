@@ -1,3 +1,4 @@
+import {openAccountSettings} from './fixtures/open-account-settings.mjs'
 import {installShellSessionsFixture} from './fixtures/shell-navigation-browser.mjs'
 // Browser-level navigation regression using the shipped AppFrame implementation.
 // The Host and its private data are fixtures; no user's running session is touched.
@@ -159,7 +160,7 @@ try {
       assert.equal(await plugins.getAttribute('aria-current'), 'page')
       if (width === 1200) {
         await shipped.getByRole('button', { name: 'Back to chat' }).click()
-        await shipped.getByRole('button', { name: 'Settings', exact: true }).first().click()
+        await openAccountSettings(shipped)
         await shipped.getByText('General', { exact: true }).waitFor()
         assert.doesNotMatch(await shipped.locator('body').innerText(), /\nPlugins\n/, 'Plugins is not a Settings section')
         assert.doesNotMatch(await shipped.locator('body').innerText(), /Agent presets|Agent preset|代理预设|智能体预设/, 'Agent preset settings are hidden')

@@ -12,6 +12,8 @@ exports.inject = void 0;
 exports.refreshIfLoaded = refreshIfLoaded;
 exports.apply = apply;
 /// <reference path="./external.d.ts" />
+const ManagedAccount_1 = require("./ManagedAccount");
+const managed_connection_1 = require("./managed-connection");
 const ModelsSection_1 = require("./ModelsSection");
 const store_1 = require("./store");
 const schema_operations_1 = require("./schema-operations");
@@ -29,6 +31,10 @@ function apply(ctx) {
     ctx.effect(() => ctx.locale.register(NS, { zh: locales_1.zh, en: locales_1.en }), 'ui-settings-models: copy dictionaries');
     const connection = ctx.get('connection'), schema = (0, schema_operations_1.createSettingsSchemaOperations)(ctx.settingsSchema);
     const controller = new store_1.ModelsSettingsStore(connection.api, schema, ctx.settingsScope.describe());
+    ctx.effect(() => ctx.locale.register("xharness-managed-account", ManagedAccount_1.managedLabels), "managed-account: locale");
+    const managed = new managed_connection_1.ManagedConnection(connection.api, ctx.settingsScope.describe());
+    ctx.effect(() => managed.attach(window.__TAURI__), 'managed-account: native lifecycle');
+    ctx.slots.inject("settings.section", () => ctx.slots.register({ name: "settings.section", id: "managed-account", order: 11, label: () => ctx.locale.bind("xharness-managed-account")("nav"), inject: () => ({ controller: managed, t: ctx.locale.bind("xharness-managed-account") }) }, ManagedAccount_1.ManagedAccount));
     const t = ctx.locale.bind(NS);
     const injected = () => ({ controller, hooks: { snapshot: controller.store }, api: connection.api, schema, t });
     // Retain the current bound scope's lifecycle, but do not reinstall removed
@@ -44,6 +50,256 @@ function apply(ctx) {
             dispose(); };
     }, 'ui-settings-models: pushed invalidations');
     ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'models', order: 10, label: () => t('nav'), inject: injected }, ModelsSection_1.ModelsSection));
+}
+
+},
+"src/modules/settings-models/ManagedAccount.js": function(module, exports, require) {
+// source: src/modules/settings-models/ManagedAccount.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.managedLabels = exports.saveManagedAccess = void 0;
+exports.ManagedAccount = ManagedAccount;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+var managed_connection_1 = require("./managed-connection");
+Object.defineProperty(exports, "saveManagedAccess", { enumerable: true, get: function () { return managed_connection_1.saveManagedAccess; } });
+exports.managedLabels = {
+    zh: { nav: '账户与模型服务', title: 'XHarness 模型服务', intro: '连接管理员分配的模型额度。自有模型配置不会改变。', connect: '登录 XHarness', open: '打开登录网页', code: '无法打开网页？使用连接代码', waiting: '请在浏览器登录并确认，完成后会返回软件。', done: '已连接。请在模型选择中选择 XHarness 服务。', cancel: '取消', disconnect: '移除本机连接', disconnectConfirm: '移除本机密钥？已授权设备仍可在账户网页撤销。', web: '请在桌面软件中连接账号。', error: '连接未完成，请重试或检查账号额度。', retry: '重试保存', manage: '账户与额度', clear: '在账户网页可撤销已授权设备。' },
+    en: { nav: 'Account & model service', title: 'XHarness model service', intro: 'Connect model allowance assigned by your administrator. Your own providers remain unchanged.', connect: 'Sign in to XHarness', open: 'Open sign-in page', code: 'Cannot open the page? Use a connection code', waiting: 'Sign in and confirm in your browser, then return to the app.', done: 'Connected. Select XHarness in the model picker.', cancel: 'Cancel', disconnect: 'Remove local connection', disconnectConfirm: 'Remove this local credential? Authorized devices can still be revoked on the account website.', web: 'Connect your account in the desktop app.', error: 'Connection incomplete. Retry or check your model allowance.', retry: 'Retry saving', manage: 'Account & allowance', clear: 'Revoke authorized devices on the account website.' }
+};
+function ManagedAccount({ controller, t }) {
+    const { native, flow, connected, busy, error, retry } = (0, react_1.useSyncExternalStore)(controller.subscribe, controller.getSnapshot);
+    return (0, jsx_runtime_1.jsxs)("div", { className: "xhe-root", children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)("h2", { children: t('title') }), (0, jsx_runtime_1.jsx)("p", { children: t('intro') })] }), !native ? (0, jsx_runtime_1.jsx)("p", { children: t('web') }) : flow ? (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("p", { children: t('waiting') }), (0, jsx_runtime_1.jsx)("button", { disabled: busy, onClick: () => void controller.open(), children: t('open') }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: t('code') }), (0, jsx_runtime_1.jsx)("strong", { children: flow.code })] }), (0, jsx_runtime_1.jsx)("button", { disabled: busy, onClick: () => void controller.cancel(), children: t('cancel') }), retry && (0, jsx_runtime_1.jsx)("button", { onClick: () => controller.retry(), children: t('retry') })] }) : connected ? (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("p", { role: "status", children: t('done') }), (0, jsx_runtime_1.jsx)("button", { disabled: busy, onClick: () => { if (confirm(t('disconnectConfirm')))
+                            void controller.disconnect(); }, children: t('disconnect') }), (0, jsx_runtime_1.jsx)("p", { children: t('clear') })] }) : (0, jsx_runtime_1.jsx)("button", { disabled: busy, onClick: () => void controller.start(), children: t('connect') }), error && (0, jsx_runtime_1.jsx)("p", { role: "alert", children: t('error') })] });
+}
+
+},
+"src/modules/settings-models/managed-connection.js": function(module, exports, require) {
+// source: src/modules/settings-models/managed-connection.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ManagedConnection = void 0;
+exports.saveManagedAccess = saveManagedAccess;
+const runtime_types_1 = require("../shared/runtime-types");
+const managed_models_1 = require("../shared/managed-models");
+async function saveManagedAccess(api, describe, raw) {
+    const v = (0, runtime_types_1.objectValue)(raw);
+    if (v.status !== 'authorized' || typeof v.accessToken !== 'string' || typeof v.baseURL !== 'string' || !Array.isArray(v.models))
+        throw Error('invalid_access');
+    await describe.ensure();
+    const snap = describe.getSnapshot();
+    const ns = snap.view?.namespaces.find(n => n.ns === managed_models_1.MANAGED_MODEL_NAMESPACE);
+    if (snap.status !== 'ready' || !ns || !snap.view?.writable)
+        throw Error('settings_unavailable');
+    const existing = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(ns.value).providers)[managed_models_1.MANAGED_MODEL_ROUTE];
+    if (existing !== undefined) {
+        const p = (0, runtime_types_1.objectValue)(existing);
+        if (p.apiKeyEnv !== managed_models_1.MANAGED_MODEL_CREDENTIAL || p.baseURL !== v.baseURL || p.api !== 'openai-completions')
+            throw Error('provider_conflict');
+    }
+    const profile = { displayName: 'XHarness', api: 'openai-completions', baseURL: v.baseURL, apiKeyEnv: managed_models_1.MANAGED_MODEL_CREDENTIAL, models: v.models };
+    const write = await api.settings.mutate({ ns: managed_models_1.MANAGED_MODEL_NAMESPACE, expectedRevision: ns.revision, ops: [{ op: 'set', path: ['providers', managed_models_1.MANAGED_MODEL_ROUTE], value: profile }] });
+    if (!write.result.ok)
+        throw Error('settings_write_failed');
+    describe.acceptView(write.result.value);
+    const stored = await api.credentials.set({ ref: managed_models_1.MANAGED_MODEL_CREDENTIAL, value: v.accessToken });
+    if (!stored.result.ok)
+        throw Error('credential_store_failed');
+}
+/** Plugin-owned lifecycle, not modal-owned: leaving Settings never cancels login. */
+class ManagedConnection {
+    constructor(api, describe) {
+        this.api = api;
+        this.describe = describe;
+        this.view = { native: false, flow: null, connected: false, busy: false, error: false, retry: false };
+        this.listeners = new Set();
+        this.active = false;
+        this.working = false;
+        this.halted = false;
+        this.revision = 0;
+        this.getSnapshot = () => this.view;
+        this.subscribe = (fn) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
+    }
+    update(next) { this.view = { ...this.view, ...next }; this.revision++; for (const fn of this.listeners)
+        fn(); }
+    attach(bridge) {
+        this.active = true;
+        this.bridge = bridge;
+        this.update({ native: !!bridge });
+        let closed = false;
+        const revision = this.revision;
+        void this.api.credentials.describe({ refs: [managed_models_1.MANAGED_MODEL_CREDENTIAL] }).then(r => { if (this.active && this.revision === revision && r.result.ok)
+            this.update({ connected: r.result.value.credentials[managed_models_1.MANAGED_MODEL_CREDENTIAL]?.configured === true }); }).catch(() => { });
+        if (bridge) {
+            void bridge.core.invoke('desktop_account_status').then(raw => { const v = (0, runtime_types_1.objectValue)(raw); if (this.active && typeof v.userCode === 'string' && typeof v.verificationUri === 'string')
+                this.update({ flow: { code: v.userCode, uri: v.verificationUri } }); }).catch(() => { if (this.active)
+                this.update({ error: true }); });
+            this.timer = setInterval(() => { void this.tick(); }, 5000);
+        }
+        let unlisten;
+        if (bridge?.event)
+            void bridge.event.listen('xharness-account-ready', () => { void this.tick(); }).then(fn => { if (closed)
+                fn();
+            else
+                unlisten = fn; }).catch(() => { });
+        return () => { closed = true; this.active = false; if (this.timer)
+            clearInterval(this.timer); unlisten?.(); };
+    }
+    async start() {
+        if (!this.bridge || this.view.busy || this.working)
+            return;
+        this.update({ busy: true, error: false });
+        this.halted = false;
+        try {
+            if (!this.view.flow) {
+                const v = (0, runtime_types_1.objectValue)(await this.bridge.core.invoke('desktop_account_start'));
+                if (typeof v.userCode !== 'string' || typeof v.verificationUri !== 'string')
+                    throw Error();
+                if (this.active)
+                    this.update({ flow: { code: v.userCode, uri: v.verificationUri } });
+            }
+            await this.bridge.core.invoke('desktop_account_open');
+        }
+        catch {
+            if (this.active)
+                this.update({ error: true });
+        }
+        finally {
+            if (this.active)
+                this.update({ busy: false });
+        }
+    }
+    async open() { try {
+        await this.bridge?.core.invoke('desktop_account_open');
+    }
+    catch {
+        if (this.active)
+            this.update({ error: true });
+    } }
+    async tick() {
+        if (!this.active || !this.bridge || !this.view.flow || this.view.busy || this.working || this.halted)
+            return;
+        this.working = true;
+        let saving = false;
+        try {
+            const raw = await this.bridge.core.invoke('desktop_account_poll');
+            if (!this.active)
+                return;
+            const v = (0, runtime_types_1.objectValue)(raw);
+            if (v.status === 'authorized') {
+                saving = true;
+                await saveManagedAccess(this.api, this.describe, raw);
+                await this.bridge.core.invoke('desktop_account_finish', { saved: true });
+                if (this.active)
+                    this.update({ connected: true, flow: null, error: false, retry: false });
+            }
+        }
+        catch (error) {
+            if (this.active) {
+                if (error === 'account_poll_pending')
+                    return;
+                if (error === 'account_connection_expired' || error === 'account_connection_missing')
+                    this.update({ flow: null, error: true, retry: false });
+                else {
+                    this.halted = saving;
+                    this.update({ error: true, retry: saving });
+                }
+            }
+        }
+        finally {
+            this.working = false;
+        }
+    }
+    retry() { this.halted = false; this.update({ error: false, retry: false }); void this.tick(); }
+    async cancel() {
+        if (!this.bridge || this.working || this.view.busy)
+            return;
+        this.update({ busy: true });
+        try {
+            await this.bridge.core.invoke('desktop_account_finish', { saved: false });
+            this.halted = false;
+            if (this.active)
+                this.update({ flow: null, retry: false, error: false });
+        }
+        catch {
+            if (this.active)
+                this.update({ error: true });
+        }
+        finally {
+            if (this.active)
+                this.update({ busy: false });
+        }
+    }
+    async disconnect() {
+        if (this.view.busy || this.working)
+            return;
+        this.update({ busy: true });
+        try {
+            const r = await this.api.credentials.unset({ ref: managed_models_1.MANAGED_MODEL_CREDENTIAL });
+            if (!r.result.ok)
+                throw Error();
+            if (this.active)
+                this.update({ connected: false });
+        }
+        catch {
+            if (this.active)
+                this.update({ error: true });
+        }
+        finally {
+            if (this.active)
+                this.update({ busy: false });
+        }
+    }
+}
+exports.ManagedConnection = ManagedConnection;
+
+},
+"src/modules/shared/runtime-types.js": function(module, exports, require) {
+// source: src/modules/shared/runtime-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isObjectRecord = isObjectRecord;
+exports.objectValue = objectValue;
+exports.errorText = errorText;
+exports.textValue = textValue;
+exports.numberValue = numberValue;
+function isObjectRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function objectValue(value) {
+    return isObjectRecord(value) ? value : {};
+}
+function errorText(error) {
+    const record = objectValue(error);
+    const rpc = objectValue(record.rpcError);
+    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
+}
+function textValue(value, fallback = '') {
+    return typeof value === 'string' ? value : fallback;
+}
+function numberValue(value, fallback = 0) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+},
+"src/modules/shared/managed-models.js": function(module, exports, require) {
+// source: src/modules/shared/managed-models.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.MANAGED_MODEL_CREDENTIAL = exports.MANAGED_MODEL_NAMESPACE = exports.MANAGED_MODEL_ROUTE = void 0;
+exports.isManagedModelProvider = isManagedModelProvider;
+exports.isManagedModelProfile = isManagedModelProfile;
+/** Stable route reserved by account connection; presentation provenance, not authorization. */
+exports.MANAGED_MODEL_ROUTE = 'xharness-managed';
+exports.MANAGED_MODEL_NAMESPACE = 'llm-pi-ai';
+exports.MANAGED_MODEL_CREDENTIAL = 'XHARNESS_MANAGED_API_TOKEN';
+function isManagedModelProvider(provider) { return provider === exports.MANAGED_MODEL_ROUTE; }
+function isManagedModelProfile(namespace, path) {
+    return namespace === exports.MANAGED_MODEL_NAMESPACE && path.length === 2 && path[0] === 'providers' && path[1] === exports.MANAGED_MODEL_ROUTE;
 }
 
 },
@@ -72,6 +328,7 @@ const jsx_runtime_1 = require("react/jsx-runtime");
  * re-renders from pushed invalidations or the post-apply reload.
  */
 const react_1 = require("react");
+const managed_models_1 = require("../shared/managed-models");
 const primitives_1 = require("./primitives");
 const CustomProviderCard_1 = require("./CustomProviderCard");
 const store_1 = require("./store");
@@ -93,6 +350,9 @@ function renderProviderEditor({ target, ...props }) {
  * @returns the failure message, or undefined once the write and reload landed.
  */
 async function removeProviderProfile(api, controller, target) {
+    // Account connection owns this profile; this UI guard is not a Host authorization boundary.
+    if ((0, managed_models_1.isManagedModelProfile)(target.settingsNs, target.settingsPath))
+        return 'Account service is managed through Account settings.';
     try {
         if (target.credentialRef !== undefined) {
             const credential = await api.credentials.unset({ ref: target.credentialRef });
@@ -278,18 +538,19 @@ function Loaded({ injected }) {
                                 onClose: (changed) => { closeSetup(changed, target); },
                             }) }, row.entry.provider));
                     }
-                    const open = !adding && editing?.provider === row.entry.provider;
+                    const managed = (0, managed_models_1.isManagedModelProfile)(target.settingsNs, target.settingsPath);
+                    const open = !managed && !adding && editing?.provider === row.entry.provider;
                     const credentialConfigured = row.credential?.configured === true;
                     const credentialMissing = !credentialConfigured
                         && row.apiKeyEnv !== undefined
                         && row.credential?.configured === false;
-                    return ((0, jsx_runtime_1.jsxs)("li", { className: styles_1.ModelsSectionCss['rowCard'], children: [(0, jsx_runtime_1.jsxs)("div", { className: styles_1.ModelsSectionCss['rowHead'], children: [(0, jsx_runtime_1.jsxs)("span", { className: styles_1.ModelsSectionCss['rowIdentity'], children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowName'], children: row.entry.displayName }), row.entry.declared === true
+                    return ((0, jsx_runtime_1.jsxs)("li", { className: styles_1.ModelsSectionCss['rowCard'], children: [(0, jsx_runtime_1.jsxs)("div", { className: styles_1.ModelsSectionCss['rowHead'], children: [(0, jsx_runtime_1.jsxs)("span", { className: styles_1.ModelsSectionCss['rowIdentity'], children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowName'], children: row.entry.displayName }), managed ? (0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowTag'], children: t('accountTag') }) : row.entry.declared === true
                                                 ? (0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowTag'], children: t('customTag') })
                                                 : null, credentialConfigured
                                                 ? ((0, jsx_runtime_1.jsx)("span", { className: `${styles_1.ModelsSectionCss['credentialDot']} ${styles_1.ModelsSectionCss['credentialDotConfigured']}`, role: "img", "aria-label": t('credentialConfigured'), title: t('credentialConfigured') }))
                                                 : credentialMissing
                                                     ? ((0, jsx_runtime_1.jsx)("span", { className: `${styles_1.ModelsSectionCss['credentialDot']} ${styles_1.ModelsSectionCss['credentialDotMissing']}`, role: "img", "aria-label": t('credentialMissing'), title: t('credentialMissing') }))
-                                                    : null] }), (0, jsx_runtime_1.jsxs)("span", { className: styles_1.ModelsSectionCss['rowActions'], children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.ModelsSectionCss['secondaryButton'], "aria-label": providerCopy(t('editProvider'), target), onClick: () => {
+                                                    : null] }), (0, jsx_runtime_1.jsxs)("span", { className: styles_1.ModelsSectionCss['rowActions'], children: [managed ? (0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowTag'], children: t('accountReadOnly') }) : (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.ModelsSectionCss['secondaryButton'], "aria-label": providerCopy(t('editProvider'), target), onClick: () => {
                                                     setSavedTarget(undefined);
                                                     // One card at a time: leaving `declaring` set would show
                                                     // the create card beside this editor, and closing either
@@ -297,7 +558,7 @@ function Loaded({ injected }) {
                                                     setDeclaring(false);
                                                     setAdding(false);
                                                     setEditing(open ? undefined : target);
-                                                }, children: t('edit') }), row.removable
+                                                }, children: t('edit') }), !managed && row.removable
                                                 ? ((0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.ModelsSectionCss['dangerButton'], "aria-label": providerCopy(t('removeProvider'), target), disabled: !state.writable, onClick: () => {
                                                         setSavedTarget(undefined);
                                                         setDeleteFailure(undefined);
@@ -403,6 +664,7 @@ const jsx_runtime_1 = require("react/jsx-runtime");
  * some of them reject. The composer's model picker offers each model its own
  * levels instead.
  */
+const managed_models_1 = require("../shared/managed-models");
 const react_1 = require("react");
 const apiKey_1 = require("./apiKey");
 const EditorFooter_1 = require("./EditorFooter");
@@ -449,7 +711,8 @@ function CustomProviderCard(props) {
     /** Everything but the key stops being editable once the provider exists. */
     const profileDisabled = disabled || committed;
     const routeInvalid = route.length > 0 && !ROUTE_PATTERN.test(route);
-    const routeTaken = taken.includes(route);
+    // Keep the account-owned route out of the BYOK creation flow, even before login.
+    const routeTaken = (0, managed_models_1.isManagedModelProvider)(route) || taken.includes(route);
     // Rows are checked by the same per-row validator the editor cards use, so a
     // bad row is named by its position here too. Capacities have route-level
     // fallbacks; what a route cannot default is at least one model.
@@ -1026,35 +1289,6 @@ function DeepSeekModelsEditor(props) {
                                 : null] }, index))) })), (0, jsx_runtime_1.jsxs)("button", { type: "button", className: styles_1.ModelsSectionCss['addModelButton'], disabled: props.disabled, onClick: () => { props.onChange([...props.models.map(model => ({ ...model })), { id: '' }]); }, children: [(0, jsx_runtime_1.jsx)(primitives_1.IconPlusOutline16, { size: 14 }), props.t('addModel')] })] }));
 }
 function isUnknownArray(value) { return Array.isArray(value); }
-
-},
-"src/modules/shared/runtime-types.js": function(module, exports, require) {
-// source: src/modules/shared/runtime-types.ts
-
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.isObjectRecord = isObjectRecord;
-exports.objectValue = objectValue;
-exports.errorText = errorText;
-exports.textValue = textValue;
-exports.numberValue = numberValue;
-function isObjectRecord(value) {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-function objectValue(value) {
-    return isObjectRecord(value) ? value : {};
-}
-function errorText(error) {
-    const record = objectValue(error);
-    const rpc = objectValue(record.rpcError);
-    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
-}
-function textValue(value, fallback = '') {
-    return typeof value === 'string' ? value : fallback;
-}
-function numberValue(value, fallback = 0) {
-    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
 
 },
 "src/modules/settings-models/ModelListEditor.js": function(module, exports, require) {
@@ -2229,6 +2463,8 @@ exports.en = {
     fetchAdopt: 'Add selected',
     customAdd: 'Add a custom provider',
     customTitle: 'Custom provider',
+    accountTag: 'Account service',
+    accountReadOnly: 'Managed in Account settings',
     customTag: 'Custom',
     customRoute: 'Provider ID',
     customRouteHint: 'Lowercase identifier, starting with a letter, that uniquely names this provider in requests and as its credential name.',
@@ -2336,6 +2572,8 @@ exports.zh = {
     fetchAdopt: '添加所选',
     customAdd: '添加自定义提供方',
     customTitle: '自定义提供方',
+    accountTag: '账号服务',
+    accountReadOnly: '在账号设置中管理',
     customTag: '自定义',
     customRoute: 'Provider ID',
     customRouteHint: '以小写字母开头的标识，在请求中唯一标识该提供方，并用于派生凭据名。',
@@ -2362,7 +2600,7 @@ exports.zh = {
 
 }
 };
-const __dependencies = {"src/modules/settings-models/index.js":{"./ModelsSection":"src/modules/settings-models/ModelsSection.js","./store":"src/modules/settings-models/store.js","./schema-operations":"src/modules/settings-models/schema-operations.js","./welcome-store":"src/modules/settings-models/welcome-store.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js","./locales":"src/modules/settings-models/locales.js"},"src/modules/settings-models/ModelsSection.js":{"./primitives":"src/modules/settings-models/primitives.js","./CustomProviderCard":"src/modules/settings-models/CustomProviderCard.js","./store":"src/modules/settings-models/store.js","./ProviderEditor":"src/modules/settings-models/ProviderEditor.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/primitives.js":{},"src/modules/settings-models/CustomProviderCard.js":{"./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/apiKey.js":{},"src/modules/settings-models/EditorFooter.js":{"./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/styles.js":{"./ModelsSection.css":"src/modules/settings-models/ModelsSection.css","./OnboardingModal.css":"src/modules/settings-models/OnboardingModal.css","./DeepSeekOnboardingDialog.css":"src/modules/settings-models/DeepSeekOnboardingDialog.css","./WelcomeNotice.css":"src/modules/settings-models/WelcomeNotice.css"},"src/modules/settings-models/ModelsSection.css":{},"src/modules/settings-models/OnboardingModal.css":{},"src/modules/settings-models/DeepSeekOnboardingDialog.css":{},"src/modules/settings-models/WelcomeNotice.css":{},"src/modules/settings-models/DeepSeekModelsEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./primitives":"src/modules/settings-models/primitives.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/shared/runtime-types.js":{},"src/modules/settings-models/ModelListEditor.js":{"./primitives":"src/modules/settings-models/primitives.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./store":"src/modules/settings-models/store.js","./reasoning-presets":"src/modules/settings-models/reasoning-presets.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js"},"src/modules/settings-models/snapshot.js":{},"src/modules/settings-models/reasoning-presets.js":{},"src/modules/settings-models/ProviderEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/schema-operations.js":{},"src/modules/settings-models/welcome-store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"},"src/modules/settings-models/onboarding-copy.js":{},"src/modules/settings-models/locales.js":{"./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"}};
+const __dependencies = {"src/modules/settings-models/index.js":{"./ManagedAccount":"src/modules/settings-models/ManagedAccount.js","./managed-connection":"src/modules/settings-models/managed-connection.js","./ModelsSection":"src/modules/settings-models/ModelsSection.js","./store":"src/modules/settings-models/store.js","./schema-operations":"src/modules/settings-models/schema-operations.js","./welcome-store":"src/modules/settings-models/welcome-store.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js","./locales":"src/modules/settings-models/locales.js"},"src/modules/settings-models/ManagedAccount.js":{"./managed-connection":"src/modules/settings-models/managed-connection.js"},"src/modules/settings-models/managed-connection.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/managed-models":"src/modules/shared/managed-models.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/managed-models.js":{},"src/modules/settings-models/ModelsSection.js":{"../shared/managed-models":"src/modules/shared/managed-models.js","./primitives":"src/modules/settings-models/primitives.js","./CustomProviderCard":"src/modules/settings-models/CustomProviderCard.js","./store":"src/modules/settings-models/store.js","./ProviderEditor":"src/modules/settings-models/ProviderEditor.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/primitives.js":{},"src/modules/settings-models/CustomProviderCard.js":{"../shared/managed-models":"src/modules/shared/managed-models.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/apiKey.js":{},"src/modules/settings-models/EditorFooter.js":{"./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/styles.js":{"./ModelsSection.css":"src/modules/settings-models/ModelsSection.css","./OnboardingModal.css":"src/modules/settings-models/OnboardingModal.css","./DeepSeekOnboardingDialog.css":"src/modules/settings-models/DeepSeekOnboardingDialog.css","./WelcomeNotice.css":"src/modules/settings-models/WelcomeNotice.css"},"src/modules/settings-models/ModelsSection.css":{},"src/modules/settings-models/OnboardingModal.css":{},"src/modules/settings-models/DeepSeekOnboardingDialog.css":{},"src/modules/settings-models/WelcomeNotice.css":{},"src/modules/settings-models/DeepSeekModelsEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./primitives":"src/modules/settings-models/primitives.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/ModelListEditor.js":{"./primitives":"src/modules/settings-models/primitives.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./store":"src/modules/settings-models/store.js","./reasoning-presets":"src/modules/settings-models/reasoning-presets.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js"},"src/modules/settings-models/snapshot.js":{},"src/modules/settings-models/reasoning-presets.js":{},"src/modules/settings-models/ProviderEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/schema-operations.js":{},"src/modules/settings-models/welcome-store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"},"src/modules/settings-models/onboarding-copy.js":{},"src/modules/settings-models/locales.js":{"./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

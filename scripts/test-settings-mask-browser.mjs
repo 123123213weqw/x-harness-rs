@@ -1,3 +1,4 @@
+import {openAccountSettings} from './fixtures/open-account-settings.mjs'
 /** Full shipped graph: section card widths must never resize the native modal/mask. */
 import assert from 'node:assert/strict'
 import {readFileSync, existsSync, mkdirSync} from 'node:fs'
@@ -23,7 +24,7 @@ try {
     return route.fulfill({body:readFileSync(local),contentType:types[extname(local)]??'application/octet-stream'})
   })
   await page.goto('http://127.0.0.1:39187/?fixture=1')
-  const settings=page.getByRole('button',{name:'Settings',exact:true})
+  const settings=page.getByRole('button',{name:'Account & settings',exact:true})
   await settings.waitFor()
 
   const evidence = process.env.UI_SETTINGS_MASK_RECEIPT_DIR
@@ -54,7 +55,7 @@ try {
     // No preference writes: the readiness fixture intentionally rejects saves.
     await page.emulateMedia({colorScheme:theme})
     await page.waitForFunction(want=>document.body.hasAttribute('data-ds-dark-theme')===want, theme==='dark')
-    await settings.click(); await dialog.waitFor()
+    await openAccountSettings(page); await dialog.waitFor()
     await dialog.getByRole('button',{name:'General',exact:true}).click()
     const expectedPaint=(await geometry()).paint
     for (const width of [1810,1280,960,640,426]) {
@@ -85,7 +86,7 @@ try {
         // Exercise the formerly exposed strip in every section, not only General.
         await page.mouse.click(width-2,height/2)
         await dialog.waitFor({state:'hidden'})
-        await settings.click(); await dialog.waitFor()
+        await openAccountSettings(page); await dialog.waitFor()
       }
     }
     await dialog.getByRole('button',{name:'Close',exact:true}).click()
