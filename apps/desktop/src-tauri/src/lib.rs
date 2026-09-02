@@ -115,6 +115,7 @@ pub fn run() {
             updater::desktop_install_update,
             computer_activity::desktop_set_computer_activity,
             browser::desktop_browser_navigate,
+            browser::desktop_browser_page_state,
             browser::desktop_browser_activate,
             browser::desktop_browser_bounds,
             browser::desktop_browser_action,

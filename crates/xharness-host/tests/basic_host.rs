@@ -360,10 +360,22 @@ impl Fixture {
         self.invoked.insert(method);
         let rpc_id = RpcId::new(format!("rpc-{}", self.next_rpc));
         self.next_rpc += 1;
-        let result = self
-            .host
-            .call(rpc_id, method, payload, CancellationToken::new())
-            .await;
+        let cancellation = CancellationToken::new();
+        // Fake-provider RPCs must settle; a deadlock should identify its
+        // method and fail the gate instead of consuming the runner for hours.
+        let result = match tokio::time::timeout(
+            Duration::from_secs(10),
+            self.host
+                .call(rpc_id, method, payload, cancellation.clone()),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                cancellation.cancel();
+                panic!("{method} baseline RPC did not settle within 10 seconds");
+            }
+        };
         if let RpcResult::Success { value: Some(value) } = &result {
             let typed = TypedRpcResponse::decode(method, value).unwrap_or_else(|error| {
                 panic!("{method} baseline response violates protocol: {error}; value={value}")
