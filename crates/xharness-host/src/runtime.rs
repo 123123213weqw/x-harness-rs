@@ -16,8 +16,9 @@ use xharness_agent::{
 };
 use xharness_compaction::CompactionConfig;
 use xharness_core::{
-    AgentMessage, ContextPolicy, InjectionMode, LoopCommand, LoopControlError, LoopEngine,
-    LoopEvent, LoopRequest, LoopResult, LoopRun, LoopStatus, ModelProvider, Role,
+    AgentMessage, ContextPolicy, ContextWindowCapability, InjectionMode, LoopCommand,
+    LoopControlError, LoopEngine, LoopEvent, LoopRequest, LoopResult, LoopRun, LoopStatus,
+    ModelProvider, Role,
 };
 use xharness_debug::DebugRecorder;
 use xharness_prompt::PromptAssembly;
@@ -33,6 +34,9 @@ pub struct ModelRoute {
     pub provider: String,
     pub model: String,
     pub reasoning_effort: Option<String>,
+    /// Optional session-selected soft budget. The Provider capability remains
+    /// the hard ceiling and is not modified by this value.
+    pub context_window_tokens: Option<u64>,
 }
 
 /// Browser-visible metadata for one model route accepted by the runtime.
@@ -50,6 +54,9 @@ pub struct ModelDescriptor {
     /// Exact-model reasoning controls exposed to the browser. Absence means
     /// this route does not support user-selectable reasoning strength.
     pub reasoning: Option<ModelReasoning>,
+    /// Capability snapshot reported by the exact deployment, or an explicitly
+    /// labelled deployment fallback when the Provider cannot advertise it.
+    pub context_window: ContextWindowCapability,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,6 +125,7 @@ impl ModelDescriptor {
             model: model.into(),
             model_display_name: model_display_name.into(),
             reasoning: None,
+            context_window: ContextWindowCapability::default(),
         }
     }
 
@@ -126,11 +134,27 @@ impl ModelDescriptor {
         self
     }
 
+    pub fn with_context_window(mut self, context_window: ContextWindowCapability) -> Self {
+        self.context_window = context_window;
+        self
+    }
+
     fn supports_reasoning_effort(&self, effort: Option<&str>) -> bool {
         match (effort, &self.reasoning) {
             (None, _) => true,
             (Some(effort), Some(reasoning)) => reasoning.supports(effort),
             (Some(_), None) => false,
+        }
+    }
+
+    fn supports_context_window(&self, selected: Option<u64>) -> bool {
+        match selected {
+            None => true,
+            Some(0) => false,
+            Some(selected) => self
+                .context_window
+                .max_context_tokens
+                .is_some_and(|maximum| selected <= maximum),
         }
     }
 
@@ -271,6 +295,15 @@ impl ModelRegistry {
                 model
                     .descriptor
                     .supports_reasoning_effort(route.reasoning_effort.as_deref())
+                    && model
+                        .descriptor
+                        .supports_context_window(route.context_window_tokens)
+                    && route.context_window_tokens.is_none_or(|tokens| {
+                        model
+                            .token_guard
+                            .as_ref()
+                            .is_some_and(|guard| guard.with_context_window(tokens).is_ok())
+                    })
             })
     }
 
@@ -283,8 +316,13 @@ impl ModelRegistry {
     }
 
     pub fn token_guard(&self, route: &ModelRoute) -> Option<TokenGuard> {
-        self.resolve(route)
-            .and_then(|model| model.token_guard.clone())
+        let guard = self
+            .resolve(route)
+            .and_then(|model| model.token_guard.clone())?;
+        match route.context_window_tokens {
+            Some(tokens) => guard.with_context_window(tokens).ok(),
+            None => Some(guard),
+        }
     }
 
     /// Resolve the lowest-cost reasoning effort declared by the exact model
@@ -335,6 +373,13 @@ impl ModelProvider for RouteBoundProvider {
         self.inner.count_input_tokens(request, cancellation).await
     }
 
+    async fn capabilities(
+        &self,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Result<xharness_core::ModelCapabilities, xharness_core::ProviderError> {
+        self.inner.capabilities(cancellation).await
+    }
+
     async fn stream(
         &self,
         request: xharness_core::ProviderRequest,
@@ -350,6 +395,7 @@ impl ModelRoute {
             provider: provider.into(),
             model: model.into(),
             reasoning_effort: None,
+            context_window_tokens: None,
         }
     }
 }
@@ -609,6 +655,13 @@ impl AgentRuntime for LoopAgentRuntime {
             && route.provider == self.provider_id
             && route.model == self.model_id
             && route.reasoning_effort.is_none()
+            && match route.context_window_tokens {
+                None => true,
+                Some(tokens) => self
+                    .token_guard
+                    .as_ref()
+                    .is_some_and(|guard| guard.with_context_window(tokens).is_ok()),
+            }
     }
 
     fn model_catalog(&self) -> Vec<ModelDescriptor> {
@@ -634,6 +687,13 @@ impl AgentRuntime for LoopAgentRuntime {
             });
         }
         let provider = Arc::clone(self.provider.as_ref().expect("route checked provider"));
+        let token_guard = match request.route.context_window_tokens {
+            Some(tokens) => self
+                .token_guard
+                .as_ref()
+                .and_then(|guard| guard.with_context_window(tokens).ok()),
+            None => self.token_guard.clone(),
+        };
         let tool_executor = self
             .tool_factory
             .executor(&request.session_id, &request.cwd, request.permission)
@@ -646,7 +706,7 @@ impl AgentRuntime for LoopAgentRuntime {
         loop_request.prompt = request.prompt;
         loop_request.tool_executor = Some(tool_executor);
         loop_request.context_policy = Arc::clone(&self.context_policy);
-        loop_request.token_guard = self.token_guard.clone();
+        loop_request.token_guard = token_guard;
         Ok(Box::new(LoopEngine.start(loop_request)))
     }
 }
@@ -688,7 +748,7 @@ impl TurnRequestFactory for DurableTurnFactory {
             })?;
             (
                 Arc::clone(&model.provider),
-                model.token_guard.clone(),
+                models.token_guard(&config.route),
                 models.compaction_reasoning_effort(&config.route),
             )
         };

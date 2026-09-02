@@ -204,6 +204,7 @@ impl BasicHost {
                 provider: record.model.provider.clone(),
                 model: record.model.model.clone(),
                 reasoning_effort: record.model.reasoning_effort.clone(),
+                context_window_tokens: record.model.context_window_tokens,
             }
         };
         let permission = restored_permission(&session);
@@ -448,6 +449,7 @@ impl BasicHost {
                 provider: session.model.provider.clone(),
                 model: session.model.model.clone(),
                 reasoning_effort: session.model.reasoning_effort.clone(),
+                context_window_tokens: session.model.context_window_tokens,
             };
             if !self.agent_runtime.can_route(&route) {
                 return Err(rpc_error(
@@ -762,6 +764,7 @@ impl BasicHost {
                     provider: session.model.provider.clone(),
                     model: session.model.model.clone(),
                     reasoning_effort: session.model.reasoning_effort.clone(),
+                    context_window_tokens: session.model.context_window_tokens,
                 },
                 session.permission_preset,
                 session.messages.clone(),

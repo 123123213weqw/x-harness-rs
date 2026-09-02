@@ -462,9 +462,11 @@ node scripts/test-schedule-plugin.mjs
 `ui/dist`，避免仓库源码与实际部署页面漂移。
 
 配置中的公共 `provider/model` 是 Web 与 Session 使用的稳定路由；`upstream_model` 是具体
-OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立声明 Context Window、目标输出
-`max_output_tokens` 和安全余量；可选 `minimum_output_tokens` 启用动态输出预算，省略时保持旧版
-固定输出预留。云端凭据只通过 `api_key_env` 引用环境变量，禁止写入配置文件。配置示例见
+OpenAI-compatible 服务接受的线协议模型名。Context Window 的硬上限不由 Harness 猜测：优先由
+精确 Provider/Deployment 的结构化 Capability 端点报告；`fallback_context_window_tokens` 只是
+端点不支持能力发现时的显式兼容值，并以 `deployment_declared_fallback` 来源投影，不能冒充服务端
+报告。目标输出 `max_output_tokens`、可选 `minimum_output_tokens` 和安全余量仍属于 Harness 请求
+策略。云端凭据只通过 `api_key_env` 引用环境变量，禁止写入配置文件。配置示例见
 [`config/providers.example.json`](config/providers.example.json)，完整不变量见
 [LLM/Provider Registry 规范](docs/specs/model-registry.md)。旧的单接口参数保持兼容。
 
@@ -476,10 +478,11 @@ OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立�
 模型校验，并持久化到 Session 与 `request/header`；切换到不支持推理等级的模型时不会继承旧值。
 
 模型服务的真实上下文以部署参数为准。例如 llama.cpp 的 `-c 53248` 代表整个请求窗口，
-System、历史、工具 Schema、模板和输出预留都要共享它。配置模型但没有
-`XHARNESS_CONTEXT_WINDOW`（或 `--context-window`）时，正式 Host 会拒绝启动；超限请求在网络前
-失败。正式 Durable Host 默认自动压缩；嵌入式 Core 只有显式提供 Journal、Token Guard 和
-Compaction Config 才启用。长任务细节见[上下文预算规范](docs/specs/context.md)。
+System、历史、工具 Schema、模板和输出预留都要共享它。Session 可以通过 Web 在该硬上限内选择
+更小的软窗口；选择值写入 Session，Token Guard 与 Compact 都按该软窗口工作，超过 Provider 上限
+则在网络前拒绝。能力未知且没有显式兼容 fallback 时正式 Host 拒绝启动。正式 Durable Host默认
+自动压缩；嵌入式 Core 只有显式提供 Journal、Token Guard 和 Compaction Config 才启用。长任务
+细节见[上下文预算规范](docs/specs/context.md)。
 
 ## Linux `.deb`
 

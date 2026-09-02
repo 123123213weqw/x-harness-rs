@@ -5,17 +5,18 @@ use std::{
         atomic::{AtomicU8, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::{header, Client, Response};
 use serde_json::{json, Map, Value};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
-    ModelProvider, ProviderError, ProviderEvent, ProviderInputTokenCount, ProviderRequest,
-    ProviderStream,
+    ContextWindowCapability, ModelCapabilities, ModelProvider, ProviderError, ProviderEvent,
+    ProviderInputTokenCount, ProviderRequest, ProviderStream,
 };
 use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
 
@@ -25,6 +26,7 @@ use crate::{
 };
 
 pub const DEFAULT_ERROR_BODY_LIMIT_BYTES: usize = 4 * 1024;
+pub const DEFAULT_CAPABILITY_TTL: Duration = Duration::from_secs(300);
 const TOKEN_COUNT_UNKNOWN: u8 = 0;
 const TOKEN_COUNT_SUPPORTED: u8 = 1;
 const TOKEN_COUNT_UNSUPPORTED: u8 = 2;
@@ -40,6 +42,37 @@ const RESERVED_REASONING_PATCH_KEYS: &[&str] = &[
     "max_tokens",
     "max_output_tokens",
 ];
+
+/// Explicit structured endpoint used by an OpenAI-compatible deployment to
+/// report its live context capacity. The JSON pointer is configuration, not a
+/// capacity value; Core never infers a limit from a model name.
+#[derive(Clone, Debug)]
+pub struct OpenAiCapabilityProbe {
+    pub url: String,
+    pub context_window_json_pointer: String,
+    pub ttl: Duration,
+}
+
+impl OpenAiCapabilityProbe {
+    pub fn new(url: impl Into<String>, context_window_json_pointer: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            context_window_json_pointer: context_window_json_pointer.into(),
+            ttl: DEFAULT_CAPABILITY_TTL,
+        }
+    }
+
+    pub fn with_ttl(mut self, ttl: Duration) -> Self {
+        self.ttl = ttl;
+        self
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CachedCapabilities {
+    expires_at: Instant,
+    value: ModelCapabilities,
+}
 
 /// Adapter-owned mapping from public reasoning effort ids to OpenAI-compatible
 /// request fragments. The Host and browser treat effort ids as opaque; only
@@ -133,6 +166,8 @@ pub struct OpenAiProviderConfig {
     pub max_sse_event_bytes: usize,
     pub max_error_body_bytes: usize,
     pub reasoning: Option<OpenAiReasoningProfile>,
+    pub context_window_fallback: Option<u64>,
+    pub capability_probe: Option<OpenAiCapabilityProbe>,
 }
 
 impl OpenAiProviderConfig {
@@ -153,11 +188,23 @@ impl OpenAiProviderConfig {
             max_sse_event_bytes: DEFAULT_SSE_EVENT_LIMIT_BYTES,
             max_error_body_bytes: DEFAULT_ERROR_BODY_LIMIT_BYTES,
             reasoning: None,
+            context_window_fallback: None,
+            capability_probe: None,
         }
     }
 
     pub fn with_reasoning_profile(mut self, reasoning: OpenAiReasoningProfile) -> Self {
         self.reasoning = Some(reasoning);
+        self
+    }
+
+    pub fn with_context_window_fallback(mut self, tokens: Option<u64>) -> Self {
+        self.context_window_fallback = tokens;
+        self
+    }
+
+    pub fn with_capability_probe(mut self, probe: OpenAiCapabilityProbe) -> Self {
+        self.capability_probe = Some(probe);
         self
     }
 
@@ -204,6 +251,11 @@ impl fmt::Debug for OpenAiProviderConfig {
                 "reasoning_efforts",
                 &self.reasoning.as_ref().map(|profile| profile.patches.len()),
             )
+            .field("context_window_fallback", &self.context_window_fallback)
+            .field(
+                "capability_probe",
+                &self.capability_probe.as_ref().map(|probe| &probe.url),
+            )
             .finish()
     }
 }
@@ -213,6 +265,7 @@ pub struct OpenAiProvider {
     config: Arc<OpenAiProviderConfig>,
     client: Client,
     token_count_support: Arc<AtomicU8>,
+    capability_cache: Arc<Mutex<Option<CachedCapabilities>>>,
     debug: DebugRecorder,
 }
 
@@ -233,6 +286,28 @@ impl OpenAiProvider {
                 "max_error_body_bytes must be greater than zero",
             ));
         }
+        if let Some(tokens) = config.context_window_fallback {
+            if tokens == 0 {
+                return Err(ProviderError::new(
+                    "context_window_fallback must be greater than zero",
+                ));
+            }
+        }
+        if let Some(probe) = &config.capability_probe {
+            if probe.url.trim().is_empty() {
+                return Err(ProviderError::new("capability probe URL must not be empty"));
+            }
+            if !probe.context_window_json_pointer.starts_with('/') {
+                return Err(ProviderError::new(
+                    "capability context-window JSON pointer must start with '/'",
+                ));
+            }
+            if probe.ttl.is_zero() {
+                return Err(ProviderError::new(
+                    "capability probe TTL must be greater than zero",
+                ));
+            }
+        }
         let client = Client::builder()
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
@@ -242,6 +317,7 @@ impl OpenAiProvider {
             config: Arc::new(config),
             client,
             token_count_support: Arc::new(AtomicU8::new(TOKEN_COUNT_UNKNOWN)),
+            capability_cache: Arc::new(Mutex::new(None)),
             debug: DebugRecorder::disabled(),
         })
     }
@@ -253,6 +329,77 @@ impl OpenAiProvider {
 
     pub fn config(&self) -> &OpenAiProviderConfig {
         &self.config
+    }
+
+    fn fallback_capabilities(&self) -> ModelCapabilities {
+        ModelCapabilities {
+            context_window: self
+                .config
+                .context_window_fallback
+                .map(ContextWindowCapability::declared_fallback)
+                .unwrap_or_default(),
+        }
+    }
+
+    async fn probe_capabilities(
+        &self,
+        probe: &OpenAiCapabilityProbe,
+        cancellation: &CancellationToken,
+    ) -> Result<ModelCapabilities, ProviderError> {
+        let mut request = self.client.get(&probe.url);
+        if !self.config.api_key.is_empty() {
+            request = request.bearer_auth(&self.config.api_key);
+        }
+        let response = tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(ProviderError::new("capability discovery cancelled"));
+            }
+            response = request.send() => response.map_err(|error| {
+                ProviderError::new(format!("capability discovery request failed: {error}"))
+            })?,
+        };
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ProviderError::http(
+                status.as_u16(),
+                format!("capability discovery returned HTTP {status}"),
+            ));
+        }
+        let revision = response
+            .headers()
+            .get(header::ETAG)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let body: Value = response.json().await.map_err(|error| {
+            ProviderError::new(format!(
+                "capability discovery returned invalid JSON: {error}"
+            ))
+        })?;
+        let tokens = body
+            .pointer(&probe.context_window_json_pointer)
+            .and_then(Value::as_u64)
+            .filter(|tokens| *tokens > 0)
+            .ok_or_else(|| {
+                ProviderError::new(format!(
+                    "capability discovery response has no positive integer at JSON pointer {:?}",
+                    probe.context_window_json_pointer
+                ))
+            })?;
+        let fetched_at_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        Ok(ModelCapabilities {
+            context_window: ContextWindowCapability {
+                max_context_tokens: Some(tokens),
+                source: xharness_core::CapabilitySource::DeploymentReported,
+                revision,
+                fetched_at_ms: Some(fetched_at_ms),
+                ..ContextWindowCapability::default()
+            },
+        })
     }
 
     fn request_body(
@@ -286,6 +433,43 @@ impl ModelProvider for OpenAiProvider {
 
     fn model_name(&self) -> Option<&str> {
         Some(&self.config.model)
+    }
+
+    async fn capabilities(
+        &self,
+        cancellation: CancellationToken,
+    ) -> Result<ModelCapabilities, ProviderError> {
+        let Some(probe) = self.config.capability_probe.as_ref() else {
+            return Ok(self.fallback_capabilities());
+        };
+        if let Some(cached) = self.capability_cache.lock().await.as_ref() {
+            if cached.expires_at > Instant::now() {
+                return Ok(cached.value.clone());
+            }
+        }
+        let capabilities = match self.probe_capabilities(probe, &cancellation).await {
+            Ok(capabilities) => capabilities,
+            Err(error) if self.config.context_window_fallback.is_some() => {
+                self.debug
+                    .record_lossy(DebugEvent::new(
+                        "provider.openai",
+                        "capability.fallback",
+                        serde_json::json!({
+                            "model": &self.config.model,
+                            "error": error.message,
+                            "source": "deployment_declared_fallback",
+                        }),
+                    ))
+                    .await;
+                self.fallback_capabilities()
+            }
+            Err(error) => return Err(error),
+        };
+        *self.capability_cache.lock().await = Some(CachedCapabilities {
+            expires_at: Instant::now() + probe.ttl,
+            value: capabilities.clone(),
+        });
+        Ok(capabilities)
     }
 
     async fn count_input_tokens(

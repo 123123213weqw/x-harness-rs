@@ -505,6 +505,12 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   热更新不能让活动 Turn 的已绑定档位在请求中途变化；Provider 只返回模型列表而不返回推理档位时，
   必须明确标记 `not_advertised`，不能把 `/models` 的成功误当成完整能力发现。Web 只投影目标模型
   当时真实可用的档位，新档位可出现，撤销档位对新 Turn fail-closed，历史 Session 仍可读取。
+  **已完成 Context Capability 切片：** `ModelProvider::capabilities()`、带来源/ETag/抓取时间的
+  `ContextWindowCapability`、OpenAI-compatible 结构化 URL + JSON Pointer + TTL Probe、显式
+  `deployment_declared_fallback`、Web Capability 投影，以及 Session 可持久化软窗口均已接线。
+  Token Guard/Compact 使用软窗口，选择超过部署硬上限会在 Event/Provider I/O 前失败。**剩余：**
+  Registry 热刷新与 Last-known-good、运行中能力撤销的下一 Turn 对账、其他 Capability、Purpose、
+  凭据服务和安全热重载。
 
 - [ ] `P1-03` **Token Meter 与 Context Policy。** Provider-aware Token Estimate、最大输入
   Guard、确定性 Tool Output Reduce、Surface Replace，以及不修改原 Event Log 的可选 Summary。

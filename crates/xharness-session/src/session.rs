@@ -571,16 +571,18 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 provider,
                 model,
                 reasoning_effort,
+                context_window_tokens,
             } => {
                 if provider.trim().is_empty()
                     || model.trim().is_empty()
                     || reasoning_effort
                         .as_ref()
                         .is_some_and(|value| value.trim().is_empty())
+                    || context_window_tokens.is_some_and(|value| value == 0)
                 {
                     return Err(lifecycle_error(
                         logged.seq,
-                        "session/model-selected provider, model and optional reasoning effort must be non-empty",
+                        "session/model-selected provider, model and optional reasoning effort must be non-empty; context window must be positive",
                     ));
                 }
             }

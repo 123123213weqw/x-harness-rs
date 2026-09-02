@@ -14,8 +14,10 @@
 Pending/Event 字节预算和错误 Body 预算。流预算为零的配置必须在网络 I/O 前失败。
 Debug 输出必须隐藏 API Key。
 
-Provider Config 不自动查询 llama.cpp 的启动参数。正式 Host 通过 `xharness-token` 的显式部署
-配置把窗口绑定到 Prepared Call；未来模型能力由 LLM Registry 提供。Adapter 禁止根据一次
+Provider Config 可选配置一个结构化 Capability Probe（URL、Context Window JSON Pointer、TTL）。
+Adapter 读取精确部署当前报告的容量、ETag 与抓取时间并缓存；这个 Probe 只描述“去哪里读”，不在
+Core 中硬编码任何模型容量。若端点不提供能力，可配置显式 `context_window_fallback`；它必须以
+`deployment_declared_fallback` 来源返回，不能伪装成 Provider 报告。Adapter 禁止根据一次普通
 400 错误猜窗口后自动重发。
 
 端点派生规则：
@@ -24,6 +26,8 @@ Provider Config 不自动查询 llama.cpp 的启动参数。正式 Host 通过 `
 - Responses：`<base>/responses`
 - Chat 输入计数：`<base>/chat/completions/input_tokens`
 - Responses 输入计数：`<base>/responses/input_tokens`
+- Capability：不假设 OpenAI 统一路径，由部署配置显式 URL 与 JSON Pointer；llama.cpp 可指向
+  `/props` 的 `/default_generation_settings/n_ctx`。
 
 输入计数请求从实际生成请求体派生，只移除流式和输出控制字段，确保 System、消息、Opaque Replay
 Item 与 Tool Schema 不会和正式请求漂移。404/405/501 表示端点不支持并缓存 Capability Miss；
@@ -78,7 +82,7 @@ Tool Result 从对应持久 Tool Call 恢复 Provider ID。旧日志没有该字
 - Host 层 [`ModelRegistry`](model-registry.md) 已能把多个 Adapter 实例绑定到不同公共路由；按
   Purpose 选模型仍未实现。
 - Tool Schema/Prompt 缓存依赖具体 Provider，本层不控制。
-- 尚无统一模型 Capability（Context Window、最大输出、Tokenizer、工具/多模态支持）注册表。
+- 统一 Capability 已覆盖 Context Window；最大输出、Tokenizer、工具和多模态能力仍待扩展。
 
 ## 验收标准
 
@@ -86,4 +90,5 @@ Tool Result 从对应持久 Tool Call 恢复 Provider ID。旧日志没有该字
 完成、Incomplete/Length/Filter 原因、Usage 归一化、超大 SSE/错误 Body、请求 Body 和
 原生 HTTP Streaming。真实 Chat 集成必须在 OpenAI-compatible 端点完成两 Step 工具 Loop。
 上下文测试必须解析完整请求体，把 System、消息、工具和模板开销全部计量；服务端返回 Context
-400 时断言 Adapter 不自动重试。
+400 时断言 Adapter 不自动重试。Capability Fixture 必须覆盖结构化 Probe、ETag/抓取时间、TTL
+缓存，以及显式 fallback 来源不会被标成 Provider Reported。

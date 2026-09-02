@@ -258,6 +258,16 @@ pub trait ModelProvider: Send + Sync + 'static {
         None
     }
 
+    /// Return a capability snapshot reported by the exact provider/model
+    /// deployment. Core never guesses limits from model names. `Unknown`
+    /// leaves policy binding to an explicitly labelled deployment fallback.
+    async fn capabilities(
+        &self,
+        _cancellation: CancellationToken,
+    ) -> Result<ModelCapabilities, ProviderError> {
+        Ok(ModelCapabilities::default())
+    }
+
     /// Count the complete structured request using a provider-native
     /// capability when available. `Ok(None)` means the adapter has no exact
     /// counter and the Core must use its configured local fallback meter.
@@ -274,6 +284,64 @@ pub trait ModelProvider: Send + Sync + 'static {
         request: ProviderRequest,
         cancellation: CancellationToken,
     ) -> Result<ProviderStream, ProviderError>;
+}
+
+/// Provenance of a model capability. Consumers must preserve this value so a
+/// deployment fallback can never be presented as provider-reported truth.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilitySource {
+    ProviderReported,
+    DeploymentReported,
+    DeploymentDeclaredFallback,
+    ObservedStructuredError,
+    #[default]
+    Unknown,
+}
+
+/// Context capacity of one exact provider/model deployment.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextWindowCapability {
+    /// Maximum accepted by the currently running deployment, if advertised.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_context_tokens: Option<u64>,
+    /// Optional architectural/model ceiling. The effective hard maximum is
+    /// still the deployment maximum above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_max_context_tokens: Option<u64>,
+    #[serde(default)]
+    pub source: CapabilitySource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetched_at_ms: Option<u64>,
+}
+
+impl ContextWindowCapability {
+    pub fn reported(max_context_tokens: u64) -> Self {
+        Self {
+            max_context_tokens: Some(max_context_tokens),
+            source: CapabilitySource::ProviderReported,
+            ..Self::default()
+        }
+    }
+
+    pub fn declared_fallback(max_context_tokens: u64) -> Self {
+        Self {
+            max_context_tokens: Some(max_context_tokens),
+            source: CapabilitySource::DeploymentDeclaredFallback,
+            ..Self::default()
+        }
+    }
+}
+
+/// Provider-neutral capability snapshot frozen before a turn starts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCapabilities {
+    #[serde(default)]
+    pub context_window: ContextWindowCapability,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
