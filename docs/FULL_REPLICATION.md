@@ -1,7 +1,7 @@
 # XHarness 全面复刻主控计划
 
 **建立日期：** 2026-08-21
-**状态更新：** 2026-08-25
+**状态更新：** 2026-09-02
 **冻结兼容基线：** `deepseek-harness@141eb6fef8`
 **已发现上游远端 HEAD：** `b150a551b8d4`（尚未纳入兼容基线）
 **执行原则：** 复刻可观察行为、协议和生命周期，不逐行翻译 TypeScript，也不复制 Cordis/HMR。
@@ -35,7 +35,7 @@
 ## 三、模块总图
 
 ```text
-DeepSeek Web UI / CLI / ACP
+XHarness Web UI / CLI / ACP
                 |
         xharness-api/server
                 |
@@ -65,10 +65,10 @@ DeepSeek Web UI / CLI / ACP
 | `M02` | 统一 Tool Runtime、Execution ID 和结构化 Shutdown | 生产路径已完成；只剩 Core 旧兼容 API 删除 | MCP、Jobs |
 | `M03` | Prompt/Provider Registry、Token Guard、Context Compaction | Registry 基线、最小 Prompt、原生计数、Hard Guard 与自动 Pressure/Overflow 已完成；手动/Pruner/Purpose 路由待完成 | 长上下文、质量 |
 | `M04` | Linux/macOS 原生工具、Readiness 和动态工具投影 | 原生工具和模型侧投影已完成；Web Readiness/发布验证未完成 | 日常使用 |
-| `M05` | Web 持久状态、游标续传、认证和完整 UI Projection | 权威 History/Queue/部分 Receipt 已完成；Cursor/Auth/完整投影未完成 | 产品发布 |
+| `M05` | Web 持久状态、游标续传、认证和完整 UI Projection | 权威 History/Queue、版本化 XHarness UI Bundle/产品插件和部分 Receipt 已完成；Cursor/Auth/完整投影未完成 | 产品发布 |
 | `M06` | Git、MCP、Skills、LSP、本地代码索引 | 未开始 | 高级 Coding |
 | `M07` | 多模态、Blob、Session Branch/Import/Export | 未开始 | 多模态 Agent |
-| `M08` | Subagent、Workflow、Scheduler、Remote Execution | 未开始 | 团队 Agent |
+| `M08` | Subagent、Workflow、Scheduler、Remote Execution | 持久 Schedule 已完成；Subagent/Workflow/Remote 未开始 | 团队 Agent |
 | `M09` | 安装包、签名、公证、观测、配额、Fuzz 和安全发布 | Full Debug Trace 和 ARM64 CI 已完成；发行门禁未完成 | 正式版 |
 
 当前只保留一条面向本地单用户产品的主要阻塞链：
@@ -162,7 +162,9 @@ Coding Agent 日常使用。
 - [x] `C-06` 固化 `64196 > 53248` 为 Provider Attempt=0 的回归。
 - [ ] `C-07` 分页 Read、Tool Result Spill 和 Head/Relevant/Tail Surface。分页 Read、版本绑定
   Cursor 与单结果确定性 Head/Tail Envelope 已完成；Spill、Relevant 与历史 Surface Replace 待完成。
-- [ ] `C-08` Surface Replace/摘要不删除原 Event Log。
+- [x] `C-08` Surface Replace/摘要不删除原 Event Log。`DONE-57` 已完成强类型 Compaction 事务、
+  Checkpoint `surfaceReplace`、重启闭合和重新计量；`DONE-68` 的一次性 Tool Result Pruner 仍需在
+  `C-07/P0-12` 落成持久 Spill/Reference，但不会改变本项已经成立的 Event Log 不变量。
 
 ### Batch D：平台与可扩展工具
 
@@ -210,7 +212,9 @@ Coding Agent 日常使用。
 
 - [ ] `G-01` Child Agent Activation、父子事件、Continuation 和有界并发。
 - [ ] `G-02` Workflow DAG、Checkpoint、Idempotency、Manual Gate。
-- [ ] `G-03` Scheduler、Recurring、Missed-run Policy 和执行历史。
+- [x] `G-03` Scheduler、Recurring、Missed-run Policy 和执行历史。`DONE-71` 已完成
+  Session-owner `after/at/every`、Idle-only Agent Wake、固定相位周期、离线 latest-only catch-up、
+  稳定 Delivery ID、持久 `schedule/change` 历史、重启恢复和 Web 实时投影。
 - [ ] `G-04` Remote Platform/Workspace Sync/Capability Attestation。
 - [ ] `G-05` Linux `.deb` 干净 VM 矩阵、AppArmor/bwrap 安装后探测。
 - [ ] `G-06` macOS 签名、公证、安装、Web TLS 和真实 Provider Loop。

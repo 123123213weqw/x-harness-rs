@@ -3,4 +3,6 @@ target/
 .env
 .env.*
 
-dist/
+# Local Rust/package outputs. The deployable browser bundle under `ui/dist/`
+# is intentionally versioned so a fresh clone can start the Web product.
+/dist/

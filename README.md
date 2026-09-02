@@ -12,7 +12,7 @@ Rust Host。目标不是
 最下层，并在编译期选择实现。
 
 ```text
-DeepSeek Web UI / future CLI
+XHarness Web UI / future CLI
               |
  xharness-api + server + host
               |
@@ -43,6 +43,7 @@ DeepSeek Web UI / future CLI
 - [运行、诊断与故障处理](docs/operations.md)
 - [Linux `.deb` 安装与沙箱自配置](docs/specs/linux-deb.md)
 - [总 TODO 与交付优先级](docs/TODO.md)
+- [Web UI、插件与重建说明](ui/README.md)
 
 行为变更只有在实现、测试、规范和 TODO 状态一致后才算完成。
 
@@ -405,13 +406,22 @@ single-writer lease 来表达 Agent 所有权。SQLite backend 属于 Agent 控�
 
 ## 启动 Web Host
 
-Web 静态文件直接复用指定版本 DeepSeek Harness 的 `apps/web/dist`，不复制进 Rust
-仓库。Host 支持环境变量和等价的 `--bind`、`--workspace`、`--static-dir`、
+仓库已经版本化保存 XHarness 自有 Web 插件、品牌覆盖、重建脚本和可直接部署的完整静态 Bundle：
+
+```text
+ui/plugins/     XHarness Context/Schedule 等产品插件源码
+ui/overrides/   品牌组件与图标源码覆盖
+ui/dist/        Fresh Clone 可直接由 Rust Host 托管的静态 Bundle
+```
+
+`ui/dist` 基于冻结版本 DeepSeek Harness Web UI 的 MIT 许可构建，第三方声明见
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。上游 `@deepseek-ai/dsh-*` 名称是浏览器插件
+协议兼容标识，不是残留的可见品牌。Host 支持环境变量和等价的 `--bind`、`--workspace`、`--static-dir`、
 `--provider`、`--model`、`--base-url`、`--api-key`、`--protocol` 参数：
 
 ```bash
 XHARNESS_WORKSPACE=/path/to/project \
-XHARNESS_WEB_DIST=/path/to/deepseek-harness/apps/web/dist \
+XHARNESS_WEB_DIST=$PWD/ui/dist \
 XHARNESS_BASE_URL=http://your-model-server:8000/v1 \
 XHARNESS_MODEL=your-model \
 XHARNESS_CONTEXT_WINDOW=53248 \
@@ -433,9 +443,21 @@ cargo run -p xharness-host-app --bin xharness-host
 ```bash
 XHARNESS_PROVIDERS_FILE=$PWD/config/providers.example.json \
 XHARNESS_WORKSPACE=/path/to/project \
-XHARNESS_WEB_DIST=/path/to/deepseek-harness/apps/web/dist \
+XHARNESS_WEB_DIST=$PWD/ui/dist \
 xharness-host --bind 127.0.0.1:3082
 ```
+
+从冻结上游重新生成 Web Bundle：
+
+```bash
+scripts/rebuild-ui.sh /path/to/deepseek-harness
+node scripts/test-context-plugin.mjs
+node scripts/test-schedule-plugin.mjs
+```
+
+重建脚本会先编译完整上游 Client face，再把产品插件加入同一依赖图并生成
+`ui/dist/client-graph.json`。提交 Web 改动时必须同时提交插件/覆盖源码、重建脚本变更和新的
+`ui/dist`，避免仓库源码与实际部署页面漂移。
 
 配置中的公共 `provider/model` 是 Web 与 Session 使用的稳定路由；`upstream_model` 是具体
 OpenAI-compatible 服务接受的线协议模型名。每个模型必须独立声明 Context Window、目标输出
