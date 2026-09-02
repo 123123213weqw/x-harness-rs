@@ -1029,3 +1029,37 @@ async fn repro_c_live_settings_edit_heals_without_a_restart() {
         "the live repair is reported too: {describe}"
     );
 }
+
+#[tokio::test]
+async fn local_server_examples_survive_settings_rpc_selection_and_restart() {
+    let dir = TempDir::new();
+    let file = dir.0.join("providers.json");
+    std::fs::write(
+        &file,
+        include_str!("../../../config/providers.local-reasoning.example.json"),
+    )
+    .unwrap();
+    let settings = xharness_host_app::config::settings_from_file(&file).unwrap();
+    let keys = Arc::new(TestCredentials::default());
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let (host, runtime) = fixture_with_store(&dir, keys.clone(), store.clone()).await;
+    rpc(&host, RpcMethod::SettingsMutate, json!({"ns":MODEL_SETTINGS_NAMESPACE,"expectedRevision":0,"ops":[{"op":"set","path":["providers"],"value":settings["providers"]}]})).await;
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    for (provider, config) in settings["providers"].as_object().unwrap() {
+        for model in config["models"].as_array().unwrap() {
+            let model_id = model["id"].as_str().unwrap();
+            for effort in model["reasoning"]["efforts"].as_array().unwrap() {
+                rpc(&host, RpcMethod::SessionSelectModel, json!({"sessionId":id,"provider":provider,"model":model_id,"reasoningEffort":effort["id"]})).await;
+                let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+                assert_eq!(catalog["current"]["reasoningEffort"], effort["id"]);
+            }
+        }
+    }
+    let before = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    drop(host);
+    drop(runtime);
+    let (host, _) = fixture_with_store(&dir, keys, store).await;
+    let after = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert_eq!(after["current"], before["current"]);
+}
