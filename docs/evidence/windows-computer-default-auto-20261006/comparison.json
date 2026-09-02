@@ -1,0 +1,264 @@
+[
+  {
+    "label": "auto-0",
+    "grade": {
+      "pass": true,
+      "native_all_success": true,
+      "search_submitted": true,
+      "final_exact": true,
+      "forbidden_events": [],
+      "reset_found": true,
+      "strict_final_json": false,
+      "format_style": "prose_and_json_fence"
+    },
+    "calls": [
+      {
+        "id": 0,
+        "action": "observe",
+        "ok": true,
+        "elapsed_ms": 9120,
+        "wall_s": 11.113860457669944
+      },
+      {
+        "id": 1,
+        "action": "observe",
+        "ok": true,
+        "elapsed_ms": 9069,
+        "wall_s": 11.847670541610569
+      },
+      {
+        "id": 2,
+        "action": "click",
+        "ok": true,
+        "elapsed_ms": 9413,
+        "wall_s": 11.695415750145912
+      },
+      {
+        "id": 3,
+        "action": "type",
+        "ok": true,
+        "elapsed_ms": 9371,
+        "wall_s": 12.180140584241599
+      },
+      {
+        "id": 4,
+        "action": "click",
+        "ok": true,
+        "elapsed_ms": 3914,
+        "wall_s": 7.097579499706626
+      }
+    ],
+    "model_choices": [
+      {
+        "id": 0,
+        "args": {
+          "action": "observe",
+          "detail": "semantic"
+        }
+      },
+      {
+        "id": 1,
+        "args": {
+          "action": "observe",
+          "detail": "high",
+          "include_screenshot": true,
+          "region": {
+            "x": 0,
+            "y": 80,
+            "width": 1024,
+            "height": 640
+          }
+        }
+      },
+      {
+        "id": 2,
+        "args": {
+          "action": "click",
+          "frame_id": "win:2284:1791229350152186900:2",
+          "node_id": "uia:win:1272:f0396:168"
+        }
+      },
+      {
+        "id": 3,
+        "args": {
+          "action": "type",
+          "frame_id": "win:2284:1791229367040845200:3",
+          "node_id": "uia:win:1272:f0396:68",
+          "text": "SSD"
+        }
+      },
+      {
+        "id": 4,
+        "args": {
+          "action": "click",
+          "frame_id": "win:2284:1791229383944808300:4",
+          "node_id": "uia:win:1272:f0396:52"
+        }
+      }
+    ],
+    "elapsed_s": 77.1179033331573,
+    "native_all_call_median_ms": 9120,
+    "failures": [],
+    "input_tokens": 267911
+  },
+  {
+    "label": "auto-1",
+    "grade": {
+      "pass": true,
+      "native_all_success": true,
+      "search_submitted": true,
+      "final_exact": true,
+      "forbidden_events": [],
+      "reset_found": true,
+      "strict_final_json": false,
+      "format_style": "prose_and_json_fence"
+    },
+    "calls": [
+      {
+        "id": 7,
+        "action": "observe",
+        "ok": true,
+        "elapsed_ms": 8835,
+        "wall_s": 11.829883500002325
+      },
+      {
+        "id": 8,
+        "action": "click",
+        "ok": true,
+        "elapsed_ms": 9237,
+        "wall_s": 12.54908954212442
+      },
+      {
+        "id": 9,
+        "action": "type",
+        "ok": true,
+        "elapsed_ms": 8839,
+        "wall_s": 10.996430166065693
+      },
+      {
+        "id": 10,
+        "action": "click",
+        "ok": true,
+        "elapsed_ms": 4415,
+        "wall_s": 6.417003208305687
+      }
+    ],
+    "model_choices": [
+      {
+        "id": 7,
+        "args": {
+          "action": "observe",
+          "detail": "semantic"
+        }
+      },
+      {
+        "id": 8,
+        "args": {
+          "action": "click",
+          "node_id": "uia:win:1272:f0396:69",
+          "frame_id": "win:2284:1791229474768453200:7"
+        }
+      },
+      {
+        "id": 9,
+        "args": {
+          "action": "type",
+          "frame_id": "win:2284:1791229487777133900:8",
+          "text": "SSD"
+        }
+      },
+      {
+        "id": 10,
+        "args": {
+          "action": "click",
+          "frame_id": "win:2284:1791229503848115400:9",
+          "node_id": "uia:win:1272:f0396:52"
+        }
+      }
+    ],
+    "elapsed_s": 59.12823637481779,
+    "native_all_call_median_ms": 8837.0,
+    "failures": [],
+    "input_tokens": 135561
+  },
+  {
+    "label": "auto-2",
+    "grade": {
+      "pass": true,
+      "native_all_success": true,
+      "search_submitted": true,
+      "final_exact": true,
+      "forbidden_events": [],
+      "reset_found": true,
+      "strict_final_json": false,
+      "format_style": "prose_and_json_last_line"
+    },
+    "calls": [
+      {
+        "id": 13,
+        "action": "observe",
+        "ok": true,
+        "elapsed_ms": 8682,
+        "wall_s": 10.031443874817342
+      },
+      {
+        "id": 14,
+        "action": "click",
+        "ok": true,
+        "elapsed_ms": 9310,
+        "wall_s": 11.63982337480411
+      },
+      {
+        "id": 15,
+        "action": "type",
+        "ok": true,
+        "elapsed_ms": 9016,
+        "wall_s": 10.572353874798864
+      },
+      {
+        "id": 16,
+        "action": "click",
+        "ok": true,
+        "elapsed_ms": 4182,
+        "wall_s": 7.0550254583358765
+      }
+    ],
+    "model_choices": [
+      {
+        "id": 13,
+        "args": {
+          "action": "observe",
+          "detail": "semantic"
+        }
+      },
+      {
+        "id": 14,
+        "args": {
+          "action": "click",
+          "node_id": "uia:win:1272:f0396:69",
+          "frame_id": "win:2284:1791229541770486900:12"
+        }
+      },
+      {
+        "id": 15,
+        "args": {
+          "action": "type",
+          "frame_id": "win:2284:1791229553291471100:13",
+          "text": "SSD"
+        }
+      },
+      {
+        "id": 16,
+        "args": {
+          "action": "click",
+          "frame_id": "win:2284:1791229569794186300:14",
+          "node_id": "uia:win:1272:f0396:52"
+        }
+      }
+    ],
+    "elapsed_s": 55.5786285828799,
+    "native_all_call_median_ms": 8849.0,
+    "failures": [],
+    "input_tokens": 135566
+  }
+]

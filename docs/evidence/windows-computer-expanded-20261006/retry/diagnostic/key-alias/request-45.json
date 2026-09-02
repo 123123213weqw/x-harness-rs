@@ -1,0 +1,9 @@
+{
+  "action": "keypress",
+  "frame_id": "win:9444:1791242931986244700:44",
+  "keys": [
+    "Page_Up"
+  ],
+  "include_accessibility": false,
+  "include_screenshot": false
+}

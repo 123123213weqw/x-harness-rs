@@ -1,0 +1,10 @@
+{
+  "receipt_media_verified": 44,
+  "checks": [
+    "sha256",
+    "bytes",
+    "PNG decode",
+    "dimensions"
+  ],
+  "candidate_schema_matches_remote_export": true
+}

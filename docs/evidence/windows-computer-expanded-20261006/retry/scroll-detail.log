@@ -1,0 +1,9 @@
+{"mode": "expanded", "turn": 0, "model_s": 0.74, "calls": 1, "usage": {"prompt_tokens": 1076, "completion_tokens": 65, "total_tokens": 1141, "prompt_tokens_details": {"cached_tokens": 768}, "prompt_cache_hit_tokens": 768, "prompt_cache_miss_tokens": 308}}
+{"id": 1, "action": "observe", "ok": true, "native_ms": 8775, "wall_s": 20.35, "image": true}
+{"mode": "expanded", "turn": 1, "model_s": 1.54, "calls": 1, "usage": {"prompt_tokens": 12421, "completion_tokens": 146, "total_tokens": 12567, "prompt_tokens_details": {"cached_tokens": 1024}, "prompt_cache_hit_tokens": 1024, "prompt_cache_miss_tokens": 11397}}
+{"id": 2, "action": "scroll", "ok": true, "native_ms": 8875, "wall_s": 11.77, "image": true}
+{"mode": "expanded", "turn": 2, "model_s": 1.49, "calls": 1, "usage": {"prompt_tokens": 23846, "completion_tokens": 130, "total_tokens": 23976, "prompt_tokens_details": {"cached_tokens": 12544}, "prompt_cache_hit_tokens": 12544, "prompt_cache_miss_tokens": 11302}}
+{"id": 3, "action": "click", "ok": true, "native_ms": 8886, "wall_s": 16.23, "image": true}
+{"mode": "expanded", "turn": 3, "model_s": 1.42, "calls": 1, "usage": {"prompt_tokens": 35255, "completion_tokens": 135, "total_tokens": 35390, "prompt_tokens_details": {"cached_tokens": 23936}, "prompt_cache_hit_tokens": 23936, "prompt_cache_miss_tokens": 11319}}
+STOP: Unexpected keyboard shortcut; not dispatched
+{"mode": "expanded", "error": "Unexpected keyboard shortcut; not dispatched", "native_calls": 3, "elapsed_s": 104.6}

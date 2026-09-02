@@ -1,0 +1,11 @@
+{
+  "model_controlled": false,
+  "request_key": "Page_Up",
+  "ok": false,
+  "failure": {
+    "kind": "handler",
+    "message": "invalid_request: unsupported Windows key: Page_Up",
+    "retryable": false
+  },
+  "no_action_replay": true
+}

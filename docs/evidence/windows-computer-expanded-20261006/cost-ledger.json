@@ -1,0 +1,12 @@
+{
+  "reported_usage": {
+    "prompt_tokens": 6892448,
+    "completion_tokens": 8692,
+    "cache_hit": 6080128,
+    "cache_miss": 812320
+  },
+  "responses": 70,
+  "actual_currency_charge": null,
+  "includes_invalid_controller_attempts": true,
+  "not_account_balance": true
+}

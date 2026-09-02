@@ -30,8 +30,20 @@ jobs:
         with:
           key: windows-computer-v1
           cache-on-failure: true
-      - name: Offline performance evidence oracle
-        run: python -B scripts/computer-shopping-lab/test-grade-ax-performance.py
+      - name: Offline performance and modality evidence oracles
+        run: |
+          python -B scripts/computer-shopping-lab/test-grade-ax-performance.py
+          if ($LASTEXITCODE) { throw 'Performance oracle failed' }
+          python -B scripts/computer-shopping-lab/grade-modality-comparison.py
+          if ($LASTEXITCODE) { throw 'Modality oracle failed' }
+          python -B scripts/computer-shopping-lab/test-collector.py
+          if ($LASTEXITCODE) { throw 'Lab bridge failed' }
+          python -B scripts/computer-shopping-lab/test-grade-shop.py
+          if ($LASTEXITCODE) { throw 'Shopping oracle failed' }
+          python -B scripts/computer-shopping-lab/test-grade-expanded.py
+          if ($LASTEXITCODE) { throw 'Expanded task oracle failed' }
+          python -B scripts/computer-shopping-lab/test-expanded-collector.py
+          if ($LASTEXITCODE) { throw 'Expanded bridge routing failed' }
       - name: Non-interactive native contracts
         run: |
           cargo test --locked -p xharness-computer -p xharness-computer-windows --features xharness-computer-windows/native-acceptance

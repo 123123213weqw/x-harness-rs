@@ -1,0 +1,7 @@
+{
+  "action": "type",
+  "text": "http://10.0.2.2:18097/expanded.html?case=slow-layout",
+  "frame_id": "win:6240:1791241051283689600:39",
+  "include_accessibility": false,
+  "include_screenshot": false
+}
