@@ -362,7 +362,14 @@ impl BasicHost {
 }
 
 fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
-    session
+    // `session/model-selected` is the durable user preference.  Request
+    // headers are execution observations and older providers may omit the
+    // optional reasoning effort from them.  Looking for both event kinds in a
+    // single reverse scan lets a later request header erase an explicit
+    // effort after restart (for example `low` becomes the model default).
+    // Prefer the newest explicit selection for the lifetime of the session;
+    // only legacy sessions without one fall back to their last request route.
+    if let Some(route) = session
         .events()
         .iter()
         .rev()
@@ -376,6 +383,17 @@ fn restored_route(session: &Session, config: &crate::HostConfig) -> ModelRoute {
                 model: model.clone(),
                 reasoning_effort: reasoning_effort.clone(),
             }),
+            _ => None,
+        })
+    {
+        return route;
+    }
+
+    session
+        .events()
+        .iter()
+        .rev()
+        .find_map(|event| match event.data() {
             EventData::RequestHeader { header } => Some(ModelRoute {
                 provider: header.provider.clone(),
                 model: header.model.clone(),
@@ -1455,6 +1473,27 @@ mod tests {
             }
             .into(),
         ]
+    }
+
+    #[test]
+    fn explicit_model_selection_survives_a_later_request_header() {
+        let mut session = Session::new(SessionHeader::new("selected-route")).unwrap();
+        let mut events = vec![EventData::SessionModelSelected {
+            provider: "test".to_owned(),
+            model: "selected-model".to_owned(),
+            reasoning_effort: Some("low".to_owned()),
+        }
+        .into()];
+        // `closed_text_turn` appends a lifecycle-valid later request header
+        // without a reasoning effort, matching the provider log that exposed
+        // this restoration bug.
+        events.extend(closed_text_turn(1, "hello", "world"));
+        session.append_batch_at(Revision::ZERO, events, 1).unwrap();
+
+        let route = restored_route(&session, &config(Path::new("/tmp")));
+        assert_eq!(route.provider, "test");
+        assert_eq!(route.model, "selected-model");
+        assert_eq!(route.reasoning_effort.as_deref(), Some("low"));
     }
 
     #[test]

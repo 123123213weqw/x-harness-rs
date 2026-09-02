@@ -3786,7 +3786,7 @@ window.__ModuleLoader__.load({
 			};
 			const accessSelect = command === void 0 ? null : (0, react_jsx_runtime.jsx)(PermissionSelect, {
 				value: permissions,
-				locked,
+				locked: locked || running,
 				command,
 				t
 			}, sessionId);

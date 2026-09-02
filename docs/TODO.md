@@ -18,10 +18,10 @@ Commit、Issue、PR 应引用这些 ID。
 OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 11 个
 Coding/Job/Web Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
 
-当前共有 `DONE-01`—`DONE-71` 七十一个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
+当前共有 `DONE-01`—`DONE-72` 七十二个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
 Web 对话重启恢复、模型性能指标投影、长思考输出预算、大 Session 热路径、逐模型推理强度、
 Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Context 的回归，以及后台 Job
-第一阶段和持久 Schedule。
+第一阶段、持久 Schedule 和会话权限/推理强度刷新保持。
 
 以下能力已经完成主体，不应再描述成“尚未接入”：
 
@@ -342,6 +342,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Delivery Message ID。Timer 是可丢弃投影，Host 重启会重挂或补发 overdue；到期只在 Idle 边界
   以注入安全 reminder followup 唤醒 Agent，并沿普通 RunningTurn 实时投影到 Web。远程测试覆盖
   规则校验、时区、调度、Busy/Idle、恢复和 Host 背景回合；模型行为验收保留为部署后测试。
+- [x] `DONE-72` 会话选择刷新保持：模型恢复先折叠最后一个显式 `session/model-selected`，只有
+  旧日志不存在显式选择时才回退最后一个 `request/header`，避免 Provider 未回写 Effort 时把
+  用户选择的推理强度恢复成模型默认值；真实 Web 权限回归新增浏览器 Reload，Composer 在 Turn
+  运行期间禁用权限切换，避免 Host 拒绝策略热切换后 UI 暂时显示未落盘的 Full access。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

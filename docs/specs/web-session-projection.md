@@ -71,6 +71,10 @@ Session 创建还会在返回前 Flush `agent-preset/selected`、`permission/pre
 Full access 的冻结线值为 `danger-full-access`，不是内部实现细节 `disabled`。Host 重启只折叠日志
 最后一个 Preset，不从进程内旧值猜测。
 
+权限工具执行器在 Turn 开始时按策略构造，因此 Composer 在 Session Running 期间必须锁定权限
+选择器，不能先显示乐观选择再让 Host 拒绝热切换。Idle 切换成功后的权限投影必须经页面 Reload、
+WebSocket 重连和 Host 重启保持一致。
+
 `session.rename` 与 `agentPreset.select` 同样先 Flush `session/title` / `agent-preset/selected`，再更新
 浏览器投影；Host 重启按日志最后值恢复，不依赖旧进程内存。
 
