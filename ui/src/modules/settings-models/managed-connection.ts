@@ -1,7 +1,7 @@
 import type {TauriBridge} from '../shared/tauri'
 import type {IApiClient, SettingsDescribeFace} from './contracts'
 import {objectValue} from '../shared/runtime-types'
-const REF='XHARNESS_MANAGED_API_TOKEN', ROUTE='xharness-managed', NS='llm-pi-ai'
+import {MANAGED_MODEL_CREDENTIAL as REF, MANAGED_MODEL_ROUTE as ROUTE, MANAGED_MODEL_NAMESPACE as NS} from '../shared/managed-models'
 export async function saveManagedAccess(api:IApiClient,describe:SettingsDescribeFace,raw:unknown){
  const v=objectValue(raw);if(v.status!=='authorized'||typeof v.accessToken!=='string'||typeof v.baseURL!=='string'||!Array.isArray(v.models))throw Error('invalid_access')
  await describe.ensure();const snap=describe.getSnapshot();const ns=snap.view?.namespaces.find(n=>n.ns===NS);if(snap.status!=='ready'||!ns||!snap.view?.writable)throw Error('settings_unavailable')

@@ -31,10 +31,14 @@ const catalog={current,routable:true,groups:[{id:'p/x',name:'Provider',models:[m
 const ok=value=>({result:{ok:true,value}});
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return{promise,resolve,reject}}
 
-test('source export ABI and exact CSS retained',()=>{
+test('source export ABI and original styles retained with reviewed source-menu additions',()=>{
  assert.deepEqual(Object.keys(apis[1].plugin).sort(),Object.keys(apis[0].plugin).sort());
  assert.deepEqual(json(apis[1].plugin.inject),json(apis[0].plugin.inject));
- assert.deepEqual(json(apis[1].styles),json(apis[0].styles));
+ assert.equal(apis[1].styles.length, apis[0].styles.length);
+ const old = json(apis[0].styles), next = json(apis[1].styles);
+ assert.ok(next[0].textContent.startsWith(old[0].textContent), 'pre-existing styles stay intact');
+ assert.match(next[0].textContent, /AbPDjW_sourceBadge/);
+ assert.equal(next[0].dataset.pluginCss, old[0].dataset.pluginCss);
 });
 test('context validation uses selected model maximum and preserves complete selection',()=>{
  for(const {plugin}of apis){const state={...catalog,status:'ready',error:null};
@@ -79,8 +83,14 @@ test('resolver cache, composer blocks and session disposal agree',async()=>{
 });
 test('/model command, opaque slash ids, dynamic default effort and composer injection agree',async()=>{
  const receipts=[];
- for(const {plugin}of apis){const registrations=[];const slots=[];const locales=[];const directory=new plugin.ModelDirectory({models:async()=>ok(catalog),selectModel:async args=>ok({selected:args})},'s',()=>true);const ctx={effect:fn=>fn(),locale:{register:(...args)=>locales.push(args),bind:()=>key=>key},plugin(){},inject:(_names,fn)=>fn(ctx),get:()=>({register:row=>registrations.push(row)}),modelDirectories:{directoryFor:()=>directory},sessions:{subagentAddress:()=>undefined},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>slots.push({spec,component})}};
-  plugin.apply(ctx);const command=registrations[0];const rows=await command.ui.options({sessionId:'s'});assert.equal(rows[0].active,true);await command.ui.onSelect({id:'p/x/m/x'},{sessionId:'s'});assert.equal(directory.store.getSnapshot().current.reasoningEffort,'ultra');assert.equal(directory.store.getSnapshot().current.contextWindowTokens,undefined);await assert.rejects(command.ui.onSelect({id:'stale'},{sessionId:'s'}),/failed to load/);const injected=slots[0].spec.inject('s');assert.equal(injected.available,true);receipts.push({locales:json(locales),rows:json(rows),slotName:slots[0].spec.name});
+ for(const {plugin}of apis){const registrations=[];const slots=[];const locales=[];const directory=new plugin.ModelDirectory({models:async()=>ok(catalog),selectModel:async args=>ok({selected:args})},'s',()=>true);const emitted=[];const ctx={emit:(...args)=>emitted.push(args),effect:fn=>fn(),locale:{register:(...args)=>locales.push(args),bind:()=>key=>key},plugin(){},inject:(_names,fn)=>fn(ctx),get:()=>({register:row=>registrations.push(row)}),modelDirectories:{directoryFor:()=>directory},sessions:{subagentAddress:()=>undefined},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>slots.push({spec,component})}};
+  plugin.apply(ctx);const command=registrations[0];const rows=await command.ui.options({sessionId:'s'});assert.equal(rows[0].active,true);await command.ui.onSelect({id:'p/x/m/x'},{sessionId:'s'});assert.equal(directory.store.getSnapshot().current.reasoningEffort,'ultra');assert.equal(directory.store.getSnapshot().current.contextWindowTokens,undefined);await assert.rejects(command.ui.onSelect({id:'stale'},{sessionId:'s'}),/failed to load/);const injected=slots[0].spec.inject('s');assert.equal(injected.available,true);if(plugin===apis[1].plugin){injected.manageModels();assert.deepEqual(json(emitted),[['settings/open-section','models']]);}receipts.push({locales:json(locales),rows:json(rows),slotName:slots[0].spec.name});
  }
- assert.deepEqual(receipts[1],receipts[0]);
+ for (const lang of ['zh','en']) {
+  const added = receipts[1].locales[0][1][lang];
+  const before = receipts[0].locales[0][1][lang];
+  assert.deepEqual(Object.keys(added).filter(key => !(key in before)).sort(), ['empty.custom','menu.back','menu.custom','menu.manage','source.account','source.accountHint']);
+  for (const key of Object.keys(before)) assert.equal(added[key], before[key]);
+ }
+ assert.deepEqual({...receipts[1],locales:undefined},{...receipts[0],locales:undefined});
 });

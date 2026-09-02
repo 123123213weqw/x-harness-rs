@@ -740,3 +740,14 @@ for (const [label, loader] of [['legacy', legacy], ['source', current]]) {
 }
 
 test('source: root frame retains current-master workspace.item root-list declaration',()=>{const env=context();current.entry('layout').apply(env.ctx);assert.deepEqual(normalized(env.registrations[0].spec.children['workspace.item']),{kind:'list',scope:'root'})})
+
+test('settings shell owns model-menu navigation and releases its event subscription',()=>{
+ const env=context();let listeners=new Set();let off=0;
+ env.ctx.on=(event,fn)=>{assert.equal(event,'settings/open-section');listeners.add(fn);return()=>{off++;listeners.delete(fn)}};
+ current.entry('settings-general').apply(env.ctx);
+ const row=env.registrations.find(entry=>entry.spec.name==='sidebar.settings');
+ const face=row.spec.inject(), opened=[];
+ const release=face.subscribeOpenSection(id=>opened.push(id));
+ for(const fn of listeners)fn('models');assert.deepEqual(opened,['models']);
+ release();assert.equal(off,1);assert.equal(listeners.size,0);
+});

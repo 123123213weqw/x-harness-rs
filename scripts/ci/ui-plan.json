@@ -302,6 +302,8 @@
     {"id":"contract-089","suite":"contract","argv":["node","--test","scripts/test-account-entry-source.mjs"],"env":{},"weight":6},
     {"id":"browser-202","suite":"browser","argv":["node","scripts/test-account-entry-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":90},
     {"id":"browser-203","suite":"browser","argv":["node","scripts/test-account-entry-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90},
-    {"id":"contract-090","suite":"contract","argv":["node","--test","scripts/test-managed-connection-source.mjs"],"env":{},"weight":6}
+    {"id":"contract-090","suite":"contract","argv":["node","--test","scripts/test-managed-connection-source.mjs"],"env":{},"weight":6},
+    {"id":"browser-204","suite":"browser","argv":["node","scripts/test-managed-model-menu-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":120},
+    {"id":"browser-205","suite":"browser","argv":["node","scripts/test-managed-model-menu-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120}
   ]
 }
