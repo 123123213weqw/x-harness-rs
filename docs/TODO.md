@@ -361,6 +361,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   前台结果从结构化 Metadata 恢复 stdout/stderr/exitCode/signal，并明确标出截断。后台 Job、坏 JSON、
   错误形状均 Fail-closed 回退通用卡片；旧日志可从 JSON Tool Result 恢复。WZU_Server 回归覆盖运行中、
   完成、非零退出、截断、后台结果、坏参数、Legacy Live/History 等边界。
+- [x] `DONE-75` Tool Arguments Durable Coalescer：同一 Turn/Step/Tool Index 且兼容 ID/Name 的相邻
+  参数碎片在 Checkpoint 内合并；Direct Embed 仍收到每个实时 Delta，冲突身份 Fail-closed 分帧。
+  DeepSeek V4 Flash 真实 Coding Run 中 4 个 Tool Call 和外部验收均通过，实时 Delta 110 条、Durable
+  Chunk 5 条（-95.45%）。Full Debug 继续保留原始 Provider/Core 证据，不与普通下行量混淆。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -577,7 +581,9 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [ ] `P2-02` **流式传输增强。** 提供带 Cursor Resume、Lag Detection、Reconnect 和
   Per-session Multiplexing 的 WebSocket/SSE 下行事件流。增加两级 Delta Coalescer：首个正文/
   Reasoning Delta 立即发送以保护 TTFT，随后按 20--50 ms 或 4--16 KiB 合并；Tool Arguments 默认只
-  投影进度和最终结构，不把每个 token 作为独立 Web 卡片事件。Durable Journal 保存可恢复的合并帧
+  投影进度和最终结构，不把每个 token 作为独立 Web 卡片事件。Tool Arguments 的 Checkpoint 内相邻
+  合并和真实模型验收已由 `DONE-75` 完成；剩余两级时间/字节下行合并与最终结构专用投影。Durable
+  Journal 保存可恢复的合并帧
   和最终 Assistant/Tool Call，不为每个 Provider 微碎片追加一条 Event；Cancel、Finish、Tool Call
   边界必须强制 Flush。验收报告原始 Delta 数、下行 Frame 数、JSONL 增长、CPU、重放一致性和崩溃
   最多丢失的未 Flush 窗口。

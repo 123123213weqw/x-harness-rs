@@ -64,3 +64,23 @@ external Command validation -> exit 0
 3. 本轮不含 Debug-off 对照，因此不能把 4.31 秒当作正常模式性能基线，也不能据此宣称 Debug 无
    开销。下一轮需固定同一任务和模型做轮换 A/B。
 
+## 第二轮：Tool Arguments 持久流合并
+
+针对第一轮发现的碎片放大，Core 在不改变直接嵌入 API 实时语义的前提下，对同一 Turn/Step、同一
+Tool Index 且 ID/Name 兼容的相邻 `ToolCallDelta` 做 Durable Checkpoint 内合并。空 ID/Name 与重复
+ID/Name 都兼容；冲突的非空身份 Fail-closed 为两条记录，不能静默篡改调用身份。确定性测试同时覆盖
+正常碎片、重复身份、冲突身份和最终 JSON 重建。
+
+重新执行同一个 DeepSeek Flash Coding 验收，结果仍通过：
+
+- 4 个 Tool Call 全部成功，外部 Python 验收再次通过；
+- Model-facing 实时 `ToolCallDelta` 保持 **110** 条，Direct Embed 的流式进度没有被降级；
+- Durable Tool Argument Chunk 从 110 条降至 **5** 条，减少 **95.45%**；两个并行 Read 的碎片交错，
+  因而安全结果是 5 条而不是强行压成 4 条；
+- Wall 3,717.63 ms，平均 TTFT 347.73 ms，加权近似 Decode 178.18 token/s；
+- Full Debug 仍保存 750 条/431,482 Byte 原始跨层证据，这是 Debug 完整性的预期行为，不是普通 Web
+  下行量。完整数据见 [`coalesced-summary.json`](coalesced-summary.json)。
+
+第二轮 Wall 比第一轮低约 13.75%，但两次模型正文 Token、网络响应和 Cache 组成不同，**不能**把该
+差值归因为 Coalescer。可以严格归因的是同一轮的 110 → 5 Durable Chunk；后续 Debug-off/Full 轮换
+A/B 继续由 `REL-05` 完成。

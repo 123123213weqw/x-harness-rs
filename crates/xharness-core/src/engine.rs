@@ -2014,6 +2014,44 @@ impl Runner {
                     buffered.push_str(delta);
                     true
                 }
+                (
+                    SessionEventData::AssistantChunk {
+                        turn: prior_turn,
+                        step: prior_step,
+                        chunk:
+                            AssistantChunk::ToolCallDelta {
+                                index: buffered_index,
+                                id: buffered_id,
+                                name: buffered_name,
+                                arguments_delta: buffered_arguments,
+                            },
+                    },
+                    AssistantChunk::ToolCallDelta {
+                        index,
+                        id,
+                        name,
+                        arguments_delta,
+                    },
+                ) if *prior_turn == turn
+                    && *prior_step == step
+                    && *buffered_index == *index
+                    && stream_identity_fragment_is_compatible(buffered_id, id)
+                    && stream_identity_fragment_is_compatible(buffered_name, name) =>
+                {
+                    // Chat-style streams normally identify the call only in
+                    // the first fragment, while other compatible providers
+                    // repeat it. Preserve one stable identity in both cases;
+                    // a conflicting non-empty id/name starts a new durable
+                    // chunk instead of being silently rewritten.
+                    if buffered_id.is_empty() {
+                        buffered_id.push_str(id);
+                    }
+                    if buffered_name.is_empty() {
+                        buffered_name.push_str(name);
+                    }
+                    buffered_arguments.push_str(arguments_delta);
+                    true
+                }
                 _ => false,
             });
         if !merged {
@@ -3866,6 +3904,10 @@ fn assistant_chunk_bytes(chunk: &AssistantChunk) -> usize {
             .saturating_add(arguments_delta.len()),
         AssistantChunk::Usage(value) | AssistantChunk::Provider(value) => value.to_string().len(),
     }
+}
+
+fn stream_identity_fragment_is_compatible(buffered: &str, incoming: &str) -> bool {
+    buffered.is_empty() || incoming.is_empty() || buffered == incoming
 }
 
 struct ToolExecution {

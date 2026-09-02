@@ -9,6 +9,9 @@ use xharness_debug::{DebugRecorder, DebugTraceConfig, DebugTraceMode};
 use xharness_jobs::JobRegistry;
 use xharness_platform::{NativePlatform, PlatformConfig};
 use xharness_provider_openai::{OpenAiProtocol, OpenAiProvider, OpenAiProviderConfig};
+use xharness_session::{
+    AssistantChunk, EventData as SessionEventData, MemorySessionStore, Store as SessionStore,
+};
 use xharness_tools::ToolExecutor;
 use xharness_web::WebRuntime;
 
@@ -290,9 +293,13 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
     let mut request = LoopRequest::new(Arc::new(provider), vec![AgentMessage::user(prompt)]);
     request.debug = debug.clone();
     request.tool_executor = Some(tool_executor);
+    let journal = Arc::new(MemorySessionStore::default());
+    request.session_id = Some("deepseek-flash-coding-acceptance".to_owned());
+    request.journal_store = Some(journal.clone());
     let mut run = LoopEngine.start(request);
 
     let mut calls = Vec::new();
+    let mut live_tool_argument_deltas = 0usize;
     while let Some(event) = run.next().await {
         match event.kind {
             LoopEventKind::ToolApprovalRequested { call, .. } => run
@@ -302,6 +309,9 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
             LoopEventKind::ToolStarted(call) => {
                 println!("coding tool={} args={}", call.name, call.arguments_json);
                 calls.push(call.name);
+            }
+            LoopEventKind::ToolCallDelta { .. } => {
+                live_tool_argument_deltas = live_tool_argument_deltas.saturating_add(1);
             }
             LoopEventKind::ToolCompleted { call, result } => {
                 println!(
@@ -322,6 +332,30 @@ async fn live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence() {
     assert!(calls.iter().any(|name| name == "read"));
     assert!(calls.iter().any(|name| name == "edit" || name == "write"));
     assert!(calls.iter().any(|name| name == "bash"));
+    let durable = journal
+        .load("deepseek-flash-coding-acceptance")
+        .await
+        .unwrap()
+        .unwrap();
+    let durable_tool_argument_chunks = durable
+        .events()
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.data(),
+                SessionEventData::AssistantChunk {
+                    chunk: AssistantChunk::ToolCallDelta { .. },
+                    ..
+                }
+            )
+        })
+        .count();
+    println!(
+        "tool argument stream live_deltas={} durable_chunks={}",
+        live_tool_argument_deltas, durable_tool_argument_chunks
+    );
+    assert!(live_tool_argument_deltas >= calls.len());
+    assert!(durable_tool_argument_chunks <= live_tool_argument_deltas);
     assert_eq!(
         fs::read_to_string(&tests).unwrap(),
         test_source,

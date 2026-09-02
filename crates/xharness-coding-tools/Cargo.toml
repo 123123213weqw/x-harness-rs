@@ -31,3 +31,4 @@ futures.workspace = true
 xharness-core = { path = "../xharness-core" }
 xharness-sandbox = { path = "../xharness-sandbox" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }
+xharness-session = { path = "../xharness-session" }
