@@ -39,6 +39,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-context` | [上下文预算](context.md) | Surface 抽象、原生/后备 Token Guard 与 Durable Compact 接线已实现 |
 | Web Context Inspector | [上下文检查器](context-inspector.md) | RequestHeader 完整输入投影、第三个 Context Tab、颜色分类与压缩前后视图已实现 |
 | `xharness-compaction` | [上下文压缩](compaction.md) | 自动 Pressure/Overflow、摘要重计量、Session Replace 与 Web 投影已接线；手动命令/生产 Pruner 待完成 |
+| 发布验收 | [DeepSeek Flash 真实 Coding 验收闭环](live-deepseek-evaluation.md) | 五级门禁已冻结；真实任务按 REL-08 持续执行 |
 | `xharness-debug` | [Full Debug Trace](debug-trace.md) | Host/Core/Provider/Tool/Process/Terminal/Sandbox/Web/Server 全链路 Debug Trace 已接线 |
 | `xharness-token` | [上下文预算与压缩](context.md) | TokenMeter、保守后备与请求前 Hard Guard 已实现 |
 | `xharness-prompt` | [Prompt 组装与注入](prompt.md) | v1 最小确定性注入已实现；完整 Registry 计划中 |

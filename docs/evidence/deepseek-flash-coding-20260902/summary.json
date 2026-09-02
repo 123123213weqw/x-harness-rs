@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-02",
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash",
+  "result": "passed",
+  "externalAcceptance": "passed",
+  "wallMs": 4310.59,
+  "trace": {
+    "events": 689,
+    "bytes": 370647,
+    "layers": {
+      "core": 286,
+      "provider.openai": 369,
+      "tools": 28,
+      "sandbox": 3,
+      "process": 3
+    },
+    "rawSseChunks": 94,
+    "normalizedProviderEvents": 267,
+    "coreLoopEvents": 276
+  },
+  "usage": {
+    "uncachedInputTokens": 970,
+    "cacheReadTokens": 7680,
+    "outputTokens": 353,
+    "reasoningTokens": 44,
+    "cacheReadRatio": 0.8879
+  },
+  "steps": [
+    {"step": 1, "ttftMs": 663.27, "wallMs": 1123.67, "outputTokens": 80, "approxDecodeTokensPerSecond": 173.76, "deltas": 35, "sseChunks": 16},
+    {"step": 2, "ttftMs": 469.55, "wallMs": 1399.82, "outputTokens": 152, "approxDecodeTokensPerSecond": 163.39, "deltas": 141, "sseChunks": 45},
+    {"step": 3, "ttftMs": 684.73, "wallMs": 832.66, "outputTokens": 50, "approxDecodeTokensPerSecond": 337.98, "deltas": 17, "sseChunks": 7},
+    {"step": 4, "ttftMs": 289.48, "wallMs": 789.23, "outputTokens": 71, "approxDecodeTokensPerSecond": 142.07, "deltas": 70, "sseChunks": 26}
+  ],
+  "tools": [
+    {"name": "read", "durationMs": 6, "ok": true},
+    {"name": "read", "durationMs": 10, "ok": true},
+    {"name": "edit", "durationMs": 9, "ok": true},
+    {"name": "bash", "durationMs": 69, "ok": true, "exitCode": 0}
+  ]
+}
