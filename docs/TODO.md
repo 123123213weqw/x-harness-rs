@@ -583,6 +583,13 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   已完成 M1–M3：单次 Usage camelCase、`tokenUsage` 与 `sessionStats` 的 Live、History、
   Session List 和 Restart 等价投影均由 `DONE-61` 关闭，现有前端可以恢复 TTFT、Token/s、
   Token 总量和 Cache Hit。此项继续跟踪非模型指标的 Terminal/File/Web Source 等完整投影。
+  Rust Host 必须补齐上游 Tool View 契约：`bash` 的运行中 Call 投影
+  `callView.card="terminal"`（command/cwd/description），完成结果投影
+  `resultView.card="terminal"`（stdout/stderr/exitCode/signal），让成功、运行中和失败 Bash 卡片都可
+  键盘访问并实时展开；当前仅返回通用 Text Tool Result，导致上游 `BashRow` 计算
+  `terminal=null/expandable=false`。`write/edit` 的大 Content 不逐字符渲染，但完成后必须提供
+  Path/Diff/Hash 和按需 Raw Inspect，不能以 Coalescing 为由永久隐藏工具详情。测试覆盖 Live、
+  History、重启恢复、运行中 stdout 追加、失败退出码、输出截断与无鼠标键盘展开。
 
 - [ ] `P2-04` **Host 认证与授权。** 默认仅本地；远程使用 Bearer/Session Auth、Workspace/
   Owner 隔离、CSRF/Origin Policy、Audit Log 和显式 Network Exposure。
