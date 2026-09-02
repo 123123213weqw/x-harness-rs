@@ -54,6 +54,22 @@ try {
       await dialog.getByRole('button', { name: zh ? '关闭' : 'Close', exact: true }).click()
       assert.equal(await trigger.evaluate(el => el === document.activeElement), true, 'durable modal opener')
     }
+    // Deterministic layout-only transition: no outside pointer event. The
+    // delayed wide->rail commit must keep a newly opened menu and its focus,
+    // and must re-anchor it to the settled trigger rather than stale geometry.
+    await trigger.click()
+    await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'menuitem')
+    await page.getByRole('button', { name: zh ? '收起侧边栏' : 'Collapse sidebar', exact: true }).evaluate(el => el.click())
+    await page.waitForFunction(() => document.querySelector('[data-xh-account-trigger]')?.classList.contains('xhAccount_rail'))
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true', 'layout settle does not dismiss live menu')
+    assert.equal(await account.evaluate(el => el === document.activeElement), true, 'focus survives rail commit')
+    const anchor = await trigger.boundingBox()
+    const placed = await page.getByRole('menu').boundingBox()
+    assert.ok(Math.abs(placed.y + placed.height + 4 - anchor.y) < 1, 'menu remeasures settled anchor')
+    await settings.click(); await dialog.waitFor()
+    await dialog.getByRole('button', { name: zh ? '关闭' : 'Close', exact: true }).click()
+    await page.getByRole('button', { name: zh ? '打开侧边栏' : 'Open sidebar', exact: true }).click()
+
     // Collapse while a menu is visible, then validate the same entry in rail.
     await trigger.click()
     await page.getByRole('button', { name: zh ? '收起侧边栏' : 'Collapse sidebar', exact: true }).click()
