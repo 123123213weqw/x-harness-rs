@@ -15,8 +15,9 @@ use serde_json::{json, Map, Value};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use xharness_core::{
-    ContextWindowCapability, ModelCapabilities, ModelProvider, ProviderError, ProviderEvent,
-    ProviderInputTokenCount, ProviderRequest, ProviderStream,
+    CapabilitySource, ContextLimitEvidence, ContextWindowCapability, ModelCapabilities,
+    ModelProvider, ProviderError, ProviderEvent, ProviderInputTokenCount, ProviderRequest,
+    ProviderStream,
 };
 use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
 
@@ -50,6 +51,9 @@ const RESERVED_REASONING_PATCH_KEYS: &[&str] = &[
 pub struct OpenAiCapabilityProbe {
     pub url: String,
     pub context_window_json_pointer: String,
+    pub model_ceiling_json_pointer: Option<String>,
+    pub provider_limit_json_pointer: Option<String>,
+    pub account_limit_json_pointer: Option<String>,
     pub ttl: Duration,
 }
 
@@ -58,8 +62,26 @@ impl OpenAiCapabilityProbe {
         Self {
             url: url.into(),
             context_window_json_pointer: context_window_json_pointer.into(),
+            model_ceiling_json_pointer: None,
+            provider_limit_json_pointer: None,
+            account_limit_json_pointer: None,
             ttl: DEFAULT_CAPABILITY_TTL,
         }
+    }
+
+    pub fn with_model_ceiling_json_pointer(mut self, pointer: impl Into<String>) -> Self {
+        self.model_ceiling_json_pointer = Some(pointer.into());
+        self
+    }
+
+    pub fn with_provider_limit_json_pointer(mut self, pointer: impl Into<String>) -> Self {
+        self.provider_limit_json_pointer = Some(pointer.into());
+        self
+    }
+
+    pub fn with_account_limit_json_pointer(mut self, pointer: impl Into<String>) -> Self {
+        self.account_limit_json_pointer = Some(pointer.into());
+        self
     }
 
     pub fn with_ttl(mut self, ttl: Duration) -> Self {
@@ -297,10 +319,20 @@ impl OpenAiProvider {
             if probe.url.trim().is_empty() {
                 return Err(ProviderError::new("capability probe URL must not be empty"));
             }
-            if !probe.context_window_json_pointer.starts_with('/') {
-                return Err(ProviderError::new(
-                    "capability context-window JSON pointer must start with '/'",
-                ));
+            for (name, pointer) in [
+                (
+                    "deployment context-window",
+                    Some(&probe.context_window_json_pointer),
+                ),
+                ("model ceiling", probe.model_ceiling_json_pointer.as_ref()),
+                ("Provider limit", probe.provider_limit_json_pointer.as_ref()),
+                ("account limit", probe.account_limit_json_pointer.as_ref()),
+            ] {
+                if pointer.is_some_and(|pointer| !pointer.starts_with('/')) {
+                    return Err(ProviderError::new(format!(
+                        "capability {name} JSON pointer must start with '/'"
+                    )));
+                }
             }
             if probe.ttl.is_zero() {
                 return Err(ProviderError::new(
@@ -375,28 +407,59 @@ impl OpenAiProvider {
                 "capability discovery returned invalid JSON: {error}"
             ))
         })?;
-        let tokens = body
-            .pointer(&probe.context_window_json_pointer)
-            .and_then(Value::as_u64)
-            .filter(|tokens| *tokens > 0)
-            .ok_or_else(|| {
-                ProviderError::new(format!(
-                    "capability discovery response has no positive integer at JSON pointer {:?}",
-                    probe.context_window_json_pointer
-                ))
-            })?;
-        let fetched_at_ms = SystemTime::now()
+        let read_limit = |name: &str, pointer: &str| -> Result<u64, ProviderError> {
+            body.pointer(pointer)
+                .and_then(Value::as_u64)
+                .filter(|tokens| *tokens > 0)
+                .ok_or_else(|| {
+                    ProviderError::new(format!(
+                        "capability discovery response has no positive {name} integer at JSON pointer {pointer:?}"
+                    ))
+                })
+        };
+        let tokens = read_limit(
+            "deployment context-window",
+            &probe.context_window_json_pointer,
+        )?;
+        let model_ceiling = probe
+            .model_ceiling_json_pointer
+            .as_deref()
+            .map(|pointer| read_limit("model ceiling", pointer))
+            .transpose()?;
+        let provider_limit = probe
+            .provider_limit_json_pointer
+            .as_deref()
+            .map(|pointer| read_limit("Provider limit", pointer))
+            .transpose()?;
+        let account_limit = probe
+            .account_limit_json_pointer
+            .as_deref()
+            .map(|pointer| read_limit("account limit", pointer))
+            .transpose()?;
+        let observed_at_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis()
             .try_into()
             .unwrap_or(u64::MAX);
+        let ttl_ms: u64 = probe.ttl.as_millis().try_into().unwrap_or(u64::MAX);
+        let evidence = |tokens, source| ContextLimitEvidence {
+            tokens,
+            source,
+            revision: revision.clone(),
+            observed_at_ms: Some(observed_at_ms),
+            expires_at_ms: Some(observed_at_ms.saturating_add(ttl_ms)),
+            endpoint_fingerprint: None,
+        };
         Ok(ModelCapabilities {
             context_window: ContextWindowCapability {
-                max_context_tokens: Some(tokens),
-                source: xharness_core::CapabilitySource::DeploymentReported,
-                revision,
-                fetched_at_ms: Some(fetched_at_ms),
+                model_ceiling: model_ceiling
+                    .map(|tokens| evidence(tokens, CapabilitySource::ProviderReported)),
+                provider_limit: provider_limit
+                    .map(|tokens| evidence(tokens, CapabilitySource::ProviderReported)),
+                deployment_limit: Some(evidence(tokens, CapabilitySource::DeploymentReported)),
+                account_limit: account_limit
+                    .map(|tokens| evidence(tokens, CapabilitySource::AccountReported)),
                 ..ContextWindowCapability::default()
             },
         })

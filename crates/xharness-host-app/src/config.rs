@@ -66,7 +66,7 @@ impl ModelDeployment {
             .map_err(|error| error.to_string())?;
         let token_guard = token_guard(
             &config.model,
-            capabilities.context_window.max_context_tokens,
+            capabilities.context_window.effective_hard_max(),
             config.max_output_tokens,
             config.minimum_output_tokens,
             config.token_safety_margin,
@@ -253,13 +253,21 @@ impl ProviderConfig {
                 OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model)
                     .with_context_window_fallback(fallback_context_window_tokens);
             if let Some(capability) = context_window_capability {
-                provider_config = provider_config.with_capability_probe(
-                    OpenAiCapabilityProbe::new(
-                        capability.url,
-                        capability.context_window_json_pointer,
-                    )
-                    .with_ttl(std::time::Duration::from_secs(capability.ttl_seconds)),
-                );
+                let mut probe = OpenAiCapabilityProbe::new(
+                    capability.url,
+                    capability.context_window_json_pointer,
+                )
+                .with_ttl(std::time::Duration::from_secs(capability.ttl_seconds));
+                if let Some(pointer) = capability.model_ceiling_json_pointer {
+                    probe = probe.with_model_ceiling_json_pointer(pointer);
+                }
+                if let Some(pointer) = capability.provider_limit_json_pointer {
+                    probe = probe.with_provider_limit_json_pointer(pointer);
+                }
+                if let Some(pointer) = capability.account_limit_json_pointer {
+                    probe = probe.with_account_limit_json_pointer(pointer);
+                }
+                provider_config = provider_config.with_capability_probe(probe);
             }
             if let Some(reasoning) = &reasoning {
                 let profile = OpenAiReasoningProfile::new(
@@ -286,7 +294,7 @@ impl ProviderConfig {
                 })?;
             let token_guard = token_guard(
                 &id,
-                capabilities.context_window.max_context_tokens,
+                capabilities.context_window.effective_hard_max(),
                 max_output_tokens,
                 minimum_output_tokens,
                 token_safety_margin,
@@ -355,7 +363,18 @@ struct ModelConfig {
 #[serde(deny_unknown_fields)]
 struct ContextWindowCapabilityConfig {
     url: String,
+    /// Required live limit of this exact deployed model endpoint.
     context_window_json_pointer: String,
+    /// Optional architecture/catalog ceiling. This can only lower an
+    /// operational limit and never proves that the endpoint accepts requests.
+    #[serde(default)]
+    model_ceiling_json_pointer: Option<String>,
+    /// Optional Provider-wide constraint for this route.
+    #[serde(default)]
+    provider_limit_json_pointer: Option<String>,
+    /// Optional account/tier constraint for the configured credential.
+    #[serde(default)]
+    account_limit_json_pointer: Option<String>,
     #[serde(default = "default_capability_ttl_seconds")]
     ttl_seconds: u64,
 }
@@ -458,6 +477,32 @@ mod tests {
             .is_none());
     }
 
+    #[test]
+    fn capability_config_accepts_independent_limit_pointers() {
+        let config: ContextWindowCapabilityConfig = serde_json::from_value(serde_json::json!({
+            "url": "https://provider.example/capabilities",
+            "context_window_json_pointer": "/deployment/context",
+            "model_ceiling_json_pointer": "/model/context",
+            "provider_limit_json_pointer": "/provider/context",
+            "account_limit_json_pointer": "/account/context",
+            "ttl_seconds": 60
+        }))
+        .unwrap();
+        assert_eq!(
+            config.model_ceiling_json_pointer.as_deref(),
+            Some("/model/context")
+        );
+        assert_eq!(
+            config.provider_limit_json_pointer.as_deref(),
+            Some("/provider/context")
+        );
+        assert_eq!(
+            config.account_limit_json_pointer.as_deref(),
+            Some("/account/context")
+        );
+        assert_eq!(config.ttl_seconds, 60);
+    }
+
     #[tokio::test]
     async fn provider_file_builds_two_routable_openai_compatible_endpoints() {
         let config: ProviderFile = serde_json::from_str(
@@ -507,7 +552,13 @@ mod tests {
         assert_eq!(guard.budget().minimum_output_tokens, 2_048);
         assert_eq!(deployment.registry.models().len(), 2);
         assert!(deployment.registry.models().iter().all(|model| {
-            model.context_window.source == CapabilitySource::DeploymentDeclaredFallback
+            model
+                .context_window
+                .fallback_limit
+                .as_ref()
+                .is_some_and(|evidence| {
+                    evidence.source == CapabilitySource::DeploymentDeclaredFallback
+                })
         }));
     }
 
@@ -540,7 +591,7 @@ mod tests {
                 .first()
                 .unwrap()
                 .context_window
-                .max_context_tokens,
+                .effective_hard_max(),
             Some(53_248)
         );
         assert_eq!(

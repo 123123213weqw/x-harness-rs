@@ -47,8 +47,10 @@ Provider 显式声明：
 
 ### Context Window 所有权
 
-- `max_context_tokens` 属于精确 Provider/Deployment Capability，是硬上限。Core、Host 和 UI 禁止
-  根据模型名或产品默认值发明该数字。
+- Context Capability 分别保存 `modelCeiling/providerLimit/deploymentLimit/accountLimit/fallbackLimit`
+  及各自 Evidence。Core、Host 和 UI 禁止根据模型名或产品默认值发明硬上限。
+- `effective_hard_max()` 取所有可用运行约束的最小值，再与模型理论 Ceiling 相交。只有模型
+  Ceiling、没有运行约束或 fallback 时不得声称端点已经支持该容量。
 - OpenAI-compatible 没有统一 Capability 路径；部署配置只声明结构化 URL、JSON Pointer 和 TTL。
   llama.cpp 可从 `/props` 读取实际 `n_ctx`。
 - 服务端没有能力接口时允许 `fallback_context_window_tokens`，但来源必须保持
@@ -86,6 +88,9 @@ Registry。协议禁止根据错误自动回退。
   `model-unavailable`，不得污染 Session 当前选择，也不得等到下一次 Prompt 才失败。
 - `session.selectModel.contextWindowTokens` 必须为正且不超过目标模型 Capability；选择写入
   `session/model-selected`，刷新、恢复和 Fork 后保持一致。
+- 切换模型且没有显式携带软窗口时，必须物化目标模型自己的有效上限；禁止继承源模型的软窗口。
+  同一模型只切换推理档位时，Host 与客户端都必须保留当前软窗口。客户端调整软窗口时继续显式
+  携带当前推理档位，避免把“省略”与“采用 Provider 默认”混为一谈。
 - 新 Session 使用配置中的默认路由。恢复 Session 使用日志中的 latest-wins
   `session/model-selected`；如果部署已移除该路由，Session 仍可浏览，但 Pending Turn 不得自动在
   其他模型上执行。

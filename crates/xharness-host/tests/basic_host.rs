@@ -801,7 +801,11 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
     assert_eq!(models["groups"][1]["models"][0]["id"], "qwen-v100");
     assert_eq!(models["groups"][1]["models"][0]["contextWindow"], 53_248);
     assert_eq!(
-        models["groups"][1]["models"][0]["contextWindowCapability"]["source"],
+        models["groups"][1]["models"][0]["contextWindowCapability"]["providerLimit"]["source"],
+        serde_json::to_value(CapabilitySource::ProviderReported).unwrap()
+    );
+    assert_eq!(
+        models["groups"][1]["models"][0]["contextWindowSource"],
         serde_json::to_value(CapabilitySource::ProviderReported).unwrap()
     );
     assert_eq!(
@@ -877,6 +881,75 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
     assert_eq!(current["current"]["reasoningEffort"], "max");
     assert_eq!(current["current"]["contextWindowTokens"], 32_768);
     assert_eq!(current["routable"], true);
+
+    let same_model_partial_update = host
+        .call(
+            RpcId::new("catalog-same-model-partial-update"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "gpu-v100",
+                "model": "qwen-v100",
+                "reasoningEffort": "high",
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    let same_model_partial_update = match same_model_partial_update {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("same-model partial update failed: {other:?}"),
+    };
+    assert_eq!(
+        same_model_partial_update["selected"]["contextWindowTokens"], 32_768,
+        "changing only reasoning on the same route must preserve its selected soft window"
+    );
+
+    let switched_to_larger_model = host
+        .call(
+            RpcId::new("catalog-switch-to-4080"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "gpu-4080",
+                "model": "qwen-4080",
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    let switched_to_larger_model = match switched_to_larger_model {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("switching to the larger model failed: {other:?}"),
+    };
+    assert_eq!(
+        switched_to_larger_model["selected"]["contextWindowTokens"], 131_072,
+        "a model switch must materialize the destination maximum instead of inheriting 32K"
+    );
+
+    let switched_to_smaller_model = host
+        .call(
+            RpcId::new("catalog-switch-back-to-v100"),
+            RpcMethod::SessionSelectModel,
+            json!({
+                "sessionId": session_id,
+                "provider": "gpu-v100",
+                "model": "qwen-v100",
+            }),
+            CancellationToken::new(),
+        )
+        .await;
+    let switched_to_smaller_model = match switched_to_smaller_model {
+        RpcResult::Success { value: Some(value) } => value,
+        other => panic!("switching back to the smaller model failed: {other:?}"),
+    };
+    assert_eq!(
+        switched_to_smaller_model["selected"]["contextWindowTokens"], 53_248,
+        "a model switch must never carry the previous model's 131K window into a 53K route"
+    );
+    assert_eq!(
+        switched_to_smaller_model["selected"]["reasoningEffort"],
+        "high"
+    );
+
     let rejected = host
         .call(
             RpcId::new("catalog-select-unsupported-effort"),

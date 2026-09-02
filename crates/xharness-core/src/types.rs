@@ -292,47 +292,155 @@ pub trait ModelProvider: Send + Sync + 'static {
 #[serde(rename_all = "snake_case")]
 pub enum CapabilitySource {
     ProviderReported,
+    ProviderCatalog,
     DeploymentReported,
+    AccountReported,
     DeploymentDeclaredFallback,
     ObservedStructuredError,
     #[default]
     Unknown,
 }
 
-/// Context capacity of one exact provider/model deployment.
+/// One independently sourced context-limit constraint.
+///
+/// A limit without provenance must never be promoted to Provider truth. The
+/// optional lifetime fields let a Host distinguish a fresh report from a
+/// last-known-good snapshot without teaching Core how a specific Provider is
+/// queried.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ContextWindowCapability {
-    /// Maximum accepted by the currently running deployment, if advertised.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_context_tokens: Option<u64>,
-    /// Optional architectural/model ceiling. The effective hard maximum is
-    /// still the deployment maximum above.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_max_context_tokens: Option<u64>,
+pub struct ContextLimitEvidence {
+    pub tokens: u64,
     #[serde(default)]
     pub source: CapabilitySource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fetched_at_ms: Option<u64>,
+    pub observed_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_fingerprint: Option<String>,
+}
+
+impl ContextLimitEvidence {
+    pub fn new(tokens: u64, source: CapabilitySource) -> Self {
+        Self {
+            tokens,
+            source,
+            ..Self::default()
+        }
+    }
+}
+
+/// Independent ceilings that jointly determine one exact route's accepted
+/// context capacity.
+///
+/// `model_ceiling` is architectural metadata, not proof that the selected API
+/// endpoint accepts that many tokens. At least one operational constraint
+/// (`provider_limit`, `deployment_limit`, `account_limit`) or an explicitly
+/// labelled fallback is therefore required before `effective_hard_max()` can
+/// admit a request.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextWindowCapability {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_ceiling: Option<ContextLimitEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_limit: Option<ContextLimitEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployment_limit: Option<ContextLimitEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_limit: Option<ContextLimitEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_limit: Option<ContextLimitEvidence>,
 }
 
 impl ContextWindowCapability {
     pub fn reported(max_context_tokens: u64) -> Self {
         Self {
-            max_context_tokens: Some(max_context_tokens),
-            source: CapabilitySource::ProviderReported,
+            provider_limit: Some(ContextLimitEvidence::new(
+                max_context_tokens,
+                CapabilitySource::ProviderReported,
+            )),
+            ..Self::default()
+        }
+    }
+
+    pub fn deployment_reported(max_context_tokens: u64) -> Self {
+        Self {
+            deployment_limit: Some(ContextLimitEvidence::new(
+                max_context_tokens,
+                CapabilitySource::DeploymentReported,
+            )),
             ..Self::default()
         }
     }
 
     pub fn declared_fallback(max_context_tokens: u64) -> Self {
         Self {
-            max_context_tokens: Some(max_context_tokens),
-            source: CapabilitySource::DeploymentDeclaredFallback,
+            fallback_limit: Some(ContextLimitEvidence::new(
+                max_context_tokens,
+                CapabilitySource::DeploymentDeclaredFallback,
+            )),
             ..Self::default()
         }
+    }
+
+    pub fn with_model_ceiling(mut self, tokens: u64, source: CapabilitySource) -> Self {
+        self.model_ceiling = Some(ContextLimitEvidence::new(tokens, source));
+        self
+    }
+
+    /// Compute the maximum that can safely be offered to a Session.
+    ///
+    /// Operational constraints are intersected. A fallback participates only
+    /// when no operational source is available. A model ceiling can lower an
+    /// accepted limit but cannot establish endpoint readiness by itself.
+    pub fn effective_hard_max(&self) -> Option<u64> {
+        let operational = [
+            self.provider_limit.as_ref(),
+            self.deployment_limit.as_ref(),
+            self.account_limit.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|evidence| evidence.tokens > 0 && evidence.source != CapabilitySource::Unknown)
+        .map(|evidence| evidence.tokens)
+        .min()
+        .or_else(|| {
+            self.fallback_limit
+                .as_ref()
+                .filter(|evidence| {
+                    evidence.tokens > 0
+                        && evidence.source == CapabilitySource::DeploymentDeclaredFallback
+                })
+                .map(|evidence| evidence.tokens)
+        })?;
+        Some(match self.model_ceiling.as_ref() {
+            Some(model) if model.tokens > 0 && model.source != CapabilitySource::Unknown => {
+                operational.min(model.tokens)
+            }
+            _ => operational,
+        })
+    }
+
+    pub fn effective_source(&self) -> CapabilitySource {
+        let Some(maximum) = self.effective_hard_max() else {
+            return CapabilitySource::Unknown;
+        };
+        [
+            self.provider_limit.as_ref(),
+            self.deployment_limit.as_ref(),
+            self.account_limit.as_ref(),
+            self.fallback_limit.as_ref(),
+            self.model_ceiling.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|evidence| evidence.tokens == maximum && evidence.source != CapabilitySource::Unknown)
+        .map(|evidence| evidence.source)
+        .unwrap_or(CapabilitySource::Unknown)
     }
 }
 
@@ -748,5 +856,71 @@ impl LoopRequest {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    #[test]
+    fn operational_constraints_intersect_with_the_model_ceiling() {
+        let capability = ContextWindowCapability {
+            model_ceiling: Some(ContextLimitEvidence::new(
+                1_048_576,
+                CapabilitySource::ProviderCatalog,
+            )),
+            provider_limit: Some(ContextLimitEvidence::new(
+                524_288,
+                CapabilitySource::ProviderReported,
+            )),
+            deployment_limit: Some(ContextLimitEvidence::new(
+                262_144,
+                CapabilitySource::DeploymentReported,
+            )),
+            account_limit: Some(ContextLimitEvidence::new(
+                131_072,
+                CapabilitySource::AccountReported,
+            )),
+            fallback_limit: Some(ContextLimitEvidence::new(
+                65_536,
+                CapabilitySource::DeploymentDeclaredFallback,
+            )),
+        };
+        assert_eq!(capability.effective_hard_max(), Some(131_072));
+        assert_eq!(
+            capability.effective_source(),
+            CapabilitySource::AccountReported
+        );
+    }
+
+    #[test]
+    fn a_model_ceiling_alone_does_not_claim_endpoint_readiness() {
+        let capability = ContextWindowCapability::default()
+            .with_model_ceiling(1_048_576, CapabilitySource::ProviderCatalog);
+        assert_eq!(capability.effective_hard_max(), None);
+        assert_eq!(capability.effective_source(), CapabilitySource::Unknown);
+    }
+
+    #[test]
+    fn fallback_is_used_only_without_an_operational_report() {
+        let fallback = ContextWindowCapability::declared_fallback(131_072)
+            .with_model_ceiling(1_048_576, CapabilitySource::ProviderCatalog);
+        assert_eq!(fallback.effective_hard_max(), Some(131_072));
+        assert_eq!(
+            fallback.effective_source(),
+            CapabilitySource::DeploymentDeclaredFallback
+        );
+
+        let reported = ContextWindowCapability {
+            provider_limit: Some(ContextLimitEvidence::new(
+                524_288,
+                CapabilitySource::ProviderReported,
+            )),
+            fallback_limit: fallback.fallback_limit,
+            model_ceiling: fallback.model_ceiling,
+            ..ContextWindowCapability::default()
+        };
+        assert_eq!(reported.effective_hard_max(), Some(524_288));
     }
 }

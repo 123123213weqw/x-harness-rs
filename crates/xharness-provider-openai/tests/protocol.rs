@@ -582,9 +582,17 @@ async fn provider_preserves_an_explicit_context_fallback_as_non_reported_metadat
         .capabilities(CancellationToken::new())
         .await
         .unwrap();
-    assert_eq!(capabilities.context_window.max_context_tokens, Some(53_248));
     assert_eq!(
-        capabilities.context_window.source,
+        capabilities.context_window.effective_hard_max(),
+        Some(53_248)
+    );
+    assert_eq!(
+        capabilities
+            .context_window
+            .fallback_limit
+            .as_ref()
+            .unwrap()
+            .source,
         CapabilitySource::DeploymentDeclaredFallback
     );
 }
@@ -598,6 +606,8 @@ async fn provider_discovers_and_caches_the_exact_deployment_context_window() {
         let request = read_http_request(&mut socket).await;
         assert!(String::from_utf8_lossy(&request).starts_with("GET /props"));
         let body = json!({
+            "model": {"max_context": 1_048_576},
+            "provider": {"max_context": 524_288},
             "default_generation_settings": {"n_ctx": 131_072}
         })
         .to_string();
@@ -616,10 +626,14 @@ async fn provider_discovers_and_caches_the_exact_deployment_context_window() {
             "test-model",
         )
         .with_context_window_fallback(Some(32_768))
-        .with_capability_probe(OpenAiCapabilityProbe::new(
-            format!("http://{address}/props"),
-            "/default_generation_settings/n_ctx",
-        )),
+        .with_capability_probe(
+            OpenAiCapabilityProbe::new(
+                format!("http://{address}/props"),
+                "/default_generation_settings/n_ctx",
+            )
+            .with_model_ceiling_json_pointer("/model/max_context")
+            .with_provider_limit_json_pointer("/provider/max_context"),
+        ),
     )
     .unwrap();
 
@@ -632,16 +646,37 @@ async fn provider_discovers_and_caches_the_exact_deployment_context_window() {
         .await
         .unwrap();
     assert_eq!(first, second);
-    assert_eq!(first.context_window.max_context_tokens, Some(131_072));
+    assert_eq!(first.context_window.effective_hard_max(), Some(131_072));
     assert_eq!(
-        first.context_window.source,
+        first.context_window.model_ceiling.as_ref().unwrap().tokens,
+        1_048_576
+    );
+    assert_eq!(
+        first.context_window.provider_limit.as_ref().unwrap().tokens,
+        524_288
+    );
+    assert_eq!(
+        first
+            .context_window
+            .deployment_limit
+            .as_ref()
+            .unwrap()
+            .source,
         CapabilitySource::DeploymentReported
     );
     assert_eq!(
-        first.context_window.revision.as_deref(),
+        first
+            .context_window
+            .deployment_limit
+            .as_ref()
+            .unwrap()
+            .revision
+            .as_deref(),
         Some("deployment-r7")
     );
-    assert!(first.context_window.fetched_at_ms.is_some());
+    let evidence = first.context_window.deployment_limit.as_ref().unwrap();
+    assert!(evidence.observed_at_ms.is_some());
+    assert!(evidence.expires_at_ms > evidence.observed_at_ms);
     server.await.unwrap();
 }
 
@@ -704,6 +739,25 @@ fn provider_rejects_zero_stream_budgets() {
     );
     config.max_sse_event_bytes = 0;
     assert!(OpenAiProvider::new(config).is_err());
+}
+
+#[test]
+fn provider_rejects_invalid_optional_capability_pointers() {
+    let config = OpenAiProviderConfig::new(
+        OpenAiProtocol::Responses,
+        "http://127.0.0.1:1/v1",
+        "secret",
+        "test-model",
+    )
+    .with_capability_probe(
+        OpenAiCapabilityProbe::new("http://127.0.0.1:1/props", "/deployment/n_ctx")
+            .with_model_ceiling_json_pointer("model/max_context"),
+    );
+    let error = match OpenAiProvider::new(config) {
+        Ok(_) => panic!("invalid optional capability pointer was accepted"),
+        Err(error) => error,
+    };
+    assert!(error.message.contains("model ceiling JSON pointer"));
 }
 
 async fn spawn_server(protocol: OpenAiProtocol) -> (String, tokio::task::JoinHandle<()>) {

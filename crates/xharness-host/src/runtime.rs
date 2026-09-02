@@ -153,7 +153,7 @@ impl ModelDescriptor {
             Some(0) => false,
             Some(selected) => self
                 .context_window
-                .max_context_tokens
+                .effective_hard_max()
                 .is_some_and(|maximum| selected <= maximum),
         }
     }
