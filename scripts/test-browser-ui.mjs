@@ -34,4 +34,11 @@ assert.equal(capability.windows, undefined, 'window-scoped capabilities would le
 assert.ok(capability.remote.urls.every(url => url.startsWith('http://127.0.0.1:')))
 assert.match(read('apps/desktop/src-tauri/src/browser.rs'), /data_directory\(browser_data\)/)
 assert.match(read('apps/desktop/src-tauri/src/browser.rs'), /only http and https pages are supported/)
+const nativeSource=read('apps/desktop/src-tauri/src/browser.rs')
+const navigationPolicy=nativeSource.split('.on_navigation(move |url| {')[1].split('.on_document_title_changed')[0]
+assert.doesNotMatch(navigationPolicy,/\.store\(|delegation\.navigate|"url"/,'frame-agnostic policy must not publish addresses or mutate top-level readiness/binding')
+assert.match(navigationPolicy,/navigation_inspector\.invalidate\(\)/,'unclassified navigations must still invalidate action refs')
+const pageLoad=nativeSource.split('.on_page_load(move |_, payload| {')[1].split('.on_new_window')[0]
+assert.match(pageLoad,/"url", payload\.url\(\)\.as_str\(\)/,'only native top-level callbacks publish the address')
+assert(pageLoad.indexOf('"url", payload.url()')<pageLoad.indexOf('status, payload.url()'),'committed URL is published before readiness')
 console.log('browser bundle, graph, and child WebView isolation passed')
