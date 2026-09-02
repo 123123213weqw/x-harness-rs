@@ -1,0 +1,175 @@
+{
+  "type": "function",
+  "function": {
+    "name": "computer",
+    "description": "Observe and operate the local desktop. Use observe before coordinate or node actions and reuse its frame_id. Use the coordinate_space and display bounds returned by observe: macOS uses logical points; Windows uses physical desktop pixels. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "observe reads the desktop; move moves the pointer without clicking; click activates a target; drag follows path; scroll scrolls at the target; type inserts text; keypress sends keys; wait pauses; window controls windows. Clicking a control may trigger its action, not just focus it.",
+          "enum": [
+            "observe",
+            "move",
+            "click",
+            "drag",
+            "scroll",
+            "type",
+            "keypress",
+            "wait",
+            "window"
+          ],
+          "type": "string"
+        },
+        "button": {
+          "enum": [
+            "left",
+            "right",
+            "middle"
+          ],
+          "type": "string"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "delta_x": {
+          "description": "Horizontal native scroll delta. Windows: positive right, negative left; 120 is one wheel notch, not pixels. macOS uses native pixel deltas.",
+          "type": "integer"
+        },
+        "delta_y": {
+          "description": "Vertical native scroll delta. Windows: positive down, negative up; 120 is one wheel notch, not pixels. macOS uses native pixel deltas; signs are platform-specific. Check the resulting view.",
+          "type": "integer"
+        },
+        "detail": {
+          "enum": [
+            "auto",
+            "low",
+            "high",
+            "semantic"
+          ],
+          "type": "string"
+        },
+        "duration_ms": {
+          "description": "Milliseconds for drag or wait. wait permits 1\u201330000; it does not confirm the page is ready.",
+          "type": "integer"
+        },
+        "frame_id": {
+          "description": "Use the frame_id from the latest successful observation for input actions. Do not include it in observe. If expired, observe again; never guess or silently replay an uncertain action.",
+          "type": "string"
+        },
+        "height": {
+          "type": "number"
+        },
+        "include_accessibility": {
+          "type": "boolean"
+        },
+        "include_screenshot": {
+          "type": "boolean"
+        },
+        "keys": {
+          "description": "Key names such as Enter, Tab, PageDown, PageUp, Down or a; no underscores. Put ctrl/cmd/shift in modifiers.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "modifiers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "node_id": {
+          "description": "Target from the latest observation. Match its label to your intent; IDs from earlier layouts are not interchangeable.",
+          "type": "string"
+        },
+        "observe_after": {
+          "enum": [
+            "never",
+            "auto",
+            "always"
+          ],
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "list",
+            "focus",
+            "move",
+            "resize",
+            "minimize",
+            "maximize",
+            "fullscreen",
+            "close"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "description": "Drag points in order, from start to end; at least two points in the observed coordinate space.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "region": {
+          "additionalProperties": false,
+          "description": "Physical desktop rectangle on Windows (logical points on macOS). On Windows this filters accessibility content as well as cropping the screenshot; context-only ancestors have no actionable target. Truncated trees are partial, not proof content is absent.",
+          "properties": {
+            "height": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "surface_id": {
+          "type": "string"
+        },
+        "text": {
+          "description": "Text to insert at the focused input, or focus node_id first. Does not automatically clear existing text.",
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  }
+}

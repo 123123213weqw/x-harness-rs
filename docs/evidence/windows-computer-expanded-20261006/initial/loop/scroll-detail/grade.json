@@ -1,0 +1,25 @@
+{
+  "case": "scroll-detail",
+  "pass": false,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": false,
+    "no_cart": true,
+    "scrolled": false,
+    "detail_opened": false,
+    "returned": false,
+    "no_search": true,
+    "answer_exact": false
+  },
+  "events": 0,
+  "report_field_types_ok": false,
+  "run": "initial",
+  "label": "scroll-detail",
+  "strict_final_json": null,
+  "format_error": "No final answer",
+  "tool_calls": 3,
+  "tool_failures": 0,
+  "elapsed_s": 76.7,
+  "controller_error": "Non-whitelisted action; not dispatched",
+  "valid_model_trial": false
+}

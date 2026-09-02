@@ -1,6 +1,10 @@
 from pathlib import Path
 import json
-root=Path(__file__).parent
+import argparse
+parser=argparse.ArgumentParser()
+parser.add_argument("--output",type=Path,default=Path(__file__).parent)
+root=parser.parse_args().output
+root.mkdir(parents=True,exist_ok=True)
 products=[dict(id='orion',name='Orion Pro SSD',capacity='1TB',interface='NVMe PCIe 4.0',nand='TLC',warranty=5,tbw=650,price=549),dict(id='lyra',name='Lyra Plus SSD',capacity='1TB',interface='NVMe PCIe 4.0',nand='TLC',warranty=5,tbw=600,price=599),dict(id='nova',name='Nova Max SSD',capacity='1TB',interface='NVMe PCIe 4.0',nand='TLC',warranty=5,tbw=800,price=749),dict(id='qlc',name='Cloud Budget SSD',capacity='1TB',interface='NVMe PCIe 4.0',nand='QLC',warranty=5,tbw=200,price=399),dict(id='short',name='Rapid Mini SSD',capacity='1TB',interface='NVMe PCIe 4.0',nand='TLC',warranty=3,tbw=650,price=459),dict(id='gen3',name='Classic SSD',capacity='1TB',interface='NVMe PCIe 3.0',nand='TLC',warranty=5,tbw=650,price=429),dict(id='weak',name='Light SSD',capacity='1TB',interface='NVMe PCIe 4.0',nand='TLC',warranty=5,tbw=400,price=499),dict(id='small',name='Orion Small SSD',capacity='512GB',interface='NVMe PCIe 4.0',nand='TLC',warranty=5,tbw=650,price=349)]
 for i in range(800):products.append(dict(id=f'other-{i}',name=f'Accessory {i:03}',capacity='-',interface='USB',nand='-',warranty=1,tbw=0,price=19+i%100))
 (root/'catalog.json').write_text(json.dumps(products,indent=2))

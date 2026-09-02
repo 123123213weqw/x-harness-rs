@@ -1,0 +1,20 @@
+{
+  "positive_moves_down": true,
+  "negative_moves_up": false,
+  "positions": [
+    {
+      "delta_y": 360,
+      "scrollY": 9,
+      "receipt_id": 34
+    },
+    {
+      "delta_y": -360,
+      "scrollY": 292,
+      "receipt_id": 35
+    }
+  ],
+  "baseline_scrollY": 0,
+  "model_controlled": false,
+  "observation_settings": "AX/screenshot disabled for diagnostic only; avoids WAN media latency",
+  "production_runtime_modified": false
+}

@@ -1,0 +1,180 @@
+{
+  "mode": "uia",
+  "label": "uia-1",
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "model": "deepseek-flash",
+  "settings": {
+    "thinking": "disabled",
+    "temperature": 0
+  },
+  "error": null,
+  "calls": [
+    {
+      "id": 9,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8921,
+      "wall_s": 16.24170787492767
+    },
+    {
+      "id": 10,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 714,
+      "wall_s": 10.383922709152102
+    },
+    {
+      "id": 11,
+      "action": "type",
+      "ok": false,
+      "elapsed_ms": 0,
+      "wall_s": 6.125227415934205
+    },
+    {
+      "id": 12,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8788,
+      "wall_s": 11.839580667205155
+    },
+    {
+      "id": 13,
+      "action": "type",
+      "ok": true,
+      "elapsed_ms": 887,
+      "wall_s": 3.983699082862586
+    },
+    {
+      "id": 14,
+      "action": "click",
+      "ok": false,
+      "elapsed_ms": 0,
+      "wall_s": 2.396338041871786
+    },
+    {
+      "id": 15,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8740,
+      "wall_s": 12.72104683285579
+    },
+    {
+      "id": 16,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 855,
+      "wall_s": 2.2185977497138083
+    },
+    {
+      "id": 17,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 3605,
+      "wall_s": 5.9751176671124995
+    }
+  ],
+  "usage": [
+    {
+      "prompt_tokens": 1160,
+      "completion_tokens": 99,
+      "total_tokens": 1259,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 1160
+    },
+    {
+      "prompt_tokens": 14186,
+      "completion_tokens": 151,
+      "total_tokens": 14337,
+      "prompt_tokens_details": {
+        "cached_tokens": 1152
+      },
+      "prompt_cache_hit_tokens": 1152,
+      "prompt_cache_miss_tokens": 13034
+    },
+    {
+      "prompt_tokens": 14381,
+      "completion_tokens": 130,
+      "total_tokens": 14511,
+      "prompt_tokens_details": {
+        "cached_tokens": 14208
+      },
+      "prompt_cache_hit_tokens": 14208,
+      "prompt_cache_miss_tokens": 173
+    },
+    {
+      "prompt_tokens": 14571,
+      "completion_tokens": 99,
+      "total_tokens": 14670,
+      "prompt_tokens_details": {
+        "cached_tokens": 14336
+      },
+      "prompt_cache_hit_tokens": 14336,
+      "prompt_cache_miss_tokens": 235
+    },
+    {
+      "prompt_tokens": 27104,
+      "completion_tokens": 163,
+      "total_tokens": 27267,
+      "prompt_tokens_details": {
+        "cached_tokens": 14592
+      },
+      "prompt_cache_hit_tokens": 14592,
+      "prompt_cache_miss_tokens": 12512
+    },
+    {
+      "prompt_tokens": 27311,
+      "completion_tokens": 124,
+      "total_tokens": 27435,
+      "prompt_tokens_details": {
+        "cached_tokens": 27136
+      },
+      "prompt_cache_hit_tokens": 27136,
+      "prompt_cache_miss_tokens": 175
+    },
+    {
+      "prompt_tokens": 27495,
+      "completion_tokens": 90,
+      "total_tokens": 27585,
+      "prompt_tokens_details": {
+        "cached_tokens": 27264
+      },
+      "prompt_cache_hit_tokens": 27264,
+      "prompt_cache_miss_tokens": 231
+    },
+    {
+      "prompt_tokens": 37998,
+      "completion_tokens": 143,
+      "total_tokens": 38141,
+      "prompt_tokens_details": {
+        "cached_tokens": 27520
+      },
+      "prompt_cache_hit_tokens": 27520,
+      "prompt_cache_miss_tokens": 10478
+    },
+    {
+      "prompt_tokens": 38185,
+      "completion_tokens": 102,
+      "total_tokens": 38287,
+      "prompt_tokens_details": {
+        "cached_tokens": 38016
+      },
+      "prompt_cache_hit_tokens": 38016,
+      "prompt_cache_miss_tokens": 169
+    },
+    {
+      "prompt_tokens": 56014,
+      "completion_tokens": 110,
+      "total_tokens": 56124,
+      "prompt_tokens_details": {
+        "cached_tokens": 38272
+      },
+      "prompt_cache_hit_tokens": 38272,
+      "prompt_cache_miss_tokens": 17742
+    }
+  ],
+  "elapsed_s": 85.56708104209974,
+  "actual_cost_not_reported": true
+}

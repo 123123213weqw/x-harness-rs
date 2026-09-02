@@ -1,0 +1,10 @@
+{
+  "action": "keypress",
+  "keys": [
+    "F5"
+  ],
+  "frame_id": "win:2284:1791229524701086600:11",
+  "observe_after": "never",
+  "include_accessibility": false,
+  "include_screenshot": false
+}

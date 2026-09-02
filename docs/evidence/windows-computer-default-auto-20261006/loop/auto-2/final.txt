@@ -1,0 +1,5 @@
+The form was submitted with "SSD" and the result count changed to "8 products". The first two result cards are:
+1. Orion Pro SSD — CNY 549
+2. Lyra Plus SSD — CNY 599
+
+{"query":"SSD","products":[{"name":"Orion Pro SSD","price":549},{"name":"Lyra Plus SSD","price":599}]}

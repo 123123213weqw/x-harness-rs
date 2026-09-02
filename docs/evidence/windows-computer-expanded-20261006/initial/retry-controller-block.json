@@ -1,0 +1,14 @@
+{
+  "attempt": "scroll-detail retry setup",
+  "requested_action": "observe",
+  "native_bridge_finished": {
+    "phase": "finished",
+    "stderr": {},
+    "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+    "probe_alive": false,
+    "operations": 55,
+    "host_received_utc": "2026-10-06T07:03:12.109277+00:00"
+  },
+  "input_dispatched": false,
+  "reason": "probe fixed 1200-second laboratory lifetime elapsed; no input replay"
+}

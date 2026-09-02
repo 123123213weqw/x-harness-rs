@@ -1,0 +1,7 @@
+The search for "SSD" returned 8 products. The first two results are:
+1. Orion Pro SSD — CNY 549
+2. Lyra Plus SSD — CNY 599
+
+```json
+{"products":[{"name":"Orion Pro SSD","price":"CNY 549"},{"name":"Lyra Plus SSD","price":"CNY 599"}]}
+```

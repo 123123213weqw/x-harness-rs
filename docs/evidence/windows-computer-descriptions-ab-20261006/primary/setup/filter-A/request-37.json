@@ -1,0 +1,9 @@
+{
+  "action": "keypress",
+  "keys": [
+    "Enter"
+  ],
+  "frame_id": "win:6548:1791244907449655600:34",
+  "include_accessibility": false,
+  "include_screenshot": false
+}
