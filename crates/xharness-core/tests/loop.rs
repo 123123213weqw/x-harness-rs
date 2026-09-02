@@ -25,9 +25,9 @@ use xharness_session::{
     AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
     EventData as SessionEventData, GoalChange, GoalChangeKind, GoalPhase, GoalSnapshot,
     GoalSnapshotChange, GoalSnapshotOperation, InboxMessage, InboxTarget,
-    MemorySessionStore as EventMemorySessionStore, Revision, Session, SessionEvent, SessionHeader,
-    SessionInspection, SessionTitleSource, Store as EventStore, StoreError, ToolOutcome,
-    TurnEndReason,
+    MemorySessionStore as EventMemorySessionStore, Revision, ScheduleChange, ScheduleKind,
+    ScheduleRecord, Session, SessionEvent, SessionHeader, SessionInspection, SessionTitleSource,
+    Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
 };
 use xharness_tools::{
     ToolConcurrency as RuntimeToolConcurrency, ToolDefinition as RuntimeToolDefinition,
@@ -3716,6 +3716,20 @@ async fn active_loop_adopts_intervening_durable_control_appends() {
                 }
                 .into(),
                 SessionEventData::PlanMode { active: true }.into(),
+                SessionEventData::ScheduleChange {
+                    change: ScheduleChange::Create {
+                        version: 1,
+                        schedule: ScheduleRecord {
+                            id: "schedule-1".to_owned(),
+                            kind: ScheduleKind::After,
+                            prompt: "remind later".to_owned(),
+                            after_seconds: Some(30),
+                            every_seconds: None,
+                            scheduled_at: "2999-01-01T00:00:00.000Z".to_owned(),
+                        },
+                    },
+                }
+                .into(),
             ],
         )
         .await
@@ -3725,6 +3739,14 @@ async fn active_loop_adopts_intervening_durable_control_appends() {
     assert_eq!(run.result().await.status, LoopStatus::Completed);
 
     let session = journal.load("live-inbox-writer").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|event| {
+        matches!(
+            event.data(),
+            SessionEventData::ScheduleChange {
+                change: ScheduleChange::Create { schedule, .. }
+            } if schedule.id == "schedule-1"
+        )
+    }));
     assert!(session.events().iter().any(|event| {
         matches!(
             event.data(),

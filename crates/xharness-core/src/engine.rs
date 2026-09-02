@@ -1831,6 +1831,7 @@ impl Runner {
                                     | SessionEventData::CommandDone { .. }
                                     | SessionEventData::SessionTitle { .. }
                                     | SessionEventData::GoalChange { .. }
+                                    | SessionEventData::ScheduleChange { .. }
                                     | SessionEventData::SessionMutationCommitted { .. }
                                     | SessionEventData::PlanMode { .. }
                                     | SessionEventData::QuestionRequested { .. }
