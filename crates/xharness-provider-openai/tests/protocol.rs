@@ -1303,3 +1303,146 @@ async fn completed_http_usage_survives_restart_and_overflow_invalidates_disk() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn local_server_reasoning_aliases_do_not_mask_or_duplicate_streamed_thoughts() {
+    for (delta, expected) in [
+        (json!({"reasoning_content":"legacy"}), "legacy"),
+        (json!({"reasoning":"vllm"}), "vllm"),
+        (json!({"reasoning_content":null,"reasoning":"vllm"}), "vllm"),
+        (json!({"reasoning_content":"","reasoning":"vllm"}), "vllm"),
+        (json!({"reasoning_content":[],"reasoning":"vllm"}), "vllm"),
+        (
+            json!({"reasoning_content":"same","reasoning":"same"}),
+            "same",
+        ),
+        (
+            json!({"reasoning_content":"legacy","reasoning":"other"}),
+            "legacy",
+        ),
+        (json!({"reasoning_content":null,"reasoning":null}), ""),
+        (json!({}), ""),
+    ] {
+        let mut normalizer = OpenAiStreamNormalizer::new(OpenAiProtocol::ChatCompletions);
+        let mut delta = delta;
+        delta["content"] = json!("answer");
+        let events = normalizer
+            .consume(SseEvent {
+                data: json!({"choices":[{"delta":delta}]}).to_string(),
+                ..SseEvent::default()
+            })
+            .unwrap();
+        assert!(matches!(&events[0], ProviderEvent::TextDelta(text) if text == "answer"));
+        let reasoning: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                ProviderEvent::ReasoningDelta(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            reasoning,
+            if expected.is_empty() {
+                vec![]
+            } else {
+                vec![expected]
+            },
+            "{delta}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn local_reasoning_recipes_reach_http_without_rewriting_messages_or_tools() {
+    let doc: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../config/providers.local-reasoning.example.json"
+    ))
+    .unwrap();
+    for provider in doc["providers"].as_array().unwrap() {
+        for model in provider["models"].as_array().unwrap() {
+            let reasoning = &model["reasoning"];
+            let efforts = reasoning["efforts"].as_array().unwrap();
+            let profile = OpenAiReasoningProfile::new(
+                reasoning["default_effort"].as_str().map(str::to_owned),
+                efforts.iter().map(|effort| {
+                    (
+                        effort["id"].as_str().unwrap().to_owned(),
+                        effort["request_patch"].clone(),
+                    )
+                }),
+            )
+            .unwrap();
+            for selected in
+                std::iter::once(None).chain(efforts.iter().map(|effort| effort["id"].as_str()))
+            {
+                let applied = selected.unwrap_or(reasoning["default_effort"].as_str().unwrap());
+                let patch =
+                    efforts.iter().find(|e| e["id"] == applied).unwrap()["request_patch"].clone();
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let base = format!("http://{}/v1", listener.local_addr().unwrap());
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let raw = String::from_utf8(read_http_request(&mut socket).await).unwrap();
+                    let body: serde_json::Value =
+                        serde_json::from_str(raw.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+                    assert!(raw.starts_with("POST /v1/chat/completions "));
+                    for (key, value) in patch.as_object().unwrap() {
+                        assert_eq!(&body[key], value);
+                    }
+                    assert_eq!(body["messages"][0]["content"], "test local reasoning");
+                    assert_eq!(body["tools"][0]["function"]["name"], "echo");
+                    assert_eq!(body["max_tokens"], 64);
+                    let sse = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":null,\"reasoning\":\"thought\",\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse}",sse.len()).as_bytes()).await.unwrap();
+                    body
+                });
+                let adapter = OpenAiProvider::new(
+                    OpenAiProviderConfig::new(
+                        OpenAiProtocol::ChatCompletions,
+                        base,
+                        "",
+                        model["upstream_model"].as_str().unwrap(),
+                    )
+                    .with_reasoning_profile(profile.clone()),
+                )
+                .unwrap();
+                let mut stream = adapter
+                    .stream(
+                        ProviderRequest {
+                            messages: vec![AgentMessage::user("test local reasoning")],
+                            tools: vec![ToolDefinition {
+                                name: "echo".to_owned(),
+                                description: "fixture".to_owned(),
+                                parameters: json!({"type":"object"}),
+                            }],
+                            step: 1,
+                            reasoning_effort: selected.map(str::to_owned),
+                            max_output_tokens: Some(64),
+                            debug_scope: Default::default(),
+                        },
+                        CancellationToken::new(),
+                    )
+                    .await
+                    .unwrap();
+                let mut events = Vec::new();
+                while let Some(event) = stream.next().await {
+                    events.push(event.unwrap());
+                }
+                assert_eq!(
+                    events
+                        .iter()
+                        .filter(
+                            |e| matches!(e,ProviderEvent::ReasoningDelta(text) if text=="thought")
+                        )
+                        .count(),
+                    1
+                );
+                assert!(events
+                    .iter()
+                    .any(|e| matches!(e, ProviderEvent::Completed { .. })));
+                let body = server.await.unwrap();
+                assert_eq!(body["model"], model["upstream_model"]);
+            }
+        }
+    }
+}
