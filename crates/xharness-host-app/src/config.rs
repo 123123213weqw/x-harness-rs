@@ -509,6 +509,14 @@ mod tests {
             deployment.default_route.reasoning_effort.as_deref(),
             Some("high")
         );
+        assert_eq!(
+            deployment
+                .registry
+                .compaction_reasoning_effort(&deployment.default_route)
+                .as_deref(),
+            Some("off"),
+            "compaction resolves the first declared effort independently of the interactive default"
+        );
         let descriptor = &deployment.registry.models()[0];
         let reasoning = descriptor.reasoning.as_ref().unwrap();
         assert_eq!(reasoning.efforts.len(), 2);

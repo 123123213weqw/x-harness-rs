@@ -555,6 +555,11 @@ pub struct LoopRequest {
     /// Exact-model reasoning level selected for this run. The value is
     /// provider-owned and is copied unchanged into every model request.
     pub reasoning_effort: Option<String>,
+    /// Independently resolved reasoning level used only by model-generated
+    /// compaction summaries. Hosts should select the target model's lowest
+    /// supported effort. `None` means no reasoning override; it never falls
+    /// back to `reasoning_effort`.
+    pub compaction_reasoning_effort: Option<String>,
     /// Deterministic model-facing System Prompt. It is reassembled for each
     /// turn and never becomes transcript history.
     pub prompt: Option<xharness_prompt::PromptAssembly>,
@@ -591,6 +596,7 @@ impl LoopRequest {
             debug: xharness_debug::DebugRecorder::disabled(),
             messages,
             reasoning_effort: None,
+            compaction_reasoning_effort: None,
             prompt: None,
             token_guard: None,
             compaction: None,

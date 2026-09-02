@@ -76,6 +76,9 @@ impl ModelReasoningEffort {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelReasoning {
+    /// Provider-owned effort levels ordered from lowest to highest cost. The
+    /// first entry is used for internal compaction unless a later policy
+    /// explicitly selects another level.
     pub efforts: Vec<ModelReasoningEffort>,
     pub default_effort: Option<String>,
 }
@@ -95,6 +98,10 @@ impl ModelReasoning {
 
     fn supports(&self, effort: &str) -> bool {
         self.efforts.iter().any(|candidate| candidate.id == effort)
+    }
+
+    pub fn lowest_effort(&self) -> Option<&str> {
+        self.efforts.first().map(|effort| effort.id.as_str())
     }
 }
 
@@ -278,6 +285,15 @@ impl ModelRegistry {
     pub fn token_guard(&self, route: &ModelRoute) -> Option<TokenGuard> {
         self.resolve(route)
             .and_then(|model| model.token_guard.clone())
+    }
+
+    /// Resolve the lowest-cost reasoning effort declared by the exact model
+    /// route. Route-level interactive effort is intentionally ignored.
+    pub fn compaction_reasoning_effort(&self, route: &ModelRoute) -> Option<String> {
+        self.resolve(route)
+            .and_then(|model| model.descriptor.reasoning.as_ref())
+            .and_then(ModelReasoning::lowest_effort)
+            .map(str::to_owned)
     }
 
     fn resolve(&self, route: &ModelRoute) -> Option<&RegisteredModel> {
@@ -662,7 +678,7 @@ impl TurnRequestFactory for DurableTurnFactory {
             .get(agent_id)
             .cloned()
             .ok_or_else(|| format!("durable agent {agent_id:?} has no Host configuration"))?;
-        let (provider, token_guard) = {
+        let (provider, token_guard, compaction_reasoning_effort) = {
             let models = self.models.read().expect("model registry lock poisoned");
             let model = models.resolve(&config.route).ok_or_else(|| {
                 format!(
@@ -670,7 +686,11 @@ impl TurnRequestFactory for DurableTurnFactory {
                     config.route.provider, config.route.model
                 )
             })?;
-            (Arc::clone(&model.provider), model.token_guard.clone())
+            (
+                Arc::clone(&model.provider),
+                model.token_guard.clone(),
+                models.compaction_reasoning_effort(&config.route),
+            )
         };
         let tool_executor = self
             .tool_factory
@@ -678,6 +698,7 @@ impl TurnRequestFactory for DurableTurnFactory {
             .await?;
         let mut request = LoopRequest::new(provider, input);
         request.reasoning_effort = config.route.reasoning_effort;
+        request.compaction_reasoning_effort = compaction_reasoning_effort;
         request.debug = self
             .debug
             .read()
@@ -1789,6 +1810,19 @@ mod tests {
                 .as_ref()
                 .and_then(|reasoning| reasoning.default_effort.as_deref()),
             Some("high")
+        );
+        assert_eq!(
+            registry.models()[0]
+                .reasoning
+                .as_ref()
+                .and_then(ModelReasoning::lowest_effort),
+            Some("off"),
+            "internal compaction uses the first, lowest-cost declared effort"
+        );
+        assert_eq!(
+            registry.compaction_reasoning_effort(&high).as_deref(),
+            Some("off"),
+            "the main route's high effort must not leak into compaction"
         );
 
         let invalid = ModelDescriptor::new("gpu", "GPU", "broken", "Broken").with_reasoning(

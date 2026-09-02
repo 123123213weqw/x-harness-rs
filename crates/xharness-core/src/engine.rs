@@ -753,7 +753,6 @@ impl Runner {
                                         CompactionTrigger::Pressure,
                                         report.estimate.total_input_tokens,
                                         report.context_window_tokens,
-                                        &tool_definitions,
                                         &context_tools,
                                     )
                                     .await
@@ -799,7 +798,6 @@ impl Runner {
                                     CompactionTrigger::ContextOverflow,
                                     current_input_tokens,
                                     context_window_tokens,
-                                    &tool_definitions,
                                     &context_tools,
                                 )
                                 .await
@@ -840,7 +838,6 @@ impl Runner {
             self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
                 .await?;
 
-            let overflow_tool_definitions = provider_request.tools.clone();
             let mut model = match self.model_round(provider_request).await {
                 Ok(model) => model,
                 Err(RunFailure::ContextOverflow(message)) => {
@@ -865,7 +862,6 @@ impl Runner {
                             CompactionTrigger::ContextOverflow,
                             context_window_tokens,
                             context_window_tokens,
-                            &overflow_tool_definitions,
                             &context_tools,
                         )
                         .await
@@ -1188,7 +1184,6 @@ impl Runner {
         trigger: CompactionTrigger,
         current_input_tokens: u64,
         context_window_tokens: u64,
-        tool_definitions: &[crate::ToolDefinition],
         context_tools: &[Value],
     ) -> Result<CompactionOutcome, RunFailure> {
         let Some(config) = self.request.compaction.clone() else {
@@ -1298,6 +1293,8 @@ impl Runner {
                 "trigger": trigger,
                 "range": &plan.range,
                 "currentInputTokens": current_input_tokens,
+                "reasoningEffort": &self.request.compaction_reasoning_effort,
+                "toolCount": 0,
             }),
         )
         .await;
@@ -1305,10 +1302,7 @@ impl Runner {
         let mut last_error = None;
         let mut summary = None;
         for attempt in 1..=plan.max_summary_attempts {
-            match self
-                .run_compaction_summary(&plan, &selected, tool_definitions)
-                .await
-            {
+            match self.run_compaction_summary(&plan, &selected).await {
                 Ok(output) => {
                     summary = Some(output);
                     break;
@@ -1441,7 +1435,6 @@ impl Runner {
         &mut self,
         plan: &CompactionPlan,
         selected: &[AgentMessage],
-        tool_definitions: &[crate::ToolDefinition],
     ) -> Result<CompactionSummaryOutput, RunFailure> {
         self.ensure_running()?;
         let mut messages = Vec::with_capacity(selected.len().saturating_add(2));
@@ -1456,9 +1449,15 @@ impl Runner {
         messages.push(AgentMessage::user(DEFAULT_COMPACTION_INSTRUCTION));
         let request = ProviderRequest {
             messages,
-            tools: tool_definitions.to_vec(),
+            // Compaction is a closed summarization operation. Tool schemas add
+            // prompt cost and can make otherwise capable models attempt a call
+            // that this path must reject, so never expose them here.
+            tools: Vec::new(),
             step: self.step,
-            reasoning_effort: self.request.reasoning_effort.clone(),
+            // This is deliberately independent from the interactive turn. A
+            // high/xhigh user selection must not consume the summary's bounded
+            // output budget with hidden reasoning.
+            reasoning_effort: self.request.compaction_reasoning_effort.clone(),
             max_output_tokens: Some(plan.spec.max_tokens),
             debug_scope: self.debug_scope(),
         };
