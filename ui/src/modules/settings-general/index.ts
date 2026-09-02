@@ -41,6 +41,7 @@ export type { SettingsKey } from './locales'
 
 
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
+import { OPEN_SETTINGS_SECTION } from '../shared/settings-navigation'
 const NS = 'settings'
 
 /**
@@ -86,6 +87,7 @@ export function apply(ctx: ClientContext): void {
   let onboardingVersion = -1
   let onboardingSteps: readonly SettingsOnboardingStep[] = []
   const shellInjected = (): SettingsRootInjected => ({
+    subscribeOpenSection: listener => ctx.on(OPEN_SETTINGS_SECTION, listener),
     hooks: {
       sections: {
         getSnapshot: () => {

@@ -30,6 +30,7 @@ export interface SettingsOnboardingStep {
  * the shell reads no locale state and subscribes through the bound hook.
  */
 export type SettingsRootInjected = {
+  subscribeOpenSection?(listener: (section: string) => void): () => void
   hooks: {
     /** settings.section ledger projected into ordered nav rows. */
     sections: HostObservable<readonly SettingsSectionRow[]>
@@ -45,6 +46,7 @@ export type SettingsRootInjected = {
  * open state and active section id are component-local viewing state.
  */
 export interface SettingsRootComponentProps extends RenderSlots {
+  subscribeOpenSection?(listener: (section: string) => void): () => void
   wide: boolean
   useSections: Selector<readonly SettingsSectionRow[]>
   useOnboardingSteps: Selector<readonly SettingsOnboardingStep[]>

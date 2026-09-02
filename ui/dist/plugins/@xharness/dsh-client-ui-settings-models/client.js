@@ -83,28 +83,28 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ManagedConnection = void 0;
 exports.saveManagedAccess = saveManagedAccess;
 const runtime_types_1 = require("../shared/runtime-types");
-const REF = 'XHARNESS_MANAGED_API_TOKEN', ROUTE = 'xharness-managed', NS = 'llm-pi-ai';
+const managed_models_1 = require("../shared/managed-models");
 async function saveManagedAccess(api, describe, raw) {
     const v = (0, runtime_types_1.objectValue)(raw);
     if (v.status !== 'authorized' || typeof v.accessToken !== 'string' || typeof v.baseURL !== 'string' || !Array.isArray(v.models))
         throw Error('invalid_access');
     await describe.ensure();
     const snap = describe.getSnapshot();
-    const ns = snap.view?.namespaces.find(n => n.ns === NS);
+    const ns = snap.view?.namespaces.find(n => n.ns === managed_models_1.MANAGED_MODEL_NAMESPACE);
     if (snap.status !== 'ready' || !ns || !snap.view?.writable)
         throw Error('settings_unavailable');
-    const existing = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(ns.value).providers)[ROUTE];
+    const existing = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(ns.value).providers)[managed_models_1.MANAGED_MODEL_ROUTE];
     if (existing !== undefined) {
         const p = (0, runtime_types_1.objectValue)(existing);
-        if (p.apiKeyEnv !== REF || p.baseURL !== v.baseURL || p.api !== 'openai-completions')
+        if (p.apiKeyEnv !== managed_models_1.MANAGED_MODEL_CREDENTIAL || p.baseURL !== v.baseURL || p.api !== 'openai-completions')
             throw Error('provider_conflict');
     }
-    const profile = { displayName: 'XHarness', api: 'openai-completions', baseURL: v.baseURL, apiKeyEnv: REF, models: v.models };
-    const write = await api.settings.mutate({ ns: NS, expectedRevision: ns.revision, ops: [{ op: 'set', path: ['providers', ROUTE], value: profile }] });
+    const profile = { displayName: 'XHarness', api: 'openai-completions', baseURL: v.baseURL, apiKeyEnv: managed_models_1.MANAGED_MODEL_CREDENTIAL, models: v.models };
+    const write = await api.settings.mutate({ ns: managed_models_1.MANAGED_MODEL_NAMESPACE, expectedRevision: ns.revision, ops: [{ op: 'set', path: ['providers', managed_models_1.MANAGED_MODEL_ROUTE], value: profile }] });
     if (!write.result.ok)
         throw Error('settings_write_failed');
     describe.acceptView(write.result.value);
-    const stored = await api.credentials.set({ ref: REF, value: v.accessToken });
+    const stored = await api.credentials.set({ ref: managed_models_1.MANAGED_MODEL_CREDENTIAL, value: v.accessToken });
     if (!stored.result.ok)
         throw Error('credential_store_failed');
 }
@@ -130,8 +130,8 @@ class ManagedConnection {
         this.update({ native: !!bridge });
         let closed = false;
         const revision = this.revision;
-        void this.api.credentials.describe({ refs: [REF] }).then(r => { if (this.active && this.revision === revision && r.result.ok)
-            this.update({ connected: r.result.value.credentials[REF]?.configured === true }); }).catch(() => { });
+        void this.api.credentials.describe({ refs: [managed_models_1.MANAGED_MODEL_CREDENTIAL] }).then(r => { if (this.active && this.revision === revision && r.result.ok)
+            this.update({ connected: r.result.value.credentials[managed_models_1.MANAGED_MODEL_CREDENTIAL]?.configured === true }); }).catch(() => { });
         if (bridge) {
             void bridge.core.invoke('desktop_account_status').then(raw => { const v = (0, runtime_types_1.objectValue)(raw); if (this.active && typeof v.userCode === 'string' && typeof v.verificationUri === 'string')
                 this.update({ flow: { code: v.userCode, uri: v.verificationUri } }); }).catch(() => { if (this.active)
@@ -237,7 +237,7 @@ class ManagedConnection {
             return;
         this.update({ busy: true });
         try {
-            const r = await this.api.credentials.unset({ ref: REF });
+            const r = await this.api.credentials.unset({ ref: managed_models_1.MANAGED_MODEL_CREDENTIAL });
             if (!r.result.ok)
                 throw Error();
             if (this.active)
@@ -285,6 +285,24 @@ function numberValue(value, fallback = 0) {
 }
 
 },
+"src/modules/shared/managed-models.js": function(module, exports, require) {
+// source: src/modules/shared/managed-models.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.MANAGED_MODEL_CREDENTIAL = exports.MANAGED_MODEL_NAMESPACE = exports.MANAGED_MODEL_ROUTE = void 0;
+exports.isManagedModelProvider = isManagedModelProvider;
+exports.isManagedModelProfile = isManagedModelProfile;
+/** Stable route reserved by account connection; presentation provenance, not authorization. */
+exports.MANAGED_MODEL_ROUTE = 'xharness-managed';
+exports.MANAGED_MODEL_NAMESPACE = 'llm-pi-ai';
+exports.MANAGED_MODEL_CREDENTIAL = 'XHARNESS_MANAGED_API_TOKEN';
+function isManagedModelProvider(provider) { return provider === exports.MANAGED_MODEL_ROUTE; }
+function isManagedModelProfile(namespace, path) {
+    return namespace === exports.MANAGED_MODEL_NAMESPACE && path.length === 2 && path[0] === 'providers' && path[1] === exports.MANAGED_MODEL_ROUTE;
+}
+
+},
 "src/modules/settings-models/ModelsSection.js": function(module, exports, require) {
 // source: src/modules/settings-models/ModelsSection.tsx
 
@@ -310,6 +328,7 @@ const jsx_runtime_1 = require("react/jsx-runtime");
  * re-renders from pushed invalidations or the post-apply reload.
  */
 const react_1 = require("react");
+const managed_models_1 = require("../shared/managed-models");
 const primitives_1 = require("./primitives");
 const CustomProviderCard_1 = require("./CustomProviderCard");
 const store_1 = require("./store");
@@ -331,6 +350,9 @@ function renderProviderEditor({ target, ...props }) {
  * @returns the failure message, or undefined once the write and reload landed.
  */
 async function removeProviderProfile(api, controller, target) {
+    // Account connection owns this profile; this UI guard is not a Host authorization boundary.
+    if ((0, managed_models_1.isManagedModelProfile)(target.settingsNs, target.settingsPath))
+        return 'Account service is managed through Account settings.';
     try {
         if (target.credentialRef !== undefined) {
             const credential = await api.credentials.unset({ ref: target.credentialRef });
@@ -516,18 +538,19 @@ function Loaded({ injected }) {
                                 onClose: (changed) => { closeSetup(changed, target); },
                             }) }, row.entry.provider));
                     }
-                    const open = !adding && editing?.provider === row.entry.provider;
+                    const managed = (0, managed_models_1.isManagedModelProfile)(target.settingsNs, target.settingsPath);
+                    const open = !managed && !adding && editing?.provider === row.entry.provider;
                     const credentialConfigured = row.credential?.configured === true;
                     const credentialMissing = !credentialConfigured
                         && row.apiKeyEnv !== undefined
                         && row.credential?.configured === false;
-                    return ((0, jsx_runtime_1.jsxs)("li", { className: styles_1.ModelsSectionCss['rowCard'], children: [(0, jsx_runtime_1.jsxs)("div", { className: styles_1.ModelsSectionCss['rowHead'], children: [(0, jsx_runtime_1.jsxs)("span", { className: styles_1.ModelsSectionCss['rowIdentity'], children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowName'], children: row.entry.displayName }), row.entry.declared === true
+                    return ((0, jsx_runtime_1.jsxs)("li", { className: styles_1.ModelsSectionCss['rowCard'], children: [(0, jsx_runtime_1.jsxs)("div", { className: styles_1.ModelsSectionCss['rowHead'], children: [(0, jsx_runtime_1.jsxs)("span", { className: styles_1.ModelsSectionCss['rowIdentity'], children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowName'], children: row.entry.displayName }), managed ? (0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowTag'], children: t('accountTag') }) : row.entry.declared === true
                                                 ? (0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowTag'], children: t('customTag') })
                                                 : null, credentialConfigured
                                                 ? ((0, jsx_runtime_1.jsx)("span", { className: `${styles_1.ModelsSectionCss['credentialDot']} ${styles_1.ModelsSectionCss['credentialDotConfigured']}`, role: "img", "aria-label": t('credentialConfigured'), title: t('credentialConfigured') }))
                                                 : credentialMissing
                                                     ? ((0, jsx_runtime_1.jsx)("span", { className: `${styles_1.ModelsSectionCss['credentialDot']} ${styles_1.ModelsSectionCss['credentialDotMissing']}`, role: "img", "aria-label": t('credentialMissing'), title: t('credentialMissing') }))
-                                                    : null] }), (0, jsx_runtime_1.jsxs)("span", { className: styles_1.ModelsSectionCss['rowActions'], children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.ModelsSectionCss['secondaryButton'], "aria-label": providerCopy(t('editProvider'), target), onClick: () => {
+                                                    : null] }), (0, jsx_runtime_1.jsxs)("span", { className: styles_1.ModelsSectionCss['rowActions'], children: [managed ? (0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['rowTag'], children: t('accountReadOnly') }) : (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.ModelsSectionCss['secondaryButton'], "aria-label": providerCopy(t('editProvider'), target), onClick: () => {
                                                     setSavedTarget(undefined);
                                                     // One card at a time: leaving `declaring` set would show
                                                     // the create card beside this editor, and closing either
@@ -535,7 +558,7 @@ function Loaded({ injected }) {
                                                     setDeclaring(false);
                                                     setAdding(false);
                                                     setEditing(open ? undefined : target);
-                                                }, children: t('edit') }), row.removable
+                                                }, children: t('edit') }), !managed && row.removable
                                                 ? ((0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.ModelsSectionCss['dangerButton'], "aria-label": providerCopy(t('removeProvider'), target), disabled: !state.writable, onClick: () => {
                                                         setSavedTarget(undefined);
                                                         setDeleteFailure(undefined);
@@ -641,6 +664,7 @@ const jsx_runtime_1 = require("react/jsx-runtime");
  * some of them reject. The composer's model picker offers each model its own
  * levels instead.
  */
+const managed_models_1 = require("../shared/managed-models");
 const react_1 = require("react");
 const apiKey_1 = require("./apiKey");
 const EditorFooter_1 = require("./EditorFooter");
@@ -687,7 +711,8 @@ function CustomProviderCard(props) {
     /** Everything but the key stops being editable once the provider exists. */
     const profileDisabled = disabled || committed;
     const routeInvalid = route.length > 0 && !ROUTE_PATTERN.test(route);
-    const routeTaken = taken.includes(route);
+    // Keep the account-owned route out of the BYOK creation flow, even before login.
+    const routeTaken = (0, managed_models_1.isManagedModelProvider)(route) || taken.includes(route);
     // Rows are checked by the same per-row validator the editor cards use, so a
     // bad row is named by its position here too. Capacities have route-level
     // fallbacks; what a route cannot default is at least one model.
@@ -2345,6 +2370,8 @@ exports.en = {
     fetchAdopt: 'Add selected',
     customAdd: 'Add a custom provider',
     customTitle: 'Custom provider',
+    accountTag: 'Account service',
+    accountReadOnly: 'Managed in Account settings',
     customTag: 'Custom',
     customRoute: 'Provider ID',
     customRouteHint: 'Lowercase identifier, starting with a letter, that uniquely names this provider in requests and as its credential name.',
@@ -2443,6 +2470,8 @@ exports.zh = {
     fetchAdopt: '添加所选',
     customAdd: '添加自定义提供方',
     customTitle: '自定义提供方',
+    accountTag: '账号服务',
+    accountReadOnly: '在账号设置中管理',
     customTag: '自定义',
     customRoute: 'Provider ID',
     customRouteHint: '以小写字母开头的标识，在请求中唯一标识该提供方，并用于派生凭据名。',
@@ -2469,7 +2498,7 @@ exports.zh = {
 
 }
 };
-const __dependencies = {"src/modules/settings-models/index.js":{"./ManagedAccount":"src/modules/settings-models/ManagedAccount.js","./managed-connection":"src/modules/settings-models/managed-connection.js","./ModelsSection":"src/modules/settings-models/ModelsSection.js","./store":"src/modules/settings-models/store.js","./schema-operations":"src/modules/settings-models/schema-operations.js","./welcome-store":"src/modules/settings-models/welcome-store.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js","./locales":"src/modules/settings-models/locales.js"},"src/modules/settings-models/ManagedAccount.js":{"./managed-connection":"src/modules/settings-models/managed-connection.js"},"src/modules/settings-models/managed-connection.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/settings-models/ModelsSection.js":{"./primitives":"src/modules/settings-models/primitives.js","./CustomProviderCard":"src/modules/settings-models/CustomProviderCard.js","./store":"src/modules/settings-models/store.js","./ProviderEditor":"src/modules/settings-models/ProviderEditor.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/primitives.js":{},"src/modules/settings-models/CustomProviderCard.js":{"./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/apiKey.js":{},"src/modules/settings-models/EditorFooter.js":{"./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/styles.js":{"./ModelsSection.css":"src/modules/settings-models/ModelsSection.css","./OnboardingModal.css":"src/modules/settings-models/OnboardingModal.css","./DeepSeekOnboardingDialog.css":"src/modules/settings-models/DeepSeekOnboardingDialog.css","./WelcomeNotice.css":"src/modules/settings-models/WelcomeNotice.css"},"src/modules/settings-models/ModelsSection.css":{},"src/modules/settings-models/OnboardingModal.css":{},"src/modules/settings-models/DeepSeekOnboardingDialog.css":{},"src/modules/settings-models/WelcomeNotice.css":{},"src/modules/settings-models/DeepSeekModelsEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./primitives":"src/modules/settings-models/primitives.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/ModelListEditor.js":{"./primitives":"src/modules/settings-models/primitives.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js"},"src/modules/settings-models/snapshot.js":{},"src/modules/settings-models/ProviderEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/schema-operations.js":{},"src/modules/settings-models/welcome-store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"},"src/modules/settings-models/onboarding-copy.js":{},"src/modules/settings-models/locales.js":{"./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"}};
+const __dependencies = {"src/modules/settings-models/index.js":{"./ManagedAccount":"src/modules/settings-models/ManagedAccount.js","./managed-connection":"src/modules/settings-models/managed-connection.js","./ModelsSection":"src/modules/settings-models/ModelsSection.js","./store":"src/modules/settings-models/store.js","./schema-operations":"src/modules/settings-models/schema-operations.js","./welcome-store":"src/modules/settings-models/welcome-store.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js","./locales":"src/modules/settings-models/locales.js"},"src/modules/settings-models/ManagedAccount.js":{"./managed-connection":"src/modules/settings-models/managed-connection.js"},"src/modules/settings-models/managed-connection.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/managed-models":"src/modules/shared/managed-models.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/managed-models.js":{},"src/modules/settings-models/ModelsSection.js":{"../shared/managed-models":"src/modules/shared/managed-models.js","./primitives":"src/modules/settings-models/primitives.js","./CustomProviderCard":"src/modules/settings-models/CustomProviderCard.js","./store":"src/modules/settings-models/store.js","./ProviderEditor":"src/modules/settings-models/ProviderEditor.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/primitives.js":{},"src/modules/settings-models/CustomProviderCard.js":{"../shared/managed-models":"src/modules/shared/managed-models.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/apiKey.js":{},"src/modules/settings-models/EditorFooter.js":{"./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/styles.js":{"./ModelsSection.css":"src/modules/settings-models/ModelsSection.css","./OnboardingModal.css":"src/modules/settings-models/OnboardingModal.css","./DeepSeekOnboardingDialog.css":"src/modules/settings-models/DeepSeekOnboardingDialog.css","./WelcomeNotice.css":"src/modules/settings-models/WelcomeNotice.css"},"src/modules/settings-models/ModelsSection.css":{},"src/modules/settings-models/OnboardingModal.css":{},"src/modules/settings-models/DeepSeekOnboardingDialog.css":{},"src/modules/settings-models/WelcomeNotice.css":{},"src/modules/settings-models/DeepSeekModelsEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./primitives":"src/modules/settings-models/primitives.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/ModelListEditor.js":{"./primitives":"src/modules/settings-models/primitives.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js"},"src/modules/settings-models/snapshot.js":{},"src/modules/settings-models/ProviderEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/schema-operations.js":{},"src/modules/settings-models/welcome-store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"},"src/modules/settings-models/onboarding-copy.js":{},"src/modules/settings-models/locales.js":{"./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

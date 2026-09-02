@@ -30,3 +30,26 @@ No macOS/Windows browser-login/keyring end-to-end or real paid inference has
 been accepted yet. This source change does not release or replace an app, and
 does not expose public account routes. Server private bridge and model allowlist
 must be configured/tested before deploying a connected release.
+
+## Model source menu
+
+The model pane displays the reserved `xharness-managed` catalog directly under
+**XHarness · Account service / 账号服务**. All other providers live behind one
+**Custom / 自定义** row; their names appear only inside that submenu. Provider
+IDs, not display names or model IDs, determine provenance and selection. No
+model capability (for example Vision) is invented for this presentation.
+
+**Manage models / 管理模型** sends a root-context navigation event to the
+settings shell; the shell alone owns modal state. Existing reasoning/context
+controls and `/model` RPC behavior are retained. Keyboard Back/Escape returns
+one level, successful selection restores the composer trigger's focus.
+
+The generic provider editor cannot edit/delete the account-owned profile and
+BYOK creation reserves its route even before login. Account connection remains
+its owner. These UI guards are not a server-side authorization boundary:
+managed request authorization and quota enforcement still belong to the BFF.
+
+Preview: `node scripts/preview-managed-model-menu.mjs` (loopback port 3193).
+It uses the actual source components/platform with a clearly labelled fixture
+catalog, and performs no authentication, configuration writes or paid requests.
+Chromium/WebKit source-menu regressions are enrolled in the UI CI plan.
