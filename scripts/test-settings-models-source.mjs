@@ -33,6 +33,12 @@ test('published ABI, exact CSS and no removed onboarding slot',async()=>{
  const receipts=[];for(const{plugin}of[old,next]){const slots=[],dicts=[],events=[],cleanup=[];const scope={getSnapshot:()=>({status:'ready',value:{accepted:false},writable:true}),subscribe:()=>()=>{},set:async()=>{}};
  const ctx={effect:fn=>{const result=fn();if(typeof result==="function")cleanup.push(result)},locale:{register:(...v)=>dicts.push(v),bind:()=>k=>k},get:()=>({api:{}}),settingsSchema:schema,settingsScope:{describe:()=>mirror(),bind:()=>scope},remote:{$on:(n)=>{events.push(n);return()=>{}}},on:n=>{events.push(n);return()=>{}},slots:{inject:(_n,fn)=>fn(),register:(spec,component)=>slots.push({spec,component})}};
  plugin.apply(ctx);assert.equal(slots.length,1);assert.equal(slots[0].spec.name,'settings.section');cleanup.forEach(fn=>fn());receipts.push({inject:json(plugin.inject),dicts:json(dicts),events,slot:{...slots[0].spec,inject:undefined,label:slots[0].spec.label()}});}
+ // This feature deliberately adds eight recipe strings. All existing copy and
+ // registrations remain a strict legacy oracle; only these additions are allowed.
+ const added=['reasoningRecipe','reasoningKeep','reasoningEnableThinking','reasoningThinking','reasoningNativeEffort','reasoningDisabled','reasoningRecipeHint','reasoningApply'];
+ for(const [,dict] of receipts[1].dicts)for(const locale of ['en','zh']) {
+  for(const key of added){assert.equal(typeof dict[locale][key],'string');assert.ok(dict[locale][key].length);delete dict[locale][key];}
+ }
  assert.deepEqual(receipts[1],receipts[0]);
 });
 test('API-key validation permits literal keys but rejects pasted quotes/env or unsafe chars',()=>{
@@ -70,4 +76,29 @@ test('profile removal respects credential-first idempotent retry and settings fa
 
 test('discovered image capability preserves true/false/unknown without guessing or rewriting fields',()=>{
  for(const imageInput of [undefined,true,false,'yes',null]){const candidate={id:'vision',name:'Vision',contextWindow:8192,maxTokens:2048,reasoning:{efforts:[{id:'high'}]},imageInput};const rows=apis.map(({plugin})=>json(plugin.adopt(candidate)));assert.deepEqual(rows[1],rows[0]);assert.equal(rows[1].imageInput,typeof imageInput==='boolean'?imageInput:undefined);assert.deepEqual(rows[1].reasoning,candidate.reasoning);}
+});
+
+
+test('local reasoning recipes are explicit, isolated, and match checked-in deployment examples',()=>{
+ const {reasoningRecipe,applyReasoningRecipe,supportsReasoningRecipes}=harness(compiled).plugin;
+ const example=JSON.parse(readFileSync('config/providers.local-reasoning.example.json','utf8'));
+ for(const [providerIndex,modelIndex,id] of [[0,0,'enable-thinking'],[0,1,'native-effort'],[1,0,'enable-thinking'],[1,1,'thinking'],[1,2,'native-effort']]) {
+  assert.deepEqual(json(reasoningRecipe(id)),example.providers[providerIndex].models[modelIndex].reasoning);
+ }
+ const original={id:'unknown',reasoning:{custom:'keep'},imageInput:false,contextWindow:4096,extension:{keep:true}};
+ for(const id of ['keep','','unknown','budget'])assert.deepEqual(json(applyReasoningRecipe(original,id,'openai-completions')),original);
+ for(const api of [undefined,'openai-responses','anthropic-messages','chat','llama','vllm']) {
+  assert.equal(supportsReasoningRecipes(api),false);
+  assert.deepEqual(json(applyReasoningRecipe(original,'native-effort',api)),original);
+ }
+ assert.equal(supportsReasoningRecipes('openai-completions'),true);
+ for(const id of ['disabled','enable-thinking','thinking','native-effort']) {
+  const next=applyReasoningRecipe(original,id,'openai-completions');
+  assert.deepEqual(json({...next,reasoning:original.reasoning}),original);
+  assert.deepEqual(original.reasoning,{custom:'keep'});
+ }
+ assert.equal(applyReasoningRecipe(original,'disabled','openai-completions').reasoning,null);
+ const first=reasoningRecipe('enable-thinking');first.efforts[0].request_patch.chat_template_kwargs.enable_thinking=true;
+ assert.equal(reasoningRecipe('enable-thinking').efforts[0].request_patch.chat_template_kwargs.enable_thinking,false);
+ assert.deepEqual(json(reasoningRecipe('native-effort').efforts.map(e=>e.id)),['low','medium','high']);
 });
