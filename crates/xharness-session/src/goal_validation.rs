@@ -97,6 +97,7 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                             || s.review.is_some()
                             || s.pause_reason.is_some()
                             || s.pause_detail.is_some()
+                            || s.retry.is_some()
                             || s.empty_report_rounds != 0
                             || s.activation_epoch
                                 != previous
@@ -218,7 +219,21 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                         expected.running = None;
                         expected.latest_turn = Some(t.clone());
                         expected.review = None;
-                        expected.empty_report_rounds = if t.report.is_some() || tools {
+                        if let Some(detail) = &s.pause_detail {
+                            if !matches!(end, Some(TurnEndReason::Failed { error, .. }) if &error.chars().take(2048).collect::<String>() == detail)
+                            {
+                                return Err(fail());
+                            }
+                        }
+                        expected.pause_detail = s.pause_detail.clone();
+                        expected.retry = provider_retry_after_turn(
+                            &events[..events.partition_point(|x| x.seq < e.seq)],
+                            t.turn,
+                            old.retry.as_ref(),
+                        );
+                        expected.empty_report_rounds = if expected.retry.is_some() {
+                            old.empty_report_rounds
+                        } else if t.report.is_some() || tools {
                             0
                         } else {
                             old.empty_report_rounds.saturating_add(1)

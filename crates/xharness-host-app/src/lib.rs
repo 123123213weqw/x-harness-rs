@@ -256,6 +256,31 @@ impl SessionToolFactory for NativeToolFactory {
         Ok(())
     }
 
+    async fn validate_goal_references(
+        &self,
+        id: &str,
+        refs: &[xharness_session::goal::GoalEvidence],
+    ) -> Result<(), String> {
+        use xharness_session::goal::GoalEvidence;
+        for reference in refs {
+            match reference {
+                GoalEvidence::Job { reference } => {
+                    self.jobs.get(id, reference).map_err(|e| e.to_string())?;
+                }
+                GoalEvidence::Agent { reference } => {
+                    let host = self
+                        .agent_host
+                        .get()
+                        .and_then(std::sync::Weak::upgrade)
+                        .ok_or("agent dependency service unavailable")?;
+                    host.validate_goal_agent_reference(id, reference).await?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     async fn goal_dependencies(
         &self,
         id: &str,
@@ -1026,6 +1051,7 @@ mod tests {
                     }],
                     allow_custom: true,
                     destination: AnswerDestination::AgentMarkdown,
+                    blocks_goal: true,
                 }],
             },
         );
@@ -1284,10 +1310,24 @@ mod tests {
             !f.goal_dependencies("s", &[]).await.unwrap(),
             "unrelated background processes must not block"
         );
+        f.validate_goal_references("s", &refs).await.unwrap();
+        assert!(f.validate_goal_references("other", &refs).await.is_err());
         assert!(f.goal_dependencies("s", &refs).await.unwrap());
         assert!(f.goal_dependencies("other", &refs).await.is_err());
         lease.finish(xharness_jobs::JobOutcome::completed("verified"));
+        f.validate_goal_references("s", &refs).await.unwrap();
         assert!(!f.goal_dependencies("s", &refs).await.unwrap());
+        for reference in ["missing", &format!("{} (running)", id.as_str())] {
+            assert!(f
+                .validate_goal_references(
+                    "s",
+                    &[GoalEvidence::Job {
+                        reference: reference.into()
+                    }]
+                )
+                .await
+                .is_err());
+        }
         assert!(f
             .goal_dependencies(
                 "s",
@@ -1304,6 +1344,14 @@ mod tests {
             .commit(None, Arc::new(|_| Ok(())))
             .unwrap();
         drop(lease);
+        f.validate_goal_references(
+            "s",
+            &[GoalEvidence::Job {
+                reference: id.as_str().into(),
+            }],
+        )
+        .await
+        .unwrap();
         assert!(f
             .goal_dependencies(
                 "s",
