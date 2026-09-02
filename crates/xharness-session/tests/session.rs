@@ -53,6 +53,7 @@ fn question_request() -> AskUserQuestionRequest {
             }],
             allow_custom: true,
             destination: AnswerDestination::Context,
+            blocks_goal: true,
         }],
     }
 }
@@ -402,6 +403,7 @@ fn question_pre_request_failures_and_legacy_recovery_are_safe() {
                                 turn: 1,
                                 reason: TurnEndReason::Failed {
                                     error: "legacy journal append failure".to_owned(),
+                                    provider_failure: None,
                                 },
                             }),
                         ],
@@ -1884,6 +1886,7 @@ fn only_explicit_user_stop_projects_a_model_marker_not_a_user_event() {
         TurnEndReason::LimitReached,
         TurnEndReason::Failed {
             error: "network timeout".into(),
+            provider_failure: None,
         },
         TurnEndReason::UserInterrupted,
     ] {

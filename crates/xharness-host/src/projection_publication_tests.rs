@@ -967,6 +967,7 @@ async fn automatic_compaction_views_match_live_history_and_restart() {
                 turn: 1,
                 reason: error.map_or(TurnEndReason::Completed, |error| TurnEndReason::Failed {
                     error: error.into(),
+                    provider_failure: None,
                 }),
             }
             .into(),

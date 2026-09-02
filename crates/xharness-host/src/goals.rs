@@ -108,6 +108,30 @@ pub(crate) async fn validate_report(
     };
     r.validate()
         .map_err(|e| ToolHandlerError::new(e.to_string()))?;
+    // Validate incoming reports only, never tighten historical journal decoding.
+    // Do not trim, split or guess a resource ID supplied by the model.
+    for (index, evidence) in body.evidence.iter().enumerate() {
+        let reference = match evidence {
+            GoalEvidence::Agent { reference } | GoalEvidence::Job { reference } => reference,
+            _ => continue,
+        };
+        if reference.is_empty()
+            || reference.len() > 2048
+            || !reference
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+        {
+            return Err(ToolHandlerError::new(format!(
+                "invalid_goal_reference: evidence[{index}].reference must be an exact resource ID, without whitespace or annotations; put explanations in summary and retry the report"
+            )));
+        }
+    }
+    tools
+        .validate_goal_references(id, &body.evidence)
+        .await
+        .map_err(|error| ToolHandlerError::new(format!(
+            "invalid_goal_reference: {error}; use exact existing resource IDs owned by this conversation and retry the report"
+        )))?;
     if body.status == GoalReportStatus::Complete && body.evidence.is_empty() {
         return Err(ToolHandlerError::new(
             "complete requires evidence references",
@@ -165,6 +189,7 @@ pub(crate) fn enable_event(
         review: None,
         pause_reason: None,
         pause_detail: None,
+        retry: None,
     };
     state.definition.validate().map_err(|e| e.to_string())?;
     Ok(EventData::GoalExecution {
@@ -182,7 +207,11 @@ pub(crate) fn execution_projection(session: &Session) -> Value {
         return json!({"enabled":false,"state":"disabled"});
     };
     let report = s.latest_turn.as_ref().and_then(|t| t.report.as_ref());
-    let awaiting = report.is_some_and(|r| r.status == GoalReportStatus::Complete)
+    let awaiting = s
+        .latest_turn
+        .as_ref()
+        .is_some_and(|t| t.outcome == GoalTurnOutcome::Completed)
+        && report.is_some_and(|r| r.status == GoalReportStatus::Complete)
         && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
         && s.running.is_none()
         && s.review.is_none();
@@ -197,7 +226,7 @@ pub(crate) fn execution_projection(session: &Session) -> Value {
     } else if !session.pending_tool_approvals().is_empty() {
         "awaiting_approval"
     } else if !session.recoverable_user_questions().is_empty()
-        || xharness_session::has_unanswered_deferred_question(session.events())
+        || xharness_session::has_unanswered_blocking_deferred_question(session.events())
     {
         "awaiting_answer"
     } else if s.running.is_some() {
@@ -206,10 +235,16 @@ pub(crate) fn execution_projection(session: &Session) -> Value {
         "awaiting_confirmation"
     } else if s.pending.is_some() {
         "queued"
+    } else if s
+        .retry
+        .as_ref()
+        .is_some_and(|r| r.attempts <= MAX_GOAL_PROVIDER_RETRIES)
+    {
+        "network_backoff"
     } else {
         "waiting"
     };
-    json!({"enabled":s.definition.execution_enabled,"state":state,"roundsStarted":s.rounds_started,"maxGoalRounds":s.definition.snapshot.max_goal_rounds,"pauseReason":s.pause_reason,"pauseDetail":s.pause_detail,"report":report,"acceptanceCriteria":s.definition.acceptance_criteria})
+    json!({"enabled":s.definition.execution_enabled,"state":state,"roundsStarted":s.rounds_started,"maxGoalRounds":s.definition.snapshot.max_goal_rounds,"pauseReason":s.pause_reason,"pauseDetail":s.pause_detail,"retry":s.retry,"report":report,"acceptanceCriteria":s.definition.acceptance_criteria})
 }
 
 impl crate::BasicHost {
@@ -312,17 +347,36 @@ impl crate::BasicHost {
     }
 }
 
+fn owned_goal_agent<'a>(
+    state: &'a crate::state::HostState,
+    caller: &str,
+    child: &str,
+) -> Result<&'a crate::state::SessionRecord, String> {
+    let record = state
+        .sessions
+        .get(child)
+        .ok_or("required child agent is missing")?;
+    if record.parent_session_id.as_deref() != Some(caller) {
+        return Err("required child agent is not owned by this Goal session".into());
+    }
+    Ok(record)
+}
+
 impl crate::BasicHost {
+    /// Admission validates identity/ownership, not the child's execution outcome.
+    pub async fn validate_goal_agent_reference(
+        &self,
+        caller: &str,
+        child: &str,
+    ) -> Result<(), String> {
+        let state = self.state.read().await;
+        owned_goal_agent(&state, caller, child).map(|_| ())
+    }
+
     /// Only a child owned by this parent can be a required Goal dependency.
     pub async fn goal_agent_dependency(&self, caller: &str, child: &str) -> Result<bool, String> {
         let state = self.state.read().await;
-        let record = state
-            .sessions
-            .get(child)
-            .ok_or("required child agent is missing")?;
-        if record.parent_session_id.as_deref() != Some(caller) {
-            return Err("required child agent is not owned by this Goal session".into());
-        }
+        let record = owned_goal_agent(&state, caller, child)?;
         if record.dispatch_paused {
             return Err("required child agent is stopped; resume it or revise the Goal".into());
         }
@@ -873,6 +927,21 @@ mod tests {
                 xharness_tools::ToolRegistry::new(),
             )))
         }
+        async fn validate_goal_references(
+            &self,
+            _: &str,
+            refs: &[GoalEvidence],
+        ) -> Result<(), String> {
+            if refs.iter().all(|r| match r {
+                GoalEvidence::Job { reference } => reference == "required-job",
+                GoalEvidence::Agent { .. } => false,
+                _ => true,
+            }) {
+                Ok(())
+            } else {
+                Err("unknown fixture dependency".into())
+            }
+        }
         async fn goal_dependencies(&self, _: &str, refs: &[GoalEvidence]) -> Result<bool, String> {
             Ok(!refs.is_empty() && self.0.load(Ordering::SeqCst))
         }
@@ -1413,3 +1482,7 @@ mod tests {
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
 }
+
+#[cfg(test)]
+#[path = "goal_report_reference_tests.rs"]
+mod report_reference_tests;
