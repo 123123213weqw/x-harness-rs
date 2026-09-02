@@ -26,7 +26,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { CredentialView, IApiClient, SettingsNamespaceView, SettingsPathOpView } from './contracts'
 import {
-  DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
+  DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels, validateOutputBudgets,
 } from './DeepSeekModelsEditor'
 import { apiKeyFailure } from './apiKey'
 import { EditorFooter } from './EditorFooter'
@@ -169,6 +169,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const root = useMemo(() => schema.rehydrate(namespace.schema), [namespace.schema, schema])
   const node = useMemo(() => schema.nodeAtPath(root, settingsPath), [root, schema, settingsPath])
   const fallback = schema.getPath(namespace.value, settingsPath)
+  const budgetDefaults = schema.getPath(namespace.base, settingsPath)
   const disabled = props.readOnly || busy
   const layout = layoutOf(namespace.ns)
   const keyRef = refFor(schema, namespace, settingsPath, props.provider)
@@ -216,6 +217,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   // The model list is validated by the same per-row checker for both families,
   // so a bad row is named by its position rather than by a blanket message.
   const modelFailure = validateDeepSeekModels(schema.getPath(draft, ['models']))
+    ?? validateOutputBudgets(schema.getPath(draft, ['models']), draft, budgetDefaults)
   const keyFailure = apiKeyFailure(keyDraft)
   // What a probe or a write must carry: the typed key with paste whitespace
   // removed. A blank field yields an empty string, which both call sites read
@@ -260,6 +262,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       // the write with a message naming a path instead of the row, and because
       // nothing but this function decides what is written.
       const failure = validateDeepSeekModels(schema.getPath(next, ['models']))
+        ?? validateOutputBudgets(schema.getPath(next, ['models']), next, budgetDefaults)
       /* v8 ignore next 3 -- unreachable from the card: the same failure disables submit */
       if (failure !== undefined) {
         return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`

@@ -75,7 +75,7 @@ export interface DeepSeekModelsValidationFailure {
   index: number
   /** Message key owned by the Models settings section. */
   key: 'modelIdRequired' | 'modelIdDuplicate' | 'modelNameInvalid' | 'modelContextInvalid'
-  | 'modelMaxTokensInvalid'
+  | 'modelMaxTokensInvalid' | 'modelOutputBudgetInvalid'
 }
 
 /** Convert a schema-validated catalog value into records without dropping hidden fields. */
@@ -118,6 +118,41 @@ export function validateDeepSeekModels(value: unknown): DeepSeekModelsValidation
     if (maxTokens !== undefined
       && (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens <= 0)) {
       return { index, key: 'modelMaxTokensInvalid' }
+    }
+  }
+  return undefined
+}
+
+/** Cross-field budget validation mirrors the native adaptive output policy.
+ * Hidden minimum reserves survive later manual edits and must be checked too.
+ * Unknown deployment maxima use 4096; a context capacity is not an output cap.
+ */
+export function validateOutputBudgets(
+  value: unknown, providerValue: unknown = {}, fallbackValue: unknown = {},
+): DeepSeekModelsValidationFailure | undefined {
+  const provider = isObjectRecord(providerValue) ? providerValue : {}
+  const fallback = isObjectRecord(fallbackValue) ? fallbackValue : {}
+  const sameRoute = ['baseURL', 'api'].every(key =>
+    (provider[key] ?? fallback[key]) === fallback[key])
+  const defaults = sameRoute ? fallback : {}
+  const baseModels = modelDrafts(defaults['models'])
+  const countValid = (count: unknown): count is number =>
+    typeof count === 'number' && Number.isInteger(count) && count > 0 && count <= 1_000_000_000
+  for (const [index, model] of modelDrafts(value).entries()) {
+    const baseModel = baseModels.find(row => row['id'] === model['id']
+      && (row['upstreamModel'] ?? row['id']) === (model['upstreamModel'] ?? model['id']))
+    const maximum = model['maxTokens'] ?? baseModel?.['maxTokens']
+      ?? provider['maxTokens'] ?? defaults['maxTokens'] ?? 4096
+    const context = model['contextWindow'] ?? provider['defaultContextWindow']
+      ?? fallback['defaultContextWindow'] ?? 32768
+    const margin = model['tokenSafetyMargin'] ?? 1024
+    if (!countValid(maximum) || !countValid(context)
+      || typeof margin !== 'number' || !Number.isInteger(margin) || margin < 0 || margin > 1_000_000_000) {
+      return { index, key: 'modelOutputBudgetInvalid' }
+    }
+    const minimum = model['minimumOutputTokens'] ?? Math.min(maximum, 1024)
+    if (!countValid(minimum) || minimum > maximum || minimum + margin >= context) {
+      return { index, key: 'modelOutputBudgetInvalid' }
     }
   }
   return undefined
