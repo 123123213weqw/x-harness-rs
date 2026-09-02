@@ -12,6 +12,7 @@ pub mod github_service;
 pub mod hosted;
 pub mod hosted_bootstrap;
 pub mod native_browser;
+pub mod output_budget_migration;
 pub mod ownership;
 mod plugin_mcp;
 mod plugin_service;
