@@ -481,6 +481,133 @@ async fn native_http_provider_streams_both_protocols() {
 }
 
 #[tokio::test]
+async fn active_stream_can_outlive_the_response_header_deadline() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut socket).await;
+        let request = String::from_utf8_lossy(&request);
+        assert!(request.contains("accept-encoding: identity"));
+        assert!(request.contains("cache-control: no-cache"));
+
+        let first = "data: {\"choices\":[{\"delta\":{\"content\":\"still \"}}]}\n\n";
+        let last = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"alive\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let head = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            first.len() + last.len(),
+        );
+        socket.write_all(head.as_bytes()).await.unwrap();
+        socket.write_all(first.as_bytes()).await.unwrap();
+        socket.flush().await.unwrap();
+        // This exceeds request_timeout below. It must not terminate an active
+        // body stream because request_timeout only protects response headers.
+        tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+        socket.write_all(last.as_bytes()).await.unwrap();
+    });
+
+    let mut config = OpenAiProviderConfig::new(
+        OpenAiProtocol::ChatCompletions,
+        format!("http://{address}/v1"),
+        "secret",
+        "test-model",
+    );
+    config.request_timeout = std::time::Duration::from_millis(500);
+    config.stream_idle_timeout = std::time::Duration::from_secs(2);
+    let provider = OpenAiProvider::new(config).unwrap();
+    let mut stream = provider
+        .stream(
+            ProviderRequest {
+                messages: vec![AgentMessage::user("hello")],
+                tools: Vec::new(),
+                step: 1,
+                reasoning_effort: None,
+                max_output_tokens: None,
+                debug_scope: Default::default(),
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mut text = String::new();
+    let mut completed = false;
+    while let Some(event) = stream.next().await {
+        match event.unwrap() {
+            ProviderEvent::TextDelta(delta) => text.push_str(&delta),
+            ProviderEvent::Completed { .. } => completed = true,
+            _ => {}
+        }
+    }
+    assert_eq!(text, "still alive");
+    assert!(completed);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn truncated_stream_reports_transport_diagnostics_after_partial_output() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let _ = read_http_request(&mut socket).await;
+        let partial = "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            partial.len() + 128,
+            partial,
+        );
+        socket.write_all(response.as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
+    });
+
+    let sink = std::sync::Arc::new(MemoryDebugSink::default());
+    let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+        OpenAiProtocol::ChatCompletions,
+        format!("http://{address}/v1"),
+        "secret",
+        "test-model",
+    ))
+    .unwrap()
+    .with_debug(DebugRecorder::new(sink.clone()));
+    let mut stream = provider
+        .stream(
+            ProviderRequest {
+                messages: vec![AgentMessage::user("hello")],
+                tools: Vec::new(),
+                step: 1,
+                reasoning_effort: None,
+                max_output_tokens: None,
+                debug_scope: Default::default(),
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let first = stream.next().await.unwrap().unwrap();
+    assert!(matches!(first, ProviderEvent::TextDelta(ref value) if value == "partial"));
+    let error = stream.next().await.unwrap().unwrap_err();
+    assert!(error.retryable);
+    assert!(error.message.contains("OpenAI stream interrupted"));
+    assert!(error.message.contains("response_body"));
+    assert!(error.message.contains("received 1 chunks"));
+
+    let trace = sink.events().await;
+    let diagnostic = trace
+        .iter()
+        .find(|event| event.event == "stream.transport_error")
+        .expect("transport diagnostic event");
+    assert_eq!(diagnostic.payload["kind"], "response_body");
+    assert_eq!(diagnostic.payload["receivedChunks"], 1);
+    assert!(diagnostic.payload["sourceChain"]
+        .as_str()
+        .is_some_and(|source| !source.is_empty()));
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn provider_uses_protocol_native_input_token_count_endpoints() {
     for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
         let (base_url, server) = spawn_count_server(protocol, 70_857).await;
@@ -738,6 +865,15 @@ fn provider_rejects_zero_stream_budgets() {
         "test-model",
     );
     config.max_sse_event_bytes = 0;
+    assert!(OpenAiProvider::new(config).is_err());
+
+    let mut config = OpenAiProviderConfig::new(
+        OpenAiProtocol::Responses,
+        "http://127.0.0.1:1/v1",
+        "secret",
+        "test-model",
+    );
+    config.stream_idle_timeout = std::time::Duration::ZERO;
     assert!(OpenAiProvider::new(config).is_err());
 }
 

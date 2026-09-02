@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    error::Error as StdError,
     fmt,
     sync::{
         atomic::{AtomicU8, Ordering},
@@ -183,7 +184,12 @@ pub struct OpenAiProviderConfig {
     pub api_key: String,
     pub model: String,
     pub connect_timeout: Duration,
+    /// Maximum time to receive response headers. This is deliberately not a
+    /// total request deadline: a healthy model stream may run for much longer.
     pub request_timeout: Duration,
+    /// Maximum gap between response-body chunks once headers have arrived.
+    /// Every received chunk resets this deadline.
+    pub stream_idle_timeout: Duration,
     pub max_sse_pending_bytes: usize,
     pub max_sse_event_bytes: usize,
     pub max_error_body_bytes: usize,
@@ -206,6 +212,7 @@ impl OpenAiProviderConfig {
             model: model.into(),
             connect_timeout: Duration::from_secs(30),
             request_timeout: Duration::from_secs(600),
+            stream_idle_timeout: Duration::from_secs(300),
             max_sse_pending_bytes: DEFAULT_SSE_PENDING_LIMIT_BYTES,
             max_sse_event_bytes: DEFAULT_SSE_EVENT_LIMIT_BYTES,
             max_error_body_bytes: DEFAULT_ERROR_BODY_LIMIT_BYTES,
@@ -222,6 +229,11 @@ impl OpenAiProviderConfig {
 
     pub fn with_context_window_fallback(mut self, tokens: Option<u64>) -> Self {
         self.context_window_fallback = tokens;
+        self
+    }
+
+    pub fn with_stream_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.stream_idle_timeout = timeout;
         self
     }
 
@@ -266,6 +278,7 @@ impl fmt::Debug for OpenAiProviderConfig {
             .field("model", &self.model)
             .field("connect_timeout", &self.connect_timeout)
             .field("request_timeout", &self.request_timeout)
+            .field("stream_idle_timeout", &self.stream_idle_timeout)
             .field("max_sse_pending_bytes", &self.max_sse_pending_bytes)
             .field("max_sse_event_bytes", &self.max_sse_event_bytes)
             .field("max_error_body_bytes", &self.max_error_body_bytes)
@@ -308,6 +321,21 @@ impl OpenAiProvider {
                 "max_error_body_bytes must be greater than zero",
             ));
         }
+        if config.connect_timeout.is_zero() {
+            return Err(ProviderError::new(
+                "connect_timeout must be greater than zero",
+            ));
+        }
+        if config.request_timeout.is_zero() {
+            return Err(ProviderError::new(
+                "request_timeout must be greater than zero",
+            ));
+        }
+        if config.stream_idle_timeout.is_zero() {
+            return Err(ProviderError::new(
+                "stream_idle_timeout must be greater than zero",
+            ));
+        }
         if let Some(tokens) = config.context_window_fallback {
             if tokens == 0 {
                 return Err(ProviderError::new(
@@ -342,7 +370,9 @@ impl OpenAiProvider {
         }
         let client = Client::builder()
             .connect_timeout(config.connect_timeout)
-            .timeout(config.request_timeout)
+            // A rolling body timeout catches a stalled stream without killing
+            // a long but actively producing reasoning response.
+            .read_timeout(config.stream_idle_timeout)
             .build()
             .map_err(|error| ProviderError::new(format!("could not build HTTP client: {error}")))?;
         Ok(Self {
@@ -361,6 +391,33 @@ impl OpenAiProvider {
 
     pub fn config(&self) -> &OpenAiProviderConfig {
         &self.config
+    }
+
+    async fn send_request(
+        &self,
+        request: reqwest::RequestBuilder,
+        cancellation: &CancellationToken,
+        operation: &str,
+    ) -> Result<Response, ProviderError> {
+        let pending = request.send();
+        tokio::select! {
+            _ = cancellation.cancelled() => {
+                Err(ProviderError::new(format!("{operation} cancelled")))
+            }
+            result = tokio::time::timeout(self.config.request_timeout, pending) => {
+                match result {
+                    Ok(Ok(response)) => Ok(response),
+                    Ok(Err(error)) => Err(ProviderError::retryable(format!(
+                        "{operation} network error: {}",
+                        reqwest_error_summary(&error),
+                    ))),
+                    Err(_) => Err(ProviderError::retryable(format!(
+                        "{operation} response-header timeout after {}",
+                        format_duration(self.config.request_timeout),
+                    ))),
+                }
+            }
+        }
     }
 
     fn fallback_capabilities(&self) -> ModelCapabilities {
@@ -382,14 +439,9 @@ impl OpenAiProvider {
         if !self.config.api_key.is_empty() {
             request = request.bearer_auth(&self.config.api_key);
         }
-        let response = tokio::select! {
-            _ = cancellation.cancelled() => {
-                return Err(ProviderError::new("capability discovery cancelled"));
-            }
-            response = request.send() => response.map_err(|error| {
-                ProviderError::new(format!("capability discovery request failed: {error}"))
-            })?,
-        };
+        let response = self
+            .send_request(request, cancellation, "capability discovery request")
+            .await?;
         let status = response.status();
         if !status.is_success() {
             return Err(ProviderError::http(
@@ -550,20 +602,18 @@ impl ModelProvider for OpenAiProvider {
             json!({"endpoint": self.config.token_count_endpoint(), "body": &body}),
         )
         .await;
-        let pending = self
+        let request_builder = self
             .client
             .post(self.config.token_count_endpoint())
             .bearer_auth(&self.config.api_key)
-            .json(&body)
-            .send();
-        let response = tokio::select! {
-            _ = cancellation.cancelled() => {
-                return Err(ProviderError::new("OpenAI input token count cancelled"));
-            }
-            response = pending => response.map_err(|error| {
-                ProviderError::retryable(format!("OpenAI input token count network error: {error}"))
-            })?,
-        };
+            .json(&body);
+        let response = self
+            .send_request(
+                request_builder,
+                &cancellation,
+                "OpenAI input token count request",
+            )
+            .await?;
         let status = response.status();
         self.trace(
             &request.debug_scope,
@@ -633,21 +683,19 @@ impl ModelProvider for OpenAiProvider {
             }),
         )
         .await;
-        let pending = self
+        let request_builder = self
             .client
             .post(self.config.endpoint())
             .header(header::ACCEPT, "text/event-stream")
+            // Streaming compression buys little for token-sized SSE frames and
+            // makes a truncated intermediary response look like a codec error.
+            .header(header::ACCEPT_ENCODING, "identity")
+            .header(header::CACHE_CONTROL, "no-cache")
             .bearer_auth(&self.config.api_key)
-            .json(&body)
-            .send();
-        let response = tokio::select! {
-            _ = cancellation.cancelled() => {
-                return Err(ProviderError::new("OpenAI request cancelled"));
-            }
-            response = pending => response.map_err(|error| {
-                ProviderError::retryable(format!("OpenAI network error: {error}"))
-            })?,
-        };
+            .json(&body);
+        let response = self
+            .send_request(request_builder, &cancellation, "OpenAI request")
+            .await?;
 
         let status = response.status();
         self.trace(
@@ -684,6 +732,9 @@ impl ModelProvider for OpenAiProvider {
             let mut bytes = response.bytes_stream();
             let mut parser = SseParser::with_limits(max_sse_pending_bytes, max_sse_event_bytes);
             let mut normalizer = OpenAiStreamNormalizer::new(protocol);
+            let stream_started = Instant::now();
+            let mut received_chunks = 0_u64;
+            let mut received_bytes = 0_u64;
             loop {
                 let next = tokio::select! {
                     _ = cancellation.cancelled() => return,
@@ -691,6 +742,10 @@ impl ModelProvider for OpenAiProvider {
                 };
                 match next {
                     Some(Ok(chunk)) => {
+                        received_chunks = received_chunks.saturating_add(1);
+                        received_bytes = received_bytes.saturating_add(
+                            u64::try_from(chunk.len()).unwrap_or(u64::MAX),
+                        );
                         debug.record_lossy(DebugEvent::new(
                             "provider.openai",
                             "sse.chunk",
@@ -727,8 +782,28 @@ impl ModelProvider for OpenAiProvider {
                         }
                     }
                     Some(Err(error)) => {
+                        let elapsed = stream_started.elapsed();
+                        let kind = reqwest_error_kind(&error);
+                        let source_chain = reqwest_error_source_chain(&error);
+                        debug.record_lossy(DebugEvent::new(
+                            "provider.openai",
+                            "stream.transport_error",
+                            json!({
+                                "kind": kind,
+                                "elapsedMs": elapsed.as_millis(),
+                                "receivedChunks": received_chunks,
+                                "receivedBytes": received_bytes,
+                                "isTimeout": error.is_timeout(),
+                                "isConnect": error.is_connect(),
+                                "isDecode": error.is_decode(),
+                                "isBody": error.is_body(),
+                                "sourceChain": source_chain,
+                            }),
+                        ).with_scope(debug_scope.clone())).await;
                         yield Err(ProviderError::retryable(format!(
-                            "OpenAI stream transport error: {error}"
+                            "OpenAI stream interrupted after {} ({kind}; received {received_chunks} chunks / {received_bytes} bytes): {}",
+                            format_duration(elapsed),
+                            reqwest_error_summary(&error),
                         )));
                         return;
                     }
@@ -767,6 +842,59 @@ impl ModelProvider for OpenAiProvider {
             }
         };
         Ok(Box::pin(output))
+    }
+}
+
+fn reqwest_error_kind(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "idle_timeout"
+    } else if error.is_connect() {
+        "connection"
+    } else if error.is_decode() {
+        // `Response::bytes_stream()` maps every lower-level response-body
+        // failure to reqwest's Decode kind, including HTTP/2 resets and an
+        // unexpected EOF. It does not imply malformed JSON or SSE.
+        "response_body"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_request() {
+        "request"
+    } else {
+        "transport"
+    }
+}
+
+fn reqwest_error_summary(error: &reqwest::Error) -> String {
+    let kind = reqwest_error_kind(error);
+    let sources = reqwest_error_source_chain(error);
+    if sources.is_empty() {
+        format!("{kind}: {error}")
+    } else {
+        format!("{kind}: {sources}")
+    }
+}
+
+fn reqwest_error_source_chain(error: &reqwest::Error) -> String {
+    let mut sources = Vec::new();
+    let mut current = error.source();
+    while let Some(source) = current {
+        let text = source.to_string();
+        if sources.last() != Some(&text) {
+            sources.push(text);
+        }
+        if sources.len() == 6 {
+            break;
+        }
+        current = source.source();
+    }
+    sources.join(": ")
+}
+
+fn format_duration(duration: Duration) -> String {
+    if duration.as_secs() >= 1 {
+        format!("{:.1}s", duration.as_secs_f64())
+    } else {
+        format!("{}ms", duration.as_millis())
     }
 }
 
