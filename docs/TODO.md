@@ -489,7 +489,13 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   绑定到一个注册 Adapter，暴露 Reasoning/Max-token 控制，并在不猜协议的情况下发现模型能力。
   **已完成基础切片：** 单 Host 多 Provider/Model Registry、公共路由与上游模型名分离、每路由
   Token Guard、JSON 配置、Web 模型目录和选择前 fail-closed 校验。**剩余：** Purpose 路由、
-  Reasoning 原生字段、模型 Capability/Tokenizer 注册、凭据服务绑定和安全热重载。
+  Reasoning 原生字段、模型 Capability/Tokenizer 注册、凭据服务绑定和安全热重载。推理档位必须
+  改为 Adapter 驱动的动态 Capability：优先读取 Provider 明确提供且带版本的能力元数据，其次使用
+  Adapter 的 Last-known-good 缓存，最后才回退到显式静态配置；禁止 Core/UI 猜测
+  `low/high/max/xhigh` 的含义。探测结果必须带 `capability_revision`、TTL/ETag、来源与更新时间，
+  热更新不能让活动 Turn 的已绑定档位在请求中途变化；Provider 只返回模型列表而不返回推理档位时，
+  必须明确标记 `not_advertised`，不能把 `/models` 的成功误当成完整能力发现。Web 只投影目标模型
+  当时真实可用的档位，新档位可出现，撤销档位对新 Turn fail-closed，历史 Session 仍可读取。
 
 - [ ] `P1-03` **Token Meter 与 Context Policy。** Provider-aware Token Estimate、最大输入
   Guard、确定性 Tool Output Reduce、Surface Replace，以及不修改原 Event Log 的可选 Summary。
@@ -507,8 +513,13 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Pruner 和请求侧 `tool_arguments_pruned/v1` 接入持久 Replace/内容引用缓存、Provider 结构化
   错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点矩阵、按模型本地精确 Tokenizer，以及把
   已解决 Question/Answer/Tool Result 作为不可拆分单元选择 Compact 安全切点；未决 Question
-  始终留在当前开放 Step，不参与 Compact。精确 Tokenizer 必须同时报告 Tool Schema、Assistant
-  Tool Arguments、Reasoning 与 Provider Opaque Items，不能只计 `message.content`。
+  始终留在当前开放 Step，不参与 Compact。还需增加基于 `source_revision + surface_fingerprint` 的
+  Compact 幂等门：相同输入不得重复摘要，摘要后实际 Token/Byte 降幅不足 10% 时记录
+  `no_progress` 并熔断，直到安全切点推进或压力显著增加；当前开放 Turn 中不可压缩的大 Tool Call
+  不能触发逐 Step 摘要循环。摘要必须把 Tool Result/文件 SHA/副作用状态放在确定性 Fact Ledger，
+  LLM 只能压缩叙述，禁止把未执行计划、Reasoning 推测写成已确认文件状态。精确 Tokenizer 必须同时
+  报告 Tool Schema、Assistant Tool Arguments、Reasoning 与 Provider Opaque Items，不能只计
+  `message.content`。
 
 - [ ] `P1-04` **动态 Tool Projection。** 每个 Profile/Step 只发送相关工具，同时保持 Schema
   稳定。默认 Coding Bundle 为 `read/grep/glob/write/edit/bash`；Interaction、Job、Schedule、Web
@@ -559,7 +570,12 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Credential Reference，以及 Health/Readiness；继续缩小 `BasicHost` 中仅用于兼容投影的内存缓存。
 
 - [ ] `P2-02` **流式传输增强。** 提供带 Cursor Resume、Lag Detection、Reconnect 和
-  Per-session Multiplexing 的 WebSocket/SSE 下行事件流。
+  Per-session Multiplexing 的 WebSocket/SSE 下行事件流。增加两级 Delta Coalescer：首个正文/
+  Reasoning Delta 立即发送以保护 TTFT，随后按 20--50 ms 或 4--16 KiB 合并；Tool Arguments 默认只
+  投影进度和最终结构，不把每个 token 作为独立 Web 卡片事件。Durable Journal 保存可恢复的合并帧
+  和最终 Assistant/Tool Call，不为每个 Provider 微碎片追加一条 Event；Cancel、Finish、Tool Call
+  边界必须强制 Flush。验收报告原始 Delta 数、下行 Frame 数、JSONL 增长、CPU、重放一致性和崩溃
+  最多丢失的未 Flush 窗口。
 
 - [ ] `P2-03` **Web UI 完整投影。** 继续把 DeepSeek Harness UI 作为 Client Projection：
   Session、流式 Reasoning/Text、Tool Card、Approval、Terminal、File、Web Source、Usage、
@@ -632,7 +648,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Output Reserve 分项，并包含多个并行大文件结果导致单 Step 暴涨的用例。Context P0 消融必须
   至少覆盖 32 个成功 `write` Tool Call、失败/未完成调用不投影、Responses `function_call` 同步、
   投影确定性、Call/Result 拓扑不变、请求 Byte/Token 降幅、Policy CPU 和真实 Provider TTFT/
-  Prefill；不能用仅减少 Payload 的结果宣称端到端一定更快。
+  Prefill；不能用仅减少 Payload 的结果宣称端到端一定更快。增加单次 50 KiB Tool Arguments 被
+  Provider 切成 1--5 字符碎片的回归，比较 Coalescing 前后的事件数、JSONL 体积、Web 渲染负载与
+  TTFT；增加大型 `write` BlindOverwrite -> Read -> Retry、Host 重启恢复 Observation、Compact
+  `no_progress` 熔断以及错误摘要不得覆盖确定性 Tool Fact 的真实失败路径。
 - [ ] `REL-06` Semver/API Audit：Non-exhaustive Extensible Type、Builder、Deprecation Window、
   Changelog、Reproducible Lockfile、SBOM、License、Signed Artifact。
 - [ ] `REL-07` Security Regression：Symlink Race、Sandbox Escape、Process Descendant、SSRF/
