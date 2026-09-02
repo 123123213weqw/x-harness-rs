@@ -2796,13 +2796,18 @@ impl Runner {
         &mut self,
         approval_id: &str,
         call: &ToolCall,
+        reasons: &[String],
     ) -> Result<(), RunFailure> {
         self.journal_append(
             vec![SessionEventData::ApprovalAsked {
                 id: approval_id.to_owned(),
                 tool_name: call.name.clone(),
                 call_id: Some(call.id.clone()),
-                reason: Some("This tool requires explicit approval.".to_owned()),
+                reason: Some(if reasons.is_empty() {
+                    "This tool requires explicit approval.".to_owned()
+                } else {
+                    reasons.join("\n")
+                }),
             }],
             true,
         )
@@ -4149,7 +4154,6 @@ impl Runner {
                 if response.is_closed() {
                     return Ok(());
                 }
-                let _approval_reasons = reasons;
                 let (order, call) = calls
                     .iter()
                     .find(|(_, call)| call.id == execution_id)
@@ -4163,7 +4167,8 @@ impl Runner {
                     None => (self.approval_id(*order), false),
                 };
                 if !recovered {
-                    self.journal_approval_asked(&approval_id, call).await?;
+                    self.journal_approval_asked(&approval_id, call, &reasons)
+                        .await?;
                 }
                 pending_approval_ids.push(approval_id.clone());
                 self.emit(LoopEventKind::ToolApprovalRequested {
