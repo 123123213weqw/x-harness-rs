@@ -76,22 +76,21 @@ async fn executor(workspace: &TempWorkspace) -> ToolExecutor {
         .map(|definition| definition.name)
         .collect();
     let shell = if cfg!(windows) { "pwsh" } else { "bash" };
-    assert_eq!(
-        names,
-        [
-            shell,
-            "edit",
-            "glob",
-            "grep",
-            "job_kill",
-            "job_list",
-            "job_output",
-            "read",
-            "web_fetch",
-            "web_search",
-            "write",
-        ]
-    );
+    let mut expected = vec![
+        shell.to_owned(),
+        "edit".to_owned(),
+        "glob".to_owned(),
+        "grep".to_owned(),
+        "job_kill".to_owned(),
+        "job_list".to_owned(),
+        "job_output".to_owned(),
+        "read".to_owned(),
+        "web_fetch".to_owned(),
+        "web_search".to_owned(),
+        "write".to_owned(),
+    ];
+    expected.sort();
+    assert_eq!(names, expected);
     ToolExecutor::new(registry).with_approval_provider(Arc::new(ApproveAll))
 }
 
@@ -207,6 +206,43 @@ async fn bash_propagates_pipeline_failures_and_allows_explicit_recovery() {
     assert_eq!(recovered["exit_code"], 0);
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn pwsh_propagates_errors_and_allows_explicit_recovery() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+
+    let failed = executor
+        .execute(ToolRequest::new(
+            "pwsh",
+            r#"{"command":"throw 'fatal: PowerShell failure'"}"#,
+        ))
+        .await;
+    assert!(failed.is_ok(), "the pwsh handler must settle: {failed:?}");
+    let failed: Value = serde_json::from_str(&failed.output.unwrap().content).unwrap();
+    assert_eq!(failed["success"], false);
+    assert_ne!(failed["exit_code"], 0);
+    assert!(failed["stderr"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("fatal: PowerShell failure"));
+
+    let recovered = executor
+        .execute(ToolRequest::new(
+            "pwsh",
+            r#"{"command":"try { throw 'bad' } catch { Write-Output 'recovered' }"}"#,
+        ))
+        .await;
+    assert!(
+        recovered.is_ok(),
+        "the pwsh handler must settle: {recovered:?}"
+    );
+    let recovered: Value = serde_json::from_str(&recovered.output.unwrap().content).unwrap();
+    assert_eq!(recovered["success"], true);
+    assert_eq!(recovered["exit_code"], 0);
+    assert_eq!(recovered["stdout"], "recovered\r\n");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn background_bash_streams_to_job_output_and_preserves_nonzero_exit_status() {
@@ -256,6 +292,40 @@ async fn background_bash_streams_to_job_output_and_preserves_nonzero_exit_status
     assert!(listed.is_ok(), "{listed:?}");
     let listed: Value = serde_json::from_str(&listed.output.unwrap().content).unwrap();
     assert_eq!(listed["jobs"][0]["id"], job_id);
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn background_pwsh_streams_output_and_preserves_nonzero_exit_status() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+
+    let started = executor
+        .execute(ToolRequest::new(
+            "pwsh",
+            serde_json::json!({
+                "command": "[Console]::Out.Write('first'); Start-Sleep -Milliseconds 50; [Console]::Out.Write('last'); [Console]::Error.Write('warn'); exit 7",
+                "run_in_background": true
+            })
+            .to_string(),
+        ))
+        .await;
+    assert!(started.is_ok(), "{started:?}");
+    let started: Value = serde_json::from_str(&started.output.unwrap().content).unwrap();
+    let job_id = started["job_id"].as_str().unwrap();
+
+    let collected = executor
+        .execute(ToolRequest::new(
+            "job_output",
+            serde_json::json!({"job_id": job_id, "wait": true, "timeout_ms": 5_000}).to_string(),
+        ))
+        .await;
+    assert!(collected.is_ok(), "{collected:?}");
+    let collected: Value = serde_json::from_str(&collected.output.unwrap().content).unwrap();
+    assert_eq!(collected["stdout"], "firstlast");
+    assert_eq!(collected["stderr"], "warn");
+    assert_eq!(collected["snapshot"]["status"], "completed");
+    assert_eq!(collected["snapshot"]["detail"], "exit code: 7");
 }
 
 #[cfg(unix)]
@@ -315,6 +385,38 @@ async fn background_bash_kill_settles_and_invalid_option_combinations_fail_befor
     assert!(killed_again.is_ok(), "{killed_again:?}");
     let killed_again: Value = serde_json::from_str(&killed_again.output.unwrap().content).unwrap();
     assert_eq!(killed_again["result"], "already_finished");
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn background_pwsh_kill_settles_without_surviving_processes() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+    let started = executor
+        .execute(ToolRequest::new(
+            "pwsh",
+            r#"{"command":"Start-Sleep -Seconds 30","run_in_background":true}"#,
+        ))
+        .await;
+    assert!(started.is_ok(), "{started:?}");
+    let started: Value = serde_json::from_str(&started.output.unwrap().content).unwrap();
+    let job_id = started["job_id"].as_str().unwrap();
+    let killed = executor
+        .execute(ToolRequest::new(
+            "job_kill",
+            serde_json::json!({"job_id": job_id, "reason": "test complete"}).to_string(),
+        ))
+        .await;
+    assert!(killed.is_ok(), "{killed:?}");
+    let final_read = executor
+        .execute(ToolRequest::new(
+            "job_output",
+            serde_json::json!({"job_id": job_id, "wait": true, "timeout_ms": 5_000}).to_string(),
+        ))
+        .await;
+    assert!(final_read.is_ok(), "{final_read:?}");
+    let final_read: Value = serde_json::from_str(&final_read.output.unwrap().content).unwrap();
+    assert_eq!(final_read["snapshot"]["status"], "killed");
 }
 
 #[cfg(target_os = "linux")]
