@@ -801,14 +801,6 @@ fn spawn_session(
             pixel_height: 0,
         })
         .map_err(|source| portable_terminal_io("allocate ConPTY", source))?;
-    let mut reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|source| portable_terminal_io("clone ConPTY reader", source))?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|source| portable_terminal_io("take ConPTY writer", source))?;
 
     let state = Arc::new(Mutex::new(Scrollback::new(
         config.scrollback_bytes,
@@ -822,27 +814,6 @@ fn spawn_session(
     let trace_name = spec.name.clone();
     let trace_owner = spec.owner.clone();
     let reader_state = Arc::clone(&state);
-    let (output_tx, mut output_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
-    tokio::spawn(async move {
-        while let Some(chunk) = output_rx.recv().await {
-            debug
-                .record_lossy(
-                    DebugEvent::new(
-                        "terminal",
-                        "output.chunk",
-                        json!({
-                            "terminalId": &trace_id,
-                            "name": &trace_name,
-                            "bytes": chunk.len(),
-                            "content": String::from_utf8_lossy(&chunk),
-                        }),
-                    )
-                    .with_scope(DebugScope::default().with_session(trace_owner.clone())),
-                )
-                .await;
-            reader_state.lock().await.push(&chunk);
-        }
-    });
     let mut command = CommandBuilder::new(&spec.process.program);
     command.args(&spec.process.args);
     command.cwd(&spec.process.cwd);
@@ -881,9 +852,38 @@ fn spawn_session(
         ));
     }
     // On Windows an unattached ConPTY output pipe can report EOF before the
-    // slave has spawned its first process. Start the blocking reader only
-    // after process creation and Job assignment so it cannot retire before
-    // the initial prompt or command output arrives.
+    // slave has spawned its first process. Acquire and start the master-side
+    // streams only after process creation and Job assignment so the reader
+    // cannot retire before the initial prompt or command output arrives.
+    let mut reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|source| portable_terminal_io("clone ConPTY reader", source))?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|source| portable_terminal_io("take ConPTY writer", source))?;
+    let (output_tx, mut output_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
+    tokio::spawn(async move {
+        while let Some(chunk) = output_rx.recv().await {
+            debug
+                .record_lossy(
+                    DebugEvent::new(
+                        "terminal",
+                        "output.chunk",
+                        json!({
+                            "terminalId": &trace_id,
+                            "name": &trace_name,
+                            "bytes": chunk.len(),
+                            "content": String::from_utf8_lossy(&chunk),
+                        }),
+                    )
+                    .with_scope(DebugScope::default().with_session(trace_owner.clone())),
+                )
+                .await;
+            reader_state.lock().await.push(&chunk);
+        }
+    });
     std::thread::Builder::new()
         .name(format!("xharness-{id}-reader"))
         .spawn(move || {
