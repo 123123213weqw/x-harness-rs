@@ -810,10 +810,10 @@ async fn cancellation_requested(receiver: &mut watch::Receiver<bool>) {
 #[cfg(unix)]
 async fn terminate_tree(
     child: &mut Child,
-    process_group: Pid,
+    process_group: &NativeProcessTree,
     grace: Duration,
 ) -> Result<ExitStatus, ProcessError> {
-    if let Err(error) = signal_group(process_group, Signal::SIGTERM) {
+    if let Err(error) = signal_group(*process_group, Signal::SIGTERM) {
         let _ = child.start_kill();
         let _ = child.wait().await;
         return Err(error);
@@ -824,11 +824,11 @@ async fn terminate_tree(
             let status = status.map_err(|source| io_error("waiting after SIGTERM", source))?;
             // The root may exit while a descendant ignores TERM. KILL the
             // remaining group before awaiting capture EOF.
-            signal_group(process_group, Signal::SIGKILL)?;
+            signal_group(*process_group, Signal::SIGKILL)?;
             Ok(status)
         }
         Err(_) => {
-            signal_group(process_group, Signal::SIGKILL)?;
+            signal_group(*process_group, Signal::SIGKILL)?;
             child
                 .wait()
                 .await
