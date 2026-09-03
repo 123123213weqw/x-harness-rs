@@ -95,7 +95,12 @@ async fn root_exit_kills_a_descendant_before_result_publication() {
     let pid_path = dir.path().join("child.pid");
     let escaped_path = pid_path.display().to_string().replace('\'', "''");
     let command = format!(
-        "$p=Start-Process pwsh.exe -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 30') -PassThru; [IO.File]::WriteAllText('{escaped_path}', [string]($p.Id))"
+        "$childScript=\"[IO.File]::WriteAllText('{escaped_path}', [string]`$PID); Start-Sleep -Seconds 30\"; \
+         $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childScript)); \
+         Start-Process pwsh.exe -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',$encoded) | Out-Null; \
+         $deadline=[DateTime]::UtcNow.AddSeconds(5); \
+         do {{ Start-Sleep -Milliseconds 10; $ready=(Test-Path -LiteralPath '{escaped_path}') -and ((Get-Item -LiteralPath '{escaped_path}').Length -gt 0) }} until ($ready -or [DateTime]::UtcNow -ge $deadline); \
+         if (-not $ready) {{ throw 'child did not publish its PID' }}"
     );
     let output = ProcessRuntime::new()
         .spawn(pwsh(dir.path(), &command))
