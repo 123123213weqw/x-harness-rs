@@ -199,13 +199,16 @@ async fn full_access_allows_network_without_bypassing_managed_process_execution(
     });
 
     let current_test = std::env::current_exe().unwrap();
+    let mut child_spec = SpawnSpec::new(current_test, &workspace.0)
+        .args(["--exact", "full_access_network_probe_child", "--nocapture"])
+        .timeout(Duration::from_secs(10));
+    // SpawnSpec deliberately replaces the environment. Preserve the native
+    // runtime environment here because Windows networking initialization
+    // depends on system entries such as SystemRoot.
+    child_spec.env = std::env::vars_os().collect();
+    child_spec = child_spec.env("XHARNESS_TEST_NETWORK_ADDRESS", address.to_string());
     let output = platform
-        .spawn(
-            SpawnSpec::new(current_test, &workspace.0)
-                .args(["--exact", "full_access_network_probe_child", "--nocapture"])
-                .env("XHARNESS_TEST_NETWORK_ADDRESS", address.to_string())
-                .timeout(Duration::from_secs(10)),
-        )
+        .spawn(child_spec)
         .await
         .unwrap()
         .wait()
