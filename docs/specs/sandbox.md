@@ -1,7 +1,8 @@
 # 原生沙箱规范
 
 **Crate：** `xharness-sandbox`
-**状态：** Linux Bubblewrap 已实现并真实运行；macOS Seatbelt 已在 Apple Silicon 原生 CI 运行。
+**状态：** Linux Bubblewrap、macOS Seatbelt 与 Windows restricted-token ACL 后端已实现；
+三者均在对应原生 CI 运行。
 
 ## Policy
 
@@ -36,11 +37,21 @@ Backend 解析 `sandbox-exec`，根据同一 Policy 生成 Deny-default Profile�
 必要系统读取，只在配置要求时放开 Workspace Write/Network。Path 写入 Profile 前必须
 Canonicalize 并正确 Escape。
 
+## Windows ACL（partial）
+
+Backend 通过独立 runner 创建 `WRITE_RESTRICTED` token，以稳定 capability SID 向 Workspace
+和私有临时目录授予所需写权限，并在目标启动前加入 kill-on-close Job Object。ReadOnly 不授予
+Workspace 写 capability；任何 token、ACL、runner 或 Job 操作失败都必须 fail closed。
+
+该后端必须向上层报告 `windows-acl-partial`：NTFS DACL 只约束受 ACL 管理的写入，不隔离读取、
+网络、进程可见性、Everyone 已开放的对象或 hard-link alias。需要这些边界时必须运行整个 Host
+于 Windows Sandbox、Hyper-V/VM 或专用低权限账户，不能把 ACL 后端标成完整沙箱。
+
 ## 当前限制
 
 - Seatbelt 已在 GitHub `macos-15` ARM64 Runner 通过原生集成测试；正式发行仍需签名、公证和安装
   后回归。
-- 尚无 Windows AppContainer/Job-object Backend。
+- 尚无 Windows AppContainer/WFP 网络隔离或资源配额后端；当前 Windows 后端明确为 ACL partial。
 - 尚无 Per-call User Namespace 调优、Seccomp Profile、Resource Quota 或 Linux
   Landlock Fallback。
 - Host 已在模型调用前把缓存的 Probe 结果转成动态 Tool Availability；同一报告尚未完整接入 Web
@@ -54,3 +65,4 @@ Canonicalize 并正确 Escape。
 以及 Linux PID Namespace 内 `setsid` 后代的真实清理。
 另需覆盖网络 Namespace/UID Map 分别被宿主禁止的 Probe Fixture，断言失败被缓存、受限命令
 没有启动、Host 能获得结构化 Capability Unavailable。
+Windows 还必须覆盖 Workspace/temp 可写、外部路径和 ReadOnly 写入拒绝、ACL 清理及后代回收。

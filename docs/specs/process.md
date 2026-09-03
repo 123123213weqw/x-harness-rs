@@ -1,7 +1,7 @@
 # 子进程运行时规范
 
 **Crate：** `xharness-process`
-**状态：** 已实现 Unix Process Group；Linux 运行时已经测试。
+**状态：** Linux/macOS Process Group 与 Windows Job Object 已实现并在三平台 CI 原生测试。
 
 ## Spawn 契约
 
@@ -9,7 +9,9 @@
 环境先清空，再用显式值重建；可选 Secret Scrubber 会删除像凭据的变量名，但不能误删
 `MONKEY`、`KEYBOARD` 这类普通名称。
 
-Spawn 的子进程拥有新的 Unix Session/Process Group。`ProcessHandle` 拥有唯一 Result
+Unix 子进程拥有新的 Session/Process Group。Windows 子进程以 `CREATE_SUSPENDED` 创建，
+先加入 kill-on-close Job Object，再恢复主线程，禁止首条用户指令前派生后代逃逸 Job。
+`ProcessHandle` 拥有唯一 Result
 Receiver；`ProcessCancellation` 是可 Clone 的终止能力，允许一个任务取消、另一个任务
 等待完全收敛。
 
@@ -27,29 +29,30 @@ Job Producer 可将该观察面转换成自己的单消费输出，但 Process R
 
 ## 终止
 
-Timeout、显式 Cancel 和 Handle Drop 都请求终止。Supervisor 先向 Process Group 发送
-TERM，等待配置的 Grace，再发送 KILL 并等待 Root Child。`TerminationReason` 必须区分
-Normal Exit、Timeout 和 Cancellation。
+Timeout、显式 Cancel 和 Handle Drop 都请求终止。Unix Supervisor 先向 Process Group 发送
+TERM，等待配置的 Grace，再发送 KILL；Windows 对整个 Job 调用 `TerminateJobObject`。
+两者都必须等待根进程和进程树收敛后再发布结果。`TerminationReason` 必须区分 Normal Exit、
+Timeout 和 Cancellation。
 
-Supervisor 内部还持有同步 `ProcessGroupGuard`：即使 Tokio Runtime 关闭或任务被
-Abort，Guard Drop 也会对受管 Process Group 发送 KILL，不把清理寄托给已停止的
+Supervisor 内部还持有同步 `ProcessTreeGuard`：即使 Tokio Runtime 关闭或任务被
+Abort，Guard Drop 也会清理受管 Process Group/Job，不把清理寄托给已停止的
 Async Runtime。Root/Group 终止后，Stdout/Stderr 只允许在有界
-`capture_drain_grace` 内等待 EOF；超时返回 `CaptureDrainTimedOut`，不能无限挂起或
+`capture_drain_grace` 内等待 EOF；Windows 还轮询 Job active-process accounting 至零。超时返回
+`CaptureDrainTimedOut`，不能无限挂起或
 伪造成功结果。
 
 ## 安全边界
 
-Process Group 只用于生命周期协调，不是硬隔离。非受限进程的后代可以创建新 Session
+Unix Process Group 只用于生命周期协调，不是硬隔离。非受限进程的后代可以创建新 Session
 逃逸。受限 Coding Tool 因此必须运行在 `xharness-sandbox` 之下，由 PID Namespace/OS
-Policy 提供硬后代 containment。`FullAccess` 明确不承诺此能力，但仍使用本 Runtime 完成普通
-Process Group 的取消、超时和清理。
+Policy 提供硬后代 containment。Windows Job 不允许 breakaway，负责 FullAccess 和受限模式的
+进程树生命周期回收；它仍不是文件、网络或资源配额沙箱。
 
 `ProcessRuntime` 能启动进程不代表 Restricted Process Capability 可用；Host 必须同时检查
 原生 Sandbox Probe。Probe 失败时不得调用本层裸跑命令，也不得把错误当成普通进程 Exit。
 
 ## 当前限制
 
-- 仅 Unix；尚无 Windows Job Object。
 - 后台 Job Registry 已在独立 `xharness-jobs` 实现；Process 层仍无 Spill File。
 - `FullAccess` 下主动 `setsid()` 逃离原 Process Group 的后代仍无法被本层硬回收；
   保留 Pipe 的逃逸后代会被有界 Drain 检测为 Cleanup Failure。需要硬保证时必须使用
@@ -60,4 +63,5 @@ Process Group 的取消、超时和清理。
 测试必须覆盖直接 Argv/无 Shell Injection、显式 Cwd/Env、Secret Scrub、正常和非零退出、
 并发 Stdout/Stderr、Live Observer 的增量/Tail/Revision、Unicode 安全 Cap、Timeout Escalation、显式 Cancel 以及 Leader/
 Descendant 清理。还必须覆盖 Runtime Drop 时的同步最后清理、逃逸 Session 持有
-Pipe 时的有界失败，以及受限 PID Namespace 中后代的硬回收。
+Pipe 时的有界失败、受限 PID Namespace 中后代的硬回收，以及 Windows 上“暂停创建、入 Job、
+恢复运行”和根进程退出后的后代清理。

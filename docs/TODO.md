@@ -16,7 +16,7 @@ Commit、Issue、PR 应引用这些 ID。
 当前正式 `xharness-host-app` 已具备可日常使用的本地 Coding Agent 主链路：Web RPC、
 `DurableLoopAgentRuntime`、双层 Durable Inbox、JSONL Session、File Lease、Prompt/Token Guard、
 OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 11 个
-Coding/Job/Web Tool、Linux/macOS 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
+Coding/Job/Web Tool、Linux/macOS/Windows 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
 
 当前共有 `DONE-01`—`DONE-73` 七十三个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
 Web 对话重启恢复、模型性能指标投影、长思考输出预算、大 Session 热路径、逐模型推理强度、
@@ -365,6 +365,12 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   参数碎片在 Checkpoint 内合并；Direct Embed 仍收到每个实时 Delta，冲突身份 Fail-closed 分帧。
   DeepSeek V4 Flash 真实 Coding Run 中 4 个 Tool Call 和外部验收均通过，实时 Delta 110 条、Durable
   Chunk 5 条（-95.45%）。Full Debug 继续保留原始 Provider/Core 证据，不与普通下行量混淆。
+- [x] `DONE-76` Windows 原生适配：新增集中审计的 Win32 原语层，Process 使用
+  `CREATE_SUSPENDED → Job Object → ResumeThread` 消除派生竞态，文件系统覆盖大小写边界、
+  reparse point、CAS、DACL 与 `ReplaceFileW`，受限写入使用 restricted-token ACL partial 后端，
+  终端使用 ConPTY，模型命令使用 PowerShell 7 并可显式调用 OpenSSH/Git Bash。Windows Server
+  2025 CI 执行全 workspace format/check/test/clippy、release 打包；DeepSeek V4 长任务验收保持
+  手动 secret workflow，未实际运行前不得声称在线通过。
 
 ## P0 — 可日常使用的本地 Coding Agent
 

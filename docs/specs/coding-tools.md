@@ -24,7 +24,7 @@
 
 | 工具 | 必填输入 | 并发 | 审批 | 契约 |
 |---|---|---:|---:|---|
-| `bash` | `command` | exclusive | 是 | 前台执行一次 Bash；或以 `run_in_background=true` 注册 Job |
+| `bash` | `command` | exclusive | 是 | Unix 运行 Bash、Windows 运行 PowerShell 7；或以 `run_in_background=true` 注册 Job |
 | `job_output` | `job_id` | 按 job_id keyed | 否 | 消费增量 stdout/stderr；可有限等待终态 |
 | `job_list` | 无 | parallel | 否 | 列出当前 Owner 的全部保留 Job |
 | `job_kill` | `job_id` | 按 job_id keyed | 否 | 幂等请求取消；已结束返回 `already_finished` |
@@ -44,14 +44,15 @@ Truncation 和总 Byte Count；后台只确认 `job_id/pid/status`，不得伪�
 `bash/glob/grep`，但保留三个 Job 控制工具，以便收集或取消此前已经启动的任务。平台和搜索
 Readiness 尚未完整投影到 Web 工具目录。
 
-## Bash 与后台选择
+## 原生 Shell 与后台选择
 
 - 短命令使用前台 `bash`，默认 120 秒、最大 600 秒，Tool 外层保留 610 秒清理窗口。
 - 长时间、非交互命令使用 `run_in_background=true`；该模式不接受 `timeout_ms`，必须使用
   `job_output`/`job_kill` 控制。
 - “N 秒/某时/每隔多久后提醒我”使用 `schedule_create`，不要启动 Bash/Job 后再 `sleep`；Schedule
   完整契约见[持久定时提醒](schedule.md)。
-- 每次 Bash 都是新 Shell；`cd`、变量、函数不会跨调用保存，应使用 `cwd`。
+- 每次调用都是新 Shell；Unix 使用 Bash，Windows 仅使用 PowerShell 7 (`pwsh`)；`cd`、变量、
+  函数不会跨调用保存，应使用 `cwd`。Windows 可由 PowerShell 显式调用 `ssh` 或 Git Bash。
 - 禁止用 `&`、`nohup`、`disown`、`screen`、`tmux` 或 PTY 模拟受管后台任务。前台命令根进程
   退出后，Process Runtime 会清理同一受管进程组；这些技巧既不能获得可靠状态，也可能形成逃逸
   后代和 Capture EOF 故障。
@@ -72,7 +73,8 @@ PID、容量与 `reported` 通知账本不会写回模型。
 
 ## 环境、输出与沙箱
 
-Process Tool 只提供受管环境（PATH、Locale、Terminal/Pager 控制），不继承环境凭据。Relative
+Process Tool 从宿主环境保留操作系统运行所需变量，再按大小写不敏感规则清除 credential 与
+`XHARNESS_*` 变量，并覆盖 PATH、Locale、Terminal/Pager 控制；模型命令不继承环境凭据。Relative
 Cwd 固定在 Workspace；Absolute Cwd 仍受 Platform Sandbox Policy。`glob/grep` 直接调用 `rg`，
 不经过 Shell 解释。macOS Release 将 ARM64 `rg` 与 Host 同目录打包；Linux `.deb` 通过依赖提供。
 
@@ -83,11 +85,12 @@ Live Window 与 Job 未读流各自有界；Job 默认每条流 256 KiB，丢弃
 
 ## 验证
 
-远程 Linux 测试必须覆盖：11 个稳定名称、文件读写编辑、`pipefail`、前后台 Bash、非零退出、
+三平台 CI 必须覆盖：11 个稳定名称、文件读写编辑、Unix `pipefail`、Windows PowerShell 严格错误/
+UTF-8/原生命令退出码、前后台 Shell、非零退出、
 实时增量输出、两次读取消费语义、Wait Timeout、Kill/Already-finished、Owner 隔离、10 个活跃
 Job 上限、启动失败不占 ID、动态零值配置、历史保留、公开字段投影、五态迁移、Cancel Hook
 异常、Producer Lease 丢失、Shutdown Cancel 异常/超时、进程树收敛和 UTF-8/Byte Cap。可选
-真实模型测试会记录 DeepSeek 面对“后台、nohup、PTY”提示时实际选择的工具和参数，不能仅凭
+Windows 还覆盖 PowerShell 调用 Git Bash。真实模型测试会记录 DeepSeek 面对“后台、nohup、PTY”提示时实际选择的工具和参数，不能仅凭
 Tool Description 推断。
 
 2026-09-01 已在 `WZU_Server` 对 DeepSeek V4 Flash 运行该行为测试：模型先调用
