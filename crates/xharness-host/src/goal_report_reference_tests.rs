@@ -484,3 +484,6 @@ async fn actual_host_loop_delivers_reference_error_and_accepts_correction_withou
 
 #[path = "goal_resilience_tests.rs"]
 mod resilience;
+
+#[path = "goal_cold_restore_tests.rs"]
+mod cold_restore;
