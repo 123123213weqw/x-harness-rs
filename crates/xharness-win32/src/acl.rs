@@ -27,7 +27,7 @@ impl Drop for LocalAllocation {
         if !self.0.is_null() {
             // SAFETY: security APIs allocate this block with LocalAlloc.
             unsafe {
-                LocalFree(self.0 as isize);
+                LocalFree(self.0);
             }
         }
     }

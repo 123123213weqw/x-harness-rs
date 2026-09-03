@@ -137,7 +137,7 @@ impl NativeToolFactory {
 fn project_tools(specs: &mut Vec<ToolSpec>, readiness: &NativeToolReadiness) {
     let process_available = readiness.platform.restricted_process.is_available();
     specs.retain(|spec| match spec.definition.name.as_str() {
-        "bash" | "glob" | "grep" => process_available,
+        "bash" | "pwsh" | "glob" | "grep" => process_available,
         "web_search" => readiness.search_available,
         _ => true,
     });
