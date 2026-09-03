@@ -664,7 +664,11 @@ fn goal_prompt(s: &GoalExecutionState) -> String {
     } else {
         ""
     };
-    format!("[Goal continuation]\n{activation_note}Objective: {}\nAcceptance criteria: {}\nLatest progress: {}\nContinue substantive work towards this goal. A normal turn ending is not goal completion. Do not repeat already completed side effects. Report missing requirements or blockers honestly.\n[/Goal continuation]", s.definition.snapshot.objective, s.definition.acceptance_criteria.join("; "), s.latest_turn.as_ref().and_then(|t| t.report.as_ref()).map_or("No report yet".into(), |r| format!("{}; remaining: {}", r.summary, r.remaining.join("; "))))
+    let completion_note = match s.definition.verification {
+        VerificationMode::AgentReport => "When the objective and acceptance criteria are met, call goal(action=report) with status=complete, evidence and no remaining work, then finish the turn. Your settled report ends this Goal automatically.",
+        VerificationMode::UserConfirm => "When the objective and acceptance criteria are met, report complete with evidence and finish the turn. This Goal waits for user confirmation.",
+    };
+    format!("[Goal continuation]\n{activation_note}Objective: {}\nAcceptance criteria: {}\nLatest progress: {}\nContinue substantive work towards this goal. A normal turn ending is not goal completion. Do not repeat already completed side effects. Report missing requirements or blockers honestly.\n{completion_note}\n[/Goal continuation]", s.definition.snapshot.objective, s.definition.acceptance_criteria.join("; "), s.latest_turn.as_ref().and_then(|t| t.report.as_ref()).map_or("No report yet".into(), |r| format!("{}; remaining: {}", r.summary, r.remaining.join("; "))))
 }
 
 pub fn is_goal_message(m: &InboxMessage) -> bool {
