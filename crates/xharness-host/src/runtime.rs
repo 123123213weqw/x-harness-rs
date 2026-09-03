@@ -1238,7 +1238,7 @@ impl DurableLoopAgentRuntime {
                             let Ok(Some(session))=store.load(handle.id()).await else {continue};
                             let state=xharness_session::goal::execution_state(&session);
                             let needs_wake=state.is_some_and(|s| {
-                                let review_wait=s.latest_turn.as_ref().filter(|t|t.outcome==xharness_session::goal::GoalTurnOutcome::Completed).and_then(|t|t.report.as_ref()).is_some_and(|r|r.status==xharness_session::goal::GoalReportStatus::Complete) && s.review.is_none();
+                                let review_wait=s.definition.verification==xharness_session::goal::VerificationMode::UserConfirm && s.latest_turn.as_ref().filter(|t|t.outcome==xharness_session::goal::GoalTurnOutcome::Completed).and_then(|t|t.report.as_ref()).is_some_and(|r|r.status==xharness_session::goal::GoalReportStatus::Complete) && s.review.is_none();
                                 (s.definition.execution_enabled && s.definition.snapshot.phase==xharness_session::GoalPhase::Active && !review_wait) || s.pending.is_some()
                             });
                             if !needs_wake {watched.remove(handle.id());break}
@@ -1472,11 +1472,15 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             return Ok(true);
         }
         if xharness_session::goal::execution_state(session).is_some_and(|s| {
-            let awaiting_review = s
-                .latest_turn
-                .as_ref()
-                .and_then(|t| t.report.as_ref())
-                .is_some_and(|r| r.status == xharness_session::goal::GoalReportStatus::Complete)
+            let awaiting_review = s.definition.verification
+                == xharness_session::goal::VerificationMode::UserConfirm
+                && s.latest_turn
+                    .as_ref()
+                    .filter(|t| t.outcome == xharness_session::goal::GoalTurnOutcome::Completed)
+                    .and_then(|t| t.report.as_ref())
+                    .is_some_and(|r| {
+                        r.status == xharness_session::goal::GoalReportStatus::Complete
+                    })
                 && s.review.is_none();
             (s.definition.execution_enabled
                 && s.definition.snapshot.phase == xharness_session::GoalPhase::Active

@@ -40,10 +40,11 @@ function GoalControls({projection, onComplete, onResume, onBudget, runAction, pe
   useEffect(() => {identity.current = id; setEditing(false); setBudget(''); return () => {identity.current = undefined}}, [id])
   if (!projection?.goal) return null
   const execution = projection.execution
-  const glyph: Readonly<Record<string, string>> = {'启用自动推进': '▶', '确认完成': '✓', '继续': '▶', '预算': '⋯', '取消预算修改': '×'}
+  const glyph: Readonly<Record<string, string>> = {'启用自动推进': '▶', '确认完成': '✓', '继续': '▶', '重新开启': '▶', '预算': '⋯', '取消预算修改': '×'}
   const button = (label: string, action: () => void) => <button type="button" className={css.iconBtn} disabled={pending}
     aria-label={label} title={label} onClick={action} style={{flexShrink: 0, whiteSpace: 'nowrap'}}>{glyph[label] ?? label}</button>
   return <span data-goal-runtime style={{display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap'}}>
+    {projection.goal.phase === 'complete' && button('重新开启', () => {void runAction(onResume)})}
     {execution?.state === 'disabled' && button('启用自动推进', () => {void runAction(onResume)})}
     {execution?.state === 'awaiting_confirmation' && button('确认完成', () => {void runAction(onComplete)})}
     {execution?.state === 'awaiting_confirmation' && button('继续', () => {void runAction(onResume)})}
