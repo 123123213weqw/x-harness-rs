@@ -100,7 +100,8 @@ class ReleaseProjection(unittest.TestCase):
         self.assertIn('tauri signer sign', block)
         self.assertIn('test -s "$package.sig"', block)
         self.assertIn('squashfs-tools', source)
-        self.assertIn('needs: [plan, build]', source)
+        self.assertIn('needs: plan', source.split('  aggregate:', 1)[1])
+        self.assertIn('wait-packages --plan', source)
         self.assertIn('Stage one complete draft, never latest', source)
         self.assertNotIn('uploadUpdaterJson: true', source)
 

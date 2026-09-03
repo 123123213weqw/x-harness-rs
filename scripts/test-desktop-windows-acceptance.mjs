@@ -22,6 +22,19 @@ validateRun({ ...run, event: 'workflow_dispatch', head_branch: 'master' }, plan)
 for (const patch of [{ conclusion: 'failure' }, { status: 'in_progress' }, { event: 'pull_request' },
   { path: '.github/workflows/friends-release.yml' }, { head_sha: 'b'.repeat(40) }, { head_branch: 'master' },
   { id: 124 }, { run_attempt: 1 }]) assert.throws(() => validateRun({ ...run, ...patch }, plan))
+const inlinePlan = { ...plan, repository: repo, acceptance_mode: 'in-build' }
+const inlineRun = { ...run, event: 'workflow_dispatch', head_branch: 'master', status: 'in_progress', conclusion: null }
+const inlineEnv = { ...env, GITHUB_SHA: plan.sha, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2',
+  GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/desktop-release.yml@refs/heads/master` }
+validateRun(inlineRun, inlinePlan, inlineEnv)
+assert.throws(() => validateRun(inlineRun, inlinePlan))
+for (const patch of [{ GITHUB_SHA: 'b'.repeat(40) }, { GITHUB_RUN_ID: '124' }, { GITHUB_RUN_ATTEMPT: '1' },
+  { GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/evil.yml@refs/heads/master` }, { RUNNER_ENVIRONMENT: 'self-hosted' }]) {
+  assert.throws(() => validateRun(inlineRun, inlinePlan, { ...inlineEnv, ...patch }))
+}
+for (const patch of [{ status: 'completed', conclusion: 'success' }, { conclusion: 'failure' }, { head_sha: 'b'.repeat(40) }]) {
+  assert.throws(() => validateRun({ ...inlineRun, ...patch }, inlinePlan, inlineEnv))
+}
 const name = 'XHarness_0.2.5_x64-setup.exe'
 const url = `https://github.com/${repo}/releases/download/friends-v0.2.5/${name}`
 assert.equal(installerLocation(repo, 'friends-v0.2.5', '0.2.5', url), name)
@@ -55,4 +68,4 @@ const local = spawnSync(process.execPath, [fileURLToPath(new URL('./desktop-wind
 })
 assert.notEqual(local.status, 0)
 assert.match(local.stderr, /CI only/)
-console.log('Unified Windows acceptance: 36 provenance, data preservation and isolation cases passed.')
+console.log('Unified Windows acceptance: 45 provenance, data preservation and isolation cases passed.')

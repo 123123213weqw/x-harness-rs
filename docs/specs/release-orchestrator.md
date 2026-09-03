@@ -89,3 +89,72 @@ Desktop Release 增加 `prepare_tag` 和 `expected_sha`：托管运行先校验 
 
 后续真实发布单独验收：关联 Run 发现、托管创建标签无重复构建、签名包生成、原生升级验收、
 确认后 Promote。离线测试通过不代表远程发布已发生。
+
+## 2026-10-06：服务器托管与同机平台流水线
+
+新发布的推荐入口（必须先合入 master 并通过 CI，版本仅为示例）：
+
+```sh
+# 只交接一次；关电脑不影响 GitHub 上的构建/验收。默认只准备，不发布。
+python3 -B scripts/release.py 0.2.38 --hosted --platforms all-macos-preview
+
+# 已明确授权这一版发布时，在首次交接时记录版本绑定的发布意图。
+python3 -B scripts/release.py 0.2.38 --hosted --platforms all-macos-preview \
+  --publish-after-acceptance 0.2.38
+```
+
+同一个版本的两种命令不能交替使用：版本、SHA、范围、模式、发布意图首次创建后锁定。
+已开始的旧任务（例如 0.2.37）继续用旧命令，不转换、不重复构建。
+
+### 流水线和完整性
+
+```text
+托管协调器：锁定源码 → 精确 SHA CI
+                         ↓
+四台原生机器：构建/签名 → 上传不可变包 → 同机准备原生升级验收
+                         ↓                       ↓
+汇总机器：等全部包 → 独立验签/收据/符号 → 完整 Draft/候选清单
+                                                 ↓
+四台原生机器：验证同一份完整候选 → 实际升级/重启/数据保留验收
+                                                 ↓
+托管协调器：整个构建运行全绿 → 独立 Promote 重新校验 → 验证公开资源
+```
+
+- 汇总 job **只依赖 plan**，不依赖等待它的 build jobs；否则会形成环路。
+  包和符号先上传，汇总只写 Draft，不能改变线上 latest。
+- Unix BASE 的准备和编译在本平台签名包上传后立即开始，可与较慢平台构建重叠。
+  不重新编译 Host；复用已经 staging 的同源码 Host 和同机热 Cargo target。
+- 运行前必须下载**全部平台的完整候选**，验证签名、精确源码、构建 attempt 和清单。
+  不使用单平台临时清单，不事后改写验收的 manifest hash，也不改动目标签名包。
+- Unix 仍进行三轮生产 updater handler 安装/重启/保留数据验收；Windows 仍用真实稳定版
+  安装程序升级到新候选。并未把 smoke test 当成升级验收。
+- `acceptance_mode=in-build` 是计划和包收据中的显式绑定，验收来源必须是**同一个构建
+  run/attempt**。旧计划缺省仍使用原来的独立 Unix/Windows 验收来源。不能混用。
+- Promote 仍是唯一线上发布者；只接收全绿构建和完整四平台验收，重验 CI、原生收据、
+  签名、未变更 Draft、现网基线和匿名可读更新资源。Mac 公证策略不改变。
+
+### 持久状态、网络与失败
+
+`Desktop Release Service` 不占用子工作流的发布并发锁。协调器无更新私钥，只有 GitHub
+调度权限。源码变动不会自动换 SHA；失败不会自动重试编译或重发发布。
+
+每次非幂等 dispatch 之前，先把状态保存为同一个服务 run 下的不可变 artifact：
+`release-task-<version>-<run-id>-<attempt>-<revision>/task.json`。它只含公开版本、源码和
+关联 Run ID，不包含密钥、用户配置或聊天。相同状态不重复上传。
+
+维护者恢复**同一个服务 run**（Actions → Re-run failed jobs），协调器从最高 attempt/
+revision 的认证 checkpoint 恢复。未知 POST 仅查关联 Run，绝不盲目重派。没有状态的
+rerun、已过期/重复/来源错误的 checkpoint 都停止，需要人工审查，不新建同版任务。
+GitHub 读/连接故障最多六次退避；原生失败、签名失败、来源冲突、未知 checkpoint 上传
+不自动重试。总等待有四小时时限，失败保留证据，现网版本不动。
+
+准备模式停在 awaiting_confirmation 后，可下载最新 task.json 到原有本机状态目录，
+核实 SHA/范围后用旧入口 `--confirm-publish <version>` 确认；不能把 hosted 交接文件直接
+当作 ReleaseTask 状态。日常已批准的整版发布应使用首次交接的版本绑定授权，避免这步。
+
+### 验收边界
+
+离线回归覆盖状态交接、未知 dispatch、checkpoint 先写后发、异常恢复边界、DAG 环路、
+完整清单/签名/来源绑定和失败不得发布。现有跨平台 CI 继续测试生产 updater 驱动。
+**不能据此声称已经测出全平台发布耗时下降**；新流水线合入后首次准备候选时，还需用
+真实签名包验证托管 checkpoint 和完整 native pipeline，记录构建/等待/验收四段耗时。
