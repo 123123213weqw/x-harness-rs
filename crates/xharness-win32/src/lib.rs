@@ -8,10 +8,14 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 #[cfg(windows)]
+mod file;
+#[cfg(windows)]
 mod handle;
 #[cfg(windows)]
 mod job;
 
+#[cfg(windows)]
+pub use file::replace_file;
 #[cfg(windows)]
 pub use handle::OwnedWin32Handle;
 #[cfg(windows)]
