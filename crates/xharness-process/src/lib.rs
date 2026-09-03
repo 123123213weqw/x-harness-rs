@@ -762,6 +762,12 @@ async fn supervise(
         ),
     };
 
+    // TerminateJobObject initiates tree-wide teardown, but publication must
+    // wait for the Job's active count to reach zero. Otherwise a fast root
+    // exit can expose a short interval in which a descendant is still alive.
+    #[cfg(windows)]
+    wait_for_windows_tree_exit(&process_tree_guard.tree, capture_drain_grace).await?;
+
     let captures = async { tokio::join!(&mut stdout_task, &mut stderr_task) };
     let (stdout_result, stderr_result) = match time::timeout(capture_drain_grace, captures).await {
         Ok(results) => results,
@@ -869,6 +875,29 @@ fn hard_kill_tree(process_tree: &NativeProcessTree) -> Result<(), ProcessError> 
 #[cfg(windows)]
 fn hard_kill_tree(process_tree: &NativeProcessTree) -> Result<(), ProcessError> {
     process_tree.terminate(1).map_err(ProcessError::from)
+}
+
+#[cfg(windows)]
+async fn wait_for_windows_tree_exit(
+    process_tree: &NativeProcessTree,
+    grace: Duration,
+) -> Result<(), ProcessError> {
+    let deadline = time::Instant::now() + grace;
+    loop {
+        if process_tree.accounting()?.active_processes == 0 {
+            return Ok(());
+        }
+        if time::Instant::now() >= deadline {
+            return Err(io_error(
+                "waiting for Windows Job process tree to exit",
+                io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Windows Job still contains active processes",
+                ),
+            ));
+        }
+        time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 async fn capture<R>(
