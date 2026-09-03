@@ -115,7 +115,7 @@ async fn list_headers_is_sorted_validated_and_ignores_non_session_files() {
 }
 
 #[tokio::test]
-async fn list_headers_fails_closed_for_corrupt_or_symlinked_sessions() {
+async fn list_headers_fails_closed_for_corrupt_sessions() {
     let corrupt_dir = TestDir::new();
     let corrupt_store = JsonlSessionStore::new(corrupt_dir.path()).unwrap();
     corrupt_store.create(header("valid")).await.unwrap();
@@ -124,7 +124,11 @@ async fn list_headers_fails_closed_for_corrupt_or_symlinked_sessions() {
         corrupt_store.list_headers().await,
         Err(StoreError::Backend { message }) if message.contains("broken.jsonl")
     ));
+}
 
+#[cfg(unix)]
+#[tokio::test]
+async fn list_headers_fails_closed_for_symlinked_sessions() {
     let symlink_dir = TestDir::new();
     let symlink_store = JsonlSessionStore::new(symlink_dir.path()).unwrap();
     symlink_store.create(header("valid")).await.unwrap();
@@ -538,7 +542,13 @@ async fn unsafe_ids_cannot_escape_the_storage_root() {
         );
     }
     assert!(!dir.path().parent().unwrap().join("escape.jsonl").exists());
+}
 
+#[cfg(unix)]
+#[tokio::test]
+async fn symlinked_lock_file_is_rejected() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
     let outside = dir.path().join("outside-lock-target");
     fs::write(&outside, b"do not lock").unwrap();
     std::os::unix::fs::symlink(&outside, dir.path().join("symlink-lock.lock")).unwrap();
