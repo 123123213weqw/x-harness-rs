@@ -289,14 +289,16 @@ impl AttributeList {
             _storage: storage,
             pointer,
         };
-        // SAFETY: list is initialized and value points to a live HPCON value
-        // for the duration of the call.
+        // SAFETY: list is initialized. Unlike most process attributes, the
+        // documented ConPTY contract takes the HPCON value itself as
+        // `lpValue` (HPCON is already an opaque pointer-sized handle), not a
+        // pointer to a variable containing that handle.
         if unsafe {
             UpdateProcThreadAttribute(
                 list.pointer,
                 0,
                 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE as usize,
-                (&pseudo_console as *const HPCON).cast::<c_void>(),
+                pseudo_console as *const c_void,
                 mem::size_of::<HPCON>(),
                 ptr::null_mut(),
                 ptr::null(),
