@@ -243,6 +243,35 @@ async fn pwsh_propagates_errors_and_allows_explicit_recovery() {
     assert_eq!(recovered["stdout"], "recovered\r\n");
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn pwsh_can_invoke_an_installed_git_bash_for_explicit_unix_commands() {
+    let git_bash = std::env::var_os("ProgramFiles")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"))
+        .join("Git")
+        .join("bin")
+        .join("bash.exe");
+    if !git_bash.is_file() {
+        return;
+    }
+
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+    let escaped = git_bash.to_string_lossy().replace('\'', "''");
+    let command = format!("& '{escaped}' -lc 'printf git-bash-ok'");
+    let result = executor
+        .execute(ToolRequest::new(
+            "pwsh",
+            serde_json::json!({"command": command}).to_string(),
+        ))
+        .await;
+    assert!(result.is_ok(), "the pwsh handler must settle: {result:?}");
+    let result: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+    assert_eq!(result["success"], true);
+    assert_eq!(result["stdout"], "git-bash-ok");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn background_bash_streams_to_job_output_and_preserves_nonzero_exit_status() {
