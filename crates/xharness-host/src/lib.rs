@@ -71,7 +71,13 @@ pub struct HostConfig {
 impl HostConfig {
     pub fn new(cwd: impl Into<PathBuf>) -> Self {
         let cwd = cwd.into();
+        #[cfg(unix)]
         let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| cwd.clone());
+        #[cfg(windows)]
+        let home = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
             .map(PathBuf::from)
             .unwrap_or_else(|| cwd.clone());
         Self {

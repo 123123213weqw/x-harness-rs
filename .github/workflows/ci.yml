@@ -49,6 +49,10 @@ jobs:
           Copy-Item -LiteralPath "target/release/xharness-windows-sandbox-runner.exe" -Destination $package
           $rg = (Get-Command rg -ErrorAction Stop).Source
           Copy-Item -LiteralPath $rg -Destination $package
+          New-Item -ItemType Directory -Force -Path "$package/config" | Out-Null
+          Copy-Item -LiteralPath "config/providers.deepseek.example.json" -Destination "$package/config"
+          Copy-Item -LiteralPath "scripts/start-windows.ps1" -Destination $package
+          Copy-Item -LiteralPath "ui/dist" -Destination "$package/ui" -Recurse
           $archive = "dist/xharness-host-windows-x86_64.zip"
           Compress-Archive -Path "$package/*" -DestinationPath $archive -Force
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()

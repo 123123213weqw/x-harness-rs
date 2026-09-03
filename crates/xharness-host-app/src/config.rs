@@ -458,6 +458,37 @@ pub(crate) fn token_guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_in_deepseek_example_uses_environment_credentials_and_current_models() {
+        let config: ProviderFile = serde_json::from_str(include_str!(
+            "../../../config/providers.deepseek.example.json"
+        ))
+        .unwrap();
+        assert_eq!(config.default.provider, "deepseek");
+        assert_eq!(config.default.model, "deepseek-v4-flash");
+        assert_eq!(config.default.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(config.providers.len(), 1);
+        let provider = &config.providers[0];
+        assert_eq!(provider.base_url, "https://api.deepseek.com");
+        assert_eq!(provider.protocol, "chat");
+        assert_eq!(provider.api_key_env.as_deref(), Some("DEEPSEEK_API_KEY"));
+        assert_eq!(
+            provider
+                .models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["deepseek-v4-flash", "deepseek-v4-pro"]
+        );
+        assert!(provider.models.iter().all(|model| {
+            model.fallback_context_window_tokens == Some(1_048_576)
+                && model
+                    .reasoning
+                    .as_ref()
+                    .is_some_and(|reasoning| reasoning.default_effort.as_deref() == Some("high"))
+        }));
+    }
     use xharness_core::CapabilitySource;
 
     #[test]
