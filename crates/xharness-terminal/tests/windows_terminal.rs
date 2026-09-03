@@ -67,7 +67,8 @@ async fn conpty_runs_persistent_powershell_with_utf8_and_debug_events() {
         .send(
             "windows-owner",
             "powershell",
-            "$OutputEncoding=[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); Write-Output 'conpty-你好'\r\n",
+            "$OutputEncoding=[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); Write-Output 'conpty-你好'\r\n"
+                .as_bytes(),
         )
         .await
         .unwrap();

@@ -32,7 +32,7 @@ use nix::{
     unistd::{dup, setsid, tcgetpgrp, Pid},
 };
 #[cfg(windows)]
-use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, PtySize, PtySystem};
+use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[cfg(unix)]
