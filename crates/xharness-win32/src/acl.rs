@@ -5,7 +5,7 @@ use windows_sys::Win32::{
     Security::{
         Authorization::{
             GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W,
-            GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID,
+            NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SET_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID,
             TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
         },
         ACL, DACL_SECURITY_INFORMATION, SUB_CONTAINERS_AND_OBJECTS_INHERIT,
@@ -49,19 +49,65 @@ pub(crate) fn explicit_access(sid: PSID, mode: i32, permissions: u32) -> EXPLICI
 }
 
 pub fn grant_write(path: &Path, sid: &Sid) -> Result<(), Win32Error> {
-    merge_access(path, sid, GRANT_ACCESS, GRANT_MASK)
+    // The capability SID is private to XHarness. SET_ACCESS is intentionally
+    // idempotent, so repeated commands for one workspace do not accumulate
+    // duplicate ACEs.
+    merge_access(path, sid, SET_ACCESS, GRANT_MASK)
 }
 
 pub fn revoke_write(path: &Path, sid: &Sid) -> Result<(), Win32Error> {
     merge_access(path, sid, REVOKE_ACCESS, 0)
 }
 
+/// Copy the source's effective DACL to a destination before sensitive bytes
+/// are written there. The copied list is protected from parent inheritance so
+/// a replacement temporary is never broader than the file it will replace.
+pub fn copy_dacl(source: &Path, destination: &Path) -> Result<(), Win32Error> {
+    const PROTECTED_DACL_SECURITY_INFORMATION: u32 = 0x8000_0000;
+
+    let source = wide_path(source);
+    let destination = wide_path(destination);
+    let mut acl: *mut ACL = ptr::null_mut();
+    let mut descriptor = ptr::null_mut();
+    // SAFETY: paths and output pointers remain live, and unused outputs are
+    // null as permitted by GetNamedSecurityInfoW.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            source.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &mut acl,
+            ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(Win32Error::code("GetNamedSecurityInfoW", status));
+    }
+    let _descriptor = LocalAllocation(descriptor);
+    // SAFETY: `acl` is part of the live descriptor allocation. Null owner,
+    // group and SACL preserve those fields on the destination.
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            destination.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            acl,
+            ptr::null_mut(),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(Win32Error::code("SetNamedSecurityInfoW", status));
+    }
+    Ok(())
+}
+
 fn merge_access(path: &Path, sid: &Sid, mode: i32, permissions: u32) -> Result<(), Win32Error> {
-    let wide = path
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
+    let wide = wide_path(path);
     let mut old_acl: *mut ACL = ptr::null_mut();
     let mut descriptor = ptr::null_mut();
     // SAFETY: all optional outputs are null, and the live UTF-16 buffer and
@@ -107,4 +153,8 @@ fn merge_access(path: &Path, sid: &Sid, mode: i32, permissions: u32) -> Result<(
         return Err(Win32Error::code("SetNamedSecurityInfoW", status));
     }
     Ok(())
+}
+
+fn wide_path(path: &Path) -> Vec<u16> {
+    path.as_os_str().encode_wide().chain(Some(0)).collect()
 }

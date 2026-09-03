@@ -21,7 +21,7 @@ mod restricted_process;
 mod token;
 
 #[cfg(windows)]
-pub use acl::{grant_write, revoke_write};
+pub use acl::{copy_dacl, grant_write, revoke_write};
 #[cfg(windows)]
 pub use file::replace_file;
 #[cfg(windows)]

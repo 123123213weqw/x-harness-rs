@@ -11,8 +11,9 @@ use windows_sys::Win32::{
     System::{
         Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
         Threading::{
-            CreateProcessAsUserW, GetExitCodeProcess, ResumeThread, WaitForSingleObject,
-            CREATE_SUSPENDED, INFINITE, PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOW,
+            CreateProcessAsUserW, GetExitCodeProcess, ResumeThread, TerminateProcess,
+            WaitForSingleObject, CREATE_SUSPENDED, INFINITE, PROCESS_INFORMATION,
+            STARTF_USESTDHANDLES, STARTUPINFOW,
         },
     },
 };
@@ -106,8 +107,17 @@ impl RestrictedChild {
         let process = unsafe { OwnedWin32Handle::from_raw(info.hProcess) }
             .ok_or_else(|| Win32Error::code("CreateProcessAsUserW(process handle)", 6))?;
         // SAFETY: successful creation transfers the primary thread handle.
-        let thread = unsafe { OwnedWin32Handle::from_raw(info.hThread) }
-            .ok_or_else(|| Win32Error::code("CreateProcessAsUserW(thread handle)", 6))?;
+        let thread = match unsafe { OwnedWin32Handle::from_raw(info.hThread) } {
+            Some(thread) => thread,
+            None => {
+                // SAFETY: the process handle is owned and the process remains
+                // suspended, so forced termination cannot race user code.
+                unsafe {
+                    TerminateProcess(process.as_raw(), 1);
+                }
+                return Err(Win32Error::code("CreateProcessAsUserW(thread handle)", 6));
+            }
+        };
         if let Err(error) = job.assign_process(process.as_raw() as _) {
             let _ = job.terminate(1);
             return Err(error);
