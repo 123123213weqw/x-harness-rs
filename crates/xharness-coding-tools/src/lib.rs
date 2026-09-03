@@ -1070,12 +1070,20 @@ mod tests {
     #[test]
     fn managed_path_keeps_system_and_package_search_locations() {
         let paths = std::env::split_paths(&managed_path()).collect::<Vec<_>>();
-        assert!(paths
-            .iter()
-            .any(|path| path == std::path::Path::new("/usr/bin")));
-        assert!(paths
-            .iter()
-            .any(|path| path == std::path::Path::new("/usr/local/bin")));
+        #[cfg(unix)]
+        {
+            assert!(paths
+                .iter()
+                .any(|path| path == std::path::Path::new("/usr/bin")));
+            assert!(paths
+                .iter()
+                .any(|path| path == std::path::Path::new("/usr/local/bin")));
+        }
+        #[cfg(windows)]
+        assert!(paths.iter().any(|path| {
+            path.file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("System32"))
+        }));
         let executable = std::env::current_exe().unwrap();
         assert_eq!(
             paths.first().map(|path| path.as_path()),
