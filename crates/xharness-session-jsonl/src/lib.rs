@@ -715,9 +715,6 @@ fn load_file(path: &Path, session_id: &str) -> Result<Option<LoadedFile>, StoreE
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(backend_error("open session", path, error)),
     };
-    let metadata = file
-        .metadata()
-        .map_err(|error| backend_error("inspect session", path, error))?;
     ensure_regular_file(&file, path, "session log")?;
 
     let mut bytes = Vec::new();

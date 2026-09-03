@@ -42,7 +42,7 @@ use nix::{
 };
 use sha2::{Digest, Sha256};
 #[cfg(windows)]
-use std::fs::OpenOptions;
+use std::{fs::OpenOptions, os::windows::ffi::OsStrExt};
 #[cfg(unix)]
 use std::{
     os::fd::{AsRawFd, OwnedFd},
@@ -724,7 +724,11 @@ fn validate_session_id(session_id: &str) -> Result<(), FsError> {
 
 fn normalize_relative(input: &Path) -> Result<PathBuf, FsError> {
     let display = input.to_string_lossy().into_owned();
-    if input.as_os_str().as_bytes().contains(&0) {
+    #[cfg(unix)]
+    let contains_nul = input.as_os_str().as_bytes().contains(&0);
+    #[cfg(windows)]
+    let contains_nul = input.as_os_str().encode_wide().any(|unit| unit == 0);
+    if contains_nul {
         return Err(FsError::InvalidPath {
             display,
             reason: "NUL byte",
