@@ -872,7 +872,7 @@ async fn terminate_tree(
         .map_err(|source| io_error("waiting after TerminateJobObject", source))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn signal_group(process_group: Pid, signal: Signal) -> Result<(), ProcessError> {
     match killpg(process_group, signal) {
         Ok(()) | Err(Errno::ESRCH) => Ok(()),
@@ -881,6 +881,30 @@ fn signal_group(process_group: Pid, signal: Signal) -> Result<(), ProcessError> 
             io::Error::from_raw_os_error(error as i32),
         )),
     }
+}
+
+#[cfg(target_os = "macos")]
+fn signal_group(process_group: Pid, signal: Signal) -> Result<(), ProcessError> {
+    // Darwin can transiently report EPERM while a recently signalled process
+    // group contains only members that are exiting or waiting to be reaped.
+    // Give that state a bounded opportunity to settle to success or ESRCH,
+    // while preserving a hard failure for a persistent permission error.
+    const DARWIN_EPERM_RETRIES: usize = 25;
+    for retry in 0..=DARWIN_EPERM_RETRIES {
+        match killpg(process_group, signal) {
+            Ok(()) | Err(Errno::ESRCH) => return Ok(()),
+            Err(Errno::EPERM) if retry < DARWIN_EPERM_RETRIES => {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            Err(error) => {
+                return Err(io_error(
+                    "signalling process group",
+                    io::Error::from_raw_os_error(error as i32),
+                ));
+            }
+        }
+    }
+    unreachable!("the final process-group signal attempt always returns")
 }
 
 #[cfg(unix)]
