@@ -19,8 +19,11 @@ fn pwsh_spec() -> SpawnSpec {
     // ConPTY provides a console, so launch PowerShell's interactive mode.
     // `-Command -` waits for redirected stdin to close and therefore buffers
     // commands instead of behaving like a persistent terminal.
-    let mut spec =
-        SpawnSpec::new(pwsh_path(), std::env::temp_dir()).args(["-NoLogo", "-NoProfile"]);
+    let mut spec = SpawnSpec::new(pwsh_path(), std::env::temp_dir()).args([
+        "-NoLogo",
+        "-NoProfile",
+        "-NoExit",
+    ]);
     spec.env = environment;
     spec
 }
