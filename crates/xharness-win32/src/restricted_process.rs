@@ -166,7 +166,7 @@ fn std_handle(which: u32, api: &'static str) -> Result<HANDLE, Win32Error> {
     }
 }
 
-fn command_line(program: &OsStr, args: &[OsString]) -> Vec<u16> {
+pub(crate) fn command_line(program: &OsStr, args: &[OsString]) -> Vec<u16> {
     let mut output = Vec::new();
     quote_arg(program, &mut output);
     for arg in args {

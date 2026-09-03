@@ -31,8 +31,6 @@ use nix::{
     sys::signal::{killpg, Signal},
     unistd::{dup, setsid, tcgetpgrp, Pid},
 };
-#[cfg(windows)]
-use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[cfg(unix)]
@@ -44,7 +42,7 @@ use tokio::{sync::Mutex, time};
 use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
 use xharness_process::SpawnSpec;
 #[cfg(windows)]
-use xharness_win32::Job;
+use xharness_win32::{spawn_conpty, ConPtyChild};
 
 const DEFAULT_MAX_SESSIONS_PER_OWNER: usize = 16;
 const DEFAULT_SCROLLBACK_BYTES: usize = 1024 * 1024;
@@ -462,9 +460,7 @@ struct TerminalSession {
     #[cfg(windows)]
     writer: Mutex<Box<dyn Write + Send>>,
     #[cfg(windows)]
-    child: Mutex<Box<dyn PortableChild + Send + Sync>>,
-    #[cfg(windows)]
-    job: Job,
+    child: Mutex<ConPtyChild>,
     state: Arc<Mutex<Scrollback>>,
 }
 
@@ -555,7 +551,9 @@ impl TerminalSession {
             // programs. It is preferable to force-killing the process tree.
             TerminalSignal::Interrupt => self.write_input(&[0x03]).await,
             TerminalSignal::Terminate | TerminalSignal::Kill | TerminalSignal::Hangup => self
-                .job
+                .child
+                .lock()
+                .await
                 .terminate(if signal == TerminalSignal::Kill {
                     137
                 } else {
@@ -792,16 +790,17 @@ fn spawn_session(
     config: &TerminalConfig,
     debug: DebugRecorder,
 ) -> Result<TerminalSession, TerminalError> {
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize {
-            rows: 30,
-            cols: 120,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|source| portable_terminal_io("allocate ConPTY", source))?;
-
+    let conpty = spawn_conpty(
+        &spec.process.program,
+        &spec.process.args,
+        &spec.process.cwd,
+        &spec.process.env,
+        30,
+        120,
+    )
+    .map_err(|source| terminal_io("spawn native ConPTY child", io::Error::other(source)))?;
+    let pid = conpty.child.pid();
+    let mut reader = conpty.reader;
     let state = Arc::new(Mutex::new(Scrollback::new(
         config.scrollback_bytes,
         config.scrollback_lines,
@@ -814,55 +813,6 @@ fn spawn_session(
     let trace_name = spec.name.clone();
     let trace_owner = spec.owner.clone();
     let reader_state = Arc::clone(&state);
-    let mut command = CommandBuilder::new(&spec.process.program);
-    command.args(&spec.process.args);
-    command.cwd(&spec.process.cwd);
-    command.env_clear();
-    for (name, value) in &spec.process.env {
-        command.env(name, value);
-    }
-    let mut child = pair
-        .slave
-        .spawn_command(command)
-        .map_err(|source| portable_terminal_io("spawn ConPTY child", source))?;
-    drop(pair.slave);
-    let pid = child.process_id().ok_or_else(|| {
-        terminal_io(
-            "read ConPTY child pid",
-            io::Error::new(io::ErrorKind::NotFound, "ConPTY child has no pid"),
-        )
-    })?;
-    let raw_process = child.as_raw_handle().ok_or_else(|| {
-        terminal_io(
-            "read ConPTY child handle",
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "ConPTY child has no process handle",
-            ),
-        )
-    })?;
-    let job = Job::new_kill_on_close()
-        .map_err(|source| terminal_io("create ConPTY process Job", io::Error::other(source)))?;
-    if let Err(source) = job.assign_process(raw_process) {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(terminal_io(
-            "assign ConPTY child to Job",
-            io::Error::other(source),
-        ));
-    }
-    // On Windows an unattached ConPTY output pipe can report EOF before the
-    // slave has spawned its first process. Acquire and start the master-side
-    // streams only after process creation and Job assignment so the reader
-    // cannot retire before the initial prompt or command output arrives.
-    let mut reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|source| portable_terminal_io("clone ConPTY reader", source))?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|source| portable_terminal_io("take ConPTY writer", source))?;
     let (output_tx, mut output_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
     tokio::spawn(async move {
         while let Some(chunk) = output_rx.recv().await {
@@ -905,9 +855,8 @@ fn spawn_session(
         id,
         name: spec.name,
         pid,
-        writer: Mutex::new(writer),
-        child: Mutex::new(child),
-        job,
+        writer: Mutex::new(Box::new(conpty.writer)),
+        child: Mutex::new(conpty.child),
         state,
     })
 }
@@ -918,8 +867,8 @@ fn exit_code(status: &std::process::ExitStatus) -> Option<i32> {
 }
 
 #[cfg(windows)]
-fn exit_code(status: &portable_pty::ExitStatus) -> Option<i32> {
-    i32::try_from(status.exit_code()).ok()
+fn exit_code(status: &u32) -> Option<i32> {
+    i32::try_from(*status).ok()
 }
 
 #[cfg(unix)]
@@ -928,13 +877,8 @@ fn exit_signal(status: &std::process::ExitStatus) -> Option<i32> {
 }
 
 #[cfg(windows)]
-fn exit_signal(_status: &portable_pty::ExitStatus) -> Option<i32> {
+fn exit_signal(_status: &u32) -> Option<i32> {
     None
-}
-
-#[cfg(windows)]
-fn portable_terminal_io(operation: &'static str, source: impl std::fmt::Display) -> TerminalError {
-    terminal_io(operation, io::Error::other(source.to_string()))
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]

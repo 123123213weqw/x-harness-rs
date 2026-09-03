@@ -10,6 +10,8 @@
 #[cfg(windows)]
 mod acl;
 #[cfg(windows)]
+mod conpty;
+#[cfg(windows)]
 mod file;
 #[cfg(windows)]
 mod handle;
@@ -24,6 +26,8 @@ mod token;
 
 #[cfg(windows)]
 pub use acl::{copy_dacl, grant_write, revoke_write};
+#[cfg(windows)]
+pub use conpty::{spawn_conpty, ConPtyChild, ConPtySession};
 #[cfg(windows)]
 pub use file::replace_file;
 #[cfg(windows)]
