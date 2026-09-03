@@ -70,6 +70,17 @@ PLATFORM_CHECKS = {
 }
 
 
+def platform_pipeline(plan):
+    return plan.get('acceptance_mode') == 'in-build'
+
+
+def acceptance_workflow(plan, platform):
+    if platform_pipeline(plan):
+        return '.github/workflows/desktop-release.yml'
+    kind = 'windows' if platform == 'windows-x86_64' else 'unix'
+    return f'.github/workflows/desktop-{kind}-update-acceptance.yml'
+
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -267,7 +278,10 @@ def acceptance_checks(plan, platform):
 
 def validate_plan(plan):
     fields(plan, PLAN_FIELDS | ({'release_scope'} if 'release_scope' in plan else set()) |
-           ({'macos_signing_fingerprint'} if macos_selfsigned(plan) else set()), 'plan')
+           ({'macos_signing_fingerprint'} if macos_selfsigned(plan) else set()) |
+           ({'acceptance_mode'} if 'acceptance_mode' in plan else set()), 'plan')
+    if 'acceptance_mode' in plan:
+        require(platform_pipeline(plan), 'Unknown native acceptance mode')
     if macos_selfsigned(plan):
         signing_fingerprint(plan['macos_signing_fingerprint'])
     release_platforms(plan)
@@ -365,7 +379,8 @@ def validate_receipt(plan, platform, root, expected_public_key, *, receipt_name=
         exact_tree(root, {name, name + '.sig', 'updater.pub', receipt_name})
     receipt = read_json(root / receipt_name)
     fields(receipt, RECEIPT_FIELDS | ({'release_scope'} if 'release_scope' in plan else set()) |
-           ({'macos_signing_fingerprint'} if macos_selfsigned(plan) else set()), 'receipt')
+           ({'macos_signing_fingerprint'} if macos_selfsigned(plan) else set()) |
+           ({'acceptance_mode'} if platform_pipeline(plan) else set()), 'receipt')
     require(type(receipt['schema_version']) is int and receipt['schema_version'] == 1, 'Unknown receipt schema')
     validate_ci(receipt['ci'], plan['sha'])
     for key, value in plan.items():
@@ -549,12 +564,15 @@ def validate_acceptance(plan, root, release_root, manifest_hash):
         require(version(value['base_version']) < version(plan['version']), 'Acceptance must upgrade from a lower base version')
         provenance = value['provenance']
         fields(provenance, {'workflow', 'run_id', 'run_attempt', 'source_sha'}, 'acceptance provenance')
-        workflow = 'desktop-windows-update-acceptance.yml' if platform == 'windows-x86_64' else 'desktop-unix-update-acceptance.yml'
-        require(provenance['workflow'] == '.github/workflows/' + workflow and provenance['source_sha'] == plan['sha'],
+        require(provenance['workflow'] == acceptance_workflow(plan, platform) and provenance['source_sha'] == plan['sha'],
                 'Acceptance used another workflow or source SHA')
         for key in ('run_id', 'run_attempt'):
             require(isinstance(provenance[key], str) and re.fullmatch(r'[1-9][0-9]*', provenance[key]),
                     'Invalid acceptance workflow run identity')
+        if platform_pipeline(plan):
+            require(provenance['run_id'] == plan['release_run_id']
+                    and provenance['run_attempt'] == plan['release_run_attempt'],
+                    'In-build acceptance must come from the same immutable build attempt')
         if platform == 'windows-x86_64':
             require(value['scope'] == 'exact-production-candidate' and value['baseInstrumented'] is False,
                     'Windows acceptance must use unmodified production binaries')

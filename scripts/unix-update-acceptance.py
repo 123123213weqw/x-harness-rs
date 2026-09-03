@@ -969,7 +969,7 @@ def candidate_update(args):
             'scope': 'isolated-production-handler-rehearsal' if args.rehearsal else 'instrumented-base-to-signed-candidate',
             'nativeUpdateAccepted': not args.rehearsal, 'baseInstrumented': True,
             'candidateModified': False, 'provenance': {
-                'workflow': '.github/workflows/desktop-unix-update-acceptance.yml',
+                'workflow': _release.acceptance_workflow(receipt, args.platform),
                 'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
                 'source_sha': source_sha}, 'base_version': config['base_version'],
             'base_sha256': digest(base), 'checks': checks, 'retained': retained,

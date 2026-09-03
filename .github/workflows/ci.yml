@@ -16,6 +16,28 @@ env:
   PYTHONUTF8: '1'
 
 jobs:
+  release-checkpoints:
+    name: Durable release checkpoint rehearsal (no signing keys)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked checkpoint SDK
+        run: npm ci --prefix .github/actions/desktop-release-service --ignore-scripts --no-audit --no-fund
+      - uses: ./.github/actions/desktop-release-service
+        with:
+          rehearsal: 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   unix-update-rehearsal:
     name: Native Unix signed update rehearsal
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -61,6 +83,7 @@ jobs:
       - run: python -B scripts/test-unified-desktop-release.py
       - run: python -B scripts/test-desktop-release-build.py
       - run: python -B scripts/test-release-orchestrator.py
+      - run: python -B scripts/test-release-service.py
       - run: python -B scripts/test-ci-tiering.py
       - run: python -B scripts/test-macos-signing.py
       - run: python -B scripts/test-macos-stable-signing.py

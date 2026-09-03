@@ -306,6 +306,40 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
             save(directory / 'acceptance.json', value)
         return root
 
+    def test_in_build_mode_keeps_full_manifest_signature_and_every_native_gate(self):
+        self.plan['acceptance_mode'] = 'in-build'
+        for platform in contract.PLATFORMS:
+            path = self.artifacts / platform / 'receipt.json'
+            receipt = contract.read_json(path)
+            receipt['acceptance_mode'] = 'in-build'
+            save(path, receipt)
+        self.assemble()
+        accepted = self.acceptances()
+        manifest_hash = contract.sha256(self.output / 'latest.json')
+        for platform in contract.PLATFORMS:
+            path = accepted / platform / 'acceptance.json'
+            value = contract.read_json(path)
+            value['provenance'] = {'workflow': '.github/workflows/desktop-release.yml',
+                'run_id': self.plan['release_run_id'], 'run_attempt': self.plan['release_run_attempt'], 'source_sha': SHA}
+            save(path, value)
+        self.assertEqual(len(contract.validate_acceptance(self.plan, accepted, self.output, manifest_hash)), 4)
+        path = accepted / 'windows-x86_64/acceptance.json'
+        original = contract.read_json(path)
+        for patch in [{'run_id': '9999'}, {'run_attempt': '2'}, {'workflow': '.github/workflows/desktop-windows-update-acceptance.yml'}]:
+            save(path, {**original, 'provenance': {**original['provenance'], **patch}})
+            with self.subTest(patch=patch), self.assertRaises(ValueError):
+                contract.validate_acceptance(self.plan, accepted, self.output, manifest_hash)
+        for patch in [{'manifest_sha256': '0'*64}, {'checks': {**original['checks'], 'update': False}}, {'nativeUpdateAccepted': False}]:
+            save(path, {**original, **patch})
+            with self.subTest(patch=patch), self.assertRaises(ValueError):
+                contract.validate_acceptance(self.plan, accepted, self.output, manifest_hash)
+        save(path, original)
+        # Cryptographic verification still precedes publication in this mode.
+        package = self.output / contract.package_name(self.plan, 'windows-x86_64')
+        package.write_bytes(b'tampered')
+        with self.assertRaises(ValueError):
+            contract.validate_release(self.plan, self.output, self.pub)
+
     def test_complete_receipts_aggregate_once_and_verify_independently(self):
         evidence = self.assemble()
         manifest, validated = contract.validate_release(self.plan, self.output, self.pub)
