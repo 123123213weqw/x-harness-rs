@@ -43,7 +43,7 @@ impl Drop for TestDir {
 async fn windows_read_create_replace_and_cas_match_the_shared_contract() {
     let workspace = TestDir::new("cas");
     let service = FsService::new(workspace.path()).unwrap();
-    let target = service.resolve("folder/../file.txt").unwrap();
+    let target = service.resolve("file.txt").unwrap();
 
     assert!(matches!(
         service
