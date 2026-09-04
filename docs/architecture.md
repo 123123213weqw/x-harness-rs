@@ -25,9 +25,12 @@ JavaScript 插件加载器不进入 Rust Runtime。
 ## 分层结构
 
 ```text
-XHarness Web UI / future CLI
-               |
-      xharness-api + server
+Browser Web UI       Tauri Desktop WebView
+       |                    |
+       |          signed shell + Host sidecar
+       +----------+---------+
+                  |
+         xharness-api + server
                |
      xharness-host（控制面）
                |
@@ -47,6 +50,11 @@ xharness-agent（正式运行时） prompt/context/token/compaction
                                    /          \
                            macOS Seatbelt  Linux Bubblewrap
 ```
+
+Tauri 不是第二套后端。它只负责平台安装、启动页、Sidecar 生命周期、每次启动的 Loopback
+Token/Cookie 交换和签名更新；导航完成后仍由同一个 `xharness-host` 提供静态 UI、RPC、WebSocket
+与完整 Agent Runtime。Host 使用 `127.0.0.1:0` 原子绑定地址，Ready File 只传输地址，认证 Token
+只经 Sidecar 环境变量传递。浏览器部署不经过 Tauri，并继续复用反向代理认证边界。
 
 ## 一次模型 Step 的数据流
 

@@ -44,6 +44,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-token` | [上下文预算与压缩](context.md) | TokenMeter、保守后备与请求前 Hard Guard 已实现 |
 | `xharness-prompt` | [Prompt 组装与注入](prompt.md) | v1 最小确定性注入已实现；完整 Registry 计划中 |
 | Linux Packaging | [`.deb` 安装与沙箱自配置](linux-deb.md) | Helper/打包已实现；真实 4080 安装待管理员授权 |
+| Tauri Desktop | [桌面壳与一键更新](desktop.md) | Sidecar/Loopback Auth/安全退出/签名更新代码已接入；三平台签名安装验收待完成 |
 
 部署和故障定位见 [`../operations.md`](../operations.md)。该文档记录平台 Probe、模型真实窗口、
 当前 Web Host 边界以及 2026-08-21 的上下文超窗样本。

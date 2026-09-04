@@ -43,6 +43,13 @@ impl HostProcess {
         let _ = time::timeout(Duration::from_secs(5), self.0.wait()).await;
     }
 
+    async fn wait(mut self) -> std::process::ExitStatus {
+        time::timeout(Duration::from_secs(20), self.0.wait())
+            .await
+            .expect("host shutdown is bounded")
+            .expect("host wait succeeds")
+    }
+
     #[cfg(unix)]
     async fn terminate(mut self) -> std::process::ExitStatus {
         let pid = self.0.id().expect("host still has a process id");
@@ -149,6 +156,38 @@ async fn wait_for_workspace(client: &Client, address: SocketAddr, expected: &Pat
         assert!(time::Instant::now() < deadline, "host did not become ready");
         time::sleep(Duration::from_millis(50)).await;
     }
+}
+
+#[tokio::test]
+async fn desktop_shutdown_file_uses_the_graceful_host_path() {
+    let workspace = TempWorkspace::new();
+    let address = SocketAddr::from(([127, 0, 0, 1], unique_port()));
+    let shutdown_file = workspace.0.join("desktop-shutdown.request");
+    let ready_file = workspace.0.join("desktop-ready.address");
+    let client = Client::new();
+    let host = spawn_host_with_extra(
+        address,
+        &workspace.0,
+        &[
+            "--shutdown-file".to_owned(),
+            shutdown_file.to_string_lossy().into_owned(),
+            "--ready-file".to_owned(),
+            ready_file.to_string_lossy().into_owned(),
+        ],
+    );
+    wait_for_workspace(&client, address, &workspace.0).await;
+    assert_eq!(
+        std::fs::read_to_string(&ready_file).unwrap(),
+        address.to_string()
+    );
+
+    std::fs::write(&shutdown_file, b"shutdown").unwrap();
+    let status = host.wait().await;
+    assert!(status.success(), "host reported cleanup failure: {status}");
+    assert!(
+        !ready_file.exists(),
+        "ready file must not survive graceful exit"
+    );
 }
 
 #[cfg(unix)]

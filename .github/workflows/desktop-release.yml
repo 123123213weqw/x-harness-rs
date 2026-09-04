@@ -1,0 +1,102 @@
+name: Desktop Release
+
+on:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            platform: macos-15
+            target: aarch64-apple-darwin
+            host_binary: target/aarch64-apple-darwin/release/xharness-host
+          - name: Linux x86_64
+            platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            host_binary: target/x86_64-unknown-linux-gnu/release/xharness-host
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate tag matches desktop version
+        shell: bash
+        run: |
+          VERSION="$(python3 -c 'import json; print(json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["version"])')"
+          test "${GITHUB_REF_NAME}" = "desktop-v${VERSION}" || {
+            echo "tag ${GITHUB_REF_NAME} does not match desktop-v${VERSION}"
+            exit 1
+          }
+      - name: Validate updater signing configuration
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_UPDATER_PUBKEY }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo 'missing TAURI_SIGNING_PRIVATE_KEY'; exit 1; }
+          test -n "$XHARNESS_UPDATER_PUBKEY" || { echo 'missing XHARNESS_UPDATER_PUBKEY'; exit 1; }
+      - name: Validate Apple signing and notarization configuration
+        if: matrix.platform == 'macos-15'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            test -n "${!name}" || { echo "missing ${name}"; exit 1; }
+          done
+      - name: Install Tauri Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep
+      - name: Install ripgrep on macOS
+        if: matrix.platform == 'macos-15'
+        run: command -v rg >/dev/null || brew install ripgrep
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Build and stage Host sidecar
+        run: |
+          cargo build --locked --release -p xharness-host-app --target "${{ matrix.target }}"
+          python3 scripts/stage-tauri-sidecar.py "${{ matrix.host_binary }}" "${{ matrix.target }}"
+          python3 scripts/stage-tauri-sidecar.py "$(command -v rg)" "${{ matrix.target }}" --name rg
+      - name: Build, sign and publish desktop bundle
+        uses: tauri-apps/tauri-action@v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          XHARNESS_UPDATER_ENDPOINT: https://github.com/123123213weqw/x-harness-rs/releases/latest/download/latest.json
+          XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_UPDATER_PUBKEY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: XHarness Desktop __VERSION__
+          releaseBody: XHarness desktop installers and signed updater metadata.
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --target ${{ matrix.target }}

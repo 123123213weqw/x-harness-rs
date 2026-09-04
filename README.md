@@ -44,10 +44,22 @@ XHarness Web UI / future CLI
 - [Linux `.deb` 安装与沙箱自配置](docs/specs/linux-deb.md)
 - [Windows 原生运行与 DeepSeek 接入](docs/windows.md)
 - [Windows 适配与代码复用评估](docs/windows-adaptation-report.md)
+- [Tauri 桌面壳与一键更新](docs/specs/desktop.md)
 - [总 TODO 与交付优先级](docs/TODO.md)
 - [Web UI、插件与重建说明](ui/README.md)
 
 行为变更只有在实现、测试、规范和 TODO 状态一致后才算完成。
+
+## 桌面应用
+
+`apps/desktop` 是 Tauri v2 原生壳：它把同一个 `xharness-host` 作为 Sidecar 打包，
+在随机 Loopback 端口启动完整 Web 产品，通过每次启动随机 Token 建立 HttpOnly Cookie，
+并在关窗/更新前走 Host 的结构化 Shutdown。普通 Web/服务器部署不受影响。
+
+正式 Release CI 当前生成 macOS ARM64、Linux x64 安装包以及 Tauri 签名更新清单；前端只在
+桌面环境显示“一键检查/下载/安装”，更新包验证后才会停止 Host 并重启。构建、数据目录、
+安全边界和发布 Secret 见[桌面规范](docs/specs/desktop.md)。Windows 壳接口已预留，但在
+底层 `xharness-platform/process/fs/sandbox` 完成 PowerShell 7 与 Job Object 适配前不发布。
 
 ## Apple Silicon 构件
 
@@ -59,7 +71,7 @@ FS Race、Process、PTY 与 Seatbelt 集成测试。每次成功运行都会产�
 该构件已经是 Apple Silicon 原生二进制，不是从 Linux Cross Compile；正式分发前仍需完成
 Developer ID 签名、公证和本机安装验证。
 
-> **当前可用性提醒（2026-09-02）：** Web/持久 Agent/Loop/11 个 Coding/Job/Web 工具、
+> **当前可用性提醒（2026-09-04）：** Web/持久 Agent/Loop/11 个 Coding/Job/Web 工具、
 > 3 个 Schedule 工具与 `ask_user_question`、版本化最小 Coding System
 > Prompt、Provider 原生输入计数、请求前 Hard Token Guard 与自动 Compact 已经贯通。无压力时
 > Host 逐字重放当前 Surface；达到 80% 或发生 Hard/Provider Overflow 时，会持久摘要安全头部、

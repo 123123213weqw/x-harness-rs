@@ -176,10 +176,17 @@ for (const entry of entries) {
 }
 
 const indexPath = join(dist, 'index.html')
-const index = readFileSync(indexPath, 'utf8')
+let index = readFileSync(indexPath, 'utf8')
 if (index.includes('window.__DSH_BOOT__')) {
   throw new Error('index.html already contains a client boot manifest; assemble from a clean Vite dist')
 }
+const desktopUpdaterSource = join(repoRoot, 'ui/desktop/updater.js')
+const desktopUpdaterBytes = portableBytes(readFileSync(desktopUpdaterSource))
+const desktopUpdaterRev = revision(desktopUpdaterBytes)
+writeFileSync(join(dist, 'desktop-updater.js'), desktopUpdaterBytes)
+const desktopUpdaterTag = `<script defer src="/desktop-updater.js?rev=${desktopUpdaterRev}"></script>`
+if (!index.includes('</head>')) throw new Error('index.html does not contain </head>')
+index = index.replace('</head>', `    ${desktopUpdaterTag}\n  </head>`)
 writeFileSync(indexPath, clientModules.injectBootManifest(index, graph))
 writeFileSync(join(dist, 'client-graph.json'), `${JSON.stringify(graph, null, 2)}\n`)
 console.log(`assembled ${entries.length} client plugins (graph ${graph.rev}) into ${dist}`)

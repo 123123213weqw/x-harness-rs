@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>XHarness 正在启动</title>
+    <style>
+      :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b0f16; color: #f7f9fc; }
+      main { width: min(430px, calc(100vw - 48px)); text-align: center; }
+      .mark { margin: 0 auto 22px; width: 82px; height: 82px; border-radius: 24px; display: grid; place-items: center; background: #111826; box-shadow: 0 18px 50px #0008; }
+      .mark svg { width: 62px; height: 62px; }
+      h1 { margin: 0 0 10px; font-size: 25px; letter-spacing: .02em; }
+      p { min-height: 46px; margin: 0; color: #9eacc2; line-height: 1.6; }
+      .bar { margin: 24px auto 0; width: 220px; height: 3px; overflow: hidden; border-radius: 999px; background: #263148; }
+      .bar::after { content: ''; display: block; width: 44%; height: 100%; border-radius: inherit; background: #1f5eff; animation: loading 1.2s ease-in-out infinite; }
+      .failed .bar { display: none; }
+      .failed p { color: #ff9b9b; }
+      @keyframes loading { from { transform: translateX(-110%); } to { transform: translateX(340%); } }
+    </style>
+  </head>
+  <body>
+    <main id="state">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 100 100">
+          <path d="M0 34h14l20 16-20 16H0l20-16L0 34Z" fill="#1F5EFF"/>
+          <path d="M26 22h22l12 16 12-16h22L72 50l22 28H72L60 62 48 78H26l22-28-22-28Z" fill="#fff"/>
+          <rect x="50" y="53" width="14" height="6" fill="#1F5EFF"/>
+        </svg>
+      </div>
+      <h1>XHarness</h1>
+      <p id="message">正在初始化桌面运行环境…</p>
+      <div class="bar"></div>
+    </main>
+    <script>
+      const main = document.querySelector('#state')
+      const message = document.querySelector('#message')
+      const events = window.__TAURI__?.event
+      if (events) {
+        events.listen('xharness-bootstrap', ({ payload }) => {
+          if (payload?.message) message.textContent = payload.message
+          if (payload?.phase === 'failed') main.classList.add('failed')
+        })
+      }
+    </script>
+  </body>
+</html>
