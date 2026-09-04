@@ -20,12 +20,8 @@ export function BrandWordmark({ size = 24, className, includeMark = true }: Bran
     >
       {includeMark && (
         <>
-          <path d="M0 16h14l20 16-20 16H0l20-16L0 16Z" fill="#1F5EFF" />
-          <path
-            d="M26 4h22l12 16L72 4h22L72 32l22 28H72L60 44 48 60H26l22-28L26 4Z"
-            fill="currentColor"
-          />
-          <rect x="50" y="35" width="14" height="6" fill="#1F5EFF" />
+          <path d="M58 4H46L4 50V58H16L58 12V4Z" fill="currentColor" fillOpacity="0.76" />
+          <path d="M4 4H16L58 50V58H46L4 12V4Z" fill="currentColor" />
         </>
       )}
       <text

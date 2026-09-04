@@ -89,8 +89,7 @@ window.__ModuleLoader__.load({
 					sessionId: this.sessionId,
 					provider: selection.provider,
 					model: selection.model,
-					...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort },
-					...selection.contextWindowTokens === void 0 ? {} : { contextWindowTokens: selection.contextWindowTokens }
+					...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
 				});
 				if (this.disposed || generation !== this.generation) {
 					if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
@@ -232,7 +231,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:deepseek-harness/packages/client/ui-model-selection/src/client/ModelSelect.module.css.mjs
-		const css = ".AbPDjW_root{min-width:0;position:relative}.AbPDjW_trigger{min-width:0;max-width:min(360px,45cqw);height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:flex}.AbPDjW_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.AbPDjW_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.AbPDjW_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.AbPDjW_triggerEffort{color:var(--dsw-alias-label-caption);flex:none}.AbPDjW_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s}.AbPDjW_chevronOpen{transform:rotate(180deg)}.AbPDjW_menu{z-index:20;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu);width:max-content;min-width:min(240px,100vw - 32px);max-width:min(420px,100vw - 32px);max-height:min(360px,100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:12px;flex-direction:column;padding:4px;display:flex;position:absolute;bottom:calc(100% + 8px);right:0;overflow:hidden}.AbPDjW_status,.AbPDjW_empty{color:var(--dsw-alias-label-tertiary);padding:10px;font-size:13px;line-height:20px}.AbPDjW_error,.AbPDjW_warning{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary);border-radius:8px;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px;padding:7px 8px;font-size:12px;line-height:18px;display:flex}.AbPDjW_warning{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-state-warn-label)}.AbPDjW_retry{color:inherit;font:inherit;cursor:pointer;background:0 0;border:none;flex:none;padding:0;font-weight:600}.AbPDjW_groups{min-height:0;overflow-y:auto}.AbPDjW_group+.AbPDjW_group{margin-top:4px}.AbPDjW_groupTitle{z-index:1;background:var(--dsw-specific-menu);color:var(--dsw-alias-label-tertiary);padding:5px 8px 3px;font-size:12px;font-weight:500;line-height:18px;position:sticky;top:0}.AbPDjW_option{box-sizing:border-box;width:auto;min-width:100%;min-height:38px;color:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:10px;outline:none;align-items:center;gap:8px;padding:6px 8px;display:flex}.AbPDjW_option:hover:not(:disabled),.AbPDjW_option:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_selected{background:0 0}.AbPDjW_option:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.AbPDjW_optionCopy{flex-direction:column;flex:1;min-width:0;display:flex}.AbPDjW_modelName{color:inherit;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;line-height:20px;overflow:hidden}.AbPDjW_description{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}.AbPDjW_check{color:var(--dsw-alias-label-primary);flex:0 0 18px;place-items:center;display:grid}.AbPDjW_cell{box-sizing:border-box;width:auto;min-width:100%;height:40px;color:var(--dsw-alias-label-primary);cursor:pointer;text-align:left;background:0 0;border:none;border-radius:10px;align-items:center;gap:8px;padding:0 10px;font-size:14px;line-height:22px;display:flex}.AbPDjW_cell:hover{background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_cellLabel{white-space:nowrap;flex:none}.AbPDjW_cellValue{text-overflow:ellipsis;white-space:nowrap;text-align:right;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;overflow:hidden}.AbPDjW_cellChevron{color:var(--dsw-alias-label-tertiary);flex:none}.AbPDjW_contextPanel{min-width:280px;padding:10px;display:flex;flex-direction:column;gap:10px}.AbPDjW_contextRange{width:100%}.AbPDjW_contextActions{display:flex;align-items:center;justify-content:space-between;gap:12px}.AbPDjW_contextApply{border:0;border-radius:8px;background:var(--dsw-alias-interactive-bg-hover);color:inherit;padding:6px 10px;cursor:pointer;font:inherit}";
+		const css = ".AbPDjW_root{min-width:0;position:relative}.AbPDjW_trigger{min-width:0;max-width:min(360px,45cqw);height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:flex}.AbPDjW_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.AbPDjW_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.AbPDjW_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.AbPDjW_triggerEffort{color:var(--dsw-alias-label-caption);flex:none}.AbPDjW_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s}.AbPDjW_chevronOpen{transform:rotate(180deg)}.AbPDjW_menu{z-index:20;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu);width:max-content;min-width:min(240px,100vw - 32px);max-width:min(420px,100vw - 32px);max-height:min(360px,100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:12px;flex-direction:column;padding:4px;display:flex;position:absolute;bottom:calc(100% + 8px);right:0;overflow:hidden}.AbPDjW_status,.AbPDjW_empty{color:var(--dsw-alias-label-tertiary);padding:10px;font-size:13px;line-height:20px}.AbPDjW_error,.AbPDjW_warning{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary);border-radius:8px;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px;padding:7px 8px;font-size:12px;line-height:18px;display:flex}.AbPDjW_warning{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-state-warn-label)}.AbPDjW_retry{color:inherit;font:inherit;cursor:pointer;background:0 0;border:none;flex:none;padding:0;font-weight:600}.AbPDjW_groups{min-height:0;overflow-y:auto}.AbPDjW_group+.AbPDjW_group{margin-top:4px}.AbPDjW_groupTitle{z-index:1;background:var(--dsw-specific-menu);color:var(--dsw-alias-label-tertiary);padding:5px 8px 3px;font-size:12px;font-weight:500;line-height:18px;position:sticky;top:0}.AbPDjW_option{box-sizing:border-box;width:auto;min-width:100%;min-height:38px;color:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:10px;outline:none;align-items:center;gap:8px;padding:6px 8px;display:flex}.AbPDjW_option:hover:not(:disabled),.AbPDjW_option:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_selected{background:0 0}.AbPDjW_option:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.AbPDjW_optionCopy{flex-direction:column;flex:1;min-width:0;display:flex}.AbPDjW_modelName{color:inherit;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;line-height:20px;overflow:hidden}.AbPDjW_description{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}.AbPDjW_check{color:var(--dsw-alias-label-primary);flex:0 0 18px;place-items:center;display:grid}.AbPDjW_cell{box-sizing:border-box;width:auto;min-width:100%;height:40px;color:var(--dsw-alias-label-primary);cursor:pointer;text-align:left;background:0 0;border:none;border-radius:10px;align-items:center;gap:8px;padding:0 10px;font-size:14px;line-height:22px;display:flex}.AbPDjW_cell:hover{background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_cellLabel{white-space:nowrap;flex:none}.AbPDjW_cellValue{text-overflow:ellipsis;white-space:nowrap;text-align:right;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;overflow:hidden}.AbPDjW_cellChevron{color:var(--dsw-alias-label-tertiary);flex:none}";
 		const tagId = "@deepseek-ai/dsh-client-ui-model-selection/ModelSelect.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -249,10 +248,6 @@ window.__ModuleLoader__.load({
 			"check": "AbPDjW_check",
 			"chevron": "AbPDjW_chevron",
 			"chevronOpen": "AbPDjW_chevronOpen",
-			"contextActions": "AbPDjW_contextActions",
-			"contextApply": "AbPDjW_contextApply",
-			"contextPanel": "AbPDjW_contextPanel",
-			"contextRange": "AbPDjW_contextRange",
 			"description": "AbPDjW_description",
 			"empty": "AbPDjW_empty",
 			"error": "AbPDjW_error",
@@ -316,13 +311,6 @@ window.__ModuleLoader__.load({
 			const currentChoice = choices[state.current === null ? -1 : choices.findIndex((c) => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)];
 			const reasoning = currentChoice?.model.reasoning;
 			const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort;
-			const contextMaximum = currentChoice?.model.contextWindow;
-			const contextSource = currentChoice?.model.contextWindowSource;
-			const effectiveContext = state.current?.contextWindowTokens ?? contextMaximum;
-			const [contextDraft, setContextDraft] = (0, react.useState)(0);
-			(0, react.useEffect)(() => {
-				if (effectiveContext !== void 0) setContextDraft(effectiveContext);
-			}, [effectiveContext]);
 			const effortLabel = reasoning === void 0 ? void 0 : effectiveEffort === void 0 ? t("effort.providerDefault") : reasoning.efforts.find((level) => level.id === effectiveEffort)?.name ?? effectiveEffort;
 			const effortChoices = (0, react.useMemo)(() => reasoning === void 0 ? [] : [...reasoning.defaultEffort === void 0 ? [{
 				key: "provider-default",
@@ -422,28 +410,11 @@ window.__ModuleLoader__.load({
 				const selection = {
 					provider: state.current.provider,
 					model: state.current.model,
-					...effort === void 0 ? {} : { reasoningEffort: effort },
-					...effectiveContext === void 0 ? {} : { contextWindowTokens: effectiveContext }
+					...effort === void 0 ? {} : { reasoningEffort: effort }
 				};
 				lastActionRef.current = "select";
 				select(selection).then(settleSelection);
 			};
-			const chooseContext = () => {
-				if (state.current === null || contextMaximum === void 0) return;
-				const next = Math.max(1, Math.min(contextMaximum, Math.round(contextDraft)));
-				if (next === effectiveContext) {
-					close(true);
-					return;
-				}
-				lastActionRef.current = "select";
-				select({
-					provider: state.current.provider,
-					model: state.current.model,
-					...effectiveEffort === void 0 ? {} : { reasoningEffort: effectiveEffort },
-					contextWindowTokens: next
-				}).then(settleSelection);
-			};
-			const formatContext = (tokens) => tokens >= 1024 && tokens % 1024 === 0 ? `${tokens / 1024}K` : String(tokens);
 			const modelLabel = currentChoice?.model.name ?? t("trigger.fallback");
 			const triggerLabel = effortLabel === void 0 ? modelLabel : `${modelLabel} · ${effortLabel}`;
 			const triggerAria = currentChoice === void 0 ? t("trigger.selectAria") : effortLabel === void 0 ? t("trigger.aria", { model: modelLabel }) : t("trigger.ariaEffort", {
@@ -533,19 +504,6 @@ window.__ModuleLoader__.load({
 										className: ModelSelect_module_css_default.cellValue,
 										children: effortLabel
 									}),
-									(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutline14, { className: ModelSelect_module_css_default.cellChevron })
-								]
-							}), contextMaximum !== void 0 && (0, react_jsx_runtime.jsxs)("button", {
-								ref: itemRef(),
-								type: "button",
-								role: "menuitem",
-								className: ModelSelect_module_css_default.cell,
-								onClick: () => {
-									setPane("context");
-								},
-								children: [
-									(0, react_jsx_runtime.jsx)("span", { className: ModelSelect_module_css_default.cellLabel, children: t("menu.context") }),
-									(0, react_jsx_runtime.jsx)("span", { className: ModelSelect_module_css_default.cellValue, children: effectiveContext === void 0 ? t("context.auto") : formatContext(effectiveContext) }),
 									(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutline14, { className: ModelSelect_module_css_default.cellChevron })
 								]
 							})] }),
@@ -660,30 +618,7 @@ window.__ModuleLoader__.load({
 									className: ModelSelect_module_css_default.check,
 									children: effectiveEffort === level.effort ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, {}) : null
 								})]
-							}, level.key))] }),
-							pane === "context" && contextMaximum !== void 0 && (0, react_jsx_runtime.jsxs)("div", {
-								className: ModelSelect_module_css_default.contextPanel,
-								children: [
-									(0, react_jsx_runtime.jsx)("div", { children: t(contextSource === "deployment_declared_fallback" ? "context.maximumFallback" : "context.maximum", { value: formatContext(contextMaximum) }) }),
-									(0, react_jsx_runtime.jsx)("input", {
-										type: "range",
-										className: ModelSelect_module_css_default.contextRange,
-										min: Math.min(1024, contextMaximum),
-										max: contextMaximum,
-										step: 1024,
-										value: Math.min(contextMaximum, Math.max(Math.min(1024, contextMaximum), contextDraft)),
-										onChange: (event) => setContextDraft(Number(event.target.value)),
-										"aria-label": t("menu.context")
-									}),
-									(0, react_jsx_runtime.jsxs)("div", {
-										className: ModelSelect_module_css_default.contextActions,
-										children: [
-											(0, react_jsx_runtime.jsx)("strong", { children: formatContext(contextDraft) }),
-											(0, react_jsx_runtime.jsx)("button", { type: "button", className: ModelSelect_module_css_default.contextApply, disabled: busy, onClick: chooseContext, children: t("context.apply") })
-										]
-									})
-								]
-							})
+							}, level.key))] })
 						]
 					}),
 					toast !== null && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Toast, {
@@ -719,11 +654,6 @@ window.__ModuleLoader__.load({
 			"menu.aria": "模型与推理等级",
 			"menu.model": "模型",
 			"menu.effort": "推理等级",
-			"menu.context": "上下文窗口",
-			"context.auto": "自动",
-			"context.maximum": "当前有效上限：{value}",
-			"context.maximumFallback": "当前有效上限（兼容配置）：{value}",
-			"context.apply": "应用",
 			"effort.providerDefault": "Default",
 			"status.loading": "正在刷新模型列表…",
 			"error.action": "模型操作失败：{message}",
@@ -744,11 +674,6 @@ window.__ModuleLoader__.load({
 			"menu.aria": "Model and reasoning effort",
 			"menu.model": "Model",
 			"menu.effort": "Effort",
-			"menu.context": "Context window",
-			"context.auto": "Auto",
-			"context.maximum": "Current effective limit: {value}",
-			"context.maximumFallback": "Current effective limit (configured fallback): {value}",
-			"context.apply": "Apply",
 			"effort.providerDefault": "Default",
 			"status.loading": "Refreshing model list…",
 			"error.action": "Model operation failed: {message}",
@@ -794,8 +719,7 @@ window.__ModuleLoader__.load({
 				return {
 					provider: group.id,
 					model: model.id,
-					...reasoningEffort === void 0 ? {} : { reasoningEffort },
-					...state.current?.provider === group.id && state.current.model === model.id && state.current.contextWindowTokens !== void 0 ? { contextWindowTokens: state.current.contextWindowTokens } : model.contextWindow === void 0 ? {} : { contextWindowTokens: model.contextWindow }
+					...reasoningEffort === void 0 ? {} : { reasoningEffort }
 				};
 			}
 		}

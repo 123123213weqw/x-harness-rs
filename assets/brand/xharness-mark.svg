@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="under" x1="864" y1="136" x2="160" y2="888" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E7E8EB"/>
+      <stop offset="0.16" stop-color="#777A82"/>
+      <stop offset="0.44" stop-color="#292B31"/>
+      <stop offset="0.56" stop-color="#1B1D22"/>
+      <stop offset="0.84" stop-color="#62656D"/>
+      <stop offset="1" stop-color="#C6C8CD"/>
+    </linearGradient>
+    <linearGradient id="over" x1="160" y1="136" x2="864" y2="888" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDE0E4"/>
+      <stop offset="0.16" stop-color="#6E7179"/>
+      <stop offset="0.43" stop-color="#303238"/>
+      <stop offset="0.51" stop-color="#15171B"/>
+      <stop offset="0.59" stop-color="#24262B"/>
+      <stop offset="0.84" stop-color="#62656D"/>
+      <stop offset="1" stop-color="#BFC2C8"/>
+    </linearGradient>
+    <filter id="shadow" x="86" y="66" width="852" height="902" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#000" flood-opacity="0.72"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M864 136H678L160 776V888H346L864 248V136Z" fill="url(#under)"/>
+    <path d="M160 136H346L864 776V888H678L160 248V136Z" fill="url(#over)"/>
+    <path d="M160 136H346L398 198H212L160 136Z" fill="#FFF" fill-opacity="0.1"/>
+    <path d="M864 888H678L626 826H812L864 888Z" fill="#FFF" fill-opacity="0.065"/>
+  </g>
+  <path d="M160 136H346" stroke="#FFF" stroke-opacity="0.66" stroke-width="2"/>
+  <path d="M678 136H864" stroke="#FFF" stroke-opacity="0.72" stroke-width="2"/>
+</svg>

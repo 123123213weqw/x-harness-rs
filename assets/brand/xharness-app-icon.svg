@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+<defs>
+<radialGradient id="bg" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 438) rotate(90) scale(590)"><stop stop-color="#1A1C21"/><stop offset=".52" stop-color="#090A0D"/><stop offset="1" stop-color="#020304"/></radialGradient>
+<linearGradient id="under" x1="834" y1="172" x2="190" y2="852" gradientUnits="userSpaceOnUse"><stop stop-color="#F8F9FA"/><stop offset=".14" stop-color="#858891"/><stop offset=".43" stop-color="#303238"/><stop offset=".57" stop-color="#202227"/><stop offset=".86" stop-color="#6C6F77"/><stop offset="1" stop-color="#D8DADE"/></linearGradient>
+<linearGradient id="over" x1="190" y1="172" x2="834" y2="852" gradientUnits="userSpaceOnUse"><stop stop-color="#F2F3F5"/><stop offset=".14" stop-color="#81848C"/><stop offset=".43" stop-color="#35373E"/><stop offset=".51" stop-color="#1A1C21"/><stop offset=".58" stop-color="#292B31"/><stop offset=".86" stop-color="#6E7179"/><stop offset="1" stop-color="#D0D2D7"/></linearGradient>
+<filter id="shadow" x="130" y="110" width="764" height="814"><feDropShadow dx="0" dy="20" stdDeviation="20" flood-color="#000" flood-opacity=".85"/></filter>
+</defs>
+<rect x="24" y="24" width="976" height="976" rx="228" fill="url(#bg)"/><rect x="25" y="25" width="974" height="974" rx="227" stroke="#666A73" stroke-opacity=".45" stroke-width="2"/>
+<g filter="url(#shadow)">
+<path d="M834 172H670L190 742V852H354L834 282V172Z" fill="url(#under)"/>
+<path d="M190 172H354L834 742V852H670L190 282V172Z" fill="url(#over)"/>
+<path d="M190 172H354L402 229L238 229L190 172Z" fill="#FFF" fill-opacity=".12"/>
+<path d="M834 852H670L622 795H786L834 852Z" fill="#FFF" fill-opacity=".08"/>
+</g>
+<path d="M190 172H354" stroke="#fff" stroke-opacity=".8" stroke-width="2"/><path d="M670 172H834" stroke="#fff" stroke-opacity=".9" stroke-width="2"/>
+</svg>

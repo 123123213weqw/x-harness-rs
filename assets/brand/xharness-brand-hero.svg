@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024" fill="none">
+  <defs>
+    <radialGradient id="heroBg" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(768 482) rotate(90) scale(640 940)">
+      <stop stop-color="#16181C"/>
+      <stop offset="0.45" stop-color="#07080A"/>
+      <stop offset="1"/>
+    </radialGradient>
+    <radialGradient id="mist" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(768 500) rotate(90) scale(330 610)">
+      <stop stop-color="#BFC3CB" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#5E626B" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="under" x1="1138" y1="143" x2="398" y2="881" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#BFC1C7"/>
+      <stop offset="0.17" stop-color="#53565E"/>
+      <stop offset="0.44" stop-color="#25272C"/>
+      <stop offset="0.56" stop-color="#181A1E"/>
+      <stop offset="0.84" stop-color="#4B4E55"/>
+      <stop offset="1" stop-color="#A9ACB2"/>
+    </linearGradient>
+    <linearGradient id="over" x1="398" y1="143" x2="1138" y2="881" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B5B8BE"/>
+      <stop offset="0.17" stop-color="#4D5057"/>
+      <stop offset="0.43" stop-color="#2A2C31"/>
+      <stop offset="0.51" stop-color="#111216"/>
+      <stop offset="0.59" stop-color="#202227"/>
+      <stop offset="0.84" stop-color="#50535A"/>
+      <stop offset="1" stop-color="#A7AAB0"/>
+    </linearGradient>
+    <filter id="blur" x="120" y="18" width="1296" height="988" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="54"/>
+    </filter>
+    <filter id="shadow" x="326" y="80" width="884" height="864" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="20" stdDeviation="28" flood-color="#000" flood-opacity="0.82"/>
+    </filter>
+  </defs>
+  <rect width="1536" height="1024" fill="url(#heroBg)"/>
+  <ellipse cx="768" cy="500" rx="610" ry="330" fill="url(#mist)" filter="url(#blur)"/>
+  <g filter="url(#shadow)">
+    <path d="M1138 143H943L398 764V881H593L1138 260V143Z" fill="url(#under)"/>
+    <path d="M398 143H593L1138 764V881H943L398 260V143Z" fill="url(#over)"/>
+    <path d="M398 143H593L648 205H453L398 143Z" fill="#FFF" fill-opacity="0.07"/>
+    <path d="M1138 881H943L888 819H1083L1138 881Z" fill="#FFF" fill-opacity="0.045"/>
+  </g>
+  <path d="M398 143H593" stroke="#FFF" stroke-opacity="0.62" stroke-width="1.5"/>
+  <path d="M943 143H1138" stroke="#FFF" stroke-opacity="0.68" stroke-width="1.5"/>
+</svg>
