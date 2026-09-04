@@ -22,16 +22,29 @@ jobs:
             platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             host_binary: target/x86_64-unknown-linux-gnu/release/xharness-host
+          - name: Windows x64
+            platform: windows-2025
+            target: x86_64-pc-windows-msvc
+            host_binary: target/x86_64-pc-windows-msvc/release/xharness-host.exe
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v6
       - name: Validate tag matches desktop version
+        if: matrix.platform != 'windows-2025'
         shell: bash
         run: |
           VERSION="$(python3 -c 'import json; print(json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["version"])')"
           test "${GITHUB_REF_NAME}" = "desktop-v${VERSION}" || {
             echo "tag ${GITHUB_REF_NAME} does not match desktop-v${VERSION}"
             exit 1
+          }
+      - name: Validate tag matches desktop version on Windows
+        if: matrix.platform == 'windows-2025'
+        shell: pwsh
+        run: |
+          $version = python -c "import json; print(json.load(open('apps/desktop/src-tauri/tauri.conf.json'))['version'])"
+          if ($env:GITHUB_REF_NAME -ne "desktop-v$version") {
+            throw "tag $env:GITHUB_REF_NAME does not match desktop-v$version"
           }
       - name: Validate updater signing configuration
         shell: bash
@@ -63,6 +76,25 @@ jobs:
       - name: Install ripgrep on macOS
         if: matrix.platform == 'macos-15'
         run: command -v rg >/dev/null || brew install ripgrep
+      - name: Install pinned ripgrep on Windows
+        if: matrix.platform == 'windows-2025'
+        shell: pwsh
+        run: |
+          $version = '15.2.0'
+          $archive = Join-Path $env:RUNNER_TEMP "ripgrep-$version.zip"
+          $extract = Join-Path $env:RUNNER_TEMP "ripgrep-$version"
+          Invoke-WebRequest -Uri "https://github.com/BurntSushi/ripgrep/releases/download/$version/ripgrep-$version-x86_64-pc-windows-msvc.zip" -OutFile $archive
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          $expectedHash = '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'
+          if ($actualHash -ne $expectedHash) {
+            throw "ripgrep archive hash mismatch: $actualHash"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $rg = Join-Path $extract "ripgrep-$version-x86_64-pc-windows-msvc/rg.exe"
+          if (-not (Test-Path -LiteralPath $rg -PathType Leaf)) {
+            throw 'Pinned ripgrep archive did not contain rg.exe.'
+          }
+          "XHARNESS_RG=$rg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -72,10 +104,21 @@ jobs:
             . -> target
             apps/desktop/src-tauri -> target
       - name: Build and stage Host sidecar
+        if: matrix.platform != 'windows-2025'
         run: |
           cargo build --locked --release -p xharness-host-app --target "${{ matrix.target }}"
           python3 scripts/stage-tauri-sidecar.py "${{ matrix.host_binary }}" "${{ matrix.target }}"
           python3 scripts/stage-tauri-sidecar.py "$(command -v rg)" "${{ matrix.target }}" --name rg
+      - name: Build and stage Windows sidecars
+        if: matrix.platform == 'windows-2025'
+        shell: pwsh
+        run: |
+          $target = '${{ matrix.target }}'
+          cargo build --locked --release -p xharness-host-app --target $target
+          cargo build --locked --release -p xharness-sandbox --bin xharness-windows-sandbox-runner --target $target
+          python scripts/stage-tauri-sidecar.py '${{ matrix.host_binary }}' $target
+          python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
+          python scripts/stage-tauri-sidecar.py "target/$target/release/xharness-windows-sandbox-runner.exe" $target --name xharness-windows-sandbox-runner
       - name: Build, sign and publish desktop bundle
         uses: tauri-apps/tauri-action@v0.6.2
         env:

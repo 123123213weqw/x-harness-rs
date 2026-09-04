@@ -16,6 +16,8 @@ STAGER = REPOSITORY_ROOT / "scripts" / "stage-tauri-sidecar.py"
 TAURI_ROOT = REPOSITORY_ROOT / "apps" / "desktop" / "src-tauri"
 WINDOWS_CONFIG = TAURI_ROOT / "tauri.windows.conf.json"
 CAPABILITY = TAURI_ROOT / "capabilities" / "desktop-main.json"
+CI_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "desktop-release.yml"
 TARGET = "x86_64-pc-windows-msvc"
 EXTERNAL_BINARIES = [
     "binaries/xharness-host",
@@ -61,6 +63,22 @@ class WindowsDesktopBundleTests(unittest.TestCase):
     def test_desktop_bridge_is_enabled_on_windows(self) -> None:
         document = json.loads(CAPABILITY.read_text(encoding="utf-8"))
         self.assertIn("windows", document["platforms"])
+
+    def test_ci_builds_an_installable_windows_client(self) -> None:
+        workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("--bundles nsis", workflow)
+        self.assertIn("name: XHarness-windows-x64", workflow)
+        self.assertIn("--name xharness-windows-sandbox-runner", workflow)
+
+    def test_tagged_release_includes_pinned_windows_sidecars(self) -> None:
+        workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("platform: windows-2025", workflow)
+        self.assertIn(f"target: {TARGET}", workflow)
+        self.assertIn("--name xharness-windows-sandbox-runner", workflow)
+        self.assertIn(
+            "71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5",
+            workflow,
+        )
 
 
 if __name__ == "__main__":
