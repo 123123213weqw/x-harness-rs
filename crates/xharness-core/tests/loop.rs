@@ -57,6 +57,7 @@ impl ToolSpec {
         F: Fn(Value, CancellationToken) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ToolResult> + Send + 'static,
     {
+        let parameters = object_schema(parameters);
         let definition = RuntimeToolDefinition::new(name, description, parameters);
         Self(
             RuntimeToolSpec::new(definition, move |context| {
@@ -80,6 +81,7 @@ impl ToolSpec {
         F: Fn(ToolInvocation) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ToolResult> + Send + 'static,
     {
+        let parameters = object_schema(parameters);
         let definition = RuntimeToolDefinition::new(name, description, parameters);
         Self(
             RuntimeToolSpec::new(definition, move |context: RuntimeToolExecutionContext| {
@@ -119,6 +121,15 @@ impl ToolSpec {
         self.0 = self.0.requiring_approval(true);
         self
     }
+}
+
+fn object_schema(mut parameters: Value) -> Value {
+    if let Some(schema) = parameters.as_object_mut() {
+        schema
+            .entry("type".to_owned())
+            .or_insert_with(|| Value::String("object".to_owned()));
+    }
+    parameters
 }
 
 fn runtime_output(result: ToolResult) -> Result<RuntimeToolOutput, RuntimeToolHandlerError> {
