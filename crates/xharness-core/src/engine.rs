@@ -2968,8 +2968,8 @@ impl Runner {
                 command = self.command_rx.recv(), if self.command_open => {
                     RuntimeInput::Command(command)
                 }
-                signal = signal_rx.recv() => RuntimeInput::Signal(signal),
                 event = batch.next_event() => RuntimeInput::Batch(event),
+                signal = signal_rx.recv() => RuntimeInput::Signal(signal),
             };
             match input {
                 RuntimeInput::Cancelled => {

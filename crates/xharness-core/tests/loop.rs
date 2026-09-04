@@ -40,13 +40,13 @@ use xharness_tools::{
 /// used in production. This small fixture keeps individual scenarios concise;
 /// it is deliberately test-only and is not a compatibility API.
 #[derive(Clone)]
-struct ToolSpec(RuntimeToolSpec);
+struct TestToolSpec(RuntimeToolSpec);
 
-struct ToolInvocation {
+struct TestToolInvocation {
     execution_id: String,
 }
 
-impl ToolSpec {
+impl TestToolSpec {
     fn new<F, Fut>(
         name: impl Into<String>,
         description: impl Into<String>,
@@ -78,14 +78,14 @@ impl ToolSpec {
         handler: F,
     ) -> Self
     where
-        F: Fn(ToolInvocation) -> Fut + Send + Sync + 'static,
+        F: Fn(TestToolInvocation) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ToolResult> + Send + 'static,
     {
         let parameters = object_schema(parameters);
         let definition = RuntimeToolDefinition::new(name, description, parameters);
         Self(
             RuntimeToolSpec::new(definition, move |context: RuntimeToolExecutionContext| {
-                let invocation = ToolInvocation {
+                let invocation = TestToolInvocation {
                     execution_id: context.execution_id.to_string(),
                 };
                 let future = handler(invocation);
@@ -143,7 +143,7 @@ fn runtime_output(result: ToolResult) -> Result<RuntimeToolOutput, RuntimeToolHa
     }
 }
 
-async fn install_tools(request: &mut LoopRequest, tools: Vec<ToolSpec>) {
+async fn install_tools(request: &mut LoopRequest, tools: Vec<TestToolSpec>) {
     let registry = Arc::new(RuntimeToolRegistry::new());
     for tool in tools {
         registry.register(tool.0).await.unwrap();
@@ -151,7 +151,7 @@ async fn install_tools(request: &mut LoopRequest, tools: Vec<ToolSpec>) {
     request.tool_executor = Some(RuntimeToolExecutor::new(registry));
 }
 
-async fn install_tool(request: &mut LoopRequest, tool: ToolSpec) {
+async fn install_tool(request: &mut LoopRequest, tool: TestToolSpec) {
     install_tools(request, vec![tool]).await;
 }
 
@@ -749,7 +749,7 @@ async fn tool_argument_fragments_keep_live_deltas_but_coalesce_durable_chunks() 
         ],
     ]));
     let journal = Arc::new(EventMemorySessionStore::default());
-    let tool = ToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
+    let tool = TestToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
         ToolResult::success("ok")
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
@@ -816,7 +816,7 @@ async fn conflicting_tool_stream_identity_fails_closed_into_separate_chunks() {
     request.journal_store = Some(journal.clone());
     install_tool(
         &mut request,
-        ToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
+        TestToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
             ToolResult::success("ok")
         }),
     )
@@ -944,7 +944,7 @@ async fn context_policy_projects_a_disposable_surface_before_provider_io() {
     request.context_policy = context.clone();
     install_tool(
         &mut request,
-        ToolSpec::new(
+        TestToolSpec::new(
             "read",
             "read a file",
             json!({"type": "object"}),
@@ -1051,7 +1051,7 @@ async fn aggregates_fragmented_tool_calls_and_returns_errors_to_model() {
             Ok(completed()),
         ],
     ]));
-    let tool = ToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
+    let tool = TestToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
         ToolResult::success("should not run")
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
@@ -1080,7 +1080,7 @@ async fn contextual_tool_handler_receives_the_journal_execution_id() {
         ],
     ]));
     let seen = Arc::new(Mutex::new(Vec::new()));
-    let tool = ToolSpec::new_contextual("inspect", "inspect", json!({"type":"object"}), {
+    let tool = TestToolSpec::new_contextual("inspect", "inspect", json!({"type":"object"}), {
         let seen = Arc::clone(&seen);
         move |invocation| {
             let seen = Arc::clone(&seen);
@@ -1195,7 +1195,7 @@ async fn parallel_completion_is_live_but_history_order_is_stable() {
             Ok(completed()),
         ],
     ]));
-    let tool = ToolSpec::new(
+    let tool = TestToolSpec::new(
         "sleep",
         "sleep",
         json!({"type":"object"}),
@@ -1237,7 +1237,7 @@ async fn keyed_tools_serialize_per_key_and_respect_global_cap() {
     ]));
     let active = Arc::new(AtomicUsize::new(0));
     let maximum = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("keyed", "keyed", json!({"type":"object"}), {
+    let tool = TestToolSpec::new("keyed", "keyed", json!({"type":"object"}), {
         let active = active.clone();
         let maximum = maximum.clone();
         move |args, _| {
@@ -1280,7 +1280,7 @@ async fn reaches_step_limit_without_fabricating_an_answer() {
         ]);
     }
     let provider = Arc::new(ScriptProvider::new(scripts));
-    let tool = ToolSpec::new("echo", "echo", json!({}), |_, _| async {
+    let tool = TestToolSpec::new("echo", "echo", json!({}), |_, _| async {
         ToolResult::success("ok")
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("loop")]);
@@ -1324,7 +1324,7 @@ async fn token_usage_is_recorded_per_step_and_accumulated() {
             )),
         ],
     ]));
-    let tool = ToolSpec::new("echo", "echo", json!({}), |_, _| async {
+    let tool = TestToolSpec::new("echo", "echo", json!({}), |_, _| async {
         ToolResult::success("ok")
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
@@ -1630,7 +1630,7 @@ async fn pressure_compaction_is_durable_then_recounted_before_the_main_request()
     request.compaction_reasoning_effort = Some("low".to_owned());
     install_tool(
         &mut request,
-        ToolSpec::new(
+        TestToolSpec::new(
             "inspect",
             "inspect the workspace",
             json!({"type":"object"}),
@@ -1892,18 +1892,18 @@ async fn timeout_and_handler_panic_become_tool_results() {
             Ok(completed()),
         ],
     ]));
-    let slow = ToolSpec::new("slow", "slow", json!({}), |_, _| async {
+    let slow = TestToolSpec::new("slow", "slow", json!({}), |_, _| async {
         tokio::time::sleep(Duration::from_secs(1)).await;
         ToolResult::success("late")
     })
     .timeout(Duration::from_millis(2));
-    let panic = ToolSpec::new("panic", "panic", json!({}), |_, _| async { panic!("boom") });
+    let panic = TestToolSpec::new("panic", "panic", json!({}), |_, _| async { panic!("boom") });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
     install_tools(&mut request, vec![slow, panic]).await;
     let (_, result) = collect(LoopEngine.start(request)).await;
 
     assert_eq!(result.status, LoopStatus::Completed);
-    assert!(result.messages[2].content.contains("timed out"));
+    assert!(result.messages[2].content.contains("exceeded"));
     assert!(result.messages[3].content.contains("panicked"));
 }
 
@@ -1922,11 +1922,11 @@ async fn exclusive_tool_is_a_barrier() {
             Ok(completed()),
         ],
     ]));
-    let parallel = ToolSpec::new("parallel", "parallel", json!({}), |args, _| async move {
+    let parallel = TestToolSpec::new("parallel", "parallel", json!({}), |args, _| async move {
         tokio::time::sleep(Duration::from_millis(args["ms"].as_u64().unwrap())).await;
         ToolResult::success("parallel")
     });
-    let exclusive = ToolSpec::new("exclusive", "exclusive", json!({}), |_, _| async {
+    let exclusive = TestToolSpec::new("exclusive", "exclusive", json!({}), |_, _| async {
         tokio::time::sleep(Duration::from_millis(2)).await;
         ToolResult::success("exclusive")
     })
@@ -1998,7 +1998,7 @@ async fn interrupted_tool_batch_is_closed_without_replay() {
         Ok(completed()),
     ]]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("dangerous", "dangerous", json!({}), {
+    let tool = TestToolSpec::new("dangerous", "dangerous", json!({}), {
         let executions = executions.clone();
         move |_, _| {
             executions.fetch_add(1, Ordering::SeqCst);
@@ -2027,7 +2027,7 @@ async fn dropping_the_event_consumer_cancels_and_checkpoints() {
         Ok(tool_delta(0, "wait", "wait", "{}")),
         Ok(completed_for_calls()),
     ]]));
-    let tool = ToolSpec::new("wait", "wait", json!({}), |_, token| async move {
+    let tool = TestToolSpec::new("wait", "wait", json!({}), |_, token| async move {
         token.cancelled().await;
         ToolResult::failure("cancelled")
     });
@@ -2154,7 +2154,7 @@ async fn approval_blocks_tool_start_until_host_approves() {
         ],
     ]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("guarded", "guarded", json!({}), {
+    let tool = TestToolSpec::new("guarded", "guarded", json!({}), {
         let executions = executions.clone();
         move |_, _| {
             executions.fetch_add(1, Ordering::SeqCst);
@@ -2879,7 +2879,7 @@ async fn steering_during_tools_is_deferred_until_the_batch_finishes() {
         ],
     ]));
     let release = Arc::new(Notify::new());
-    let tool = ToolSpec::new("wait", "wait", json!({}), {
+    let tool = TestToolSpec::new("wait", "wait", json!({}), {
         let release = release.clone();
         move |_, _| {
             let release = release.clone();
@@ -2932,7 +2932,7 @@ async fn explicit_stop_with_tool_calls_fails_closed_without_running_the_tool() {
     ]]));
     let journal = Arc::new(EventMemorySessionStore::default());
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
+    let tool = TestToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
         let executions = Arc::clone(&executions);
         move |_, _| {
             executions.fetch_add(1, Ordering::SeqCst);
@@ -3000,7 +3000,7 @@ async fn missing_finish_reason_is_inferred_only_for_legacy_providers() {
         ],
     ]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("echo", "echo", json!({"type":"object"}), {
+    let tool = TestToolSpec::new("echo", "echo", json!({"type":"object"}), {
         let executions = Arc::clone(&executions);
         move |_, _| {
             executions.fetch_add(1, Ordering::SeqCst);
@@ -3113,7 +3113,7 @@ async fn event_journal_records_model_input_and_tool_call_before_side_effects() {
     ]));
     let journal = Arc::new(EventMemorySessionStore::default());
     let was_durable = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let tool = ToolSpec::new("inspect", "inspect", json!({"type":"object"}), {
+    let tool = TestToolSpec::new("inspect", "inspect", json!({"type":"object"}), {
         let journal = Arc::clone(&journal);
         let was_durable = Arc::clone(&was_durable);
         move |_, _| {
@@ -3314,7 +3314,7 @@ async fn journal_namespaces_reused_provider_call_ids_across_steps() {
         ],
     ]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("echo", "echo", json!({"type":"object"}), {
+    let tool = TestToolSpec::new("echo", "echo", json!({"type":"object"}), {
         let executions = Arc::clone(&executions);
         move |_, _| {
             executions.fetch_add(1, Ordering::SeqCst);
@@ -3443,7 +3443,7 @@ async fn event_journal_recovers_incomplete_tool_as_outcome_unknown_without_repla
         Ok(completed()),
     ]]));
     let executions = Arc::new(AtomicUsize::new(0));
-    let tool = ToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
+    let tool = TestToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
         let executions = Arc::clone(&executions);
         move |_, _| {
             executions.fetch_add(1, Ordering::SeqCst);
@@ -3598,7 +3598,7 @@ async fn durable_crash_cut_matrix_closes_or_preserves_each_authoritative_boundar
             Ok(completed()),
         ]]));
         let executions = Arc::new(AtomicUsize::new(0));
-        let tool = ToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
+        let tool = TestToolSpec::new("dangerous", "dangerous", json!({"type":"object"}), {
             let executions = Arc::clone(&executions);
             move |_, _| {
                 executions.fetch_add(1, Ordering::SeqCst);
