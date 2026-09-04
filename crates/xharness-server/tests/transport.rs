@@ -8,7 +8,10 @@ use axum::{
 use futures::{stream, SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::{net::TcpListener, sync::oneshot};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{client::IntoClientRequest, Error as WebSocketError, Message},
+};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use xharness_api::{
@@ -16,7 +19,9 @@ use xharness_api::{
     RpcId, RpcMethod, RpcReceipt, RpcResult, SessionExport,
 };
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
-use xharness_server::{api_router, api_router_with_debug, serve};
+use xharness_server::{
+    api_router, api_router_with_debug, serve, web_router_with_debug_and_desktop_token,
+};
 
 struct FixtureBackend;
 
@@ -201,6 +206,115 @@ async fn full_debug_records_rpc_request_and_response_envelopes() {
     assert!(events
         .iter()
         .any(|event| { event.event == "rpc.response" && event.payload["rpcId"] == "debug-rpc" }));
+}
+
+#[tokio::test]
+async fn desktop_token_bootstrap_protects_api_but_not_readiness() {
+    let router = web_router_with_debug_and_desktop_token(
+        Arc::new(FixtureBackend),
+        None,
+        DebugRecorder::disabled(),
+        Some("launch-secret".to_owned()),
+    );
+
+    let readiness = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(readiness.status(), StatusCode::OK);
+
+    let denied = router
+        .clone()
+        .oneshot(post(
+            "/api/session.list",
+            json!({
+                "type": "client-request",
+                "rpcId": "desktop-denied",
+                "method": "session.list",
+                "payload": {}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+
+    let bad_bootstrap = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/desktop/bootstrap?token=wrong")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bad_bootstrap.status(), StatusCode::UNAUTHORIZED);
+
+    let bootstrap = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/desktop/bootstrap?token=launch-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.status(), StatusCode::SEE_OTHER);
+    assert_eq!(bootstrap.headers()[header::LOCATION], "/");
+    let cookie = bootstrap.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+
+    let mut authorized = post(
+        "/api/session.list",
+        json!({
+            "type": "client-request",
+            "rpcId": "desktop-authorized",
+            "method": "session.list",
+            "payload": {}
+        }),
+    );
+    authorized
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().unwrap());
+    let accepted = router.clone().oneshot(authorized).await.unwrap();
+    assert_eq!(accepted.status(), StatusCode::OK);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (stop_tx, stop_rx) = oneshot::channel::<()>();
+    let server = tokio::spawn(serve(listener, router, async move {
+        let _ = stop_rx.await;
+    }));
+    let denied_socket = connect_async(format!("ws://{address}/api/events.host"))
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        denied_socket,
+        WebSocketError::Http(response) if response.status() == StatusCode::UNAUTHORIZED
+    ));
+
+    let mut socket_request = format!("ws://{address}/api/events.host")
+        .into_client_request()
+        .unwrap();
+    socket_request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().unwrap());
+    let (socket, _) = connect_async(socket_request).await.unwrap();
+    drop(socket);
+    let _ = stop_tx.send(());
+    server.await.unwrap().unwrap();
 }
 
 #[tokio::test]

@@ -18,6 +18,9 @@ clone does not need the historical sibling `x-harness` checkout.
 - `brand/`: the original xLang brand reference supplied for this project.
 - `overrides/`: source-level branding replacements used when rebuilding from
   the upstream UI.
+- `desktop/updater.js`: Tauri-only one-click updater bridge. It is injected
+  directly into product HTML and intentionally does not join the upstream
+  client-module graph.
 
 The existing `@deepseek-ai/dsh-*`, `__DSH_BOOT__`, and CSS token identifiers in
 the compiled bundle are protocol/ABI compatibility identifiers. They are not
@@ -34,6 +37,7 @@ Rebuild against an explicitly selected DeepSeek Harness checkout:
 scripts/rebuild-ui.sh /path/to/deepseek-harness
 node scripts/test-context-plugin.mjs
 node scripts/test-schedule-plugin.mjs
+node scripts/test-desktop-updater.mjs
 ```
 
 The first command rebuilds the complete upstream Client face, applies XHarness
