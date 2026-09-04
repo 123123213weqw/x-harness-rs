@@ -1,5 +1,5 @@
 use std::{
-    env,
+    env, fs, io,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
@@ -37,6 +37,7 @@ pub struct DesktopState {
     state_dir: PathBuf,
     static_dir: PathBuf,
     providers_file: Option<PathBuf>,
+    provider_env: Vec<(String, String)>,
     pub(crate) pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
     pub(crate) update_busy: AtomicBool,
 }
@@ -69,6 +70,11 @@ impl DesktopState {
                 let candidate = app_config.join("providers.json");
                 candidate.is_file().then_some(candidate)
             });
+        let provider_env = providers_file
+            .as_deref()
+            .map(|path| load_provider_env(path, &app_config))
+            .transpose()?
+            .unwrap_or_default();
         Ok(Self {
             child: Mutex::new(None),
             running: AtomicBool::new(false),
@@ -81,6 +87,7 @@ impl DesktopState {
             state_dir,
             static_dir,
             providers_file,
+            provider_env,
             pending_update: Mutex::new(None),
             update_busy: AtomicBool::new(false),
         })
@@ -151,13 +158,16 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         args.extend(["--providers-file".to_owned(), path_text(providers_file)]);
     }
 
-    let command = app
+    let mut command = app
         .shell()
         .sidecar("xharness-host")
         .map_err(|error| format!("无法定位 xharness-host sidecar：{error}"))?
         .args(args)
-        .env("XHARNESS_DESKTOP_TOKEN", &state.token)
-        .current_dir(&state.workspace);
+        .env("XHARNESS_DESKTOP_TOKEN", &state.token);
+    for (name, value) in &state.provider_env {
+        command = command.env(name, value);
+    }
+    let command = command.current_dir(&state.workspace);
     let (mut events, child) = command
         .spawn()
         .map_err(|error| format!("无法启动 xharness-host：{error}"))?;
@@ -321,6 +331,83 @@ fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn load_provider_env(
+    providers_file: &Path,
+    app_config: &Path,
+) -> io::Result<Vec<(String, String)>> {
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(providers_file)?)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let mut loaded = Vec::new();
+    for name in provider_key_env_names(&document) {
+        if env::var_os(&name).is_some() {
+            continue;
+        }
+        let Some(value) = provider_secret_candidates(app_config, &name)
+            .into_iter()
+            .find_map(|path| read_nonempty_secret(&path))
+        else {
+            continue;
+        };
+        loaded.push((name, value));
+    }
+    Ok(loaded)
+}
+
+fn provider_key_env_names(document: &serde_json::Value) -> Vec<String> {
+    let mut names = Vec::new();
+    let providers = document
+        .get("providers")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten();
+    for provider in providers {
+        let Some(name) = provider
+            .get("api_key_env")
+            .and_then(serde_json::Value::as_str)
+            .filter(|name| valid_env_name(name))
+        else {
+            continue;
+        };
+        if !names.iter().any(|existing| existing == name) {
+            names.push(name.to_owned());
+        }
+    }
+    names
+}
+
+fn valid_env_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    matches!(bytes.next(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn provider_secret_candidates(app_config: &Path, name: &str) -> Vec<PathBuf> {
+    let normalized = name.to_ascii_lowercase();
+    let mut paths = vec![
+        app_config.join("secrets").join(name),
+        app_config.join("secrets").join(&normalized),
+    ];
+    #[cfg(target_os = "macos")]
+    if let Some(home) = env::var_os("HOME") {
+        paths.push(
+            PathBuf::from(home)
+                .join("Library/Application Support/XHarness/secrets")
+                .join(normalized),
+        );
+    }
+    paths
+}
+
+fn read_nonempty_secret(path: &Path) -> Option<String> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let value = fs::read_to_string(path).ok()?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,5 +428,31 @@ mod tests {
         assert!(valid_ready_address("0.0.0.0:3082").is_none());
         assert!(valid_ready_address("127.0.0.1:0").is_none());
         assert!(valid_ready_address("not-an-address").is_none());
+    }
+
+    #[test]
+    fn provider_secret_projection_is_deduplicated_and_path_safe() {
+        let document = serde_json::json!({
+            "providers": [
+                { "api_key_env": "DEEPSEEK_API_KEY" },
+                { "api_key_env": "DEEPSEEK_API_KEY" },
+                { "api_key_env": "../../ESCAPE" },
+                { "api_key_env": "SECONDARY_TOKEN" }
+            ]
+        });
+        assert_eq!(
+            provider_key_env_names(&document),
+            vec!["DEEPSEEK_API_KEY", "SECONDARY_TOKEN"]
+        );
+
+        let candidates = provider_secret_candidates(Path::new("/app/config"), "DEEPSEEK_API_KEY");
+        assert_eq!(
+            candidates[0],
+            Path::new("/app/config/secrets/DEEPSEEK_API_KEY")
+        );
+        assert_eq!(
+            candidates[1],
+            Path::new("/app/config/secrets/deepseek_api_key")
+        );
     }
 }
