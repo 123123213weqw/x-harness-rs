@@ -285,8 +285,10 @@ impl ValidatedPaths {
             }
         }
 
-        if !cwd.starts_with(&workspace)
-            && !allowed_cwd_roots.iter().any(|root| cwd.starts_with(root))
+        if !path_is_within(&cwd, &workspace)
+            && !allowed_cwd_roots
+                .iter()
+                .any(|root| path_is_within(&cwd, root))
         {
             return Err(SandboxError::WorkingDirectoryDenied { cwd, workspace });
         }
@@ -296,6 +298,24 @@ impl ValidatedPaths {
             allowed_cwd_roots,
         })
     }
+}
+
+#[cfg(not(windows))]
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    path.starts_with(root)
+}
+
+#[cfg(windows)]
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    let path = path
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().to_lowercase())
+        .collect::<Vec<_>>();
+    let root = root
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().to_lowercase())
+        .collect::<Vec<_>>();
+    path.starts_with(&root)
 }
 
 fn is_infrastructure_mount(path: &Path) -> bool {
@@ -347,7 +367,7 @@ fn push_mount(args: &mut Vec<OsString>, operation: &str, source: &Path, destinat
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(target_os = "macos", derive(Default))]
+#[cfg_attr(not(target_os = "linux"), derive(Default))]
 struct ProcessBwrapProbe {
     #[cfg(target_os = "linux")]
     timeout: Duration,

@@ -22,8 +22,8 @@ use xharness_jobs::{
 };
 use xharness_platform::NativePlatform;
 use xharness_process::{
-    ProcessHandle, ProcessOutput, ProcessOutputCursor, ProcessOutputObserver, SpawnSpec,
-    TerminationReason,
+    scrub_secret_env, ProcessHandle, ProcessOutput, ProcessOutputCursor, ProcessOutputObserver,
+    SpawnSpec, TerminationReason,
 };
 use xharness_tools::{
     RegistryError, ToolConcurrency, ToolDefinition, ToolExecutionContext, ToolHandlerError,
@@ -99,7 +99,7 @@ impl CodingToolBundle {
 
     pub fn specs(&self) -> Vec<ToolSpec> {
         vec![
-            self.bash_spec(),
+            self.shell_spec(),
             self.job_output_spec(),
             self.job_list_spec(),
             self.job_kill_spec(),
@@ -126,14 +126,14 @@ impl CodingToolBundle {
         Ok(registry)
     }
 
-    fn bash_spec(&self) -> ToolSpec {
+    fn shell_spec(&self) -> ToolSpec {
         let platform = Arc::clone(&self.platform);
         let jobs = Arc::clone(&self.jobs);
         let owner = Arc::clone(&self.owner_id);
         ToolSpec::new(
             definition(
-                "bash",
-                "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work that begins now set run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use schedule_create, not bash or sleep, for future reminders and delayed requests. Do not use shell &, nohup, disown, screen, tmux or a PTY to emulate managed background work. No shell state persists between calls.",
+                native_shell_name(),
+                native_shell_description(),
                 json!({
                     "type": "object",
                     "properties": {
@@ -163,23 +163,21 @@ impl CodingToolBundle {
                             "timeout_ms cannot be combined with run_in_background=true; manage the job with job_output/job_kill",
                         ));
                     }
-                    let mut spec = SpawnSpec::new("/bin/bash", cwd)
+                    let mut spec = SpawnSpec::new(native_shell_program(), cwd)
                         .debug_parent(context.execution_id.as_str())
-                        .args([
-                            "--noprofile",
-                            "--norc",
-                            "-o",
-                            "pipefail",
-                            "-lc",
-                            command.as_str(),
-                        ])
+                        .args(native_shell_args(&command))
                         .envs(managed_environment());
                     if !background {
                         spec = spec.timeout(command_timeout(optional_u64(&context, "timeout_ms"))?);
                     }
                     if background {
                         let reservation = jobs
-                            .reserve(owner.to_string(), "bash", command.clone(), None)
+                            .reserve(
+                                owner.to_string(),
+                                native_shell_name(),
+                                command.clone(),
+                                None,
+                            )
                             .map_err(handler_error)?;
                         let handle = platform.spawn(spec).await.map_err(handler_error)?;
                         let pid = handle.pid();
@@ -837,10 +835,32 @@ fn json_output(value: Value) -> ToolOutput {
 }
 
 fn managed_environment() -> BTreeMap<OsString, OsString> {
-    let mut environment = BTreeMap::new();
+    // Match the reference Harness environment boundary: preserve ordinary
+    // runtime/tool configuration, but never leak ambient credentials or
+    // Harness-private control values into model-launched processes.
+    let mut environment = std::env::vars_os().collect::<BTreeMap<_, _>>();
+    scrub_secret_env(&mut environment);
+    environment.retain(|name, _| {
+        !name
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("XHARNESS_")
+    });
     environment.insert(OsString::from("PATH"), managed_path());
+    #[cfg(unix)]
     environment.insert(OsString::from("LANG"), OsString::from("C.UTF-8"));
+    #[cfg(unix)]
     environment.insert(OsString::from("TERM"), OsString::from("xterm-256color"));
+    #[cfg(windows)]
+    environment.insert(
+        OsString::from("POWERSHELL_TELEMETRY_OPTOUT"),
+        OsString::from("1"),
+    );
+    #[cfg(windows)]
+    environment.insert(
+        OsString::from("POWERSHELL_UPDATECHECK"),
+        OsString::from("Off"),
+    );
     environment.insert(OsString::from("NO_COLOR"), OsString::from("1"));
     environment.insert(OsString::from("PAGER"), OsString::from("cat"));
     environment.insert(OsString::from("GIT_PAGER"), OsString::from("cat"));
@@ -868,11 +888,13 @@ fn managed_path() -> OsString {
             push(path);
         }
     }
+    #[cfg(unix)]
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
         push(home.join(".local/bin"));
         push(home.join(".cargo/bin"));
     }
+    #[cfg(unix)]
     for path in [
         "/opt/homebrew/bin",
         "/usr/local/bin",
@@ -883,9 +905,79 @@ fn managed_path() -> OsString {
     ] {
         push(PathBuf::from(path));
     }
-    std::env::join_paths(paths).unwrap_or_else(|_| {
-        OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
-    })
+    std::env::join_paths(paths).unwrap_or_else(|_| default_native_path())
+}
+
+#[cfg(unix)]
+const fn native_shell_name() -> &'static str {
+    "bash"
+}
+
+#[cfg(windows)]
+const fn native_shell_name() -> &'static str {
+    "pwsh"
+}
+
+#[cfg(unix)]
+const fn native_shell_description() -> &'static str {
+    "Run one fresh Bash command under the active session permission policy. Pipeline failures propagate because pipefail is enabled. For long-running non-interactive work that begins now set run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. Use schedule_create, not bash or sleep, for future reminders and delayed requests. Do not use shell &, nohup, disown, screen, tmux or a PTY to emulate managed background work. No shell state persists between calls."
+}
+
+#[cfg(windows)]
+const fn native_shell_description() -> &'static str {
+    "Run one fresh PowerShell 7 command under the active session permission policy. Use native Windows paths and $env:NAME environment variables. Native-command and PowerShell errors fail the command. For long-running non-interactive work that begins now set run_in_background=true: the call returns a job id immediately; collect it with job_output and stop it with job_kill. No shell state persists between calls."
+}
+
+#[cfg(unix)]
+fn native_shell_program() -> OsString {
+    OsString::from("/bin/bash")
+}
+
+#[cfg(windows)]
+fn native_shell_program() -> OsString {
+    let program_files = std::env::var_os("ProgramFiles")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+    let installed = program_files.join("PowerShell").join("7").join("pwsh.exe");
+    if installed.is_file() {
+        installed.into_os_string()
+    } else {
+        OsString::from("pwsh.exe")
+    }
+}
+
+#[cfg(unix)]
+fn native_shell_args(command: &str) -> Vec<OsString> {
+    ["--noprofile", "--norc", "-o", "pipefail", "-lc", command]
+        .into_iter()
+        .map(OsString::from)
+        .collect()
+}
+
+#[cfg(windows)]
+fn native_shell_args(command: &str) -> Vec<OsString> {
+    let script = format!(
+        "$ErrorActionPreference='Stop'; $PSNativeCommandUseErrorActionPreference=$true; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::Error.Write(''); {command}"
+    );
+    [
+        OsString::from("-NoLogo"),
+        OsString::from("-NoProfile"),
+        OsString::from("-NonInteractive"),
+        OsString::from("-Command"),
+        OsString::from(script),
+    ]
+    .into_iter()
+    .collect()
+}
+
+#[cfg(unix)]
+fn default_native_path() -> OsString {
+    OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+}
+
+#[cfg(windows)]
+fn default_native_path() -> OsString {
+    OsString::from(r"C:\Windows\System32;C:\Windows")
 }
 
 fn resolve_cwd(
@@ -983,17 +1075,42 @@ fn job_id_key(arguments: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::managed_path;
+    use super::{managed_environment, managed_path};
+    use xharness_process::is_secret_env_name;
+
+    #[test]
+    fn managed_environment_preserves_runtime_state_without_credentials() {
+        let environment = managed_environment();
+        assert!(environment
+            .keys()
+            .all(|name| !is_secret_env_name(name.as_os_str())));
+        assert!(environment.keys().all(|name| !name
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("XHARNESS_")));
+        #[cfg(windows)]
+        assert!(environment
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("SystemRoot")));
+    }
 
     #[test]
     fn managed_path_keeps_system_and_package_search_locations() {
         let paths = std::env::split_paths(&managed_path()).collect::<Vec<_>>();
-        assert!(paths
-            .iter()
-            .any(|path| path == std::path::Path::new("/usr/bin")));
-        assert!(paths
-            .iter()
-            .any(|path| path == std::path::Path::new("/usr/local/bin")));
+        #[cfg(unix)]
+        {
+            assert!(paths
+                .iter()
+                .any(|path| path == std::path::Path::new("/usr/bin")));
+            assert!(paths
+                .iter()
+                .any(|path| path == std::path::Path::new("/usr/local/bin")));
+        }
+        #[cfg(windows)]
+        assert!(paths.iter().any(|path| {
+            path.file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("System32"))
+        }));
         let executable = std::env::current_exe().unwrap();
         assert_eq!(
             paths.first().map(|path| path.as_path()),

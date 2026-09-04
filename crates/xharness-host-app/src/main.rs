@@ -356,17 +356,37 @@ impl Args {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn default_state_dir() -> PathBuf {
     let home = env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/XHarness")
-    } else if let Some(data_home) = env::var_os("XDG_DATA_HOME") {
+    home.join("Library/Application Support/XHarness")
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn default_state_dir() -> PathBuf {
+    if let Some(data_home) = env::var_os("XDG_DATA_HOME") {
         PathBuf::from(data_home).join("xharness")
     } else {
+        let home = env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         home.join(".local/share/xharness")
     }
+}
+
+#[cfg(windows)]
+fn default_state_dir() -> PathBuf {
+    env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::var_os("USERPROFILE")
+                .map(PathBuf::from)
+                .map(|home| home.join("AppData").join("Local"))
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("XHarness")
 }
 
 fn env_value(name: &str, fallback: &str) -> String {

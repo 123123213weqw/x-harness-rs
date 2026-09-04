@@ -9,11 +9,15 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Read, Write},
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -27,6 +31,8 @@ const HEADER_RECORD: &str = "header";
 const BATCH_RECORD: &str = "batch";
 const LOG_FILE: &str = "host-control.jsonl";
 const LOCK_FILE: &str = "host-control.lock";
+#[cfg(windows)]
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 
 type Sequence = u64;
 type ProcessLock = AsyncMutex<()>;
@@ -483,19 +489,18 @@ impl ControlStore for JsonlControlStore {
                 events: receipt.events.clone(),
             };
             let encoded = encode_line(&record, &path)?;
-            let mut file = OpenOptions::new()
+            let mut file = secure_open_options()
                 .read(true)
                 .append(true)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
                 .open(path.as_path())
                 .map_err(|error| backend_error("open control log for append", &path, error))?;
+            ensure_regular_file(&file, &path, "control log")?;
             let current_len = file
                 .metadata()
                 .map_err(|error| backend_error("inspect control log", &path, error))?
                 .len();
             if current_len != loaded.valid_len {
-                file.set_len(loaded.valid_len)
-                    .map_err(|error| backend_error("truncate torn control tail", &path, error))?;
+                truncate_torn_tail(&path, loaded.valid_len)?;
             }
             if loaded.needs_separator {
                 file.write_all(b"\n")
@@ -519,12 +524,13 @@ impl ControlStore for JsonlControlStore {
             let Some(loaded) = load_file(&path)? else {
                 return Ok(ControlRevision::ZERO);
             };
-            OpenOptions::new()
+            let file = secure_open_options()
                 .read(true)
                 .write(true)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
                 .open(path.as_path())
-                .and_then(|file| file.sync_all())
+                .map_err(|error| backend_error("sync control log", &path, error))?;
+            ensure_regular_file(&file, &path, "control log")?;
+            file.sync_all()
                 .map_err(|error| backend_error("sync control log", &path, error))?;
             sync_directory(&root)?;
             Ok(loaded.log.revision())
@@ -692,11 +698,11 @@ fn load_file(path: &Path) -> Result<Option<LoadedFile>, ControlError> {
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(backend_error("inspect control log", path, error)),
     }
-    let mut file = OpenOptions::new()
+    let mut file = secure_open_options()
         .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(path)
         .map_err(|error| backend_error("open control log", path, error))?;
+    ensure_regular_file(&file, path, "control log")?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
         .map_err(|error| backend_error("read control log", path, error))?;
@@ -791,11 +797,9 @@ fn create_header(path: &Path) -> Result<(), ControlError> {
         format_version: FILE_FORMAT_VERSION,
     };
     let encoded = encode_line(&record, path)?;
-    let mut file = OpenOptions::new()
+    let mut file = secure_open_options()
         .write(true)
         .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(path)
         .map_err(|error| backend_error("create control log", path, error))?;
     if let Err(error) = file.write_all(&encoded).and_then(|_| file.sync_all()) {
@@ -829,12 +833,10 @@ fn process_lock(path: &Path) -> Result<Arc<ProcessLock>, ControlError> {
 }
 
 fn acquire_file_lock(path: &Path) -> Result<File, ControlError> {
-    let file = OpenOptions::new()
+    let file = secure_open_options()
         .read(true)
         .write(true)
         .create(true)
-        .mode(0o600)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(path)
         .map_err(|error| backend_error("open control lock", path, error))?;
     if !file
@@ -852,10 +854,63 @@ fn acquire_file_lock(path: &Path) -> Result<File, ControlError> {
     Ok(file)
 }
 
+#[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<(), ControlError> {
     File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| backend_error("sync control directory", path, error))
+}
+
+#[cfg(windows)]
+fn sync_directory(path: &Path) -> Result<(), ControlError> {
+    if fs::metadata(path)
+        .map_err(|error| backend_error("inspect control directory", path, error))?
+        .is_dir()
+    {
+        Ok(())
+    } else {
+        Err(backend_message(format!(
+            "control directory {} is not a directory",
+            path.display()
+        )))
+    }
+}
+
+fn secure_open_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    #[cfg(unix)]
+    options
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    #[cfg(windows)]
+    options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    options
+}
+
+fn truncate_torn_tail(path: &Path, valid_len: u64) -> Result<(), ControlError> {
+    // Windows append-only handles cannot call SetEndOfFile. A separate
+    // writable handle repairs the crash tail while the process and file locks
+    // continue to serialize the complete load/compare/append transaction.
+    let file = secure_open_options()
+        .write(true)
+        .open(path)
+        .map_err(|error| backend_error("open control log for tail repair", path, error))?;
+    ensure_regular_file(&file, path, "control log")?;
+    file.set_len(valid_len)
+        .map_err(|error| backend_error("truncate torn control tail", path, error))
+}
+
+fn ensure_regular_file(file: &File, path: &Path, label: &str) -> Result<(), ControlError> {
+    let metadata = file
+        .metadata()
+        .map_err(|error| backend_error(&format!("inspect opened {label}"), path, error))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(backend_message(format!(
+            "{label} {} is not a regular file",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 async fn run_blocking<T, F>(operation: F) -> Result<T, ControlError>

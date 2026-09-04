@@ -26,15 +26,15 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-session` | [事件溯源 Session](session.md) | 已实现 |
 | `xharness-session-jsonl` | [JSONL Session 存储](session-jsonl.md) | 已实现 |
 | `xharness-tools` | [工具注册与执行管线](tools.md) | 已实现 |
-| `xharness-process` | [子进程运行时](process.md) | 已在 Unix 实现 |
+| `xharness-process` | [子进程运行时](process.md) | Unix Process Group / Windows Job 已实现并原生测试 |
 | `xharness-jobs` | [后台 Job 注册表](jobs.md) | 已实现五态、Owner 隔离、增量输出与 Shutdown |
 | `xharness-schedule` | [持久定时提醒](schedule.md) | 已实现三工具、Session 事件、Idle-only 唤醒、重启恢复与 Web 实时投影 |
-| `xharness-fs` | [工作区文件系统](filesystem.md) | 已在 Linux/macOS 实现 |
-| `xharness-sandbox` | [原生沙箱](sandbox.md) | Bubblewrap 已在 Linux 实测；Seatbelt 已在 macOS ARM64 原生 CI 实测 |
-| `xharness-platform` | [原生平台门面](platform.md) | Linux/macOS 已实现并原生测试；模型侧 Capability 投影已接通 |
-| `xharness-terminal` | [持久 PTY](terminal.md) | 已在 Unix 实现 |
+| `xharness-fs` | [工作区文件系统](filesystem.md) | Linux/macOS/Windows 已实现并原生测试 |
+| `xharness-sandbox` | [原生沙箱](sandbox.md) | Linux Bubblewrap、macOS Seatbelt、Windows ACL partial 后端已实现 |
+| `xharness-platform` | [原生平台门面](platform.md) | Linux/macOS/Windows 已实现并原生测试；模型侧 Capability 投影已接通 |
+| `xharness-terminal` | [持久 PTY](terminal.md) | Unix PTY / Windows ConPTY 已实现；不在默认模型工具面 |
 | `xharness-web` | [网页搜索与抓取](web.md) | 已实现 |
-| `xharness-coding-tools` | [标准 11 工具包](coding-tools.md) | 已实现前后台 Bash/Job 并通过远程 Linux 测试 |
+| `xharness-coding-tools` | [标准 11 工具包](coding-tools.md) | Unix Bash / Windows PowerShell 7 与后台 Job 已实现 |
 | `xharness-interaction` | [用户提问与等待交互](user-questions.md) | 类型/状态机、Registry、Session/Host/Web 持久恢复和 AGENTS.md Sink 已实现 |
 | `xharness-context` | [上下文预算](context.md) | Surface 抽象、原生/后备 Token Guard 与 Durable Compact 接线已实现 |
 | Web Context Inspector | [上下文检查器](context-inspector.md) | RequestHeader 完整输入投影、第三个 Context Tab、颜色分类与压缩前后视图已实现 |

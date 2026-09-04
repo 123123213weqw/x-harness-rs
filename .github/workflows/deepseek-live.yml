@@ -1,0 +1,47 @@
+name: DeepSeek live acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: DeepSeek model route
+        required: true
+        default: deepseek-v4-flash
+        type: choice
+        options:
+          - deepseek-v4-flash
+          - deepseek-v4-pro
+
+permissions:
+  contents: read
+
+jobs:
+  windows-long-coding:
+    name: Windows / DeepSeek long coding
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      XHARNESS_LIVE_BASE_URL: https://api.deepseek.com
+      XHARNESS_LIVE_MODEL: ${{ inputs.model }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Require repository secret
+        env:
+          XHARNESS_LIVE_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:XHARNESS_LIVE_API_KEY)) {
+            throw 'Repository secret DEEPSEEK_API_KEY is not configured.'
+          }
+      - name: Managed background-job behavior
+        env:
+          XHARNESS_LIVE_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: cargo test --locked -p xharness-coding-tools --test live_loop live_deepseek_uses_managed_jobs_instead_of_pty_or_nohup -- --ignored --nocapture
+      - name: Long coding repair and debug evidence
+        env:
+          XHARNESS_LIVE_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: cargo test --locked -p xharness-coding-tools --test live_loop live_deepseek_flash_repairs_code_and_emits_complete_debug_evidence -- --ignored --nocapture

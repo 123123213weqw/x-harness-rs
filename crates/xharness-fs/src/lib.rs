@@ -16,11 +16,6 @@ use std::{
     ffi::OsString,
     fs::{self, File},
     io::{self, Read, Write},
-    os::fd::{AsRawFd, OwnedFd},
-    os::unix::{
-        ffi::OsStrExt,
-        fs::{MetadataExt, PermissionsExt},
-    },
     path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -28,6 +23,7 @@ use std::{
     },
 };
 
+#[cfg(unix)]
 use nix::{
     errno::Errno,
     fcntl::{open, openat, OFlag},
@@ -45,7 +41,28 @@ use nix::{
     libc,
 };
 use sha2::{Digest, Sha256};
+#[cfg(windows)]
+use std::{fs::OpenOptions, os::windows::ffi::OsStrExt};
+#[cfg(unix)]
+use std::{
+    os::fd::{AsRawFd, OwnedFd},
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{MetadataExt, PermissionsExt},
+    },
+};
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
+#[cfg(windows)]
+use xharness_win32::{copy_dacl, replace_file};
+
+#[cfg(unix)]
+type DirectoryAnchor = OwnedFd;
+
+#[cfg(windows)]
+#[derive(Debug)]
+struct DirectoryAnchor {
+    canonical: PathBuf,
+}
 
 static NEXT_SERVICE_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
@@ -378,7 +395,7 @@ pub struct FsService {
 
 struct ServiceInner {
     root: PathBuf,
-    root_fd: Arc<OwnedFd>,
+    root_fd: Arc<DirectoryAnchor>,
     service_id: u64,
     next_target_id: AtomicU64,
     targets: StdMutex<TargetRegistry>,
@@ -400,7 +417,7 @@ struct TargetRecord {
 
 struct PhysicalTarget {
     parent: PathBuf,
-    parent_fd: Arc<OwnedFd>,
+    parent_fd: Arc<DirectoryAnchor>,
     parent_device: u64,
     parent_inode: u64,
     file_name: OsString,
@@ -429,18 +446,26 @@ impl FsService {
                 reason: "workspace root is not a directory",
             });
         }
+        #[cfg(unix)]
         let root_fd = open(
             &root,
             OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW,
             Mode::empty(),
         )
         .map_err(|error| nix_io_error("open workspace root", &root, error))?;
-        let opened_root = canonical_fd_path(&root_fd, "verify workspace root", &root)?;
-        if opened_root != root {
-            return Err(FsError::ConcurrentModification {
-                display: requested.to_string_lossy().into_owned(),
-            });
+        #[cfg(unix)]
+        {
+            let opened_root = canonical_fd_path(&root_fd, "verify workspace root", &root)?;
+            if opened_root != root {
+                return Err(FsError::ConcurrentModification {
+                    display: requested.to_string_lossy().into_owned(),
+                });
+            }
         }
+        #[cfg(windows)]
+        let root_fd = DirectoryAnchor {
+            canonical: root.clone(),
+        };
         Ok(Self {
             inner: Arc::new(ServiceInner {
                 root,
@@ -699,7 +724,11 @@ fn validate_session_id(session_id: &str) -> Result<(), FsError> {
 
 fn normalize_relative(input: &Path) -> Result<PathBuf, FsError> {
     let display = input.to_string_lossy().into_owned();
-    if input.as_os_str().as_bytes().contains(&0) {
+    #[cfg(unix)]
+    let contains_nul = input.as_os_str().as_bytes().contains(&0);
+    #[cfg(windows)]
+    let contains_nul = input.as_os_str().encode_wide().any(|unit| unit == 0);
+    if contains_nul {
         return Err(FsError::InvalidPath {
             display,
             reason: "NUL byte",
@@ -733,6 +762,7 @@ fn normalize_relative(input: &Path) -> Result<PathBuf, FsError> {
     Ok(normalized)
 }
 
+#[cfg(unix)]
 fn physical_target(
     root: &Path,
     root_fd: &OwnedFd,
@@ -793,6 +823,55 @@ fn physical_target(
         path,
         display: record.display.clone(),
     })
+}
+
+#[cfg(windows)]
+fn physical_target(
+    root: &Path,
+    _root_fd: &DirectoryAnchor,
+    record: &TargetRecord,
+) -> Result<PhysicalTarget, FsError> {
+    let relative_parent = record.relative.parent().unwrap_or_else(|| Path::new(""));
+    let logical_parent = root.join(relative_parent);
+    let parent = fs::canonicalize(&logical_parent)
+        .map_err(|source| io_error("canonicalize target parent", &logical_parent, source))?;
+    ensure_contained(root, &parent, &record.display)?;
+    let metadata = fs::metadata(&parent)
+        .map_err(|source| io_error("inspect target parent", &parent, source))?;
+    if !metadata.is_dir() {
+        return Err(FsError::InvalidPath {
+            display: record.display.clone(),
+            reason: "target parent is not a directory",
+        });
+    }
+    let file_name = record
+        .relative
+        .file_name()
+        .ok_or_else(|| FsError::InvalidPath {
+            display: record.display.clone(),
+            reason: "missing file name",
+        })?
+        .to_owned();
+    let parent_inode = windows_path_identity(&parent);
+    let path = parent.join(&file_name);
+    Ok(PhysicalTarget {
+        parent: parent.clone(),
+        parent_fd: Arc::new(DirectoryAnchor { canonical: parent }),
+        parent_device: 0,
+        parent_inode,
+        file_name,
+        path,
+        display: record.display.clone(),
+    })
+}
+
+#[cfg(windows)]
+fn windows_path_identity(path: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.to_string_lossy().to_lowercase().hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(target_os = "linux")]
@@ -867,8 +946,31 @@ fn open_parent_beneath(
     Ok(current)
 }
 
+#[cfg(unix)]
 fn ensure_contained(root: &Path, candidate: &Path, display: &str) -> Result<(), FsError> {
     if candidate.starts_with(root) {
+        Ok(())
+    } else {
+        Err(FsError::WorkspaceEscape {
+            display: display.to_owned(),
+            root: root.display().to_string(),
+        })
+    }
+}
+
+#[cfg(windows)]
+fn ensure_contained(root: &Path, candidate: &Path, display: &str) -> Result<(), FsError> {
+    let mut root_components = root.components();
+    let mut candidate_components = candidate.components();
+    let contained = root_components.all(|expected| {
+        candidate_components.next().is_some_and(|actual| {
+            expected
+                .as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&actual.as_os_str().to_string_lossy())
+        })
+    });
+    if contained {
         Ok(())
     } else {
         Err(FsError::WorkspaceEscape {
@@ -894,6 +996,7 @@ struct MetadataStamp {
 }
 
 impl MetadataStamp {
+    #[cfg(unix)]
     fn from_metadata(metadata: &fs::Metadata) -> Self {
         Self {
             device: metadata.dev(),
@@ -903,6 +1006,34 @@ impl MetadataStamp {
             modified_nsec: metadata.mtime_nsec(),
             changed_sec: metadata.ctime(),
             changed_nsec: metadata.ctime_nsec(),
+        }
+    }
+
+    #[cfg(windows)]
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        use std::time::UNIX_EPOCH;
+
+        fn split_time(value: io::Result<std::time::SystemTime>) -> (i64, i64) {
+            let duration = value
+                .ok()
+                .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+                .unwrap_or_default();
+            (
+                i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
+                i64::from(duration.subsec_nanos()),
+            )
+        }
+
+        let (modified_sec, modified_nsec) = split_time(metadata.modified());
+        let (changed_sec, changed_nsec) = split_time(metadata.created());
+        Self {
+            device: 0,
+            inode: 0,
+            len: metadata.len(),
+            modified_sec,
+            modified_nsec,
+            changed_sec,
+            changed_nsec,
         }
     }
 
@@ -920,6 +1051,7 @@ impl MetadataStamp {
     }
 }
 
+#[cfg(unix)]
 fn open_regular_contained(root: &Path, target: &PhysicalTarget) -> Result<Option<File>, FsError> {
     let file_fd = open_file_beneath(target)?;
     let Some(file_fd) = file_fd else {
@@ -933,6 +1065,39 @@ fn open_regular_contained(root: &Path, target: &PhysicalTarget) -> Result<Option
         .map_err(|source| io_error("inspect opened target", &target.path, source))?;
     if !metadata.is_file() {
         return Err(FsError::NotRegularFile {
+            display: target.display.clone(),
+        });
+    }
+    Ok(Some(file))
+}
+
+#[cfg(windows)]
+fn open_regular_contained(root: &Path, target: &PhysicalTarget) -> Result<Option<File>, FsError> {
+    let metadata = match fs::symlink_metadata(&target.path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => return Err(io_error("inspect target", &target.path, source)),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(FsError::SymlinkTarget {
+            display: target.display.clone(),
+        });
+    }
+    if !metadata.is_file() {
+        return Err(FsError::NotRegularFile {
+            display: target.display.clone(),
+        });
+    }
+    let before = fs::canonicalize(&target.path)
+        .map_err(|source| io_error("canonicalize target before open", &target.path, source))?;
+    ensure_contained(root, &before, &target.display)?;
+    let file =
+        File::open(&target.path).map_err(|source| io_error("open target", &target.path, source))?;
+    let after = fs::canonicalize(&target.path)
+        .map_err(|source| io_error("canonicalize target after open", &target.path, source))?;
+    ensure_contained(root, &after, &target.display)?;
+    if before != after {
+        return Err(FsError::ConcurrentModification {
             display: target.display.clone(),
         });
     }
@@ -1273,7 +1438,7 @@ fn authorize_write(
 
 fn atomic_publish(
     root: &Path,
-    root_fd: &OwnedFd,
+    root_fd: &DirectoryAnchor,
     record: &TargetRecord,
     original_target: &PhysicalTarget,
     baseline: Option<&FsVersion>,
@@ -1299,14 +1464,16 @@ fn atomic_publish(
 
     let mode_bits = match mode {
         PublishMode::Create => 0o600,
-        PublishMode::Replace => open_regular_contained(root, &target)?
-            .ok_or_else(|| FsError::StaleObservation {
-                display: record.display.clone(),
+        PublishMode::Replace => {
+            let original = open_regular_contained(root, &target)?.ok_or_else(|| {
+                FsError::StaleObservation {
+                    display: record.display.clone(),
+                }
+            })?;
+            replacement_mode(&original).map_err(|source| {
+                io_error("inspect replacement permissions", &target.path, source)
             })?
-            .metadata()
-            .map_err(|source| io_error("inspect replacement permissions", &target.path, source))?
-            .permissions()
-            .mode(),
+        }
     };
     let (temp_name, temp_path, mut temp_file) = create_temp(&target, mode_bits)?;
     let mut temp_guard = TempGuard::new(
@@ -1314,6 +1481,16 @@ fn atomic_publish(
         temp_name.clone(),
         temp_path.clone(),
     );
+    #[cfg(windows)]
+    if matches!(mode, PublishMode::Replace) {
+        copy_dacl(&target.path, &temp_path).map_err(|source| {
+            io_error(
+                "copy replacement DACL to atomic temp",
+                &temp_path,
+                io::Error::other(source),
+            )
+        })?;
+    }
     temp_file
         .write_all(content)
         .map_err(|source| io_error("write atomic temp", &temp_path, source))?;
@@ -1339,8 +1516,7 @@ fn atomic_publish(
 
     publish_temp(&target, &temp_name, mode)?;
     temp_guard.disarm();
-    fsync(target.parent_fd.as_ref())
-        .map_err(|error| nix_io_error("fsync target directory", &target.parent, error))?;
+    sync_directory(target.parent_fd.as_ref(), &target.parent)?;
     let version = current_version(root, &target)?.ok_or_else(|| FsError::NotFound {
         display: record.display.clone(),
     })?;
@@ -1349,6 +1525,31 @@ fn atomic_publish(
         bytes_written: content.len() as u64,
         created: matches!(mode, PublishMode::Create),
     })
+}
+
+#[cfg(unix)]
+fn replacement_mode(file: &File) -> io::Result<u32> {
+    Ok(file.metadata()?.permissions().mode())
+}
+
+#[cfg(windows)]
+fn replacement_mode(_file: &File) -> io::Result<u32> {
+    Ok(0)
+}
+
+#[cfg(unix)]
+fn sync_directory(anchor: &DirectoryAnchor, path: &Path) -> Result<(), FsError> {
+    fsync(anchor).map_err(|error| nix_io_error("fsync target directory", path, error))
+}
+
+#[cfg(windows)]
+fn sync_directory(anchor: &DirectoryAnchor, path: &Path) -> Result<(), FsError> {
+    if anchor.canonical != path {
+        return Err(FsError::ConcurrentModification {
+            display: path.display().to_string(),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -1443,12 +1644,35 @@ fn publish_temp(
     }
 }
 
+#[cfg(windows)]
+fn publish_temp(
+    target: &PhysicalTarget,
+    temp_name: &std::ffi::OsStr,
+    mode: PublishMode,
+) -> Result<(), FsError> {
+    let temp_path = target.parent.join(temp_name);
+    let result = match mode {
+        PublishMode::Create => fs::rename(&temp_path, &target.path),
+        PublishMode::Replace => replace_file(&target.path, &temp_path),
+    };
+    result.map_err(|source| {
+        if source.kind() == io::ErrorKind::AlreadyExists {
+            FsError::StaleObservation {
+                display: target.display.clone(),
+            }
+        } else {
+            io_error("publish atomic replacement", &target.path, source)
+        }
+    })
+}
+
 fn same_physical_parent(left: &PhysicalTarget, right: &PhysicalTarget) -> bool {
     left.parent == right.parent
         && left.parent_device == right.parent_device
         && left.parent_inode == right.parent_inode
 }
 
+#[cfg(unix)]
 fn create_temp(parent: &PhysicalTarget, mode: u32) -> Result<(OsString, PathBuf, File), FsError> {
     for _ in 0..32 {
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
@@ -1478,6 +1702,25 @@ fn create_temp(parent: &PhysicalTarget, mode: u32) -> Result<(OsString, PathBuf,
     ))
 }
 
+#[cfg(windows)]
+fn create_temp(parent: &PhysicalTarget, _mode: u32) -> Result<(OsString, PathBuf, File), FsError> {
+    for _ in 0..32 {
+        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let name = OsString::from(format!(".xharness-tmp-{}-{id:016x}", std::process::id()));
+        let path = parent.parent.join(&name);
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((name, path, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(source) => return Err(io_error("create atomic temp", &path, source)),
+        }
+    }
+    Err(io_error(
+        "create atomic temp",
+        &parent.parent,
+        io::Error::new(io::ErrorKind::AlreadyExists, "temporary-name exhaustion"),
+    ))
+}
+
 #[cfg(target_os = "linux")]
 fn permission_mode(mode: u32) -> Mode {
     Mode::from_bits_truncate(mode & 0o7777)
@@ -1489,15 +1732,21 @@ fn permission_mode(mode: u32) -> Mode {
 }
 
 struct TempGuard {
-    parent_fd: Arc<OwnedFd>,
+    #[cfg(unix)]
+    parent_fd: Arc<DirectoryAnchor>,
+    #[cfg(unix)]
     name: OsString,
     path: Option<PathBuf>,
 }
 
 impl TempGuard {
-    fn new(parent_fd: Arc<OwnedFd>, name: OsString, path: PathBuf) -> Self {
+    fn new(parent_fd: Arc<DirectoryAnchor>, name: OsString, path: PathBuf) -> Self {
+        #[cfg(windows)]
+        let _ = (&parent_fd, &name);
         Self {
+            #[cfg(unix)]
             parent_fd,
+            #[cfg(unix)]
             name,
             path: Some(path),
         }
@@ -1510,12 +1759,21 @@ impl TempGuard {
 
 impl Drop for TempGuard {
     fn drop(&mut self) {
-        if self.path.take().is_some() {
-            let _ = unlinkat(
-                self.parent_fd.as_ref(),
-                self.name.as_os_str(),
-                UnlinkatFlags::NoRemoveDir,
-            );
+        #[cfg(unix)]
+        {
+            if self.path.take().is_some() {
+                let _ = unlinkat(
+                    self.parent_fd.as_ref(),
+                    self.name.as_os_str(),
+                    UnlinkatFlags::NoRemoveDir,
+                );
+            }
+        }
+        #[cfg(windows)]
+        {
+            if let Some(path) = self.path.take() {
+                let _ = fs::remove_file(path);
+            }
         }
     }
 }
@@ -1528,6 +1786,7 @@ fn io_error(operation: &'static str, path: &Path, source: io::Error) -> FsError 
     }
 }
 
+#[cfg(unix)]
 fn nix_io_error(operation: &'static str, path: &Path, error: Errno) -> FsError {
     io_error(operation, path, io::Error::from_raw_os_error(error as i32))
 }

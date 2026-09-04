@@ -1,7 +1,7 @@
 # 持久 PTY 规范
 
 **Crate：** `xharness-terminal`
-**状态：** 已在 Unix 实现；Linux 集成已测试；不再属于默认模型工具面。
+**状态：** Unix PTY 与 Windows ConPTY 已实现并原生测试；不再属于默认模型工具面。
 
 本 Crate 是底层可复用 PTY Runtime。旧 `terminal_open/send/read/signal/close/list` 六工具已经从
 `xharness-coding-tools` 和生产 Host 默认 Projection 移除。非交互长任务必须走 `bash` 的受管
@@ -15,8 +15,9 @@ ASCII 字母、数字、`.`、`_`、`-`，只需在同一 Owner 内唯一。所�
 
 ## PTY 生命周期
 
-`open` 创建真实 PTY，启动新 Session，把 Slave 设为 Controlling Terminal，然后执行
-直接 `SpawnSpec`。`send` 在每 Session Writer Lock 下写 Raw Bytes。`read` 从可选单调
+Unix `open` 创建真实 PTY、启动新 Session 并把 Slave 设为 Controlling Terminal；Windows
+通过 ConPTY 启动终端并将根进程加入 kill-on-close Job Object。两者都执行直接 `SpawnSpec`。
+`send` 在每 Session Writer Lock 下写 Raw Bytes。`read` 从可选单调
 Byte Cursor 开始返回输出。`list` 只报告当前 Owner 的 Session。`close` 删除 Session，
 发送 TERM，等待配置 Grace，再发送 KILL（必要时回退到杀 Root Child），最后等待退出。
 
@@ -46,10 +47,11 @@ Child Process。
 - 尚无 Resize/Window Size、OSC 133 Prompt Marker、Foreground-pgid Wait-state 推断、
   Job Attach 或 Terminal Recording。
 - Tool Adapter 的 `settle_ms` 只是有界观察延迟，不证明命令已经完成。
-- 仅 Unix。
+- Windows ConPTY 当前不模拟 Unix 的 Suspend/Hangup 信号语义；关闭与 Kill 以 Job 为权威。
 
 ## 验收标准
 
 真实 Interactive Shell 测试必须覆盖 Open、Owner 隔离、Name 唯一、Send、按 Cursor
 增量 Read、Status/List、Signal、Close，以及无残留 Root Process 的有界清理。还必须覆盖
 Registry Shutdown 一次关闭多个 PTY、确认 PID 消失，并拒绝关闭后的新 Session。
+Windows 原生测试还必须覆盖 PowerShell 连续输入输出、scrollback 与 Job 清理。

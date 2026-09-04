@@ -7,12 +7,64 @@ use std::{
     time::Duration,
 };
 
+#[cfg(windows)]
+use std::{
+    collections::BTreeMap,
+    ffi::{OsStr, OsString},
+};
+
 use xharness_fs::{ReadLimits, ReadOutcome};
 use xharness_platform::{NativePlatform, PlatformAccess, PlatformConfig, PlatformKind};
 use xharness_process::{SpawnSpec, TerminationReason};
 use xharness_sandbox::NetworkAccess;
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(windows)]
+fn pwsh_path() -> PathBuf {
+    std::env::var_os("ProgramFiles")
+        .map(PathBuf::from)
+        .map(|root| root.join("PowerShell").join("7").join("pwsh.exe"))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("pwsh.exe"))
+}
+
+#[cfg(unix)]
+fn echo_spec(cwd: &std::path::Path, value: &str) -> SpawnSpec {
+    SpawnSpec::new("/bin/echo", cwd).arg(value)
+}
+
+#[cfg(windows)]
+fn echo_spec(cwd: &std::path::Path, value: &str) -> SpawnSpec {
+    let mut spec = SpawnSpec::new(pwsh_path(), cwd).args([
+        OsString::from("-NoLogo"),
+        OsString::from("-NoProfile"),
+        OsString::from("-NonInteractive"),
+        OsString::from("-Command"),
+        OsString::from("Write-Output $args[0]"),
+        OsString::from(value),
+    ]);
+    spec.env = std::env::vars_os().collect::<BTreeMap<_, _>>();
+    spec
+}
+
+#[cfg(unix)]
+fn sleeping_spec(cwd: &std::path::Path) -> SpawnSpec {
+    SpawnSpec::new("/bin/sh", cwd).args(["-c", "/bin/sleep 30 & wait"])
+}
+
+#[cfg(windows)]
+fn sleeping_spec(cwd: &std::path::Path) -> SpawnSpec {
+    let mut spec = SpawnSpec::new(pwsh_path(), cwd).args([
+        OsStr::new("-NoLogo"),
+        OsStr::new("-NoProfile"),
+        OsStr::new("-NonInteractive"),
+        OsStr::new("-Command"),
+        OsStr::new("Start-Sleep -Seconds 30"),
+    ]);
+    spec.env = std::env::vars_os().collect::<BTreeMap<_, _>>();
+    spec
+}
 
 struct TempWorkspace(PathBuf);
 
@@ -60,8 +112,16 @@ async fn native_platform_composes_filesystem_process_and_policy() {
     assert_eq!(platform.kind(), PlatformKind::Linux);
     #[cfg(target_os = "macos")]
     assert_eq!(platform.kind(), PlatformKind::MacOS);
+    #[cfg(windows)]
+    assert_eq!(platform.kind(), PlatformKind::Windows);
     assert_eq!(platform.workspace_root(), workspace.0);
+    #[cfg(unix)]
     assert_eq!(platform.filesystem().workspace_root(), PathBuf::from("/"));
+    #[cfg(windows)]
+    assert_eq!(
+        platform.filesystem().workspace_root(),
+        workspace.0.components().take(2).collect::<PathBuf>()
+    );
     assert_eq!(platform.access(), PlatformAccess::FullAccess);
     assert!(platform.sandbox().is_none());
 
@@ -71,13 +131,13 @@ async fn native_platform_composes_filesystem_process_and_policy() {
         .unwrap();
     assert_eq!(relative.key(), absolute.key());
 
-    let original = SpawnSpec::new("/bin/echo", &workspace.0).arg("hello");
+    let original = echo_spec(&workspace.0, "hello");
     assert_eq!(
         platform.prepare_spawn(original.clone()).await.unwrap(),
         original
     );
 
-    let handle = platform.spawn(SpawnSpec::new("/bin/echo", &workspace.0).arg("managed"));
+    let handle = platform.spawn(echo_spec(&workspace.0, "managed"));
     let output = handle.await.unwrap().wait().await.unwrap();
     assert_eq!(output.stdout.text.trim(), "managed");
 }
@@ -139,13 +199,16 @@ async fn full_access_allows_network_without_bypassing_managed_process_execution(
     });
 
     let current_test = std::env::current_exe().unwrap();
+    let mut child_spec = SpawnSpec::new(current_test, &workspace.0)
+        .args(["--exact", "full_access_network_probe_child", "--nocapture"])
+        .timeout(Duration::from_secs(10));
+    // SpawnSpec deliberately replaces the environment. Preserve the native
+    // runtime environment here because Windows networking initialization
+    // depends on system entries such as SystemRoot.
+    child_spec.env = std::env::vars_os().collect();
+    child_spec = child_spec.env("XHARNESS_TEST_NETWORK_ADDRESS", address.to_string());
     let output = platform
-        .spawn(
-            SpawnSpec::new(current_test, &workspace.0)
-                .args(["--exact", "full_access_network_probe_child", "--nocapture"])
-                .env("XHARNESS_TEST_NETWORK_ADDRESS", address.to_string())
-                .timeout(Duration::from_secs(10)),
-        )
+        .spawn(child_spec)
         .await
         .unwrap()
         .wait()
@@ -162,8 +225,7 @@ async fn full_access_keeps_timeout_and_cancel_process_group_cleanup() {
 
     let timed_out = platform
         .spawn(
-            SpawnSpec::new("/bin/sh", &workspace.0)
-                .args(["-c", "/bin/sleep 30 & wait"])
+            sleeping_spec(&workspace.0)
                 .timeout(Duration::from_millis(100))
                 .termination_grace(Duration::from_millis(50)),
         )
@@ -175,11 +237,7 @@ async fn full_access_keeps_timeout_and_cancel_process_group_cleanup() {
     assert_eq!(timed_out.termination, TerminationReason::TimedOut);
 
     let running = platform
-        .spawn(
-            SpawnSpec::new("/bin/sh", &workspace.0)
-                .args(["-c", "/bin/sleep 30 & wait"])
-                .termination_grace(Duration::from_millis(50)),
-        )
+        .spawn(sleeping_spec(&workspace.0).termination_grace(Duration::from_millis(50)))
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;

@@ -1,0 +1,115 @@
+{
+  "default": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "reasoning_effort": "high"
+  },
+  "providers": [
+    {
+      "id": "deepseek",
+      "display_name": "DeepSeek API",
+      "kind": "openai-compatible",
+      "base_url": "https://api.deepseek.com",
+      "protocol": "chat",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "display_name": "DeepSeek V4 Flash",
+          "fallback_context_window_tokens": 1048576,
+          "max_output_tokens": 65536,
+          "minimum_output_tokens": 8192,
+          "token_safety_margin": 4096,
+          "reasoning": {
+            "default_effort": "high",
+            "efforts": [
+              {
+                "id": "off",
+                "name": "关闭思考",
+                "description": "优先速度和工具响应",
+                "request_patch": {
+                  "thinking": { "type": "disabled" }
+                }
+              },
+              {
+                "id": "low",
+                "name": "低",
+                "description": "轻量推理",
+                "request_patch": {
+                  "thinking": { "type": "enabled" },
+                  "reasoning_effort": "low"
+                }
+              },
+              {
+                "id": "high",
+                "name": "高",
+                "description": "长时间编码任务默认",
+                "request_patch": {
+                  "thinking": { "type": "enabled" },
+                  "reasoning_effort": "high"
+                }
+              },
+              {
+                "id": "max",
+                "name": "最高",
+                "description": "复杂架构与调试任务",
+                "request_patch": {
+                  "thinking": { "type": "enabled" },
+                  "reasoning_effort": "max"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "display_name": "DeepSeek V4 Pro",
+          "fallback_context_window_tokens": 1048576,
+          "max_output_tokens": 65536,
+          "minimum_output_tokens": 8192,
+          "token_safety_margin": 4096,
+          "reasoning": {
+            "default_effort": "high",
+            "efforts": [
+              {
+                "id": "off",
+                "name": "关闭思考",
+                "description": "优先速度和工具响应",
+                "request_patch": {
+                  "thinking": { "type": "disabled" }
+                }
+              },
+              {
+                "id": "low",
+                "name": "低",
+                "description": "轻量推理",
+                "request_patch": {
+                  "thinking": { "type": "enabled" },
+                  "reasoning_effort": "low"
+                }
+              },
+              {
+                "id": "high",
+                "name": "高",
+                "description": "高质量编码任务默认",
+                "request_patch": {
+                  "thinking": { "type": "enabled" },
+                  "reasoning_effort": "high"
+                }
+              },
+              {
+                "id": "max",
+                "name": "最高",
+                "description": "最大推理预算",
+                "request_patch": {
+                  "thinking": { "type": "enabled" },
+                  "reasoning_effort": "max"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

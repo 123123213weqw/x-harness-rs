@@ -2,7 +2,7 @@
 //! plane.
 //!
 //! This crate owns OS-facing tool construction. The Host library itself stays
-//! independent from Linux/macOS process, filesystem, sandbox, jobs and Web
+//! independent from Linux/macOS/Windows process, filesystem, sandbox, jobs and Web
 //! implementations.
 
 use std::{
@@ -30,7 +30,7 @@ use xharness_schedule::ScheduleManager;
 use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
 use xharness_web::WebRuntime;
 
-/// Native Linux/macOS implementation of the standard coding-tool factory.
+/// Native Linux/macOS/Windows implementation of the standard coding-tool factory.
 /// Platforms are cached per canonical workspace so filesystem observations
 /// survive across turns. Background jobs are shared by the factory and fenced
 /// by session owner so they remain collectable across model turns.
@@ -137,7 +137,7 @@ impl NativeToolFactory {
 fn project_tools(specs: &mut Vec<ToolSpec>, readiness: &NativeToolReadiness) {
     let process_available = readiness.platform.restricted_process.is_available();
     specs.retain(|spec| match spec.definition.name.as_str() {
-        "bash" | "glob" | "grep" => process_available,
+        "bash" | "pwsh" | "glob" | "grep" => process_available,
         "web_search" => readiness.search_available,
         _ => true,
     });
@@ -283,11 +283,9 @@ impl AgentMarkdownSink for ManagedAgentMarkdownSink {
                         temp.display()
                     )
                 })?;
-                std::fs::File::open(&canonical)
-                    .and_then(|directory| directory.sync_all())
-                    .map_err(|error| {
-                        format!("could not sync workspace {}: {error}", canonical.display())
-                    })?;
+                sync_workspace_directory(&canonical).map_err(|error| {
+                    format!("could not sync workspace {}: {error}", canonical.display())
+                })?;
                 Ok(())
             })();
             if result.is_err() {
@@ -300,6 +298,23 @@ impl AgentMarkdownSink for ManagedAgentMarkdownSink {
     }
 }
 
+#[cfg(unix)]
+fn sync_workspace_directory(path: &Path) -> std::io::Result<()> {
+    std::fs::File::open(path)?.sync_all()
+}
+
+#[cfg(windows)]
+fn sync_workspace_directory(path: &Path) -> std::io::Result<()> {
+    if std::fs::metadata(path)?.is_dir() {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "workspace is not a directory",
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,6 +322,17 @@ mod tests {
     use xharness_platform::CapabilityState;
 
     static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
+
+    #[cfg(unix)]
+    const NATIVE_SHELL_TOOL: &str = "bash";
+    #[cfg(windows)]
+    const NATIVE_SHELL_TOOL: &str = "pwsh";
+
+    #[cfg(unix)]
+    const BACKGROUND_COMMAND: &str = r#"{"command":"sleep 30","run_in_background":true}"#;
+    #[cfg(windows)]
+    const BACKGROUND_COMMAND: &str =
+        r#"{"command":"Start-Sleep -Seconds 30","run_in_background":true}"#;
 
     struct TempWorkspace(std::path::PathBuf);
 
@@ -369,7 +395,7 @@ mod tests {
             .all(|definition| definition.name != "web_search"));
         assert!(full_definitions
             .iter()
-            .any(|definition| definition.name == "bash"));
+            .any(|definition| definition.name == NATIVE_SHELL_TOOL));
     }
 
     #[tokio::test]
@@ -438,8 +464,8 @@ mod tests {
             .unwrap();
         let opened = executor
             .execute(xharness_tools::ToolRequest::new(
-                "bash",
-                r#"{"command":"sleep 30","run_in_background":true}"#,
+                NATIVE_SHELL_TOOL,
+                BACKGROUND_COMMAND,
             ))
             .await;
         assert!(opened.is_ok(), "{opened:?}");
@@ -451,8 +477,8 @@ mod tests {
         assert!(factory.jobs.list("job-shutdown")[0].status.is_terminal());
         let late = executor
             .execute(xharness_tools::ToolRequest::new(
-                "bash",
-                r#"{"command":"sleep 30","run_in_background":true}"#,
+                NATIVE_SHELL_TOOL,
+                BACKGROUND_COMMAND,
             ))
             .await;
         assert!(!late.is_ok());
