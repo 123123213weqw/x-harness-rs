@@ -1100,7 +1100,9 @@ async fn contextual_tool_handler_receives_the_journal_execution_id() {
     assert_eq!(result.status, LoopStatus::Completed);
     let call = &result.messages[1].tool_calls[0];
     assert_eq!(call.provider_call_id.as_deref(), Some("provider-call"));
-    assert_eq!(seen.lock().unwrap().as_slice(), [call.id.clone()]);
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen.first(), Some(&call.id));
 }
 
 #[tokio::test]
