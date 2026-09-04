@@ -377,10 +377,11 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   回传地址，避免端口预占 TOCTOU。每次启动用独立 256-bit Token 交换 HttpOnly/SameSite Cookie，
   `/api` 无凭据 401；浏览器部署保持原边界。关窗/更新通过 Shutdown File 复用 Agent→Loop→Tool→
   Job/Process 结构化收尾，15 秒后才强停。独立产品脚本提供自动检查、用户点击下载/安装、进度与
-  重试，不进入上游 Client Module 图。签名 Updater、Sidecar Staging、macOS ARM64/Linux x64
-  Release Workflow、图标、中文规范和缓存 CI 已接入。WZU_Server 通过 Desktop Test/Clippy、Host
-  Token/Ready/Shutdown 真实进程验收；正式 Developer ID 公证、Linux 安装回归和 Release Secret
-  配置仍是发布门禁，不冒充已完成的签名发布。
+  重试，不进入上游 Client Module 图。签名 Updater、Sidecar Staging、macOS ARM64/Linux x64/
+  Windows x64 Release Workflow、图标、中文规范和缓存 CI 已接入；Windows 包额外携带 ACL runner
+  与固定版本 ripgrep。WZU_Server 通过 Desktop Test/Clippy、Host Token/Ready/Shutdown 真实进程
+  验收；正式 Developer ID/Authenticode 签名、安装回归和 Release Secret 配置仍是发布门禁，
+  不冒充已完成的品牌签名发布。
 
 ## P0 — 可日常使用的本地 Coding Agent
 
@@ -596,10 +597,13 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [ ] `P1-12` **资源 Policy。** CPU/Memory/File/Process/Output Quota、Per-tool Policy、
   条件允许时接 Linux cgroup v2，并让 Quota Failure 可观测。
 
-- [ ] `P1-13` **Windows 原生执行层。** `xharness-platform/process/fs/sandbox` 增加 Windows
-  实现：PowerShell 7 默认 Shell、CreateProcess/Job Object 后代清理、Reparse Point 安全文件访问、
-  ACL/受限 Token 或 AppContainer 策略、路径/编码/信号语义与原生 CI。完成前 Tauri Release 禁止
-  发布 Windows 空壳；完成后再把 Windows x64/arm64、代码签名和升级回滚加入桌面矩阵。
+- [x] `P1-13` **Windows 原生执行层。** `DONE-76` 已完成 PowerShell 7、Job Object、Reparse
+  Point 安全文件访问、ACL restricted token、ConPTY 与原生 CI；Windows x64 Tauri Release 同时
+  打包 Host、固定版本 ripgrep 和 ACL runner，不发布 Windows 空壳。
+
+- [ ] `P1-14` **Windows ARM64 与品牌签名。** 增加 Windows ARM64 原生执行/桌面矩阵、
+  Authenticode 证书导入、安装/升级/回滚测试与 SmartScreen 发布运维。Tauri Updater 签名不能冒充
+  Authenticode 代码签名。
 
 ## P2 — Host、API 与 UI
 
