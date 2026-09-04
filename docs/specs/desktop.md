@@ -19,8 +19,9 @@ Tauri WebView
 ## 2. 进程与数据边界
 
 1. 桌面壳必须把 `xharness-host` 和与目标架构一致的 `rg` 作为 Tauri external binary
-   打包；Host 仍是唯一后端，桌面壳不得代理每个 API 请求。缺失 `rg` 会让 fresh install 的
-   `glob/grep` 第一调用失败，因此不能假设用户系统已经安装。
+   打包；Windows 还必须携带 `xharness-windows-sandbox-runner.exe`，否则 restricted execution
+   会 fail closed。Host 仍是唯一后端，桌面壳不得代理每个 API 请求。缺失 `rg` 会让 fresh
+   install 的 `glob/grep` 第一调用失败，因此不能假设用户系统已经安装。
 2. 每次启动必须让 Host 自己绑定 `127.0.0.1:0`，再通过原子 Ready File 返回实际地址；
    禁止桌面壳先占用再释放端口造成 TOCTOU 竞争，Host 也禁止绑定公网地址。
 3. Workspace、Session State、Provider Config 和临时 Shutdown 文件必须使用 Tauri
@@ -59,8 +60,8 @@ Tauri WebView
 
 ## 5. 更新契约
 
-桌面更新使用 Tauri v2 Updater。正式发布 CI 必须注入不可变的更新地址和公钥，安装包
-使用平台签名；私钥只存在于 CI Secret。
+桌面更新使用 Tauri v2 Updater。正式发布 CI 必须注入不可变的更新地址和公钥，更新产物
+必须使用 Updater 签名；品牌安装包还应使用平台代码签名。所有私钥只存在于 CI Secret。
 
 1. Web UI 只在检测到 Tauri Bridge 且 `updaterConfigured=true` 时显示更新控件；普通
    浏览器部署完全不显示。
@@ -96,6 +97,10 @@ python3 scripts/stage-tauri-sidecar.py \
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
 ```
 
+Windows x64 使用 `x86_64-pc-windows-msvc`，并在 Tauri build 前额外编译、Stage
+`xharness-windows-sandbox-runner.exe`。Pull Request CI 生成关闭 Updater Artifact 的 NSIS
+安装包用于验收；Tag Release 才使用 CI Secret 生成签名更新元数据。
+
 最低验收矩阵：
 
 - Host Token：无凭据 401、错误 Token 401、Bootstrap 303 + HttpOnly Cookie、Cookie API 200；
@@ -105,7 +110,8 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
 - UI：浏览器不出现按钮、桌面出现按钮、进度/错误可重试、主 Client Module 启动不受影响；
 - 平台：macOS ARM64、Windows x64、Linux x64 原生安装/升级/回滚验证。
 
-当前实现完成了代码、Token/Shutdown 回归、独立更新 UI 和 macOS ARM64/Linux x64 CI 发布
-骨架。正式对外发布仍以两平台原生签名安装测试和 Release Secret 配置完成为门禁；Windows
-必须等 `xharness-platform/process/fs/sandbox` 原生适配完成后加入发布矩阵，不能用一个能打开的
-WebView 冒充可用的 Windows Coding Agent。
+当前实现完成了代码、Token/Shutdown 回归、独立更新 UI，以及 macOS ARM64、Linux x64、
+Windows x64 CI 发布骨架。Windows 包同时包含原生 Host、固定版本 ripgrep 与 ACL runner，
+不会把只能打开 WebView 的空壳当作 Coding Agent。正式对外发布仍以平台签名安装测试和 Release
+Secret 配置完成为门禁；Windows ARM64 与 Authenticode 品牌签名仍是后续项。Updater 签名能验证
+更新完整性，但没有 Authenticode 证书的安装器仍可能触发 SmartScreen 信誉警告。
