@@ -11,6 +11,13 @@ vm.runInContext(
 )
 
 const { updateView } = window.__XHARNESS_DESKTOP_UPDATER_TEST__
+const tauriConfig = JSON.parse(
+  await readFile(
+    new URL('../apps/desktop/src-tauri/tauri.conf.json', import.meta.url),
+    'utf8',
+  ),
+)
+assert.equal(typeof tauriConfig.plugins?.updater?.pubkey, 'string')
 assert.equal(updateView({ phase: 'idle' }).action, '检查更新')
 assert.equal(updateView({ phase: 'checking' }).busy, true)
 assert.equal(updateView({ phase: 'available', version: '1.2.3' }).emphasized, true)
