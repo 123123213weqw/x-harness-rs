@@ -31,10 +31,118 @@ use xharness_session::{
 };
 use xharness_tools::{
     ToolConcurrency as RuntimeToolConcurrency, ToolDefinition as RuntimeToolDefinition,
-    ToolExecutor as RuntimeToolExecutor, ToolHandlerError as RuntimeToolHandlerError,
-    ToolOutput as RuntimeToolOutput, ToolRegistry as RuntimeToolRegistry,
-    ToolSpec as RuntimeToolSpec,
+    ToolExecutionContext as RuntimeToolExecutionContext, ToolExecutor as RuntimeToolExecutor,
+    ToolHandlerError as RuntimeToolHandlerError, ToolOutput as RuntimeToolOutput,
+    ToolRegistry as RuntimeToolRegistry, ToolSpec as RuntimeToolSpec,
 };
+
+/// Core integration tests register through the same `xharness-tools` runtime
+/// used in production. This small fixture keeps individual scenarios concise;
+/// it is deliberately test-only and is not a compatibility API.
+#[derive(Clone)]
+struct ToolSpec(RuntimeToolSpec);
+
+struct ToolInvocation {
+    execution_id: String,
+}
+
+impl ToolSpec {
+    fn new<F, Fut>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: Value,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(Value, CancellationToken) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ToolResult> + Send + 'static,
+    {
+        let definition = RuntimeToolDefinition::new(name, description, parameters);
+        Self(
+            RuntimeToolSpec::new(definition, move |context| {
+                let arguments = context.arguments.as_ref().clone();
+                let cancellation = context.cancellation.clone();
+                let future = handler(arguments, cancellation);
+                async move { runtime_output(future.await) }
+            })
+            .with_timeout(Duration::from_secs(120))
+            .with_concurrency(RuntimeToolConcurrency::Parallel),
+        )
+    }
+
+    fn new_contextual<F, Fut>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: Value,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ToolInvocation) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ToolResult> + Send + 'static,
+    {
+        let definition = RuntimeToolDefinition::new(name, description, parameters);
+        Self(
+            RuntimeToolSpec::new(definition, move |context: RuntimeToolExecutionContext| {
+                let invocation = ToolInvocation {
+                    execution_id: context.execution_id.to_string(),
+                };
+                let future = handler(invocation);
+                async move { runtime_output(future.await) }
+            })
+            .with_timeout(Duration::from_secs(120))
+            .with_concurrency(RuntimeToolConcurrency::Parallel),
+        )
+    }
+
+    fn timeout(mut self, timeout: Duration) -> Self {
+        self.0 = self.0.with_timeout(timeout);
+        self
+    }
+
+    fn keyed<F>(mut self, resolver: F) -> Self
+    where
+        F: Fn(&Value) -> Option<String> + Send + Sync + 'static,
+    {
+        self.0 = self
+            .0
+            .with_concurrency(RuntimeToolConcurrency::Keyed)
+            .with_resource_key_resolver(resolver);
+        self
+    }
+
+    fn exclusive(mut self) -> Self {
+        self.0 = self.0.with_concurrency(RuntimeToolConcurrency::Exclusive);
+        self
+    }
+
+    fn requires_approval(mut self) -> Self {
+        self.0 = self.0.requiring_approval(true);
+        self
+    }
+}
+
+fn runtime_output(result: ToolResult) -> Result<RuntimeToolOutput, RuntimeToolHandlerError> {
+    if result.ok {
+        Ok(RuntimeToolOutput {
+            content: result.content,
+            metadata: result.metadata,
+        })
+    } else {
+        Err(RuntimeToolHandlerError::new(result.error))
+    }
+}
+
+async fn install_tools(request: &mut LoopRequest, tools: Vec<ToolSpec>) {
+    let registry = Arc::new(RuntimeToolRegistry::new());
+    for tool in tools {
+        registry.register(tool.0).await.unwrap();
+    }
+    request.tool_executor = Some(RuntimeToolExecutor::new(registry));
+}
+
+async fn install_tool(request: &mut LoopRequest, tool: ToolSpec) {
+    install_tools(request, vec![tool]).await;
+}
 
 type Script = Vec<Result<ProviderEvent, ProviderError>>;
 
@@ -636,7 +744,7 @@ async fn tool_argument_fragments_keep_live_deltas_but_coalesce_durable_chunks() 
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
     request.session_id = Some("coalesced-tool-arguments".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
 
     let (events, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
@@ -695,12 +803,13 @@ async fn conflicting_tool_stream_identity_fails_closed_into_separate_chunks() {
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
     request.session_id = Some("conflicting-tool-stream-identity".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(ToolSpec::new(
-        "echo",
-        "echo",
-        json!({"type":"object"}),
-        |_, _| async { ToolResult::success("ok") },
-    ));
+    install_tool(
+        &mut request,
+        ToolSpec::new("echo", "echo", json!({"type":"object"}), |_, _| async {
+            ToolResult::success("ok")
+        }),
+    )
+    .await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
@@ -822,12 +931,16 @@ async fn context_policy_projects_a_disposable_surface_before_provider_io() {
     let context = Arc::new(RecordingCompactionPolicy::default());
     let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("full history")]);
     request.context_policy = context.clone();
-    request.tools.push(ToolSpec::new(
-        "read",
-        "read a file",
-        json!({"type": "object"}),
-        |_, _| async { ToolResult::success("unused") },
-    ));
+    install_tool(
+        &mut request,
+        ToolSpec::new(
+            "read",
+            "read a file",
+            json!({"type": "object"}),
+            |_, _| async { ToolResult::success("unused") },
+        ),
+    )
+    .await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
 
@@ -931,7 +1044,7 @@ async fn aggregates_fragmented_tool_calls_and_returns_errors_to_model() {
         ToolResult::success("should not run")
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
     let (_, result) = collect(LoopEngine.start(request)).await;
 
     assert_eq!(result.status, LoopStatus::Completed);
@@ -961,9 +1074,7 @@ async fn contextual_tool_handler_receives_the_journal_execution_id() {
         move |invocation| {
             let seen = Arc::clone(&seen);
             async move {
-                seen.lock()
-                    .unwrap()
-                    .push((invocation.execution_id, invocation.provider_call_id));
+                seen.lock().unwrap().push(invocation.execution_id);
                 ToolResult::success("ok")
             }
         }
@@ -972,16 +1083,13 @@ async fn contextual_tool_handler_receives_the_journal_execution_id() {
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
     request.session_id = Some("contextual-tool-id".to_owned());
     request.journal_store = Some(journal);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
     let call = &result.messages[1].tool_calls[0];
     assert_eq!(call.provider_call_id.as_deref(), Some("provider-call"));
-    assert_eq!(
-        seen.lock().unwrap().as_slice(),
-        [(call.id.clone(), Some("provider-call".to_owned()))]
-    );
+    assert_eq!(seen.lock().unwrap().as_slice(), [call.id.clone()]);
 }
 
 #[tokio::test]
@@ -1087,7 +1195,7 @@ async fn parallel_completion_is_live_but_history_order_is_stable() {
         },
     );
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
     let (events, result) = collect(LoopEngine.start(request)).await;
 
     let completion_ids = events
@@ -1135,7 +1243,7 @@ async fn keyed_tools_serialize_per_key_and_respect_global_cap() {
     })
     .keyed(|args| args["key"].as_str().map(str::to_owned));
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
     request.config.max_tool_concurrency = 2;
     let (events, result) = collect(LoopEngine.start(request)).await;
 
@@ -1165,7 +1273,7 @@ async fn reaches_step_limit_without_fabricating_an_answer() {
         ToolResult::success("ok")
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("loop")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
     request.config.max_steps = 3;
     let (events, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::LimitReached);
@@ -1209,7 +1317,7 @@ async fn token_usage_is_recorded_per_step_and_accumulated() {
         ToolResult::success("ok")
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
@@ -1355,7 +1463,7 @@ fn tool_result_cap_never_produces_invalid_json() {
 }
 
 #[test]
-fn loop_request_validation_rejects_invalid_config_and_tools() {
+fn loop_request_validation_rejects_invalid_config() {
     let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
 
     let mut request = LoopRequest::new(provider.clone(), vec![]);
@@ -1373,71 +1481,6 @@ fn loop_request_validation_rejects_invalid_config_and_tools() {
         .unwrap_err()
         .to_string()
         .contains("event_buffer_bytes"));
-
-    let mut request = LoopRequest::new(provider.clone(), vec![]);
-    request
-        .tools
-        .push(ToolSpec::new("", "empty", json!({}), |_, _| async {
-            ToolResult::success("")
-        }));
-    assert!(request
-        .validate()
-        .unwrap_err()
-        .to_string()
-        .contains("empty name"));
-
-    let duplicate = ToolSpec::new("same", "same", json!({}), |_, _| async {
-        ToolResult::success("")
-    });
-    let mut request = LoopRequest::new(provider.clone(), vec![]);
-    request.tools = vec![duplicate.clone(), duplicate];
-    assert!(request
-        .validate()
-        .unwrap_err()
-        .to_string()
-        .contains("duplicate tool name"));
-
-    let mut request = LoopRequest::new(provider.clone(), vec![]);
-    request.tool_executor = Some(RuntimeToolExecutor::new(Arc::new(
-        RuntimeToolRegistry::new(),
-    )));
-    request.tools.push(ToolSpec::new(
-        "legacy",
-        "legacy",
-        json!({"type":"object"}),
-        |_, _| async { ToolResult::success("") },
-    ));
-    assert!(request
-        .validate()
-        .unwrap_err()
-        .to_string()
-        .contains("cannot be configured together"));
-
-    let mut request = LoopRequest::new(provider.clone(), vec![]);
-    request.tools.push(
-        ToolSpec::new("zero-timeout", "zero", json!({}), |_, _| async {
-            ToolResult::success("")
-        })
-        .timeout(Duration::ZERO),
-    );
-    assert!(request
-        .validate()
-        .unwrap_err()
-        .to_string()
-        .contains("timeout"));
-
-    let mut request = LoopRequest::new(provider, vec![]);
-    request.tools.push(ToolSpec::new(
-        "bad-schema",
-        "bad",
-        json!([]),
-        |_, _| async { ToolResult::success("") },
-    ));
-    assert!(request
-        .validate()
-        .unwrap_err()
-        .to_string()
-        .contains("schema must be a JSON object"));
 }
 
 #[tokio::test]
@@ -1574,12 +1617,16 @@ async fn pressure_compaction_is_durable_then_recounted_before_the_main_request()
     request.token_guard = Some(guard);
     request.reasoning_effort = Some("xhigh".to_owned());
     request.compaction_reasoning_effort = Some("low".to_owned());
-    request.tools.push(ToolSpec::new(
-        "inspect",
-        "inspect the workspace",
-        json!({"type":"object"}),
-        |_, _| async { ToolResult::success("unused") },
-    ));
+    install_tool(
+        &mut request,
+        ToolSpec::new(
+            "inspect",
+            "inspect the workspace",
+            json!({"type":"object"}),
+            |_, _| async { ToolResult::success("unused") },
+        ),
+    )
+    .await;
     request.compaction = Some(CompactionConfig {
         retain_ratio: None,
         retain_tokens: Some(10),
@@ -1841,7 +1888,7 @@ async fn timeout_and_handler_panic_become_tool_results() {
     .timeout(Duration::from_millis(2));
     let panic = ToolSpec::new("panic", "panic", json!({}), |_, _| async { panic!("boom") });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools = vec![slow, panic];
+    install_tools(&mut request, vec![slow, panic]).await;
     let (_, result) = collect(LoopEngine.start(request)).await;
 
     assert_eq!(result.status, LoopStatus::Completed);
@@ -1874,7 +1921,7 @@ async fn exclusive_tool_is_a_barrier() {
     })
     .exclusive();
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools = vec![parallel, exclusive];
+    install_tools(&mut request, vec![parallel, exclusive]).await;
     let (events, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
 
@@ -1948,7 +1995,7 @@ async fn interrupted_tool_batch_is_closed_without_replay() {
         }
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("continue")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
     request.session_id = Some("session".to_owned());
     request.session_store = store;
     let (_, result) = collect(LoopEngine.start(request)).await;
@@ -1974,7 +2021,7 @@ async fn dropping_the_event_consumer_cancels_and_checkpoints() {
         ToolResult::failure("cancelled")
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
     request.session_id = Some("drop-test".to_owned());
     request.session_store = store.clone();
     let mut run = LoopEngine.start(request);
@@ -2108,7 +2155,7 @@ async fn approval_blocks_tool_start_until_host_approves() {
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
     request.session_id = Some("durable-approval".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
     let mut run = LoopEngine.start(request);
 
     let (approval_id, call_id) = loop {
@@ -2832,7 +2879,7 @@ async fn steering_during_tools_is_deferred_until_the_batch_finishes() {
         }
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("run")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
     let mut run = LoopEngine.start(request);
 
     while let Some(event) = run.next().await {
@@ -2884,7 +2931,7 @@ async fn explicit_stop_with_tool_calls_fails_closed_without_running_the_tool() {
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("do not trust this")]);
     request.session_id = Some("explicit-stop-mismatch".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
 
@@ -2950,7 +2997,7 @@ async fn missing_finish_reason_is_inferred_only_for_legacy_providers() {
         }
     });
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("legacy")]);
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
 
@@ -3078,7 +3125,7 @@ async fn event_journal_records_model_input_and_tool_call_before_side_effects() {
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("inspect state")]);
     request.session_id = Some("journal-run".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
@@ -3267,7 +3314,7 @@ async fn journal_namespaces_reused_provider_call_ids_across_steps() {
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("twice")]);
     request.session_id = Some("reused-provider-call-ids".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
 
@@ -3395,7 +3442,7 @@ async fn event_journal_recovers_incomplete_tool_as_outcome_unknown_without_repla
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user("verify first")]);
     request.session_id = Some("recover-journal".to_owned());
     request.journal_store = Some(journal.clone());
-    request.tools.push(tool);
+    install_tool(&mut request, tool).await;
 
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed);
@@ -3551,7 +3598,7 @@ async fn durable_crash_cut_matrix_closes_or_preserves_each_authoritative_boundar
             LoopRequest::new(provider.clone(), vec![AgentMessage::user("recovery probe")]);
         request.session_id = Some(session_id.clone());
         request.journal_store = Some(journal.clone());
-        request.tools.push(tool);
+        install_tool(&mut request, tool).await;
 
         let (_, result) = collect(LoopEngine.start(request)).await;
         assert_eq!(result.status, LoopStatus::Completed, "cut={cut:?}");

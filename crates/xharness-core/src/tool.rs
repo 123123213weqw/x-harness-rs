@@ -1,14 +1,6 @@
-use std::{future::Future, sync::Arc, time::Duration};
-
-use futures::FutureExt;
-use serde_json::{json, Value};
+use crate::ToolResult;
+use serde_json::json;
 use sha2::{Digest, Sha256};
-use tokio_util::sync::CancellationToken;
-
-use crate::{
-    ResourceKeyResolver, ToolConcurrency, ToolDefinition, ToolHandler, ToolInvocation, ToolResult,
-    ToolSpec,
-};
 
 /// Smallest supported model-facing tool-result budget.
 ///
@@ -18,87 +10,6 @@ use crate::{
 const LIMIT_TOO_SMALL_ENVELOPE: &str =
     r#"{"ok":false,"content":"","error":"tool result limit too small","truncated":true}"#;
 pub const MIN_TOOL_RESULT_LIMIT_BYTES: usize = LIMIT_TOO_SMALL_ENVELOPE.len();
-
-impl ToolSpec {
-    pub fn new<F, Fut>(
-        name: impl Into<String>,
-        description: impl Into<String>,
-        parameters: Value,
-        handler: F,
-    ) -> Self
-    where
-        F: Fn(Value, CancellationToken) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ToolResult> + Send + 'static,
-    {
-        let handler: ToolHandler = Arc::new(move |invocation| {
-            handler(invocation.arguments, invocation.cancellation).boxed()
-        });
-        Self::from_handler(name, description, parameters, handler)
-    }
-
-    /// Register a handler that receives the durable invocation identity.
-    /// This is the migration seam for `xharness-tools`; ordinary embedders may
-    /// continue using [`Self::new`].
-    pub fn new_contextual<F, Fut>(
-        name: impl Into<String>,
-        description: impl Into<String>,
-        parameters: Value,
-        handler: F,
-    ) -> Self
-    where
-        F: Fn(ToolInvocation) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ToolResult> + Send + 'static,
-    {
-        let handler: ToolHandler = Arc::new(move |invocation| handler(invocation).boxed());
-        Self::from_handler(name, description, parameters, handler)
-    }
-
-    fn from_handler(
-        name: impl Into<String>,
-        description: impl Into<String>,
-        parameters: Value,
-        handler: ToolHandler,
-    ) -> Self {
-        Self {
-            definition: ToolDefinition {
-                name: name.into(),
-                description: description.into(),
-                parameters,
-            },
-            handler,
-            timeout: Duration::from_secs(120),
-            concurrency: ToolConcurrency::Parallel,
-            resource_key_resolver: None,
-            requires_approval: false,
-        }
-    }
-
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
-
-    pub fn keyed<F>(mut self, resolver: F) -> Self
-    where
-        F: Fn(&Value) -> Option<String> + Send + Sync + 'static,
-    {
-        self.concurrency = ToolConcurrency::Keyed;
-        self.resource_key_resolver = Some(Arc::new(resolver) as ResourceKeyResolver);
-        self
-    }
-
-    pub fn exclusive(mut self) -> Self {
-        self.concurrency = ToolConcurrency::Exclusive;
-        self.resource_key_resolver = None;
-        self
-    }
-
-    /// Requires the host to approve each call before the handler is started.
-    pub fn requires_approval(mut self) -> Self {
-        self.requires_approval = true;
-        self
-    }
-}
 
 fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
     if value.len() <= max_bytes {

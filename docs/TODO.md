@@ -197,26 +197,22 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Durable Inbox，Claim 竞态返回 `queue-item-not-found`，非文本 Edit 返回冻结 Attachment Error；
   Host FIFO 只保留 RunningTurn Attachment，不再是真源。
 - [x] `DONE-47` Tool Execution ID 跨层贯通：Core 在 Tool Call 落账后把同一个 Durable
-  `execution_id` 通过 `ToolInvocation` 交给兼容桥；`xharness-coding-tools` 将其显式绑定到
-  `xharness-tools::ToolRequest`，因此 Registry、Middleware、Approval、Handler、Observer 和 Result
-  不再另造进程内身份。Provider 原生 `provider_call_id` 仍只用于线协议重放。已覆盖非法外部 ID、
-  Executor 原样传播以及 Journal → Core Handler 的一致性回归；Core 重复 Scheduling/Approval
-  的删除仍属于 `P0-03` 下一阶段。
+  `execution_id` 绑定到 `xharness-tools::ToolRequest`，因此 Registry、Middleware、Approval、
+  Handler、Observer 和 Result 不再另造进程内身份。Provider 原生 `provider_call_id` 仍只用于
+  线协议重放。已覆盖非法外部 ID、Executor 原样传播以及 Journal → Runtime Handler 的一致性回归。
 - [x] `DONE-48` 正式 Tool Batch Scheduler 与副作用边界：`xharness-tools` 新增 Model-order
   Batch Runtime，统一执行全局并发上限、Parallel、Keyed FIFO 与 Exclusive Barrier；完成事件按
   真实完成顺序输出，最终 Result 按原始调用顺序重排。新增 `ToolLifecycle::started`，只有 Policy、
   Approval、Concurrency Admission 和宿主 Durable Start Acknowledge 全部成功后 Handler 才能产生
   副作用；Lifecycle Error/Panic 均 fail closed。Batch Drop/Cancel 会广播到全部 Call Token，调用方
-  可继续等待 Result 收敛。该 Runtime 已具备接管 Core Scheduler 的独立契约，Core 接线与旧实现
-  删除继续属于 `P0-03`。
+  可继续等待 Result 收敛。该 Runtime 已接管 Core 全部新执行与恢复执行路径。
 - [x] `DONE-49` 正式 Tool Runtime 接管生产 Host：`LoopRequest` 新增互斥的
   `tool_executor` 边界，模型 Tool Definition、Context/Token Budget、Request Header、Fresh Batch 与
   Pending Approval Recovery 均读取同一个 Registry/Executor。Core 通过 Channel Bridge 把 Web
   Command 转为正式 Approval Provider，并在 `ToolLifecycle::started` Ack 前发布 Tool Started；
   Completion 真实顺序投影、Result 模型顺序落账。`SessionToolFactory` 现在返回 Executor，原生
   Tool Bundle、Full Access 裁剪和 Durable Host 默认全部走新路径；`core_specs()`、自动批准适配器及
-  Coding Tools 对 Core 的生产依赖已删除。旧 `LoopRequest.tools` 仅为尚未迁移的 Embedder/Test
-  保留，不能和新 Executor 同时配置。
+  Coding Tools 对 Core 的生产依赖已删除。
 - [x] `DONE-50` 正式 Tool Runtime 回归矩阵：Core 的恢复审批、并行审批、拒绝、重复 Provider
   Call ID、取消和 Crash Cut 已迁移到 `ToolExecutor` 路径；补齐 Registry Definition 投影、未知
   工具、坏 JSON、Schema Error、空 Batch、重复 Order、零并发和 Cooperative Quiescence 测试。
@@ -412,15 +408,14 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   的 Web 完整投影。
   **验收：** 输入被接受后到下次 Request 之间崩溃不能丢输入，也不能重复 Tool Side Effect。
 
-- [ ] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，
+- [x] `P0-03` **端到端统一使用 `xharness-tools`。** 从 Core 删除重复的 Scheduling/Approval，
   淘汰兼容 `xharness-core::ToolSpec`。同一个 Execution ID 必须贯穿 Journal、Approval、
   Middleware、Event 和 Result。
-  已完成：Durable Execution ID 已贯穿 Journal、Core Event/Approval、`ToolInvocation`、
-  `xharness-tools` Middleware/Approval/Handler/Observer 与 Result；未提供 ID 的独立 Executor 调用仍
-  安全生成进程内唯一 ID。`ToolExecutor` 已独占生产路径的 Batch Scheduling、Schema、Approval、
-  Timeout/Panic/Cancel，`ToolBatchRun`、副作用前 Lifecycle Ack、Core Command/Journal Bridge 和
-  `core_specs()` 删除均已完成。剩余是迁移 Core 自身的旧兼容测试/外部 Embedder，随后删除
-  `LoopRequest.tools`、`xharness-core::ToolSpec`、`ScheduledTool` 和旧 Approval/Scheduler 分支。
+  已完成：Durable Execution ID 已贯穿 Journal、Core Event/Approval、`xharness-tools`
+  Middleware/Approval/Handler/Observer 与 Result；未提供 ID 的独立 Executor 调用仍安全生成进程内
+  唯一 ID。Core 测试已迁移到正式 Registry/Executor，`LoopRequest.tools`、
+  `xharness-core::ToolSpec`、`ScheduledTool`、旧 Approval/Scheduler 和旧 Handler Bridge 已删除。
+  未配置 Executor 时 Core 使用空 Registry 统一产出 Unknown Tool 结果，不再回退第二套调度器。
 
 - [x] `P0-04` **Provider Call ID 映射。** `ToolCall` 已分别保存内部 Execution ID 和
   Provider Native Call ID。Responses Opaque Item Replay、无 Opaque Responses 和 Chat 均保证
@@ -435,8 +430,7 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] `P0-06` **结构化 Shutdown 和 Quiescence。** 正式生产路径已用明确所有权管理
   Provider/Tool/Process/PTY Task；Cancel 必须 Signal 并 Join，超过 Grace 记为
   `CleanupTimeout/ForcedCleanup`，不伪造普通 Cancelled。Agent/Host 关闭会阻止新 Admission，
-  共享一个 Deadline，并在所有持久 Terminal 收尾后才成功退出。旧
-  `LoopRequest.tools` 兼容 Scheduler 的完全删除仍归 `P0-03`，正式 Host 已不使用它。
+  共享一个 Deadline，并在所有持久 Terminal 收尾后才成功退出。
   `FullAccess` 不能硬回收主动 `setsid()` 逃离 Group 的孤儿；该安全保证仍属于
   Linux PID Namespace/受限 Sandbox，保留 Pipe 的逃逸会被有界 Drain 检测为失败。
 

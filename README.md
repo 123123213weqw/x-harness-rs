@@ -549,12 +549,11 @@ Loop 运行事件使用按数量与 Byte 双预算的非阻塞 Journal，测试�
 
 ## 路线图
 
-1. 删除 Core 旧 `LoopRequest.tools` 兼容 Scheduler，所有 Embedder/Test 统一到 `xharness-tools`
-2. 完成强类型配置与 Credential Reference Store，再补 Web Host 认证/Origin 策略
-3. WebSocket 持久 Cursor Resume、完整 Mutation Receipt 和 Web Readiness 投影
-4. macOS Live Provider/安装验证、Developer ID 签名与公证
-5. 大工具结果持久 Spill/Pruner、手动 `/compact`、完整 Prompt Registry 和 Purpose Router
-6. Job 完成通知/Wake、Skills、MCP、LSP、附件与 Subagent/Workflow 调度
+1. 完成强类型配置与 Credential Reference Store，再补 Web Host 认证/Origin 策略
+2. WebSocket 持久 Cursor Resume、完整 Mutation Receipt 和 Web Readiness 投影
+3. macOS Live Provider/安装验证、Developer ID 签名与公证
+4. 大工具结果持久 Spill/Pruner、手动 `/compact`、完整 Prompt Registry 和 Purpose Router
+5. Job 完成通知/Wake、Skills、MCP、LSP、附件与 Subagent/Workflow 调度
 
 完整任务、优先级和验收条件见 [`docs/TODO.md`](docs/TODO.md)；架构边界与
 不变量见 [`docs/architecture.md`](docs/architecture.md)。
