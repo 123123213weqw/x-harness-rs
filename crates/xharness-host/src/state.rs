@@ -522,7 +522,7 @@ impl HostState {
                 base: json!({}),
                 value: json!({}),
                 user: json!({}),
-                applies: "immediate".to_owned(),
+                applies: "live".to_owned(),
                 revision: 0,
             },
         );
