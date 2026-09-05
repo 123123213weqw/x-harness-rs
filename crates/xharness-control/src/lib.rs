@@ -653,6 +653,20 @@ fn reject_sensitive_values(value: &Value, context: &str) -> Result<(), ControlEr
         Value::Object(object) => {
             for (key, value) in object {
                 let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+                // This field names an environment/keychain entry, never a key
+                // value. Only the exact public spelling and identifier grammar
+                // are allowed; other apiKey-like fields remain forbidden.
+                if key == "apiKeyEnv" {
+                    if let Some(reference) = value.as_str() {
+                        let mut bytes = reference.bytes();
+                        if reference.len() <= 128
+                            && matches!(bytes.next(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
+                            && bytes.all(|c| c.is_ascii_alphanumeric() || c == b'_')
+                        {
+                            continue;
+                        }
+                    }
+                }
                 let sensitive = normalized.contains("password")
                     || normalized.contains("authorization")
                     || normalized.contains("apikey")
@@ -678,6 +692,22 @@ fn reject_sensitive_values(value: &Value, context: &str) -> Result<(), ControlEr
         _ => {}
     }
     Ok(())
+}
+
+#[test]
+fn settings_credential_references_are_not_secret_values() {
+    assert!(reject_sensitive_values(
+        &serde_json::json!({"apiKeyEnv":"DEEPSEEK_API_KEY"}),
+        "settings"
+    )
+    .is_ok());
+    for value in [
+        serde_json::json!({"apiKeyEnv":"sk-not-an-env-reference"}),
+        serde_json::json!({"apiKey":"private-value"}),
+        serde_json::json!({"apiKeyEnv":{"value":"private-value"}}),
+    ] {
+        assert!(reject_sensitive_values(&value, "settings").is_err());
+    }
 }
 
 fn load_file(path: &Path) -> Result<Option<LoadedFile>, ControlError> {
