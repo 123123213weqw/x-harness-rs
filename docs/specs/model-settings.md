@@ -7,8 +7,10 @@ is no PowerShell settings proxy and no desktop-only provider database.
 ## User workflow
 
 Open Settings → Models → Add custom provider. Enter a unique provider route,
-HTTP(S) base URL, supported protocol and model ID(s). API keys are optional for
-local unauthenticated model servers. Use HTTPS for remote credentialed services.
+HTTP(S) base URL, supported protocol and model ID(s). The custom-provider form
+creates a credential reference; leaving its key empty keeps that route inactive.
+Profiles with no `apiKeyEnv` can use local unauthenticated model servers.
+Use HTTPS for remote credentialed services.
 Chat completions and Responses are supported; other protocols are not advertised.
 
 The Models fetch action contacts the form's endpoint with a 15-second deadline,
