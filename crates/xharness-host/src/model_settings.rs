@@ -160,6 +160,20 @@ pub fn parse_model_settings(value: &Value) -> Result<ModelSettingsDocument, Stri
                     );
                 }
             }
+            let context = model
+                .context_window
+                .or(profile.default_context_window)
+                .unwrap_or(32_768);
+            let output = model.max_tokens.or(profile.max_tokens).unwrap_or(4_096);
+            let margin = model.token_safety_margin.unwrap_or(1_024);
+            let minimum = model.minimum_output_tokens.unwrap_or(output);
+            if minimum == 0
+                || minimum > output
+                || margin > 1_000_000_000
+                || output.saturating_add(margin) >= context
+            {
+                return Err("Model output reserve and safety margin must fit its context window; minimum output must be positive and no greater than maximum output".to_owned());
+            }
         }
     }
     Ok(doc)

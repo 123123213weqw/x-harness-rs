@@ -63,7 +63,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         .await?;
     let workspace = std::fs::canonicalize(&args.workspace)?;
     let deployment = match &args.providers_file {
-        Some(path) => ModelDeployment::from_file_with_debug(path, debug.clone()).await?,
+        Some(path) => ModelDeployment::bootstrap_from_file(path)?,
         None => {
             ModelDeployment::single_with_debug(
                 SingleModelDeployment {
