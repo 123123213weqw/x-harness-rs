@@ -23,7 +23,7 @@ const react = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
   useEffect: () => {},
   useMemo: fn => fn(),
-  useState: initial => [initial, () => {}],
+  useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
 }
 
 vm.runInNewContext(source, {
@@ -119,4 +119,19 @@ assert.equal(snapshot.requests[0].header.input[0].content, 'hello')
 assert.equal(snapshot.requests[0].turn, 2)
 assert.equal(snapshot.requests[0].step, 3)
 
-console.log('context inspector plugin smoke test passed')
+// Both views, including the empty/loading face, opt into the upstream
+// independent scrollport contract. No stream-driven scroll reset is needed.
+for (const tab of tabs) {
+  for (const requests of [[], snapshot.requests]) {
+    const tree = tab.component({useSession: select => select({
+      views: new Map([['xharness-context', {requests, compactions: []}]]),
+    })})
+    assert.equal(tree.props['data-conversation-composer-overlay'], '')
+    assert.match(tree.props.className, /xhctx-root/)
+  }
+}
+assert.match(inspectorStyle.textContent, /grid-auto-rows:max-content/)
+assert.match(inspectorStyle.textContent, /min-height:0/)
+assert.equal((inspectorStyle.textContent.match(/var\(--dsh-composer-height,150px\)/g) ?? []).length, 2,
+  'desktop and narrow layouts must both reserve the dynamic composer height')
+console.log('context inspector plugin smoke and layout contract tests passed')

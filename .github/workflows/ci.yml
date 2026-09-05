@@ -9,6 +9,26 @@ permissions:
   contents: read
 
 jobs:
+  context-layout:
+    name: Context and Harness layout / Chromium + WebKit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install isolated UI test dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ui-tests" --no-save --package-lock=false playwright@1.61.1 react@18.3.1 react-dom@18.3.1
+          node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
+      - run: node scripts/test-context-plugin.mjs
+      - name: Real browser layout regression
+        env:
+          UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
+        run: |
+          UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
+
   rust-linux:
     name: Rust / Linux x86_64
     runs-on: ubuntu-latest

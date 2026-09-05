@@ -114,3 +114,33 @@ Tool Definition 不在 `Context` 正文重复渲染；`Harness` 的 Tool Registr
 具体 Token 用量不在 Context 工具栏重复显示。Host 通过标准 `request/context` 与
 `contextPressure` Projection 驱动输入框底部原生无文字圆环；圆环填充比例表示下一次请求
 预计占用的 Context Window，Hover/点击才显示详细数字。
+
+## 页签滚动隔离（2026-09-05）
+
+- `Context`、`Harness`（包含无请求时的空态）必须声明上游
+  `data-conversation-composer-overlay` 契约，与 Trajectory 的接入方式一致。
+  外层会话容器保持视口高度，由 Inspector 内部负责滚动；不能继续沿用 Chat
+  长消息流的外层滚动位置，否则切换后内容会落到视口上方。
+- Inspector 根容器使用 `flex: 1; min-height: 0`；Harness Grid 行使用
+  `max-content`，避免限定视口后卡片被压缩并裁掉内容。
+- 底部留白使用上游 `--dsh-composer-height` 加 24px；未提供变量时回退到
+  150px 输入区高度。桌面与窄屏规则必须一致，输入框增高后仍能滚动查看最后一块内容。
+- 不通过逐事件 `scrollTop = 0` 修复，不改 Chat 的语义锚点与自动跟随逻辑；
+  请求快照更新、搜索或展开工具时不得强制打断读者的滚动位置。
+
+回归入口：
+
+```sh
+node scripts/test-context-plugin.mjs
+# UI_TEST_DEPS 指向独立的测试依赖目录，依赖不打入产品。
+npm install --prefix /tmp/xharness-ui-tests --no-save --package-lock=false playwright@1.61.1 react@18.3.1 react-dom@18.3.1
+node /tmp/xharness-ui-tests/node_modules/playwright/cli.js install chromium webkit
+UI_TEST_DEPS=/tmp/xharness-ui-tests UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
+UI_TEST_DEPS=/tmp/xharness-ui-tests UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
+```
+
+布局测试直接读取仓库内实际上游 CSS、加载真实 React 与 Inspector 组件，构造
+长 Chat 滚动容器及合成请求数据，不读取用户对话、不调用模型或操作正在运行的软件。
+覆盖重复切换、模拟请求快照持续更新、请求选择、工具展开、宽窄窗口、输入框增高、
+空态及短请求；CI 中分别运行 Chromium 和 WebKit。测试不等同于已安装 Tauri
+应用的发布验收，桌面包更新后仍需验证真实 Chat 返回时的阅读位置与原生点击。
