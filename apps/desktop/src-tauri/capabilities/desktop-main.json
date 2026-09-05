@@ -7,5 +7,12 @@
     "urls": ["http://127.0.0.1:*"]
   },
   "platforms": ["linux", "macOS", "windows"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "allow-desktop-status",
+    "allow-desktop-check-update",
+    "allow-desktop-update-status",
+    "allow-desktop-download-update",
+    "allow-desktop-install-update"
+  ]
 }

@@ -76,6 +76,7 @@
   if (typeof invoke !== 'function' || typeof listen !== 'function' || typeof document === 'undefined' || !document.body) return
 
   let expanded = false
+  let bootError = null
   const host = document.createElement('div')
   host.id = 'xharness-desktop-updater'
   host.hidden = true
@@ -118,7 +119,9 @@
   const panel = $('.panel'), toggle = $('.toggle'), action = $('.action')
   const text = $('.text'), notes = $('.notes'), progress = $('progress'), confirmation = $('.confirm'), later = $('.later')
   const controller = createController(invoke, (state, { pending, confirming }) => {
-    const view = updateView(state)
+    const view = bootError
+      ? { label: '桌面更新初始化失败：' + bootError, action: '更新不可用', busy: false, emphasized: false }
+      : updateView(state)
     panel.hidden = !expanded
     toggle.classList.toggle('primary', view.emphasized)
     toggle.classList.toggle('busy', view.busy || pending)
@@ -129,7 +132,7 @@
     notes.textContent = state.notes ?? '' // Release text is untrusted: never innerHTML.
     notes.hidden = !notes.textContent
     action.textContent = confirming ? '停止任务并重启更新' : view.action
-    action.disabled = pending || view.busy
+    action.disabled = Boolean(bootError) || pending || view.busy
     confirmation.hidden = !confirming
     later.hidden = !confirming
     progress.hidden = state.phase !== 'downloading'
@@ -165,5 +168,13 @@
       if (document.visibilityState === 'visible') controller.check()
     }, 6 * 60 * 60 * 1000)
   }
-  boot().catch(() => { unlisten?.(); host.remove() })
+  boot().catch(error => {
+    unlisten?.()
+    if (disposed) { host.remove(); return }
+    // Do not silently hide native ACL/configuration failures. Keep a quiet,
+    // inspectable error badge; never offer installation on a broken bridge.
+    bootError = String(error)
+    host.hidden = false
+    controller.dismiss()
+  })
 })()

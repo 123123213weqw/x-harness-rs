@@ -139,14 +139,14 @@ class Root extends Element {
   constructor() { super(); this.nodes = new Map() }
   querySelector(selector) { if (!this.nodes.has(selector)) this.nodes.set(selector, new Element()); return this.nodes.get(selector) }
 }
-async function boot({ configured = true, initial = snapshot(0, 'idle') } = {}) {
+async function boot({ configured = true, initial = snapshot(0, 'idle'), statusError = null } = {}) {
   const calls = [], timers = [], intervals = [], attached = []
   let listener, unlistened = false, pagehide
   const dom = { visibilityState: 'visible', body: { append: node => attached.push(node) }, createElement: () => new Element() }
   let remote = initial
   const win = {
     __TAURI__: {
-      core: { invoke: async (command, args) => { calls.push([command, args]); if (command === 'desktop_status') return { updaterConfigured: configured }; return remote } },
+      core: { invoke: async (command, args) => { calls.push([command, args]); if (command === 'desktop_status') { if (statusError) throw new Error(statusError); return { updaterConfigured: configured } }; return remote } },
       event: { listen: async (_name, callback) => { listener = callback; return () => { unlistened = true } } },
     },
     setTimeout: callback => { timers.push(callback); return 1 },
@@ -199,6 +199,29 @@ await test('offline automatic check does not force open a panel', async () => {
   assert.equal(b.host.root.querySelector('.panel').hidden, true)
   assert.equal(b.host.root.querySelector('.text').textContent, 'offline')
 })
+
+await test('native ACL boot failures remain inspectable without offering installation', async () => {
+  const b = await boot({ statusError: 'Command desktop_status not allowed by ACL' })
+  const $ = s => b.host.root.querySelector(s)
+  assert.equal(b.host.hidden, false)
+  assert.equal($('.panel').hidden, true)
+  $('.toggle').listeners.click()
+  assert.equal($('.panel').hidden, false)
+  assert.match($('.text').textContent, /not allowed by ACL/)
+  assert.equal($('.action').disabled, true)
+  assert.equal($('.action').textContent, '更新不可用')
+  assert.deepEqual(b.calls.map(c => c[0]), ['desktop_status'])
+  assert.equal(b.timers.length, 0)
+})
+
+const capability = JSON.parse(await readFile(new URL('../apps/desktop/src-tauri/capabilities/desktop-main.json', import.meta.url), 'utf8'))
+const appBuild = await readFile(new URL('../apps/desktop/src-tauri/build.rs', import.meta.url), 'utf8')
+for (const command of ['desktop_status', 'desktop_check_update', 'desktop_update_status', 'desktop_download_update', 'desktop_install_update']) {
+  assert.ok(appBuild.includes('"' + command + '"'), 'application manifest missing ' + command)
+  assert.ok(capability.permissions.includes('allow-' + command.replaceAll('_', '-')), 'loopback capability missing ' + command)
+}
+assert.deepEqual(capability.windows, ['main'])
+assert.deepEqual(capability.remote.urls, ['http://127.0.0.1:*'])
 
 const config = JSON.parse(await readFile(new URL('../apps/desktop/src-tauri/tauri.conf.json', import.meta.url), 'utf8'))
 assert.equal(typeof config.plugins?.updater?.pubkey, 'string')
