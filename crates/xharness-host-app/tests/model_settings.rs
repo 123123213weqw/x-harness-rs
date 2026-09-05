@@ -197,36 +197,44 @@ async fn configured_route_sends_authenticated_request_to_real_http_adapter() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let mut bytes = Vec::new();
-        let mut chunk = [0u8; 4096];
         loop {
-            let n = socket.read(&mut chunk).await.unwrap();
-            assert!(n > 0);
-            bytes.extend_from_slice(&chunk[..n]);
-            if let Some(header_end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
-                let headers = String::from_utf8_lossy(&bytes[..header_end]);
-                let length = headers
-                    .lines()
-                    .find_map(|l| {
-                        l.to_ascii_lowercase()
-                            .strip_prefix("content-length:")
-                            .map(|v| v.trim().parse::<usize>().unwrap())
-                    })
-                    .unwrap_or(0);
-                if bytes.len() >= header_end + 4 + length {
-                    break;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = socket.read(&mut chunk).await.unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&chunk[..n]);
+                if let Some(header_end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..header_end]);
+                    let length = headers
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if bytes.len() >= header_end + 4 + length {
+                        break;
+                    }
                 }
             }
+            let request = String::from_utf8(bytes).unwrap();
+            assert!(request.starts_with("POST /v1/chat/completions"));
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer test-http-key"));
+            assert!(request.contains("coder"));
+            if request.starts_with("POST /v1/chat/completions/input_tokens ") {
+                let body = "{\"input_tokens\":20}";
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+                continue;
+            }
+            let body="data: {\"choices\":[{\"delta\":{\"content\":\"model configuration works\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            break;
         }
-        let request = String::from_utf8(bytes).unwrap();
-        assert!(request.starts_with("POST /v1/chat/completions"));
-        assert!(request
-            .to_ascii_lowercase()
-            .contains("authorization: bearer test-http-key"));
-        assert!(request.contains("coder"));
-        let body="data: {\"choices\":[{\"delta\":{\"content\":\"model configuration works\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
-        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
     });
     let dir = TempDir::new();
     let (host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
@@ -250,7 +258,12 @@ async fn configured_route_sends_authenticated_request_to_real_http_adapter() {
     let mut turn = runtime.start_turn(request).await.unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         while turn.next_event().await.is_some() {}
-        assert_eq!(turn.result().await.final_text, "model configuration works");
+        let result = turn.result().await;
+        assert_eq!(
+            result.final_text, "model configuration works",
+            "provider error: {:?}",
+            result.error
+        );
         server.await.unwrap();
     })
     .await
