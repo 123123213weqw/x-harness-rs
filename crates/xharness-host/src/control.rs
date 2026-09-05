@@ -166,7 +166,12 @@ impl BasicHost {
             return Ok(None);
         };
         if receipt.method == method.as_str() && receipt.fingerprint == fingerprint {
-            return Ok(Some(receipt.response.clone()));
+            let mut response = receipt.response.clone();
+            if response["ns"] == crate::MODEL_SETTINGS_NAMESPACE && response.get("schema").is_none()
+            {
+                response["schema"] = crate::model_settings_schema();
+            }
+            return Ok(Some(response));
         }
         Err(control_conflict(
             rpc_id,
@@ -187,12 +192,23 @@ impl BasicHost {
     ) -> Result<Value, RpcError> {
         let fingerprint = mutation_fingerprint(method.as_str(), payload);
         let revision = self.state.read().await.control_revision;
+        let mut receipt_response = response.clone();
+        if receipt_response["ns"] == crate::MODEL_SETTINGS_NAMESPACE {
+            // The schema is executable-version metadata, not user state. Its
+            // apiKeyEnv dictionary key maps to a schema node ID, which must not
+            // be confused with a persisted credential reference/value. Rebuild
+            // this static field on replay instead of weakening secret checks.
+            receipt_response
+                .as_object_mut()
+                .expect("namespace response")
+                .remove("schema");
+        }
         events.push(ControlEvent::MutationCommitted {
             receipt: MutationReceipt {
                 rpc_id: rpc_id.as_str().to_owned(),
                 method: method.as_str().to_owned(),
                 fingerprint,
-                response: response.clone(),
+                response: receipt_response,
             },
         });
         match self.control_store.append(revision, events).await {

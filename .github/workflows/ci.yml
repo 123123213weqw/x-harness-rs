@@ -233,6 +233,7 @@ jobs:
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: node scripts/test-desktop-updater.mjs
+      - run: node scripts/test-model-settings-ui.mjs
       - run: node scripts/test-updater-signature.mjs
       - run: python3 scripts/test-desktop-assets.py
       - run: python3 scripts/test-desktop-release.py

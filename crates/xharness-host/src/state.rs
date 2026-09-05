@@ -482,6 +482,10 @@ impl HostState {
         );
         let mut settings = BTreeMap::new();
         settings.insert(
+            crate::MODEL_SETTINGS_NAMESPACE.to_owned(),
+            crate::model_settings::empty_model_namespace(),
+        );
+        settings.insert(
             "xharness".to_owned(),
             SettingsNamespace {
                 ns: "xharness".to_owned(),
