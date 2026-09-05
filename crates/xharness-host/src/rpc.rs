@@ -2601,6 +2601,7 @@ impl BasicHost {
         merge_object(&mut namespace.user, &Value::Object(patch));
         merge_object(&mut namespace.value, &namespace.user);
         namespace.revision = namespace.revision.saturating_add(1);
+        let model_change = self.prepare_model_change(&namespace).await?;
         let view = namespace.view();
         drop(state);
         let view = self
@@ -2614,6 +2615,7 @@ impl BasicHost {
                 view,
             )
             .await?;
+        self.apply_model_change(model_change);
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
@@ -2649,7 +2651,12 @@ impl BasicHost {
         check_revision(&namespace, expected)?;
         namespace.user = Value::Object(section.clone());
         namespace.value = Value::Object(section);
+        if ns == crate::MODEL_SETTINGS_NAMESPACE {
+            namespace.value = namespace.base.clone();
+            merge_object(&mut namespace.value, &namespace.user);
+        }
         namespace.revision = namespace.revision.saturating_add(1);
+        let model_change = self.prepare_model_change(&namespace).await?;
         let view = namespace.view();
         drop(state);
         let view = self
@@ -2663,6 +2670,7 @@ impl BasicHost {
                 view,
             )
             .await?;
+        self.apply_model_change(model_change);
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
@@ -2727,7 +2735,12 @@ impl BasicHost {
             }
         }
         namespace.value = namespace.user.clone();
+        if ns == crate::MODEL_SETTINGS_NAMESPACE {
+            namespace.value = namespace.base.clone();
+            merge_object(&mut namespace.value, &namespace.user);
+        }
         namespace.revision = namespace.revision.saturating_add(1);
+        let model_change = self.prepare_model_change(&namespace).await?;
         let view = namespace.view();
         drop(state);
         let view = self
@@ -2741,6 +2754,7 @@ impl BasicHost {
                 view,
             )
             .await?;
+        self.apply_model_change(model_change);
         self.push_host(json!({
             "type": "host/remote-event",
             "event": "settings/document-updated",
@@ -2753,6 +2767,24 @@ impl BasicHost {
         let refs = required_array(payload, "refs")?;
         if refs.len() > 64 {
             return Err(bad_request("at most 64 credential references are accepted"));
+        }
+        if let Some(backend) = self.model_settings.get() {
+            let _guard = self.control_gate.lock().await;
+            let mut credentials = Map::new();
+            for reference in refs {
+                let reference = reference
+                    .as_str()
+                    .ok_or_else(|| bad_request("Credential references must be strings"))?;
+                validate_credential_ref(reference)?;
+                credentials.insert(
+                    reference.to_owned(),
+                    backend
+                        .credential_info(reference)
+                        .await
+                        .map_err(crate::model_settings::model_settings_error)?,
+                );
+            }
+            return Ok(json!({"credentials":credentials}));
         }
         let state = self.state.read().await;
         let mut credentials = Map::new();
@@ -2779,6 +2811,24 @@ impl BasicHost {
         let reference = required_string(payload, "ref")?;
         validate_credential_ref(&reference)?;
         let value = nonempty(required_string(payload, "value")?, "value")?;
+        if let Some(backend) = self.model_settings.get() {
+            let _guard = self.control_gate.lock().await;
+            backend
+                .set_credential(&reference, &value)
+                .await
+                .map_err(crate::model_settings::model_settings_error)?;
+            let section = self.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
+                .value
+                .clone();
+            backend.activate(
+                backend
+                    .prepare(&section)
+                    .await
+                    .map_err(crate::model_settings::model_settings_error)?,
+            );
+            self.push_host(json!({"type":"host/remote-event","event":"settings/document-updated","args":[crate::MODEL_SETTINGS_NAMESPACE]}));
+            return Ok(json!({}));
+        }
         if std::env::var_os(&reference).is_some_and(|value| !value.is_empty()) {
             return Err(credential_rejected(&reference));
         }
@@ -2793,6 +2843,24 @@ impl BasicHost {
     async fn credentials_unset(&self, payload: &Value) -> Result<Value, RpcError> {
         let reference = required_string(payload, "ref")?;
         validate_credential_ref(&reference)?;
+        if let Some(backend) = self.model_settings.get() {
+            let _guard = self.control_gate.lock().await;
+            backend
+                .unset_credential(&reference)
+                .await
+                .map_err(crate::model_settings::model_settings_error)?;
+            let section = self.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
+                .value
+                .clone();
+            backend.activate(
+                backend
+                    .prepare(&section)
+                    .await
+                    .map_err(crate::model_settings::model_settings_error)?,
+            );
+            self.push_host(json!({"type":"host/remote-event","event":"settings/document-updated","args":[crate::MODEL_SETTINGS_NAMESPACE]}));
+            return Ok(json!({}));
+        }
         if std::env::var_os(&reference).is_some_and(|value| !value.is_empty()) {
             return Err(credential_rejected(&reference));
         }
@@ -2802,6 +2870,18 @@ impl BasicHost {
 
     async fn llm_providers(&self, payload: &Value) -> Result<Value, RpcError> {
         require_object(payload)?;
+        if self.model_settings.get().is_some() {
+            let state = self.state.read().await;
+            let doc =
+                crate::parse_model_settings(&state.settings[crate::MODEL_SETTINGS_NAMESPACE].value)
+                    .map_err(crate::model_settings::model_settings_error)?;
+            let catalog = self.agent_runtime.model_catalog();
+            return Ok(json!({"providers":doc.providers.iter().map(|(id,p)| json!({
+                "provider":id,"displayName":p.display_name.as_deref().unwrap_or(id),
+                "settingsNs":crate::MODEL_SETTINGS_NAMESPACE,"settingsPath":["providers",id],
+                "active":catalog.iter().any(|m| &m.provider == id),"declared":true
+            })).collect::<Vec<_>>()}));
+        }
         let mut providers = Vec::new();
         for model in self.agent_runtime.model_catalog() {
             if providers.iter().any(|provider: &Value| {
@@ -2828,6 +2908,18 @@ impl BasicHost {
 
     async fn llm_discover_models(&self, payload: &Value) -> Result<Value, RpcError> {
         nonempty(required_string(payload, "settingsNs")?, "settingsNs")?;
+        if let Some(backend) = self.model_settings.get() {
+            if payload["settingsNs"] != crate::MODEL_SETTINGS_NAMESPACE {
+                return Err(bad_request("Unsupported model settings namespace"));
+            }
+            let section = self.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
+                .value
+                .clone();
+            return backend
+                .discover(&section, payload)
+                .await
+                .map_err(crate::model_settings::model_settings_error);
+        }
         let models = self
             .agent_runtime
             .model_catalog()
