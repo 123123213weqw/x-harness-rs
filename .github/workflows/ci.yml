@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Test optional Windows release contract without secrets
+        run: python3 -B scripts/test-friends-release.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
