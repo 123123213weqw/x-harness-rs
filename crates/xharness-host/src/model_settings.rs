@@ -17,8 +17,17 @@ pub trait ModelSettingsBackend: Send + Sync + 'static {
     async fn prepare(&self, section: &Value) -> Result<ModelRegistry, String>;
     fn activate(&self, registry: ModelRegistry);
     async fn credential_info(&self, reference: &str) -> Result<Value, String>;
-    async fn set_credential(&self, reference: &str, value: &str) -> Result<(), String>;
-    async fn unset_credential(&self, reference: &str) -> Result<(), String>;
+    async fn set_credential(
+        &self,
+        reference: &str,
+        value: &str,
+        section: &Value,
+    ) -> Result<ModelRegistry, String>;
+    async fn unset_credential(
+        &self,
+        reference: &str,
+        section: &Value,
+    ) -> Result<ModelRegistry, String>;
     async fn discover(&self, section: &Value, request: &Value) -> Result<Value, String>;
 }
 

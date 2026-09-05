@@ -2832,16 +2832,12 @@ impl BasicHost {
         let value = nonempty(required_string(payload, "value")?, "value")?;
         if let Some(backend) = self.model_settings.get() {
             let _guard = self.control_gate.lock().await;
-            backend
-                .set_credential(&reference, &value)
-                .await
-                .map_err(crate::model_settings::model_settings_error)?;
             let section = self.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
                 .value
                 .clone();
             backend.activate(
                 backend
-                    .prepare(&section)
+                    .set_credential(&reference, &value, &section)
                     .await
                     .map_err(crate::model_settings::model_settings_error)?,
             );
@@ -2864,16 +2860,12 @@ impl BasicHost {
         validate_credential_ref(&reference)?;
         if let Some(backend) = self.model_settings.get() {
             let _guard = self.control_gate.lock().await;
-            backend
-                .unset_credential(&reference)
-                .await
-                .map_err(crate::model_settings::model_settings_error)?;
             let section = self.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
                 .value
                 .clone();
             backend.activate(
                 backend
-                    .prepare(&section)
+                    .unset_credential(&reference, &section)
                     .await
                     .map_err(crate::model_settings::model_settings_error)?,
             );
