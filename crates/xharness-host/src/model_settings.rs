@@ -97,10 +97,11 @@ pub fn parse_model_settings(value: &Value) -> Result<ModelSettingsDocument, Stri
             || id.len() > 128
             || !id
                 .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
         {
             return Err(
-                "Provider IDs must contain only letters, digits, hyphens or underscores".to_owned(),
+                "Provider IDs must contain only letters, digits, dots, hyphens or underscores"
+                    .to_owned(),
             );
         }
         if !matches!(
@@ -290,6 +291,43 @@ mod tests {
         section["providers"]["local"]["models"] = json!([{"id":"coder"},{"id":"coder"}]);
         assert!(parse_model_settings(&section).is_err());
     }
+    #[test]
+    fn preserves_legacy_dotted_provider_routes() {
+        for id in [
+            "llama.cpp-4080",
+            "llama.cpp-v100",
+            "my.provider_v2",
+            "deepseek",
+        ] {
+            let section = json!({"providers":{(id):{
+                "baseURL":"http://127.0.0.1:1234/v1",
+                "api":"openai-completions", "models":[{"id":"coder"}]
+            }}});
+            let parsed = parse_model_settings(&section).unwrap();
+            assert!(
+                parsed.providers.contains_key(id),
+                "route identity must not change"
+            );
+        }
+        for id in [
+            "",
+            "with space",
+            "path/provider",
+            "bad\\route",
+            "line\nfeed",
+        ] {
+            let section = json!({"providers":{(id):{
+                "baseURL":"http://127.0.0.1:1234/v1",
+                "api":"openai-completions", "models":[{"id":"coder"}]
+            }}});
+            assert!(parse_model_settings(&section).is_err());
+        }
+        assert!(
+            !valid_credential_reference("llama.cpp"),
+            "credential rules stay separate"
+        );
+    }
+
     #[test]
     fn schema_exposes_only_supported_protocols() {
         let s = model_settings_schema();
