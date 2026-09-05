@@ -59,6 +59,7 @@ jobs:
       # Reuse the existing macOS CI job key, rather than cold-building a new cache.
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
