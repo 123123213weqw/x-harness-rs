@@ -38,7 +38,7 @@ pub struct DesktopState {
     static_dir: PathBuf,
     providers_file: Option<PathBuf>,
     provider_env: Vec<(String, String)>,
-    pub(crate) pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
+    pub(crate) update_session: Mutex<crate::updater::UpdateSession<tauri_plugin_updater::Update>>,
     pub(crate) update_busy: AtomicBool,
 }
 
@@ -88,7 +88,7 @@ impl DesktopState {
             static_dir,
             providers_file,
             provider_env,
-            pending_update: Mutex::new(None),
+            update_session: Mutex::new(crate::updater::UpdateSession::default()),
             update_busy: AtomicBool::new(false),
         })
     }

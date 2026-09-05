@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**状态日期：** 2026-09-04
+**状态日期：** 2026-09-05
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -18,7 +18,7 @@ Commit、Issue、PR 应引用这些 ID。
 OpenAI-compatible Chat/Responses、多 Provider/Model 路由、正式 Tool Runtime、动态投影的 11 个
 Coding/Job/Web Tool、Linux/macOS/Windows 原生平台、审批恢复、权威 History/Queue 和全链路 Debug Trace。
 
-当前共有 `DONE-01`—`DONE-76` 七十六个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
+当前共有 `DONE-01`—`DONE-78` 七十八个完成里程碑。最近一批已经关闭输入在 TTFT 前不可见、
 Web 对话重启恢复、模型性能指标投影、长思考输出预算、大 Session 热路径、逐模型推理强度、
 Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Context 的回归，以及后台 Job
 第一阶段、持久 Schedule、会话权限/推理强度刷新保持、历史 Assistant 请求侧投影与 Tauri
@@ -28,8 +28,7 @@ Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Co
 
 - 长生命周期 Agent 已接管正式 Host；输入先 Flush 再确认，Claim 与 `turn/start + user/message`
   原子提交，Pending Turn/Approval 可以在重启后续跑。
-- 正式生产 Tool 路径已经由 `xharness-tools::ToolExecutor` 接管；Core 旧类型只剩 Embedder/Test
-  兼容删除工作。
+- 正式生产 Tool 路径已经由 `xharness-tools::ToolExecutor` 接管；Core 旧 Tool 类型、Request 字段与 Scheduler/Approval 分支已删除（`P0-03`）。
 - Provider 原生输入 Token 计数端点已经接入；端点不支持时才回退到保守 Meter。
 - 自动 Context Compaction 已接入正式 Durable Host：80% Pressure、请求前 Hard Overflow 和
   Provider 无 Delta 的 400 Context Overflow 都会进入有界压缩恢复；成功后重新构造并计量请求，
@@ -44,8 +43,7 @@ Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Co
 - 当前 XHarness Web 源插件、品牌覆盖、重建脚本和可直接部署的静态 Bundle 已与 Rust 后端收敛到
   同一仓库的 `ui/`；Fresh Clone 不再依赖本机相邻的旧 `x-harness` 工作树才能启动网页。
 
-当前最短阻塞链调整为：**大结果持久 Spill/Reference 与 Pruner Replace → 删除 Core 旧 Tool
-兼容层 → Credential Reference/配置 → 远程 Web Auth → WebSocket Cursor Resume →
+当前最短阻塞链调整为：**大结果持久 Spill/Reference 与 Pruner Replace → Credential Reference/配置 → 远程 Web Auth → WebSocket Cursor Resume →
 macOS 签名/公证与发布验证**。手动 `/compact`、独立摘要 Purpose 路由和精确 Tokenizer 作为
 Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
 
@@ -379,6 +377,12 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   验收；正式 Developer ID/Authenticode 签名、安装回归和 Release Secret 配置仍是发布门禁，
   不冒充已完成的品牌签名发布。
 
+- [x] `DONE-78` 桌面更新下载/安装分离（0.1.1）：左下角蓝色更新入口、静默检查、下载进度、
+  已验证后“重启更新”二次确认、按操作重试、刷新恢复与事件乱序保护；下载不停止 Host。
+  关窗取消检查/下载，安装中不强退。补控制器/DOM 接线和远程 Rust 状态/取消测试，
+  CI 校验包内图标、更新脚本与版本，Release 要求同 Commit CI 成功。
+  **边界：** 缓存仅当前进程有效；正式签名升级仍须完成下述发布门禁，不算已在线发布。
+
 ## P0 — 可日常使用的本地 Coding Agent
 
 
@@ -498,6 +502,14 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   AGENTS.md 原子写测试。**后续但不阻塞本项：** 冻结上游 UI 没有跨刷新 Draft RPC；问题组的
   Compact 原子安全切点、Agent Markdown 独立 Prompt Budget，以及 Requested/Resolved/Tool Result
   每个 Flush 点的外部 SIGKILL 扩展矩阵归 `P1-03/E-08`。
+
+### 桌面发布后续验收（DONE-78 后续，不冒充完成）
+
+- [ ] 配置 Updater 签名密钥/公钥、Apple Developer ID 和公证 Secrets，发布第一个正式 Release。
+- [ ] 用两个正式签名版本完成真实 macOS/Windows/Linux 升级，覆盖网络中断、签名错误、
+  安装失败、运行任务时确认停止、对话与配置保留；当前单元/控制器测试不等同此验收。
+- [ ] 跨进程下载缓存/断点续传、磁盘不足与缓存配额、版本撤回与数据迁移回退机制。
+- [ ] 可选“等待任务空闲后安装”：须覆盖所有 Agent/Job 的原子 Admission 门禁，不能只看 UI。
 
 ## P1 — Coding 质量与上下文效率
 

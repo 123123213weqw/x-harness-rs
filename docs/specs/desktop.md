@@ -66,13 +66,46 @@ Tauri WebView
 1. Web UI 只在检测到 Tauri Bridge 且 `updaterConfigured=true` 时显示更新控件；普通
    浏览器部署完全不显示。
 2. 自动检查可以提示新版本，但下载/安装必须由用户点击。
-3. 同一进程最多允许一个 Check/Install；重复点击返回结构化 Busy 错误。
-4. 下载完成后必须先验证签名，再安全停止 Host，最后安装和重启。
+3. 同一进程最多允许一个 Check/Download/Install；重复调用返回 Busy 错误；退出与更新
+   共用互斥门，退出开始后不能再提交新的更新操作。
+4. 下载与安装必须拆开。下载完成且签名验证成功后进入 `downloaded`，不停止 Host。
+   用户点击“重启更新”后必须再次确认停止 Agent/Tool/Job，才安全停止 Host、安装和重启。
    如果安装器在 Host 停止后失败，桌面壳必须尝试恢复当前版本 Host，不能留下一个仍打开但
    完全不可用的 UI。
 5. 可选更新器不能进入 DeepSeek Client Module 依赖图；即使更新脚本损坏，Conversation
    UI 仍必须正常启动。
 6. Release 清单、安装包、签名和版本必须由同一个 Tag 构建；禁止更新到未签名 URL。
+
+### 5.1 左下角更新入口与状态机（0.1.1）
+
+- 左下角常驻低干扰入口，有更新/下载中/待安装时使用蓝色下载图标；正常浏览器与未配置签名源
+  的开发构建不显示。检查是静默的，不自动展开面板，失败也不遮挡对话。
+- 启动 1.5 秒后检查一次，随后页面可见时每 6 小时检查。Release 文本只作为纯文本渲染。
+- `desktop_update_status()`：返回进程级权威快照，含单调 `seq`、`phase`、当前/目标版本、
+  说明、下载进度、错误与 `retryAction`。先订阅再读快照，丢弃旧序号，刷新 WebView 不重置状态。
+- `desktop_check_update()`：检查新版本；已有已验证下载时直接返回原状态，不替换安装候选。
+- `desktop_download_update()`：下载并验证，成功后只进入 `downloaded`。
+- `desktop_install_update({confirmStop:true})`：拒绝未下载/未确认的安装；取消确认、按 Escape、
+  关闭面板均不调用安装。安装失败尝试重启 Host，保留已验证包，重试前再次确认。
+- 下载失败重试下载，检查失败重试检查，安装失败重试安装，不能统一退回重新检查。
+- 元数据检查 30 秒超时，下载最多 30 分钟；进度事件最多约 10 次/秒，最终状态不节流。
+  传输完成回调不代表签名验证完成，只有插件 `download().await` 成功才能显示可安装。
+- 关窗取消正在进行的检查/下载并收敛 Host；安装已开始则等待安装完成，不在文件替换中强退。
+- 安装字节暂存当前进程内并与版本描述配对，不落入 Session/Provider 配置。WebView 刷新保留；
+  整个应用退出后需重新下载。断点续传、跨进程安装缓存不在此版范围，不能宣称已支持。
+- 当前采用**显式确认停止任务**，不声称自动等待所有任务结束；后台命令不保证恢复副作用。
+
+### 5.2 发布和图标门禁
+
+- 推送 master 仅运行 CI，不向用户自动推送每个 Commit；`desktop-v<版本>` Tag 才进入发布。
+- Release Workflow 必须先确认同一 Commit 的 master CI 已通过，再构建三平台签名包与
+  `latest.json`。产物保持 Draft，完成升级验收后才发布。CI Artifact 不等于正式 Release。
+- CI 在 macOS 打包后运行 `scripts/test-desktop-assets.py --app <XHarness.app>`，比较包内 ICNS
+  与源码哈希、版本号、更新脚本以及 Host/rg，防止“源码已改、安装包仍旧”的问题。
+- 只更新源码/重启 Host 不会替换 `/Applications/XHarness.app`。必须从 CI 获取完整新应用包；
+  不直接覆盖已签名应用内部图标，否则会破坏原包签名。对话与配置继续位于 Application Support。
+- 2026-09-05 检查：仓库尚无 Release，Actions Secrets 列表为空。在线签名升级仍被签名配置与
+  首次正式安装/升级验收阻塞；不能把开发包测试通过当作用户已能下载正式更新。
 
 CI Secret：
 

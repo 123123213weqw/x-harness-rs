@@ -46,6 +46,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             sidecar::desktop_status,
             updater::desktop_check_update,
+            updater::desktop_update_status,
+            updater::desktop_download_update,
             updater::desktop_install_update,
         ])
         .on_window_event(|window, event| {
@@ -54,14 +56,21 @@ pub fn run() {
             };
             api.prevent_close();
             let state = window.state::<DesktopState>();
-            if state.update_busy.load(Ordering::SeqCst) {
-                return;
-            }
             if state.closing.swap(true, Ordering::SeqCst) {
                 return;
             }
             let handle = window.app_handle().clone();
             tauri::async_runtime::spawn(async move {
+                // Check/Download observe closing and drop the HTTP future.
+                // An installation already in progress must finish, not be killed
+                // mid-replacement. Claim the gate before stopping the Host.
+                while handle
+                    .state::<DesktopState>()
+                    .update_busy
+                    .swap(true, Ordering::SeqCst)
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
                 let _ = sidecar::graceful_stop(&handle).await;
                 handle.exit(0);
             });
