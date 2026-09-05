@@ -331,6 +331,27 @@ async fn dynamic_unary(
     unary_endpoint(state, format!("{namespace}/{method}"), headers, body).await
 }
 
+fn rpc_debug_body(method: &str, body: &[u8]) -> Value {
+    let Ok(mut value) = serde_json::from_slice::<Value>(body) else {
+        return json!("[unparsed request body omitted]");
+    };
+    if method == "credentials.set" || value["method"] == "credentials.set" {
+        value["payload"] = json!("[credential payload omitted]");
+    }
+    // Keep JSON structured so the shared redactor sees nested apiKey fields.
+    value
+}
+
+#[test]
+fn credential_rpc_debug_body_does_not_contain_key() {
+    let value = rpc_debug_body("credentials.set", br#"{"method":"credentials.set","payload":{"ref":"TEST_KEY","value":"test-sensitive-value"}}"#);
+    assert!(!value.to_string().contains("test-sensitive-value"));
+    assert_eq!(
+        rpc_debug_body("settings.mutate", b"invalid sensitive JSON"),
+        json!("[unparsed request body omitted]")
+    );
+}
+
 async fn unary_endpoint(
     state: ServerState,
     path_method: String,
@@ -345,7 +366,7 @@ async fn unary_endpoint(
             json!({
                 "method": &path_method,
                 "bytes": body.len(),
-                "body": String::from_utf8_lossy(&body),
+                "body": rpc_debug_body(&path_method, &body),
             }),
         ))
         .await;
