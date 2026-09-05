@@ -161,7 +161,8 @@ async function boot({ configured = true, initial = snapshot(0, 'idle') } = {}) {
 
 await test('real DOM bridge shows left blue icon, safe notes, confirmation and closes without install', async () => {
   const b = await boot()
-  assert.match(b.host.style.cssText, /left:16px/)
+  assert.match(b.host.style.cssText, /left:11px/)
+  assert.match(b.host.style.cssText, /bottom:64px/)
   assert.equal(b.host.hidden, false)
   assert.equal(b.host.root.querySelector('.panel').hidden, true)
   b.emit(snapshot(1, 'available', { notes: '<img src=x onerror=alert(1)>' }))
