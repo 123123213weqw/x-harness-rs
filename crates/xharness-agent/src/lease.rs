@@ -72,7 +72,7 @@ impl LeaseManager for MemoryLeaseManager {
     }
 }
 
-/// Cross-process local-filesystem lease provider for macOS and Linux hosts.
+/// Cross-process local-filesystem lease provider for Windows, macOS and Linux.
 /// Advisory locks are automatically released when the owning process exits.
 #[derive(Clone, Debug)]
 pub struct FileLeaseManager {
@@ -135,7 +135,10 @@ impl LeaseManager for FileLeaseManager {
                     agent_id: owned_id,
                     file,
                 }) as Box<dyn AgentLease>),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(error)
+                    if error.raw_os_error() == fs2::lock_contended_error().raw_os_error()
+                        || error.kind() == std::io::ErrorKind::WouldBlock =>
+                {
                     Err(LeaseError::AlreadyOwned { agent_id: owned_id })
                 }
                 Err(error) => Err(LeaseError::Backend {
