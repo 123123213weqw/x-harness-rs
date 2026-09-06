@@ -12,7 +12,7 @@ const PHASE_LABELS = {active: 'phase.active', paused: 'phase.paused', blocked: '
 const STATES: Readonly<Record<string, string>> = {
   disabled: '未启用自动推进', running: '正在执行', queued: '已排队', waiting: '等待依赖或用户输入',
   awaiting_approval: '等待工具审批', awaiting_answer: '等待回答', awaiting_confirmation: '等待你确认完成',
-  paused: '已暂停', blocked: '需要帮助', complete: '已完成',
+  network_backoff: '网络异常，等待自动重试', paused: '已暂停', blocked: '需要帮助', complete: '已完成',
 }
 const REASONS: Readonly<Record<string, string>> = {
   round_budget: '轮数预算已到', cancelled: '用户停止', execution_error: '执行失败', step_limit: '步骤上限',
@@ -40,10 +40,11 @@ function GoalControls({projection, onComplete, onResume, onBudget, runAction, pe
   useEffect(() => {identity.current = id; setEditing(false); setBudget(''); return () => {identity.current = undefined}}, [id])
   if (!projection?.goal) return null
   const execution = projection.execution
-  const glyph: Readonly<Record<string, string>> = {'启用自动推进': '▶', '确认完成': '✓', '继续': '▶', '预算': '⋯', '取消预算修改': '×'}
+  const glyph: Readonly<Record<string, string>> = {'启用自动推进': '▶', '确认完成': '✓', '继续': '▶', '重新开启': '▶', '预算': '⋯', '取消预算修改': '×'}
   const button = (label: string, action: () => void) => <button type="button" className={css.iconBtn} disabled={pending}
     aria-label={label} title={label} onClick={action} style={{flexShrink: 0, whiteSpace: 'nowrap'}}>{glyph[label] ?? label}</button>
   return <span data-goal-runtime style={{display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap'}}>
+    {projection.goal.phase === 'complete' && button('重新开启', () => {void runAction(onResume)})}
     {execution?.state === 'disabled' && button('启用自动推进', () => {void runAction(onResume)})}
     {execution?.state === 'awaiting_confirmation' && button('确认完成', () => {void runAction(onComplete)})}
     {execution?.state === 'awaiting_confirmation' && button('继续', () => {void runAction(onResume)})}
