@@ -17,11 +17,21 @@ $trustStore = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'L
 $trustStore.Open('ReadWrite')
 try { $trustStore.Add($cert) } finally { $trustStore.Close() }
 Write-Output 'Starting native migration test.'
+# WebView2 150+ ignores environment overrides for elevated hosts. Scope the
+# documented machine policy to this test executable on the disposable runner.
+$debugPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+$debugName = 'xharness-desktop.exe'
+if (Get-ItemProperty -LiteralPath $debugPolicy -Name $debugName -ErrorAction SilentlyContinue) {
+    throw 'Refuse to overwrite pre-existing WebView2 test policy'
+}
+New-Item -Path $debugPolicy -Force | Out-Null
+New-ItemProperty -LiteralPath $debugPolicy -Name $debugName -PropertyType String -Value '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1' | Out-Null
 try {
     $env:MIGRATION_TEST_PFX = "$fixtureRoot/proxy.pfx"
     node scripts/windows-migration-acceptance.mjs run
     if ($LASTEXITCODE) { throw 'Native two-hop acceptance failed; do not publish old feed' }
 } finally {
+    Remove-ItemProperty -LiteralPath $debugPolicy -Name $debugName -ErrorAction SilentlyContinue
     # Exact certificates created above, never a broad certificate-store operation.
     Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
