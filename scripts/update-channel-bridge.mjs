@@ -47,7 +47,6 @@ export function verifyHops({ bridge, target, oldKey, newKey, oldSignature, bridg
 }
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-const json = args => JSON.parse(gh(args))
 
 export function checkReleases(c, oldReleases, oldLatest, upstreamLatest) {
   assert.ok(!oldReleases.some(r => r.tagName === c.tag), 'Never overwrite an existing draft or release')
@@ -60,28 +59,28 @@ export function checkReleases(c, oldReleases, oldLatest, upstreamLatest) {
   assert.equal(upstreamLatest.draft, false)
   assert.equal(upstreamLatest.prerelease, false)
 }
-function preflight(c) {
+function preflight(c, runGh) {
+  const json = args => JSON.parse(runGh(args))
   checkReleases(c,
     json(['release', 'list', '--repo', c.old, '--limit', '1000', '--json', 'tagName,isDraft']),
     json(['api', `repos/${c.old}/releases/latest`]),
     json(['api', `repos/${c.upstream}/releases/latest`]))
 }
-function main(command) {
-  const e = process.env
+export function runBridge(command, { env: e = process.env, root = resolve('dist/channel-bridge'), runGh = gh } = {}) {
   const c = contract({ repository: e.GITHUB_REPOSITORY, configuredRepository: e.XHARNESS_FRIENDS_RELEASE_REPOSITORY,
     upstream: e.XHARNESS_BRIDGE_UPSTREAM_REPOSITORY, bridge: e.BRIDGE_VERSION, target: e.UPSTREAM_VERSION })
-  const root = resolve('dist/channel-bridge'), source = join(root, 'source'), output = join(root, 'release')
+  const source = join(root, 'source'), output = join(root, 'release')
   const read = name => readFileSync(join(source, name), 'utf8').trim()
   const pinnedKey = e.XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY ?? ''
   const oldKey = e.XHARNESS_FRIENDS_PUBLIC_KEY ?? ''
   assert.ok(pinnedKey.trim() && oldKey.trim(), 'Both public keys are required')
   assert.notEqual(pinnedKey.trim(), oldKey.trim())
   if (command === 'prepare') {
-    preflight(c)
+    preflight(c, runGh)
     // Fail on a reused directory; never mix artifacts from different attempts.
     mkdirSync(root, { recursive: true }); mkdirSync(source); mkdirSync(output)
     const assets = [c.file, c.file + '.sig', c.targetFile, c.targetFile + '.sig', 'updater.pub', 'latest.json']
-    gh(['release', 'download', c.sourceTag, '--repo', c.upstream, '--dir', source,
+    runGh(['release', 'download', c.sourceTag, '--repo', c.upstream, '--dir', source,
       ...assets.flatMap(name => ['--pattern', name])])
     validateSource(c, JSON.parse(read('latest.json')), read('updater.pub'), pinnedKey, read(c.targetFile + '.sig'))
     verifyPackage(readFileSync(join(source, c.file)), pinnedKey, read(c.file + '.sig'))
@@ -90,7 +89,7 @@ function main(command) {
     writeFileSync(join(root, 'plan.json'), JSON.stringify(c, null, 2) + '\n')
     console.log('Verified both upstream installers; bridge staged for old-key signing (no publication).')
   } else if (command === 'finish') {
-    preflight(c)
+    preflight(c, runGh)
     assert.deepEqual(JSON.parse(readFileSync(join(root, 'plan.json'), 'utf8')), c)
     const bridge = readFileSync(join(output, c.file)), target = readFileSync(join(source, c.targetFile))
     assert.equal(hash(bridge), hash(readFileSync(join(source, c.file))), 'Re-signing must not alter installer bytes')
@@ -117,4 +116,4 @@ function main(command) {
     console.log('Both hops verified; complete draft assets ready. Native installation acceptance is still required.')
   } else throw new Error('Expected prepare or finish')
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv[2])
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) runBridge(process.argv[2])
