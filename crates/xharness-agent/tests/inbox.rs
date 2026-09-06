@@ -260,8 +260,12 @@ async fn file_lease_excludes_other_managers_until_guard_drops() {
     let first = FileLeaseManager::new(&root).unwrap();
     let second = FileLeaseManager::new(&root).unwrap();
     let guard = first.acquire("owned").await.unwrap();
-    assert!(second.acquire("owned").await.is_err());
+    assert!(matches!(
+        second.acquire("owned").await,
+        Err(xharness_agent::LeaseError::AlreadyOwned { agent_id }) if agent_id == "owned"
+    ));
     drop(guard);
+    assert!(root.join("owned.agent.lock").is_file());
     second.acquire("owned").await.unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }

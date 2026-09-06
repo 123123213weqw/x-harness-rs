@@ -20,9 +20,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-shell = "2.3.6"
+tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2.11.0"
 tokio = { version = "1", features = ["fs", "io-util", "net", "sync", "time"] }
 url = "2"
+
+[target.'cfg(windows)'.dependencies]
+xharness-win32 = { path = "../../../crates/xharness-win32" }
 
 # Keep the desktop shell outside the repository's main Rust workspace. The
 # Host remains a reusable server/CLI binary, while each platform CI build first
