@@ -12,8 +12,8 @@ Write-Output 'Exporting disposable TLS fixture certificate.'
 $password = ConvertTo-SecureString 'disposable-ci-only' -AsPlainText -Force
 Export-PfxCertificate -Cert $cert -FilePath "$fixtureRoot/proxy.pfx" -Password $password | Out-Null
 Export-Certificate -Cert $cert -FilePath "$fixtureRoot/proxy.cer" | Out-Null
-Write-Output 'Trusting disposable TLS fixture in runner current-user store.'
-$trustStore = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+Write-Output 'Trusting disposable TLS fixture in the ephemeral runner machine store (no user trust dialog).'
+$trustStore = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
 $trustStore.Open('ReadWrite')
 try { $trustStore.Add($cert) } finally { $trustStore.Close() }
 Write-Output 'Starting native migration test.'
@@ -23,7 +23,7 @@ try {
     if ($LASTEXITCODE) { throw 'Native two-hop acceptance failed; do not publish old feed' }
 } finally {
     # Exact certificates created above, never a broad certificate-store operation.
-    Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
 }
 exit 0

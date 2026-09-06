@@ -2,7 +2,7 @@
 
 **Goal:** Validate real old installers and both native updater hops before changing the public old feed.
 
-**Architecture:** Run only on disposable GitHub-hosted Windows runners. Download the original old installers, old-key bridge draft and new-key upstream target, verify signatures, then use a loopback HTTPS fixture proxy for the exact embedded GitHub URLs. A short-lived certificate is trusted only in that runner's current-user store and removed afterward; no TLS or installer-signature bypass is used. Playwright attaches to WebView2 through a loopback-only test debugging port and invokes the installed application's normal Tauri commands.
+**Architecture:** Run only on disposable GitHub-hosted Windows runners. Download the original old installers, old-key bridge draft and new-key upstream target, verify signatures, then use a loopback HTTPS fixture proxy for the exact embedded GitHub URLs. A short-lived certificate is trusted only in that ephemeral runner's machine store and removed afterward (the user store can show an interactive trust dialog); no TLS or installer-signature bypass is used. Playwright attaches to WebView2 through a loopback-only test debugging port and invokes the installed application's normal Tauri commands.
 
 **Tech Stack:** Existing production NSIS installers, Tauri updater, PowerShell certificate APIs, Node HTTPS/CONNECT, Playwright CDP. No local Rust compilation.
 
