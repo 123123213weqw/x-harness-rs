@@ -94,7 +94,15 @@ try {
     Get-Content -LiteralPath $evidence
 } finally {
     # Exact PIDs owned by this disposable fixture; no image-name-wide termination.
-    foreach ($id in $owned) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+    foreach ($id in $owned) {
+        $process = Get-Process -Id $id -ErrorAction SilentlyContinue
+        if ($process -and $process.Path -and (
+            $process.Path.StartsWith($fixture + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            $process.Path.StartsWith($legacy + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            $process.Path -ieq $Installer)) {
+            Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+        }
+    }
     New-Item -ItemType Directory -Force -Path 'dist/install-ownership-evidence' | Out-Null
     if (Test-Path -LiteralPath $evidence) { Copy-Item -LiteralPath $evidence -Destination 'dist/install-ownership-evidence/result.json' }
 }

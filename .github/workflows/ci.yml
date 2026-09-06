@@ -22,6 +22,7 @@ jobs:
           node-version: '22'
       - run: node scripts/test-update-channel-bridge.mjs
       - run: node scripts/test-migration-acceptance-guards.mjs
+      - run: node scripts/test-install-ownership-contract.mjs
       - run: node scripts/test-updater-signature.mjs
       - run: python -B scripts/test-friends-release.py
       - name: Real Tauri signer with disposable keys (no native compilation)
