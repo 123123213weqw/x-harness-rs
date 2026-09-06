@@ -784,6 +784,31 @@ mod tests {
     }
 
     #[test]
+    fn shared_request_parser_rejects_shape_and_semantic_errors() {
+        let valid = AskUserQuestionRequest {
+            questions: vec![question("mode", AnswerDestination::Context)],
+        };
+        let value = serde_json::to_value(&valid).unwrap();
+        assert_eq!(
+            AskUserQuestionRequest::parse(&value.to_string()).unwrap(),
+            valid
+        );
+        assert!(AskUserQuestionRequest::parse("{").is_err());
+        let mut missing_id = value.clone();
+        missing_id["questions"][0]["options"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("id");
+        assert!(AskUserQuestionRequest::parse(&missing_id.to_string()).is_err());
+        let mut duplicate_id = value.clone();
+        duplicate_id["questions"][0]["options"][1]["id"] = json!("tokyo");
+        assert!(AskUserQuestionRequest::parse(&duplicate_id.to_string()).is_err());
+        let mut unknown_field = value;
+        unknown_field["questions"][0]["unexpected"] = json!(true);
+        assert!(AskUserQuestionRequest::parse(&unknown_field.to_string()).is_err());
+    }
+
+    #[test]
     fn request_limits_questions_options_and_recommended_choice() {
         let mut questions = vec![question("one", AnswerDestination::Context); 4];
         for (index, item) in questions.iter_mut().enumerate() {
