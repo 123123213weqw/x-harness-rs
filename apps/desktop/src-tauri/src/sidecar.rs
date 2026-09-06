@@ -112,6 +112,7 @@ pub struct DesktopStatus {
     host_running: bool,
     host_endpoint: Option<String>,
     updater_configured: bool,
+    startup_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -133,6 +134,11 @@ pub fn desktop_status(state: State<'_, DesktopState>) -> DesktopStatus {
             .expect("endpoint mutex poisoned")
             .clone(),
         updater_configured: crate::updater::configured(),
+        startup_error: state
+            .startup_error
+            .lock()
+            .expect("startup error mutex poisoned")
+            .clone(),
     }
 }
 
@@ -146,7 +152,12 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         .lock()
         .expect("startup error mutex poisoned") = None;
     let result = start_claimed(app).await;
-    if result.is_err() {
+    if let Err(error) = &result {
+        state
+            .startup_error
+            .lock()
+            .expect("startup error mutex poisoned")
+            .get_or_insert_with(|| error.clone());
         if state.child.lock().expect("child mutex poisoned").is_none() {
             state.running.store(false, Ordering::SeqCst);
         } else {
