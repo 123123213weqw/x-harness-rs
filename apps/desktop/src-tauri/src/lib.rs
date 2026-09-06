@@ -17,6 +17,15 @@ struct DesktopBootstrapEvent {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        // Keep the identifier stable across release channels and install paths.
+        // This must run before any plugin/setup that can start a second Host.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
