@@ -193,7 +193,11 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
         // Host cannot restore work/spawn children until assigned to our Job.
-        let _ = std::fs::remove_file(&state.start_file);
+        match std::fs::remove_file(&state.start_file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("无法清理旧 Host 启动许可：{error}")),
+        }
     }
     let command = command.current_dir(&state.workspace);
     let (mut events, child) = command
