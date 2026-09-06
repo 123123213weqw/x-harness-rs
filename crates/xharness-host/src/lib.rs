@@ -5,6 +5,8 @@
 //! while session prompts are driven by the provider-neutral Rust loop.
 
 mod control;
+mod delegation;
+pub use delegation::AgentTool;
 mod driver;
 mod metrics;
 mod model_settings;
@@ -146,8 +148,10 @@ pub struct BasicHost {
     pub(crate) questions: Arc<DurableQuestionHub>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     admission_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
+    projection_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
     background_listener_started: Arc<AtomicBool>,
     next_id: Arc<AtomicU64>,
+    delegation_listener_started: Arc<AtomicBool>,
 }
 
 impl BasicHost {
@@ -237,8 +241,10 @@ impl BasicHost {
             questions,
             model_settings: Arc::new(std::sync::OnceLock::new()),
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            projection_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             background_listener_started: Arc::new(AtomicBool::new(false)),
             next_id: Arc::new(AtomicU64::new(1)),
+            delegation_listener_started: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -254,6 +260,18 @@ impl BasicHost {
     pub(crate) async fn lock_admission(&self, session_id: &str) -> OwnedMutexGuard<()> {
         let gate = {
             let mut gates = self.admission_gates.lock().await;
+            Arc::clone(
+                gates
+                    .entry(session_id.to_owned())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        gate.lock_owned().await
+    }
+
+    pub(crate) async fn lock_projection(&self, session_id: &str) -> OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self.projection_gates.lock().await;
             Arc::clone(
                 gates
                     .entry(session_id.to_owned())

@@ -1825,6 +1825,9 @@ impl Runner {
                             !matches!(
                                 event.data(),
                                 SessionEventData::AgentInboxSpliced { .. }
+                                    | SessionEventData::AgentDispatchPaused { .. }
+                                    | SessionEventData::AgentSettlementDelivered { .. }
+                                    | SessionEventData::AgentFailureDelivered { .. }
                                     | SessionEventData::SessionModelSelected { .. }
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }

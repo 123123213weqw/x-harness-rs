@@ -687,9 +687,13 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 
 ## P3 — 多 Agent 与 Workflow
 
-- [ ] `P3-01` **Subagent。** 命名 Child Activation、独立 Tool/Provider/Profile Scope、
-  Parent-child Event Link、独立 Cancel、Continuation 和有界并发。必须建立在持久 Agent/
-  Inbox 上，不能直接塞进 `LoopRun`。
+- [x] `P3-01a` **单工具 Subagent 基础链路。** 仅注册 `agent`（start/send/inspect/stop），
+  复用 Session/Inbox/Driver/Loop；父子鉴权、独立上下文、创建幂等、两路实际子轮并发、
+  暂停不误唤醒、结果通知去重/恢复、取消及准备失败兜底。已做远程回归和 DeepSeek Flash
+  实际编程/控制/追加需求测试；同时修复控制日志冲突与历史游标倒退；见 [单工具委派 Spec](specs/agent-delegation.md)。尚未发布安装包。
+- [ ] `P3-01b` **Subagent 扩展与发布验收。** 独立 Tool/Provider/Profile Scope、外部后端、
+  多层谱系、聚合 Waiting UI、配置化限额、跨权限文件隔离、投递退避与逐写入断点故障注入，
+  以及 Web/Tauri CI 打包和端到端验收。不得将基于少数真实任务的通过等同于完整生产覆盖。
 
 - [ ] `P3-02` **Workflow Graph。** 强类型 Sequential/Parallel/Join/Condition Node、
   Checkpointed Execution、Idempotency Key、Replay Inspection 和 Manual Gate。

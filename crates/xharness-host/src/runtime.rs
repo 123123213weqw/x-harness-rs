@@ -720,6 +720,8 @@ struct DurableSessionConfig {
 }
 
 struct DurableTurnFactory {
+    store: Arc<dyn Store>,
+    delegation_slots: Arc<tokio::sync::Semaphore>,
     models: Arc<StdRwLock<ModelRegistry>>,
     tool_factory: Arc<dyn SessionToolFactory>,
     context_policy: Arc<dyn ContextPolicy>,
@@ -730,6 +732,26 @@ struct DurableTurnFactory {
 
 #[async_trait]
 impl TurnRequestFactory for DurableTurnFactory {
+    async fn acquire(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, String> {
+        let session = self.store.load(agent_id).await.map_err(|e| e.to_string())?;
+        if session
+            .as_ref()
+            .and_then(crate::delegation::restored_delegation)
+            .is_some()
+        {
+            self.delegation_slots
+                .clone()
+                .acquire_owned()
+                .await
+                .map(Some)
+                .map_err(|e| e.to_string())
+        } else {
+            Ok(None)
+        }
+    }
     async fn build(&self, agent_id: &str, input: Vec<AgentMessage>) -> Result<LoopRequest, String> {
         let config = self
             .sessions
@@ -863,6 +885,8 @@ impl DurableLoopAgentRuntime {
         let debug = Arc::new(StdRwLock::new(DebugRecorder::disabled()));
         let compaction = Arc::new(StdRwLock::new(None));
         let factory = Arc::new(DurableTurnFactory {
+            store: Arc::clone(&store),
+            delegation_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             models: Arc::clone(&models),
             tool_factory: Arc::clone(&tool_factory),
             context_policy,
@@ -987,13 +1011,19 @@ impl DurableLoopAgentRuntime {
             .map_err(registry_error)?;
         let events = handle.subscribe();
         handle
-            .followup(InboxMessage {
-                id: input_id.clone(),
-                message: input,
-                source: request.input_metadata,
-            })
+            .inbox()
+            .append(
+                xharness_session::InboxTarget::NextTurn,
+                InboxMessage {
+                    id: input_id.clone(),
+                    message: input,
+                    source: request.input_metadata,
+                },
+            )
             .await
-            .map_err(agent_command_error)?;
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: e.to_string(),
+            })?;
         self.attach_schedules(&handle).await?;
         Ok(PreparedDurableTurn {
             handle,
@@ -1389,6 +1419,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             Some(prepared) => prepared,
             None => self.prepare_turn(request).await?,
         };
+        prepared.handle.wake().await.map_err(agent_command_error)?;
         Ok(self.running_from_prepared(prepared))
     }
 
@@ -1468,6 +1499,15 @@ impl DurableRunningTurn {
     async fn receive_event(&mut self) -> Option<LoopEvent> {
         while !self.terminal {
             match self.events.recv().await {
+                Ok(AgentEvent::Parked { input_ids })
+                    if input_ids.contains(&self.target_input_id) =>
+                {
+                    let mut result =
+                        Self::failed_result("pending work was parked before execution");
+                    result.status = LoopStatus::Cancelled;
+                    self.result = Some(result);
+                    self.terminal = true;
+                }
                 Ok(AgentEvent::TurnStarted { turn, input_ids })
                     if self.turn.is_none()
                         && input_ids
@@ -2003,8 +2043,8 @@ mod tests {
 
         runtime.admit_turn(request_a.clone()).await.unwrap();
         runtime.admit_turn(request_b.clone()).await.unwrap();
-        // The durable worker is allowed to finish both turns before either
-        // Web projection starts polling. Per-admission receivers retain the
+        // Explicit start wakes the durable worker independently of polling;
+        // per-admission streams must still correlate their own inputs. Per-admission receivers retain the
         // frames and correlate by claimed stable input ID.
         tokio::task::yield_now().await;
         let mut turn_a = runtime.start_turn(request_a).await.unwrap();
@@ -2047,6 +2087,16 @@ mod tests {
             ..first.clone()
         };
         runtime.admit_turn(first.clone()).await.unwrap();
+        // Admission persists only; actual execution requires an explicit wake.
+        assert!(!store
+            .load("queue-mutations")
+            .await
+            .unwrap()
+            .unwrap()
+            .events()
+            .iter()
+            .any(|e| matches!(e.data(), xharness_session::EventData::UserMessage { .. })));
+        let mut running = runtime.start_turn(first.clone()).await.unwrap();
         for _ in 0..100 {
             let session = store.load("queue-mutations").await.unwrap().unwrap();
             if session.events().iter().any(|event| {
@@ -2096,7 +2146,6 @@ mod tests {
             .unwrap()
             .has_pending());
 
-        let mut running = runtime.start_turn(first).await.unwrap();
         release.notify_one();
         while running.next_event().await.is_some() {}
         assert_eq!(running.result().await.final_text, "released");

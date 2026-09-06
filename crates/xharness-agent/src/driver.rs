@@ -14,7 +14,7 @@ use xharness_core::{
     AgentMessage, InjectionMode, LoopCommand, LoopControlError, LoopEngine, LoopEvent, LoopRequest,
     LoopResult,
 };
-use xharness_session::{InboxMessage, InboxTarget};
+use xharness_session::{EventData, InboxMessage, InboxTarget};
 
 use crate::{
     AgentActivation, AgentRegistry, AgentStatus, DurableInbox, InboxError, LifecycleError,
@@ -25,6 +25,13 @@ use crate::{
 /// limits. The durable driver overwrites Session journal fields after return.
 #[async_trait]
 pub trait TurnRequestFactory: Send + Sync + 'static {
+    /// Optional shared capacity lease. Held for the complete turn and released on every exit.
+    async fn acquire(
+        &self,
+        _agent_id: &str,
+    ) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, String> {
+        Ok(None)
+    }
     async fn build(&self, agent_id: &str, input: Vec<AgentMessage>) -> Result<LoopRequest, String>;
 }
 
@@ -32,6 +39,10 @@ pub trait TurnRequestFactory: Send + Sync + 'static {
 /// subscribers use the durable Session sequence for restart replay.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AgentEvent {
+    /// Pending input was parked without opening a model turn or claiming side effects.
+    Parked {
+        input_ids: Vec<String>,
+    },
     Status(AgentStatus),
     InboxInserted {
         target: InboxTarget,
@@ -493,6 +504,46 @@ impl DriverWorker {
             if self.shutdown.is_cancelled() {
                 return Err(AgentCommandError::Closed);
             }
+            let stored = self
+                .activation
+                .inbox()
+                .store()
+                .load(self.activation.id())
+                .await
+                .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+            if stored.as_ref().is_some_and(|session| {
+                session
+                    .events()
+                    .iter()
+                    .rev()
+                    .find_map(|e| match e.data() {
+                        EventData::AgentDispatchPaused { paused } => Some(*paused),
+                        _ => None,
+                    })
+                    .unwrap_or(false)
+            }) {
+                self.park_pending().await?;
+                return Ok(());
+            }
+            let factory = self.factory.clone();
+            let id = self.activation.id().to_owned();
+            let acquire = factory.acquire(&id);
+            tokio::pin!(acquire);
+            let _permit = loop {
+                tokio::select! {
+                    biased;
+                    _ = self.shutdown.cancelled() => return Err(AgentCommandError::Closed),
+                    Some(envelope) = self.commands.recv() => {
+                        if matches!(envelope.command, DriverCommand::Control(LoopCommand::Cancel)) {
+                            self.park_pending().await?;
+                            let _ = envelope.acknowledgement.send(Ok(()));
+                            return Ok(());
+                        }
+                        self.handle_idle(envelope).await;
+                    }
+                    permit = &mut acquire => break permit.map_err(AgentCommandError::Failed)?,
+                }
+            };
             let claim = self
                 .activation
                 .inbox()
@@ -679,6 +730,20 @@ impl DriverWorker {
             .ok_or_else(|| AgentCommandError::Failed("turn counter overflow".to_owned()))
     }
 
+    async fn park_pending(&mut self) -> Result<(), AgentCommandError> {
+        self.wake_requested = false;
+        let pending = self
+            .activation
+            .inbox()
+            .snapshot()
+            .await
+            .map_err(inbox_error)?;
+        let _ = self.events.send(AgentEvent::Parked {
+            input_ids: pending.next_turn().iter().map(|m| m.id.clone()).collect(),
+        });
+        Ok(())
+    }
+
     async fn handle_idle(&mut self, envelope: CommandEnvelope) {
         let result = match envelope.command {
             DriverCommand::Wake => {
@@ -715,6 +780,7 @@ impl DriverWorker {
                 result
             }
             DriverCommand::Inject(message) => self.persist(InboxTarget::NextStep, message).await,
+            DriverCommand::Control(LoopCommand::Cancel) => self.park_pending().await,
             DriverCommand::Control(_) => Err(AgentCommandError::NoActiveTurn),
         };
         let _ = envelope.acknowledgement.send(result);

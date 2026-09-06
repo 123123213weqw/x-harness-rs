@@ -472,6 +472,24 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Failure before a normal TurnEnd could be journaled; never replay its work automatically.
+    #[serde(rename = "agent/delegation-failure")]
+    AgentDelegationFailure { message_id: String, error: String },
+    #[serde(rename = "agent/failure-delivered")]
+    AgentFailureDelivered { message_id: String },
+    /// Durable delegation identity; not model-visible conversation history.
+    #[serde(rename = "agent/delegated")]
+    AgentDelegated {
+        parent_session_id: String,
+        invocation_id: String,
+        task: String,
+    },
+    /// Host admission gate. A stopped session must not be woken by child notices.
+    #[serde(rename = "agent/dispatch-paused")]
+    AgentDispatchPaused { paused: bool },
+    /// A child settlement was durably admitted to its parent's inbox.
+    #[serde(rename = "agent/settlement-delivered")]
+    AgentSettlementDelivered { turn: u32 },
     /// Named Agent preset selected for subsequent turns in this session.
     #[serde(rename = "agent-preset/selected")]
     AgentPresetSelected {
