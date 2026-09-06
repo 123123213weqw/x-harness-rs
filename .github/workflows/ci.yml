@@ -163,6 +163,17 @@ jobs:
           $installer = $installers[0]
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
           "$hash  $($installer.Name)" | Set-Content -Encoding ascii "$($installer.FullName).sha256"
+      - name: Native installation ownership and crash acceptance
+        run: |
+          $installer = Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe | Select-Object -First 1
+          ./scripts/test-windows-install-ownership.ps1 -Installer $installer.FullName
+      - name: Upload installation ownership evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installation-ownership-evidence
+          path: dist/install-ownership-evidence/
+          if-no-files-found: warn
       - name: Upload Windows application
         uses: actions/upload-artifact@v7
         with:
