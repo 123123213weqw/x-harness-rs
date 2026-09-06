@@ -241,6 +241,8 @@ def main() -> int:
     parser.add_argument("binary", type=Path)
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--macos-titlebar", choices=["standard", "overlay"], default="standard")
+    parser.add_argument("--ready-delay-ms", type=int, choices=[0, 6000], default=0,
+                        help="Delay only the test adapter's Ready acknowledgement; never replay navigation")
     args = parser.parse_args()
     if args.macos_titlebar != "standard" and sys.platform != "darwin":
         parser.error("macOS titlebar variants require a macOS probe")
@@ -252,7 +254,7 @@ def main() -> int:
             digest.update(chunk)
     receipt = {"kind": "native_tauri_dom_contract", "platform": sys.platform,
                "model_calls": 0, "os_input": False,
-               "titlebar": args.macos_titlebar,
+               "titlebar": args.macos_titlebar, "ready_delay_ms": args.ready_delay_ms,
                "binary_sha256": digest.hexdigest()}
     start = time.monotonic()
     directory = Path(tempfile.mkdtemp(prefix="xh-native-dom-"))
@@ -262,6 +264,7 @@ def main() -> int:
             try:
                 env = environment(directory)
                 env['XHARNESS_NATIVE_PROBE_TITLEBAR'] = args.macos_titlebar
+                env['XHARNESS_NATIVE_PROBE_READY_DELAY_MS'] = str(args.ready_delay_ms)
                 env['XHARNESS_NATIVE_API_EVIDENCE'] = str(args.evidence_dir.resolve() / 'native-api')
                 code = run_probe(binary, env, log)
             except OSError:
