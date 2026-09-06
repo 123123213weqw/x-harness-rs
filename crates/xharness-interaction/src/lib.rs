@@ -31,6 +31,10 @@ const fn default_allow_custom() -> bool {
     true
 }
 
+const fn is_true(value: &bool) -> bool {
+    *value
+}
+
 /// Where an accepted answer remains visible after the current tool result.
 ///
 /// Both variants are returned to the current model step. `AgentMarkdown`
@@ -74,6 +78,10 @@ pub struct QuestionSpec {
     /// routed to the Host-managed AGENTS.md memory sink.
     #[serde(default)]
     pub destination: AnswerDestination,
+    /// Whether this decision must be answered before any automatic Goal work.
+    /// Legacy/omitted flags retain the conservative blocking behavior.
+    #[serde(default = "default_allow_custom", skip_serializing_if = "is_true")]
+    pub blocks_goal: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -567,7 +575,7 @@ impl AskUserQuestionTool {
 pub fn tool_definition() -> ToolDefinition {
     ToolDefinition::new(
         ASK_USER_QUESTION_TOOL,
-        "Ask the user only when a user decision or unavailable fact blocks safe progress. Inspect available context and tools first. Ask 1-3 concise questions. For a boolean or finite decision, provide at most 3 choices; allowCustom lets the user provide or qualify an answer. Use destination=context for short-lived decisions and agent_markdown only for an explicitly durable goal. After 60 seconds without an answer this may return status=deferred: the question remains pending. Continue work that does not depend on the unanswered question; never assume the user's choice or authorization. Asking a question does not change existing tool permissions or approval requirements. If nothing independent remains, finish and wait. Call this tool alone, never in a batch with side-effecting tools.",
+        "Ask the user only when a user decision or unavailable fact blocks safe progress. Inspect available context and tools first. Ask 1-3 concise questions. For a boolean or finite decision, provide at most 3 choices; allowCustom lets the user provide or qualify an answer. Use destination=context for short-lived decisions and agent_markdown only for an explicitly durable goal. Set blocksGoal=false only when independent work can safely continue without this answer; otherwise keep blocksGoal=true (default). Never infer approval from a deferred question. After 60 seconds without an answer this may return status=deferred: the question remains pending. Continue work that does not depend on the unanswered question; never assume the user's choice or authorization. Asking a question does not change existing tool permissions or approval requirements. If nothing independent remains, finish and wait. Call this tool alone, never in a batch with side-effecting tools.",
         json!({
             "type": "object",
             "properties": {
@@ -600,6 +608,10 @@ pub fn tool_definition() -> ToolDefinition {
                                 "type": "boolean",
                                 "default": true,
                                 "description": "Whether the user may type their own answer; defaults to true."
+                            },
+                            "blocksGoal": {
+                                "type": "boolean", "default": true,
+                                "description": "Keep true if all further Goal work requires this answer; false permits independent work while the question remains pending. This never grants permission."
                             },
                             "destination": {
                                 "type": "string",
@@ -779,6 +791,7 @@ mod tests {
             ],
             allow_custom: true,
             destination,
+            blocks_goal: true,
         }
     }
 

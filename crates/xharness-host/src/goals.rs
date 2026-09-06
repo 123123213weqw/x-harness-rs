@@ -108,6 +108,30 @@ pub(crate) async fn validate_report(
     };
     r.validate()
         .map_err(|e| ToolHandlerError::new(e.to_string()))?;
+    // Validate incoming reports only, never tighten historical journal decoding.
+    // Do not trim, split or guess a resource ID supplied by the model.
+    for (index, evidence) in body.evidence.iter().enumerate() {
+        let reference = match evidence {
+            GoalEvidence::Agent { reference } | GoalEvidence::Job { reference } => reference,
+            _ => continue,
+        };
+        if reference.is_empty()
+            || reference.len() > 2048
+            || !reference
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+        {
+            return Err(ToolHandlerError::new(format!(
+                "invalid_goal_reference: evidence[{index}].reference must be an exact resource ID, without whitespace or annotations; put explanations in summary and retry the report"
+            )));
+        }
+    }
+    tools
+        .validate_goal_references(id, &body.evidence)
+        .await
+        .map_err(|error| ToolHandlerError::new(format!(
+            "invalid_goal_reference: {error}; use exact existing resource IDs owned by this conversation and retry the report"
+        )))?;
     if body.status == GoalReportStatus::Complete && body.evidence.is_empty() {
         return Err(ToolHandlerError::new(
             "complete requires evidence references",
@@ -123,10 +147,12 @@ pub(crate) async fn validate_report(
             "required background work is still running; report progress instead",
         ));
     }
+    let completion_note = match definition.verification {
+        VerificationMode::AgentReport => "Goal report recorded; finish this turn. A valid complete report ends the Goal automatically after this turn settles normally.",
+        VerificationMode::UserConfirm => "Goal report recorded; finish this turn. This Goal still requires user confirmation of completion.",
+    };
     Ok(ToolOutput {
-        content:
-            "Goal report recorded; finish this turn. Completion still requires user confirmation."
-                .into(),
+        content: completion_note.into(),
         metadata: Some(json!({"goalReport":body})),
         command_failure: None,
     })
@@ -150,7 +176,11 @@ pub(crate) fn enable_event(
             snapshot,
             acceptance_criteria: criteria,
             execution_enabled: true,
-            verification: VerificationMode::UserConfirm,
+            // Preserve the persisted policy of an existing Goal; only new
+            // executions default to accepting the model's completion report.
+            verification: old
+                .as_ref()
+                .map_or(VerificationMode::AgentReport, |s| s.definition.verification),
         },
         activation_epoch: old
             .as_ref()
@@ -165,6 +195,7 @@ pub(crate) fn enable_event(
         review: None,
         pause_reason: None,
         pause_detail: None,
+        retry: None,
     };
     state.definition.validate().map_err(|e| e.to_string())?;
     Ok(EventData::GoalExecution {
@@ -182,7 +213,11 @@ pub(crate) fn execution_projection(session: &Session) -> Value {
         return json!({"enabled":false,"state":"disabled"});
     };
     let report = s.latest_turn.as_ref().and_then(|t| t.report.as_ref());
-    let awaiting = report.is_some_and(|r| r.status == GoalReportStatus::Complete)
+    let awaiting = s.definition.verification == VerificationMode::UserConfirm
+        && s.latest_turn
+            .as_ref()
+            .is_some_and(|t| t.outcome == GoalTurnOutcome::Completed)
+        && report.is_some_and(|r| r.status == GoalReportStatus::Complete)
         && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
         && s.running.is_none()
         && s.review.is_none();
@@ -197,7 +232,7 @@ pub(crate) fn execution_projection(session: &Session) -> Value {
     } else if !session.pending_tool_approvals().is_empty() {
         "awaiting_approval"
     } else if !session.recoverable_user_questions().is_empty()
-        || xharness_session::has_unanswered_deferred_question(session.events())
+        || xharness_session::has_unanswered_blocking_deferred_question(session.events())
     {
         "awaiting_answer"
     } else if s.running.is_some() {
@@ -206,10 +241,16 @@ pub(crate) fn execution_projection(session: &Session) -> Value {
         "awaiting_confirmation"
     } else if s.pending.is_some() {
         "queued"
+    } else if s
+        .retry
+        .as_ref()
+        .is_some_and(|r| r.attempts <= MAX_GOAL_PROVIDER_RETRIES)
+    {
+        "network_backoff"
     } else {
         "waiting"
     };
-    json!({"enabled":s.definition.execution_enabled,"state":state,"roundsStarted":s.rounds_started,"maxGoalRounds":s.definition.snapshot.max_goal_rounds,"pauseReason":s.pause_reason,"pauseDetail":s.pause_detail,"report":report,"acceptanceCriteria":s.definition.acceptance_criteria})
+    json!({"enabled":s.definition.execution_enabled,"state":state,"roundsStarted":s.rounds_started,"maxGoalRounds":s.definition.snapshot.max_goal_rounds,"pauseReason":s.pause_reason,"pauseDetail":s.pause_detail,"retry":s.retry,"report":report,"acceptanceCriteria":s.definition.acceptance_criteria,"verificationMode":s.definition.verification})
 }
 
 impl crate::BasicHost {
@@ -312,17 +353,36 @@ impl crate::BasicHost {
     }
 }
 
+fn owned_goal_agent<'a>(
+    state: &'a crate::state::HostState,
+    caller: &str,
+    child: &str,
+) -> Result<&'a crate::state::SessionRecord, String> {
+    let record = state
+        .sessions
+        .get(child)
+        .ok_or("required child agent is missing")?;
+    if record.parent_session_id.as_deref() != Some(caller) {
+        return Err("required child agent is not owned by this Goal session".into());
+    }
+    Ok(record)
+}
+
 impl crate::BasicHost {
+    /// Admission validates identity/ownership, not the child's execution outcome.
+    pub async fn validate_goal_agent_reference(
+        &self,
+        caller: &str,
+        child: &str,
+    ) -> Result<(), String> {
+        let state = self.state.read().await;
+        owned_goal_agent(&state, caller, child).map(|_| ())
+    }
+
     /// Only a child owned by this parent can be a required Goal dependency.
     pub async fn goal_agent_dependency(&self, caller: &str, child: &str) -> Result<bool, String> {
         let state = self.state.read().await;
-        let record = state
-            .sessions
-            .get(child)
-            .ok_or("required child agent is missing")?;
-        if record.parent_session_id.as_deref() != Some(caller) {
-            return Err("required child agent is not owned by this Goal session".into());
-        }
+        let record = owned_goal_agent(&state, caller, child)?;
         if record.dispatch_paused {
             return Err("required child agent is stopped; resume it or revise the Goal".into());
         }
@@ -436,13 +496,23 @@ mod tests {
                 assert!(r.tools.iter().any(|t| t.name == "goal"));
                 let n = self.rounds.fetch_add(1, Ordering::SeqCst) + 1;
                 assert!(!r.tools.iter().any(|t| t.name == "goal_report"));
+                if self.status == "text_only" {
+                    return Ok(Box::pin(futures::stream::iter(vec![
+                        Ok(ProviderEvent::TextDelta("All done".into())),
+                        Ok(ProviderEvent::Completed {
+                            finish_reason: Some(FinishReason::Stop),
+                            usage: None,
+                            provider_items: vec![],
+                        }),
+                    ])));
+                }
                 if self.status == "create_goal" && n == 1 {
                     return Ok(Box::pin(futures::stream::iter(vec![
                         Ok(ProviderEvent::ToolCallDelta {index:0,id:"create-from-normal-turn".into(),name:"goal".into(),arguments_delta:json!({"action":"create","objective":"Implement parser and test","max_goal_rounds":2}).to_string()}),
                         Ok(ProviderEvent::Completed {finish_reason:Some(FinishReason::ToolCalls),usage:None,provider_items:vec![]}),
                     ])));
                 }
-                let status = if self.status == "create_goal" {
+                let status = if matches!(self.status, "create_goal" | "reported_then_failed") {
                     "complete"
                 } else if self.status == "three" {
                     if n < 3 {
@@ -478,6 +548,12 @@ mod tests {
                     }),
                 ]
             } else {
+                if self.status == "reported_then_failed" {
+                    return Err(ProviderError::http(
+                        401,
+                        "fixture permanent failure after report",
+                    ));
+                }
                 vec![
                     Ok(ProviderEvent::TextDelta("finished this round".into())),
                     Ok(ProviderEvent::Completed {
@@ -572,20 +648,25 @@ mod tests {
     async fn ordinary_provider_turn_sees_goal_and_can_create_then_auto_report() {
         let (host, store, model) = setup("create_goal").await;
         call(&host,"user-create",RpcMethod::SessionPrompt,json!({"sessionId":"g","mode":"queue","content":[{"type":"text","text":"Set a persistent goal: implement parser and test it"}]})).await;
-        let session = wait(&host, &store, "awaiting_confirmation").await;
+        let session = wait(&host, &store, "complete").await;
         let goal = execution_state(&session).unwrap();
         assert_eq!(
             goal.rounds_started, 1,
             "ordinary creator turn must not count as a Goal round"
         );
         assert_eq!(model.rounds.load(Ordering::SeqCst), 2);
+        assert_eq!(goal.definition.verification, VerificationMode::AgentReport);
+        assert_eq!(
+            goal.definition.snapshot.phase,
+            xharness_session::GoalPhase::Complete
+        );
         assert!(session.events().iter().any(|e|matches!(e.data(),EventData::ToolCall{call,..} if call.name=="goal" && call.arguments_json.contains("create"))));
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
 
     #[tokio::test]
     async fn ordinary_goal_tool_creates_reads_updates_replays_and_fences_user_changes() {
-        let (host, store, _) = setup("complete").await;
+        let (host, store, model) = setup("complete").await;
         let ex = goal_executor(&host, store.clone()).await;
         let request = xharness_tools::ToolRequest::new(
             "goal",
@@ -595,7 +676,7 @@ mod tests {
         .unwrap();
         let first = ex.execute(request.clone()).await;
         assert!(first.is_ok(), "{first:?}");
-        wait(&host, &store, "awaiting_confirmation").await;
+        wait(&host, &store, "complete").await;
         let replay = ex.execute(request).await;
         assert!(replay.is_ok(), "{replay:?}");
         assert_eq!(first.output, replay.output);
@@ -607,7 +688,7 @@ mod tests {
             .await;
         let value: Value = serde_json::from_str(&get.output.as_ref().unwrap().content).unwrap();
         assert_eq!(value["goal"]["objective"], "Check parser");
-        assert_eq!(value["execution"]["state"], "awaiting_confirmation");
+        assert_eq!(value["execution"]["state"], "complete");
         let old_ref = value["ref"].clone();
         let edit = ex
             .execute(xharness_tools::ToolRequest::new(
@@ -616,7 +697,7 @@ mod tests {
             ))
             .await;
         assert!(edit.is_ok(), "{edit:?}");
-        wait(&host, &store, "disabled").await;
+        wait(&host, &store, "complete").await;
         let stale = ex
             .execute(xharness_tools::ToolRequest::new(
                 "goal",
@@ -629,7 +710,7 @@ mod tests {
         );
         let current = host.state.read().await.goals["g"].clone();
         assert_eq!(current.max_goal_rounds, 8);
-        assert_eq!(current.phase, xharness_session::GoalPhase::Active);
+        assert_eq!(current.phase, xharness_session::GoalPhase::Complete);
         assert_eq!(current.execution.as_ref().unwrap()["enabled"], false);
         let resume = ex
             .execute(xharness_tools::ToolRequest::new(
@@ -639,7 +720,10 @@ mod tests {
             ))
             .await;
         assert!(resume.is_ok(), "{resume:?}");
-        wait(&host, &store, "awaiting_confirmation").await;
+        let reopened = wait(&host, &store, "complete").await;
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 2);
+        assert_eq!(execution_state(&reopened).unwrap().rounds_started, 2);
+        assert!(execution_state(&reopened).unwrap().activation_epoch > 1);
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
     #[tokio::test]
@@ -679,7 +763,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn product_three_rounds_report_confirm_clear_and_live_history() {
+    async fn product_three_rounds_auto_complete_clear_and_live_history() {
         let (host, store, model) = setup("three").await;
         let mut frames = host.agent_runtime.subscribe_background_turns().unwrap();
         let payload = json!({"sessionId":"g","objective":"Implement parser and check tests","maxGoalRounds":5});
@@ -688,7 +772,7 @@ mod tests {
             call(&host, "create", RpcMethod::GoalCreate, payload).await,
             first
         );
-        let session = wait(&host, &store, "awaiting_confirmation").await;
+        let session = wait(&host, &store, "complete").await;
         assert_eq!(model.rounds.load(Ordering::SeqCst), 3);
         assert_eq!(execution_state(&session).unwrap().rounds_started, 3);
         assert_eq!(std::iter::from_fn(|| frames.try_recv().ok()).count(), 3);
@@ -699,15 +783,21 @@ mod tests {
                 .unwrap()
                 .projection()
         );
-        let reference =
-            json!({"id":projected["goal"]["id"],"revision":projected["goal"]["revision"]});
-        let done = call(
-            &host,
-            "confirm",
-            RpcMethod::GoalComplete,
-            json!({"sessionId":"g","ref":reference}),
-        )
-        .await;
+        assert_eq!(
+            execution_state(&session).unwrap().definition.verification,
+            VerificationMode::AgentReport
+        );
+        assert_eq!(projected["execution"]["verificationMode"], "agent_report");
+        assert_eq!(projected["goal"]["phase"], "complete");
+        // No GoalComplete RPC is sent: the model report is settled by the runtime.
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert_eq!(
+            model.rounds.load(Ordering::SeqCst),
+            3,
+            "completed Goals must not start another round"
+        );
+        let done =
+            json!({"ref":{"id":projected["goal"]["id"],"revision":projected["goal"]["revision"]}});
         assert_eq!(
             wait(&host, &store, "complete").await.revision(),
             store.load("g").await.unwrap().unwrap().revision()
@@ -720,6 +810,84 @@ mod tests {
         )
         .await;
         assert!(execution_state(&store.load("g").await.unwrap().unwrap()).is_none());
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn completion_requires_a_report_and_a_normally_settled_turn() {
+        for (status, pause_reason, rounds, has_report) in [
+            ("text_only", "report_protocol_stalled", 3, false),
+            ("reported_then_failed", "execution_error", 1, true),
+        ] {
+            let (host, store, model) = setup(status).await;
+            call(
+                &host,
+                "create",
+                RpcMethod::GoalCreate,
+                json!({"sessionId":"g","objective":"Do not falsely complete","maxGoalRounds":5}),
+            )
+            .await;
+            let session = wait(&host, &store, "paused").await;
+            let state = execution_state(&session).unwrap();
+            assert_eq!(state.definition.verification, VerificationMode::AgentReport);
+            assert_eq!(
+                state.definition.snapshot.phase,
+                xharness_session::GoalPhase::Paused
+            );
+            assert_eq!(execution_projection(&session)["pauseReason"], pause_reason);
+            assert_eq!(model.rounds.load(Ordering::SeqCst), rounds);
+            assert_eq!(
+                state
+                    .latest_turn
+                    .as_ref()
+                    .and_then(|t| t.report.as_ref())
+                    .is_some(),
+                has_report
+            );
+            host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn persisted_user_confirmation_still_waits_and_can_be_confirmed() {
+        let (host, store, model) = setup("complete").await;
+        call(&host, "legacy-create", RpcMethod::GoalCreate,
+            json!({"sessionId":"g","objective":"Legacy confirmation","maxGoalRounds":5,"executionEnabled":false})).await;
+        let controller = xharness_agent::GoalController::new(store.clone(), "g");
+        controller
+            .enable(
+                store.load("g").await.unwrap().unwrap().revision(),
+                vec![],
+                VerificationMode::UserConfirm,
+                3,
+            )
+            .await
+            .unwrap();
+        host.activate_goal("g").await.unwrap();
+        let session = wait(&host, &store, "awaiting_confirmation").await;
+        assert_eq!(
+            execution_projection(&session)["verificationMode"],
+            "user_confirm"
+        );
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert_eq!(
+            model.rounds.load(Ordering::SeqCst),
+            1,
+            "legacy confirmation must not auto-finish or continue"
+        );
+        let snapshot = execution_state(&session).unwrap().definition.snapshot;
+        call(
+            &host,
+            "legacy-confirm",
+            RpcMethod::GoalComplete,
+            json!({"sessionId":"g","ref":{"id":snapshot.id,"revision":snapshot.revision}}),
+        )
+        .await;
+        let session = wait(&host, &store, "complete").await;
+        assert_eq!(
+            execution_state(&session).unwrap().definition.verification,
+            VerificationMode::UserConfirm
+        );
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
     #[tokio::test]
@@ -831,7 +999,7 @@ mod tests {
             json!({"sessionId":"g","objective":"Check","maxGoalRounds":2}),
         )
         .await;
-        let session = wait(&host, &store, "awaiting_confirmation").await;
+        let session = wait(&host, &store, "complete").await;
         let state = execution_state(&session).unwrap();
         let registry = Arc::new(xharness_tools::ToolRegistry::new());
         registry
@@ -873,6 +1041,21 @@ mod tests {
                 xharness_tools::ToolRegistry::new(),
             )))
         }
+        async fn validate_goal_references(
+            &self,
+            _: &str,
+            refs: &[GoalEvidence],
+        ) -> Result<(), String> {
+            if refs.iter().all(|r| match r {
+                GoalEvidence::Job { reference } => reference == "required-job",
+                GoalEvidence::Agent { .. } => false,
+                _ => true,
+            }) {
+                Ok(())
+            } else {
+                Err("unknown fixture dependency".into())
+            }
+        }
         async fn goal_dependencies(&self, _: &str, refs: &[GoalEvidence]) -> Result<bool, String> {
             Ok(!refs.is_empty() && self.0.load(Ordering::SeqCst))
         }
@@ -892,7 +1075,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(1200)).await;
         assert_eq!(model.rounds.load(Ordering::SeqCst), 1);
         tools.0.store(false, Ordering::SeqCst);
-        wait(&host, &store, "awaiting_confirmation").await;
+        wait(&host, &store, "complete").await;
         assert_eq!(model.rounds.load(Ordering::SeqCst), 2);
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
@@ -933,6 +1116,10 @@ mod tests {
         );
         let session = wait(&host, &store, "awaiting_confirmation").await;
         assert_eq!(execution_state(&session).unwrap().rounds_started, 1);
+        assert_eq!(
+            execution_state(&session).unwrap().definition.verification,
+            VerificationMode::UserConfirm
+        );
         assert_eq!(model.rounds.load(Ordering::SeqCst), 1);
         assert!(host.state.read().await.sessions["g"].queue.is_empty());
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
@@ -982,6 +1169,10 @@ mod tests {
                 .unwrap()
                 .rounds_started,
             1
+        );
+        assert_eq!(
+            c.state().await.unwrap().unwrap().definition.verification,
+            VerificationMode::UserConfirm
         );
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
@@ -1044,7 +1235,7 @@ mod tests {
             json!({"sessionId":"g","objective":"Complete the fixture"}),
         )
         .await;
-        let session = wait(&host, &store, "awaiting_confirmation").await;
+        let session = wait(&host, &store, "complete").await;
         let seq = session
             .events()
             .iter()
@@ -1413,3 +1604,7 @@ mod tests {
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
 }
+
+#[cfg(test)]
+#[path = "goal_report_reference_tests.rs"]
+mod report_reference_tests;
