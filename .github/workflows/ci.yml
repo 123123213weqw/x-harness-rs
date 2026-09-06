@@ -29,6 +29,12 @@ jobs:
         if: matrix.os == 'windows-2025'
         shell: pwsh
         run: ./scripts/test-update-channel-signer.ps1
+      - name: Fast Windows Shell reconciliation regression (no Rust build)
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-install-ownership-fixture.ps1
+          if ($LASTEXITCODE) { throw 'Windows Shell reconciliation regression failed' }
 
   context-layout:
     name: Context and Harness layout / Chromium + WebKit
