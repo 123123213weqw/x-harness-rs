@@ -85,7 +85,9 @@ function Get-XHarnessLegacyLocations {
 function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
     $canonical = Get-XHarnessDirectory $Directory
     if (@(Get-XHarnessProcesses).Count) { throw 'An XHarness process started during installation; close it and retry' }
-    $records = @(Get-Content -LiteralPath $Inventory -Raw | ConvertFrom-Json)
+    # Windows PowerShell 5.1 can wrap an empty JSON array as one pipeline item
+    # inside @(...). Keep the parsed array itself, so a first install has no links.
+    $records = Get-Content -LiteralPath $Inventory -Raw | ConvertFrom-Json
     $shell = New-Object -ComObject WScript.Shell
     $target = Join-Path $canonical 'xharness-desktop.exe'
     foreach ($record in $records) {

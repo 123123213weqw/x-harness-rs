@@ -13,6 +13,9 @@
   Pop $1
   ${If} $0 != 0
     DetailPrint "$1"
+    FileOpen $2 "$TEMP\XHarness-installation.log" a
+    FileWrite $2 "Preflight: $1$\r$\n"
+    FileClose $2
     MessageBox MB_OK|MB_ICONSTOP "Close all XHarness windows and Hosts, then retry. Installation was not started.$\r$\n$1" /SD IDOK
     SetErrorLevel 2
     Abort
@@ -26,6 +29,9 @@
   Pop $1
   ${If} $0 != 0
     DetailPrint "$1"
+    FileOpen $2 "$TEMP\XHarness-installation.log" a
+    FileWrite $2 "Reconcile: $1$\r$\n"
+    FileClose $2
     MessageBox MB_OK|MB_ICONEXCLAMATION "XHarness files were installed but shortcut migration needs attention. Old data was not deleted.$\r$\n$1" /SD IDOK
     SetErrorLevel 3
     Abort

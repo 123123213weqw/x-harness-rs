@@ -14,11 +14,14 @@ function New-TestCopy([string]$Name) {
     [IO.File]::WriteAllText((Join-Path $directory 'user-project.txt'), 'DO NOT DELETE')
     return $directory
 }
-$canonical = New-TestCopy 'new 中文 path'
+$canonical = New-TestCopy ('new ' + [char]0x4e2d + [char]0x6587 + ' path')
 $old = New-TestCopy 'legacy'
 $custom = New-TestCopy 'custom-launch'
 $unknown = New-TestCopy 'unknown-location'
 function Get-XHarnessLegacyLocations { $old; $custom }
+$empty = Join-Path $fixture 'empty.json'
+[IO.File]::WriteAllText($empty, '[]')
+Invoke-XHarnessReconcile $canonical $empty
 $records = @()
 foreach ($copy in @($old, $custom, $unknown)) {
     $shortcut = Join-Path $fixture ((Split-Path $copy -Leaf) + '.lnk')

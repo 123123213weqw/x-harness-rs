@@ -168,6 +168,8 @@ jobs:
         run: |
           $installer = Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe | Select-Object -First 1
           ./scripts/test-install-ownership-logic.ps1 -DesktopBinary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe
+          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-install-ownership-logic.ps1 -DesktopBinary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe
+          if ($LASTEXITCODE) { throw 'Windows PowerShell 5.1 installer logic failed' }
           ./scripts/test-windows-install-ownership.ps1 -Installer $installer.FullName
       - name: Upload installation ownership evidence
         if: always()
