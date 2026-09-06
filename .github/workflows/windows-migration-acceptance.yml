@@ -11,6 +11,10 @@ on:
         description: Public upstream next version
         required: true
         default: '0.2.3'
+      probe_only:
+        description: Only validate original installer startup while release builds run (NOT migration acceptance)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,6 +38,7 @@ jobs:
       UPSTREAM_REPOSITORY: ${{ vars.XHARNESS_BRIDGE_UPSTREAM_REPOSITORY }}
       UPSTREAM_PUBLIC_KEY: ${{ vars.XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY }}
       OLD_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+      PROBE_ONLY: ${{ inputs.probe_only }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4

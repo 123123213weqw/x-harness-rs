@@ -17,6 +17,7 @@ assert.equal(process.platform, 'win32')
 const e = process.env, root = resolve('dist/migration-acceptance'), evidence = join(root, 'evidence')
 mkdirSync(evidence, { recursive: true })
 const oldRepo = e.GITHUB_REPOSITORY, upstream = e.UPSTREAM_REPOSITORY
+const probeOnly = e.PROBE_ONLY === 'true'
 for (const repo of [oldRepo, upstream]) assert.match(repo, /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)
 for (const v of [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) assert.match(v, /^\d+\.\d+\.\d+$/)
 assert.ok(['0.2.0', '0.2.1'].includes(e.BASE_VERSION))
@@ -32,6 +33,8 @@ function download(repo, tag, kind, names) {
 if (process.argv[2] === 'download') {
   const base = filename(e.BASE_VERSION), bridge = filename(e.BRIDGE_VERSION), next = filename(e.UPSTREAM_VERSION)
   download(oldRepo, 'friends-v0.2.1', 'old', [base, base + '.sig'])
+  verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
+  if (!probeOnly) {
   download(oldRepo, `friends-v${e.BRIDGE_VERSION}`, 'bridge', [bridge, bridge + '.sig', bridge + '.upstream.sig', 'latest.json', 'migration.json'])
   download(upstream, `friends-v${e.UPSTREAM_VERSION}`, 'next', [next, next + '.sig', 'latest.json'])
   verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
@@ -45,6 +48,7 @@ if (process.argv[2] === 'download') {
   writeFileSync(join(evidence, 'packages.json'), JSON.stringify({ base: e.BASE_VERSION, bridge: e.BRIDGE_VERSION, next: e.UPSTREAM_VERSION,
     hashes: ['old', 'bridge', 'next'].map((kind, i) => ({ kind, sha256: hash(location(kind, [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION][i])) })) }, null, 2))
   console.log('Downloaded and verified exact production packages; no private signing keys used.')
+  } else console.log('Original installer verified for startup probe only; NOT migration acceptance.')
 } else if (process.argv[2] === 'run') {
   await run()
 } else throw new Error('Expected download or run')
@@ -64,13 +68,13 @@ async function run() {
   const retained = ['providers.json', 'secrets/migration_fixture_key', 'workspace/保留-fixture.txt'].map(name => ({ name, sha256: hash(join(data, name)) }))
   const requests = [], checkpoints = []
   let rejectPackage = false
-  const mappings = new Map([
+  const mappings = new Map(probeOnly ? [] : [
     [`/${oldRepo}/releases/latest/download/latest.json`, join(root, 'bridge', 'latest.json')],
     [`/${upstream}/releases/latest/download/latest.json`, join(root, 'next', 'latest.json')],
     [new URL(manifest('bridge').platforms['windows-x86_64'].url).pathname, location('bridge', e.BRIDGE_VERSION)],
     [new URL(manifest('next').platforms['windows-x86_64'].url).pathname, location('next', e.UPSTREAM_VERSION)],
   ])
-  for (const kind of ['bridge', 'next']) assert.equal(new URL(manifest(kind).platforms['windows-x86_64'].url).hostname, 'github.com')
+  if (!probeOnly) for (const kind of ['bridge', 'next']) assert.equal(new URL(manifest(kind).platforms['windows-x86_64'].url).hostname, 'github.com')
   const tls = httpsServer({ pfx: readFileSync(e.MIGRATION_TEST_PFX), passphrase: 'disposable-ci-only' }, (req, res) => {
     const pathname = new URL(req.url, 'https://github.com').pathname
     requests.push({ pathname, time: new Date().toISOString() })
@@ -147,6 +151,10 @@ async function run() {
     await rpc(page, 'session.create', { sessionId })
     await rpc(page, 'session.rename', { sessionId, title: '迁移保留测试' })
     await checkpoint(page, e.BASE_VERSION)
+    if (probeOnly) {
+      writeFileSync(join(evidence, 'PROBE-ONLY.json'), JSON.stringify({ nativeTwoHop: false, checkpoints }, null, 2))
+      return
+    }
     for (const version of [e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) {
       const check = await until(async () => {
         const state = await invoke(page, 'desktop_check_update')
