@@ -26,7 +26,7 @@ tokio = { version = "1", features = ["fs", "io-util", "net", "sync", "time"] }
 url = "2"
 
 [target.'cfg(windows)'.dependencies]
-xharness-win32 = { path = "../../../../crates/xharness-win32" }
+xharness-win32 = { path = "../../../crates/xharness-win32" }
 
 # Keep the desktop shell outside the repository's main Rust workspace. The
 # Host remains a reusable server/CLI binary, while each platform CI build first
