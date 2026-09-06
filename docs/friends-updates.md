@@ -67,6 +67,56 @@ Windows and macOS can share an aggregate manifest, but this workflow currently
 builds Windows only. Adding macOS, deciding platform signing/notarization, and
 coordinating all platform uploads before publication remain separate work.
 
+### Non-disruptive handoff to upstream maintenance
+
+The requested policy is upstream-owned future code/releases, without forcibly
+changing existing installations. Keep the fork feed, published artifacts and old
+verification key available during the transition. Do not replace the old manifest
+with an unrelated-key upstream package, delete old releases, share private signing
+keys, or switch installed clients merely because this PR is merged.
+
+Before inviting users to migrate, upstream maintainers must choose one release
+channel, configure their own signing material, and publish a compatible base
+installer. A newer source tree alone is not a migration artifact. The installer
+must include the shared model settings implementation (merged #21 or equivalent),
+retain application identifier `com.xlang.xharness`, and preserve the actual user
+state/config/workspace locations and persisted formats. Verify compatibility with
+the latest installed fork build; do not rely on an older test release or assume
+that a lower upstream version is a valid upgrade.
+
+For the initial small-group handoff, use an explicitly chosen one-time installation
+of the verified upstream base. After that, its embedded upstream endpoint/public
+key handle future updates. A bridge delivered through the old updater is a possible
+later implementation: it must be deliberately signed by the old channel owner and
+reviewed as a trust change. No bridge publisher or automatic trust migration is
+implemented by this PR.
+
+Per-platform acceptance before rollout:
+
+1. Record the currently resolved application data paths and versions. Back up
+   persisted state/configuration and workspace data locally; never include these
+   backups or model keys in CI artifacts. Retain the previous installer.
+2. Finish or explicitly stop active Agent turns and background commands, then
+   close the old application before installing. Do not run two Hosts against the
+   same state directory. Installing an update entails a short interruption; it
+   does not guarantee restoration of external command side effects.
+3. Confirm session history, provider profiles, model selection and workspace
+   locations after installation. Credential-store identity is derived from the
+   canonical state directory: changing that location can make saved model keys
+   unavailable even if the profile JSON was copied. Preserve it and verify a model
+   call under the same OS account; do not export keys to plaintext to work around
+   failures. macOS keychain access prompts/permissions need separate verification.
+4. Check the actual upstream feed, package signature, download and restart path
+   on Windows and each supported Mac architecture. Keep OS trust/notarization
+   prompts distinct from updater signature validation. A Windows build does not
+   validate Mac installation or an aggregate manifest.
+5. If migration fails, stop the new process and use the retained installer plus
+   pre-migration state backup as needed. Do not downgrade a state directory that
+   has undergone an incompatible format migration without restoring its backup.
+
+Until this acceptance is complete, leave existing users on the original channel.
+Submitting this checklist is not evidence that any installed client has migrated.
+
 ## Verification
 
 Run `python3 -B scripts/test-friends-release.py` without secrets for identity,
