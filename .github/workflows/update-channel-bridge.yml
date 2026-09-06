@@ -1,0 +1,72 @@
+name: Windows Update Channel Bridge
+
+on:
+  workflow_dispatch:
+    inputs:
+      bridge_version:
+        description: Existing upstream bootstrap installer version to re-sign for old clients
+        required: true
+      upstream_version:
+        description: Newer public upstream friends release containing both installers
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: friends-windows-release
+  cancel-in-progress: false
+
+jobs:
+  bridge:
+    if: github.ref == 'refs/heads/master' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BRIDGE_VERSION: ${{ inputs.bridge_version }}
+      UPSTREAM_VERSION: ${{ inputs.upstream_version }}
+      XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+      XHARNESS_BRIDGE_UPSTREAM_REPOSITORY: ${{ vars.XHARNESS_BRIDGE_UPSTREAM_REPOSITORY }}
+      XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY: ${{ vars.XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY }}
+      XHARNESS_FRIENDS_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify migration contract and immutable upstream packages
+        run: |
+          node scripts/test-update-channel-bridge.mjs
+          if ($LASTEXITCODE) { throw 'Bridge regression failed' }
+          node scripts/update-channel-bridge.mjs prepare
+          if ($LASTEXITCODE) { throw 'Upstream verification failed' }
+      - name: Re-sign unchanged bridge with old repository key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY -or -not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { throw 'Missing old-channel signing configuration' }
+          $installer = "dist/channel-bridge/release/XHarness_$($env:BRIDGE_VERSION)_x64-setup.exe"
+          npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri signer sign $installer
+          if ($LASTEXITCODE) { throw 'Bridge signing failed' }
+      - name: Independently verify both trust chains and unchanged installer
+        run: |
+          node scripts/update-channel-bridge.mjs finish
+          if ($LASTEXITCODE) { throw 'Bridge verification failed' }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Windows-channel-bridge
+          path: dist/channel-bridge/release/
+          if-no-files-found: error
+      - name: Stage immutable draft for native acceptance (never change live feed)
+        run: |
+          $tag = "friends-v$($env:BRIDGE_VERSION)"
+          gh release create $tag --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --draft --latest=false --title "XHarness $($env:BRIDGE_VERSION) · 上游迁移过渡版" --notes-file dist/channel-bridge/release/README.md
+          if ($LASTEXITCODE) { throw 'Draft creation failed; do not overwrite versions' }
+          $assets = @(Get-ChildItem dist/channel-bridge/release -File | ForEach-Object FullName)
+          gh release upload $tag @assets --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE) { throw 'Upload failed; draft remains private' }
