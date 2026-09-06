@@ -14,7 +14,7 @@ pub trait AgentLease: Send + Sync + 'static {
 
 #[derive(Debug, thiserror::Error)]
 pub enum LeaseError {
-    #[error("agent {agent_id:?} already has a live owner")]
+    #[error("agent {agent_id:?} already has a live owner; close the other XHarness window/Host or wait for its task to finish, then retry (do not delete lock files)")]
     AlreadyOwned { agent_id: String },
     #[error("invalid agent id {agent_id:?}")]
     InvalidAgentId { agent_id: String },
