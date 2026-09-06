@@ -7,6 +7,8 @@ use std::{collections::HashMap, sync::Mutex, time::Duration};
 use tauri::{AppHandle, Emitter, Manager, State, Webview};
 use tokio::sync::oneshot;
 
+pub(crate) const OPEN_TIMEOUT: Duration = Duration::from_secs(30);
+
 use crate::browser::{self, BrowserState};
 
 #[derive(Default)]
@@ -120,7 +122,7 @@ impl BrowserLifecycle {
             },
         )
         .map_err(|_| "browser UI unavailable")?;
-        let result = tokio::time::timeout(Duration::from_secs(30), receive)
+        let result = tokio::time::timeout(OPEN_TIMEOUT, receive)
             .await
             .map_err(|_| "browser open timed out; provisional tab cancelled")?
             .map_err(|_| "browser open cancelled")?;
