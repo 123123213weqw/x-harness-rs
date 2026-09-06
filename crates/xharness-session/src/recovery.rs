@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{EventData, LoggedEvent, Session, SessionEvent, ToolCall, ToolOutcome, ToolResultData};
 use xharness_interaction::{
-    QuestionAnswer, QuestionInteraction, QuestionInvocation, QuestionTerminalState,
+    AskUserQuestionRequest, QuestionAnswer, QuestionInteraction, QuestionInvocation,
+    QuestionTerminalState, ASK_USER_QUESTION_TOOL,
 };
 
 pub const COMPACTION_INTERRUPTED_ERROR: &str =
@@ -255,8 +256,9 @@ pub fn incomplete_tool_calls(events: &[LoggedEvent]) -> Vec<IncompleteToolCall> 
 }
 
 /// Build append candidates that balance every incomplete tool call with an
-/// explicit `outcome_unknown` result. Callers choose the durability boundary
-/// and append them through the normal CAS path.
+/// explicit `outcome_unknown` result, except unrequested malformed questions:
+/// their original arguments prove they could not execute, so record an error.
+/// Callers choose the durability boundary and append through the normal CAS path.
 pub fn outcome_unknown_recovery(events: &[LoggedEvent]) -> Vec<SessionEvent> {
     let awaiting_approval = pending_tool_approvals(events)
         .into_iter()
@@ -273,13 +275,25 @@ pub fn outcome_unknown_recovery(events: &[LoggedEvent]) -> Vec<SessionEvent> {
                 && !recoverable_questions.contains(&pending.call.id)
         })
         .map(|pending| {
+            let invalid_question = (pending.call.name == ASK_USER_QUESTION_TOOL)
+                .then(|| AskUserQuestionRequest::parse(&pending.call.arguments_json).err())
+                .flatten();
+            let (outcome, content) = match invalid_question {
+                Some(error) => (ToolOutcome::Error, serde_json::json!({
+                    "ok": false,
+                    "content": "",
+                    "error": format!("Invalid ask_user_question arguments: {error}. Correct the arguments and retry."),
+                    "truncated": false,
+                }).to_string()),
+                None => (ToolOutcome::OutcomeUnknown, OUTCOME_UNKNOWN_CONTENT.to_owned()),
+            };
             EventData::ToolResult {
                 turn: pending.turn,
                 step: pending.step,
                 result: ToolResultData {
                     call_id: pending.call.id,
-                    outcome: ToolOutcome::OutcomeUnknown,
-                    content: OUTCOME_UNKNOWN_CONTENT.to_owned(),
+                    outcome,
+                    content,
                     metadata: None,
                 },
             }
