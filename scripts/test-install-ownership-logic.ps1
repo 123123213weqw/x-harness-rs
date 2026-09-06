@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$DesktopBinary)
 $ErrorActionPreference = 'Stop'
+trap { Write-Output $_.ScriptStackTrace; Write-Output $_.Exception.ToString(); throw }
 . "$PSScriptRoot/../apps/desktop/src-tauri/windows/install-ownership.ps1"
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ('xharness-reconcile-unit-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture | Out-Null
@@ -20,10 +21,12 @@ $custom = New-TestCopy 'custom-launch'
 $unknown = New-TestCopy 'unknown-location'
 function Get-XHarnessLegacyLocations { $old; $custom }
 $empty = Join-Path $fixture 'empty.json'
+Write-Output 'Checking empty shortcut inventory'
 [IO.File]::WriteAllText($empty, '[]')
 Invoke-XHarnessReconcile $canonical $empty
 $records = @()
 foreach ($copy in @($old, $custom, $unknown)) {
+    Write-Output "Creating fixture shortcut for $copy"
     $shortcut = Join-Path $fixture ((Split-Path $copy -Leaf) + '.lnk')
     $link = $shell.CreateShortcut($shortcut)
     $link.TargetPath = Join-Path $copy 'xharness-desktop.exe'
@@ -34,6 +37,7 @@ foreach ($copy in @($old, $custom, $unknown)) {
 $inventory = Join-Path $fixture 'inventory.json'
 $records | ConvertTo-Json | Set-Content -LiteralPath $inventory -Encoding UTF8
 Invoke-XHarnessReconcile $canonical $inventory
+Write-Output 'Reconciliation completed; checking copies and shortcuts'
 Assert-That (-not (Test-Path -LiteralPath (Join-Path $old 'xharness-desktop.exe'))) 'Legacy remains executable'
 Assert-That (Test-Path -LiteralPath (Join-Path $old 'xharness-desktop.exe.before-xharness-update')) 'Backup missing'
 Assert-That ((Get-Content -LiteralPath (Join-Path $old 'user-project.txt') -Raw) -eq 'DO NOT DELETE') 'User project changed'
