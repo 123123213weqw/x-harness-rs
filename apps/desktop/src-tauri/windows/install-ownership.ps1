@@ -4,6 +4,8 @@ param(
     [string]$InventoryPath
 )
 $ErrorActionPreference = 'Stop'
+$shortcutSource = Join-Path $(if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $env:XHARNESS_INSTALL_SCRIPT }) 'install-shortcuts.cs'
+if (-not ('XHarnessInstaller.Shortcuts' -as [type])) { Add-Type -Path $shortcutSource }
 
 function Assert-XHarnessNoRedirect($Item) {
     if (-not ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
@@ -49,11 +51,10 @@ function Get-XHarnessProcesses {
 }
 
 function Get-XHarnessLinks {
-    $shell = New-Object -ComObject WScript.Shell
     $roots = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))
     foreach ($root in $roots) {
         foreach ($file in @(Get-ChildItem -LiteralPath $root -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue)) {
-            $link = $shell.CreateShortcut($file.FullName)
+            $link = [XHarnessInstaller.Shortcuts]::Read($file.FullName)
             if ([IO.Path]::GetFileName($link.TargetPath) -ine 'xharness-desktop.exe') { continue }
             # A custom launch command is not ours to rewrite or retire.
             try { $directory = Get-XHarnessDirectory ([IO.Path]::GetDirectoryName($link.TargetPath)) }
@@ -88,22 +89,18 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
     # Windows PowerShell 5.1 can wrap an empty JSON array as one pipeline item
     # inside @(...). Keep the parsed array itself, so a first install has no links.
     $records = Get-Content -LiteralPath $Inventory -Raw | ConvertFrom-Json
-    $shell = New-Object -ComObject WScript.Shell
     $target = Join-Path $canonical 'xharness-desktop.exe'
     foreach ($record in $records) {
         if ($record.Custom) { continue }
         if (-not (Test-Path -LiteralPath $record.Link -PathType Leaf)) { continue }
-        $link = $shell.CreateShortcut($record.Link)
+        $link = [XHarnessInstaller.Shortcuts]::Read($record.Link)
         if ($link.Arguments -or [IO.Path]::GetFileName($link.TargetPath) -ine 'xharness-desktop.exe') { continue }
         # Only the previously observed target or the target NSIS just wrote.
         $observed = Join-Path $record.Directory 'xharness-desktop.exe'
         if ($link.TargetPath -ine $observed -and $link.TargetPath -ine $target) { continue }
         $backup = $record.Link + '.before-xharness-update'
         if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $record.Link -Destination $backup }
-        $link.TargetPath = $target
-        $link.WorkingDirectory = $canonical
-        $link.IconLocation = $target + ',0'
-        $link.Save()
+        [XHarnessInstaller.Shortcuts]::Update($record.Link, $target, $canonical)
     }
     # Deliberately retain unknown files/data and old directories. Only known
     # legacy distribution locations can be retired automatically, recoverably.
@@ -144,10 +141,7 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
             }
             throw
         }
-        $redirect = $shell.CreateShortcut((Join-Path $verified 'XHarness.lnk'))
-        $redirect.TargetPath = $target
-        $redirect.WorkingDirectory = $canonical
-        $redirect.Save()
+        [XHarnessInstaller.Shortcuts]::Update((Join-Path $verified 'XHarness.lnk'), $target, $canonical)
     }
 }
 

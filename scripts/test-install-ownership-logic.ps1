@@ -43,7 +43,7 @@ Assert-That (Test-Path -LiteralPath (Join-Path $old 'xharness-desktop.exe.before
 Assert-That ((Get-Content -LiteralPath (Join-Path $old 'user-project.txt') -Raw) -eq 'DO NOT DELETE') 'User project changed'
 Assert-That (Test-Path -LiteralPath (Join-Path $custom 'xharness-desktop.exe')) 'Custom launcher was retired'
 Assert-That (Test-Path -LiteralPath (Join-Path $unknown 'xharness-desktop.exe')) 'Unknown directory was retired'
-Assert-That ($shell.CreateShortcut($records[0].Link).TargetPath -ieq (Join-Path $canonical 'xharness-desktop.exe')) 'Known shortcut not updated'
+Assert-That ([XHarnessInstaller.Shortcuts]::Read($records[0].Link).TargetPath -ieq (Join-Path $canonical 'xharness-desktop.exe')) 'Known shortcut not updated'
 Assert-That ($shell.CreateShortcut($records[1].Link).Arguments -eq '--custom-profile') 'Custom shortcut changed'
 # A second migration against its old inventory must not destroy the backup.
 $backupHash = (Get-FileHash -LiteralPath (Join-Path $old 'xharness-desktop.exe.before-xharness-update')).Hash
