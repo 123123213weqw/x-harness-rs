@@ -1784,7 +1784,19 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                             "tool/result coordinates do not match its tool/call",
                         ));
                     }
-                    if result.outcome != crate::ToolOutcome::OutcomeUnknown {
+                    // Older versions closed the step after refusing a malformed
+                    // question's error result. Only provably invalid, unrequested
+                    // questions may acquire an authoritative error after closure.
+                    let invalid_question_error = result.outcome == crate::ToolOutcome::Error
+                        && !question_by_call.contains_key(&result.call_id)
+                        && call_arguments
+                            .get(&result.call_id)
+                            .is_some_and(|arguments| {
+                                AskUserQuestionRequest::parse(arguments).is_err()
+                            });
+                    if result.outcome != crate::ToolOutcome::OutcomeUnknown
+                        && !invalid_question_error
+                    {
                         let Some(state) = open_step.as_ref() else {
                             return Err(lifecycle_error(
                                 logged.seq,
@@ -1801,21 +1813,21 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     if call_names.get(&result.call_id).map(String::as_str)
                         == Some(ASK_USER_QUESTION_TOOL)
                     {
-                        let interaction_id =
-                            question_by_call.get(&result.call_id).ok_or_else(|| {
-                                lifecycle_error(
-                                logged.seq,
-                                "ask_user_question tool/result has no durable question/requested",
-                            )
-                            })?;
-                        let terminal = questions
-                            .get(interaction_id)
-                            .expect("question call map references an interaction")
-                            .terminal_state();
-                        if matches!(terminal, QuestionTerminalState::Pending) {
+                        if let Some(interaction_id) = question_by_call.get(&result.call_id) {
+                            let terminal = questions
+                                .get(interaction_id)
+                                .expect("question call map references an interaction")
+                                .terminal_state();
+                            if matches!(terminal, QuestionTerminalState::Pending) {
+                                return Err(lifecycle_error(
+                                    logged.seq,
+                                    "ask_user_question tool/result cannot precede question settlement",
+                                ));
+                            }
+                        } else if result.outcome == crate::ToolOutcome::Success {
                             return Err(lifecycle_error(
                                 logged.seq,
-                                "ask_user_question tool/result cannot precede question settlement",
+                                "ask_user_question tool/result has no durable question/requested",
                             ));
                         }
                     }
