@@ -133,7 +133,11 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     }
     let result = start_claimed(app).await;
     if result.is_err() {
-        force_stop(app);
+        if state.child.lock().expect("child mutex poisoned").is_none() {
+            state.running.store(false, Ordering::SeqCst);
+        } else {
+            force_stop(app);
+        }
     }
     result
 }
@@ -200,9 +204,10 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
                 }
                 CommandEvent::Terminated(payload) => {
                     let state = event_app.state::<DesktopState>();
-                    state.running.store(false, Ordering::SeqCst);
                     *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
                     state.child.lock().expect("child mutex poisoned").take();
+                    // Publish stopped only after cleaning up this generation.
+                    state.running.store(false, Ordering::SeqCst);
                     let _ = event_app.emit(
                         "xharness-host",
                         HostEvent {
@@ -249,14 +254,7 @@ pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
     tokio::fs::write(&state.shutdown_file, b"shutdown")
         .await
         .map_err(|error| format!("无法请求 Host 安全退出：{error}"))?;
-    let deadline = Instant::now() + HOST_STOP_TIMEOUT;
-    while state.running.load(Ordering::SeqCst) && Instant::now() < deadline {
-        time::sleep(Duration::from_millis(100)).await;
-    }
-    if state.running.load(Ordering::SeqCst) {
-        force_stop(app);
-        return Err("Host 未在 15 秒内安全退出，已强制终止".to_owned());
-    }
+    wait_for_stop(&state.running, HOST_STOP_TIMEOUT).await?;
     let _ = tokio::fs::remove_file(&state.shutdown_file).await;
     let _ = tokio::fs::remove_file(&state.ready_file).await;
     Ok(())
@@ -264,12 +262,22 @@ pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
 
 pub fn force_stop(app: &AppHandle) {
     let state = app.state::<DesktopState>();
-    state.running.store(false, Ordering::SeqCst);
-    *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
     let child = state.child.lock().expect("child mutex poisoned").take();
     if let Some(child) = child {
+        // kill is a request, not proof of exit. Only Terminated marks stopped.
         let _ = child.kill();
     }
+}
+
+async fn wait_for_stop(running: &AtomicBool, timeout: Duration) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    while running.load(Ordering::SeqCst) {
+        if Instant::now() >= deadline {
+            return Err("Host 尚未确认退出，更新不会强制中断任务或替换程序".to_owned());
+        }
+        time::sleep(Duration::from_millis(20)).await;
+    }
+    Ok(())
 }
 
 async fn wait_until_ready(app: &AppHandle, ready_file: &Path) -> Result<String, String> {
@@ -417,6 +425,19 @@ fn read_nonempty_secret(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_timeout_does_not_pretend_process_exited() {
+        tauri::async_runtime::block_on(async {
+            let running = AtomicBool::new(true);
+            assert!(wait_for_stop(&running, Duration::from_millis(1))
+                .await
+                .is_err());
+            assert!(running.load(Ordering::SeqCst));
+            running.store(false, Ordering::SeqCst);
+            assert!(wait_for_stop(&running, Duration::ZERO).await.is_ok());
+        });
+    }
 
     #[test]
     fn launch_tokens_are_full_width_hex() {

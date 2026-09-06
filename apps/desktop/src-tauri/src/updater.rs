@@ -82,12 +82,21 @@ async fn check(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Update>, 
     }
     let endpoint = Url::parse(UPDATE_ENDPOINT.ok_or_else(not_configured)?)
         .map_err(|error| format!("更新地址无效：{error}"))?;
-    let updater = app
+    let builder = app
         .updater_builder()
         .endpoints(vec![endpoint])
         .map_err(|error| format!("无法配置更新地址：{error}"))?
         .pubkey(UPDATE_PUBLIC_KEY.ok_or_else(not_configured)?)
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(30));
+    // NSIS otherwise consults the last registered installation, which may be a
+    // different copy. /D must be the final, unquoted NSIS argument (spaces allowed).
+    #[cfg(windows)]
+    let builder = builder
+        .clear_installer_args()
+        .installer_arg(windows_install_directory_arg(
+            &std::env::current_exe().map_err(|error| format!("无法定位当前安装目录：{error}"))?,
+        )?);
+    let updater = builder
         .build()
         .map_err(|error| format!("无法初始化更新器：{error}"))?;
     updater
@@ -175,7 +184,15 @@ pub async fn desktop_install_update(
         Some("正在保存会话并停止 Agent、Tool 和 Job".to_owned()),
     );
     if let Err(error) = sidecar::graceful_stop(&app).await {
-        transition(&app, &state, Phase::HostForceStopped, Some(error));
+        return fail(
+            &app,
+            &state,
+            Action::Install,
+            format!(
+                "已暂停更新，尚未确认 Host 安全退出：{error}。请完成退出后重试；安装包已保留。"
+            ),
+        )
+        .map(|_| ());
     }
     transition(&app, &state, Phase::Installing, None);
     if let Err(error) = update.install(bytes.as_slice()) {
@@ -194,6 +211,22 @@ pub async fn desktop_install_update(
     }
     transition(&app, &state, Phase::Installed, None);
     app.restart();
+}
+
+#[cfg(any(windows, test))]
+fn windows_install_directory_arg(
+    executable: &std::path::Path,
+) -> Result<std::ffi::OsString, String> {
+    let directory = executable
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or_else(|| "无法定位当前安装目录".to_owned())?;
+    if !executable.is_absolute() || directory.parent().is_none() {
+        return Err("拒绝无效或根目录安装位置".to_owned());
+    }
+    let mut argument = std::ffi::OsString::from("/D=");
+    argument.push(directory);
+    Ok(argument)
 }
 
 fn acquire<'a>(busy: &'a AtomicBool, closing: &AtomicBool) -> Result<BusyGuard<'a>, String> {
@@ -269,6 +302,21 @@ fn not_configured() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_directory_is_explicit_and_preserves_spaces_and_unicode() {
+        let root = std::env::temp_dir().join("XHarness 中文 custom location");
+        let executable = root.join("xharness-desktop.exe");
+        let mut expected = std::ffi::OsString::from("/D=");
+        expected.push(root);
+        assert_eq!(
+            windows_install_directory_arg(&executable).unwrap(),
+            expected
+        );
+        assert!(
+            windows_install_directory_arg(std::path::Path::new("xharness-desktop.exe")).is_err()
+        );
+    }
 
     #[test]
     fn updater_requires_both_nonempty_immutable_build_inputs_and_https() {
