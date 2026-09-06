@@ -37,6 +37,30 @@ impl Drop for TempWorkspace {
 
 struct HostProcess(tokio::process::Child);
 
+#[tokio::test]
+async fn second_host_cannot_restore_same_state_and_crash_releases_ownership() {
+    let workspace = TempWorkspace::new();
+    let client = Client::new();
+    let first_address = format!("127.0.0.1:{}", unique_port()).parse().unwrap();
+    let first = spawn_host(first_address, &workspace.0);
+    wait_for_workspace(&client, first_address, &workspace.0).await;
+    let second_address = format!("127.0.0.1:{}", unique_port()).parse().unwrap();
+    let second = spawn_host(second_address, &workspace.0);
+    assert!(
+        !second.wait().await.success(),
+        "second writer must fail before readiness"
+    );
+    assert!(workspace_list(&client, first_address).await.is_some());
+    first.stop().await;
+    let replacement = spawn_host(second_address, &workspace.0);
+    wait_for_workspace(&client, second_address, &workspace.0).await;
+    replacement.stop().await;
+    assert!(workspace
+        .0
+        .join(".xharness-state/ownership/host.agent.lock")
+        .exists());
+}
+
 impl HostProcess {
     async fn stop(mut self) {
         let _ = self.0.start_kill();
