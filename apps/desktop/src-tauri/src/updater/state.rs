@@ -12,7 +12,6 @@ pub enum Phase {
     Downloading,
     Downloaded,
     StoppingHost,
-    HostForceStopped,
     Installing,
     RecoveringHost,
     Installed,
