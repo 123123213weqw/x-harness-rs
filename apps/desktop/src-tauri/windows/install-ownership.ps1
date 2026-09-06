@@ -77,6 +77,11 @@ function Invoke-XHarnessPreflight([string]$Inventory) {
     ConvertTo-Json -InputObject @(Get-XHarnessLinks) | Set-Content -LiteralPath $Inventory -Encoding UTF8
 }
 
+function Get-XHarnessLegacyLocations {
+    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'XHarness')
+    (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\XHarness-Friends')
+}
+
 function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
     $canonical = Get-XHarnessDirectory $Directory
     if (@(Get-XHarnessProcesses).Count) { throw 'An XHarness process started during installation; close it and retry' }
@@ -100,10 +105,7 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
     }
     # Deliberately retain unknown files/data and old directories. Only known
     # legacy distribution locations can be retired automatically, recoverably.
-    $legacyLocations = @(
-        (Join-Path ([Environment]::GetFolderPath('Desktop')) 'XHarness'),
-        (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\XHarness-Friends')
-    )
+    $legacyLocations = @(Get-XHarnessLegacyLocations)
     foreach ($legacy in @($records | ForEach-Object Directory | Select-Object -Unique)) {
         if ($legacy -ieq $canonical -or $legacyLocations -inotcontains $legacy) { continue }
         if (@($records | Where-Object { $_.Directory -ieq $legacy -and $_.Custom }).Count) { continue }

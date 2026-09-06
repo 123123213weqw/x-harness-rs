@@ -167,6 +167,7 @@ jobs:
       - name: Native installation ownership and crash acceptance
         run: |
           $installer = Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe | Select-Object -First 1
+          ./scripts/test-install-ownership-logic.ps1 -DesktopBinary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe
           ./scripts/test-windows-install-ownership.ps1 -Installer $installer.FullName
       - name: Upload installation ownership evidence
         if: always()
