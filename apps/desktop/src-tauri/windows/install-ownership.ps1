@@ -5,17 +5,32 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+function Assert-XHarnessNoRedirect($Item) {
+    if (-not ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
+    # OneDrive placeholders are reparse points too, but do not redirect names.
+    # Permit only Microsoft's cloud family; reject junctions/symlinks/unknown tags.
+    $reply = & "$env:SystemRoot\System32\fsutil.exe" reparsepoint query $Item.FullName 2>&1
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect reparse-point target' }
+    $match = [regex]::Match(($reply -join "`n"), '0x[0-9a-fA-F]{8}')
+    if (-not $match.Success) { throw 'Missing reparse-point tag' }
+    $tag = [Convert]::ToUInt32($match.Value.Substring(2), 16)
+    if (($tag -band [Convert]::ToUInt32('FFFF0FFF', 16)) -ne [Convert]::ToUInt32('9000001A', 16)) {
+        throw 'Refuse redirecting or unknown reparse-point installation'
+    }
+}
+
 function Get-XHarnessDirectory([string]$Directory) {
     $item = Get-Item -LiteralPath $Directory -Force
     if (-not $item.PSIsContainer -or -not $item.Parent) { throw 'Invalid installation directory' }
     $cursor = $item
     while ($cursor) {
-        if ($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refuse reparse-point installation' }
+        Assert-XHarnessNoRedirect $cursor
         $cursor = $cursor.Parent
     }
     foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe')) {
         $file = Get-Item -LiteralPath (Join-Path $item.FullName $name)
-        if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Invalid application binary' }
+        if ($file.PSIsContainer) { throw 'Invalid application binary' }
+        Assert-XHarnessNoRedirect $file
     }
     if ((Get-Item -LiteralPath (Join-Path $item.FullName 'xharness-desktop.exe')).VersionInfo.ProductName -ne 'XHarness') {
         throw 'Directory does not contain an XHarness desktop installation'
