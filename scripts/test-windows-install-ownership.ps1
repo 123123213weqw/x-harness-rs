@@ -68,6 +68,7 @@ try {
     $owned.Add([int]$hostPid)
     $second = Start-TestCopy $canonical
     Assert-That ($second.WaitForExit(15000)) 'Second installation launched a competing desktop'
+    Assert-That ($second.ExitCode -eq 0) 'Second desktop crashed instead of forwarding to the owner'
     Assert-That (-not $first.HasExited) 'Duplicate launch terminated the owner'
     Assert-That (@(Host-Children $first.Id).Count -eq 1) 'Duplicate launch changed Host count'
 
