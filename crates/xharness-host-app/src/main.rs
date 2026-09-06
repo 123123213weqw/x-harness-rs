@@ -23,6 +23,25 @@ use xharness_web::WebRuntime;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse()?;
+    #[cfg(windows)]
+    if let Some(permit) = env::var_os("XHARNESS_DESKTOP_START_FILE") {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            match tokio::fs::read(&permit).await {
+                Ok(bytes) if bytes == b"owned" => {
+                    tokio::fs::remove_file(&permit).await?;
+                    break;
+                }
+                Ok(_) => return Err("invalid desktop startup permit".into()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err("desktop exited before establishing Host process ownership".into());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
     // Must precede even debug/config writes and all session restoration.
     let _ownership = xharness_host_app::ownership::acquire(&args.state_dir).await?;
     let (debug, trace) =
