@@ -169,6 +169,11 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     if let Some(providers_file) = &state.providers_file {
         args.extend(["--providers-file".to_owned(), path_text(providers_file)]);
     }
+    #[cfg(windows)]
+    args.extend([
+        "--desktop-start-file".to_owned(),
+        path_text(&state.start_file),
+    ]);
 
     let mut command = app
         .shell()
@@ -183,7 +188,6 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     {
         // Host cannot restore work/spawn children until assigned to our Job.
         let _ = std::fs::remove_file(&state.start_file);
-        command = command.env("XHARNESS_DESKTOP_START_FILE", path_text(&state.start_file));
     }
     let command = command.current_dir(&state.workspace);
     let (mut events, child) = command

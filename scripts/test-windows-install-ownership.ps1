@@ -35,6 +35,18 @@ function Start-TestCopy([string]$Directory) {
 function Host-Children([int]$Parent) {
     @(Get-CimInstance Win32_Process -Filter "Name='xharness-host.exe'" | Where-Object ParentProcessId -eq $Parent)
 }
+function Host-Ready {
+    $cache = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'com.xlang.xharness'
+    foreach ($ready in @(Get-ChildItem -LiteralPath $cache -Filter '*.address' -File -Recurse -ErrorAction SilentlyContinue)) {
+        $address = (Get-Content -LiteralPath $ready.FullName -Raw).Trim()
+        if ($address -notmatch '^127\.0\.0\.1:[0-9]+$') { continue }
+        try {
+            $reply = Invoke-WebRequest -Uri "http://$address/health/ready" -TimeoutSec 2
+            if ($reply.StatusCode -eq 200) { return $true }
+        } catch { }
+    }
+    return $false
+}
 try {
     Install-TestCopy $true
     Assert-That (Test-Path -LiteralPath (Join-Path $canonical 'xharness-desktop.exe')) 'Custom installation path changed'
@@ -50,6 +62,7 @@ try {
 
     $first = Start-TestCopy $legacy
     Wait-Until { @(Host-Children $first.Id).Count -eq 1 } 'First desktop did not start its Host'
+    Wait-Until { Host-Ready } 'First Host failed readiness after startup gate'
     $hostPid = @(Host-Children $first.Id)[0].ProcessId
     $owned.Add([int]$hostPid)
     $second = Start-TestCopy $canonical
@@ -73,6 +86,7 @@ try {
     }
     $replacement = Start-TestCopy $canonical
     Wait-Until { @(Host-Children $replacement.Id).Count -eq 1 } 'Replacement could not start Host'
+    Wait-Until { Host-Ready } 'Replacement Host failed readiness'
     Assert-That ((Get-FileHash -LiteralPath $sentinel).Hash -eq $before) 'Reinstall changed data'
     @{ passed = $true; signedUpdaterTest = $false; customPath = $canonical; duplicateLaunch = $true;
        liveInstallBlocked = $true; hostReapedOnCrash = $true; shortcutRetargeted = $true;
