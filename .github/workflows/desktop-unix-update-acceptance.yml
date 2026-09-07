@@ -103,6 +103,9 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
+          # A failed runtime assertion must not discard the successful native
+          # compilation cache. Candidate bytes/evidence are still never cached.
+          cache-on-failure: true
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target

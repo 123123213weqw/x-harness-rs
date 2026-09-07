@@ -400,7 +400,10 @@ def promote_draft(repo, draft, root):
         published = api(f'repos/{repo}/releases/latest')
         require(published['id'] == draft['id'] and not published['draft'] and not published['prerelease'],
                 'Published release is not the expected stable latest')
-        write(root / 'published.json', snapshot(published))
+        before, after = snapshot(draft), snapshot(published)
+        require(all(after[key] == value for key, value in before.items() if key not in {'draft', 'published_at'}),
+                'Published release metadata or asset identity changed after acceptance')
+        write(root / 'published.json', after)
         public = verify_public_channel(repo, root)
     except Exception:
         write(root / 'publication-result.json', {'release_id': draft['id'], 'state': 'published_but_unverified'})

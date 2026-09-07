@@ -368,6 +368,82 @@ def restored_candidate(root, ready):
     return None
 
 
+def update_diagnostics(root, process, config, receipt):
+    """Capture only synthetic lifecycle metadata while failed children still exist.
+
+    Keep this in evidence.json (already exported by the CI wrapper), never raw
+    process environments, journal content, provider payloads or whole HOME.
+    """
+    def safe_path(value):
+        if not isinstance(value, str):
+            return None
+        path = pathlib.Path(value)
+        try:
+            return str(path.relative_to(root))
+        except ValueError:
+            return '<outside-root>/' + path.name
+
+    result = {'status': 'diagnostic-only', 'nativeUpdateAccepted': False,
+              'platform': config['platform'], 'expected_package_sha256': receipt['package_sha256'],
+              'readyFiles': [], 'hostLifecycle': [], 'ownedProcesses': [],
+              'launcherExitCode': process.poll() if process is not None else None}
+    installed = root / 'installed.AppImage'
+    if installed.is_file():
+        result['installed_package_sha256'] = digest(installed)
+        result['exactCandidateInstalled'] = result['installed_package_sha256'] == receipt['package_sha256']
+    for directory in ('cache', 'home'):
+        for path in (root / directory).rglob('ready-*.address'):
+            try:
+                address = path.read_text().strip()
+                result['readyFiles'].append({'path': str(path.relative_to(root)),
+                    'loopbackAddress': address if re.fullmatch(r'127\.0\.0\.1:[1-9][0-9]{0,4}', address) else None})
+            except OSError:
+                continue
+    try:
+        ready = healthy_ready(root)
+        result['healthyReady'] = {'path': str(ready[0].relative_to(root)), 'health': {key: ready[1].get(key) for key in ('ok', 'service', 'version')}} if ready else None
+    except Exception as error:
+        result['healthErrorType'] = type(error).__name__
+    for path in (root / 'trace').glob('*/events.jsonl'):
+        lifecycle = []
+        for event in json_lines(path):
+            if event.get('layer') != 'host':
+                continue
+            fields = {'start': ('readyFile', 'stateDir', 'workspace', 'desktopMode'),
+                      'restore': ('restoredSessions', 'issues'), 'exit': ('outcome',)}.get(event.get('event'))
+            if fields:
+                payload = {key: event['payload'].get(key) for key in fields}
+                for key in ('readyFile', 'stateDir', 'workspace'):
+                    if key in payload:
+                        payload[key] = safe_path(payload[key])
+                if 'issues' in payload:
+                    issues = payload.pop('issues')
+                    payload['issueCount'] = len(issues) if isinstance(issues, list) else None
+                lifecycle.append({'event': event['event'], 'payload': payload})
+        result['hostLifecycle'].append({'trace': str(path.relative_to(root)), 'events': lifecycle})
+    if sys.platform == 'linux' and process is not None:
+        allowed_env = {'APPIMAGE', 'APPDIR', 'HOME', 'XDG_CACHE_HOME', 'XHARNESS_STATE_DIR',
+                       'XHARNESS_DEBUG_DIR', 'XHARNESS_REHEARSAL_ROOT', 'DBUS_SESSION_BUS_ADDRESS'}
+        for proc in pathlib.Path('/proc').iterdir():
+            if not proc.name.isdigit():
+                continue
+            try:
+                pid = int(proc.name)
+                if os.getpgid(pid) != process.pid:
+                    continue
+                environ = {}
+                for entry in (proc / 'environ').read_bytes().split(b'\0'):
+                    key, separator, value = entry.partition(b'=')
+                    name = key.decode(errors='replace')
+                    if separator and name in allowed_env:
+                        environ[name] = bool(value) if name == 'DBUS_SESSION_BUS_ADDRESS' else safe_path(value.decode(errors='replace'))
+                result['ownedProcesses'].append({'pid': pid, 'exe': safe_path(os.readlink(proc / 'exe')),
+                    'state': (proc / 'stat').read_text().rsplit(') ', 1)[-1].split()[0], 'environment': environ})
+            except (OSError, ValueError, IndexError):
+                continue
+    return result
+
+
 def generate_tls(root):
     # Private, one-day CA + leaf. Trust is inherited ONLY by our child process.
     # Explicit SKI/AKI extensions are required by modern OpenSSL strict chain
@@ -663,6 +739,11 @@ def candidate_update(args):
         print(json.dumps(acceptance, indent=2))
     except Exception as error:
         write_json(root / 'FAIL.json', {'status': 'failed', 'errorType': type(error).__name__, 'message': str(error)})
+        try:
+            write_json(root / 'evidence.json', update_diagnostics(root, process, config, receipt))
+        except Exception as diagnostic_error:
+            write_json(root / 'evidence.json', {'status': 'diagnostic-only', 'nativeUpdateAccepted': False,
+                       'diagnosticErrorType': type(diagnostic_error).__name__})
         raise
     finally:
         try:
