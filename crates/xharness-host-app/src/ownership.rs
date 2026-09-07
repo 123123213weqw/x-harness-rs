@@ -46,15 +46,18 @@ mod tests {
     use super::*;
 
     fn directory() -> std::path::PathBuf {
+        // SystemTime alone is not unique on Windows: parallel tests can share a tick.
+        static NEXT_DIRECTORY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let serial = NEXT_DIRECTORY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "xharness-ownership-中文-{}-{}",
+            "xharness-ownership-中文-{}-{}-{serial}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        std::fs::create_dir_all(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
         path
     }
 

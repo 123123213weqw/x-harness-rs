@@ -1271,6 +1271,7 @@ impl BasicHost {
                 attempt,
                 max_retries,
                 error,
+                delay_ms,
             } => {
                 self.append_session_event(
                     session_id,
@@ -1284,12 +1285,14 @@ impl BasicHost {
                         "policyKey": format!("xharness:normal:{max_retries}"),
                         "retry": attempt,
                         "maxRetries": max_retries,
-                        "delayMs": 0,
+                        "delayMs": delay_ms,
                         "failure": {"code": "TRANSPORT", "message": error},
                     }),
                     None,
                 )
                 .await?;
+            }
+            LoopEventKind::ModelRetryStarted { retry_id, attempt } => {
                 self.append_session_event(
                     session_id,
                     "llm/retry-started",
