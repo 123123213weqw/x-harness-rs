@@ -4937,6 +4937,52 @@ window.__ModuleLoader__.load({
 		* @param props - Copy text, event time, clock side, branch callback, className.
 		* @returns The actions row element.
 		*/
+// XHARNESS CONVERSATION MESSAGE EDIT BEGIN
+		// XHarness keeps the transcript immutable: editing copies an earlier user
+		// message into the composer, where it can be changed and sent as a new turn.
+		function xhEditMessage(inputHub, sessionId, text, root = document) {
+			inputHub.shell(sessionId).setDraft(text);
+			const focus = () => {
+				const input = root.querySelector("[data-composer-seat] textarea");
+				if (input === null) return;
+				input.focus();
+				input.setSelectionRange(text.length, text.length);
+				input.scrollIntoView({ block: "nearest" });
+			};
+			if (typeof requestAnimationFrame === "function") requestAnimationFrame(focus);
+			else focus();
+		}
+		function XHarnessEditIcon() {
+			return (0, react_jsx_runtime.jsx)("svg", {
+				width: 16,
+				height: 16,
+				viewBox: "0 0 16 16",
+				fill: "none",
+				"aria-hidden": true,
+				children: (0, react_jsx_runtime.jsx)("path", {
+					d: "M3 11.75V13h1.25l7.37-7.37-1.25-1.25L3 11.75Zm8.25-8.25 1.25 1.25.5-.5a.88.88 0 0 0 0-1.25.88.88 0 0 0-1.25 0l-.5.5Z",
+					stroke: "currentColor",
+					strokeWidth: 1.25,
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				})
+			});
+		}
+		function XHarnessEditAction({ text, editMessage, t }) {
+			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+				label: t("message.edit"),
+				side: "bottom",
+				children: (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: MessageIconActions_module_css_default.action,
+					"aria-label": t("message.edit"),
+					"data-message-edit": "",
+					onClick: () => editMessage(text),
+					children: (0, react_jsx_runtime.jsx)(XHarnessEditIcon, {})
+				})
+			});
+		}
+// XHARNESS CONVERSATION MESSAGE EDIT END
 		function MessageIconActions({ text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, className, extraActions, t }) {
 			const day = useCalendarDay();
 			const reasonId = (0, react.useId)();
@@ -5283,7 +5329,7 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/** User and admitted-steering keyed Chat renderer. */
-		const UserMessageNodeView = (0, react.memo)(function UserMessageNodeView({ node, renderMessageImages, t }) {
+		const UserMessageNodeView = (0, react.memo)(function UserMessageNodeView({ node, renderMessageImages, editMessage, editAvailable, t }) {
 			const data = node.data;
 			return (0, react_jsx_runtime.jsx)(UserStyleBubble, {
 				content: data.content,
@@ -5295,6 +5341,7 @@ window.__ModuleLoader__.load({
 					time: data.time,
 					clock: "start",
 					className: MessageItem_module_css_default.actions,
+					extraActions: editAvailable && text.length > 0 ? (0, react_jsx_runtime.jsx)(XHarnessEditAction, { text, editMessage, t }) : null,
 					t
 				})
 			});
@@ -5379,7 +5426,7 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region lib/types/client/chat/ChatNodeSeat.js
 		/** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
-		const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, renderMessageImages, fileMentions, useSession, renderSlot, t }) {
+		const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, editAvailable, renderMessageImages, fileMentions, useSession, renderSlot, t }) {
 			const node = useSession((snapshot) => snapshot.chat.nodes.get(nodeKey));
 			const routedNode = node;
 			const owner = (0, react.useMemo)(() => node === void 0 ? null : {
@@ -5388,6 +5435,8 @@ window.__ModuleLoader__.load({
 				openFile,
 				inspectCall,
 				forkAt,
+				editMessage,
+				editAvailable,
 				renderMessageImages,
 				fileMentions
 			}, [
@@ -5397,6 +5446,8 @@ window.__ModuleLoader__.load({
 				openFile,
 				inspectCall,
 				forkAt,
+				editMessage,
+				editAvailable,
 				renderMessageImages,
 				fileMentions
 			]);
@@ -5520,7 +5571,7 @@ window.__ModuleLoader__.load({
 		* The chat view slot entry: pure component over the composed props; each
 		* ordered business Node crosses the keyed renderer seat.
 		*/
-		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
+		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, editMessage, fileMentions, t }) {
 			const order = useSession((s) => s.chat.order);
 			const nodeStore = useSession((s) => s.chat.nodes);
 			const timeline = useSession((s) => s.chat.timeline);
@@ -5758,6 +5809,8 @@ window.__ModuleLoader__.load({
 								openFile: requestOpenFile,
 								inspectCall,
 								forkAt,
+								editMessage,
+								editAvailable: !running,
 								renderMessageImages,
 								fileMentions,
 								renderSlot,
@@ -6135,6 +6188,7 @@ window.__ModuleLoader__.load({
 			"message.unknownSurface": "未知 surface 事件：{type}",
 			"message.unknownBlock": "未知内容块",
 			"message.stopped": "已停止",
+			"message.edit": "编辑并重新发送",
 			"message.branch": "在新对话中分支",
 			"message.branchUnavailable": "仅可从已完成轮次的最后一条消息分支",
 			"message.retry.active": "正在重试模型请求",
@@ -6308,6 +6362,7 @@ window.__ModuleLoader__.load({
 			"message.unknownSurface": "Unknown surface event: {type}",
 			"message.unknownBlock": "Unknown content block",
 			"message.stopped": "Stopped",
+			"message.edit": "Edit and resend",
 			"message.branch": "Branch into a new conversation",
 			"message.branchUnavailable": "Available only on the last message of a completed turn",
 			"message.retry.active": "Retrying model request",
@@ -10098,6 +10153,7 @@ window.__ModuleLoader__.load({
 							actions.setInspect({ callId });
 							actions.setView("trajectory");
 						},
+						editMessage: (text) => xhEditMessage(inputHub, sessionId, text),
 						chatScroll: {
 							save: (position) => {
 								if (position === null) chatScrollPositions.delete(sessionId);
@@ -10143,11 +10199,10 @@ window.__ModuleLoader__.load({
 			}, DetailsPanel);
 		}
 		//#endregion
+		exports.xhEditMessage = xhEditMessage;
 		exports.ConversationController = ConversationController;
 		exports.apply = apply;
 		exports.inject = inject;
 		return module.exports;
 	}
 });
-
-//# sourceMappingURL=client.js.map

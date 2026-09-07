@@ -52,6 +52,7 @@ jobs:
       - run: python3 -B scripts/test-remote-sync.py
       - run: node scripts/test-context-plugin.mjs
       - run: node scripts/test-model-controls.mjs
+      - run: node scripts/test-conversation-message-edit.mjs
       - name: Real browser layout regression
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
