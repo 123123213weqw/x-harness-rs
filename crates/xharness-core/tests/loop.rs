@@ -4244,3 +4244,135 @@ async fn network_retry_of_next_step_does_not_repeat_completed_tool_side_effects(
         1
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn network_backoff_is_visible_and_cancellable_before_retry_started() {
+    let provider = Arc::new(ScriptProvider::with_attempts([
+        Err(ProviderError::retryable("offline")),
+        Ok(vec![Ok(completed())]),
+    ]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+    request.config.provider_retry_jitter_percent = 0;
+    let mut run = LoopEngine.start(request);
+    while let Some(event) = run.next().await {
+        if let LoopEventKind::ModelRetry { delay_ms, .. } = event.kind {
+            assert_eq!(delay_ms, 500);
+            break;
+        }
+    }
+    run.cancel();
+    let (events, result) = collect(run).await;
+    assert_eq!(result.status, LoopStatus::Cancelled);
+    assert_eq!(provider.attempts(), 1);
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e.kind, LoopEventKind::ModelRetryStarted { .. })));
+}
+
+#[tokio::test(start_paused = true)]
+async fn network_backoff_pause_resume_and_steering() {
+    for steer in [false, true] {
+        let provider = Arc::new(ScriptProvider::with_attempts([
+            Err(ProviderError::retryable("offline")),
+            Ok(vec![
+                Ok(ProviderEvent::TextDelta("ok".into())),
+                Ok(completed()),
+            ]),
+        ]));
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+        request.config.provider_retry_jitter_percent = 0;
+        let mut run = LoopEngine.start(request);
+        while let Some(event) = run.next().await {
+            if matches!(event.kind, LoopEventKind::ModelRetry { .. }) {
+                break;
+            }
+        }
+        run.send(LoopCommand::Pause).await.unwrap();
+        while let Some(event) = run.next().await {
+            if matches!(event.kind, LoopEventKind::RunPaused) {
+                break;
+            }
+        }
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert_eq!(provider.attempts(), 1);
+        if steer {
+            run.send(LoopCommand::Steer(AgentMessage::user("new direction")))
+                .await
+                .unwrap();
+        }
+        run.send(LoopCommand::Resume).await.unwrap();
+        let (events, result) = collect(run).await;
+        assert_eq!(result.status, LoopStatus::Completed);
+        assert_eq!(provider.attempts(), 2);
+        assert_eq!(
+            events
+                .iter()
+                .any(|e| matches!(e.kind, LoopEventKind::ModelRetryStarted { .. })),
+            !steer
+        );
+        if steer {
+            assert!(result.messages.iter().any(|m| m.content == "new direction"));
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn server_retry_after_cannot_exceed_recovery_budget() {
+    let mut error = ProviderError::http(429, "busy");
+    error.retry_after_ms = Some(120_000);
+    let provider = Arc::new(ScriptProvider::with_attempts([Err(error)]));
+    let (_, result) = collect(LoopEngine.start(LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user("go")],
+    )))
+    .await;
+    assert_eq!(provider.attempts(), 1);
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert!(result.error.unwrap().contains("budget exhausted"));
+}
+
+#[tokio::test]
+async fn interrupted_text_is_durable_and_explicit_new_turn_has_no_orphan_tools() {
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("unfinished answer".into())),
+        Ok(ProviderEvent::ReasoningDelta("unfinished reasoning".into())),
+        Ok(tool_delta(0, "incomplete", "write", "{\"path\":")),
+        Err(ProviderError::retryable("TLS EOF")),
+    ]]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+    request.session_id = Some("partial-network".into());
+    request.journal_store = Some(journal.clone());
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert_eq!(provider.attempts(), 1);
+    assert!(result.error.as_ref().unwrap().contains("额外计费"));
+    let partial = result.messages.last().unwrap();
+    assert!(partial.interrupted);
+    assert_eq!(partial.content, "unfinished answer");
+    assert_eq!(partial.reasoning, "unfinished reasoning");
+    assert!(partial.tool_calls.is_empty() && partial.provider_items.is_empty());
+    let session = journal.load("partial-network").await.unwrap().unwrap();
+    assert!(session.events().iter().any(|e| matches!(e.data(), SessionEventData::AssistantMessage { message, .. } if message.interrupted)));
+    // A new user message, rather than replaying the broken stream, is the recovery boundary.
+    let messages = vec![AgentMessage::user("继续")];
+    let provider = Arc::new(ScriptProvider::new([vec![
+        Ok(ProviderEvent::TextDelta("new attempt".into())),
+        Ok(completed()),
+    ]]));
+    let mut resumed = LoopRequest::new(provider.clone(), messages);
+    resumed.session_id = Some("partial-network".into());
+    resumed.journal_store = Some(journal);
+    let (_, recovered) = collect(LoopEngine.start(resumed)).await;
+    let wire = provider.requests.lock().unwrap();
+    assert!(wire[0]
+        .messages
+        .iter()
+        .any(|m| m.interrupted && m.content == "unfinished answer"));
+    assert!(wire[0]
+        .messages
+        .iter()
+        .all(|m| m.tool_calls.is_empty() && m.tool_call_id.is_none()));
+    assert_eq!(recovered.status, LoopStatus::Completed);
+    assert_eq!(recovered.final_text, "new attempt");
+}
