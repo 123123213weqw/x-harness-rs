@@ -1755,9 +1755,11 @@ impl BasicHost {
     }
 
     async fn host_list_directory(&self, payload: &Value) -> Result<Value, RpcError> {
-        require_object(payload)?;
-        let requested = optional_string(payload, "path")?
-            .unwrap_or_else(|| self.config.home.to_string_lossy().into_owned());
+        let requested = match require_object(payload)?.get("path") {
+            None => self.config.home.to_string_lossy().into_owned(),
+            Some(Value::String(path)) => path.clone(),
+            Some(_) => return Err(bad_request("path, when present, must be a string")),
+        };
         // Empty path is a virtual location overview, not the process cwd.
         // Omitted path retains the existing home-directory wire contract.
         if requested.is_empty() {
