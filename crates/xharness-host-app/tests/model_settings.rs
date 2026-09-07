@@ -62,7 +62,13 @@ async fn fixture(
     dir: &TempDir,
     credentials: Arc<dyn CredentialStore>,
 ) -> (Arc<BasicHost>, Arc<DurableLoopAgentRuntime>) {
-    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    fixture_with_store(dir, credentials, Arc::new(MemorySessionStore::default())).await
+}
+async fn fixture_with_store(
+    dir: &TempDir,
+    credentials: Arc<dyn CredentialStore>,
+    store: Arc<dyn Store>,
+) -> (Arc<BasicHost>, Arc<DurableLoopAgentRuntime>) {
     let runtime = Arc::new(
         DurableLoopAgentRuntime::from_registry(
             ModelRoute::new("none", "unconfigured"),
@@ -341,4 +347,51 @@ async fn credential_storage_failure_does_not_activate_unsaved_key() {
         .await;
     assert!(matches!(result, RpcResult::Failure { .. }));
     assert!(!runtime.has_available_route());
+}
+
+#[tokio::test]
+async fn legacy_deepseek_effort_selection_survives_restore_and_model_switch() {
+    let dir = TempDir::new();
+    let keys = Arc::new(TestCredentials::default());
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let (host, runtime) = fixture_with_store(&dir, keys.clone(), store.clone()).await;
+    // No credential and no network call is needed to construct a descriptor.
+    add(
+        &host,
+        json!({"baseURL":"https://api.deepseek.com", "api":"openai-completions", "models":[
+            {"id":"deepseek-v4-flash","contextWindow":1000000},
+            {"id":"unknown","contextWindow":32768}
+        ]}),
+    )
+    .await;
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    let id = created["sessionId"].as_str().unwrap();
+    for effort in ["off", "low", "high", "max"] {
+        rpc(&host,RpcMethod::SessionSelectModel,json!({"sessionId":id,"provider":"test-gateway","model":"deepseek-v4-flash","reasoningEffort":effort,"contextWindowTokens":65536})).await;
+        let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+        assert_eq!(catalog["current"]["reasoningEffort"], effort);
+        assert_eq!(catalog["current"]["contextWindowTokens"], 65536);
+    }
+    drop(host);
+    drop(runtime);
+    let (host, _) = fixture_with_store(&dir, keys, store).await;
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert_eq!(catalog["current"]["reasoningEffort"], "max");
+    assert_eq!(catalog["current"]["contextWindowTokens"], 65536);
+    rpc(
+        &host,
+        RpcMethod::SessionSelectModel,
+        json!({"sessionId":id,"provider":"test-gateway","model":"unknown"}),
+    )
+    .await;
+    let switched = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert!(switched["current"]["reasoningEffort"].is_null());
+    let groups = rpc(&host, RpcMethod::LlmModels, json!({})).await;
+    assert!(groups["groups"][0]["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == "unknown")
+        .unwrap()["reasoning"]
+        .is_null());
 }
