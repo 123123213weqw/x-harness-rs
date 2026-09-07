@@ -1714,6 +1714,58 @@ async fn directory_browser_rejects_non_child_names_without_writes() {
     }
 }
 
+#[tokio::test]
+async fn directory_browser_lists_locations_without_adopting_the_virtual_root() {
+    let mut fx = Fixture::new();
+    let overview = fx
+        .value(RpcMethod::HostListDirectory, json!({"path": ""}))
+        .await;
+    assert_eq!(overview["path"], "");
+    assert_eq!(overview["crumbs"], json!([]));
+    assert_eq!(overview["truncated"], false);
+    let entries = overview["entries"].as_array().unwrap();
+    assert!(!entries.is_empty());
+    for entry in entries {
+        assert!(PathBuf::from(entry["path"].as_str().unwrap()).is_absolute());
+        assert_eq!(entry["name"], entry["path"]);
+        assert_eq!(entry["hidden"], false);
+    }
+    #[cfg(windows)]
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| PathBuf::from(entry["path"].as_str().unwrap()))
+            .collect::<Vec<_>>(),
+        xharness_win32::logical_drive_roots().unwrap()
+    );
+    #[cfg(not(windows))]
+    assert_eq!(entries[0]["path"], "/");
+    #[cfg(target_os = "macos")]
+    assert_eq!(entries[1]["path"], "/Volumes");
+
+    // Omitted path still returns home, not the virtual overview.
+    let home = fx.value(RpcMethod::HostListDirectory, json!({})).await;
+    assert_eq!(
+        home["path"],
+        std::fs::canonicalize(overview["home"].as_str().unwrap())
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
+    );
+    for (method, payload) in [
+        (RpcMethod::WorkspaceCreate, json!({"path": ""})),
+        (
+            RpcMethod::HostCreateDirectory,
+            json!({"path": "", "name": "not-a-real-parent"}),
+        ),
+    ] {
+        assert!(matches!(
+            fx.call(method, payload).await,
+            RpcResult::Failure { .. }
+        ));
+    }
+}
+
 struct ToolProvider;
 
 #[async_trait]
