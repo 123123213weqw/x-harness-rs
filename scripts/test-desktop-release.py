@@ -43,7 +43,10 @@ class ReleaseProjection(unittest.TestCase):
 
     def test_formal_workflow_configures_key_before_packaging(self):
         source = (ROOT / '.github/workflows/desktop-release.yml').read_text()
-        self.assertLess(source.index('Project updater public key into bundler config'), source.index('Build, sign and publish desktop bundle'))
+        self.assertLess(source.index('Project updater public key into bundler config'), source.index('Build and sign desktop bundle (artifacts only)'))
+        self.assertIn('needs: [plan, build]', source)
+        self.assertIn('Stage one complete draft, never latest', source)
+        self.assertNotIn('uploadUpdaterJson: true', source)
 
 
 if __name__ == '__main__':

@@ -9,6 +9,16 @@ permissions:
   contents: read
 
 jobs:
+  unix-update-rehearsal:
+    name: Native Unix signed update rehearsal
+    needs: update-channel-contract
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/desktop-unix-update-acceptance.yml
+    with:
+      mode: rehearsal
+
   update-channel-contract:
     name: Update channel contract / ${{ matrix.os }}
     strategy:
@@ -26,6 +36,13 @@ jobs:
       - run: node scripts/test-desktop-bootstrap.mjs
       - run: node scripts/test-updater-signature.mjs
       - run: python -B scripts/test-friends-release.py
+      - run: python -B scripts/test-unified-desktop-release.py
+      - run: python -B scripts/test-desktop-release-build.py
+      - name: Unix updater isolation and candidate contracts
+        if: runner.os != 'Windows'
+        run: python3 -B scripts/test-unix-update-acceptance.py
+      - run: python -B scripts/test-desktop-release.py
+      - run: node scripts/test-desktop-windows-acceptance.mjs
       - name: Real Tauri signer with disposable keys (no native compilation)
         if: matrix.os == 'windows-2025'
         shell: pwsh

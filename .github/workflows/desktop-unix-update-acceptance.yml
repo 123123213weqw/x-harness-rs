@@ -1,0 +1,154 @@
+name: Desktop Unix Update Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Formal immutable candidate acceptance, or disposable-key rehearsal (never publishable)
+        required: true
+        type: choice
+        options: [candidate, rehearsal]
+        default: candidate
+      release_run_id:
+        description: Successful Desktop Release run; required only in candidate mode
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      mode:
+        type: string
+        default: rehearsal
+      release_run_id:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+
+jobs:
+  native:
+    # Reusable CI is rehearsal-only and receives no secrets. Formal mode is an
+    # explicit master dispatch, with a source-bound production build artifact.
+    if: inputs.mode == 'rehearsal' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.mode == 'candidate' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository)
+    name: ${{ inputs.mode }} ${{ matrix.platform }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64-appimage
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage
+          - platform: darwin-aarch64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            bundles: app
+          - platform: darwin-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Select runner-owned isolated paths
+        run: |
+          echo "CANDIDATE=$RUNNER_TEMP/desktop-unix-candidate" >> "$GITHUB_ENV"
+          echo "UNIX_ROOT=$RUNNER_TEMP/desktop-unix-update" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Resolve exact candidate source from the trusted master control workflow
+        if: inputs.mode == 'candidate'
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: python3 -B scripts/desktop-release-build.py resolve-source --release-run-id "$RELEASE_RUN_ID"
+      - uses: actions/checkout@v6
+        if: inputs.mode == 'candidate'
+        with:
+          ref: ${{ steps.source.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Authenticate production build, source, aggregate manifest and stable public key
+        if: inputs.mode == 'candidate'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: python3 -B scripts/desktop-release-build.py fetch-candidate --release-run-id "$RELEASE_RUN_ID" --output "$CANDIDATE"
+      - name: Install Linux native GUI and AppImage dependencies
+        if: matrix.platform == 'linux-x86_64-appimage'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 ripgrep xvfb dbus-x11
+      - name: Install native macOS ripgrep
+        if: startsWith(matrix.platform, 'darwin-')
+        run: command -v rg >/dev/null || brew install ripgrep
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: No-secret Unix acceptance contracts
+        run: python3 -B scripts/test-unix-update-acceptance.py
+      - name: Build and stage native Host and ripgrep for the disposable base
+        run: |
+          cargo build --locked --release -p xharness-host-app --target '${{ matrix.target }}'
+          python3 -B scripts/desktop-release-build.py stage --platform '${{ matrix.platform }}' --target '${{ matrix.target }}'
+      - name: Generate runner-local disposable signing identity for rehearsal only
+        if: inputs.mode == 'rehearsal'
+        run: python3 -B scripts/desktop-release-build.py rehearsal-init --output "$CANDIDATE"
+      - name: Build untouched rehearsal target with disposable updater key (Mac ad-hoc; never formal)
+        if: inputs.mode == 'rehearsal'
+        working-directory: apps/desktop
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
+      - name: Verify disposable target signature and label its metadata non-publishable
+        if: inputs.mode == 'rehearsal'
+        run: python3 -B scripts/desktop-release-build.py rehearsal-receipt --candidate "$CANDIDATE" --platform '${{ matrix.platform }}' --target '${{ matrix.target }}'
+      - name: Prepare isolated instrumented BASE only; do not alter the signed target
+        run: python3 -B scripts/desktop-release-build.py prepare-native --candidate "$CANDIDATE" --platform '${{ matrix.platform }}' --root "$UNIX_ROOT"
+      - name: Build disposable instrumented BASE with its scoped loopback CA
+        working-directory: ${{ runner.temp }}/desktop-unix-update/source/apps/desktop
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+          TAURI_SIGNING_PRIVATE_KEY: ''
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
+      - name: Exercise production updater handlers and install/restart the exact unchanged target
+        env:
+          ACCEPTANCE_MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$ACCEPTANCE_MODE" = rehearsal ]; then
+            python3 -B scripts/desktop-release-build.py native-run --candidate "$CANDIDATE" --root "$UNIX_ROOT" --rehearsal
+          else
+            python3 -B scripts/desktop-release-build.py native-run --candidate "$CANDIDATE" --root "$UNIX_ROOT"
+          fi
+      - name: Export only synthetic evidence and public-material receipts, never temporary keys or HOME
+        if: always()
+        run: python3 -B scripts/desktop-release-build.py export-native --root "$UNIX_ROOT" --output 'dist/native-evidence/${{ matrix.platform }}'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: desktop-${{ inputs.mode == 'candidate' && 'acceptance' || 'rehearsal' }}-${{ matrix.platform }}
+          path: dist/native-evidence/${{ matrix.platform }}/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove disposable signing files even if rehearsal packaging failed
+        if: always() && inputs.mode == 'rehearsal'
+        run: |
+          rm -f "$CANDIDATE/disposable.key" "$CANDIDATE/disposable.key.pub"

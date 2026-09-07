@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**状态日期：** 2026-09-05
+**状态日期：** 2026-09-08
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -785,3 +785,21 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] 人工改名、切模型、删除、重启、空/截断输出与 Host 新消息全链路回归；V100 新增 14 项专项＋全 Workspace 测试和 Clippy 通过。规范见 `specs/auto-titles.md`，记录见 `evidence/auto-titles-20260907.md`。
 - [ ] 正式更新包安装及真实模型标题质量验收（不把 Fake Provider 回归算作发布）。
 - [ ] 手动重新生成入口、专用标题模型/预算配置、大规模旧会话补齐进度、专用 Debug 指标。
+
+### 2026-09-08 · 三平台稳定更新（DESKTOP-UPDATE-02）
+
+- [x] 统一发布协议与四目标矩阵：Windows x64、Linux x64 AppImage、Mac ARM64/Intel；
+  复用既有更新器、UI、Host 生命周期和 Windows 原生安装验收。
+- [x] 单次完整清单聚合、公开构建收据、独立签名校验、同 SHA/Run/Attempt 绑定；
+  沿用现有 Windows 公钥，禁止清单退化、错误包类型回退及覆盖已发布版本。
+- [x] 候选 Draft 与正式 Promote 分离；Apple Developer ID/公证缺失硬失败，不降级
+  ad-hoc；公开更新源只在全部正式验收通过后改变。
+- [x] 新增原生 Unix 候选升级、Windows 当前稳定包单跳升级的验收脚本与来源绑定；
+  文档明确临时基础包/真实候选包、Smoke/演练/正式发布的不同证据等级。
+- [ ] 此次改动的 GitHub 原生 CI 与隔离升级演练全部通过（通过后更新证据，不能预填）。
+- [ ] 配置 Apple 凭据并完成正式四目标候选包构建、真实候选升级验收及发布。
+  用户已确认当前无 Apple 证书，保留门禁；本项是真实外部依赖，不用测试包顶替。
+- [ ] 旧 Mac 0.1.4 固定测试通道一次性基础包迁移与用户桌面点击验收。
+- [ ] Linux DEB/RPM 独立包类型更新、提权/取消/失败恢复；Linux ARM64、Windows ARM64。
+- 规范：[三平台稳定更新](specs/unified-desktop-updates.md)。Windows 0.2.5 现有通道继续保留；
+  本次开发不改用户的应用安装、对话和生产模型服务。
