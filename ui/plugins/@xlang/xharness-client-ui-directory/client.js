@@ -8,6 +8,9 @@ window.__ModuleLoader__.load({
     const NS = 'xharness.directory'
     const zh = {
       title: '选择工作区目录', home: '主目录', path: '目录路径', go: '前往',
+      locations: '磁盘和位置', chooseLocation: '选择一个磁盘或位置，也可输入完整路径。',
+      rememberedUnavailable: '上次浏览的位置暂不可用，请选择其他位置。',
+      locationsUnavailable: '磁盘列表暂不可用，已尝试返回主目录；也可输入完整路径。',
       newFolder: '新建文件夹', folderName: '文件夹名称', create: '创建', cancel: '取消',
       open: '打开工作区', loading: '加载中…', retry: '重试', empty: '此目录没有子文件夹',
       hidden: '显示隐藏文件夹', truncated: '文件夹过多，仅显示前面一部分。可输入完整路径打开。',
@@ -15,12 +18,32 @@ window.__ModuleLoader__.load({
     }
     const en = {
       title: 'Select Workspace Directory', home: 'Home', path: 'Directory path', go: 'Go',
+      locations: 'Drives and locations', chooseLocation: 'Choose a drive or location, or enter a full path.',
+      rememberedUnavailable: 'The previous location is unavailable. Choose another location.',
+      locationsUnavailable: 'The drive list is unavailable. Tried Home instead; you can also enter a full path.',
       newFolder: 'New folder', folderName: 'Folder name', create: 'Create', cancel: 'Cancel',
       open: 'Open workspace', loading: 'Loading…', retry: 'Retry', empty: 'No subfolders in this directory',
       hidden: 'Show hidden folders', truncated: 'Only the first folders are listed. Enter a full path to open another.',
       createIn: 'Create a folder in:', invalid: 'Enter one folder name without path separators.',
     }
     const failureText = error => error?.rpcError?.message ?? error?.message ?? String(error)
+    // Per-window and per-origin, shared by sidebar and conversation pickers.
+    // Storage may be blocked; remembering a path must never break navigation.
+    const MEMORY_KEY = 'xharness.directory.lastPath.v1'
+    let lastPath = ''
+    let storageAvailable = true
+    function rememberedPath() {
+      if (storageAvailable) {
+        try { return sessionStorage.getItem(MEMORY_KEY) ?? lastPath } catch { storageAvailable = false }
+      }
+      return lastPath
+    }
+    function rememberPath(path) {
+      lastPath = path
+      if (storageAvailable) {
+        try { sessionStorage.setItem(MEMORY_KEY, path) } catch { storageAvailable = false }
+      }
+    }
 
     function DirectoryFlow(props) {
       // Unmount on close so an earlier read/create cannot affect a new picker.
@@ -32,6 +55,8 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState('')
       const [loading, setLoading] = useState(true)
       const [error, setError] = useState(null)
+      const [notice, setNotice] = useState(null)
+      const [places, setPlaces] = useState([])
       const [showHidden, setShowHidden] = useState(false)
       const [folder, setFolder] = useState(null)
       const [creating, setCreating] = useState(false)
@@ -47,7 +72,7 @@ window.__ModuleLoader__.load({
         life.current.controller?.abort()
       }
 
-      async function navigate(path) {
+      async function navigate(path, { recover = false, notice = null } = {}) {
         const state = life.current
         if (!state.alive || state.mutating || state.picked || busy) return
         invalidate()
@@ -57,6 +82,7 @@ window.__ModuleLoader__.load({
         state.requested = path
         setLoading(true)
         setError(null)
+        setNotice(notice)
         // Never let Open adopt a stale directory after a failed path change.
         setListing(null)
         if (path !== undefined) setDraft(path)
@@ -65,8 +91,17 @@ window.__ModuleLoader__.load({
           if (!state.alive || state.generation !== generation) return
           setListing(result)
           setDraft(result.path)
+          rememberPath(result.path)
+          if (result.path === '') setPlaces(result.entries)
         } catch (reason) {
-          if (state.alive && state.generation === generation) setError(failureText(reason))
+          if (!state.alive || state.generation !== generation) return
+          // Only startup memory and the virtual overview get a fallback.
+          // Explicit filesystem paths keep their own errors and retry action.
+          if (path === '') {
+            void navigate(undefined, { notice: notice ?? t('locationsUnavailable') })
+          } else if (recover && path !== undefined) {
+            void navigate('', { notice: t('rememberedUnavailable') })
+          } else setError(failureText(reason))
         } finally {
           if (state.alive && state.generation === generation) setLoading(false)
         }
@@ -79,10 +114,19 @@ window.__ModuleLoader__.load({
         const wasInert = app?.inert
         if (app) app.inert = true
         pathInput.current?.focus()
-        void navigate()
+        const initial = rememberedPath()
+        const placesController = new AbortController()
+        // Loading shortcuts must never overwrite the active directory/draft.
+        if (initial !== '') {
+          void listDirectory('', placesController.signal).then(result => {
+            if (life.current.alive && !placesController.signal.aborted && result.path === '') setPlaces(result.entries)
+          }).catch(() => { /* Older hosts can still browse Home/typed paths. */ })
+        }
+        void navigate(initial, { recover: true })
         return () => {
           life.current.alive = false
           invalidate()
+          placesController.abort()
           if (app) app.inert = wasInert
           if (previousFocus?.isConnected) previousFocus.focus()
         }
@@ -108,7 +152,7 @@ window.__ModuleLoader__.load({
       async function confirmCreate(event) {
         event.preventDefault()
         const state = life.current
-        if (locked || state.mutating || state.picked || !listing || folder === null) return
+        if (locked || state.mutating || state.picked || !listing?.path || folder === null) return
         if (!folder.trim() || folder === '.' || folder === '..' || /[/\\\0]/.test(folder)) {
           setCreateError(t('invalid'))
           return
@@ -132,7 +176,7 @@ window.__ModuleLoader__.load({
         }
       }
       function pick() {
-        if (locked || loading || pathDirty || folder !== null || !listing || life.current.picked) return
+        if (locked || loading || pathDirty || folder !== null || !listing?.path || life.current.picked) return
         life.current.picked = true
         onPicked(listing.path)
       }
@@ -161,6 +205,12 @@ window.__ModuleLoader__.load({
       } },
         h('header', { className: 'xhdir-header' },
           h('h2', null, t('title')),
+          h('nav', { className: 'xhdir-places', 'aria-label': t('locations') },
+            h('button', { type: 'button', disabled: locked || folder !== null, 'aria-current': listing?.path === '' ? 'location' : undefined,
+              onClick: () => { void navigate('') } }, t('locations')),
+            h('button', { type: 'button', disabled: locked || folder !== null, onClick: () => { void navigate() } }, t('home')),
+            ...places.map(place => h('button', { key: place.path, type: 'button', title: place.path,
+              disabled: locked || folder !== null, onClick: () => { void navigate(place.path) } }, place.name))),
           h('form', { className: 'xhdir-path', onSubmit: event => { event.preventDefault(); if (!locked && draft.trim()) void navigate(draft) } },
             h('input', { ref: pathInput, value: draft, 'aria-label': t('path'), disabled: locked || folder !== null,
               placeholder: t('path'), onChange: event => {
@@ -171,17 +221,18 @@ window.__ModuleLoader__.load({
               }, spellCheck: false }),
             h(Button, { type: 'submit', variant: 'outline', disabled: locked || folder !== null || !draft.trim() }, t('go'))),
           h('nav', { className: 'xhdir-crumbs', 'aria-label': t('path') },
-            h('button', { type: 'button', disabled: locked || folder !== null, onClick: () => { void navigate() } }, t('home')),
             ...(listing?.crumbs ?? []).map(crumb => h('button', { key: crumb.path, type: 'button', title: crumb.path,
               disabled: locked || folder !== null, onClick: () => { void navigate(crumb.path) } }, crumb.name || crumb.path)))),
         h('div', { className: 'xhdir-content', 'aria-busy': loading },
+          notice && h('p', { role: 'status' }, notice),
+          listing?.path === '' && h('p', { role: 'status' }, t('chooseLocation')),
           loading && h('p', { role: 'status' }, t('loading')),
           error && h('div', { className: 'xhdir-error', role: 'alert' }, error, ' ',
             button(t('retry'), () => { void navigate(life.current.requested) }, locked)),
           listing && h('ul', { className: 'xhdir-list' }, ...entries.map(entry => h('li', { key: entry.path },
             h('button', { type: 'button', disabled: locked || folder !== null, title: entry.path, onClick: () => { void navigate(entry.path) } },
               h(IconFolderClose16, { size: 16 }), h('span', null, entry.name), h(IconChevronRightOutline14, { size: 14 }))))),
-          listing && entries.length === 0 && h('p', { role: 'status' }, t('empty')),
+          listing?.path && entries.length === 0 && h('p', { role: 'status' }, t('empty')),
           listing?.truncated && h('p', { role: 'status' }, t('truncated'))),
         folder !== null && h('form', { className: 'xhdir-create', 'aria-label': t('newFolder'), onSubmit: confirmCreate,
           onKeyDown: event => { if (event.key === 'Escape' && !event.nativeEvent.isComposing) { event.stopPropagation(); closeFolder() } } },
@@ -193,18 +244,19 @@ window.__ModuleLoader__.load({
             h(Button, { type: 'submit', variant: 'primary', disabled: creating || !folder.trim() }, t('create')))),
         h('footer', { className: 'xhdir-footer' },
           h('button', { ref: newFolderButton, type: 'button', className: 'xhdir-new',
-            disabled: locked || loading || pathDirty || !listing || folder !== null,
+            disabled: locked || loading || pathDirty || !listing?.path || folder !== null,
             onClick: () => { setFolder(''); setCreateError(null) } }, '+ ', t('newFolder')),
           h('label', { className: 'xhdir-hidden' }, h('input', { type: 'checkbox', checked: showHidden, disabled: locked,
             onChange: event => setShowHidden(event.target.checked) }), t('hidden')),
           h('div', { className: 'xhdir-actions' }, button(t('cancel'), cancel, locked || folder !== null),
-            button(t('open'), pick, locked || loading || pathDirty || !listing || folder !== null, 'primary')))))
+            button(t('open'), pick, locked || loading || pathDirty || !listing?.path || folder !== null, 'primary')))))
     }
 
     const CSS = `
 .xhdir-dialog.xhdir-dialog{width:min(680px,100%);padding:0;gap:0;max-height:calc(100dvh - 32px)}
 .xhdir-body{display:flex;flex-direction:column;min-height:0;color:var(--dsw-alias-label-primary);font-size:13px}
 .xhdir-header{padding:20px 24px 12px;display:flex;flex-direction:column;gap:12px}.xhdir-header h2{margin:0;font-size:16px;font-weight:600}
+.xhdir-places{display:flex;gap:6px;overflow:auto;white-space:nowrap;max-height:68px}.xhdir-places button{flex:none;max-width:180px;overflow:hidden;text-overflow:ellipsis;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;padding:5px 8px;background:transparent;color:inherit;font:inherit;cursor:pointer}.xhdir-places button:hover,.xhdir-places button[aria-current]{background:var(--dsw-alias-interactive-bg-hover)}
 .xhdir-path{display:flex;gap:8px}.xhdir-path input,.xhdir-create input{min-width:0;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:transparent;color:inherit;padding:8px 10px;font:inherit}.xhdir-path input{flex:1;width:0}.xhdir-path input:focus,.xhdir-create input:focus{outline:2px solid var(--dsw-alias-button-info-fill,#3978f6);outline-offset:1px}
 .xhdir-crumbs{display:flex;gap:4px;overflow:auto;white-space:nowrap}.xhdir-crumbs button{flex:none;max-width:180px;overflow:hidden;text-overflow:ellipsis;border:0;border-radius:6px;padding:4px 6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer}.xhdir-crumbs button+button:before{content:'›';margin-right:8px;color:var(--dsw-alias-label-tertiary)}
 .xhdir-content{min-height:80px;height:240px;overflow:auto;padding:8px 24px;border-block:1px solid var(--dsw-alias-border-l3)}.xhdir-content p{color:var(--dsw-alias-label-secondary)}

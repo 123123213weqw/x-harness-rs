@@ -71,6 +71,20 @@ Opening an existing workspace reuses its registration; cancelling the browser
 does not create a workspace. A folder already explicitly created remains on
 disk if the user subsequently cancels opening it. No existing files are deleted.
 
+The picker starts at **Drives and locations**, with one-click shortcuts for the
+host's Windows drive letters, Home, or `/` on POSIX (`/Volumes` on macOS too).
+`host.listDirectory` with an explicit empty path returns this virtual overview
+using the existing response shape; omitted path still lists Home. The overview
+cannot be opened as a workspace or used as a folder-creation parent. Assigned
+but unavailable drives remain selectable and report errors only when opened.
+
+Both picker entry points remember the last successful path in session storage
+for the current window and origin, with an in-memory fallback when storage is
+blocked. This is not cross-device or durable across desktop port changes.
+An unavailable remembered path falls back to the overview; hosts without the
+overview extension fall back to Home. Typed paths, including UNC paths, remain
+available. Clicking Drives and locations refreshes attached drive letters.
+
 ## Context Inspector
 
 产品自有插件 `@xlang/xharness-client-ui-context` 在会话顶部注册第三个
