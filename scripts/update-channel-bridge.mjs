@@ -25,7 +25,7 @@ export function contract({ repository: old, configuredRepository, upstream, brid
   repository(old); repository(upstream)
   assert.equal(configuredRepository, old, 'Old repository must explicitly opt in')
   assert.notEqual(old.toLowerCase(), upstream.toLowerCase(), 'Channels must differ')
-  assert.ok(version(target) > version(bridge), 'Upstream must offer a newer second hop')
+  assert.ok(version(target) >= version(bridge), 'Bridge cannot be newer than upstream target')
   const tag = `friends-v${bridge}`, sourceTag = `friends-v${target}`
   const file = `XHarness_${bridge}_x64-setup.exe`, targetFile = `XHarness_${target}_x64-setup.exe`
   return { old, upstream, bridge, target, tag, sourceTag, file, targetFile,
@@ -79,7 +79,7 @@ export function runBridge(command, { env: e = process.env, root = resolve('dist/
     preflight(c, runGh)
     // Fail on a reused directory; never mix artifacts from different attempts.
     mkdirSync(root, { recursive: true }); mkdirSync(source); mkdirSync(output)
-    const assets = [c.file, c.file + '.sig', c.targetFile, c.targetFile + '.sig', 'updater.pub', 'latest.json']
+    const assets = [...new Set([c.file, c.file + '.sig', c.targetFile, c.targetFile + '.sig', 'updater.pub', 'latest.json'])]
     runGh(['release', 'download', c.sourceTag, '--repo', c.upstream, '--dir', source,
       ...assets.flatMap(name => ['--pattern', name])])
     validateSource(c, JSON.parse(read('latest.json')), read('updater.pub'), pinnedKey, read(c.targetFile + '.sig'))
@@ -87,7 +87,7 @@ export function runBridge(command, { env: e = process.env, root = resolve('dist/
     verifyPackage(readFileSync(join(source, c.targetFile)), pinnedKey, read(c.targetFile + '.sig'))
     copyFileSync(join(source, c.file), join(output, c.file))
     writeFileSync(join(root, 'plan.json'), JSON.stringify(c, null, 2) + '\n')
-    console.log('Verified both upstream installers; bridge staged for old-key signing (no publication).')
+    console.log('Verified upstream installer(s); bridge staged for old-key signing (no publication).')
   } else if (command === 'finish') {
     preflight(c, runGh)
     assert.deepEqual(JSON.parse(readFileSync(join(root, 'plan.json'), 'utf8')), c)
@@ -105,12 +105,12 @@ export function runBridge(command, { env: e = process.env, root = resolve('dist/
     writeFileSync(join(output, 'upstream.pub'), pinnedKey.trim() + '\n')
     writeFileSync(join(output, c.file + '.upstream.sig'), read(c.file + '.sig') + '\n')
     writeFileSync(join(output, 'migration.json'), JSON.stringify({ ...c, bridgeSha256: hash(bridge), targetSha256: hash(target),
-      workflowCommit: e.GITHUB_SHA, nativeAcceptance: 'REQUIRED BEFORE PUBLICATION',
+      workflowCommit: e.GITHUB_SHA, directLatest: c.bridge === c.target, nativeAcceptance: 'REQUIRED BEFORE PUBLICATION',
       warning: 'Cryptographic checks do not prove installed endpoint or native data preservation.' }, null, 2) + '\n')
     writeFileSync(join(output, 'README.md'), `# Windows update-channel migration ${c.bridge}\n\n` +
       `Identical installer from ${c.upstream} / ${c.sourceTag}, re-signed by ${c.old}.\n` +
       `Expected installed update endpoint: ${c.endpoint}\n\n` +
-      'DRAFT ONLY: require isolated native old -> bridge -> upstream acceptance, including user confirmation, configuration/session retention and cancellation, before publishing. Keep the old latest feed pinned to this bridge afterward. Never upload private keys.\n')
+      'DRAFT ONLY: require isolated native old -> target acceptance (plus second hop when versions differ), including user confirmation, configuration/session retention and cancellation, before publishing. Keep the old latest feed available afterward. Never upload private keys.\n')
     writeFileSync(join(output, 'SHA256SUMS'), readdirSync(output).filter(n => n !== 'SHA256SUMS').sort()
       .map(n => `${hash(readFileSync(join(output, n)))}  ${n}\n`).join(''))
     console.log('Both hops verified; complete draft assets ready. Native installation acceptance is still required.')
