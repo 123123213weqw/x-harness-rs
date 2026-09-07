@@ -116,12 +116,21 @@ jobs:
           # Recompute hashes after adding the public instructions.
           python scripts/friends-release.py manifest $env:GITHUB_REF_NAME $output
           if ($LASTEXITCODE) { throw 'Final manifest generation failed' }
+      - name: Native signed installer ownership and crash acceptance
+        run: |
+          ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path "dist/friends-windows/XHarness_$($env:RELEASE_VERSION)_x64-setup.exe").Path
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-installation-ownership-evidence
+          path: dist/install-ownership-evidence/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v7
         with:
           name: XHarness-friends-windows
           path: dist/friends-windows/
           if-no-files-found: error
-      - name: Publish complete immutable release
+      - name: Stage complete immutable draft for native acceptance
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -132,5 +141,4 @@ jobs:
           $assets = @(Get-ChildItem dist/friends-windows -File | ForEach-Object FullName)
           gh release upload $env:GITHUB_REF_NAME @assets --repo $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE) { throw 'Asset upload failed; draft remains unpublished' }
-          gh release edit $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --draft=false --latest
-          if ($LASTEXITCODE) { throw 'Release publication failed' }
+          Write-Output 'Signed draft staged. Run Windows Direct Latest Acceptance before maintainer publication; live latest is unchanged.'

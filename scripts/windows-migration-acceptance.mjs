@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
 import { createServer as httpServer } from 'node:http'
 import { createServer as httpsServer } from 'node:https'
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs'
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { verifyPackage } from './verify-updater-package.mjs'
@@ -16,11 +16,15 @@ assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted', 'Disposable hosted
 assert.equal(process.platform, 'win32')
 const e = process.env, root = resolve('dist/migration-acceptance'), evidence = join(root, 'evidence')
 mkdirSync(evidence, { recursive: true })
-const oldRepo = e.GITHUB_REPOSITORY, upstream = e.UPSTREAM_REPOSITORY
+const oldRepo = e.BASE_REPOSITORY || e.GITHUB_REPOSITORY, upstream = e.UPSTREAM_REPOSITORY
 const probeOnly = e.PROBE_ONLY === 'true'
+const directLatest = e.DIRECT_LATEST === 'true'
+const sameChannel = oldRepo === upstream
 for (const repo of [oldRepo, upstream]) assert.match(repo, /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)
 for (const v of [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) assert.match(v, /^\d+\.\d+\.\d+$/)
-assert.ok(['0.2.0', '0.2.1'].includes(e.BASE_VERSION))
+assert.ok((sameChannel ? ['0.2.2', '0.2.3'] : ['0.2.0', '0.2.1']).includes(e.BASE_VERSION))
+if (directLatest) assert.equal(e.BRIDGE_VERSION, e.UPSTREAM_VERSION)
+if (sameChannel) assert.ok(directLatest, 'Same-channel acceptance must use one hop')
 const filename = v => `XHarness_${v}_x64-setup.exe`
 const location = (kind, v) => join(root, kind, filename(v))
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex')
@@ -32,9 +36,27 @@ function download(repo, tag, kind, names) {
 }
 if (process.argv[2] === 'download') {
   const base = filename(e.BASE_VERSION), bridge = filename(e.BRIDGE_VERSION), next = filename(e.UPSTREAM_VERSION)
-  download(oldRepo, 'friends-v0.2.1', 'old', [base, base + '.sig'])
+  download(oldRepo, sameChannel ? 'friends-v0.2.3' : 'friends-v0.2.1', 'old', [base, base + '.sig'])
   verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
   if (!probeOnly) {
+  if (sameChannel) {
+    // Candidate is still private: read its successful immutable tag-build artifact.
+    assert.match(e.RELEASE_RUN_ID, /^[1-9]\d+$/)
+    const releaseRun = JSON.parse(execFileSync('gh', ['api', `repos/${upstream}/actions/runs/${e.RELEASE_RUN_ID}`], { encoding: 'utf8' }))
+    assert.equal(releaseRun.conclusion, 'success')
+    assert.equal(releaseRun.path, '.github/workflows/friends-release.yml')
+    assert.equal(releaseRun.head_branch, `friends-v${e.UPSTREAM_VERSION}`)
+    assert.equal(releaseRun.event, 'push')
+    mkdirSync(join(root, 'next'))
+    execFileSync('gh', ['run', 'download', e.RELEASE_RUN_ID, '--repo', upstream, '--name', 'XHarness-friends-windows', '--dir', join(root, 'next')], { stdio: ['ignore', 'pipe', 'pipe'] })
+    assert.equal(read(join(root, 'next', 'updater.pub')), e.UPSTREAM_PUBLIC_KEY.trim())
+    assert.equal(e.OLD_PUBLIC_KEY.trim(), e.UPSTREAM_PUBLIC_KEY.trim())
+    assert.equal(manifest('next').platforms['windows-x86_64'].url,
+      `https://github.com/${upstream}/releases/download/friends-v${e.UPSTREAM_VERSION}/${next}`)
+    mkdirSync(join(root, 'bridge'))
+    for (const name of [next, next + '.sig', 'latest.json']) copyFileSync(join(root, 'next', name), join(root, 'bridge', name))
+    copyFileSync(location('next', e.UPSTREAM_VERSION) + '.sig', location('bridge', e.BRIDGE_VERSION) + '.upstream.sig')
+  } else {
   // Draft releases require write-level access to read. Fetch the SAME immutable
   // workflow artifact with actions:read instead of granting release write access.
   assert.match(e.BRIDGE_RUN_ID, /^[1-9]\d+$/)
@@ -50,6 +72,7 @@ if (process.argv[2] === 'download') {
   assert.equal(receipt.bridge, e.BRIDGE_VERSION); assert.equal(receipt.target, e.UPSTREAM_VERSION)
   assert.equal(receipt.bridgeSha256, hash(location('bridge', e.BRIDGE_VERSION)))
   download(upstream, `friends-v${e.UPSTREAM_VERSION}`, 'next', [next, next + '.sig', 'latest.json'])
+  }
   verifyPackage(readFileSync(location('old', e.BASE_VERSION)), e.OLD_PUBLIC_KEY, read(location('old', e.BASE_VERSION) + '.sig'))
   verifyPackage(readFileSync(location('bridge', e.BRIDGE_VERSION)), e.OLD_PUBLIC_KEY, read(location('bridge', e.BRIDGE_VERSION) + '.sig'))
   verifyPackage(readFileSync(location('bridge', e.BRIDGE_VERSION)), e.UPSTREAM_PUBLIC_KEY, read(location('bridge', e.BRIDGE_VERSION) + '.upstream.sig'))
@@ -58,6 +81,7 @@ if (process.argv[2] === 'download') {
   assert.equal(manifest('next').version, e.UPSTREAM_VERSION)
   assert.equal(manifest('bridge').platforms['windows-x86_64'].signature, read(location('bridge', e.BRIDGE_VERSION) + '.sig'))
   assert.equal(manifest('next').platforms['windows-x86_64'].signature, read(location('next', e.UPSTREAM_VERSION) + '.sig'))
+  if (directLatest) assert.equal(hash(location('bridge', e.BRIDGE_VERSION)), hash(location('next', e.UPSTREAM_VERSION)))
   writeFileSync(join(evidence, 'packages.json'), JSON.stringify({ base: e.BASE_VERSION, bridge: e.BRIDGE_VERSION, next: e.UPSTREAM_VERSION,
     hashes: ['old', 'bridge', 'next'].map((kind, i) => ({ kind, sha256: hash(location(kind, [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION][i])) })) }, null, 2))
   console.log('Downloaded and verified exact production packages; no private signing keys used.')
@@ -166,7 +190,7 @@ async function run() {
     const compiledKey = (migrated ? e.UPSTREAM_PUBLIC_KEY : e.OLD_PUBLIC_KEY).trim()
     assert.ok(image.includes(Buffer.from(compiledEndpoint)), `${version}: installed update endpoint missing`)
     assert.ok(image.includes(Buffer.from(compiledKey)), `${version}: installed trusted public key missing`)
-    if (migrated) assert.ok(!image.includes(Buffer.from(e.OLD_PUBLIC_KEY.trim())), `${version}: still contains old updater trust key`)
+    if (migrated && !sameChannel) assert.ok(!image.includes(Buffer.from(e.OLD_PUBLIC_KEY.trim())), `${version}: still contains old updater trust key`)
     checkpoints.push({ version, status, retained, compiledEndpoint, compiledKeySha256: createHash('sha256').update(compiledKey).digest('hex'),
       executableSha256: hash(executable), journalSha256: hash(join(data, 'state', 'sessions', sessionId + '.jsonl')) })
     await page.screenshot({ path: join(evidence, `${version}.png`) })
@@ -197,7 +221,7 @@ async function run() {
       writeFileSync(join(evidence, 'PROBE-ONLY.json'), JSON.stringify({ nativeTwoHop: false, checkpoints }, null, 2))
       return
     }
-    for (const version of [e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) {
+    for (const version of (directLatest ? [e.UPSTREAM_VERSION] : [e.BRIDGE_VERSION, e.UPSTREAM_VERSION])) {
       const check = await until(async () => {
         const state = await invoke(page, 'desktop_check_update')
         if (state.phase === 'error') throw new Error(state.message)
@@ -227,9 +251,10 @@ async function run() {
     // installed endpoint AND new trust key above, as well as the real newer
     // native install; do not require interception as a proxy-inheritance test.
     const secondHopIntercepted = requests.some(r => r.pathname === `/${upstream}/releases/latest/download/latest.json`)
-    assert.equal(checkpoints[0].journalSha256, checkpoints[1].journalSha256, 'Bridge rewrote the fixture journal')
-    assert.equal(checkpoints[1].journalSha256, checkpoints[2].journalSha256, 'Next version rewrote the fixture journal')
-    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: true, confirmedInstall: true, corruptPackageRejected: true,
+    assert.equal(checkpoints.length, directLatest ? 2 : 3)
+    for (const checkpoint of checkpoints.slice(1)) assert.equal(checkpoints[0].journalSha256, checkpoint.journalSha256, 'Update rewrote the fixture journal')
+    writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: !directLatest, nativeDirectLatest: directLatest,
+      installCount: checkpoints.length - 1, confirmedInstall: true, corruptPackageRejected: true,
       secondHopIntercepted, upstreamEndpointAndKeyVerified: true, checkpoints }, null, 2))
   } finally {
     if (connection?.isConnected()) {

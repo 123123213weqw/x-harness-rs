@@ -10,9 +10,10 @@ assert.equal(contract(config).tag, 'friends-v0.2.2')
 for (const change of [
   { configuredRepository: '' }, { configuredRepository: 'other/app' },
   { upstream: 'old/app' }, { upstream: 'new/app\n' }, { upstream: '../app' },
-  { bridge: '0.2.3' }, { bridge: '0.2.4' }, { target: '0.2.3\n' },
+  { bridge: '0.2.4' }, { target: '0.2.3\n' },
   { bridge: '01.2.2' }, { target: '65536.0.1' }, { bridge: '0.2.2;bad' },
 ]) assert.throws(() => contract({ ...config, ...change }))
+assert.equal(contract({ ...config, bridge: config.target }).file, contract(config).targetFile)
 
 function pair() {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519')
@@ -65,7 +66,11 @@ assert.throws(() => validateSource(c, manifest, next.key, next.key, 'wrong signa
 const env = { GITHUB_REPOSITORY: config.repository, XHARNESS_FRIENDS_RELEASE_REPOSITORY: config.repository,
   XHARNESS_BRIDGE_UPSTREAM_REPOSITORY: config.upstream, BRIDGE_VERSION: config.bridge, UPSTREAM_VERSION: config.target,
   XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY: next.key, XHARNESS_FRIENDS_PUBLIC_KEY: old.key, GITHUB_SHA: 'fixture-commit' }
-function scenario({ corruptDownload = false, corruptSigned = false, existingDraft = false, changedLatest = false } = {}) {
+function scenario({ corruptDownload = false, corruptSigned = false, existingDraft = false, changedLatest = false, direct = false } = {}) {
+  const c = contract(direct ? { ...config, bridge: config.target } : config)
+  const envForRun = { ...env, BRIDGE_VERSION: c.bridge }
+  const expectedBridge = direct ? target : bridge
+  const expectedSignature = direct ? old.signature(target) : hops.oldSignature
   const root = join(mkdtempSync(join(tmpdir(), 'xharness-bridge-contract-')), 'bridge')
   let finishedDownload = false
   const runGh = args => {
@@ -74,26 +79,31 @@ function scenario({ corruptDownload = false, corruptSigned = false, existingDraf
       (changedLatest && finishedDownload ? { ...upstreamLatest, tag_name: 'friends-v0.3.0' } : upstreamLatest))
     assert.deepEqual(args.slice(0, 3), ['release', 'download', c.sourceTag])
     const directory = args[args.indexOf('--dir') + 1]
+    const requested = args.flatMap((value, index) => value === '--pattern' ? [args[index + 1]] : [])
+    assert.equal(requested.length, new Set(requested).size, 'Duplicate download asset')
     const assets = { [c.file]: corruptDownload ? Buffer.from('bad') : bridge, [c.file + '.sig']: hops.bridgeSignature,
       [c.targetFile]: target, [c.targetFile + '.sig']: hops.targetSignature,
       'updater.pub': next.key, 'latest.json': JSON.stringify(manifest) }
+    if (direct && corruptDownload) assets[c.file] = Buffer.from('bad')
     for (const [name, data] of Object.entries(assets)) writeFileSync(join(directory, name), data)
     finishedDownload = true
     return ''
   }
-  const options = { env, root, runGh }
+  const options = { env: envForRun, root, runGh }
   runBridge('prepare', options)
   const output = join(root, 'release')
   assert.deepEqual(readdirSync(output), [c.file])
-  writeFileSync(join(output, c.file + '.sig'), hops.oldSignature)
+  writeFileSync(join(output, c.file + '.sig'), expectedSignature)
   if (corruptSigned) writeFileSync(join(output, c.file), 'modified after signing')
   runBridge('finish', options)
   const receipt = JSON.parse(readFileSync(join(output, 'migration.json'), 'utf8'))
-  assert.equal(receipt.bridgeSha256, createHash('sha256').update(bridge).digest('hex'))
+  assert.equal(receipt.bridgeSha256, createHash('sha256').update(expectedBridge).digest('hex'))
+  assert.equal(receipt.directLatest, direct)
+  if (direct) assert.equal(receipt.bridgeSha256, receipt.targetSha256)
   assert.equal(receipt.nativeAcceptance, 'REQUIRED BEFORE PUBLICATION')
   const published = JSON.parse(readFileSync(join(output, 'latest.json'), 'utf8'))
   assert.equal(published.version, c.bridge)
-  assert.equal(published.platforms['windows-x86_64'].signature, hops.oldSignature)
+  assert.equal(published.platforms['windows-x86_64'].signature, expectedSignature)
   assert.equal(published.platforms['windows-x86_64'].url, `https://github.com/old/app/releases/download/${c.tag}/${c.file}`)
   assert.equal(readFileSync(join(output, 'updater.pub'), 'utf8').trim(), old.key)
   assert.equal(readFileSync(join(output, 'upstream.pub'), 'utf8').trim(), next.key)
@@ -103,9 +113,11 @@ function scenario({ corruptDownload = false, corruptSigned = false, existingDraf
   }
   assert.throws(() => runBridge('prepare', options), /EEXIST/)
 }
-scenario()
-for (const option of ['corruptDownload', 'corruptSigned', 'existingDraft', 'changedLatest']) {
-  assert.throws(() => scenario({ [option]: true }), undefined, option)
+for (const direct of [false, true]) {
+  scenario({ direct })
+  for (const option of ['corruptDownload', 'corruptSigned', 'existingDraft', 'changedLatest']) {
+    assert.throws(() => scenario({ [option]: true, direct }), undefined, option)
+  }
 }
 const workflow = readFileSync(new URL('../.github/workflows/update-channel-bridge.yml', import.meta.url), 'utf8')
 assert.ok(workflow.includes("github.ref == 'refs/heads/master'"))

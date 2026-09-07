@@ -39,7 +39,12 @@ After reviewing the source, push a new `friends-v<major.minor.patch>` tag to the
 publishing repository. Ordinary branch pushes do not publish. The Windows job
 runs Host/desktop tests, builds the pinned native sidecars, projects the version
 and public key into the bundler, builds/signs NSIS, independently verifies the
-signatures, and uploads all assets to a Draft before making it public/latest.
+signatures, tests native installation ownership/crash cleanup, and uploads all
+assets to a private Draft. It does not automatically change the live latest feed.
+Run `Windows Direct Latest Acceptance` with that successful release run ID and
+candidate version. Inspect both 0.2.2/0.2.3 native single-hop results before a
+maintainer promotes the complete draft to public/latest. Future base-version
+coverage must be maintained as the supported population changes.
 Published or draft versions cannot be overwritten. Versions must increase.
 
 The first target must have patch >= 1 and includes a bootstrap with patch minus
@@ -64,6 +69,21 @@ an explicit migration/base installer. Do not silently redirect an old feed to
 packages those clients cannot verify.
 
 ### Compatible bridge from an existing Windows channel
+
+For direct latest migration, set `bridge_version == upstream_version`.
+The old repository signs the exact latest upstream installer bytes with its own
+key. After ONE confirmed installation the client already runs the latest version
+and trusts upstream. Run old-base native acceptance with `direct_latest=true`
+for both 0.2.0 and 0.2.1 before publishing that old-channel draft. Keep previous
+versioned releases; never move private keys or replace signatures with bypasses.
+Unequal versions retain the original two-hop acceptance path below.
+
+On a single channel, the rolling manifest already selects the latest complete
+installer: users do not install intervening versions. "One step" means one
+installation/restart, not removal of download and stop/install confirmation.
+The old feed must remain available for late adopters. This does not retrofit
+process shutdown fixes into already-running old executables; active old tasks
+may need to be saved/closed before installation, and preflight must fail safely.
 
 `Windows Update Channel Bridge` adds an opt-in, draft-only migration workflow.
 It does not modify runtime authentication, signature verification, application

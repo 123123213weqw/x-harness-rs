@@ -42,7 +42,9 @@ class ChannelTests(unittest.TestCase):
         for name in ['PRIVATE_KEY', 'PASSWORD', 'PUBLIC_KEY']:
             self.assertIn('secrets.XHARNESS_FRIENDS_' + name, source)
         self.assertLess(source.index('verify-updater-package.mjs'), source.index('gh release create'))
-        self.assertLess(source.index('gh release upload'), source.index('--draft=false --latest'))
+        self.assertNotIn('--draft=false', source)
+        self.assertIn('--draft', source)
+        self.assertIn('Windows Direct Latest Acceptance', source)
 
     def test_fork_and_upstream_urls_are_isolated(self):
         for repository in ['123123213weqw/x-harness-rs', 'yyqdbngt/x-harness-rs']:
