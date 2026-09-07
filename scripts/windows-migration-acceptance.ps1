@@ -29,7 +29,7 @@ New-ItemProperty -LiteralPath $debugPolicy -Name $debugName -PropertyType String
 try {
     $env:MIGRATION_TEST_PFX = "$fixtureRoot/proxy.pfx"
     node scripts/windows-migration-acceptance.mjs run
-    if ($LASTEXITCODE) { throw 'Native two-hop acceptance failed; do not publish old feed' }
+    if ($LASTEXITCODE) { throw 'Native update acceptance failed; do not publish candidate feed' }
 } finally {
     Remove-ItemProperty -LiteralPath $debugPolicy -Name $debugName -ErrorAction SilentlyContinue
     # Exact certificates created above, never a broad certificate-store operation.

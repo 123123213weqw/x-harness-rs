@@ -1,0 +1,61 @@
+name: Windows Direct Latest Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: Signed draft candidate version
+        required: true
+      release_run_id:
+        description: Successful Friends Windows Release build run
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  acceptance:
+    if: vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        base: ['0.2.2', '0.2.3']
+    runs-on: windows-2025
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      BASE_VERSION: ${{ matrix.base }}
+      BRIDGE_VERSION: ${{ inputs.target_version }}
+      UPSTREAM_VERSION: ${{ inputs.target_version }}
+      UPSTREAM_REPOSITORY: ${{ github.repository }}
+      UPSTREAM_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+      OLD_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+      DIRECT_LATEST: 'true'
+      RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated test dependency
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/migration-deps" --no-save --package-lock=false playwright@1.61.1
+          if ($LASTEXITCODE) { throw 'Playwright installation failed' }
+          "MIGRATION_TEST_DEPS=$env:RUNNER_TEMP/migration-deps/node_modules/playwright/index.mjs" >> $env:GITHUB_ENV
+      - name: Verify previous release and signed private candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/windows-migration-acceptance.mjs download
+          if ($LASTEXITCODE) { throw 'Candidate verification failed' }
+      - name: Real signed single-hop install and data preservation
+        run: ./scripts/windows-migration-acceptance.ps1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-direct-latest-${{ matrix.base }}
+          path: dist/migration-acceptance/evidence/
+          if-no-files-found: warn
