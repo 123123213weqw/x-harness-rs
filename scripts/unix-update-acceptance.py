@@ -296,6 +296,16 @@ def launch_command(root, binary, name):
     return ['sandbox-exec', '-f', str(profile), str(binary)]
 
 
+def process_ownership(name):
+    if name.startswith('darwin-'):
+        # Darwin can reject cross-session killpg even for a same-UID child.
+        # Match the production process runtime: a new group, same session.
+        # process_group avoids unsafe Python preexec_fn in our threaded server.
+        require(sys.version_info >= (3, 11), 'macOS native acceptance requires Python 3.11+')
+        return {'process_group': 0}
+    return {'start_new_session': True}
+
+
 def stop_process(process):
     if process is None:
         return
@@ -509,7 +519,7 @@ def candidate_native(args):
             binary.chmod(0o755)
         with (root / 'app.log').open('wb') as log:
             process = subprocess.Popen(launch_command(root, binary, args.platform),
-                cwd=root, env=runtime_environment(root), stdout=log, stderr=log, start_new_session=True)
+                cwd=root, env=runtime_environment(root), stdout=log, stderr=log, **process_ownership(args.platform))
             deadline = time.monotonic() + args.timeout
             while time.monotonic() < deadline:
                 ready = healthy_ready(root)
@@ -588,7 +598,7 @@ def candidate_update(args):
         server = fixture_server(root, asset, pathlib.Path(args.signature).read_text().strip(), config)
         with (root / 'app.log').open('wb') as log:
             process = subprocess.Popen(launch_command(root, binary, args.platform), cwd=root,
-                env=runtime_environment(root), stdout=log, stderr=log, start_new_session=True)
+                env=runtime_environment(root), stdout=log, stderr=log, **process_ownership(args.platform))
             deadline = time.monotonic() + args.timeout
             before = None
             replay = None

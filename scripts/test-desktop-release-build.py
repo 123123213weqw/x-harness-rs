@@ -162,9 +162,72 @@ class DraftAndLive(unittest.TestCase):
             with self.assertRaises(ValueError): build.compare_release_files(a, b)
 
 
+class NativeCargoCache(unittest.TestCase):
+    def test_prepare_exports_original_checkout_cache_without_touching_candidate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            checkout, candidate, isolated = root / 'checkout', root / 'candidate', root / 'isolated'
+            (checkout / 'apps/desktop/src-tauri/target').mkdir(parents=True)
+            (candidate / 'release').mkdir(parents=True)
+            isolated.mkdir()
+            (candidate / 'plan.json').write_text(json.dumps({'version': '0.2.6'}), encoding='utf-8')
+            package = candidate / 'release/immutable.AppImage'
+            package.write_bytes(b'signed production bytes')
+            (isolated / 'build-env.json').write_text(json.dumps({'XHARNESS_UPDATER_ENDPOINT': 'https://localhost:123/latest.json',
+                'XHARNESS_UPDATER_PUBKEY': 'public-fixture'}), encoding='utf-8')
+            args = type('Args', (), {'candidate': candidate, 'root': isolated, 'platform': 'linux-x86_64-appimage'})()
+            with patch.object(build, 'ROOT', checkout), patch.object(build, 'run') as run, \
+                    patch.object(build, 'export_environment') as export:
+                build.prepare_native(args)
+            expected = str(checkout / 'apps/desktop/src-tauri/target')
+            self.assertEqual(export.call_args.args[0]['CARGO_TARGET_DIR'], expected)
+            self.assertTrue(Path(expected).is_absolute())
+            self.assertEqual(export.call_args.args[0]['XHARNESS_UPDATER_PUBKEY'], 'public-fixture')
+            self.assertNotIn(str(isolated / 'source'), expected)
+            self.assertEqual(package.read_bytes(), b'signed production bytes')
+            self.assertIn('prepare', run.call_args.args)
+
+    def test_native_run_reads_base_from_shared_cache_but_candidate_from_immutable_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            checkout, candidate, isolated = root / 'checkout', root / 'candidate', root / 'isolated'
+            (checkout / 'apps/desktop/src-tauri/target').mkdir(parents=True)
+            (candidate / 'release').mkdir(parents=True)
+            isolated.mkdir()
+            (isolated / 'rehearsal.json').write_text(json.dumps({'platform': 'linux-x86_64-appimage'}), encoding='utf-8')
+            name = 'XHarness_0.2.6_amd64.AppImage'
+            (candidate / 'release/linux-x86_64-appimage.receipt.json').write_text(json.dumps({'package': name}), encoding='utf-8')
+            package = candidate / 'release' / name
+            package.write_bytes(b'unchanged candidate')
+            args = type('Args', (), {'candidate': candidate, 'root': isolated, 'rehearsal': False})()
+            with patch.object(build, 'ROOT', checkout), patch.object(build, 'run') as run:
+                build.native_run(args)
+            command = run.call_args.args
+            self.assertEqual(command[command.index('--base') + 1], checkout / 'apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/XHarness_0.0.901_amd64.AppImage')
+            self.assertEqual(command[command.index('--candidate') + 1], package)
+            self.assertEqual(package.read_bytes(), b'unchanged candidate')
+
+    def test_shared_cache_cannot_overlap_candidate_or_redirect_to_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            checkout = root / 'checkout'
+            desktop = checkout / 'apps/desktop/src-tauri'
+            desktop.mkdir(parents=True)
+            target = desktop / 'target'
+            with patch.object(build, 'ROOT', checkout):
+                self.assertEqual(build.native_target_dir(root / 'safe-candidate'), target)
+                for candidate in [target, desktop, target / 'release/candidate']:
+                    with self.subTest(candidate=candidate), self.assertRaises(ValueError):
+                        build.native_target_dir(candidate)
+                # This guard is platform-independent; Windows test users need no
+                # symlink creation privilege to verify the rejection contract.
+                with patch.object(Path, 'is_symlink', return_value=True), self.assertRaises(ValueError):
+                    build.native_target_dir(root / 'safe-candidate')
+
+
 class WorkflowGuard(unittest.TestCase):
     def test_single_aggregate_writer_and_four_native_platforms(self):
-        text = (ROOT / '.github/workflows/desktop-release.yml').read_text()
+        text = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
         self.assertEqual(text.count('contents: write'), 1)
         self.assertIn('needs: [plan, build]', text)
         self.assertNotIn('tauri-apps/tauri-action', text)
@@ -178,15 +241,17 @@ class WorkflowGuard(unittest.TestCase):
 
     def test_promotion_only_and_shared_serialization(self):
         for name in ['desktop-release.yml', 'desktop-promote.yml', 'friends-release.yml']:
-            self.assertIn('group: desktop-stable-release', (ROOT / '.github/workflows' / name).read_text())
-        promote = (ROOT / '.github/workflows/desktop-promote.yml').read_text()
+            self.assertIn('group: desktop-stable-release', (ROOT / '.github/workflows' / name).read_text(encoding='utf-8'))
+        promote = (ROOT / '.github/workflows/desktop-promote.yml').read_text(encoding='utf-8')
         for guard in ['refs/heads/master', 'resolve-source', 'fetch-promotion', 'publish --workspace']:
             self.assertIn(guard, promote)
 
     def test_rehearsal_cannot_be_mistaken_for_formal_acceptance(self):
-        text = (ROOT / '.github/workflows/desktop-unix-update-acceptance.yml').read_text()
+        text = (ROOT / '.github/workflows/desktop-unix-update-acceptance.yml').read_text(encoding='utf-8')
         self.assertIn('workflow_call:', text)
         self.assertIn('default: rehearsal', text)
+        self.assertIn('actions/setup-python@v5', text)
+        self.assertIn("python-version: '3.12'", text)
         self.assertIn("inputs.mode == 'candidate' && 'acceptance' || 'rehearsal'", text)
         self.assertNotIn('contents: write', text)
         self.assertNotIn('XHARNESS_FRIENDS_PRIVATE_KEY', text)

@@ -11,6 +11,9 @@ concurrency:
   group: desktop-stable-release
   cancel-in-progress: false
 
+env:
+  PYTHONUTF8: '1'
+
 jobs:
   windows:
     if: vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository

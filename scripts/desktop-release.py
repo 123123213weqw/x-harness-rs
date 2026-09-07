@@ -154,7 +154,7 @@ def verify_package(package, signature_path, public_key_path):
     try:
         subprocess.run(['node', str(ROOT / 'scripts/verify-updater-package.mjs'),
                         str(package), str(signature_path), str(public_key_path)],
-                       check=True, capture_output=True, text=True)
+                       check=True, capture_output=True, text=True, encoding='utf-8')
     except subprocess.CalledProcessError as error:
         raise ValueError('Independent updater signature verification failed') from error
     return signature
@@ -457,7 +457,7 @@ def promotion(plan, release_root, acceptance_root, live_root, public_key_path, c
 
 
 def gh_json(*arguments):
-    return json.loads(subprocess.check_output(['gh', *arguments], text=True), object_pairs_hook=unique_object)
+    return json.loads(subprocess.check_output(['gh', *arguments], text=True, encoding='utf-8'), object_pairs_hook=unique_object)
 
 
 def fetch_ci(repository, sha):
@@ -469,7 +469,7 @@ def fetch_ci(repository, sha):
 def require_environment(plan, building=False):
     validate_repository(os.environ['GITHUB_REPOSITORY'], os.environ.get('XHARNESS_FRIENDS_RELEASE_REPOSITORY', ''))
     require(plan['repository'] == os.environ['GITHUB_REPOSITORY'], 'Plan repository does not match executing workflow')
-    checkout = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    checkout = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, encoding='utf-8').strip()
     require(checkout == plan['sha'], 'Checked-out source differs from release plan')
     if building:
         for environment, key in [('GITHUB_SHA', 'sha'), ('GITHUB_RUN_ID', 'release_run_id'), ('GITHUB_RUN_ATTEMPT', 'release_run_attempt')]:
@@ -504,7 +504,7 @@ def main():
                          os.environ['GITHUB_SHA'], os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT'],
                          _friends.releases(repository), fetch_ci(repository, os.environ['GITHUB_SHA']))
         require_environment(plan, building=True)
-        tag_sha = subprocess.check_output(['git', 'rev-parse', args.tag + '^{commit}'], cwd=ROOT, text=True).strip()
+        tag_sha = subprocess.check_output(['git', 'rev-parse', args.tag + '^{commit}'], cwd=ROOT, text=True, encoding='utf-8').strip()
         require(tag_sha == plan['sha'], 'Release tag differs from checked-out source')
         write_json(args.output, plan)
         if os.environ.get('GITHUB_ENV'):

@@ -36,7 +36,7 @@ def require(condition, message):
 
 
 def run(*args, capture=False):
-    result = subprocess.run([str(a) for a in args], check=True, text=True,
+    result = subprocess.run([str(a) for a in args], check=True, text=True, encoding='utf-8',
                             stdout=subprocess.PIPE if capture else None)
     return result.stdout.strip() if capture else None
 
@@ -143,7 +143,7 @@ def collect(args):
         binary = app / 'Contents/MacOS/xharness-desktop'
         package = root / 'bundle/macos/XHarness.app.tar.gz'
         run('codesign', '--verify', '--deep', '--strict', app)
-        details = subprocess.run(['codesign', '-dv', '--verbose=4', str(app)], check=True, capture_output=True, text=True).stderr
+        details = subprocess.run(['codesign', '-dv', '--verbose=4', str(app)], check=True, capture_output=True, text=True, encoding='utf-8').stderr
         require('Authority=Developer ID Application:' in details and 'Signature=adhoc' not in details,
                 'Formal package is not Developer ID signed')
         team = os.environ.get('APPLE_TEAM_ID', '')
@@ -374,7 +374,7 @@ def rehearsal_init(destination):
     subprocess.run(['npm', 'exec', '--yes', '--package', '@tauri-apps/cli@2.11.4', '--',
                     'tauri', 'signer', 'generate', '-w', str(root / 'disposable.key'), '-p', '', '--ci'],
                    cwd=ROOT / 'apps/desktop', check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    key = (root / 'disposable.key.pub').read_text().strip()
+    key = (root / 'disposable.key.pub').read_text(encoding='utf-8').strip()
     repo = os.environ['GITHUB_REPOSITORY']
     endpoint = f'https://github.com/{repo}/releases/latest/download/latest.json'
     values = {'XHARNESS_UPDATER_ENDPOINT': endpoint, 'XHARNESS_UPDATER_PUBKEY': key,
@@ -406,8 +406,8 @@ def rehearsal_receipt(args):
     shutil.copyfile(str(source) + '.sig', str(destination) + '.sig')
     key_path = args.candidate / 'release/updater.pub'
     run('node', ROOT / 'scripts/verify-updater-package.mjs', destination, str(destination) + '.sig', key_path)
-    signature = Path(str(destination) + '.sig').read_text().strip()
-    key_lines = base64.b64decode(key_path.read_text().strip(), validate=True).decode().strip().splitlines()
+    signature = Path(str(destination) + '.sig').read_text(encoding='utf-8').strip()
+    key_lines = base64.b64decode(key_path.read_text(encoding='utf-8').strip(), validate=True).decode().strip().splitlines()
     packet = base64.b64decode(key_lines[-1], validate=True)
     require(len(packet) == 42 and packet[:2] == b'Ed', 'Unexpected public key packet')
     receipt = {**plan, 'schema_version': 1, 'platform': args.platform, 'target': args.target, 'package': name,
@@ -423,12 +423,27 @@ def rehearsal_receipt(args):
     (args.candidate / 'disposable.key.pub').unlink()
 
 
+def native_target_dir(candidate):
+    # Reuse this runner's restored/just-built Cargo cache, not a cold target in
+    # the disposable source tree. Packaging may overwrite target/bundle files;
+    # the separately copied, signed candidate/release must never overlap it.
+    desktop = (ROOT / 'apps/desktop/src-tauri').resolve()
+    target = desktop / 'target'
+    require(not target.is_symlink(), 'Native Cargo target must not be redirected by a symlink')
+    target = target.resolve()
+    protected = Path(candidate).resolve()
+    require(target != protected and target not in protected.parents and protected not in target.parents,
+            'Native Cargo cache must not overlap the immutable candidate')
+    return target
+
+
 def prepare_native(args):
     plan = load(args.candidate / 'plan.json')
+    target = native_target_dir(args.candidate)
     run(sys.executable, '-B', ROOT / 'scripts/unix-update-acceptance.py', 'prepare', '--source', ROOT,
         '--root', args.root, '--platform', args.platform, '--base-version', '0.0.901',
         '--target-version', plan['version'], '--public-key', args.candidate / 'release/updater.pub')
-    export_environment(load(args.root / 'build-env.json'))
+    export_environment({**load(args.root / 'build-env.json'), 'CARGO_TARGET_DIR': str(target)})
 
 
 def native_run(args):
@@ -437,7 +452,7 @@ def native_run(args):
     receipt = args.candidate / 'release' / (platform + '.receipt.json')
     name = load(receipt)['package']
     target = PLATFORMS[platform]
-    bundle = args.root / 'source/apps/desktop/src-tauri/target' / target / 'release/bundle'
+    bundle = native_target_dir(args.candidate) / target / 'release/bundle'
     if platform.startswith('darwin-'):
         base = args.root / 'base.app.tar.gz'
         subprocess.run(['tar', '-czf', str(base), '-C', str(bundle / 'macos'), 'XHarness.app'],

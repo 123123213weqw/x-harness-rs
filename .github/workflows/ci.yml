@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHONUTF8: '1'
+
 jobs:
   unix-update-rehearsal:
     name: Native Unix signed update rehearsal
@@ -22,6 +25,7 @@ jobs:
   update-channel-contract:
     name: Update channel contract / ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-2025, macos-15]
     runs-on: ${{ matrix.os }}
@@ -100,6 +104,9 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Runtime-drop process cleanup without another concurrent Tokio runtime
+        if: runner.os != 'Windows'
+        run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   rust-windows:
@@ -121,6 +128,9 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Runtime-drop process cleanup without another concurrent Tokio runtime
+        if: runner.os != 'Windows'
+        run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build native host and sandbox runner
         run: cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
@@ -238,6 +248,9 @@ jobs:
             apps/desktop/src-tauri -> target
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Runtime-drop process cleanup without another concurrent Tokio runtime
+        if: runner.os != 'Windows'
+        run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build native host
         run: cargo build --locked --release -p xharness-host-app

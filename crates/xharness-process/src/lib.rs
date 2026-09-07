@@ -442,17 +442,37 @@ pub enum ProcessError {
     CaptureDrainTimedOut { grace_ms: u128 },
 }
 
-/// Synchronous last-resort process-group cleanup. Tokio aborts spawned tasks
-/// when a Runtime is dropped; keeping this guard inside the supervisor makes
-/// that abort path kill the managed group instead of relying on async Drop.
+/// Last-resort process-tree cleanup, armed before the supervisor is scheduled.
+/// Own the Child as well as its group: after Tokio shutdown there may be no
+/// runtime left to drain Tokio's orphan queue, so kill-on-drop alone can leave
+/// the root as a zombie. The independent reaper keeps the original Child until
+/// try_wait has reaped it; it never waits on a potentially reused raw PID.
 struct ProcessTreeGuard {
     tree: NativeProcessTree,
+    child: Option<Child>,
     armed: bool,
 }
 
 impl ProcessTreeGuard {
-    fn new(tree: NativeProcessTree) -> Self {
-        Self { tree, armed: true }
+    fn new(tree: NativeProcessTree, child: Child) -> Self {
+        Self {
+            tree,
+            child: Some(child),
+            armed: true,
+        }
+    }
+
+    fn child(&mut self) -> &mut Child {
+        self.child.as_mut().expect("guard owns the running child")
+    }
+
+    async fn terminate(&mut self, grace: Duration) -> Result<ExitStatus, ProcessError> {
+        terminate_tree(
+            self.child.as_mut().expect("guard owns the running child"),
+            &self.tree,
+            grace,
+        )
+        .await
     }
 
     fn disarm(&mut self) {
@@ -464,7 +484,49 @@ impl Drop for ProcessTreeGuard {
     fn drop(&mut self) {
         if self.armed {
             let _ = hard_kill_tree(&self.tree);
+            #[cfg(unix)]
+            if let Some(mut child) = self.child.take() {
+                // Even if group signalling failed, preserve root ownership and
+                // request its death before handing it to the synchronous reaper.
+                let _ = child.start_kill();
+                reap_without_runtime(child);
+            }
         }
+    }
+}
+
+#[cfg(unix)]
+fn reap_without_runtime(mut child: Child) {
+    if !matches!(child.try_wait(), Ok(None)) {
+        return;
+    }
+    // Sending only after successful thread creation keeps ownership here if
+    // resource exhaustion prevents spawning the reaper. Normal completion never
+    // creates a thread; this is exclusively a supervisor-abort fallback.
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    match std::thread::Builder::new()
+        .name("xharness-process-reaper".to_owned())
+        .spawn(move || {
+            if let Ok(child) = receiver.recv() {
+                reap_owned_child(child);
+            }
+        }) {
+        Ok(_) => {
+            if let Err(error) = sender.send(child) {
+                reap_owned_child(error.0);
+            }
+        }
+        // Do not silently orphan the child if a cleanup thread cannot start.
+        Err(_) => reap_owned_child(child),
+    }
+}
+
+#[cfg(unix)]
+fn reap_owned_child(mut child: Child) {
+    // Child::try_wait does not use Tokio's reactor, unlike Child::wait. Holding
+    // this Child also prevents kill-on-drop from ever targeting a recycled PID.
+    while matches!(child.try_wait(), Ok(None)) {
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -602,10 +664,10 @@ impl ProcessRuntime {
         let (result_tx, result_rx) = oneshot::channel();
         let debug = self.debug.clone();
         let supervisor_output = Arc::clone(&live_output);
+        let process_tree_guard = ProcessTreeGuard::new(process_tree, child);
         runtime.spawn(async move {
             let result = supervise(
-                child,
-                process_tree,
+                process_tree_guard,
                 pid,
                 stdout,
                 stderr,
@@ -708,8 +770,7 @@ enum StopTrigger {
 
 #[allow(clippy::too_many_arguments)]
 async fn supervise(
-    mut child: Child,
-    process_tree: NativeProcessTree,
+    mut process_tree_guard: ProcessTreeGuard,
     pid: u32,
     stdout: tokio::process::ChildStdout,
     stderr: tokio::process::ChildStderr,
@@ -719,7 +780,6 @@ async fn supervise(
     diagnostic_spec: Value,
     live_output: Arc<LiveOutputState>,
 ) -> Result<ProcessOutput, ProcessError> {
-    let mut process_tree_guard = ProcessTreeGuard::new(process_tree);
     debug
         .record_lossy(DebugEvent::new(
             "process",
@@ -755,7 +815,7 @@ async fn supervise(
     tokio::pin!(timeout);
 
     let trigger = tokio::select! {
-        status = child.wait() => StopTrigger::Exited(status),
+        status = process_tree_guard.child().wait() => StopTrigger::Exited(status),
         _ = cancellation_requested(&mut cancel_rx) => StopTrigger::Cancelled,
         _ = &mut timeout => StopTrigger::TimedOut,
     };
@@ -769,11 +829,11 @@ async fn supervise(
             (status, TerminationReason::Exited)
         }
         StopTrigger::Cancelled => (
-            terminate_tree(&mut child, &process_tree_guard.tree, termination_grace).await?,
+            process_tree_guard.terminate(termination_grace).await?,
             TerminationReason::Cancelled,
         ),
         StopTrigger::TimedOut => (
-            terminate_tree(&mut child, &process_tree_guard.tree, termination_grace).await?,
+            process_tree_guard.terminate(termination_grace).await?,
             TerminationReason::TimedOut,
         ),
     };

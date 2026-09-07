@@ -125,7 +125,7 @@ function signer(id) {
 }
 process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
 '''
-        cls.fixtures = json.loads(subprocess.check_output(['node', '-e', script], text=True))
+        cls.fixtures = json.loads(subprocess.check_output(['node', '-e', script], text=True, encoding='utf-8'))
 
     def setUp(self):
         import base64
@@ -413,7 +413,7 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
     def test_release_inventory_checksum_and_receipt_evidence_must_match(self):
         self.assemble()
         checksum_path = self.output / 'SHA256SUMS'
-        original = checksum_path.read_text()
+        original = checksum_path.read_text(encoding='utf-8')
         checksum_path.write_text(original + '0' * 64 + '  unexpected\n')
         with self.assertRaisesRegex(ValueError, 'checksum inventory'):
             contract.validate_release(self.plan, self.output, self.pub)
