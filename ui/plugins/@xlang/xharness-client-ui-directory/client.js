@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
       const [createError, setCreateError] = useState(null)
       const life = useRef({ alive: false, generation: 0, controller: null, requested: undefined, mutating: false, picked: false })
       const pathInput = useRef(null)
+      const body = useRef(null)
       const folderInput = useRef(null)
       const newFolderButton = useRef(null)
 
@@ -73,8 +74,18 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         life.current.alive = true
+        const previousFocus = document.activeElement
+        const app = document.getElementById('root')
+        const wasInert = app?.inert
+        if (app) app.inert = true
+        pathInput.current?.focus()
         void navigate()
-        return () => { life.current.alive = false; invalidate() }
+        return () => {
+          life.current.alive = false
+          invalidate()
+          if (app) app.inert = wasInert
+          if (previousFocus?.isConnected) previousFocus.focus()
+        }
       }, [])
       useEffect(() => {
         if (folder !== null) folderInput.current?.focus()
@@ -131,11 +142,21 @@ window.__ModuleLoader__.load({
         open: true, title: t('title'), closeLabel: t('cancel'),
         onClose: () => { if (folder !== null) closeFolder(); else cancel() },
         className: 'xhdir-dialog', headless: true,
-      }, h('div', { className: 'xhdir-body', onKeyDown: event => {
+      }, h('div', { ref: body, tabIndex: -1, className: 'xhdir-body', onKeyDown: event => {
         // IME Enter confirms composition, never a path or mkdir operation.
         if (event.nativeEvent.isComposing || event.keyCode === 229) {
           if (event.key === 'Enter') event.preventDefault()
           event.stopPropagation()
+        }
+        if (event.key === 'Tab') {
+          const targets = [...body.current.querySelectorAll('button:not(:disabled), input:not(:disabled)')]
+            .filter(element => element.getClientRects().length > 0)
+          const next = event.shiftKey ? targets.at(-1) : targets[0]
+          if (!targets.length || (event.shiftKey && document.activeElement === targets[0])
+            || (!event.shiftKey && document.activeElement === targets.at(-1))) {
+            event.preventDefault()
+            ;(next ?? body.current).focus()
+          }
         }
       } },
         h('header', { className: 'xhdir-header' },
