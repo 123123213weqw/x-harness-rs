@@ -487,11 +487,22 @@ pub enum AgentRuntimeError {
     Preparation { message: String },
 }
 
+/// Read-only binding for auxiliary Host requests, independent of the main turn's settings.
+#[derive(Clone)]
+pub struct AuxiliaryModel {
+    pub provider: Arc<dyn ModelProvider>,
+    pub reasoning_effort: Option<String>,
+}
+
 /// Host-facing Agent execution seam. The Web Host owns queues and projections;
 /// the runtime owns model routing, tool preparation, context policy and the
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    fn auxiliary_model(&self, _route: &ModelRoute) -> Option<AuxiliaryModel> {
+        None
+    }
+
     fn has_available_route(&self) -> bool;
 
     fn can_route(&self, route: &ModelRoute) -> bool;
@@ -1047,6 +1058,20 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
+    fn auxiliary_model(&self, route: &ModelRoute) -> Option<AuxiliaryModel> {
+        let models = self.models.read().expect("model registry lock poisoned");
+        let model = models.resolve(route)?;
+        Some(AuxiliaryModel {
+            provider: model.provider.clone(),
+            reasoning_effort: model
+                .descriptor
+                .reasoning
+                .as_ref()
+                .and_then(ModelReasoning::lowest_effort)
+                .map(str::to_owned),
+        })
+    }
+
     fn has_available_route(&self) -> bool {
         !self
             .models

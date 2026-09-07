@@ -15,6 +15,7 @@ mod restore;
 mod rpc;
 mod runtime;
 mod state;
+mod titles;
 
 use std::{
     path::PathBuf,
@@ -45,7 +46,7 @@ pub use questions::{
 pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport};
 pub use runtime::{
     AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
-    DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelReasoning,
+    AuxiliaryModel, DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelReasoning,
     ModelReasoningEffort, ModelRegistry, ModelRegistryError, ModelRoute, RegisteredModel,
     RunningTurn,
 };
@@ -64,6 +65,8 @@ pub struct HostConfig {
     pub reasoning_effort: Option<String>,
     /// Provider/model context admission configured by the product host.
     pub token_guard: Option<TokenGuard>,
+    /// Enabled by the native app composition; embeddings opt in explicitly.
+    pub auto_titles: bool,
     pub event_capacity: usize,
     /// Maximum number of projected Session events retained in Host memory for
     /// a durable session. Older history remains queryable from the append-only
@@ -96,6 +99,7 @@ impl HostConfig {
             model_id: "unconfigured".to_owned(),
             reasoning_effort: None,
             token_guard: None,
+            auto_titles: false,
             event_capacity: 2_048,
             session_event_cache_capacity: 2_048,
             session_event_cache_bytes: 16 * 1024 * 1024,
@@ -152,6 +156,7 @@ pub struct BasicHost {
     background_listener_started: Arc<AtomicBool>,
     next_id: Arc<AtomicU64>,
     delegation_listener_started: Arc<AtomicBool>,
+    title_work: Arc<titles::TitleWork>,
 }
 
 impl BasicHost {
@@ -245,6 +250,7 @@ impl BasicHost {
             background_listener_started: Arc::new(AtomicBool::new(false)),
             next_id: Arc::new(AtomicU64::new(1)),
             delegation_listener_started: Arc::new(AtomicBool::new(false)),
+            title_work: Arc::new(titles::TitleWork::default()),
         })
     }
 

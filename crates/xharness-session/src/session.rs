@@ -1045,6 +1045,16 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     }
                 }
             }
+            EventData::SessionTitleGeneration {
+                version, attempt, ..
+            } => {
+                if *version != 1 || *attempt == 0 || *attempt > 3 {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "invalid title generation version or attempt",
+                    ));
+                }
+            }
             EventData::SessionTitle {
                 title,
                 message_seqs,
