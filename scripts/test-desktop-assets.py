@@ -33,6 +33,12 @@ def verify(app=None):
         assert digest(installed) == digest(desktop / 'icons/icon.icns'), f'packaged icon is stale: {installed}'
         assert info['CFBundleShortVersionString'] == config['version'], 'packaged version mismatch'
         assert (app / 'Contents/Resources/web/desktop-updater.js').read_bytes() == (ROOT / 'ui/desktop/updater.js').read_bytes(), 'packaged updater is stale'
+        web = app / 'Contents/Resources/web'
+        for relative in ['index.html', 'client-graph.json',
+                         'plugins/@deepseek-ai/dsh-client-connection/client.js',
+                         'plugins/@deepseek-ai/dsh-client-ui-model-selection/client.js']:
+            assert digest(web / relative) == digest(ROOT / 'ui/dist' / relative), f'packaged model controls are stale: {relative}'
+
         for binary in ['xharness-desktop', 'xharness-host', 'rg']:
             assert (app / 'Contents/MacOS' / binary).is_file(), f'missing executable: {binary}'
     print('desktop assets verified' + (f': {app}' if app else ''))

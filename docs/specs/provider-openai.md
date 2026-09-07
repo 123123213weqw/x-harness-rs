@@ -14,6 +14,47 @@
 Pending/Event 字节预算和错误 Body 预算。流预算为零的配置必须在网络 I/O 前失败。
 Debug 输出必须隐藏 API Key。
 
+## 网络故障与重试边界（2026-09-07）
+
+重试由 Core 所有，Provider 只标记错误是否可重试。`LoopConfig.provider_retries`
+默认 **2**，即每个模型步骤至多 **3 次请求**，不是整轮会话只能请求三次。
+该限制只针对模型生成请求，不代表 Token Count、Capability Probe 或工具 HTTP 请求共享重试次数。
+
+| 场景 | 当前处理 |
+| --- | --- |
+| 尚未输出时断连、408/429/5xx | 最多额外重试 2 次，完整复用当前步骤请求 |
+| 400/401/403/404/422 等不可重试错误 | 立即失败，不循环重试；上下文溢出走独立预算处理 |
+| 空响应或仅心跳后 HTTP EOF，缺少协议结束 | 可重试，但仍受 Core 的“尚未输出”条件限制 |
+| 已收到正文、reasoning、工具参数任意 delta 后断开 | 保留已记录片段，本轮失败，不拼接新流、不自动重跑 |
+| 工具参数 JSON 完整，但没有协议完成事件 | 不能执行；JSON 闭合不是模型轮完成 |
+| 已收到 Chat `[DONE]` / Responses 完成事件 | Provider 终结迭代，不再读后续关闭错误 |
+| 用户取消和网络错误同时返回 | Core 以取消终态结束，禁止误报失败并发起重试 |
+| 消费者提前丢弃 LoopRun | 协作取消并释放连接，不继续后台重试 |
+| 上一步工具执行成功、下一步生成请求重试 | 只重试下一步，不重复已执行工具 |
+
+默认连接超时 30 秒、等待首响应的请求上限 600 秒、流读取超时 300 秒。
+持续有数据的长推理不会因为超过 600 秒直接被终止。目前重试没有指数退避、抖动或
+`Retry-After` 调度，也没有跨所有尝试的总等待期限；不能把次数有界描述为等待时间很短。
+网络切换时重新建立连接不等于服务端支持按字节/Token 断点续传。
+
+### 故障注入回归
+
+`crates/xharness-provider-openai/tests/network_recovery.rs` 使用本地 TCP/HTTP 故障服务器，
+串起真实 Reqwest、OpenAiProvider 和 LoopEngine；不访问真实模型、不带用户密钥，
+不修改系统网络。覆盖状态码矩阵、0/1/4 次重试配置、断连后第三次恢复、
+空响应/心跳 EOF、部分正文/思考/工具参数截断、Chat/Responses 完成后 HTTP 截断、
+响应头及正文停顿、取消及提前退出消费者。
+
+Core 的 `network_*` 回归额外通过真实 ToolExecutor 验证：半截/完整未确认的参数
+不产生副作用；重试下一模型步骤时已完成工具只执行一次。
+已有协议测试继续覆盖逐字节 Unicode/CRLF/SSE 拼接、解析缓存上限与活跃长流。
+这些用 HTTP 截断模拟网络故障，并未宣称完成真实 Wi-Fi 切换或 TLS `close_notify`
+抓包验收；这些真实网络场景仍需单独测试。
+
+本轮测试先暴露三处失败，再修复：无协议终态的 EOF 不可重试、完成后继续读出第二个错误、
+取消与网络失败竞争时错误终态。原有主 Loop 在收到 Completed 后已退出，因此第二项是
+Provider 接口边界修复，不代表此前用户的断流一定发生在答案完成之后。
+
 Provider Config 可选配置一个结构化 Capability Probe（URL、部署 Context Window JSON Pointer、
 TTL），并可额外配置模型 Ceiling、Provider Limit、Account Limit 三个 JSON Pointer。Adapter
 从同一份带版本响应中读取各条独立 Evidence，按模型 Ceiling 与所有实际运行约束的交集计算有效
