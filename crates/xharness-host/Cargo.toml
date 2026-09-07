@@ -31,6 +31,9 @@ xharness-tools = { path = "../xharness-tools" }
 
 xharness-debug = { path = "../xharness-debug" }
 
+[target.'cfg(windows)'.dependencies]
+xharness-win32 = { path = "../xharness-win32" }
+
 [dev-dependencies]
 chrono.workspace = true
 tower.workspace = true

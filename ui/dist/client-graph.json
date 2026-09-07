@@ -1,5 +1,5 @@
 {
-  "rev": "b1e3a061075dd2dc",
+  "rev": "2885b56b3272430a",
   "entries": [
     {
       "id": "@deepseek-ai/dsh-typert-registry",
@@ -453,6 +453,16 @@
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-directory",
+      "url": "/plugins/@xlang/xharness-client-ui-directory/client.js?rev=a96b21df5a9d17af",
+      "rev": "a96b21df5a9d17af",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-locale"
       ]
     }
   ]
