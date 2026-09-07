@@ -733,3 +733,17 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Side Effect 和恢复语义，记录 TTFT、Decode、Cache、Tool 成功率、重试、Context/Compact、事件量、
   JSONL 增长和端到端时间。每个失败必须进入可复现 Fixture/回归测试后再修复，禁止只改 Prompt 掩盖
   Runtime Bug；连续三轮无回归且满足阈值后才提升默认版本。
+
+### 会话模型控件补齐（2026-09-06）
+
+- [x] Web / App 共用显式思考档位和上下文容量入口，复用 ModelDirectory 与现有 RPC。
+- [x] 修复客户端 Schema 丢弃上下文容量、上限及来源；打包资源与 boot graph 同步校验。
+- [x] 增加刷新回读、切换大小模型、无能力声明、非法输入、取消、网络重试及异步竞争回归。
+- [x] Chromium / WebKit 交互回归、WebKit 19 项 Context/Harness 布局回归，以及远程 Rust 模型切换/重启恢复测试。
+- [ ] 当前改动的 App 安装验收与 CI 包发布：已准备本机 UI-only 更新包并验证签名，尚未替换运行中的 App（不能以源码已修改代替安装成功）。
+
+### 子 Agent 返回主会话回归（2026-09-07）
+
+- [x] 修复子会话创建推送、会话摘要及重启恢复缺少 `origin=subagent` 的导航契约。
+- [x] 补父面包屑鼠标/键盘/恢复导航的 Chromium 与 WebKit 测试，复用上游组件。
+- [ ] 发布包含修复的新 Host 安装包，并在原生 App 验收子 Agent → 主 Agent 继续发送消息；不以隔离组件测试替代整包验收。

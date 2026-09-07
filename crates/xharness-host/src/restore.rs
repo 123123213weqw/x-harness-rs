@@ -180,11 +180,11 @@ impl BasicHost {
                 running: false,
                 blank,
                 parent_session_id: crate::delegation::restored_delegation(&session),
-                // `origin` is a frozen Web-wire discriminant. The upstream
-                // client accepts only `"subagent"`; ordinary sessions remain
-                // ordinary after a Host restart, so restoration must not leak
-                // an internal lifecycle marker into `session.list`.
-                origin: None,
+                // The upstream breadcrumb follows parentSessionId only for
+                // origin=subagent. Recover it from the durable delegation,
+                // never infer it for ordinary sessions or forks.
+                origin: crate::delegation::restored_delegation(&session)
+                    .map(|_| "subagent".to_owned()),
                 cwd: cwd.clone(),
                 agent_preset: restored_agent_preset(&session),
                 title: restored_title(&session),
@@ -2844,16 +2844,32 @@ mod tests {
         let make_runtime = |store: Arc<dyn Store>| {
             let mut models = ModelRegistry::new();
             models
-                .register(RegisteredModel::new(
-                    ModelDescriptor::new("test", "Test", "selected-model", "Selected model")
-                        .with_reasoning(
-                            ModelReasoning::new(vec![ModelReasoningEffort::new("high", "High")])
+                .register(
+                    RegisteredModel::new(
+                        ModelDescriptor::new("test", "Test", "selected-model", "Selected model")
+                            .with_context_window(xharness_core::ContextWindowCapability::reported(
+                                131_072,
+                            ))
+                            .with_reasoning(
+                                ModelReasoning::new(vec![ModelReasoningEffort::new(
+                                    "high", "High",
+                                )])
                                 .with_default("high"),
-                        ),
-                    Arc::new(ApprovalRecoveryProvider {
-                        requests: Arc::new(Mutex::new(Vec::new())),
-                    }),
-                ))
+                            ),
+                        Arc::new(ApprovalRecoveryProvider {
+                            requests: Arc::new(Mutex::new(Vec::new())),
+                        }),
+                    )
+                    .with_token_guard(Some(
+                        xharness_token::TokenGuard::conservative(xharness_token::TokenBudget {
+                            context_window_tokens: 131_072,
+                            reserved_output_tokens: 8192,
+                            minimum_output_tokens: 4096,
+                            safety_margin_tokens: 1024,
+                        })
+                        .unwrap(),
+                    )),
+                )
                 .unwrap();
             Arc::new(
                 DurableLoopAgentRuntime::from_registry(
@@ -2922,6 +2938,7 @@ mod tests {
                     "provider": "test",
                     "model": "selected-model",
                     "reasoningEffort": "high",
+                    "contextWindowTokens": 32768,
                 }),
                 CancellationToken::new(),
             )
@@ -3025,6 +3042,7 @@ mod tests {
                     "provider": "test",
                     "model": "selected-model",
                     "reasoningEffort": "high",
+                    "contextWindowTokens": 32768,
                 }),
                 CancellationToken::new(),
             )
@@ -3039,6 +3057,7 @@ mod tests {
                     "provider": "test",
                     "model": "another-model",
                     "reasoningEffort": "high",
+                    "contextWindowTokens": 32768,
                 }),
                 CancellationToken::new(),
             )
@@ -3063,6 +3082,7 @@ mod tests {
             assert_eq!(record.model.provider, "test");
             assert_eq!(record.model.model, "selected-model");
             assert_eq!(record.model.reasoning_effort.as_deref(), Some("high"));
+            assert_eq!(record.model.context_window_tokens, Some(32_768));
             assert!(record.plan_active);
             assert_eq!(
                 record.projection_values()["plan"],

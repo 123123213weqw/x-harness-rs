@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [master]
   pull_request:
@@ -22,12 +23,17 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/ui-tests" --no-save --package-lock=false playwright@1.61.1 react@18.3.1 react-dom@18.3.1
           node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
       - run: node scripts/test-context-plugin.mjs
+      - run: node scripts/test-model-controls.mjs
       - name: Real browser layout regression
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
         run: |
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-model-controls-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-model-controls-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-subagent-navigation.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-subagent-navigation.mjs
 
   rust-linux:
     name: Rust / Linux x86_64

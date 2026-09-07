@@ -74,3 +74,38 @@ storage return errors without applying an uncommitted registry.
 Production-provider and packaged-UI acceptance must be reported separately from
 these deterministic tests. Passing a mock-provider test is not evidence that a
 particular user's API account is valid or that a long coding run was completed.
+
+## 会话内模型控制（2026-09-06）
+
+Web 和 Tauri 共用 `ui/dist`，输入框下方直接显示「思考」和「上下文」两个入口，
+继续复用上游 ModelDirectory、`session.models`、`session.selectModel`；没有新增
+桌面专用配置库，也不使用 localStorage 保存选择。
+
+- 思考档位仅来自当前 Provider 的精确模型声明；没有声明就显示不可调，不伪造通用档位。
+- 上下文输入是 **Token 整数**。使用后端返回的 `contextWindow` 作为有效上限，展示
+  `contextWindowSource`，绝不在前端写死 32K/128K/1M。上限未知时禁用调节。
+- 保存完整当前选择；修改上下文不改变思考档位，修改思考不改变已选择的上下文。
+- 切换模型清除旧表单，使用目标模型的上限和默认思考档位；不把旧模型的软预算带过去。
+- 主机持久化后才更新显示；刷新、Host 重连后从主机回读。运行中的请求沿用创建时的配置，
+  后续请求使用新设置。把窗口调得过小仍可能触发 Token Budget Guard，不能保证任意小窗口可运行。
+- 严格校验正整数、安全整数和上界；取消/点外部/Escape 不保存。网络错误保留旧值并支持重试，
+  过期异步响应和组件卸载不得覆盖新状态。
+
+### 原因与构建约束
+
+此前不仅没有上下文调节控件，上游 client-connection 的解析 Schema 还会丢掉
+`contextWindowTokens`、`contextWindow` 和能力来源；仅增按钮无法解决。
+`scripts/patch-model-controls.mjs` 为这两处提供失败即中止的构建适配，
+`ui/overrides/model-controls.js` 保存产品组件源码。assemble/rebuild 自动应用适配，
+生成文件、客户端图 revision 和 HTML 内联图同步更新；不维护伪装最新的 sourcemap。
+
+### 回归入口
+
+- `node scripts/test-model-controls.mjs`：真实打包 Schema、RPC 透传、正负边界、错误和竞争。
+- `UI_TEST_DEPS=/path/to/deps UI_TEST_BROWSER=chromium node scripts/test-model-controls-browser.mjs`
+- 同一浏览器测试使用 `UI_TEST_BROWSER=webkit` 验证 macOS WebView 同类引擎。
+- 远程 Rust：`web_model_catalog_exposes_and_selects_multiple_runtime_routes` 覆盖大小模型切换，
+  `permission_command_and_receipt_survive_a_host_restart` 同时验证思考与自定义上下文恢复。
+- 桌面打包检查比对模型控件、连接协议、client-graph 和 index.html，防止 App 携带旧 UI。
+
+代码接入、浏览器回归通过不等于已经更新用户安装包；实际安装验收单独记录。
