@@ -262,6 +262,69 @@ class PublicPublication(unittest.TestCase):
                 self.assertEqual(build.load(root / 'publication-result.json')['state'], 'published_but_unverified')
 
 
+class NativeRepetitions(unittest.TestCase):
+    def fixtures(self, root):
+        for name in ['ISOLATED_UNIX_UPDATE_ONLY', 'rehearsal.json', 'updater.pub', 'ca.pem', 'server.pem', 'server.key']:
+            (root / name).write_text('{}', encoding='utf-8')
+        for name in ['state', 'home', 'source']:
+            (root / name).mkdir()
+            (root / name / 'must-not-be-reused').write_text('private')
+
+    def receipt(self):
+        return {'status': 'passed', 'platform': 'linux-x86_64-appimage', 'version': '0.0.902', 'sha': SHA,
+                'package_sha256': 'a' * 64, 'manifest_sha256': 'b' * 64, 'scope': 'isolated-production-handler-rehearsal'}
+
+    def test_three_fresh_rounds_reuse_compiled_base_not_installation_or_data(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.fixtures(root)
+            seen = []
+            def execute(*args):
+                directory = Path(args[args.index('--root') + 1])
+                seen.append(directory)
+                if directory != root:
+                    for name in ['state', 'home', 'source', 'installed.AppImage']:
+                        self.assertFalse((directory / name).exists())
+                    self.assertEqual((directory / 'server.key').stat().st_mode & 0o777, 0o600)
+                    self.assertEqual((directory / 'server.key').read_bytes(), (root / 'server.key').read_bytes())
+                self.assertEqual(args[args.index('--base') + 1], 'untouched-base')
+                build.write(directory / 'acceptance.json', self.receipt())
+            with patch.object(build, 'run', side_effect=execute):
+                build.run_native_rounds(['native', '--root', root, '--base', 'untouched-base'], root)
+            self.assertEqual(seen, [root, root / 'repetitions/2', root / 'repetitions/3'])
+            summary = build.load(root / 'repetition-summary.json')
+            self.assertEqual(summary['status'], 'passed')
+            self.assertEqual(len(summary['completed']), 3)
+
+    def test_later_failure_or_changed_candidate_invalidates_first_acceptance(self):
+        for failure in ['runtime', 'identity']:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); self.fixtures(root)
+                def execute(*args):
+                    directory = Path(args[args.index('--root') + 1])
+                    receipt = self.receipt()
+                    if directory != root:
+                        if failure == 'runtime': raise RuntimeError('native restart failed')
+                        receipt['package_sha256'] = 'c' * 64
+                    build.write(directory / 'acceptance.json', receipt)
+                with patch.object(build, 'run', side_effect=execute), self.assertRaises((ValueError, RuntimeError)):
+                    build.run_native_rounds(['native', '--root', root], root)
+                self.assertFalse((root / 'acceptance.json').exists())
+                summary = build.load(root / 'repetition-summary.json')
+                self.assertEqual(summary['status'], 'failed')
+                self.assertEqual(len(summary['completed']), 1)
+
+    def test_repeat_export_retains_only_public_evidence_never_runtime_keys(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, output = Path(temporary) / 'root', Path(temporary) / 'output'
+            root.mkdir()
+            repeat = root / 'repetitions/2'; repeat.mkdir(parents=True)
+            for name in ['acceptance.json', 'evidence.json', 'server.key', 'ca.pem', 'rehearsal.json']:
+                (repeat / name).write_text('{}')
+            build.export_native(type('Args', (), {'root': root, 'output': output})())
+            self.assertEqual({str(p.relative_to(output)) for p in output.rglob('*') if p.is_file()},
+                             {'repetitions/2/acceptance.json', 'repetitions/2/evidence.json'})
+
+
 class NativeCargoCache(unittest.TestCase):
     def test_prepare_exports_original_checkout_cache_without_touching_candidate(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -300,9 +363,9 @@ class NativeCargoCache(unittest.TestCase):
             package = candidate / 'release' / name
             package.write_bytes(b'unchanged candidate')
             args = type('Args', (), {'candidate': candidate, 'root': isolated, 'rehearsal': False})()
-            with patch.object(build, 'ROOT', checkout), patch.object(build, 'run') as run:
+            with patch.object(build, 'ROOT', checkout), patch.object(build, 'run_native_rounds') as run:
                 build.native_run(args)
-            command = run.call_args.args
+            command = run.call_args.args[0]
             self.assertEqual(command[command.index('--base') + 1], checkout / 'apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/XHarness_0.0.901_amd64.AppImage')
             self.assertEqual(command[command.index('--candidate') + 1], package)
             self.assertEqual(package.read_bytes(), b'unchanged candidate')
