@@ -4163,3 +4163,84 @@ async fn full_debug_records_correlated_loop_context_provider_and_terminal_events
         event.scope.session_id.as_deref() == Some("debug-session") && event.scope.run_id.is_some()
     }));
 }
+
+#[tokio::test]
+async fn network_cut_after_tool_arguments_never_executes_or_replays_the_tool() {
+    for arguments in [r#"{"path":"#, r#"{"path":"file"}"#] {
+        let provider = Arc::new(ScriptProvider::new([vec![
+            Ok(tool_delta(0, "call", "side_effect", arguments)),
+            Err(ProviderError::retryable("network cut after arguments")),
+        ]]));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let counter = executions.clone();
+        let tool = TestToolSpec::new(
+            "side_effect",
+            "fixture",
+            json!({"type":"object"}),
+            move |_, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                async { ToolResult::success("executed") }
+            },
+        );
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("fixture")]);
+        install_tool(&mut request, tool).await;
+        let (events, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Failed);
+        assert_eq!(provider.attempts(), 1);
+        assert_eq!(executions.load(Ordering::SeqCst), 0);
+        assert!(!events
+            .iter()
+            .any(|e| matches!(e.kind, LoopEventKind::ToolStarted(_))));
+    }
+}
+
+#[tokio::test]
+async fn network_retry_of_next_step_does_not_repeat_completed_tool_side_effects() {
+    let provider = Arc::new(ScriptProvider::with_attempts([
+        Ok(vec![
+            Ok(tool_delta(0, "call", "side_effect", "{}")),
+            Ok(completed_for_calls()),
+        ]),
+        Err(ProviderError::retryable(
+            "reconnect on following model step",
+        )),
+        Ok(vec![
+            Ok(ProviderEvent::TextDelta("recovered".into())),
+            Ok(completed()),
+        ]),
+    ]));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let counter = executions.clone();
+    let tool = TestToolSpec::new(
+        "side_effect",
+        "fixture",
+        json!({"type":"object"}),
+        move |_, _| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("executed once") }
+        },
+    );
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("fixture")]);
+    install_tool(&mut request, tool).await;
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(provider.attempts(), 3);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e.kind, LoopEventKind::ModelRetry { .. }))
+            .count(),
+        1
+    );
+    let requests = provider.requests();
+    assert_eq!(requests[1].messages, requests[2].messages);
+    assert_eq!(
+        result
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::Tool)
+            .count(),
+        1
+    );
+}

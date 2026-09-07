@@ -10,7 +10,7 @@ LOCAL_DIST="$ROOT/dist"
 rsync -az --delete \
   --exclude='.git/' \
   --exclude='target/' \
-  --exclude='dist/' \
+  --exclude='/dist/' \
   --exclude='node_modules/' \
   --exclude='.env' \
   --exclude='.env.*' \

@@ -79,3 +79,18 @@ ui/plugins/@xlang/xharness-client-ui-schedule/client.js
 它不要求 Rust Host 新增专用 RPC 或 projection：组件在浏览器内直接折叠
 现有 `schedule/change` 会话事件，并把活动提醒入口注册到会话头部。创建、
 删除和提醒交付仍由 Rust Schedule 工具与持久化运行时负责。
+
+## 会话模型控制（Web / Tauri 共用）
+
+`ui/overrides/model-controls.js` 将上下文表单接入上游模型菜单的二级页面；思考档位
+复用已有菜单，输入区只保留一个模型按钮。复用上游 ModelSelect 与 ModelDirectory。
+`scripts/patch-model-controls.mjs` 同时适配客户端的容量字段校验，
+重建脚本会自动应用。只修改产品组件时可执行：
+
+```bash
+node scripts/patch-model-controls.mjs
+node scripts/test-model-controls.mjs
+```
+
+必须同时提交更新后的 `ui/dist` 模块、图 revision 和 HTML。软件加载安装包内置资源，
+不会随着浏览器目录或 Git 源码更新而自动更新；包内资源一致性由桌面资产测试校验。

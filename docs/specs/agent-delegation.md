@@ -125,3 +125,20 @@ Rust 编译、单测、Clippy 均在 WZU_Server 的 `~/codex-build/x-harness-rs/
 - 故障注入覆盖每一个持久化写入断点，扩大真实模型任务集。
 - CI 打包、Web/Tauri 端到端交互验收与发布。新事件不应直接拿旧二进制读；
   升级/回退需要保留状态备份，不能宣称任意旧版本无损降级。
+
+## 父子会话导航契约（2026-09-07 修复）
+
+上游面包屑仅沿 `origin: "subagent"` 的 `parentId` 向上遍历。
+Host 必须在子会话的 `session.list` 摘要和 `host/session-added` 推送中同时提供
+`origin: "subagent"` 与 `parentSessionId`；重启后从持久化 `agent/delegated`
+恢复这些字段。普通会话和普通 fork 不能仅因有 parent 就被标记为子 Agent。
+之前缺失 origin 会导致面包屑只剩不可点击的当前子会话，无法由此返回主会话。
+
+继续复用上游导航，不新增工具、不取消父子任务、不复制会话。点击父面包屑后选择
+父会话，根会话不携带子会话 transport address。
+
+回归：Rust 覆盖实时推送、摘要、重启恢复及普通会话无 origin；
+`scripts/test-subagent-navigation.mjs` 从已交付 bundle 提取真实面包屑和选择函数，
+在 Chromium/WebKit 验证鼠标、键盘及恢复后的 child → parent 导航。
+其中输入框为隔离夹具，不能替代完整原生 App 的 RPC/发送消息端到端验收。
+本修复尚未替换本机安装包；安装新 Host 并重连后，既有持久化孩子可恢复该标记。
