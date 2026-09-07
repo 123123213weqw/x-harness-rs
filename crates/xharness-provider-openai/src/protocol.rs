@@ -240,7 +240,9 @@ impl OpenAiStreamNormalizer {
         if self.completed {
             Ok(())
         } else {
-            Err(ProviderError::new(
+            // HTTP EOF is not application completion. Core retries this only
+            // before any model delta; partial output must never be replayed.
+            Err(ProviderError::retryable(
                 "SSE stream ended before protocol completion",
             ))
         }

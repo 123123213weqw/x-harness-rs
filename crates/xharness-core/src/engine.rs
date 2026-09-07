@@ -2683,6 +2683,9 @@ impl Runner {
             let mut stream = match stream {
                 Ok(stream) => stream,
                 Err(error) => {
+                    // Cancellation may make provider.stream resolve with an error
+                    // in the same poll that the cancellation branch becomes ready.
+                    self.ensure_running()?;
                     if error.is_context_overflow() && !round.saw_delta {
                         return Err(RunFailure::ContextOverflow(error.message));
                     }
@@ -2847,10 +2850,12 @@ impl Runner {
                         break;
                     }
                     ModelInput::Provider(Some(Err(error))) => {
+                        self.ensure_running()?;
                         failure = Some(error);
                         break;
                     }
                     ModelInput::Provider(None) => {
+                        self.ensure_running()?;
                         failure = Some(ProviderError::new(
                             "provider stream ended without completed event",
                         ));
