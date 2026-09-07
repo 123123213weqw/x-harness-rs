@@ -3300,15 +3300,20 @@ fn valid_directory_name(name: &str) -> bool {
 fn breadcrumb_entries(path: &Path) -> Vec<Value> {
     let mut current = PathBuf::new();
     path.components()
-        .map(|component| {
+        .filter_map(|component| {
             current.push(component.as_os_str());
+            // A Windows drive prefix (e.g. C: or \\?\C:) is not a complete
+            // absolute directory. Emit it together with the following root.
+            if matches!(component, std::path::Component::Prefix(_)) {
+                return None;
+            }
             let display = current.to_string_lossy().into_owned();
             let name = component.as_os_str().to_string_lossy();
-            json!({
-                "name": if name.is_empty() { display.clone() } else { name.into_owned() },
+            Some(json!({
+                "name": if matches!(component, std::path::Component::RootDir) || name.is_empty() { display.clone() } else { name.into_owned() },
                 "path": display,
                 "hidden": false,
-            })
+            }))
         })
         .collect()
 }

@@ -1571,6 +1571,14 @@ async fn directory_browser_creates_unicode_folder_and_reuses_workspace() {
         listing["crumbs"].as_array().unwrap().last().unwrap()["path"],
         listing["path"]
     );
+    for crumb in listing["crumbs"].as_array().unwrap() {
+        let path = PathBuf::from(crumb["path"].as_str().unwrap());
+        assert!(path.is_absolute(), "breadcrumb must be absolute: {path:?}");
+        assert!(
+            path.is_dir(),
+            "breadcrumb must be a navigable directory: {path:?}"
+        );
+    }
     let workspace = fx
         .value(RpcMethod::WorkspaceCreate, json!({"path": path}))
         .await;
