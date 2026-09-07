@@ -874,6 +874,32 @@ impl DurableLoopAgentRuntime {
         leases: Arc<dyn LeaseManager>,
         event_capacity: usize,
     ) -> Result<Self, ModelRegistryError> {
+        Self::from_registry_with_delegation_concurrency(
+            default_route,
+            models,
+            tool_factory,
+            context_policy,
+            store,
+            leases,
+            event_capacity,
+            crate::DelegationConcurrency::default(),
+        )
+    }
+
+    /// Select child-turn capacity before activation. Existing constructors use
+    /// four; all sessions share this pool and primary turns bypass it.
+    /// No live resize or change to durable ownership/admission semantics.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_registry_with_delegation_concurrency(
+        default_route: ModelRoute,
+        models: ModelRegistry,
+        tool_factory: Arc<dyn SessionToolFactory>,
+        context_policy: Arc<dyn ContextPolicy>,
+        store: Arc<dyn Store>,
+        leases: Arc<dyn LeaseManager>,
+        event_capacity: usize,
+        delegation_concurrency: crate::DelegationConcurrency,
+    ) -> Result<Self, ModelRegistryError> {
         if !models.entries.is_empty() && !models.can_route(&default_route) {
             return Err(ModelRegistryError::DefaultRouteUnavailable {
                 provider: default_route.provider,
@@ -886,7 +912,7 @@ impl DurableLoopAgentRuntime {
         let compaction = Arc::new(StdRwLock::new(None));
         let factory = Arc::new(DurableTurnFactory {
             store: Arc::clone(&store),
-            delegation_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            delegation_slots: Arc::new(tokio::sync::Semaphore::new(delegation_concurrency.limit())),
             models: Arc::clone(&models),
             tool_factory: Arc::clone(&tool_factory),
             context_policy,
