@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 
@@ -163,6 +164,7 @@ await test('real DOM bridge shows left blue icon, safe notes, confirmation and c
   const b = await boot()
   assert.match(b.host.style.cssText, /left:11px/)
   assert.match(b.host.style.cssText, /bottom:64px/)
+  assert.doesNotMatch(b.host.style.cssText, /z-index/i, 'Updater must use normal chat UI stacking')
   assert.equal(b.host.hidden, false)
   assert.equal(b.host.root.querySelector('.panel').hidden, true)
   b.emit(snapshot(1, 'available', { notes: '<img src=x onerror=alert(1)>' }))
@@ -228,4 +230,7 @@ assert.equal(typeof config.plugins?.updater?.pubkey, 'string')
 assert.equal(config.bundle.createUpdaterArtifacts, true)
 const built = await readFile(new URL('../ui/dist/desktop-updater.js', import.meta.url), 'utf8')
 assert.equal(built, source, 'checked-in Web bundle must contain current updater')
+const index = await readFile(new URL('../ui/dist/index.html', import.meta.url), 'utf8')
+const updaterRev = createHash('sha256').update(source.replaceAll('\r\n', '\n')).digest('hex').slice(0, 16)
+assert.ok(index.includes('/desktop-updater.js?rev=' + updaterRev), 'updater cache revision must match shipped source')
 console.log(assertions + ' desktop updater tests passed, plus bundle/config checks')
