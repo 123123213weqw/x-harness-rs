@@ -79,6 +79,7 @@ python3 scripts/unix-update-acceptance.py candidate-update \
   HOME/CFFIXED_USER_HOME、XDG、workspace、state、providers、临时文件均在私有 root 内。
 - macOS 使用 `sandbox-exec` 拒绝 root 外的文件写入；若工具不可用或隔离目录不可写则失败，
   不修改 `/Applications`、用户生产 HOME、系统证书或全局钥匙串。
+  Python 3.11+ 通过 `process_group=0` 建立同 session 的独立进程组，避免 Darwin 跨 session 的 killpg 权限错误。
 - Linux 使用独立 Xvfb 与 D-Bus。显示服务在生产 restart 后继续存活；结束、异常与超时
   均仅清理本次创建的进程组，不按应用名称杀进程。
 - 任意失败只生成 `FAIL.json`；清理失败会撤销成功 acceptance。

@@ -162,6 +162,88 @@ class DraftAndLive(unittest.TestCase):
             with self.assertRaises(ValueError): build.compare_release_files(a, b)
 
 
+class PublicPublication(unittest.TestCase):
+    def test_rolling_feed_is_verified_without_auth_and_old_cdn_bytes_are_retried(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'final-draft').mkdir()
+            for name, data in [('latest.json', b'new-feed'), ('updater.pub', b'public-key')]:
+                (root / 'final-draft' / name).write_bytes(data)
+            with patch.object(build, 'public_bytes', side_effect=[b'old-feed', b'public-key', b'new-feed', b'public-key']) as read, \
+                    patch.object(build.time, 'sleep') as sleep:
+                receipt = build.verify_public_channel(REPO, root)
+            self.assertEqual(receipt['attempts'], 2)
+            self.assertFalse(receipt['authenticated'])
+            self.assertEqual(read.call_args.args, (f'https://github.com/{REPO}/releases/latest/download/updater.pub',))
+            sleep.assert_called_once_with(2)
+
+    def test_failed_public_reads_are_bounded_and_never_expose_remote_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'final-draft').mkdir()
+            for name in ['latest.json', 'updater.pub']:
+                (root / 'final-draft' / name).write_bytes(b'expected')
+            with patch.object(build, 'public_bytes', side_effect=OSError('remote-private-body')) as read, \
+                    patch.object(build.time, 'sleep'), self.assertRaisesRegex(ValueError, 'four bounded reads') as error:
+                build.verify_public_channel(REPO, root)
+            self.assertNotIn('remote-private-body', str(error.exception))
+            self.assertEqual(read.call_count, 4)
+
+    def test_public_request_has_no_authorization_and_checks_size_and_https(self):
+        class Response:
+            status = 200
+            def __init__(self, body, url): self.body, self.url = body, url
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def geturl(self): return self.url
+            def read(self, maximum): return self.body[:maximum]
+        with patch.object(build, 'urlopen', return_value=Response(b'ok', 'https://release-assets.githubusercontent.com/public')) as request:
+            self.assertEqual(build.public_bytes('https://github.com/public'), b'ok')
+        self.assertIsNone(request.call_args.args[0].get_header('Authorization'))
+        self.assertEqual(request.call_args.kwargs['timeout'], 15)
+        for body, url in [(b'x' * (1024 * 1024 + 1), 'https://github.com/large'), (b'ok', 'http://github.com/insecure')]:
+            with patch.object(build, 'urlopen', return_value=Response(body, url)), self.assertRaises(ValueError):
+                build.public_bytes('https://github.com/public')
+
+    def test_uncertain_patch_is_not_retried_or_called_unpublished(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(build, 'run', side_effect=TimeoutError('secret response')) as mutate, \
+                    patch.object(build, 'api') as read, self.assertRaisesRegex(ValueError, 'uncertain server state'):
+                build.promote_draft(REPO, release(), root)
+            self.assertEqual(mutate.call_count, 1)
+            read.assert_not_called()
+            self.assertEqual(build.load(root / 'publication-result.json')['state'], 'publication_unknown')
+            self.assertTrue((root / 'publication-attempt.json').is_file())
+
+    def test_public_failure_after_patch_preserves_published_state(self):
+        for failure in ['api', 'public', 'wrong-latest']:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                published = {**release(), 'draft': False}
+                if failure == 'wrong-latest': published['id'] = 999
+                with patch.object(build, 'run') as mutate, \
+                        patch.object(build, 'api', side_effect=OSError() if failure == 'api' else None, return_value=published), \
+                        patch.object(build, 'verify_public_channel', side_effect=OSError()), \
+                        self.assertRaisesRegex(ValueError, 'already published'):
+                    build.promote_draft(REPO, release(), root)
+                self.assertEqual(mutate.call_count, 1)
+                self.assertEqual(build.load(root / 'publication-result.json')['state'], 'published_but_unverified')
+
+    def test_success_records_exact_release_and_public_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(build, 'run') as mutate, \
+                    patch.object(build, 'api', return_value={**release(), 'draft': False}), \
+                    patch.object(build, 'verify_public_channel', return_value={'authenticated': False, 'attempts': 1}):
+                build.promote_draft(REPO, release(), root)
+            self.assertEqual(mutate.call_count, 1)
+            self.assertIn(f'repos/{REPO}/releases/12', mutate.call_args.args)
+            result = build.load(root / 'publication-result.json')
+            self.assertEqual(result['state'], 'published_and_verified')
+            self.assertFalse(result['public']['authenticated'])
+
+
 class NativeCargoCache(unittest.TestCase):
     def test_prepare_exports_original_checkout_cache_without_touching_candidate(self):
         with tempfile.TemporaryDirectory() as temporary:

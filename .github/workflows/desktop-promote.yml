@@ -80,6 +80,8 @@ jobs:
           path: |
             dist/desktop-promotion/promotion.json
             dist/desktop-promotion/published.json
+            dist/desktop-promotion/publication-attempt.json
+            dist/desktop-promotion/publication-result.json
             dist/desktop-promotion/provenance.json
             dist/desktop-promotion/live-snapshot.json
           if-no-files-found: warn

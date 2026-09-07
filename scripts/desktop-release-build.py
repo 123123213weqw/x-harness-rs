@@ -15,7 +15,9 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from urllib.parse import unquote, urlsplit
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORMS = {
@@ -347,12 +349,64 @@ def publish(args):
     require(snapshot(api(f'repos/{repo}/releases/latest')) == snapshot(latest), 'Live pointer raced with final verification')
     require(snapshot(api(f'repos/{repo}/releases/tags/{plan["tag"]}')) == snapshot(draft), 'Draft raced with final verification')
     verify_tag(repo, plan['tag'], sha)
+    promote_draft(repo, draft, root)
+
+
+def public_bytes(url):
+    # Intentionally unauthenticated: clients must be able to fetch the rolling
+    # channel without the Actions token. Never include remote bodies in errors.
+    request = Request(url, headers={'User-Agent': 'XHarness-release-verifier', 'Cache-Control': 'no-cache'})
+    with urlopen(request, timeout=15) as response:
+        require(urlsplit(response.geturl()).scheme == 'https', 'Public feed redirected away from HTTPS')
+        require(response.status == 200, 'Public feed HTTP status is not 200')
+        body = response.read(1024 * 1024 + 1)
+        require(len(body) <= 1024 * 1024, 'Public feed exceeded its size limit')
+        return body
+
+
+def verify_public_channel(repo, root):
+    expected = {name: (root / 'final-draft' / name).read_bytes() for name in ['latest.json', 'updater.pub']}
+    # GitHub's public CDN can lag behind the authenticated release API. Retry
+    # reads only, with a fixed budget; never republish or mutate assets on failure.
+    for attempt, delay in enumerate([0, 2, 5, 10], 1):
+        if delay:
+            time.sleep(delay)
+        try:
+            observed = {name: public_bytes(f'https://github.com/{repo}/releases/latest/download/{name}')
+                        for name in expected}
+            require(observed == expected, 'Public channel bytes differ from the accepted candidate')
+        except Exception:
+            if attempt == 4:
+                raise ValueError('Public channel could not be verified after four bounded reads') from None
+        else:
+            return {'attempts': attempt, 'authenticated': False,
+                    'sha256': {name: hashlib.sha256(body).hexdigest() for name, body in observed.items()}}
+
+
+def promote_draft(repo, draft, root):
+    # Persist intent before the network mutation. A timeout can occur after
+    # GitHub committed the PATCH, so that state must never be called "unpublished".
+    write(root / 'publication-attempt.json', {'release_id': draft['id'], 'tag': draft['tag_name'],
+                                            'state': 'publication_requested'})
     # Address the authenticated immutable release id, not a second tag lookup.
-    run('gh', 'api', '--method', 'PATCH', f'repos/{repo}/releases/{draft["id"]}',
-        '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true', capture=True)
-    published = api(f'repos/{repo}/releases/latest')
-    require(published['id'] == draft['id'] and not published['draft'], 'Release was already published, but final latest verification failed. Do not delete, overwrite or automatically roll it back' )
-    write(root / 'published.json', snapshot(published))
+    try:
+        run('gh', 'api', '--method', 'PATCH', f'repos/{repo}/releases/{draft["id"]}',
+            '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true', capture=True)
+    except Exception:
+        write(root / 'publication-result.json', {'release_id': draft['id'], 'state': 'publication_unknown'})
+        raise ValueError('Publication request failed with uncertain server state; inspect the release id. '
+                         'Do not retry publication, delete, overwrite or automatically roll it back') from None
+    try:
+        published = api(f'repos/{repo}/releases/latest')
+        require(published['id'] == draft['id'] and not published['draft'] and not published['prerelease'],
+                'Published release is not the expected stable latest')
+        write(root / 'published.json', snapshot(published))
+        public = verify_public_channel(repo, root)
+    except Exception:
+        write(root / 'publication-result.json', {'release_id': draft['id'], 'state': 'published_but_unverified'})
+        raise ValueError('Release was already published, but final API/public-channel verification failed. '
+                         'Do not delete, overwrite or automatically roll it back') from None
+    write(root / 'publication-result.json', {'release_id': draft['id'], 'state': 'published_and_verified', 'public': public})
 
 
 
