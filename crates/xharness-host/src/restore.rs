@@ -995,8 +995,12 @@ fn restored_web_event(
             "hidden": true,
         });
     }
+    if matches!(event.data(), EventData::SessionTitleGeneration { .. }) {
+        return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"title-generation"}, "hidden":true});
+    }
     let (event_type, data, surface_op) = match event.data() {
-        EventData::AgentDelegationFailure { .. }
+        EventData::SessionTitleGeneration { .. }
+        | EventData::AgentDelegationFailure { .. }
         | EventData::AgentFailureDelivered { .. }
         | EventData::AgentDelegated { .. }
         | EventData::AgentDispatchPaused { .. }

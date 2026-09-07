@@ -263,6 +263,12 @@ impl BasicHost {
     pub(crate) fn apply_model_change(&self, registry: Option<ModelRegistry>) {
         if let (Some(backend), Some(registry)) = (self.model_settings.get(), registry) {
             backend.activate(registry);
+            if self.config.auto_titles {
+                let host = self.clone();
+                tokio::spawn(async move {
+                    host.backfill_auto_titles().await;
+                });
+            }
         }
     }
 }

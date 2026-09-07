@@ -105,6 +105,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         }
     };
     let mut config = HostConfig::new(&workspace);
+    config.auto_titles = true;
     config.provider_id = deployment.default_route.provider.clone();
     config.provider_display_name = deployment.default_provider_display_name.clone();
     config.model_id = deployment.default_route.model.clone();
@@ -206,7 +207,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
             issue.session_id, issue.message
         );
     }
-    let backend: Arc<dyn ApiBackend> = host;
+    let backend: Arc<dyn ApiBackend> = host.clone();
     let router = web_router_with_debug_and_desktop_token(
         backend,
         args.static_dir,
@@ -229,6 +230,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let mut server_task = tokio::spawn(serve(listener, router, async move {
         let _ = server_stop_rx.await;
     }));
+    host.start_auto_titles().await;
     let mut signal_error = None;
     let early_server_result = tokio::select! {
         result = &mut server_task => Some(result),
@@ -240,6 +242,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     // Resolve Axum's graceful-shutdown future first so its accept loop closes
     // while the backend stops new Agent admission and joins active work.
     let _ = server_stop_tx.send(());
+    host.shutdown_auto_titles().await;
     let mut shutdown = runtime.shutdown(Duration::from_secs(10)).await;
     // Upgraded WebSockets are not terminated by Hyper's graceful shutdown.
     // After backend quiescence, bound transport drain and then abort only the

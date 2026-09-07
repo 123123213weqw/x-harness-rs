@@ -247,6 +247,16 @@ pub struct SessionTitleModelProvenance {
     pub model: String,
 }
 
+/// Host-only progress: survives restart without becoming model history.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleGenerationPhase {
+    Pending,
+    Retry,
+    Completed,
+    Exhausted,
+}
+
 /// Durable owner of one accepted session title.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -628,6 +638,13 @@ pub enum EventData {
             skip_serializing_if = "Option::is_none"
         )]
         source_event_seq: Option<Sequence>,
+    },
+    #[serde(rename = "xharness/title-generation")]
+    SessionTitleGeneration {
+        version: u32,
+        attempt: u32,
+        phase: TitleGenerationPhase,
+        retry_at_ms: u64,
     },
     /// Latest-wins log-only title snapshot. It never enters model history.
     #[serde(rename = "session/title")]
