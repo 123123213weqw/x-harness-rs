@@ -1213,23 +1213,16 @@ mod tls_disconnect_tests {
             std::fs::create_dir(&dir).unwrap();
             let cert = dir.join("cert.pem");
             let key = dir.join("key.pem");
+            // Do not inherit an OpenSSL/LibreSSL installation's x509 extensions.
+            // Keep leaf constraints and key usages consistent under strict TLS checks.
+            let cert_config = dir.join("openssl.cnf");
+            std::fs::write(&cert_config, "[req]\ndistinguished_name=dn\nx509_extensions=leaf\nprompt=no\n[dn]\nCN=localhost\n[leaf]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1\n").unwrap();
             let generated = Command::new("openssl")
                 .args([
-                    "req",
-                    "-x509",
-                    "-newkey",
-                    "rsa:2048",
-                    "-nodes",
-                    "-days",
-                    "1",
-                    "-subj",
-                    "/CN=localhost",
-                    "-addext",
-                    "subjectAltName=IP:127.0.0.1",
-                    "-addext",
-                    "basicConstraints=critical,CA:FALSE",
-                    "-keyout",
+                    "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-config",
                 ])
+                .arg(&cert_config)
+                .arg("-keyout")
                 .arg(&key)
                 .arg("-out")
                 .arg(&cert)

@@ -66,6 +66,6 @@ receivedBytes、lastChunkAgoMs、protocolCompleted，以及受长度/字符约�
 - 原有测试继续保护：任意 Delta 不重试、完成事件优先、半截工具不执行、已完成工具不重复执行、
   用户取消/消费者退出、Unicode/SSE 网络分片。
 
-TLS 夹具需要 Unix + Python 3 + OpenSSL（支持 req -addext），在远程 Linux 执行；
+TLS 夹具需要 Unix + Python 3 + OpenSSL/LibreSSL（测试使用独立证书配置），在远程 Linux 执行；
 Windows 的 HTTP/Loop 测试保留，物理 Wi-Fi、运营商/代理变化、正式整包更新单独验收。
 所有 Rust 编译、测试、Clippy 在 WZU_Server 或 GitHub CI，不在本机编译。
