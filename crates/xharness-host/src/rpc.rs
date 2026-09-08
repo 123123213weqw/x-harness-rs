@@ -36,8 +36,8 @@ use crate::{
     },
     runtime::{AgentRuntimeError, ModelRoute},
     state::{
-        iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
-        PendingResponse, SessionRecord, SettingsNamespace, WorkspaceRecord,
+        iso_now, now_ms, AgentPreset, DriverCommand, GoalState, ModelSelection, PendingResponse,
+        SessionRecord, SettingsNamespace, WorkspaceRecord,
     },
     BasicHost,
 };
@@ -1355,100 +1355,27 @@ impl BasicHost {
 
     async fn admit_prompt_content(
         &self,
-        session_id: &str,
+        _session_id: &str,
         content: &[Value],
     ) -> Result<(String, Vec<Value>), RpcError> {
-        let mut text = String::new();
-        let mut durable = Vec::new();
-        for part in content {
-            match part.get("type").and_then(Value::as_str) {
-                Some("text") => {
-                    let value = part
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| bad_request("text content requires string text"))?;
-                    text.push_str(value);
-                    durable.push(json!({"type": "text", "text": value}));
-                }
-                Some("image") => {
-                    let media_type = part
-                        .get("mediaType")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| bad_request("image content requires mediaType"))?;
-                    if !matches!(
-                        media_type,
-                        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
-                    ) {
-                        return Err(rpc_error(
-                            RpcErrorCode::AttachmentError,
-                            "unsupported image media type",
-                            json!({"reason": "UNSUPPORTED_MEDIA_TYPE"}),
-                        ));
-                    }
-                    let data = part
-                        .get("data")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| bad_request("image content requires base64 data"))?
-                        .to_owned();
-                    if data.is_empty() {
-                        return Err(rpc_error(
-                            RpcErrorCode::AttachmentError,
-                            "image data is empty",
-                            json!({"reason": "EMPTY_IMAGE"}),
-                        ));
-                    }
-                    let attachment_id = self.mint_id("attachment");
-                    let bytes = ((data.len() * 3) / 4).max(1);
-                    let attachment = json!({
-                        "attachmentId": attachment_id,
-                        "mediaType": media_type,
-                        "bytes": bytes,
-                        "width": 1,
-                        "height": 1,
-                        "name": part.get("name").and_then(Value::as_str),
-                    });
-                    self.state.write().await.attachments.insert(
-                        attachment_id.clone(),
-                        AttachmentRecord {
-                            attachment: attachment.clone(),
-                            data,
-                            referenced_by: BTreeSet::from([session_id.to_owned()]),
-                        },
-                    );
-                    text.push_str(&format!("\n[attached image: {attachment_id}]"));
-                    durable.push(json!({"type": "image", "attachment": attachment}));
-                }
-                _ => return Err(bad_request("content part type must be text or image")),
-            }
-        }
-        if durable.is_empty() {
-            return Err(bad_request("prompt content must not be empty"));
-        }
-        Ok((text, durable))
+        self.admit_attachment_content(content).await
     }
 
     async fn session_attachment(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let attachment_id = required_string(payload, "attachmentId")?;
-        let state = self.state.read().await;
-        if !state.sessions.contains_key(&session_id) {
-            return Err(session_not_found(&session_id));
-        }
-        let attachment = state.attachments.get(&attachment_id).ok_or_else(|| {
-            rpc_error(
-                RpcErrorCode::AttachmentError,
-                "attachment was not found",
-                json!({"reason": "ATTACHMENT_NOT_FOUND"}),
-            )
-        })?;
-        if !attachment.referenced_by.contains(&session_id) {
-            return Err(rpc_error(
-                RpcErrorCode::AttachmentError,
-                "attachment is not referenced by this session",
-                json!({"reason": "ATTACHMENT_NOT_REFERENCED"}),
-            ));
-        }
-        Ok(json!({"attachment": attachment.attachment, "data": attachment.data}))
+        let attachment = self
+            .authorized_attachment(&session_id, &attachment_id)
+            .await?;
+        let store = self.attachment_store();
+        let reference = attachment.clone();
+        let data = tokio::task::spawn_blocking(move || store.read(&reference))
+            .await
+            .map_err(crate::attachments::attachment_error)?
+            .map_err(crate::attachments::attachment_error)?;
+        Ok(
+            json!({"attachment": attachment, "data": xharness_attachment::AttachmentStore::encode_base64(&data)}),
+        )
     }
 
     async fn session_update_queue(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -3005,7 +2932,7 @@ impl BasicHost {
     fn model_groups(&self) -> Vec<Value> {
         let mut groups: Vec<(String, String, Vec<Value>)> = Vec::new();
         for model in self.agent_runtime.model_catalog() {
-            let mut model_value = json!({"id": model.model, "name": model.model_display_name});
+            let mut model_value = json!({"id": model.model, "name": model.model_display_name, "inputModalities": model.input_modalities});
             model_value["contextWindowCapability"] =
                 serde_json::to_value(&model.context_window).unwrap_or(Value::Null);
             if let Some(maximum) = model.context_window.effective_hard_max() {

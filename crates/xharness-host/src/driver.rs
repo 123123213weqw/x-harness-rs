@@ -475,9 +475,11 @@ impl BasicHost {
                 (session.control.clone(), None)
             } else {
                 let mut messages = session.messages.clone();
-                messages.push(
-                    AgentMessage::new(Role::User, text.clone()).with_id(rpc_id.as_str().to_owned()),
-                );
+                messages.push(crate::attachments::message_with_blocks(
+                    text.clone(),
+                    rpc_id.as_str().to_owned(),
+                    &content,
+                ));
                 (
                     None,
                     Some(AgentTurnRequest {
@@ -499,8 +501,11 @@ impl BasicHost {
         };
 
         if let Some(control) = steer_control {
-            let message =
-                AgentMessage::new(Role::User, text.clone()).with_id(rpc_id.as_str().to_owned());
+            let message = crate::attachments::message_with_blocks(
+                text.clone(),
+                rpc_id.as_str().to_owned(),
+                &content,
+            );
             let (acknowledgement, accepted) = oneshot::channel();
             control
                 .send(DriverCommand {
@@ -791,9 +796,13 @@ impl BasicHost {
             })?;
             let turn = session.next_turn;
             session.next_turn = session.next_turn.saturating_add(1);
-            session.messages.push(
-                AgentMessage::new(Role::User, prompt.text.clone()).with_id(prompt.id.clone()),
-            );
+            session
+                .messages
+                .push(crate::attachments::message_with_blocks(
+                    prompt.text.clone(),
+                    prompt.id.clone(),
+                    &prompt.content,
+                ));
             (
                 turn,
                 session.cwd.clone(),

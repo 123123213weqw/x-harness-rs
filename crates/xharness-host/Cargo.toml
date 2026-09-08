@@ -18,6 +18,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 url = "2"
 xharness-api = { path = "../xharness-api" }
+xharness-attachment = { path = "../xharness-attachment" }
 xharness-agent = { path = "../xharness-agent" }
 xharness-core = { path = "../xharness-core" }
 xharness-control = { path = "../xharness-control" }

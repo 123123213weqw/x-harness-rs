@@ -30,6 +30,58 @@ use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, Too
 
 struct TextProvider;
 
+#[tokio::test]
+async fn generic_attachment_admission_is_atomic_and_session_authorized() {
+    let mut fx = Fixture::new();
+    let cwd = fx.root.to_string_lossy().into_owned();
+    let created = fx.value(RpcMethod::SessionCreate, json!({"cwd":cwd})).await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    let failed = fx
+        .call(
+            RpcMethod::SessionPrompt,
+            json!({"sessionId":session,"mode":"queue","content":[
+                {"type":"file","mediaType":"text/plain","name":"note.txt","data":"aGVsbG8="},
+                {"type":"image","mediaType":"image/png","data":"bm90LWFuLWltYWdl"}
+            ]}),
+        )
+        .await;
+    assert!(matches!(failed, RpcResult::Failure { .. }));
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId":session}))
+        .await;
+    assert!(!history.to_string().contains("note.txt"));
+    fx.value(RpcMethod::SessionPrompt, json!({"sessionId":session,"mode":"queue","content":[
+        {"type":"file","mediaType":"text/plain","name":"C:\\private\\note.txt","data":"aGVsbG8="},
+        {"type":"text","text":"read this file"}
+    ]})).await;
+    fx.wait_for_assistant(&session).await;
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId":session}))
+        .await;
+    let reference = fx
+        .host
+        .attachment_store()
+        .save_file(b"hello", "text/plain", Some("note.txt"))
+        .unwrap();
+    assert!(history.to_string().contains(&reference.attachment_id));
+    assert!(!history.to_string().contains("aGVsbG8="));
+    let fetched = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":session,"attachmentId":reference.attachment_id}),
+        )
+        .await;
+    assert_eq!(fetched["data"], "aGVsbG8=");
+    let other = fx.value(RpcMethod::SessionCreate, json!({"cwd":cwd})).await;
+    let denied = fx
+        .call(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":other["sessionId"],"attachmentId":reference.attachment_id}),
+        )
+        .await;
+    assert!(matches!(denied, RpcResult::Failure { .. }));
+}
+
 #[async_trait]
 impl ModelProvider for TextProvider {
     fn provider_name(&self) -> &str {

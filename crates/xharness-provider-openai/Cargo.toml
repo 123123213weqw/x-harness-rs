@@ -7,6 +7,7 @@ repository.workspace = true
 description = "OpenAI-compatible streaming provider for XHarness"
 
 [dependencies]
+xharness-session = { path = "../xharness-session" }
 async-stream.workspace = true
 async-trait.workspace = true
 bytes.workspace = true

@@ -13,6 +13,49 @@ use xharness_debug::{DebugRecorder, DebugScope, MemoryDebugSink};
 use xharness_provider_openai::*;
 
 #[test]
+fn both_protocols_encode_actual_image_blocks_without_rewriting_durable_refs() {
+    use xharness_session::{AttachmentRef, ContentBlock};
+    let reference = AttachmentRef {
+        attachment_id: format!("sha256:{}", "a".repeat(64)),
+        media_type: "image/png".into(),
+        bytes: 10,
+        name: None,
+        width: Some(1),
+        height: Some(1),
+    };
+    let request = ProviderRequest {
+        messages: vec![AgentMessage::user("describe").with_content_blocks(vec![
+            ContentBlock::Text {
+                text: "describe".into(),
+            },
+            ContentBlock::Image {
+                attachment: reference,
+                data_url: Some("data:image/png;base64,fixture".into()),
+            },
+        ])],
+        tools: vec![],
+        step: 1,
+        reasoning_effort: None,
+        max_output_tokens: None,
+        debug_scope: Default::default(),
+    };
+    let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "vision", &request);
+    assert_eq!(
+        chat["messages"][0]["content"][1]["image_url"]["url"],
+        "data:image/png;base64,fixture"
+    );
+    let responses = build_openai_request(OpenAiProtocol::Responses, "vision", &request);
+    assert_eq!(responses["input"][0]["content"][1]["type"], "input_image");
+    assert_eq!(
+        responses["input"][0]["content"][1]["image_url"],
+        "data:image/png;base64,fixture"
+    );
+    let durable = serde_json::to_string(&request.messages).unwrap();
+    assert!(!durable.contains("base64"));
+    assert!(durable.contains("sha256:"));
+}
+
+#[test]
 fn sse_parser_handles_one_byte_unicode_crlf_and_multiline_data() {
     let source = "id: 7\r\nevent: message\r\ndata: {\"x\":\"汉\"}\r\ndata: second\r\n\r\n";
     let mut parser = SseParser::default();

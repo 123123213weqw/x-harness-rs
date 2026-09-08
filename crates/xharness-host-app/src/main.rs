@@ -106,6 +106,9 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     };
     let mut config = HostConfig::new(&workspace);
     config.auto_titles = true;
+    config.attachments = Arc::new(xharness_attachment::AttachmentStore::new(
+        args.state_dir.join("attachments").join("v1"),
+    )?);
     config.provider_id = deployment.default_route.provider.clone();
     config.provider_display_name = deployment.default_provider_display_name.clone();
     config.model_id = deployment.default_route.model.clone();

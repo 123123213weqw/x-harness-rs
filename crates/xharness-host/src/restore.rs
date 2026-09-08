@@ -1339,7 +1339,7 @@ fn web_message(
     json!({
         "id": id,
         "role": message.role.as_str(),
-        "content": [{"type": "text", "text": message.content}],
+        "content": if message.content_blocks.is_empty() { json!([{"type":"text","text":message.content}]) } else { json!(message.content_blocks) },
         "source": source,
     })
 }

@@ -182,13 +182,6 @@ impl GoalState {
     }
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct AttachmentRecord {
-    pub attachment: Value,
-    pub data: String,
-    pub referenced_by: BTreeSet<String>,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum QueuePlacement {
     Queued,
@@ -466,7 +459,6 @@ pub(crate) struct HostState {
     pub settings: BTreeMap<String, SettingsNamespace>,
     pub credentials: BTreeMap<String, String>,
     pub goals: BTreeMap<String, GoalState>,
-    pub attachments: BTreeMap<String, AttachmentRecord>,
     pub pending: BTreeMap<String, PendingResponse>,
 }
 
@@ -601,7 +593,6 @@ impl HostState {
             settings,
             credentials: BTreeMap::new(),
             goals: BTreeMap::new(),
-            attachments: BTreeMap::new(),
             pending: BTreeMap::new(),
         }
     }

@@ -286,6 +286,7 @@ impl ProviderConfig {
         let provider_display_name = self.display_name.unwrap_or_else(|| self.id.clone());
         for model in self.models {
             let ModelConfig {
+                input_modalities,
                 id,
                 display_name,
                 upstream_model,
@@ -350,6 +351,7 @@ impl ProviderConfig {
                 display_name.unwrap_or_else(|| id.clone()),
             )
             .with_context_window(capabilities.context_window);
+            descriptor.input_modalities = input_modalities.unwrap_or_else(|| vec!["text".into()]);
             if let Some(reasoning) = reasoning {
                 descriptor = descriptor.with_reasoning(reasoning.public());
             }
@@ -379,7 +381,7 @@ pub(crate) async fn registry_from_settings(
             None => String::new(),
         };
         let models = profile.models.iter().map(|m| serde_json::json!({
-            "id":m.id,"display_name":m.name,"upstream_model":m.upstream_model,
+            "id":m.id,"display_name":m.name,"upstream_model":m.upstream_model,"input_modalities":m.input_modalities,
             "fallback_context_window_tokens":m.context_window.or(profile.default_context_window).or(Some(32_768)),
             "max_output_tokens":m.max_tokens.or(profile.max_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
             "minimum_output_tokens":m.minimum_output_tokens,
@@ -430,7 +432,7 @@ pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
             "id":m["id"],"name":m["display_name"],"upstreamModel":m["upstream_model"],
             "contextWindow":m.get("fallback_context_window_tokens").or_else(||m.get("context_window_tokens")),
             "maxTokens":m["max_output_tokens"],"minimumOutputTokens":m["minimum_output_tokens"],
-            "tokenSafetyMargin":m["token_safety_margin"],"reasoning":m["reasoning"],"contextWindowCapability":m["context_window_capability"]
+            "inputModalities":m["input_modalities"],"tokenSafetyMargin":m["token_safety_margin"],"reasoning":m["reasoning"],"contextWindowCapability":m["context_window_capability"]
         })).collect::<Vec<_>>();
         profiles.insert(
             id.to_owned(),
@@ -447,6 +449,8 @@ pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ModelConfig {
+    #[serde(default)]
+    input_modalities: Option<Vec<String>>,
     id: String,
     #[serde(default)]
     display_name: Option<String>,

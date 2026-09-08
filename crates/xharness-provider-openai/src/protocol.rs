@@ -120,7 +120,15 @@ fn encode_tool(protocol: OpenAiProtocol, tool: &ToolDefinition) -> Value {
 fn encode_chat_message(message: &AgentMessage) -> Value {
     let mut object = Map::new();
     object.insert("role".to_owned(), json!(message.role.as_str()));
-    object.insert("content".to_owned(), json!(message.content));
+    let blocks = encode_content(message, false);
+    object.insert(
+        "content".to_owned(),
+        if message.content_blocks.is_empty() {
+            json!(message.content)
+        } else {
+            Value::Array(blocks)
+        },
+    );
     if !message.reasoning.is_empty() {
         object.insert("reasoning_content".to_owned(), json!(message.reasoning));
     }
@@ -156,7 +164,7 @@ fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
         return vec![json!({
             "type": "function_call_output",
             "call_id": message.tool_call_id.clone().unwrap_or_default(),
-            "output": message.content,
+            "output": if message.content_blocks.is_empty() { json!(message.content) } else { json!(encode_content(message, true)) },
         })];
     }
     if message.role == Role::Assistant && !message.provider_items.is_empty() {
@@ -170,12 +178,24 @@ fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
     };
     let mut output = vec![json!({
         "role": message.role.as_str(),
-        "content": [{ "type": content_type, "text": message.content }],
+        "content": if message.content_blocks.is_empty() { json!([{ "type": content_type, "text": message.content }]) } else { json!(encode_content(message, true)) },
     })];
     if message.role == Role::Assistant {
         output.extend(message.tool_calls.iter().map(encode_response_tool_call));
     }
     output
+}
+
+fn encode_content(message: &AgentMessage, responses: bool) -> Vec<Value> {
+    use xharness_session::ContentBlock;
+    message.content_blocks.iter().map(|block| match block {
+        ContentBlock::Text { text } => json!({"type": if responses { if message.role == Role::Assistant { "output_text" } else { "input_text" } } else { "text" }, "text": text}),
+        ContentBlock::Image { data_url: Some(url), .. } if responses => json!({"type":"input_image", "image_url":url, "detail":"auto"}),
+        ContentBlock::Image { data_url: Some(url), .. } => json!({"type":"image_url", "image_url":{"url":url, "detail":"auto"}}),
+        // Fail safely for callers bypassing the host projection: never send an
+        // unresolved ref as if the model had received actual image bytes.
+        _ => json!({"type":if responses {"input_text"} else {"text"}, "text":format!("[attachment unavailable in this request: {}]", block.attachment().map(|r| r.attachment_id.as_str()).unwrap_or("unknown"))}),
+    }).collect()
 }
 
 fn encode_response_tool_call(call: &ToolCall) -> Value {

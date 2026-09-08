@@ -4,6 +4,7 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
+mod attachments;
 mod control;
 mod delegation;
 mod delegation_concurrency;
@@ -57,6 +58,9 @@ pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, Workspa
 /// Host process configuration visible at the browser boundary.
 #[derive(Clone, Debug)]
 pub struct HostConfig {
+    /// Shared immutable store. Embeddings default to memory; native deployments
+    /// explicitly select their durable state directory.
+    pub attachments: Arc<xharness_attachment::AttachmentStore>,
     pub cwd: PathBuf,
     pub home: PathBuf,
     pub version: String,
@@ -93,6 +97,7 @@ impl HostConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|| cwd.clone());
         Self {
+            attachments: Arc::new(xharness_attachment::AttachmentStore::default()),
             cwd,
             home,
             version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -235,6 +240,7 @@ impl BasicHost {
         questions: Arc<DurableQuestionHub>,
     ) -> Arc<Self> {
         let capacity = config.event_capacity.max(16);
+        agent_runtime.set_attachment_store(config.attachments.clone());
         let (mux_tx, _) = broadcast::channel(capacity);
         let (host_tx, _) = broadcast::channel(capacity);
         Arc::new(Self {

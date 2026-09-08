@@ -105,7 +105,13 @@ impl TokenMeter for ConservativeByteMeter {
     fn estimate(&self, request: &TokenEstimateRequest) -> Result<TokenBreakdown, TokenMeterError> {
         let mut breakdown = TokenBreakdown {
             system_tokens: encoded_len(&request.system_messages)?,
-            message_tokens: encoded_len(&request.conversation_messages)?,
+            message_tokens: encoded_len(&request.conversation_messages)?.saturating_add(
+                request
+                    .conversation_messages
+                    .iter()
+                    .map(image_token_reserve)
+                    .sum::<u64>(),
+            ),
             tool_tokens: encoded_len(&request.tools)?,
             // Account for role/message delimiters and the streaming request
             // envelope even if an adapter's JSON happens to be very compact.
@@ -118,6 +124,27 @@ impl TokenMeter for ConservativeByteMeter {
         };
         breakdown.recompute_total();
         Ok(breakdown)
+    }
+}
+
+/// Conservative image reserve until an exact provider counter is available.
+/// Visual tokens do not correlate with the length of a durable digest.
+fn image_token_reserve(value: &Value) -> u64 {
+    match value {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some("image")
+                && object.contains_key("attachment")
+            {
+                return 8_192;
+            }
+            object
+                .values()
+                .fold(0u64, |n, v| n.saturating_add(image_token_reserve(v)))
+        }
+        Value::Array(values) => values
+            .iter()
+            .fold(0u64, |n, v| n.saturating_add(image_token_reserve(v))),
+        _ => 0,
     }
 }
 

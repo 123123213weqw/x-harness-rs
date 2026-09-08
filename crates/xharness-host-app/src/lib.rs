@@ -6,6 +6,7 @@
 //! implementations.
 
 pub mod ownership;
+mod read_image;
 
 use std::{
     collections::BTreeMap,
@@ -166,7 +167,7 @@ impl SessionToolFactory for NativeToolFactory {
         let platform = self.platform(cwd, permission).await?;
         let readiness = self.readiness(session_id, cwd, permission).await?;
         let mut specs = CodingToolBundle::new(
-            platform,
+            platform.clone(),
             Arc::clone(&self.jobs),
             Arc::clone(&self.web),
             session_id,
@@ -176,6 +177,7 @@ impl SessionToolFactory for NativeToolFactory {
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
             specs.push(xharness_host::AgentTool::for_host(&host, session_id));
+            specs.push(read_image::spec(&host, platform, session_id));
         }
         if let Some(schedules) = &self.schedules {
             specs.extend(schedules.specs(session_id));
