@@ -25,8 +25,8 @@ pub(crate) fn spec(
             if !host.session_accepts_images(&session).await { return Err(ToolHandlerError::new("current model does not declare image input; switch to an image-capable model")); }
             let path = ctx.arguments.get("file_path").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()).ok_or_else(|| ToolHandlerError::new("file_path is required"))?.to_owned();
             if ctx.cancellation.is_cancelled() { return Err(ToolHandlerError::new("read_image cancelled")); }
-            let target = platform.resolve_file(&path).map_err(|e| ToolHandlerError::new(e.to_string()))?;
-            let bytes = platform.filesystem().read_bytes(&session, &target, MAX_IMAGE_BYTES).await.map_err(|e| ToolHandlerError::new(e.to_string()))?;
+            let (filesystem, target) = platform.resolve_read_file(&path).map_err(|e| ToolHandlerError::new(e.to_string()))?;
+            let bytes = filesystem.read_bytes(&session, &target, MAX_IMAGE_BYTES).await.map_err(|e| ToolHandlerError::new(e.to_string()))?;
             if ctx.cancellation.is_cancelled() { return Err(ToolHandlerError::new("read_image cancelled")); }
             let media = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { "image/png" } else if bytes.starts_with(&[255,216,255]) { "image/jpeg" } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") { "image/gif" } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") { "image/webp" } else { return Err(ToolHandlerError::new("file is not a supported image")); };
             let store = host.attachment_store();

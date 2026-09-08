@@ -52,6 +52,10 @@ impl AttachmentStore {
         })
     }
 
+    pub fn root_path(&self) -> Option<&Path> {
+        self.root.as_deref()
+    }
+
     pub fn decode_base64(data: &str, limit: usize) -> Result<Vec<u8>> {
         if data.len() > limit.saturating_add(2) / 3 * 4 {
             return Err(invalid("attachment exceeds the upload byte limit"));

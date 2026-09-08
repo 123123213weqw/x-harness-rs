@@ -118,10 +118,15 @@ impl NativeToolFactory {
         if let Some(platform) = self.platforms.read().await.get(&key).cloned() {
             return Ok(platform);
         }
-        let config = match permission {
+        let mut config = match permission {
             PermissionPreset::WorkspaceWrite => PlatformConfig::new(cwd),
             PermissionPreset::DangerFullAccess => PlatformConfig::new(cwd).full_access(),
         };
+        if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+            if let Some(root) = host.attachment_store().root_path() {
+                config = config.read_only_root(root);
+            }
+        }
         let platform = Arc::new(
             NativePlatform::with_debug(config, self.debug.clone())
                 .map_err(|error| error.to_string())?,

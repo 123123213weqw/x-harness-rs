@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use xharness_agent::InboxProjection;
 use xharness_api::{RpcError, RpcErrorCode, RpcId};
-use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
+use xharness_core::{LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
 use xharness_session::SessionEvent;
 
 use crate::{

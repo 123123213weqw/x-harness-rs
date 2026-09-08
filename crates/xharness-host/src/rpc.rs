@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},

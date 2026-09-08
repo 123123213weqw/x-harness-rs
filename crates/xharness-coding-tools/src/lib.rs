@@ -420,9 +420,8 @@ impl CodingToolBundle {
                         MAX_READ_PAGE_LINES,
                         "line_limit",
                     )?;
-                    let target = platform.resolve_file(path).map_err(handler_error)?;
-                    let result = platform
-                        .filesystem()
+                    let (filesystem, target) = platform.resolve_read_file(path).map_err(handler_error)?;
+                    let result = filesystem
                         .read_page(
                             &session_id,
                             &target,
