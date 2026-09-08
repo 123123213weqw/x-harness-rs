@@ -36,6 +36,15 @@ pub(crate) fn message_with_blocks(text: String, id: String, content: &[Value]) -
     )
 }
 
+pub(crate) fn web_tool_content(text: &str, metadata: Option<&Value>) -> Value {
+    let blocks = ContentBlock::from_tool_metadata(metadata);
+    if blocks.is_empty() {
+        json!([{"type":"text", "text":text}])
+    } else {
+        json!(blocks)
+    }
+}
+
 impl BasicHost {
     pub fn attachment_store(&self) -> Arc<AttachmentStore> {
         self.config.attachments.clone()

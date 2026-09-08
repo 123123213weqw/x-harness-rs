@@ -1161,7 +1161,7 @@ fn restored_web_event(
                     "content": [{
                         "type": "tool-result",
                         "toolCallId": result.call_id,
-                        "content": [{"type": "text", "text": result.content}],
+                        "content": crate::attachments::web_tool_content(&result.content, result.metadata.as_ref()),
                         "isError": result.outcome != ToolOutcome::Success,
                     }],
                     "source": {"kind": "tool", "callId": result.call_id},

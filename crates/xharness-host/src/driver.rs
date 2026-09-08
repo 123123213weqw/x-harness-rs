@@ -1199,7 +1199,7 @@ impl BasicHost {
                             "content": [{
                                 "type": "tool-result",
                                 "toolCallId": call.id,
-                                "content": [{"type": "text", "text": if result.ok { result.content } else { result.error }}],
+                                "content": crate::attachments::web_tool_content(if result.ok { &result.content } else { &result.error }, result.metadata.as_ref()),
                                 "isError": !result.ok,
                             }],
                             "source": {"kind": "tool", "callId": call.id},

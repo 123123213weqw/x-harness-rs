@@ -33,6 +33,13 @@ struct TextProvider;
 #[tokio::test]
 async fn generic_attachment_admission_is_atomic_and_session_authorized() {
     let mut fx = Fixture::new();
+    // Use the same durable byte-store configuration as the native composition.
+    let mut config = HostConfig::new(&fx.root);
+    config.provider_id = "test".into();
+    config.model_id = "test-model".into();
+    config.attachments =
+        Arc::new(xharness_attachment::AttachmentStore::new(fx.root.join("attachments")).unwrap());
+    fx.host = BasicHost::new(config, Some(Arc::new(TextProvider)), Arc::new(NoTools));
     let cwd = fx.root.to_string_lossy().into_owned();
     let created = fx.value(RpcMethod::SessionCreate, json!({"cwd":cwd})).await;
     let session = created["sessionId"].as_str().unwrap().to_owned();
