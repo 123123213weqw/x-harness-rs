@@ -1,5 +1,5 @@
 # UI boot revisions hash distribution bytes. Keep them identical on Windows/Unix.
-ui/dist/**/*.js text eol=lf
+ui/**/*.js text eol=lf
 ui/dist/**/*.json text eol=lf
 ui/dist/**/*.map text eol=lf
 ui/dist/**/*.css text eol=lf
