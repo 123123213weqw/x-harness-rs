@@ -2133,6 +2133,147 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn durable_attachments_survive_reopen_and_bounded_web_history() {
+        use xharness_attachment::AttachmentStore;
+        use xharness_session::ContentBlock;
+        let root = std::env::temp_dir().join(format!(
+            "xh-attachment-reopen-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let objects = AttachmentStore::new(&root).unwrap();
+        let image = objects
+            .save_image(
+                include_bytes!("../../../apps/desktop/src-tauri/icons/32x32.png"),
+                "image/png",
+                Some("界面.png"),
+            )
+            .unwrap();
+        let file = objects
+            .save_file(
+                b"original document bytes",
+                "application/pdf",
+                Some("说明.pdf"),
+            )
+            .unwrap();
+        let hidden = objects
+            .save_file(b"other session only", "text/plain", Some("private.txt"))
+            .unwrap();
+        let blocks = vec![
+            ContentBlock::Image {
+                attachment: image.clone(),
+                data_url: None,
+            },
+            ContentBlock::File {
+                attachment: file.clone(),
+            },
+        ];
+        drop(objects);
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut header = SessionHeader::new("attachment-reopen");
+        header.cwd = Some(cwd.to_string_lossy().into_owned());
+        store.create(header).await.unwrap();
+        let mut events = closed_text_turn(1, "attachments", "received");
+        if let EventData::UserMessage { message, .. } = events[1].data_mut() {
+            message.content_blocks = blocks.clone();
+        }
+        // Later prompt-like arbitrary JSON must NOT authorize a hidden object.
+        if let EventData::RequestHeader { header } = events[3].data_mut() {
+            header.options.insert(
+                "untrusted".into(),
+                json!({"type":"file","attachment":hidden}),
+            );
+        }
+        for turn in 2..5 {
+            events.extend(closed_text_turn(turn, "later", "done"));
+        }
+        // Exercise the actual serialized contract: no base64 or local path in the journal.
+        let serialized = serde_json::to_string(&events).unwrap();
+        assert!(!serialized.contains("base64"));
+        assert!(!serialized.contains("xh-attachment-reopen-"));
+        let events: Vec<SessionEvent> = serde_json::from_str(&serialized).unwrap();
+        store
+            .append("attachment-reopen", Revision::ZERO, events)
+            .await
+            .unwrap();
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            None,
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            store.clone(),
+            Arc::new(MemoryLeaseManager::default()),
+            32,
+        ));
+        let mut configuration = config(&cwd);
+        configuration.session_event_cache_capacity = 2;
+        configuration.attachments = Arc::new(AttachmentStore::new(&root).unwrap());
+        let host = BasicHost::with_agent_runtime(configuration, runtime);
+        host.restore_from_store(store).await.unwrap();
+        for reference in [&image, &file] {
+            assert_eq!(
+                &host
+                    .authorized_attachment("attachment-reopen", &reference.attachment_id)
+                    .await
+                    .unwrap(),
+                reference
+            );
+            assert_eq!(
+                host.attachment_store().read(reference).unwrap().len() as u64,
+                reference.bytes
+            );
+        }
+        assert!(host
+            .authorized_attachment("attachment-reopen", &hidden.attachment_id)
+            .await
+            .is_err());
+        assert!(host
+            .authorized_attachment("another-session", &file.attachment_id)
+            .await
+            .is_err());
+        let request = ProviderRequest {
+            messages: vec![Message::user("look").with_content_blocks(blocks)],
+            tools: vec![],
+            step: 1,
+            reasoning_effort: None,
+            max_output_tokens: None,
+            debug_scope: Default::default(),
+        };
+        let projected = crate::attachments::project_request(
+            request.clone(),
+            Some(host.attachment_store()),
+            true,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(&projected.messages[0].content_blocks[0],
+            ContentBlock::Image { data_url: Some(url), .. } if url.starts_with("data:image/")));
+        assert!(projected.messages[0].content.contains("read-only path:"));
+        let text_only = crate::attachments::project_request(
+            request.clone(),
+            Some(host.attachment_store()),
+            false,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(text_only.messages[0]
+            .content
+            .contains("this model accepts text only"));
+        assert!(matches!(
+            request.messages[0].content_blocks[0],
+            ContentBlock::Image { data_url: None, .. }
+        ));
+        assert_eq!(
+            host.attachment_store().read(&file).unwrap(),
+            b"original document bytes"
+        );
+    }
+
+    #[tokio::test]
     async fn restore_rebuilds_history_events_messages_and_workspace_projection() {
         let cwd = std::env::temp_dir();
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());

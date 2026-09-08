@@ -5408,7 +5408,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			mediaType: imageMediaTypeSchema,
 			data: string(),
 			name: string().optional()
-		})]);
+		}), object({type:literal("file"),mediaType:string(),data:string(),name:string().optional()})]);
 		object({
 			sessionId: sessionIdSchema,
 			mode: union([literal("queue"), literal("steer")]),
@@ -5428,10 +5428,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		/** Durable image reference returned from the authenticated session lookup. */
 		const imageAttachmentRefSchema = object({
 			attachmentId: attachmentIdSchema,
-			mediaType: imageMediaTypeSchema,
-			bytes: number().int().positive(),
-			width: number().int().positive(),
-			height: number().int().positive(),
+			mediaType: string(),
+			bytes: number().int().nonnegative(),
+			width: number().int().positive().optional(),
+			height: number().int().positive().optional(),
 			name: string().optional()
 		});
 		object({
@@ -10325,3 +10325,5 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		return module.exports;
 	}
 });
+
+// XHARNESS DURABLE ATTACHMENTS v1

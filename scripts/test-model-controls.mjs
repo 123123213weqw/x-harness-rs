@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { patchModelControls } from './patch-model-controls.mjs'
 const bundle = readFileSync(new URL('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-model-selection/client.js', import.meta.url))
-assert.equal(patchModelControls(bundle).toString(), bundle.toString(), 'packaged extension must match product source; patch is idempotent')
+assert.equal(patchModelControls(bundle).toString(), bundle.toString().replaceAll('\r\n', '\n'), 'packaged extension must match product source; patch is idempotent')
 let registration
 vm.runInNewContext(bundle.toString(), { window: { __ModuleLoader__: { load(x) { registration=x } } } })
 function createSnapshotStore(snapshot) {

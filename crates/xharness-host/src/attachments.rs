@@ -67,6 +67,7 @@ impl BasicHost {
         tokio::task::spawn_blocking(move || {
             let mut blocks = Vec::new();
             let mut text = String::new();
+            let mut total_bytes = 0usize;
             let mut image_count = 0;
             let mut image_bytes = 0usize;
             for part in content {
@@ -99,6 +100,10 @@ impl BasicHost {
                             },
                         )
                         .map_err(attachment_error)?;
+                        total_bytes = total_bytes.saturating_add(bytes.len());
+                        if total_bytes > 96 * 1024 * 1024 {
+                            return Err(attachment_error("prompt attachments exceed 96 MiB"));
+                        }
                         if kind == "image" {
                             image_count += 1;
                             image_bytes = image_bytes.saturating_add(bytes.len());
@@ -153,11 +158,25 @@ impl BasicHost {
             .map_err(attachment_error)?
         {
             for event in session.events() {
-                if let Some(reference) = find_reference(
-                    &serde_json::to_value(event).map_err(attachment_error)?,
-                    attachment_id,
-                ) {
-                    return Ok(reference);
+                use xharness_session::EventData;
+                let blocks = match event.data() {
+                    EventData::UserMessage { message, .. }
+                    | EventData::AssistantMessage { message, .. } => message.content_blocks.clone(),
+                    EventData::AgentInboxSpliced { inserted, .. } => inserted
+                        .iter()
+                        .flat_map(|input| input.message.content_blocks.clone())
+                        .collect(),
+                    EventData::ToolResult { result, .. } => {
+                        ContentBlock::from_tool_metadata(result.metadata.as_ref())
+                    }
+                    _ => Vec::new(),
+                };
+                if let Some(reference) = blocks
+                    .iter()
+                    .filter_map(ContentBlock::attachment)
+                    .find(|reference| reference.attachment_id == attachment_id)
+                {
+                    return Ok(reference.clone());
                 }
             }
         } else {
@@ -197,46 +216,6 @@ fn find_reference(value: &Value, id: &str) -> Option<AttachmentRef> {
         }
         Value::Array(items) => items.iter().find_map(|value| find_reference(value, id)),
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn text_only_projection_does_not_read_images_or_mutate_history() {
-        let image = ContentBlock::Image {
-            attachment: AttachmentRef {
-                attachment_id: format!("sha256:{}", "a".repeat(64)),
-                media_type: "image/png".into(),
-                bytes: 12,
-                name: None,
-                width: Some(1),
-                height: Some(1),
-            },
-            data_url: None,
-        };
-        let original = Message::user("image").with_content_blocks(vec![image.clone()]);
-        let request = ProviderRequest {
-            messages: vec![original.clone()],
-            tools: vec![],
-            step: 1,
-            reasoning_effort: None,
-            max_output_tokens: None,
-            debug_scope: Default::default(),
-        };
-        let projected = project_request(request.clone(), None, false, CancellationToken::new())
-            .await
-            .unwrap();
-        assert!(projected.messages[0]
-            .content
-            .contains("this model accepts text only"));
-        assert_eq!(original.content_blocks, vec![image]);
-        assert!(
-            project_request(request, None, true, CancellationToken::new())
-                .await
-                .is_err()
-        );
     }
 }
 
@@ -336,5 +315,45 @@ pub(crate) async fn project_request(
     tokio::select! {
         _ = cancellation.cancelled() => Err(ProviderError::new("attachment preparation cancelled")),
         result = task => result.map_err(|e| ProviderError::new(format!("attachment preparation failed: {e}")))?,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn text_only_projection_does_not_read_images_or_mutate_history() {
+        let image = ContentBlock::Image {
+            attachment: AttachmentRef {
+                attachment_id: format!("sha256:{}", "a".repeat(64)),
+                media_type: "image/png".into(),
+                bytes: 12,
+                name: None,
+                width: Some(1),
+                height: Some(1),
+            },
+            data_url: None,
+        };
+        let original = Message::user("image").with_content_blocks(vec![image.clone()]);
+        let request = ProviderRequest {
+            messages: vec![original.clone()],
+            tools: vec![],
+            step: 1,
+            reasoning_effort: None,
+            max_output_tokens: None,
+            debug_scope: Default::default(),
+        };
+        let projected = project_request(request.clone(), None, false, CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(projected.messages[0]
+            .content
+            .contains("this model accepts text only"));
+        assert_eq!(original.content_blocks, vec![image]);
+        assert!(
+            project_request(request, None, true, CancellationToken::new())
+                .await
+                .is_err()
+        );
     }
 }

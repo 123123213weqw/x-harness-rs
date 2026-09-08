@@ -53,6 +53,7 @@ jobs:
       - run: node scripts/test-context-plugin.mjs
       - run: node scripts/test-model-controls.mjs
       - run: node scripts/test-workspace-directory.mjs
+      - run: node scripts/test-attachments.mjs
       - name: Real browser layout regression
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
@@ -65,6 +66,8 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-model-controls-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-subagent-navigation.mjs
           UI_TEST_BROWSER=webkit node scripts/test-subagent-navigation.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-attachments-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-attachments-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-workspace-directory-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-workspace-directory-browser.mjs
       - name: Upload workspace directory UI evidence
@@ -72,7 +75,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: workspace-directory-ui-evidence
-          path: dist/workspace-directory-evidence/
+          path: |
+            dist/workspace-directory-evidence/
+            dist/attachment-ui-evidence/
           if-no-files-found: warn
 
   rust-linux:

@@ -399,6 +399,8 @@ fn publish(path: &Path, bytes: &[u8]) -> Result<()> {
     // The temporary is our exact create_new path, never a caller-controlled glob.
     // Windows read-only links cannot be unlinked until their attribute is reset.
     #[cfg(windows)]
+    #[allow(clippy::permissions_set_readonly_false)]
+    // Windows file attribute, never Unix mode bits.
     if let Ok(metadata) = fs::metadata(&temporary) {
         let mut permissions = metadata.permissions();
         permissions.set_readonly(false);

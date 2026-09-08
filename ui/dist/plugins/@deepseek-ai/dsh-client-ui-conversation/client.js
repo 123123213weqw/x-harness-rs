@@ -56,9 +56,24 @@ window.__ModuleLoader__.load({
 		* private fields bypass that rebinding.
 		*/
 		/** Create one browser-only draft descriptor; only its id enters input state. */
-		function browserDraftAttachment(file) {
+		function attachmentMediaType(file) {
+      if (file.type) return file.type;
+      return ({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp'})[file.name.split('.').pop().toLowerCase()] || 'application/octet-stream';
+    }
+    function attachmentKind(file) { return ['image/png','image/jpeg','image/webp','image/gif'].includes(attachmentMediaType(file)) ? 'image' : 'file'; }
+    function validateAttachments(files) {
+      if (files.length > 128) throw Error('最多同时添加 128 个附件');
+      const images = files.filter(file => attachmentKind(file) === 'image');
+      if (images.length > 20) throw Error('每条消息最多 20 张图片');
+      for (const file of files) {
+        const limit = attachmentKind(file) === 'image' ? 20 : 32;
+        if (file.size > limit * 1024 * 1024) throw Error(file.name + ' 超过 ' + limit + ' MiB 上传限制');
+      }
+      if (files.reduce((sum,file) => sum + file.size,0) > 96 * 1024 * 1024) throw Error('本次附件合计不能超过 96 MiB');
+    }
+    function browserDraftAttachment(file) {
 			return {
-				kind: "image",
+				kind: attachmentKind(file),
 				id: crypto.randomUUID(),
 				previewUrl: URL.createObjectURL(file),
 				file
@@ -145,7 +160,7 @@ window.__ModuleLoader__.load({
 			* @returns ordered draft descriptors.
 			*/
 			createDraftImages(files) {
-				for (const file of files) imageMediaType(file.type);
+				validateAttachments(files);
 				return files.map((file) => {
 					const attachment = browserDraftAttachment(file);
 					this.draftAttachments.set(attachment.id, attachment);
@@ -176,7 +191,7 @@ window.__ModuleLoader__.load({
 			async serializeDraftImages(imageIds) {
 				const attachments = this.draftImages(imageIds);
 				if (attachments.length !== imageIds.length) throw new Error("conversation.serializeDraftImages: one or more draft images are no longer available");
-				return Promise.all(attachments.map((attachment) => this.encodeImage(attachment.file)));
+				return Promise.all(attachments.map(async (attachment) => ({type: attachment.kind, ...await this.encodeImage(attachment.file)})));
 			}
 			/**
 			* Release one browser-owned draft image and preview URL.
@@ -283,14 +298,14 @@ window.__ModuleLoader__.load({
 			/** Convert browser files to canonical base64 prompt parts. */
 			serializeImages(images) {
 				return Promise.all(images.map(async (file) => ({
-					type: "image",
+					type: attachmentKind(file),
 					...await this.encodeImage(file)
 				})));
 			}
 			/** Canonical base64 wire form of one browser image file. */
 			async encodeImage(file) {
 				return {
-					mediaType: imageMediaType(file.type),
+					mediaType: attachmentMediaType(file),
 					data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
 					...file.name === "" ? {} : { name: file.name }
 				};
@@ -3744,14 +3759,10 @@ window.__ModuleLoader__.load({
 			const intakeImages = (0, react.useCallback)((files) => {
 				if (addImages === void 0 || files.length === 0) return;
 				const rejected = (() => {
-					if (imageLimits !== void 0) {
-						if (files.some((file) => !imageLimits.mediaTypes.includes(file.type))) return addImages(files);
-						if (attachments.length + files.length > imageLimits.maxImagesPerMessage) return t("image.tooMany", { count: imageLimits.maxImagesPerMessage });
-						if (files.some((file) => file.size > imageLimits.maxImageBytes)) return t("image.fileTooLarge", { size: imageSizeText(imageLimits.maxImageBytes) });
-						if (attachments.reduce((sum, attachment) => sum + attachment.file.size, 0) + files.reduce((sum, file) => sum + file.size, 0) > imageLimits.maxMessageImageBytes) return t("image.totalTooLarge", { size: imageSizeText(imageLimits.maxMessageImageBytes) });
-					}
-					return addImages(files);
-				})();
+      try { validateAttachments([...attachments.map(a => a.file), ...files]); }
+      catch (error) { return error.message; }
+      return addImages(files);
+    })();
 				if (rejected !== null) showToast(rejected);
 			}, [
 				addImages,
@@ -5048,7 +5059,7 @@ window.__ModuleLoader__.load({
 			for (const block of content) {
 				const b = block;
 				if (b.type === "text" && typeof b.text === "string") texts.push(b.text);
-				else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });
+				else if ((b.type === "image" || b.type === "file") && b.attachment !== void 0) images.push({ attachment: b.attachment, kind: b.type });
 				else rest.push(block);
 			}
 			return {
@@ -10151,3 +10162,4 @@ window.__ModuleLoader__.load({
 });
 
 //# sourceMappingURL=client.js.map
+// XHARNESS DURABLE ATTACHMENTS v1

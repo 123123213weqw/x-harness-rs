@@ -742,6 +742,7 @@ window.__ModuleLoader__.load({
 			return {
 				id: candidate.id,
 				...candidate.name === void 0 ? {} : { name: candidate.name },
+                ...candidate.inputModalities === void 0 ? {} : { inputModalities: candidate.inputModalities },
 				...candidate.contextWindow === void 0 ? {} : { contextWindow: candidate.contextWindow },
 				...candidate.maxTokens === void 0 ? {} : { maxTokens: candidate.maxTokens }
 			};
@@ -952,7 +953,11 @@ window.__ModuleLoader__.load({
 							]
 						}), expanded.has(index) ? (0, react_jsx_runtime.jsxs)("div", {
 							className: ModelsSection_module_css_default["modelAdvanced"],
-							children: [(0, react_jsx_runtime.jsxs)("label", {
+            children: [(0,react_jsx_runtime.jsxs)('label',{className:ModelsSection_module_css_default['modelField'],children:[
+              (0,react_jsx_runtime.jsx)('span',{children:'支持图片输入'}),
+              (0,react_jsx_runtime.jsx)('input',{type:'checkbox',disabled,checked:Array.isArray(model.inputModalities)&&model.inputModalities.includes('image'),'aria-label':'支持图片输入 '+(index+1),onChange:event=>patch(index,{inputModalities:event.target.checked?['text','image']:['text']})}),
+              (0,react_jsx_runtime.jsx)('small',{children:'仅在此模型 API 确实支持看图时启用；关闭时图片保留为附件，不自动调用其他模型。'})
+            ]}),(0, react_jsx_runtime.jsxs)("label", {
 								className: ModelsSection_module_css_default["modelField"],
 								children: [(0, react_jsx_runtime.jsx)("span", {
 									className: ModelsSection_module_css_default["modelFieldLabel"],
@@ -2810,3 +2815,4 @@ window.__ModuleLoader__.load({
 });
 
 //# sourceMappingURL=client.js.map
+// XHARNESS DURABLE ATTACHMENTS v1

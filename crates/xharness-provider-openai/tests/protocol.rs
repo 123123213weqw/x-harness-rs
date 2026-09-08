@@ -56,6 +56,91 @@ fn both_protocols_encode_actual_image_blocks_without_rewriting_durable_refs() {
 }
 
 #[test]
+fn tool_images_preserve_complete_call_batch_in_both_protocols() {
+    use xharness_session::{AttachmentRef, ContentBlock};
+    let mut assistant = AgentMessage::assistant("");
+    assistant.tool_calls = (0..2)
+        .map(|index| ToolCall {
+            id: format!("call-{index}"),
+            provider_call_id: None,
+            index,
+            name: "read_image".into(),
+            arguments_json: "{}".into(),
+        })
+        .collect();
+    let mut messages = vec![assistant];
+    for index in 0..2 {
+        messages.push(
+            AgentMessage::tool(format!("call-{index}"), format!("image {index}"))
+                .with_content_blocks(vec![
+                    ContentBlock::Text {
+                        text: format!("image {index}"),
+                    },
+                    ContentBlock::Image {
+                        attachment: AttachmentRef {
+                            attachment_id: format!("sha256:{}", "a".repeat(64)),
+                            media_type: "image/png".into(),
+                            bytes: 10,
+                            name: None,
+                            width: Some(1),
+                            height: Some(1),
+                        },
+                        data_url: Some(format!("data:image/png;base64,fixture{index}")),
+                    },
+                ]),
+        );
+    }
+    messages.push(AgentMessage::assistant("I see both images"));
+    let request = ProviderRequest {
+        messages,
+        tools: vec![],
+        step: 2,
+        reasoning_effort: None,
+        max_output_tokens: None,
+        debug_scope: Default::default(),
+    };
+    let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "vision", &request);
+    let encoded = chat["messages"].as_array().unwrap();
+    assert_eq!(
+        encoded
+            .iter()
+            .map(|m| m["role"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["assistant", "tool", "tool", "user", "assistant"]
+    );
+    assert_eq!(encoded[1]["tool_call_id"], "call-0");
+    assert_eq!(encoded[2]["tool_call_id"], "call-1");
+    assert!(encoded[1]["content"].is_string());
+    assert!(encoded[2]["content"].is_string());
+    assert_eq!(
+        encoded[3]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["type"] == "image_url")
+            .count(),
+        2
+    );
+    let responses = build_openai_request(OpenAiProtocol::Responses, "vision", &request);
+    let outputs = responses["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["type"] == "function_call_output")
+        .collect::<Vec<_>>();
+    assert_eq!(outputs.len(), 2);
+    assert_eq!(outputs[0]["call_id"], "call-0");
+    assert_eq!(outputs[0]["output"][1]["type"], "input_image");
+    assert_eq!(
+        outputs[1]["output"][1]["image_url"],
+        "data:image/png;base64,fixture1"
+    );
+    assert!(!serde_json::to_string(&request.messages)
+        .unwrap()
+        .contains("base64"));
+}
+
+#[test]
 fn sse_parser_handles_one_byte_unicode_crlf_and_multiline_data() {
     let source = "id: 7\r\nevent: message\r\ndata: {\"x\":\"汉\"}\r\ndata: second\r\n\r\n";
     let mut parser = SseParser::default();

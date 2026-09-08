@@ -109,8 +109,7 @@ impl TokenMeter for ConservativeByteMeter {
                 request
                     .conversation_messages
                     .iter()
-                    .map(image_token_reserve)
-                    .sum::<u64>(),
+                    .fold(0u64, |n, v| n.saturating_add(attachment_token_reserve(v))),
             ),
             tool_tokens: encoded_len(&request.tools)?,
             // Account for role/message delimiters and the streaming request
@@ -127,9 +126,9 @@ impl TokenMeter for ConservativeByteMeter {
     }
 }
 
-/// Conservative image reserve until an exact provider counter is available.
+/// Conservative attachment reserve until an exact provider counter is available.
 /// Visual tokens do not correlate with the length of a durable digest.
-fn image_token_reserve(value: &Value) -> u64 {
+fn attachment_token_reserve(value: &Value) -> u64 {
     match value {
         Value::Object(object) => {
             if object.get("type").and_then(Value::as_str) == Some("image")
@@ -137,13 +136,19 @@ fn image_token_reserve(value: &Value) -> u64 {
             {
                 return 8_192;
             }
+            if object.get("type").and_then(Value::as_str) == Some("file")
+                && object.contains_key("attachment")
+            {
+                // Include a request-local escaped absolute read-only path/descriptor.
+                return 4_096;
+            }
             object
                 .values()
-                .fold(0u64, |n, v| n.saturating_add(image_token_reserve(v)))
+                .fold(0u64, |n, v| n.saturating_add(attachment_token_reserve(v)))
         }
         Value::Array(values) => values
             .iter()
-            .fold(0u64, |n, v| n.saturating_add(image_token_reserve(v))),
+            .fold(0u64, |n, v| n.saturating_add(attachment_token_reserve(v))),
         _ => 0,
     }
 }
