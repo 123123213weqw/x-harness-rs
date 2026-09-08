@@ -134,9 +134,8 @@ impl AttachmentStore {
         match &self.root {
             Some(root) => {
                 let digest = digest(&id)?;
-                let dir = root.join("objects").join(&digest[..2]);
-                fs::create_dir_all(&dir)?;
-                let dir = checked_dir(root, &dir)?;
+                let objects = child_dir(root, root, "objects")?;
+                let dir = child_dir(root, &objects, &digest[..2])?;
                 publish(&dir.join(digest), bytes)?;
             }
             None => {
@@ -188,9 +187,8 @@ impl AttachmentStore {
         let Some(root) = &self.root else {
             return Ok(None);
         };
-        let dir = root.join("files").join(digest(&reference.attachment_id)?);
-        fs::create_dir_all(&dir)?;
-        let dir = checked_dir(root, &dir)?;
+        let files = child_dir(root, root, "files")?;
+        let dir = child_dir(root, &files, digest(&reference.attachment_id)?)?;
         let path = dir.join(safe_filename(
             reference.name.as_deref().unwrap_or("attachment"),
         ));
@@ -341,6 +339,19 @@ fn digest(id: &str) -> Result<&str> {
     Ok(hash)
 }
 
+// Check each parent before creating its child, so pre-existing links cannot
+// cause even directory creation outside the attachment store.
+fn child_dir(root: &Path, parent: &Path, name: &str) -> Result<PathBuf> {
+    let parent = checked_dir(root, parent)?;
+    let child = parent.join(name);
+    match fs::create_dir(&child) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    checked_dir(root, &child)
+}
+
 fn checked_dir(root: &Path, path: &Path) -> Result<PathBuf> {
     let canonical = fs::canonicalize(path)?;
     if !canonical.starts_with(root) {
@@ -426,6 +437,29 @@ mod tests {
         image.write_to(&mut bytes, ImageFormat::Png).unwrap();
         bytes.into_inner()
     }
+    #[cfg(unix)]
+    #[test]
+    fn linked_parent_cannot_create_directories_outside_store() {
+        let base = std::env::temp_dir().join(format!(
+            "xh-attachment-link-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        let root = base.join("store");
+        let outside = base.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let store = AttachmentStore::new(&root).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("objects")).unwrap();
+        assert!(store
+            .save_file(b"cannot escape", "text/plain", Some("note.txt"))
+            .is_err());
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_file(root.join("objects")).unwrap();
+        fs::remove_dir(root).unwrap();
+        fs::remove_dir(outside).unwrap();
+        fs::remove_dir(base).unwrap();
+    }
+
     #[test]
     fn normalized_images_have_real_dimensions_and_verifiable_data() {
         let store = AttachmentStore::default();

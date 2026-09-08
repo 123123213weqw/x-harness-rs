@@ -57,9 +57,27 @@ impl BasicHost {
         &self,
         content: &[Value],
     ) -> Result<(String, Vec<Value>), RpcError> {
-        if content.is_empty() || content.len() > 128 {
+        if content.is_empty() || content.len() > 129 {
             return Err(attachment_error(
-                "prompt requires between 1 and 128 content blocks",
+                "prompt requires between 1 and 129 content blocks",
+            ));
+        }
+        let count = content
+            .iter()
+            .filter(|part| {
+                matches!(
+                    part.get("type").and_then(Value::as_str),
+                    Some("image" | "file")
+                )
+            })
+            .count();
+        let encoded_bytes = content
+            .iter()
+            .filter_map(|part| part.get("data").and_then(Value::as_str))
+            .fold(0usize, |sum, data| sum.saturating_add(data.len()));
+        if count > 128 || encoded_bytes > 128 * 1024 * 1024 + 512 {
+            return Err(attachment_error(
+                "prompt exceeds the attachment count or byte limit",
             ));
         }
         let store = self.attachment_store();
@@ -249,7 +267,12 @@ pub(crate) async fn project_request(
                             .as_ref()
                             .ok_or_else(|| ProviderError::new("file attachment store unavailable"))?
                             .file_path(attachment)
-                            .map_err(|e| ProviderError::new(e.to_string()))?;
+                            .map_err(|e| ProviderError::new(e.to_string()))?
+                            .ok_or_else(|| {
+                                ProviderError::new(
+                                    "generic file tools require a disk-backed attachment store",
+                                )
+                            })?;
                         Some(ContentBlock::Text {
                             text: format!(
                                 "[file attachment: {}; {} bytes; {}; read-only path: {}]",
@@ -259,10 +282,7 @@ pub(crate) async fn project_request(
                                 .unwrap(),
                                 attachment.bytes,
                                 attachment.attachment_id,
-                                serde_json::to_string(
-                                    &path.map(|p| p.to_string_lossy().into_owned())
-                                )
-                                .unwrap()
+                                serde_json::to_string(&path.to_string_lossy()).unwrap()
                             ),
                         })
                     }

@@ -14,7 +14,11 @@ try {
   page.on('pageerror',e=>{if(!e.message.includes('isolated fixture')){errors.push(e.message);console.error('PAGE ERROR',e.message)}})
   const assets=readdirSync(resolve(dist,'assets')),entry=assets.find(n=>/^index-.*\.js$/.test(n))
   await page.route('**/*',route=>{
-    const pathname=new URL(route.request().url()).pathname,name=pathname.slice('/assets/'.length)
+    const url=new URL(route.request().url())
+    // WebKit routes blob requests; Chromium resolves them without interception.
+    // Keep fixture network blocked, but allow locally selected File previews.
+    if(url.protocol==='blob:')return route.continue()
+    const pathname=url.pathname,name=pathname.slice('/assets/'.length)
     if(pathname.startsWith('/assets/')&&assets.includes(name))return route.fulfill({body:readFileSync(resolve(dist,'assets',name)),contentType:name.endsWith('.css')?'text/css':'application/javascript'})
     if(pathname==='/')return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head>${assets.filter(n=>n.endsWith('.css')).map(n=>`<link rel="stylesheet" href="/assets/${n}">`).join('')}<script>window.__ModuleLoader__={create:options=>{window.staticModules=options.staticModules;throw Error('isolated fixture')}}</script><script type="module" src="/assets/${entry}"></script></head><body><div id="root"></div></body></html>`})
     return route.abort()
@@ -55,7 +59,13 @@ try {
   assert.deepEqual(await page.evaluate(()=>added),['界面.png','说明.pdf','main.rs'])
   const thumbnail=page.getByRole('img',{name:'界面.png',exact:true})
   await thumbnail.waitFor()
-  await page.waitForFunction(()=>Array.from(document.images).some(i=>i.alt==='界面.png'&&i.complete&&i.naturalWidth===32))
+  try { await page.waitForFunction(()=>Array.from(document.images).some(i=>i.alt==='界面.png'&&i.complete&&i.naturalWidth===32)) }
+  catch(error) {
+    console.error('Image diagnostic',await page.evaluate(()=>Array.from(document.images).map(i=>({alt:i.alt,complete:i.complete,width:i.naturalWidth,source:i.currentSrc}))))
+    const evidence=resolve(root,'dist/attachment-ui-evidence');mkdirSync(evidence,{recursive:true})
+    await page.screenshot({path:resolve(evidence,engine+'-failure.png')})
+    throw error
+  }
   await thumbnail.click()
   const lightbox=page.getByRole('dialog',{name:'image.preview'})
   await lightbox.waitFor()
