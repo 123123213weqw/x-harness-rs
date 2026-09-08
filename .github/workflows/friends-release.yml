@@ -8,8 +8,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: friends-windows-release
+  group: desktop-stable-release
   cancel-in-progress: false
+
+env:
+  PYTHONUTF8: '1'
 
 jobs:
   windows:
