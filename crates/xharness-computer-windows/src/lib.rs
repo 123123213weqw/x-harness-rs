@@ -17,6 +17,8 @@ pub use adapter::WindowsComputer;
 pub use native::acceptance::run as run_native_acceptance;
 #[cfg(all(windows, feature = "native-acceptance"))]
 pub use native::acceptance::run_freshness as run_freshness_acceptance;
+#[cfg(all(windows, feature = "native-acceptance"))]
+pub use native::acceptance::run_target_guards as run_target_guard_acceptance;
 #[cfg(windows)]
 pub use native::run_worker;
 

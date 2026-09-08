@@ -240,6 +240,9 @@ pub(super) fn perform(
             ));
         }
     }
+    if let (Some(element), Some(target)) = (&element, &request.node) {
+        automation.verify_target(element, target, cancel)?;
+    }
     let point = if let Some(element) = &element {
         let bounds = api(unsafe { element.CurrentBoundingRectangle() })?;
         if bounds.right <= bounds.left || bounds.bottom <= bounds.top {
@@ -295,6 +298,18 @@ pub(super) fn perform(
                         element
                             .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
                     } {
+                        // Pattern lookup is a provider call, not a lock on the
+                        // UI. Recheck after it and before irreversible Invoke.
+                        cancel.check()?;
+                        require_foreground(request)?;
+                        automation.verify_target(
+                            element,
+                            request
+                                .node
+                                .as_ref()
+                                .ok_or_else(|| error("stale_node", "missing target"))?,
+                            cancel,
+                        )?;
                         // Invoke has been dispatched: no coordinate retry if its
                         // result is lost or fails after changing external state.
                         unsafe {pattern.Invoke()}.map_err(|_|ComputerError {code:"outcome_unknown".into(),message:"UIA invoke failed after dispatch; observe before deciding on another action".into(),retryable:false})?;
