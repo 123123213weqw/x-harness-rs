@@ -36,8 +36,10 @@ Request image caches are disposable and do not replace the durable originals.
 Authorization uses typed references in durable session events, including old
 history outside the bounded Web cache. Arbitrary tool arguments, request headers,
 guessed IDs and client-provided local paths do not grant attachment access.
-Generic attachment paths are additional **read-only** filesystem/sandbox roots;
-they do not enlarge normal workspace write authority. OS read-only attributes
+Generic attachments are projected into a stable per-session directory, including
+new steering inputs and refs inherited by forks. Only that session directory is an
+additional **read-only** filesystem/sandbox root; other sessions and the global
+object store are not granted. This does not enlarge normal workspace write authority. OS read-only attributes
 and hashes are not protection against a hostile administrator/same-user process.
 
 PNG/JPEG/WebP/GIF are decoded with allocation/dimension limits and EXIF orientation,

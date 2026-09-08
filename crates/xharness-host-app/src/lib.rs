@@ -34,13 +34,13 @@ use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
 use xharness_web::WebRuntime;
 
 /// Native Linux/macOS/Windows implementation of the standard coding-tool factory.
-/// Platforms are cached per canonical workspace so filesystem observations
+/// Platforms are cached per session/workspace so attachment read capabilities stay isolated and filesystem observations
 /// survive across turns. Background jobs are shared by the factory and fenced
 /// by session owner so they remain collectable across model turns.
 pub struct NativeToolFactory {
     jobs: Arc<JobRegistry>,
     web: Arc<WebRuntime>,
-    platforms: RwLock<BTreeMap<(String, PermissionPreset), Arc<NativePlatform>>>,
+    platforms: RwLock<BTreeMap<(String, String, PermissionPreset), Arc<NativePlatform>>>,
     debug: DebugRecorder,
     questions: Option<Arc<DurableQuestionHub>>,
     schedules: Option<Arc<ScheduleManager>>,
@@ -111,10 +111,11 @@ impl NativeToolFactory {
 
     async fn platform(
         &self,
+        session_id: &str,
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<Arc<NativePlatform>, String> {
-        let key = (cwd.to_owned(), permission);
+        let key = (session_id.to_owned(), cwd.to_owned(), permission);
         if let Some(platform) = self.platforms.read().await.get(&key).cloned() {
             return Ok(platform);
         }
@@ -123,7 +124,13 @@ impl NativeToolFactory {
             PermissionPreset::DangerFullAccess => PlatformConfig::new(cwd).full_access(),
         };
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
-            if let Some(root) = host.attachment_store().root_path() {
+            let store = host.attachment_store();
+            let session = session_id.to_owned();
+            let root = tokio::task::spawn_blocking(move || store.session_root(&session))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            if let Some(root) = root {
                 config = config.read_only_root(root);
             }
         }
@@ -140,11 +147,11 @@ impl NativeToolFactory {
 
     pub async fn readiness(
         &self,
-        _session_id: &str,
+        session_id: &str,
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<NativeToolReadiness, String> {
-        let platform = self.platform(cwd, permission).await?;
+        let platform = self.platform(session_id, cwd, permission).await?;
         Ok(NativeToolReadiness {
             platform: platform.capability_report().await,
             search_available: self.web.has_search_provider(),
@@ -169,7 +176,7 @@ impl SessionToolFactory for NativeToolFactory {
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<ToolExecutor, String> {
-        let platform = self.platform(cwd, permission).await?;
+        let platform = self.platform(session_id, cwd, permission).await?;
         let readiness = self.readiness(session_id, cwd, permission).await?;
         let mut specs = CodingToolBundle::new(
             platform.clone(),
@@ -355,6 +362,57 @@ mod tests {
     #[cfg(windows)]
     const BACKGROUND_COMMAND: &str =
         r#"{"command":"Start-Sleep -Seconds 30","run_in_background":true}"#;
+
+    #[tokio::test]
+    async fn native_attachment_roots_are_session_scoped_and_accept_later_inputs() {
+        let workspace = TempWorkspace::new();
+        let storage = TempWorkspace::new();
+        let mut config = xharness_host::HostConfig::new(&workspace.0);
+        config.attachments =
+            Arc::new(xharness_attachment::AttachmentStore::new(&storage.0).unwrap());
+        let host = xharness_host::BasicHost::without_provider(config);
+        let factory = NativeToolFactory::new(WebRuntime::default());
+        factory.bind_agent_host(&host).unwrap();
+        let cwd = workspace.0.to_string_lossy();
+        let first = factory
+            .platform("first", &cwd, PermissionPreset::WorkspaceWrite)
+            .await
+            .unwrap();
+        let second = factory
+            .platform("second", &cwd, PermissionPreset::WorkspaceWrite)
+            .await
+            .unwrap();
+        assert!(
+            !Arc::ptr_eq(&first, &second),
+            "same workspace must not share attachment capabilities"
+        );
+        let store = host.attachment_store();
+        let reference = store
+            .save_file(b"private attachment", "text/plain", Some("note.txt"))
+            .unwrap();
+        let first_path = store
+            .session_file_path("first", &reference)
+            .unwrap()
+            .unwrap();
+        assert!(first.resolve_read_file(&first_path).is_ok());
+        assert!(second.resolve_read_file(&first_path).is_err());
+        assert!(
+            first.resolve_file(&first_path).is_err(),
+            "read grant must not authorize writes"
+        );
+        // A later admitted/forked ref is published into the already-granted stable root.
+        let second_path = store
+            .session_file_path("second", &reference)
+            .unwrap()
+            .unwrap();
+        assert_ne!(first_path, second_path);
+        let (filesystem, target) = second.resolve_read_file(&second_path).unwrap();
+        assert_eq!(
+            filesystem.read_bytes("second", &target, 100).await.unwrap(),
+            b"private attachment"
+        );
+        assert!(first.resolve_read_file(&second_path).is_err());
+    }
 
     struct TempWorkspace(std::path::PathBuf);
 

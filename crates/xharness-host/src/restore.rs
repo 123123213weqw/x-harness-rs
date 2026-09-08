@@ -2239,7 +2239,7 @@ mod tests {
             step: 1,
             reasoning_effort: None,
             max_output_tokens: None,
-            debug_scope: Default::default(),
+            debug_scope: xharness_debug::DebugScope::default().with_session("attachment-reopen"),
         };
         let projected = crate::attachments::project_request(
             request.clone(),
@@ -2251,7 +2251,14 @@ mod tests {
         .unwrap();
         assert!(matches!(&projected.messages[0].content_blocks[0],
             ContentBlock::Image { data_url: Some(url), .. } if url.starts_with("data:image/")));
-        assert!(projected.messages[0].content.contains("read-only path:"));
+        let expected_path = host
+            .attachment_store()
+            .session_file_path("attachment-reopen", &file)
+            .unwrap()
+            .unwrap();
+        assert!(projected.messages[0]
+            .content
+            .contains(&serde_json::to_string(&expected_path.to_string_lossy()).unwrap()));
         let text_only = crate::attachments::project_request(
             request.clone(),
             Some(host.attachment_store()),

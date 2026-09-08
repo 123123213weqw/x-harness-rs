@@ -196,6 +196,35 @@ impl AttachmentStore {
         Ok(Some(checked_file(root, &path)?))
     }
 
+    /// Stable read-only namespace for one session, including future steer input.
+    /// Hash the session identity rather than interpreting it as a filesystem path.
+    pub fn session_root(&self, session: &str) -> Result<Option<PathBuf>> {
+        let Some(root) = &self.root else {
+            return Ok(None);
+        };
+        let sessions = child_dir(root, root, "sessions")?;
+        let key = format!("{:x}", Sha256::digest(session.as_bytes()));
+        Ok(Some(child_dir(root, &sessions, &key)?))
+    }
+
+    pub fn session_file_path(
+        &self,
+        session: &str,
+        reference: &AttachmentRef,
+    ) -> Result<Option<PathBuf>> {
+        let bytes = self.read(reference)?;
+        let Some(base) = self.session_root(session)? else {
+            return Ok(None);
+        };
+        let root = self.root.as_ref().expect("disk-backed session root");
+        let dir = child_dir(root, &base, digest(&reference.attachment_id)?)?;
+        let path = dir.join(safe_filename(
+            reference.name.as_deref().unwrap_or("attachment"),
+        ));
+        publish(&path, &bytes)?;
+        Ok(Some(checked_file(root, &path)?))
+    }
+
     /// Deterministic, bounded request variants. This cache is disposable.
     pub fn image_data_url(&self, reference: &AttachmentRef) -> Result<String> {
         let key = format!("v1:{}", reference.attachment_id);

@@ -262,6 +262,8 @@ pub(crate) async fn project_request(
     let cancelled = cancellation.clone();
     let task = tokio::task::spawn_blocking(move || {
         let mut retained = 0usize;
+        // LoopEngine sets the trusted session scope even when debug recording is disabled.
+        let session_id = request.debug_scope.session_id.clone();
         // Keep the latest images under the request transport budget. A request-
         // local omission never removes refs from the durable session.
         for message in request.messages.iter_mut().rev() {
@@ -272,16 +274,20 @@ pub(crate) async fn project_request(
                 let replacement = match block {
                     ContentBlock::Text { .. } => None,
                     ContentBlock::File { attachment } => {
-                        let path = store
-                            .as_ref()
-                            .ok_or_else(|| ProviderError::new("file attachment store unavailable"))?
-                            .file_path(attachment)
-                            .map_err(|e| ProviderError::new(e.to_string()))?
-                            .ok_or_else(|| {
-                                ProviderError::new(
-                                    "generic file tools require a disk-backed attachment store",
-                                )
-                            })?;
+                        let store = store.as_ref().ok_or_else(|| {
+                            ProviderError::new("file attachment store unavailable")
+                        })?;
+                        let path = match session_id.as_deref() {
+                            Some(session) => store.session_file_path(session, attachment),
+                            // Explicit low-level callers without a session have no native tool grant.
+                            None => store.file_path(attachment),
+                        }
+                        .map_err(|e| ProviderError::new(e.to_string()))?
+                        .ok_or_else(|| {
+                            ProviderError::new(
+                                "generic file tools require a disk-backed attachment store",
+                            )
+                        })?;
                         Some(ContentBlock::Text {
                             text: format!(
                                 "[file attachment: {}; {} bytes; {}; read-only path: {}]",
