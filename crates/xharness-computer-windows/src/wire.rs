@@ -2,6 +2,7 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
 use xharness_computer::{ComputerError, ComputerRequest, Region};
 
@@ -24,6 +25,36 @@ pub struct NodeTarget {
     pub surface: Surface,
     pub path: Vec<u32>,
     pub runtime_id: Vec<i32>,
+    pub snapshot: NodeSnapshot,
+}
+
+/// Private target semantics, not a global page revision or an age-based lease.
+/// Hash the COMPLETE provider name, not the truncated model-facing label.
+/// The bounded digest never exposes hidden name text through this transport.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NodeSnapshot {
+    pub name_sha256: [u8; 32],
+    pub control_type: i32,
+    pub bounds: Region,
+}
+impl NodeSnapshot {
+    pub fn new(name: &str, control_type: i32, bounds: Region) -> Self {
+        Self {
+            name_sha256: Sha256::digest(name.as_bytes()).into(),
+            control_type,
+            bounds,
+        }
+    }
+    pub fn verify(&self, actual: &Self) -> Result<(), ComputerError> {
+        if self != actual {
+            return Err(ComputerError::retryable(
+                "stale_node",
+                "target name, role or bounds changed; observe again; no input dispatched",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -152,6 +183,54 @@ pub fn absolute_axis(point: f64, origin: f64, extent: f64) -> Result<i32, Comput
 mod tests {
     use super::*;
     use std::io::Cursor;
+    fn snapshot(name: &str) -> NodeSnapshot {
+        NodeSnapshot::new(
+            name,
+            50000,
+            Region {
+                x: 1.0,
+                y: 2.0,
+                width: 30.0,
+                height: 40.0,
+            },
+        )
+    }
+    #[test]
+    fn target_freshness_is_semantic_not_elapsed_time() {
+        let original = snapshot("Confirm");
+        assert!(original.verify(&snapshot("Confirm")).is_ok());
+        for changed in [
+            snapshot("Delete"),
+            NodeSnapshot {
+                control_type: 50004,
+                ..original.clone()
+            },
+            NodeSnapshot {
+                bounds: Region {
+                    x: 2.0,
+                    ..original.bounds
+                },
+                ..original.clone()
+            },
+        ] {
+            let error = original.verify(&changed).unwrap_err();
+            assert_eq!(error.code, "stale_node");
+            assert!(error.message.contains("no input dispatched"));
+        }
+    }
+    #[test]
+    fn name_guard_covers_text_beyond_display_truncation() {
+        let prefix = "x".repeat(300);
+        assert_ne!(snapshot(&(prefix.clone() + "A")), snapshot(&(prefix + "B")));
+    }
+    #[test]
+    fn missing_private_snapshot_cannot_disable_freshness_guard() {
+        let target = serde_json::json!({
+            "surface": {"handle":1,"pid":2,"class":"fixture","bounds":{"x":0,"y":0,"width":100,"height":100}},
+            "path":[0],"runtime_id":[1,2,3]
+        });
+        assert!(serde_json::from_value::<NodeTarget>(target).is_err());
+    }
     #[cfg(feature = "native-acceptance")]
     #[test]
     fn visible_view_requires_explicit_flag_and_exact_disposable_vm() {

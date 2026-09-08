@@ -42,3 +42,109 @@ These tests validate the disposable lab bridge, not Windows desktop task quality
 The extension adds a comparison exercise, a scroll target followed by a same-document detail view and return, an announcement overlay, and a 2.2-second simulated search delay with a layout shift. Same-document navigation is not proof of full navigation/cross-origin support; simulated delay is not a real network-switch test. All page events include scenario, per-document sequence, visible result IDs and scroll position. The independent `grade-expanded.py` oracle requires these external effects plus exact reported facts, forbids cart activity and rejects stale successes from a previous initialization. Run `python3 -B test-grade-expanded.py` for positive/negative regression. A JSON-format failure is recorded separately from functional correctness.
 
 Keep model action order and schema defaults unchanged. Setup-only page resets, model requests, receipts, image hashes, final reports and page events must be retained separately. Stop the entire run on missing receipts/unknown external effects; do not add an automatic input replay. Any diagnostic extraction of JSON is not a production parser fix. New tests do not justify changes to production TTL, authorization or automatic-observation behavior without a reproducible failure and independent evidence.
+
+## Tool-free terminal report schema
+
+`structured_report.py` is **lab reporting infrastructure**, not a new tool, Host
+runtime dependency, or a reason to force ordinary conversations into JSON.
+Tool argument schemas do not constrain the final assistant answer. For tests
+that explicitly require structured answers, leave the action loop and the
+registered `computer` definition unchanged, then use a separate terminal stage:
+
+1. Retain the original draft, events, operation error, source identity and score.
+   An unknown effect, missing receipt or failed operation gate cannot be repaired
+   by formatting and must not admit the reporting stage.
+2. Probe the explicitly configured local provider once per run with
+   `response_format.json_schema`. Ignored/unsupported formats fail explicitly;
+   do not silently fall back to an unstructured prompt or infer support from a
+   model name. The capability probe is evidence, not a universal guarantee that
+   every schema keyword is implemented by every server version.
+3. Send only the recorded draft to an **independent, tool-free** schema-constrained
+   request. No original screenshots, complete conversation, catalog answers,
+   external action functions, collector URL or provider credentials are sent.
+   Prices must be finite nonnegative numbers, required fields must exist and
+   unknown fields are rejected. An `insufficient_data`/null-report variant gives
+   the model an abstention path instead of forcing invented facts.
+4. Check the provider envelope, completion reason, JSON and schema locally.
+   Duplicate keys, code fences/prose, nonfinite numbers, booleans as prices,
+   partial output, refusal and unexpected tool/function calls are not accepted.
+   At most two formatting generations are allowed; network/provider failures
+   are not automatically retried. There is no tool dispatcher to replay input.
+5. `grade_separate` reports **operation**, **facts**, **format** and their joint
+   result separately. Preserve the legacy `grade` oracle and historical scores.
+   A valid schema cannot certify factual accuracy or turn missing page evidence
+   into successful interaction. In ordinary UI chat, preserve the original text;
+   formatting failure is not a request to cancel or rerun completed work.
+   If the draft cannot be decoded, facts are `not_evaluated`/null rather than
+   declared incorrect merely because their format is unavailable.
+
+Run offline contracts with `python3 -B test-structured-report.py` (also in the
+Windows adapter CI). For real reporting-only verification, prepare a private
+manifest with `base_url` (credential-free loopback `/v1` endpoint), `model`, and
+one to four distinct `cases`. Each case has `case`, `draft`, `events`, `summary`
+paths relative to the manifest; summary must contain its case and original
+`error`. Execute:
+
+```sh
+python3 -B finalize-recorded-reports.py /absolute/private/manifest.json \
+  --out /absolute/private/new-terminal-report-evidence
+```
+
+The output directory must not exist. Input hashes, original text, capability
+probe, complete formatting requests/responses and before/after separate scores
+are retained. This path never connects to the VM or collector. Formatting
+recorded drafts is a **new reporting-stage experiment**, not a rerun of GUI
+tasks, a replacement of old raw scores, or installed desktop/Host acceptance.
+The limited schema validator is intentionally scoped to these fixed lab schemas;
+it is not a general-purpose JSON Schema implementation.
+
+### Target freshness / occlusion acceptance
+
+The Windows private worker now binds the complete UIA name digest, control
+role and physical bounds to each node target. A changed name/role/rectangle is
+not the same actionable observation merely because its HWND/runtime ID still
+exists. There is no elapsed-time lease: the real 65-second delayed-decision
+regression remains required.
+
+Before node-directed input (and again after obtaining InvokePattern), recheck
+semantics, visibility/password/enabled status and foreground identity. Use the
+native desktop hit-test plus bounded UIA raw ancestry to require the target
+center to hit that node or its descendant. A covering sibling/other window or
+unknown provider result does not grant permission to invoke. No input replay
+or coordinate fallback follows an uncertain Invoke.
+
+These are conservative **pre-dispatch checks**, not an atomic application
+transaction, a full-page content generation counter, or proof of arbitrary
+provider correctness. Coordinate-only input still has the existing desktop /
+foreground / geometry checks; it does not acquire a semantic node identity.
+Partially covered controls whose center cannot be verified require a new
+observation or an explicitly selected visible coordinate. The public model tool
+schema and the macOS adapter are unchanged.
+
+Native checks in the identity-verified disposable clone:
+
+```powershell
+$env:XHARNESS_DISPOSABLE_COMPUTER_VM='66b64058-bdcc-43e9-85ee-55a79fe2e875'
+.\computer-probe.exe --native-acceptance
+.\computer-probe.exe --freshness-acceptance
+.\computer-probe.exe --target-guard-acceptance
+```
+
+The additional suite independently counts actual button `WM_COMMAND` events:
+unchanged target accepted, same-node label changed denied, same-window target
+moved denied, opaque sibling covering a still-recorded target denied, and fresh
+uncovered observation accepted. The covering sibling is already visible before
+observation; only its geometry changes, so a replaced tree path cannot falsely
+stand in for an occlusion test. Fixture readiness is an actual pumped message
+plus verified foreground, not an ignored activation result and fixed 300 ms.
+All failures are preserved; an unrun suite is not reported as passed.
+
+Host sink unit regressions separately cover valid PNG persistence/reopening,
+session isolation, bounded reference-only metadata, cancellation, malformed
+PNG, unsupported image route and lost Host. They are **not** installed Windows
+Host / GUI / history end-to-end acceptance. That remains a distinct gate using
+an artifact built from the exact accepted source.
+
+API semantics: [ElementFromPoint](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation-elementfrompoint),
+[CompareElements](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation-compareelements),
+[WindowFromPoint](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-windowfrompoint).
