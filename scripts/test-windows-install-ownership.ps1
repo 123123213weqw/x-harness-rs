@@ -51,6 +51,12 @@ function Host-Ready {
 try {
     Install-TestCopy $true
     Assert-That (Test-Path -LiteralPath (Join-Path $canonical 'xharness-desktop.exe')) 'Custom installation path changed'
+    # Assert the actual NSIS payload, not only the source-side resource manifest.
+    foreach ($relative in @('index.html', 'client-graph.json', 'plugins/@xlang/xharness-client-ui-directory/client.js')) {
+        $installed = Join-Path (Join-Path $canonical 'web') $relative
+        $expected = Join-Path "$PSScriptRoot/../ui/dist" $relative
+        Assert-That ((Get-FileHash -LiteralPath $installed).Hash -eq (Get-FileHash -LiteralPath $expected).Hash) "Packaged workspace directory UI is stale: $relative"
+    }
     New-Item -ItemType Directory -Path $data -Force | Out-Null
     $sentinel = Join-Path $data 'retained-dialogue-fixture.txt'
     [IO.File]::WriteAllText($sentinel, 'Conversation/config retention fixture; no real credentials')

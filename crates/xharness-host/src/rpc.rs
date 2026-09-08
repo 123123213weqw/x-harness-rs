@@ -1755,9 +1755,30 @@ impl BasicHost {
     }
 
     async fn host_list_directory(&self, payload: &Value) -> Result<Value, RpcError> {
-        require_object(payload)?;
-        let requested = optional_string(payload, "path")?
-            .unwrap_or_else(|| self.config.home.to_string_lossy().into_owned());
+        let requested = match require_object(payload)?.get("path") {
+            None => self.config.home.to_string_lossy().into_owned(),
+            Some(Value::String(path)) => path.clone(),
+            Some(_) => return Err(bad_request("path, when present, must be a string")),
+        };
+        // Empty path is a virtual location overview, not the process cwd.
+        // Omitted path retains the existing home-directory wire contract.
+        if requested.is_empty() {
+            let roots = directory_roots().map_err(|message| {
+                rpc_error(
+                    RpcErrorCode::DirectoryUnreadable,
+                    message,
+                    json!({"path": ""}),
+                )
+            })?;
+            let entries = roots
+                .iter()
+                .map(|path| json!({"name": path, "path": path, "hidden": false}))
+                .collect::<Vec<_>>();
+            return Ok(json!({
+                "path": "", "home": self.config.home,
+                "crumbs": [], "entries": entries, "truncated": false,
+            }));
+        }
         let path = canonical_directory(&requested).map_err(|message| {
             rpc_error(
                 RpcErrorCode::DirectoryUnreadable,
@@ -1804,11 +1825,8 @@ impl BasicHost {
     async fn host_create_directory(&self, payload: &Value) -> Result<Value, RpcError> {
         let parent = required_string(payload, "path")?;
         let name = required_string(payload, "name")?;
-        if name.trim().is_empty()
-            || matches!(name.as_str(), "." | "..")
-            || name.contains(['/', '\\'])
-        {
-            return Err(bad_request("name must be one non-blank path segment"));
+        if !valid_directory_name(&name) {
+            return Err(bad_request("name must be one valid, non-blank folder name"));
         }
         let parent = canonical_directory(&parent).map_err(|message| {
             rpc_error(
@@ -3246,6 +3264,9 @@ fn credential_rejected(reference: &str) -> RpcError {
 }
 
 fn canonical_directory(path: &str) -> Result<String, String> {
+    if path.is_empty() {
+        return Err("select a filesystem directory, not the location overview".to_owned());
+    }
     let canonical = std::fs::canonicalize(path)
         .map_err(|error| format!("could not resolve directory {path:?}: {error}"))?;
     if !canonical.is_dir() {
@@ -3254,18 +3275,86 @@ fn canonical_directory(path: &str) -> Result<String, String> {
     Ok(canonical.to_string_lossy().into_owned())
 }
 
+fn directory_roots() -> Result<Vec<std::path::PathBuf>, String> {
+    #[cfg(windows)]
+    {
+        // Do not stat every drive: disconnected mapped drives and empty media
+        // should not delay the overview. Read errors belong to the chosen path.
+        xharness_win32::logical_drive_roots().map_err(|error| error.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(vec![
+            std::path::PathBuf::from("/"),
+            #[cfg(target_os = "macos")]
+            std::path::PathBuf::from("/Volumes"),
+        ])
+    }
+}
+
+fn valid_directory_name(name: &str) -> bool {
+    // Path::join replaces the parent for absolute/prefixed paths on Windows.
+    // Validate a component, not just the absence of slash characters.
+    if name.trim().is_empty() || name.contains(['/', '\\', '\0']) {
+        return false;
+    }
+    let mut components = Path::new(name).components();
+    if !matches!(components.next(), Some(std::path::Component::Normal(_)))
+        || components.next().is_some()
+    {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        // Reject Win32 aliases even with a verbatim canonical parent path:
+        // folders must remain accessible to Explorer and ordinary tools.
+        if name.ends_with(['.', ' ']) || name.chars().any(|c| c < ' ' || "<>:\"|?*".contains(c)) {
+            return false;
+        }
+        let stem = name
+            .split('.')
+            .next()
+            .unwrap_or(name)
+            .trim_end()
+            .to_uppercase();
+        if matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) {
+            return false;
+        }
+        if let Some(suffix) = stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+        {
+            if matches!(
+                suffix,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            ) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn breadcrumb_entries(path: &Path) -> Vec<Value> {
     let mut current = PathBuf::new();
     path.components()
-        .map(|component| {
+        .filter_map(|component| {
             current.push(component.as_os_str());
+            // A Windows drive prefix (e.g. C: or \\?\C:) is not a complete
+            // absolute directory. Emit it together with the following root.
+            if matches!(component, std::path::Component::Prefix(_)) {
+                return None;
+            }
             let display = current.to_string_lossy().into_owned();
             let name = component.as_os_str().to_string_lossy();
-            json!({
-                "name": if name.is_empty() { display.clone() } else { name.into_owned() },
+            Some(json!({
+                "name": if matches!(component, std::path::Component::RootDir) || name.is_empty() { display.clone() } else { name.into_owned() },
                 "path": display,
                 "hidden": false,
-            })
+            }))
         })
         .collect()
 }
