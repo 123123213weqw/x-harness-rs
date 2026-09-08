@@ -901,6 +901,7 @@ impl Runner {
                 if !model.text.is_empty() || !model.reasoning.is_empty() {
                     self.final_text = model.text.clone();
                     self.messages.push(AgentMessage {
+                        content_blocks: Vec::new(),
                         id: None,
                         role: Role::Assistant,
                         content: model.text,
@@ -949,6 +950,7 @@ impl Runner {
                 None
             };
             let assistant = AgentMessage {
+                content_blocks: Vec::new(),
                 id: None,
                 role: Role::Assistant,
                 content: model.text.clone(),
@@ -2956,6 +2958,7 @@ impl Runner {
                 // Never execute or replay an unacknowledged fragmented tool call.
                 // Keep the original text/reasoning as explicitly interrupted history.
                 let partial = AgentMessage {
+                    content_blocks: Vec::new(),
                     id: None,
                     role: Role::Assistant,
                     content: round.text,
