@@ -117,7 +117,8 @@ mod tests {
     #[tokio::test]
     async fn native_image_tool_returns_persistable_blocks_and_rejects_invalid_files() {
         let (host, executor) = fixture(true).await;
-        let path = std::env::temp_dir().join(format!("xh-read-image-{}.png", std::process::id()));
+        let name = format!("xh-read-image-{}.png", std::process::id());
+        let path = std::env::temp_dir().join(&name);
         std::fs::write(
             &path,
             include_bytes!("../../../apps/desktop/src-tauri/icons/32x32.png"),
@@ -126,7 +127,7 @@ mod tests {
         let result = executor
             .execute(ToolRequest::new(
                 "read_image",
-                json!({"file_path":path}).to_string(),
+                json!({"file_path":name}).to_string(),
             ))
             .await;
         assert!(result.is_ok(), "{result:?}");
@@ -147,7 +148,7 @@ mod tests {
         let invalid = executor
             .execute(ToolRequest::new(
                 "read_image",
-                json!({"file_path":path}).to_string(),
+                json!({"file_path":name}).to_string(),
             ))
             .await;
         assert!(invalid
@@ -159,7 +160,7 @@ mod tests {
         cancellation.cancel();
         let cancelled = executor
             .execute(
-                ToolRequest::new("read_image", json!({"file_path":path}).to_string())
+                ToolRequest::new("read_image", json!({"file_path":name}).to_string())
                     .with_cancellation(cancellation),
             )
             .await;
