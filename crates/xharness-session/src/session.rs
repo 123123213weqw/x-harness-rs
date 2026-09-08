@@ -302,16 +302,16 @@ pub fn derive_surface_messages(events: &[LoggedEvent]) -> Vec<SurfaceMessage> {
     let mut provider_call_ids = HashMap::<String, String>::new();
     let mut messages = Vec::new();
     let mut call_order = Vec::<String>::new();
-    let mut tool_results = HashMap::<String, (Sequence, String)>::new();
+    let mut tool_results = HashMap::<String, (Sequence, String, Vec<crate::ContentBlock>)>::new();
 
     fn flush_tool_results(
         messages: &mut Vec<SurfaceMessage>,
         call_order: &mut Vec<String>,
-        tool_results: &mut HashMap<String, (Sequence, String)>,
+        tool_results: &mut HashMap<String, (Sequence, String, Vec<crate::ContentBlock>)>,
         provider_call_ids: &HashMap<String, String>,
     ) {
         for call_id in call_order.drain(..) {
-            let Some((seq, content)) = tool_results.remove(&call_id) else {
+            let Some((seq, content, blocks)) = tool_results.remove(&call_id) else {
                 continue;
             };
             messages.push(SurfaceMessage {
@@ -319,7 +319,8 @@ pub fn derive_surface_messages(events: &[LoggedEvent]) -> Vec<SurfaceMessage> {
                 message: Message::tool(
                     provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
                     content,
-                ),
+                )
+                .with_content_blocks(blocks),
             });
         }
         // A valid log associates results with the current assistant batch.
@@ -327,13 +328,14 @@ pub fn derive_surface_messages(events: &[LoggedEvent]) -> Vec<SurfaceMessage> {
         // events predate that lifecycle invariant.
         let mut leftovers = tool_results.drain().collect::<Vec<_>>();
         leftovers.sort_by(|left, right| left.0.cmp(&right.0));
-        for (call_id, (seq, content)) in leftovers {
+        for (call_id, (seq, content, blocks)) in leftovers {
             messages.push(SurfaceMessage {
                 seq,
                 message: Message::tool(
                     provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
                     content,
-                ),
+                )
+                .with_content_blocks(blocks),
             });
         }
     }
@@ -406,7 +408,14 @@ pub fn derive_surface_messages(events: &[LoggedEvent]) -> Vec<SurfaceMessage> {
                 provider_call_ids.insert(call.id.clone(), call.provider_id().to_owned());
             }
             EventData::ToolResult { result, .. } => {
-                tool_results.insert(result.call_id.clone(), (logged.seq, result.content.clone()));
+                tool_results.insert(
+                    result.call_id.clone(),
+                    (
+                        logged.seq,
+                        result.content.clone(),
+                        crate::ContentBlock::from_tool_metadata(result.metadata.as_ref()),
+                    ),
+                );
             }
             EventData::StepEnd { .. } | EventData::TurnEnd { .. } => flush_tool_results(
                 &mut messages,

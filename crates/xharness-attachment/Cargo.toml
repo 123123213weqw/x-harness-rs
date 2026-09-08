@@ -1,0 +1,14 @@
+[package]
+name = "xharness-attachment"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Immutable provider-neutral attachment storage and image normalization"
+
+[dependencies]
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+sha2.workspace = true
+thiserror.workspace = true
+xharness-session = { path = "../xharness-session" }

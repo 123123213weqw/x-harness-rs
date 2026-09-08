@@ -61,6 +61,14 @@ pub struct Message {
     pub role: MessageRole,
     #[serde(default)]
     pub content: String,
+    /// Ordered durable content. Empty means the legacy `content` text is authoritative.
+    /// Only immutable references belong here, never base64 or host paths.
+    #[serde(
+        default,
+        rename = "contentBlocks",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub content_blocks: Vec<ContentBlock>,
     #[serde(default)]
     pub reasoning: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -82,6 +90,10 @@ const fn is_false(value: &bool) -> bool {
 }
 
 impl Message {
+    pub fn with_content_blocks(mut self, blocks: Vec<ContentBlock>) -> Self {
+        self.content_blocks = blocks;
+        self
+    }
     pub fn new(role: MessageRole, content: impl Into<String>) -> Self {
         Self {
             role,
@@ -114,5 +126,86 @@ impl Message {
             tool_call_id: Some(call_id.into()),
             ..Self::default()
         }
+    }
+}
+
+/// Provider-neutral reference to a validated, immutable attachment object.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentRef {
+    pub attachment_id: String,
+    pub media_type: String,
+    pub bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ContentBlock {
+    Text {
+        text: String,
+    },
+    Image {
+        attachment: AttachmentRef,
+        /// Request-local only: never read from or written to session JSON.
+        #[serde(skip)]
+        data_url: Option<String>,
+    },
+    File {
+        attachment: AttachmentRef,
+    },
+}
+
+impl ContentBlock {
+    /// Typed image-tool payload retained in the existing durable result metadata.
+    pub fn from_tool_metadata(metadata: Option<&Value>) -> Vec<Self> {
+        metadata
+            .and_then(|v| v.get("xharnessContentBlocks"))
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn attachment(&self) -> Option<&AttachmentRef> {
+        match self {
+            Self::Image { attachment, .. } | Self::File { attachment } => Some(attachment),
+            Self::Text { .. } => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_messages_and_request_only_image_bytes() {
+        let old: Message = serde_json::from_str(r#"{"role":"user","content":"hello"}"#).unwrap();
+        assert!(old.content_blocks.is_empty());
+        assert!(serde_json::to_value(old)
+            .unwrap()
+            .get("contentBlocks")
+            .is_none());
+        let block = ContentBlock::Image {
+            attachment: AttachmentRef {
+                attachment_id: format!("sha256:{}", "a".repeat(64)),
+                media_type: "image/png".into(),
+                bytes: 10,
+                name: None,
+                width: Some(1),
+                height: Some(1),
+            },
+            data_url: Some("data:image/png;base64,PRIVATE_BYTES".into()),
+        };
+        let encoded = serde_json::to_string(&block).unwrap();
+        assert!(!encoded.contains("PRIVATE_BYTES"));
+        assert!(matches!(
+            serde_json::from_str::<ContentBlock>(&encoded).unwrap(),
+            ContentBlock::Image { data_url: None, .. }
+        ));
     }
 }

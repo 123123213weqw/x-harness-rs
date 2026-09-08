@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/xharness-agent",
+    "crates/xharness-attachment",
     "crates/xharness-api",
     "crates/xharness-compaction",
     "crates/xharness-context",
