@@ -23,7 +23,7 @@ const sameChannel = oldRepo === upstream
 for (const repo of [oldRepo, upstream]) assert.match(repo, /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)
 for (const v of [e.BASE_VERSION, e.BRIDGE_VERSION, e.UPSTREAM_VERSION]) assert.match(v, /^\d+\.\d+\.\d+$/)
 const baseTags = sameChannel
-  ? { '0.2.2': 'friends-v0.2.3', '0.2.3': 'friends-v0.2.3', '0.2.4': 'friends-v0.2.4' }
+  ? { '0.2.2': 'friends-v0.2.3', '0.2.3': 'friends-v0.2.3', '0.2.4': 'friends-v0.2.4', '0.2.5': 'friends-v0.2.5' }
   : { '0.2.0': 'friends-v0.2.1', '0.2.1': 'friends-v0.2.1' }
 assert.ok(Object.hasOwn(baseTags, e.BASE_VERSION), 'Unsupported installed base version')
 if (directLatest) assert.equal(e.BRIDGE_VERSION, e.UPSTREAM_VERSION)

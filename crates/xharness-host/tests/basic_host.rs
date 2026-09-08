@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -253,15 +253,25 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "xharness-host-test-{}-{}",
-            std::process::id(),
+        Self::new_at(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+        )
+    }
+
+    fn new_at(timestamp: u128) -> Self {
+        // Wall-clock timestamps can repeat across parallel tests on Windows.
+        // Each fixture owns (and later removes) exactly one distinct directory.
+        static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "xharness-host-test-{}-{}-{}",
+            std::process::id(),
+            timestamp,
+            NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed),
         ));
-        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir(&root).unwrap();
         let mut config = HostConfig::new(&root);
         config.provider_id = "test".to_owned();
         config.provider_display_name = "Test Provider".to_owned();
@@ -313,6 +323,25 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn fixtures_with_the_same_clock_tick_do_not_share_or_remove_each_others_files() {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let first = Fixture::new_at(timestamp);
+    let retained = first.root.join("retained.txt");
+    std::fs::write(&retained, "owned by first fixture").unwrap();
+    let second = Fixture::new_at(timestamp);
+    assert_ne!(first.root, second.root);
+    assert!(!second.root.join("retained.txt").exists());
+    drop(second);
+    assert_eq!(
+        std::fs::read_to_string(retained).unwrap(),
+        "owned by first fixture"
+    );
 }
 
 #[tokio::test]
