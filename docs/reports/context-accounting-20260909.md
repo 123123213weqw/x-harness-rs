@@ -35,6 +35,17 @@
 WZU_Server：workspace/all-targets 484 passed、0 failed、4 ignored；Clippy `-D warnings` 通过。
 前端计量、历史回放、插件契约通过；Chromium / WebKit 各 19 个布局用例通过。
 
-跨平台 CI 与安装包交付在 PR 中继续记录，未完成前不能声称本机运行版本已修复。
+跨平台 CI 与安装包交付结果见下。
 
 说明：最终测试使用 stdout/stderr 分开收集，避免并行 Cargo 输出交错导致漏计汇总；69 组结果合计 484 passed、4 ignored。
+
+## 合并与本机交付
+
+- [PR #42](https://github.com/123123213weqw/x-harness-rs/pull/42) 合并提交 `2418bbf01ebd1bdeceafaa9185cec886a06558ba`。
+- [跨平台 CI](https://github.com/123123213weqw/x-harness-rs/actions/runs/34306759515) 全部通过，包括 Windows、macOS、Linux 和原生更新演练。
+- [macOS 0.2.8 个人测试包](https://github.com/123123213weqw/x-harness-rs/releases/tag/desktop-test-v0.2.8)，[发布构建](https://github.com/123123213weqw/x-harness-rs/actions/runs/34307873287) 成功；仍为 ad-hoc / 非公证个人测试通道，不改变正式发布门禁。
+- 下载后用 0.2.7 发布中已有的更新公钥验证 Minisign，再验证 SHA256、codesign，以及包内 47 个 UI 文件和图标与源码一致。
+- 替换本机 `/Applications/XHarness.app` 并重启；安装前没有运行中的 Agent。
+- 原有 27 个会话全部保留，providers.json 字节哈希不变；完整旧 App / state / Provider 文件已备份。
+- 新桌面 Host 对审计会话返回：`pressureTokens=117446`、`projectedTokens=415395`、`accuracy=provider_reported`、`phase=measured`。旧估算作为历史事实保留，新 UI 优先展示实际值。
+- 没有重启 3082 独立 Web 服务，也没有更新其他机器。原生 UI 自动化读取超时，未把它算作截图验收；本机验收采用实际桌面 sidecar RPC 和安装包资源比对。
