@@ -128,14 +128,14 @@ window.__ModuleLoader__.load({
 			* @param signal - optional cancellation for the complete Host admission.
 			* @returns the Host admission outcome; local attachment preparation failures reject.
 			*/
-			async sendSession(session, text, imageIds, mode, signal) {
+			async sendSession(session, text, imageIds, mode, signal, requireIdle = false) {
 				const attachments = this.draftImages(imageIds);
 				if (attachments.length !== imageIds.length) throw new Error("conversation.sendSession: one or more draft images are no longer available");
-				const content = [...await this.serializeImages(attachments.map((attachment) => attachment.file)), ...text === "" ? [] : [{
+				const content = [...await Promise.all(attachments.map(async attachment => attachment.historyRef ? {type:"image_ref",attachmentId:attachment.historyRef.attachmentId} : (await this.serializeImages([attachment.file]))[0])), ...text === "" ? [] : [{
 					type: "text",
 					text
 				}]];
-				if (!(await session.prompt(content, mode, signal)).ok) return { kind: "error" };
+				if (!(await session.prompt(content, mode, signal, {requireIdle})).ok) return { kind: "error" };
 				this.releaseDraftImages(attachments);
 				return { kind: "success" };
 			}
@@ -1006,7 +1006,7 @@ window.__ModuleLoader__.load({
 			}
 			/** Append ordered image ids unless an admission transaction is locked. */
 			addImages(ids) {
-				if (this.snapshot.phase === "adjudicating" || this.snapshot.phase === "submitting") return false;
+				if (this.imageSendInFlight || this.snapshot.phase === "adjudicating" || this.snapshot.phase === "submitting") return false;
 				if (ids.length === 0) return true;
 				this.imageIds = [...this.imageIds, ...ids];
 				this.publish();
@@ -1018,7 +1018,7 @@ window.__ModuleLoader__.load({
 			* would otherwise vanish from the rail yet still ride the in-flight send.
 			*/
 			removeImage(id) {
-				if (this.snapshot.phase === "adjudicating" || this.snapshot.phase === "submitting") return;
+				if (this.imageSendInFlight || this.snapshot.phase === "adjudicating" || this.snapshot.phase === "submitting") return;
 				const next = this.imageIds.filter((candidate) => candidate !== id);
 				if (next.length === this.imageIds.length) return;
 				this.imageIds = next;
@@ -1354,6 +1354,7 @@ window.__ModuleLoader__.load({
 			settleSubmit(attempt, pending, imageIds = []) {
 				pending.then((outcome) => {
 					if (this.dead(attempt)) return;
+					if (outcome.kind === "success") this.xhEditor?.sent();
 					if (outcome.kind === "success" && imageIds.length > 0) {
 						const submitted = new Set(imageIds);
 						this.imageIds = this.imageIds.filter((id) => !submitted.has(id));
@@ -1417,6 +1418,7 @@ window.__ModuleLoader__.load({
 					return claim.submit(args, this.deps.actx, images);
 				}).then((outcome) => {
 					if (outcome === void 0 || this.dead(attempt)) return;
+					if (outcome.kind === "success") this.xhEditor?.sent();
 					if (outcome.kind === "success" && imageIds.length > 0) {
 						const submitted = new Set(imageIds);
 						this.imageIds = this.imageIds.filter((id) => !submitted.has(id));
@@ -1517,6 +1519,7 @@ window.__ModuleLoader__.load({
 					}
 				});
 				this.shells.set(id, shell);
+				xhAttachEditor(this, id, shell);
 				actx.effect(() => {
 					const offs = [
 						actx.on("slash/input-begin-command", (req) => shell.beginCommand(req.claim, req.span) ? true : void 0),
@@ -1576,7 +1579,7 @@ window.__ModuleLoader__.load({
 			*/
 			sink(session, text, imageIds, mode, signal) {
 				if (text === "" && imageIds.length === 0) return Promise.resolve({ kind: "success" });
-				return this.conversation().sendSession(session, text, imageIds, mode, signal);
+				return this.conversation().sendSession(session, text, imageIds, mode, signal, this.shell(session.sessionId).xhEditor?.state.editing === true);
 			}
 			/**
 			* Steer every still-pending queued message into the running turn, in FIFO
@@ -4941,6 +4944,254 @@ window.__ModuleLoader__.load({
 		* @param props - Copy text, event time, clock side, branch callback, className.
 		* @returns The actions row element.
 		*/
+// XHARNESS CONVERSATION MESSAGE EDIT BEGIN
+// History is immutable. Editing is a session-scoped draft transaction.
+function xhEditStorage() {
+  let db;
+  const fileBytes = new WeakMap();
+  // Store portable bytes, not browser-specific File handles (WebKit can abort
+  // IndexedDB transactions containing File blobs). Cache immutable File reads.
+  async function encodeDraft(draft) {
+    if (!draft) return draft;
+    return {...draft, images: await Promise.all((draft.images || []).map(async image => {
+      if (!image.file) return image;
+      if (!fileBytes.has(image.file)) fileBytes.set(image.file, image.file.arrayBuffer());
+      return {blob: await fileBytes.get(image.file), name:image.file.name,
+        type:image.file.type, lastModified:image.file.lastModified};
+    }))};
+  }
+  function decodeDraft(draft) {
+    if (!draft) return draft;
+    return {...draft, images:(draft.images || []).map(image => image.blob
+      ? {file:new File([image.blob],image.name,{type:image.type,lastModified:image.lastModified})} : image)};
+  }
+  async function access(mode, operation) {
+    db ??= new Promise((resolve, reject) => {
+      const request = indexedDB.open('xharness-message-edits-v1', 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('drafts');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const database = await db;
+    return new Promise((resolve, reject) => {
+      const tx = database.transaction('drafts', mode);
+      const request = operation(tx.objectStore('drafts'));
+      tx.oncomplete = () => resolve(request.result);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Draft storage failed'));
+    });
+  }
+  return { load: async id => {
+      const record = await access('readonly', s => s.get(id));
+      return record && {...record,backup:decodeDraft(record.backup),draft:decodeDraft(record.draft)};
+    },
+    save: async (id, value) => {
+      const record = {...value,backup:await encodeDraft(value.backup),draft:await encodeDraft(value.draft)};
+      return access('readwrite', s => s.put(record, id));
+    },
+    remove: id => access('readwrite', s => s.delete(id)) };
+}
+const xhEditPersistence = xhEditStorage();
+class XHarnessMessageEditor {
+  listeners = new Set();
+  state = { phase: 'idle', editing: false, error: '' };
+  backup = null;
+  ownChange = false;
+  disposed = false;
+  writes = Promise.resolve();
+  constructor(deps) {
+    this.d = deps;
+    this.off = deps.shell.state.subscribe(() => {
+      if (!this.ownChange && !this.disposed) {
+        if (this.state.editing && !this.busy()) this.persist().catch(()=>{});
+        this.set({}); // Refresh missing-image controls and busy buttons with the real shell.
+      }
+    });
+    this.ready = deps.storage.load(deps.id).then(record => {
+      if (record && !this.disposed && this.state.phase === 'idle') {
+        this.saved = record;
+        this.set({ phase: 'recover' });
+      }
+    }).catch(error => this.set({ error: String(error) }));
+  }
+  subscribe = fn => { this.listeners.add(fn); return () => this.listeners.delete(fn); };
+  getSnapshot = () => this.state;
+  set(next) { if (this.disposed) return; this.state = { ...this.state, ...next }; for (const fn of this.listeners) fn(); }
+  busy() { const s = this.d.shell; return s.disposed || s.imageSendInFlight || ['adjudicating','submitting'].includes(s.snapshot.phase); }
+  capture() {
+    const s = this.d.shell.snapshot;
+    const images = this.d.conversation.draftImages(s.imageIds);
+    if (images.length !== s.imageIds.length) throw new Error(this.d.t('message.editMissing'));
+    return { text: s.draft, images: images.map(a => a.historyRef
+      ? { ref: a.historyRef, name: a.file.name, type: a.file.type }
+      : { file: a.file }) };
+  }
+  persist() {
+    try {
+      const record = { version: 1, backup: this.backup, draft: this.capture() };
+      this.writes = this.writes.catch(() => {}).then(() => this.d.storage.save(this.d.id, record));
+      this.writes.catch(e => this.set({ error: this.d.t('message.editStorage') + ': ' + String(e) }));
+      return this.writes;
+    } catch(e) { this.set({ error: String(e) }); return Promise.reject(e); }
+  }
+  async request(content) {
+    await this.ready;
+    if (this.disposed || this.busy() || this.d.running()) return;
+    if (this.state.phase !== 'idle') { this.set({error:this.d.t('message.editFinish')}); return; }
+    if (!Array.isArray(content) || content.some(b => b.type !== 'text' && b.type !== 'image')) {
+      this.set({error:this.d.t('message.editUnsupported')}); return;
+    }
+    this.pending = { text: content.filter(b => b.type === 'text').map(b => b.text).join(''),
+      images: content.filter(b => b.type === 'image').map(b => ({ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
+    if (this.pending.images.some(a => !a.ref?.attachmentId)) { this.set({error:this.d.t('message.editMissing')}); return; }
+    const before = this.capture();
+    if (before.text || before.images.length) this.set({phase:'confirm',error:''});
+    else await this.confirm();
+  }
+  async confirm() {
+    if (!this.pending || this.busy() || this.d.running() || this.state.editing || this.state.phase === 'saving') return;
+    this.set({phase:'saving',error:''});
+    const snapshot = this.d.shell.snapshot;
+    try {
+      this.backup = this.capture();
+      await this.d.storage.save(this.d.id, {version:1,backup:this.backup,draft:this.pending});
+      if (this.disposed) return;
+      // User typing, a network update, or a second submit must not lose a newer draft.
+      if (snapshot !== this.d.shell.snapshot || this.busy() || this.d.running()) throw new Error(this.d.t('message.editChanged'));
+      this.apply(this.pending);
+      this.pending = null;
+      this.set({phase:'editing',editing:true,error:''});
+      this.d.focus();
+    } catch(e) {
+      await this.d.storage.remove(this.d.id).catch(() => {});
+      this.backup = null; this.set({phase:'idle',error:String(e)});
+    }
+  }
+  apply(draft) {
+    const shell = this.d.shell, conversation = this.d.conversation;
+    const old = [...shell.snapshot.imageIds];
+    const images = [];
+    try { for (const a of draft.images || []) {
+      const file = a.file || new File([], a.name || 'image', {type:a.type || 'image/png'});
+      const image = conversation.createDraftImages([file])[0];
+      if (a.ref) { image.historyRef = a.ref; image.loadState = 'loading'; }
+      images.push(image);
+    } } catch (error) {
+      for (const image of images) conversation.releaseDraftImage(image.id);
+      throw error;
+    }
+    this.ownChange = true;
+    for (const id of old) shell.removeImage(id);
+    shell.addImages(images.map(a => a.id)); shell.setDraft(draft.text);
+    this.ownChange = false;
+    for (const id of old) conversation.releaseDraftImage(id);
+    for (const a of images) if (a.historyRef) this.hydrate(a);
+  }
+  async hydrate(image) {
+    const generation = image.generation = (image.generation || 0) + 1;
+    image.loadState = 'loading'; this.set({});
+    try {
+      const result = await this.d.read(image.historyRef.attachmentId);
+      if (!result.ok) throw new Error(result.error.message);
+      if (this.disposed || generation !== image.generation || !this.d.conversation.draftImages([image.id]).length) return;
+      const file = new File([result.value.data], image.file.name, {type:result.value.attachment.mediaType});
+      const url = URL.createObjectURL(file);
+      this.d.conversation.createdImageUrls.add(url);
+      this.d.conversation.createdImageUrls.delete(image.previewUrl);
+      URL.revokeObjectURL(image.previewUrl);
+      image.file = file; image.previewUrl = url; image.loadState = 'ready';
+    } catch(e) { if (generation !== image.generation) return; image.loadState = 'missing'; image.loadError = String(e); }
+    if (!this.disposed) { this.ownChange = true; this.d.shell.publish(); this.ownChange = false; this.set({}); }
+  }
+  async recover() {
+    if (!this.saved || this.busy() || this.d.running()) return;
+    // A refresh can seed the ordinary text mirror before this transaction loads.
+    const draft = this.d.shell.snapshot;
+    if ((draft.draft && draft.draft !== this.saved.draft.text) || draft.imageIds.length) {
+      this.set({error:this.d.t('message.editChanged')}); return;
+    }
+    this.backup = this.saved.backup; this.apply(this.saved.draft); this.saved = null;
+    this.set({phase:'editing',editing:true,error:''}); this.d.focus();
+  }
+  async cancel() {
+    if (this.busy() || this.state.phase === 'saving') return;
+    if (this.state.phase === 'confirm') { this.pending = null; this.set({phase:'idle',error:''}); return; }
+    if (this.state.phase === 'recover') {
+      const draft = this.d.shell.snapshot;
+      if ((draft.draft && draft.draft !== this.saved.draft.text) || draft.imageIds.length) { this.set({error:this.d.t('message.editChanged')}); return; }
+      this.backup = this.saved.backup;
+    }
+    if (this.backup) this.apply(this.backup);
+    this.set({phase:'saving',editing:false,error:''}); this.saved = null; this.backup = null;
+    await this.writes.catch(() => {});
+    await this.d.storage.remove(this.d.id).catch(e => this.set({error:String(e)}));
+    this.set({phase:'idle'});
+  }
+  guardSubmit() {
+    if (['confirm','recover','saving'].includes(this.state.phase)) throw new Error(this.d.t('message.editFinish'));
+    if (this.state.editing && this.d.running()) throw new Error(this.d.t('message.editRunning'));
+    for (const a of this.d.conversation.draftImages(this.d.shell.snapshot.imageIds)) {
+      if (a.historyRef && a.loadState !== 'ready') throw new Error(this.d.t('message.editMissing'));
+    }
+  }
+  async sent() {
+    if (!this.state.editing) return;
+    this.set({phase:'saving',editing:false,error:''}); this.backup = null;
+    await this.writes.catch(() => {});
+    await this.d.storage.remove(this.d.id).catch(e => this.set({error:String(e)}));
+    this.set({phase:'idle'});
+  }
+  dispose() { this.off(); this.disposed = true; this.listeners.clear(); }
+}
+function xhAttachEditor(hub, id, shell) {
+
+  const editor = new XHarnessMessageEditor({id,shell,get conversation(){return hub.conversation();},storage:xhEditPersistence,t:hub.t,
+    running:()=>hub.sessions().list.getSnapshot().byId[id]?.running === true,
+    read:attachmentId=>hub.sessions().binding(id).session.readAttachment(attachmentId),
+    focus:()=>requestAnimationFrame(()=>{
+      const seat = document.querySelector('[data-xh-editor-session="'+CSS.escape(id)+'"]')?.parentElement;
+      const input = seat?.querySelector('[data-composer-seat] textarea') || seat?.querySelector('textarea');
+      if (input) { input.focus(); input.setSelectionRange(input.value.length,input.value.length); }
+    })});
+  shell.xhEditor = editor;
+  const submit = shell.submit.bind(shell);
+  shell.submit = (...args) => { try { editor.guardSubmit(); return submit(...args); } catch(e) {shell.notify('error',String(e));} };
+  const sink = shell.deps.defaultSink;
+  shell.deps.defaultSink = async (...args) => {
+    editor.guardSubmit();
+    const editing = editor.state.editing;
+    const result = await sink(...args);
+    if (editing && result.kind === 'success') await editor.sent();
+    return result;
+  };
+  const dispose = shell.dispose.bind(shell); shell.dispose=()=>{editor.dispose();dispose();};
+  return editor;
+}
+function xhEditMessage(inputHub, sessionId, content) {
+  const shell = inputHub.shell(sessionId);
+  return shell.xhEditor.request(content).catch(e=>shell.notify('error',String(e)));
+}
+function XHarnessEditableInputBar(props) {
+  const editor = props.keyboard?.xhEditor;
+  const state = react.useSyncExternalStore(editor?.subscribe || (()=>()=>{}), editor?.getSnapshot || (()=>null));
+  const button = (label, action, disabled=false) => react_jsx_runtime.jsx('button',{type:'button',disabled,onClick:()=>Promise.resolve(action()).catch(e=>editor.set({error:String(e)})),children:props.t(label)});
+  const images = editor?.d.conversation.draftImages(editor.d.shell.snapshot.imageIds) || [];
+  return react_jsx_runtime.jsxs(react_jsx_runtime.Fragment,{children:[
+    react_jsx_runtime.jsxs('div',{'data-xh-editor-session':props.sessionId,style:{fontSize:13,padding:state?.phase !== 'idle' || state?.error ? '8px 12px' : 0},children:[
+      state?.phase==='confirm' && react_jsx_runtime.jsxs('div',{role:'alertdialog','aria-label':props.t('message.editReplace'),children:[props.t('message.editReplace'),button('message.editConfirm',()=>editor.confirm()),button('message.editCancel',()=>editor.cancel())]}),
+      state?.phase==='recover' && react_jsx_runtime.jsxs('div',{children:[props.t('message.editRecovered'),button('message.editResume',()=>editor.recover()),button('message.editCancel',()=>editor.cancel())]}),
+      state?.phase==='saving' && props.t('message.editSaving'),
+      state?.editing && react_jsx_runtime.jsxs('div',{children:[props.t('message.editActive'),button('message.editCancel',()=>editor.cancel(),editor.busy())]}),
+      state?.error && react_jsx_runtime.jsx('div',{role:'alert',children:state.error}),
+      images.filter(a=>a.historyRef && a.loadState!=='ready').map(a=>react_jsx_runtime.jsxs('div',{role:'status',children:[props.t(a.loadState==='loading'?'message.editLoading':'message.editMissing'),' ',a.file.name,
+        a.loadState==='missing' && button('message.editRetry',()=>editor.hydrate(a)),button('message.editRemove',()=>props.removeImage(a.id),editor.busy())]},a.id))
+    ]}), react_jsx_runtime.jsx(InputBar,{...props,disabled:props.disabled || ['confirm','recover','saving'].includes(state?.phase)})
+  ]});
+}
+function XHarnessEditAction({ content, editMessage, t }) {
+  return react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.Tooltip,{label:t('message.edit'),side:'bottom',children:
+    react_jsx_runtime.jsx('button',{type:'button',className:MessageIconActions_module_css_default.action,'aria-label':t('message.edit'),'data-message-edit':'',onClick:()=>editMessage(content),children:'✎'})});
+}
+// XHARNESS CONVERSATION MESSAGE EDIT END
 		function MessageIconActions({ text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, className, extraActions, t }) {
 			const day = useCalendarDay();
 			const reasonId = (0, react.useId)();
@@ -5287,7 +5538,7 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/** User and admitted-steering keyed Chat renderer. */
-		const UserMessageNodeView = (0, react.memo)(function UserMessageNodeView({ node, renderMessageImages, t }) {
+		const UserMessageNodeView = (0, react.memo)(function UserMessageNodeView({ node, renderMessageImages, editMessage, editAvailable, t }) {
 			const data = node.data;
 			return (0, react_jsx_runtime.jsx)(UserStyleBubble, {
 				content: data.content,
@@ -5299,6 +5550,7 @@ window.__ModuleLoader__.load({
 					time: data.time,
 					clock: "start",
 					className: MessageItem_module_css_default.actions,
+					extraActions: editAvailable && data.content.length > 0 ? (0, react_jsx_runtime.jsx)(XHarnessEditAction, { content: data.content, editMessage, t }) : null,
 					t
 				})
 			});
@@ -5383,7 +5635,7 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region lib/types/client/chat/ChatNodeSeat.js
 		/** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
-		const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, renderMessageImages, fileMentions, useSession, renderSlot, t }) {
+		const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, editAvailable, renderMessageImages, fileMentions, useSession, renderSlot, t }) {
 			const node = useSession((snapshot) => snapshot.chat.nodes.get(nodeKey));
 			const routedNode = node;
 			const owner = (0, react.useMemo)(() => node === void 0 ? null : {
@@ -5392,6 +5644,8 @@ window.__ModuleLoader__.load({
 				openFile,
 				inspectCall,
 				forkAt,
+				editMessage,
+				editAvailable,
 				renderMessageImages,
 				fileMentions
 			}, [
@@ -5401,6 +5655,8 @@ window.__ModuleLoader__.load({
 				openFile,
 				inspectCall,
 				forkAt,
+				editMessage,
+				editAvailable,
 				renderMessageImages,
 				fileMentions
 			]);
@@ -5524,7 +5780,7 @@ window.__ModuleLoader__.load({
 		* The chat view slot entry: pure component over the composed props; each
 		* ordered business Node crosses the keyed renderer seat.
 		*/
-		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, t }) {
+		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, editMessage, fileMentions, t }) {
 			const order = useSession((s) => s.chat.order);
 			const nodeStore = useSession((s) => s.chat.nodes);
 			const timeline = useSession((s) => s.chat.timeline);
@@ -5762,6 +6018,8 @@ window.__ModuleLoader__.load({
 								openFile: requestOpenFile,
 								inspectCall,
 								forkAt,
+								editMessage,
+								editAvailable: !running,
 								renderMessageImages,
 								fileMentions,
 								renderSlot,
@@ -6139,6 +6397,23 @@ window.__ModuleLoader__.load({
 			"message.unknownSurface": "未知 surface 事件：{type}",
 			"message.unknownBlock": "未知内容块",
 			"message.stopped": "已停止",
+"message.editReplace": "替换当前草稿？原草稿会暂存，取消编辑可恢复。",
+"message.editConfirm": "替换草稿",
+"message.editCancel": "取消编辑",
+"message.editRecovered": "发现未完成的历史消息编辑",
+"message.editResume": "恢复编辑",
+"message.editActive": "正在编辑历史消息 · 发送后开启新一轮",
+"message.editSaving": "正在保存原草稿…",
+"message.editLoading": "正在恢复附件…",
+"message.editMissing": "附件未就绪或已丢失，请重试、重新上传或主动移除",
+"message.editRetry": "重试",
+"message.editRemove": "移除附件",
+"message.editChanged": "草稿或任务状态已变化，未覆盖；请先处理当前草稿再重试",
+"message.editRunning": "任务已经开始运行，请停止后再发送编辑消息",
+"message.editFinish": "请先完成或取消当前编辑",
+"message.editUnsupported": "此消息含不支持恢复的内容，未修改草稿",
+"message.editStorage": "无法持久保存编辑草稿",
+			"message.edit": "编辑并重新发送",
 			"message.branch": "在新对话中分支",
 			"message.branchUnavailable": "仅可从已完成轮次的最后一条消息分支",
 			"message.retry.active": "正在重试模型请求",
@@ -6312,6 +6587,23 @@ window.__ModuleLoader__.load({
 			"message.unknownSurface": "Unknown surface event: {type}",
 			"message.unknownBlock": "Unknown content block",
 			"message.stopped": "Stopped",
+"message.editReplace": "Replace current draft? Cancel editing to restore it.",
+"message.editConfirm": "Replace draft",
+"message.editCancel": "Cancel editing",
+"message.editRecovered": "Unfinished message edit found",
+"message.editResume": "Resume editing",
+"message.editActive": "Editing a historical message · sends a new turn",
+"message.editSaving": "Saving original draft…",
+"message.editLoading": "Restoring attachment…",
+"message.editMissing": "Attachment missing or not ready: retry, reattach or remove it",
+"message.editRetry": "Retry",
+"message.editRemove": "Remove attachment",
+"message.editChanged": "Draft or task changed; nothing overwritten. Resolve the current draft and retry.",
+"message.editRunning": "The agent is running; stop it before resending the edited message",
+"message.editFinish": "Finish or cancel the current edit first",
+"message.editUnsupported": "This message contains unsupported content; draft unchanged",
+"message.editStorage": "Could not persist the edited draft",
+			"message.edit": "Edit and resend",
 			"message.branch": "Branch into a new conversation",
 			"message.branchUnavailable": "Available only on the last message of a completed turn",
 			"message.retry.active": "Retrying model request",
@@ -10021,8 +10313,8 @@ window.__ModuleLoader__.load({
 							}
 						},
 						removeImage: (id) => {
-							conversation.releaseDraftImage(id);
 							shell.removeImage(id);
+							if (!shell.snapshot.imageIds.includes(id)) conversation.releaseDraftImage(id);
 						},
 						draftImages: (ids) => conversation.draftImages(ids),
 						resolveSubmitMode: (running, gesture, steeringAvailable) => submissionPolicy.resolve(running, gesture, steeringAvailable),
@@ -10056,7 +10348,7 @@ window.__ModuleLoader__.load({
 						}
 					};
 				}
-			}, InputBar);
+			}, XHarnessEditableInputBar);
 			slots.register({
 				name: "conversation.composer",
 				select: selectApproval,
@@ -10102,6 +10394,7 @@ window.__ModuleLoader__.load({
 							actions.setInspect({ callId });
 							actions.setView("trajectory");
 						},
+						editMessage: (content) => xhEditMessage(inputHub, sessionId, content),
 						chatScroll: {
 							save: (position) => {
 								if (position === null) chatScrollPositions.delete(sessionId);
@@ -10147,11 +10440,12 @@ window.__ModuleLoader__.load({
 			}, DetailsPanel);
 		}
 		//#endregion
+		exports.XHarnessMessageEditor = XHarnessMessageEditor;
+		exports.XHarnessEditableInputBar = XHarnessEditableInputBar;
+		exports.xhEditMessage = xhEditMessage;
 		exports.ConversationController = ConversationController;
 		exports.apply = apply;
 		exports.inject = inject;
 		return module.exports;
 	}
 });
-
-//# sourceMappingURL=client.js.map

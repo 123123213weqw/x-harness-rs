@@ -75,6 +75,8 @@ impl BasicHost {
         notice: xharness_schedule::ScheduleDeliveryNotice,
     ) -> Result<(), (String, String)> {
         let session_id = notice.session_id;
+        // Serialize background starts with prompt/model admission checks.
+        let _admission_guard = self.lock_admission(&session_id).await;
         let run = self
             .agent_runtime
             .take_resumed_turn(&session_id, &notice.work_id)

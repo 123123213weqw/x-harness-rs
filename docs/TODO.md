@@ -11,6 +11,16 @@ Commit、Issue、PR 应引用这些 ID。
 当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
 `b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
 
+## 历史消息重新编辑专项（PR #35）
+
+规范见 [历史消息编辑后重新发送](specs/message-edit-resend.md)。
+
+- [x] `MSG-EDIT-01` 停止后的文字/图片消息恢复为新草稿，不修改历史；保留主分支最新 UI。
+- [x] `MSG-EDIT-02` 草稿覆盖确认、取消还原、会话隔离、刷新恢复和发送失败保留。
+- [x] `MSG-EDIT-03` 复用附件读取与 prompt，增加授权图片引用和运行态/模型能力检查。
+- [x] `MSG-EDIT-04` Node、真实 Chromium/WebKit 与远程 Rust 回归覆盖正常和异常路径。
+- [ ] `MSG-EDIT-05` 发布包含本功能的新安装包并验收；合并源码不会自动更新已安装软件。
+
 ## 桌面搜索与审批专项（2026-09-09）
 
 规范见 [桌面搜索与审批终态](specs/desktop-search-approval.md)。
