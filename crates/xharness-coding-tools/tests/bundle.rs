@@ -498,3 +498,28 @@ async fn cancelled_bash_result_is_published_only_after_the_process_tree_is_dead(
         "tool batch settled while a managed process was still alive: {pids:?}"
     );
 }
+
+#[tokio::test]
+async fn search_tools_distinguish_no_matches_and_real_errors() {
+    let workspace = TempWorkspace::new();
+    fs::write(workspace.0.join("sample.txt"), "needle\n").unwrap();
+    let e = executor(&workspace).await;
+    for (name, args, ok) in [
+        ("glob", r#"{"pattern":"*.txt"}"#, true),
+        ("glob", r#"{"pattern":"*.absent"}"#, true),
+        ("grep", r#"{"pattern":"needle"}"#, true),
+        ("grep", r#"{"pattern":"unmatchable-123456"}"#, true),
+        ("grep", r#"{"pattern":"["}"#, false),
+        (
+            "grep",
+            r#"{"pattern":"needle","path":"missing-directory-123456"}"#,
+            false,
+        ),
+    ] {
+        let result = e.execute(ToolRequest::new(name, args)).await;
+        assert_eq!(result.is_ok(), ok, "{name} {args}: {result:?}");
+        if !ok {
+            assert!(result.failure.unwrap().message.contains("stderr"));
+        }
+    }
+}

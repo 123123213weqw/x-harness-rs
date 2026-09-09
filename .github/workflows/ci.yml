@@ -115,6 +115,8 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Install search integration test dependency
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
@@ -139,15 +141,6 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
-      - run: cargo fmt --check --all
-      - run: cargo check --workspace --all-targets
-      - run: cargo test --workspace --all-targets
-      - name: Runtime-drop process cleanup without another concurrent Tokio runtime
-        if: runner.os != 'Windows'
-        run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Build native host and sandbox runner
-        run: cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
       - name: Install pinned ripgrep for the portable package
         run: |
           $version = '15.2.0'
@@ -165,6 +158,16 @@ jobs:
             throw 'Pinned ripgrep archive did not contain rg.exe.'
           }
           "XHARNESS_RG=$rg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Split-Path -Parent $rg) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - run: cargo fmt --check --all
+      - run: cargo check --workspace --all-targets
+      - run: cargo test --workspace --all-targets
+      - name: Runtime-drop process cleanup without another concurrent Tokio runtime
+        if: runner.os != 'Windows'
+        run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build native host and sandbox runner
+        run: cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
       - name: Package native host
         run: |
           $package = "dist/xharness-host-windows-x86_64"
@@ -260,6 +263,8 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Install portable search before integration tests
+        run: bash scripts/install-portable-rg.sh
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
@@ -270,7 +275,8 @@ jobs:
         run: cargo build --locked --release -p xharness-host-app
       - name: Check native Tauri desktop shell
         run: |
-          command -v rg >/dev/null || brew install ripgrep
+          bash scripts/install-portable-rg.sh
+          export PATH="$RUNNER_TEMP/xharness-portable-rg/bin:$PATH"
           python3 scripts/stage-tauri-sidecar.py target/release/xharness-host aarch64-apple-darwin
           python3 scripts/stage-tauri-sidecar.py "$(command -v rg)" aarch64-apple-darwin --name rg
           cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
@@ -305,7 +311,8 @@ jobs:
           if-no-files-found: error
       - name: Package native host
         run: |
-          command -v rg >/dev/null || brew install ripgrep
+          bash scripts/install-portable-rg.sh
+          export PATH="$RUNNER_TEMP/xharness-portable-rg/bin:$PATH"
           mkdir -p dist/xharness-host-darwin-arm64
           cp target/release/xharness-host dist/xharness-host-darwin-arm64/
           cp "$(command -v rg)" dist/xharness-host-darwin-arm64/

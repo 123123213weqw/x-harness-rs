@@ -11,6 +11,15 @@ Commit、Issue、PR 应引用这些 ID。
 当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
 `b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
 
+## 桌面搜索与审批专项（2026-09-09）
+
+规范见 [桌面搜索与审批终态](specs/desktop-search-approval.md)。
+
+- [x] `DESKTOP-FIX-01` macOS CI 固定无 PCRE2 的内部 rg，拒绝外部 dylib，增加签名包内真实搜索验收。
+- [x] `DESKTOP-FIX-02` glob/grep 区分无匹配与进程失败，保留诊断，不再误报 success。
+- [x] `DESKTOP-FIX-03` 审批超时/取消收敛、Host/UI 清理、迟到回答拒绝和旧日志追加式修复。
+- [ ] `DESKTOP-FIX-04` 跨平台 CI、发布并替换本机安装包，验证旧会话不再残留 Waiting for approval；当前安装的 0.2.8 尚无本批修复。
+
 ## 请求级上下文计量专项（2026-09-09）
 
 规范见 [请求级上下文计量](specs/context-accounting.md)，证据见 [回放及真实请求报告](reports/context-accounting-20260909.md)。
