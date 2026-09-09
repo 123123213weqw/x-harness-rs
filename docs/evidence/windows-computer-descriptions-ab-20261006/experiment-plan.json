@@ -1,0 +1,24 @@
+{
+  "cases": [
+    "scroll-detail",
+    "filter"
+  ],
+  "variants": {
+    "A": "original registered declaration",
+    "B": "compiled repository declaration, description metadata only"
+  },
+  "model": "deepseek-flash",
+  "temperature": 0,
+  "thinking": "disabled",
+  "response_bound_per_variant": 12,
+  "repetitions_per_pair": 1,
+  "native_binary_source": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "native_runtime_recompiled_or_changed": false,
+  "new_schema_export_compiled_on": "WZU_Server",
+  "automatic_coordinate_or_argument_rewriting": false,
+  "setup_only_ui_before_model": true,
+  "cart_effect_watchdog": "identical A/B; stop on actual synthetic cart event",
+  "experiment_lifetime_seconds": 1200,
+  "admission_stop_before_new_case_seconds": 880,
+  "no_installed_software_update": true
+}

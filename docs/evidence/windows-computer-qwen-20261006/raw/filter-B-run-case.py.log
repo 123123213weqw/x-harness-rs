@@ -1,0 +1,26 @@
+{"mode": "expanded", "turn": 0, "model_s": 8.18, "calls": 1, "usage": {"completion_tokens": 52, "prompt_tokens": 1362, "total_tokens": 1414, "prompt_tokens_details": {"cached_tokens": 0}}}
+{"id": 5, "action": "observe", "ok": true, "native_ms": 8786, "wall_s": 11.5, "image": true}
+{"mode": "expanded", "turn": 1, "model_s": 18.47, "calls": 1, "usage": {"completion_tokens": 108, "prompt_tokens": 13861, "total_tokens": 13969, "prompt_tokens_details": {"cached_tokens": 1358}}}
+{"id": 6, "action": "click", "ok": false, "native_ms": 1, "wall_s": 3.49, "image": false}
+{"mode": "expanded", "turn": 2, "model_s": 5.49, "calls": 1, "usage": {"completion_tokens": 52, "prompt_tokens": 14033, "total_tokens": 14085, "prompt_tokens_details": {"cached_tokens": 13857}}}
+{"id": 7, "action": "observe", "ok": true, "native_ms": 8917, "wall_s": 17.04, "image": true}
+{"mode": "expanded", "turn": 3, "model_s": 18.04, "calls": 1, "usage": {"completion_tokens": 104, "prompt_tokens": 26531, "total_tokens": 26635, "prompt_tokens_details": {"cached_tokens": 14085}}}
+{"id": 8, "action": "click", "ok": false, "native_ms": 2, "wall_s": 2.37, "image": false}
+{"mode": "expanded", "turn": 4, "model_s": 7.12, "calls": 1, "usage": {"completion_tokens": 52, "prompt_tokens": 26699, "total_tokens": 26751, "prompt_tokens_details": {"cached_tokens": 26636}}}
+{"id": 9, "action": "observe", "ok": true, "native_ms": 8813, "wall_s": 11.78, "image": true}
+{"mode": "expanded", "turn": 5, "model_s": 26.22, "calls": 1, "usage": {"completion_tokens": 94, "prompt_tokens": 39197, "total_tokens": 39291, "prompt_tokens_details": {"cached_tokens": 26695}}}
+{"id": 10, "action": "click", "ok": false, "native_ms": 1, "wall_s": 2.37, "image": false}
+{"mode": "expanded", "turn": 6, "model_s": 9.44, "calls": 1, "usage": {"completion_tokens": 52, "prompt_tokens": 39355, "total_tokens": 39407, "prompt_tokens_details": {"cached_tokens": 39193}}}
+{"id": 11, "action": "observe", "ok": true, "native_ms": 8708, "wall_s": 12.09, "image": true}
+{"mode": "expanded", "turn": 7, "model_s": 23.28, "calls": 1, "usage": {"completion_tokens": 94, "prompt_tokens": 51852, "total_tokens": 51946, "prompt_tokens_details": {"cached_tokens": 39351}}}
+{"id": 12, "action": "click", "ok": false, "native_ms": 0, "wall_s": 2.24, "image": false}
+{"mode": "expanded", "turn": 8, "model_s": 8.05, "calls": 1, "usage": {"completion_tokens": 52, "prompt_tokens": 52010, "total_tokens": 52062, "prompt_tokens_details": {"cached_tokens": 51848}}}
+{"id": 13, "action": "observe", "ok": true, "native_ms": 8895, "wall_s": 13.96, "image": true}
+{"mode": "expanded", "turn": 9, "model_s": 24.64, "calls": 1, "usage": {"completion_tokens": 95, "prompt_tokens": 64509, "total_tokens": 64604, "prompt_tokens_details": {"cached_tokens": 52006}}}
+{"id": 14, "action": "click", "ok": false, "native_ms": 2, "wall_s": 1.95, "image": false}
+{"mode": "expanded", "turn": 10, "model_s": 10.35, "calls": 1, "usage": {"completion_tokens": 52, "prompt_tokens": 64668, "total_tokens": 64720, "prompt_tokens_details": {"cached_tokens": 64605}}}
+{"id": 15, "action": "observe", "ok": true, "native_ms": 8873, "wall_s": 12.71, "image": true}
+{"mode": "expanded", "turn": 11, "model_s": 35.74, "calls": 1, "usage": {"completion_tokens": 95, "prompt_tokens": 77167, "total_tokens": 77262, "prompt_tokens_details": {"cached_tokens": 64664}}}
+{"id": 16, "action": "click", "ok": false, "native_ms": 2, "wall_s": 3.25, "image": false}
+STOP: Turn limit reached, not completion
+{"mode": "expanded", "error": "Turn limit reached, not completion", "native_calls": 12, "elapsed_s": 362.73}

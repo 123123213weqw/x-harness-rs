@@ -1,0 +1,73 @@
+name: Windows Computer Use adapter
+on:
+  push:
+    branches: [feat/windows-computer-use-20261005]
+  pull_request:
+    paths:
+      - 'crates/xharness-computer*/**'
+      - 'crates/xharness-host-app/**'
+      - 'scripts/computer-shopping-lab/**'
+      - 'Cargo.*'
+      - '.github/workflows/windows-computer.yml'
+permissions:
+  contents: read
+concurrency:
+  group: computer-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-computer-v1
+          cache-on-failure: true
+      - name: Offline performance and modality evidence oracles
+        run: |
+          python -B scripts/computer-shopping-lab/test-grade-ax-performance.py
+          if ($LASTEXITCODE) { throw 'Performance oracle failed' }
+          python -B scripts/computer-shopping-lab/grade-modality-comparison.py
+          if ($LASTEXITCODE) { throw 'Modality oracle failed' }
+          python -B scripts/computer-shopping-lab/test-collector.py
+          if ($LASTEXITCODE) { throw 'Lab bridge failed' }
+          python -B scripts/computer-shopping-lab/test-grade-shop.py
+          if ($LASTEXITCODE) { throw 'Shopping oracle failed' }
+          python -B scripts/computer-shopping-lab/test-grade-expanded.py
+          if ($LASTEXITCODE) { throw 'Expanded task oracle failed' }
+          python -B scripts/computer-shopping-lab/test-structured-report.py
+          if ($LASTEXITCODE) { throw 'Tool-free structured report contracts failed' }
+          python -B scripts/computer-shopping-lab/test-expanded-collector.py
+          if ($LASTEXITCODE) { throw 'Expanded bridge routing failed' }
+      - name: Non-interactive native contracts
+        run: |
+          cargo test --locked -p xharness-computer -p xharness-computer-windows --features xharness-computer-windows/native-acceptance
+          if ($LASTEXITCODE) { throw 'Computer contracts failed' }
+          cargo clippy --locked -p xharness-computer-windows --all-targets --features native-acceptance -- -D warnings
+          if ($LASTEXITCODE) { throw 'Computer clippy failed' }
+      - name: Host composition and portable acceptance executable
+        run: |
+          cargo build --locked -p xharness-host-app --bin xharness-host
+          if ($LASTEXITCODE) { throw 'Host composition failed' }
+          cargo build --locked --release -p xharness-computer-windows --features native-acceptance --example computer-probe
+          if ($LASTEXITCODE) { throw 'Native fixture build failed' }
+          New-Item -ItemType Directory -Force dist/windows-computer | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/examples/computer-probe.exe dist/windows-computer/
+          # Disposable-VM acceptance only: run the actual Host composition in
+          # an isolated state root, without replacing the user's desktop app.
+          Copy-Item target/x86_64-pc-windows-msvc/debug/xharness-host.exe dist/windows-computer/
+          $hash = (Get-FileHash dist/windows-computer/computer-probe.exe -Algorithm SHA256).Hash.ToLower()
+          $hostHash = (Get-FileHash dist/windows-computer/xharness-host.exe -Algorithm SHA256).Hash.ToLower()
+          @{schema=1; source_sha='${{ github.sha }}'; executable_sha256=$hash; host_executable_sha256=$hostHash; native_desktop_accepted=$false} | ConvertTo-Json | Set-Content -Encoding utf8 dist/windows-computer/provenance.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-computer-acceptance
+          path: dist/windows-computer/
+          retention-days: 7

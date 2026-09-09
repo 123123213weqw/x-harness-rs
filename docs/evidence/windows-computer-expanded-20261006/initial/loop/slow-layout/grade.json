@@ -1,0 +1,23 @@
+{
+  "case": "slow-layout",
+  "pass": true,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": true,
+    "no_cart": true,
+    "search": true,
+    "answer_exact": true,
+    "layout_shift": true
+  },
+  "events": 3,
+  "report_field_types_ok": false,
+  "run": "initial",
+  "label": "slow-layout",
+  "strict_final_json": false,
+  "format_error": null,
+  "tool_calls": 13,
+  "tool_failures": 4,
+  "elapsed_s": 292.71,
+  "controller_error": null,
+  "valid_model_trial": true
+}

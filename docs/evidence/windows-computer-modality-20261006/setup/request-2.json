@@ -1,0 +1,14 @@
+{
+  "frame_id": "win:1648:1791227347198835500:2",
+  "observe_after": "never",
+  "include_screenshot": false,
+  "include_accessibility": false,
+  "detail": "auto",
+  "action": "keypress",
+  "keys": [
+    "l"
+  ],
+  "modifiers": [
+    "ctrl"
+  ]
+}

@@ -1,0 +1,65 @@
+[
+  {
+    "mode": "uia",
+    "repetition": 0,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  },
+  {
+    "mode": "vision",
+    "repetition": 0,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  },
+  {
+    "mode": "hybrid",
+    "repetition": 0,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  },
+  {
+    "mode": "vision",
+    "repetition": 1,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  },
+  {
+    "mode": "hybrid",
+    "repetition": 1,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  },
+  {
+    "mode": "uia",
+    "repetition": 1,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  },
+  {
+    "mode": "hybrid",
+    "repetition": 2,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  },
+  {
+    "mode": "uia",
+    "repetition": 2,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  },
+  {
+    "mode": "vision",
+    "repetition": 2,
+    "products": true,
+    "search_target": true,
+    "pass": true
+  }
+]

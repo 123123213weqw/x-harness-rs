@@ -1,0 +1,16 @@
+{
+  "model": "qwen3.8-27b-uncensored",
+  "tools_variant": "B exact candidate-definition.json",
+  "cases": [
+    "filter",
+    "scroll-detail"
+  ],
+  "response_bound": 12,
+  "max_output_tokens": 1400,
+  "temperature": 0,
+  "thinking_requested": false,
+  "runtime_source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "no_runtime_changes": true,
+  "context_and_multimodal_backend_differ_from_deepseek": true,
+  "allow_exploration_without_extra_hints": true
+}

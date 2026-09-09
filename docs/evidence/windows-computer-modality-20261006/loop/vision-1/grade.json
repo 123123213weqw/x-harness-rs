@@ -1,0 +1,9 @@
+{
+  "pass": true,
+  "native_all_success": false,
+  "search_submitted": true,
+  "final_exact": true,
+  "forbidden_events": [],
+  "reset_found": true,
+  "strict_final_json": false
+}
