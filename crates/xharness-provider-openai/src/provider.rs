@@ -302,6 +302,8 @@ pub struct OpenAiProvider {
     token_count_support: Arc<AtomicU8>,
     capability_cache: Arc<Mutex<Option<CachedCapabilities>>>,
     debug: DebugRecorder,
+    attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
+    image_support: Option<bool>,
 }
 
 impl OpenAiProvider {
@@ -381,11 +383,28 @@ impl OpenAiProvider {
             token_count_support: Arc::new(AtomicU8::new(TOKEN_COUNT_UNKNOWN)),
             capability_cache: Arc::new(Mutex::new(None)),
             debug: DebugRecorder::disabled(),
+            attachments: None,
+            image_support: None,
         })
     }
 
     pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
         self.debug = debug;
+        self
+    }
+
+    pub fn with_attachments(
+        mut self,
+        store: Arc<dyn xharness_attachments::AttachmentStore>,
+    ) -> Self {
+        self.attachments = Some(store);
+        self
+    }
+
+    /// None means unknown: send valid multimodal content and let the endpoint
+    /// decide. An explicit false fails before any network request.
+    pub fn with_image_support(mut self, support: Option<bool>) -> Self {
+        self.image_support = support;
         self
     }
 
@@ -517,6 +536,85 @@ impl OpenAiProvider {
         })
     }
 
+    async fn multimodal_body(
+        &self,
+        request: &ProviderRequest,
+        token_count: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<Value, ProviderError> {
+        if cancellation.is_cancelled() {
+            return Err(ProviderError::new("attachment request cancelled"));
+        }
+        let mut body = self.request_body(request, token_count)?;
+        let image_count = request
+            .messages
+            .iter()
+            .flat_map(|m| &m.content_blocks)
+            .filter(|b| matches!(b, xharness_attachments::ContentBlock::Image { .. }))
+            .count();
+        if image_count == 0 {
+            return Ok(body);
+        }
+        if self.image_support == Some(false) {
+            return Err(ProviderError::new(
+                "selected model does not support image input; choose a vision model",
+            ));
+        }
+        if image_count > 16 {
+            return Err(ProviderError::new(
+                "request exceeds the attachment limit of 16 images; reduce image context",
+            ));
+        }
+        let store = self.attachments.as_ref().ok_or_else(|| {
+            ProviderError::new("attachment resolver is not configured; image input cannot be sent")
+        })?;
+        let mut offset = 0usize;
+        let mut total_bytes = 0u64;
+        let mut resolved = HashMap::new();
+        for (index, message) in request.messages.iter().enumerate() {
+            if !message.content_blocks.is_empty() {
+                if message.role != xharness_core::Role::User {
+                    return Err(ProviderError::new(
+                        "image blocks are supported only on user messages",
+                    ));
+                }
+                let mut content = Vec::new();
+                for block in &message.content_blocks {
+                    use xharness_attachments::ContentBlock;
+                    match block {
+                        ContentBlock::Text { text } => content.push(json!({"type":if self.config.protocol==OpenAiProtocol::ChatCompletions {"text"} else {"input_text"},"text":text})),
+                        ContentBlock::Image { attachment } => {
+                            total_bytes=total_bytes.saturating_add(attachment.bytes);
+                            if total_bytes>40*1024*1024 { return Err(ProviderError::new("request images exceed 40 MiB; reduce image context")); }
+                            let key=(attachment.session_id.clone(),attachment.id.clone());
+                            if !resolved.contains_key(&key) {
+                                let item=tokio::select! {
+                                    _=cancellation.cancelled()=>return Err(ProviderError::new("attachment resolution cancelled")),
+                                    result=store.resolve(&attachment.session_id,&attachment.id)=> result.map_err(|e| ProviderError::new(e.to_string()))?,
+                                };
+                                if item.reference!=*attachment { return Err(ProviderError::new("attachment metadata mismatch; reattach the image")); }
+                                resolved.insert(key.clone(),item.data_url());
+                            }
+                            let url=&resolved[&key];
+                            content.push(match self.config.protocol {
+                                OpenAiProtocol::ChatCompletions=>json!({"type":"image_url","image_url":{"url":url}}),
+                                OpenAiProtocol::Responses=>json!({"type":"input_image","image_url":url}),
+                            });
+                        }
+                    }
+                }
+                match self.config.protocol {
+                    OpenAiProtocol::ChatCompletions => {
+                        body["messages"][index]["content"] = json!(content)
+                    }
+                    OpenAiProtocol::Responses => body["input"][offset]["content"] = json!(content),
+                }
+            }
+            offset += crate::protocol::encode_response_message(message).len();
+        }
+        Ok(body)
+    }
+
     fn request_body(
         &self,
         request: &ProviderRequest,
@@ -595,11 +693,11 @@ impl ModelProvider for OpenAiProvider {
         if self.token_count_support.load(Ordering::Acquire) == TOKEN_COUNT_UNSUPPORTED {
             return Ok(None);
         }
-        let body = self.request_body(request, true)?;
+        let body = self.multimodal_body(request, true, &cancellation).await?;
         self.trace(
             &request.debug_scope,
             "token_count.request",
-            json!({"endpoint": self.config.token_count_endpoint(), "body": &body}),
+            json!({"endpoint": self.config.token_count_endpoint(), "body": image_safe_trace(&body)}),
         )
         .await;
         let request_builder = self
@@ -673,14 +771,14 @@ impl ModelProvider for OpenAiProvider {
         cancellation: CancellationToken,
     ) -> Result<ProviderStream, ProviderError> {
         let mut observation = NetworkObservation::new(&self.config.endpoint());
-        let body = self.request_body(&request, false)?;
+        let body = self.multimodal_body(&request, false, &cancellation).await?;
         self.trace(
             &request.debug_scope,
             "request",
             json!({
                 "endpoint": self.config.endpoint(),
                 "protocol": format!("{:?}", self.config.protocol),
-                "body": &body,
+                "body": image_safe_trace(&body),
             }),
         )
         .await;
@@ -1299,5 +1397,155 @@ mod tls_disconnect_tests {
                 assert_eq!(retries, usize::from(mode == "before"));
             }
         }
+    }
+}
+
+fn image_safe_trace(body: &Value) -> Value {
+    match body {
+        Value::String(s) if s.starts_with("data:image/") => {
+            json!({"redacted":"image payload","encodedBytes":s.len()})
+        }
+        Value::Array(items) => Value::Array(items.iter().map(image_safe_trace).collect()),
+        Value::Object(items) => Value::Object(
+            items
+                .iter()
+                .map(|(k, v)| (k.clone(), image_safe_trace(v)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+#[cfg(test)]
+mod multimodal_tests {
+    use super::*;
+    use xharness_attachments::{AttachmentStore, ContentBlock, MemoryAttachmentStore, Upload};
+    use xharness_core::AgentMessage;
+    const PNG: &[u8] = include_bytes!("../../xharness-attachments/tests/fixtures/red-blue.png");
+    async fn fixture(protocol: OpenAiProtocol) -> (OpenAiProvider, ProviderRequest) {
+        let store = Arc::new(MemoryAttachmentStore::default());
+        let r = store
+            .put(
+                "s",
+                Upload {
+                    media_type: "image/png".into(),
+                    data: PNG.to_vec(),
+                },
+            )
+            .await
+            .unwrap();
+        let message = AgentMessage::user("").with_content_blocks(vec![
+            ContentBlock::Text {
+                text: "left?".into(),
+            },
+            ContentBlock::Image {
+                attachment: r.clone(),
+            },
+            ContentBlock::Text {
+                text: "right?".into(),
+            },
+            ContentBlock::Image { attachment: r },
+        ]);
+        let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+            protocol,
+            "http://127.0.0.1:1",
+            "",
+            "test",
+        ))
+        .unwrap()
+        .with_attachments(store);
+        (
+            provider,
+            ProviderRequest {
+                messages: vec![AgentMessage::system("test"), message],
+                tools: vec![],
+                step: 1,
+                reasoning_effort: None,
+                max_output_tokens: Some(128),
+                debug_scope: DebugScope::default(),
+            },
+        )
+    }
+    #[tokio::test]
+    async fn both_protocols_and_token_count_send_ordered_real_images() {
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (p, request) = fixture(protocol).await;
+            for counting in [false, true] {
+                let wire = p
+                    .multimodal_body(&request, counting, &CancellationToken::new())
+                    .await
+                    .unwrap();
+                let key = if protocol == OpenAiProtocol::ChatCompletions {
+                    "messages"
+                } else {
+                    "input"
+                };
+                let content = &wire[key][1]["content"];
+                assert_eq!(content.as_array().unwrap().len(), 4);
+                assert_eq!(content[0]["text"], "left?");
+                assert_eq!(content[2]["text"], "right?");
+                let url = if protocol == OpenAiProtocol::ChatCompletions {
+                    content[1]["image_url"]["url"].as_str()
+                } else {
+                    content[1]["image_url"].as_str()
+                }
+                .unwrap();
+                assert!(url.starts_with("data:image/png;base64,"));
+                assert!(!image_safe_trace(&wire)
+                    .to_string()
+                    .contains("data:image/png;base64,"));
+                assert!(!serde_json::to_string(&request.messages)
+                    .unwrap()
+                    .contains("base64"));
+            }
+        }
+    }
+    #[tokio::test]
+    async fn unsupported_missing_tampered_and_cancelled_fail_without_text_fallback() {
+        let (p, mut r) = fixture(OpenAiProtocol::ChatCompletions).await;
+        let p = p.with_image_support(Some(false));
+        assert!(p
+            .multimodal_body(&r, false, &CancellationToken::new())
+            .await
+            .unwrap_err()
+            .message
+            .contains("does not support"));
+        let p = p.with_image_support(None);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        // Removing the resolver must never silently flatten a multimodal message.
+        let missing = OpenAiProvider::new((*p.config).clone()).unwrap();
+        assert!(missing
+            .multimodal_body(&r, false, &CancellationToken::new())
+            .await
+            .unwrap_err()
+            .message
+            .contains("resolver"));
+        if let ContentBlock::Image { attachment } = &mut r.messages[1].content_blocks[1] {
+            attachment.session_id = "foreign".into();
+        }
+        assert!(p
+            .multimodal_body(&r, false, &CancellationToken::new())
+            .await
+            .is_err());
+        assert!(p.multimodal_body(&r, false, &cancel).await.is_err());
+    }
+    #[tokio::test]
+    async fn responses_image_offset_preserves_tool_and_opaque_reasoning_replay() {
+        let (p, mut r) = fixture(OpenAiProtocol::Responses).await;
+        let mut assistant = AgentMessage::assistant("");
+        assistant.provider_items = vec![
+            json!({"type":"reasoning","id":"opaque"}),
+            json!({"type":"function_call","call_id":"c","name":"read","arguments":"{}"}),
+        ];
+        r.messages.insert(1, assistant);
+        r.messages.insert(2, AgentMessage::tool("c", "ok"));
+        let body = p
+            .multimodal_body(&r, false, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(body["input"][1]["id"], "opaque");
+        assert_eq!(body["input"][3]["type"], "function_call_output");
+        assert_eq!(body["input"][4]["content"][1]["type"], "input_image");
     }
 }

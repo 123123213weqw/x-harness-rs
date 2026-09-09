@@ -151,7 +151,7 @@ fn encode_chat_message(message: &AgentMessage) -> Value {
     Value::Object(object)
 }
 
-fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
+pub(crate) fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
     if message.role == Role::Tool {
         return vec![json!({
             "type": "function_call_output",

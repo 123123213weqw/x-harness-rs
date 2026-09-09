@@ -105,7 +105,8 @@ impl TokenMeter for ConservativeByteMeter {
     fn estimate(&self, request: &TokenEstimateRequest) -> Result<TokenBreakdown, TokenMeterError> {
         let mut breakdown = TokenBreakdown {
             system_tokens: encoded_len(&request.system_messages)?,
-            message_tokens: encoded_len(&request.conversation_messages)?,
+            message_tokens: encoded_len(&request.conversation_messages)?
+                .saturating_add(image_estimate(&request.conversation_messages)?),
             tool_tokens: encoded_len(&request.tools)?,
             // Account for role/message delimiters and the streaming request
             // envelope even if an adapter's JSON happens to be very compact.
@@ -119,6 +120,37 @@ impl TokenMeter for ConservativeByteMeter {
         breakdown.recompute_total();
         Ok(breakdown)
     }
+}
+
+/// Conservative patch-based fallback, not a universal tokenizer bound. Exact
+/// provider counts supersede this. Metadata is verified by AttachmentStore.
+pub fn image_estimate(messages: &[Value]) -> Result<u64, TokenMeterError> {
+    let mut tokens = 0u64;
+    for message in messages {
+        if let Some(blocks) = message.get("content_blocks").and_then(Value::as_array) {
+            for block in blocks {
+                if block.get("type").and_then(Value::as_str) != Some("image") {
+                    continue;
+                }
+                let a = &block["attachment"];
+                let w = a["width"]
+                    .as_u64()
+                    .filter(|w| *w > 0)
+                    .ok_or_else(|| TokenMeterError::Failed("image width unavailable".into()))?;
+                let h = a["height"]
+                    .as_u64()
+                    .filter(|h| *h > 0)
+                    .ok_or_else(|| TokenMeterError::Failed("image height unavailable".into()))?;
+                tokens = tokens.saturating_add(
+                    w.div_ceil(16)
+                        .saturating_mul(h.div_ceil(16))
+                        .saturating_mul(4)
+                        .max(4096),
+                );
+            }
+        }
+    }
+    Ok(tokens)
 }
 
 fn encoded_len(value: &impl Serialize) -> Result<u64, TokenMeterError> {
@@ -500,5 +532,26 @@ mod tests {
             .check_provider_count(&ProviderInputTokenCount::exact_request("exact", 242_000))
             .unwrap_err();
         assert!(matches!(error, TokenBudgetError::Exceeded { .. }));
+    }
+}
+
+#[cfg(test)]
+mod multimodal_tests {
+    use super::*;
+    #[test]
+    fn image_metadata_adds_budget_and_missing_dimensions_fail() {
+        let mut request = TokenEstimateRequest::default();
+        let base = ConservativeByteMeter
+            .estimate(&request)
+            .unwrap()
+            .total_input_tokens;
+        request.conversation_messages.push(serde_json::json!({"role":"user","content":"","content_blocks":[{"type":"image","attachment":{"id":"a","width":1024,"height":1024}}]}));
+        let images = ConservativeByteMeter
+            .estimate(&request)
+            .unwrap()
+            .total_input_tokens;
+        assert!(images >= base + 16384);
+        request.conversation_messages[0]["content_blocks"][0]["attachment"]["width"] = Value::Null;
+        assert!(ConservativeByteMeter.estimate(&request).is_err());
     }
 }
