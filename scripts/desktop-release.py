@@ -312,7 +312,11 @@ def release_names(plan):
 
 
 def checksums(root):
-    return ''.join(f'{sha256(path)}  {path.name}\n' for path in sorted(Path(root).iterdir()) if path.name != 'SHA256SUMS')
+    # Path ordering is case-insensitive on Windows. Keep the Linux-produced
+    # inventory byte-for-byte deterministic when verifying on another OS.
+    return ''.join(f'{sha256(path)}  {path.name}\n'
+                   for path in sorted(Path(root).iterdir(), key=lambda path: path.name)
+                   if path.name != 'SHA256SUMS')
 
 
 def assemble(plan, artifacts, public_key_path, output):
@@ -341,7 +345,7 @@ def assemble(plan, artifacts, public_key_path, output):
                 'receipts': {platform: sha256(dest / (platform + '.receipt.json')) for platform in release_platforms(plan)},
                 'status': 'candidate-verified-not-native-accepted'}
     write_json(dest / 'release-evidence.json', evidence)
-    (dest / 'SHA256SUMS').write_text(checksums(dest), encoding='ascii')
+    (dest / 'SHA256SUMS').write_text(checksums(dest), encoding='ascii', newline='\n')
     return evidence
 
 
