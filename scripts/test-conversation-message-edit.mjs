@@ -84,6 +84,12 @@ let checks=0;
  await f.editor.request(text('do not overwrite'));assert.equal(f.shell.snapshot.draft,'');release();await cancelled;
  assert.equal(f.editor.state.phase,'idle');checks+=3;
 }
+{
+ const f=fixture();f.shell.setDraft('backup');await f.editor.request(text('old'));let release,saves=0;
+ f.d.storage={...storage,save:()=>{saves++;return new Promise(r=>release=r)}};
+ const first=f.editor.confirm();await f.editor.confirm();assert.equal(saves,1);release();await first;
+ const before=f.editor.getSnapshot();f.shell.setDraft('changed');assert.notEqual(f.editor.getSnapshot(),before);checks+=2;
+}
 const graph=JSON.parse(readFileSync(new URL('ui/dist/client-graph.json',root)));
 for(const [id,patch] of [['dsh-client-ui-conversation',patchConversationMessageEdit],['dsh-client-connection',patchMessageEditConnection],['dsh-client-runtime',patchMessageEditRuntime]]){
  const bytes=readFileSync(new URL(`ui/dist/plugins/@deepseek-ai/${id}/client.js`,root));new vm.Script(bytes.toString());

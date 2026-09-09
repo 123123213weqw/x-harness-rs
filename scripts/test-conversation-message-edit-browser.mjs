@@ -111,6 +111,11 @@ try {
   // Image-only editing, missing attachment retry and explicit removal.
   await page.evaluate(async()=>{missing=true;await editor.request([{type:'image',attachment:{attachmentId:'x',mediaType:'image/png',name:'sample.png'}}]);});
   await page.getByRole('button',{name:'message.editRetry',exact:true}).waitFor();
+  await page.getByRole('button',{name:'message.editRemove',exact:true}).click();
+  await page.getByRole('button',{name:'message.editRetry',exact:true}).waitFor({state:'hidden'});
+  assert.equal(await page.evaluate(()=>shell.snapshot.imageIds.length),0);
+  await page.evaluate(async()=>{await editor.cancel();await editor.request([{type:'image',attachment:{attachmentId:'x',mediaType:'image/png',name:'sample.png'}}]);});
+  await page.getByRole('button',{name:'message.editRetry',exact:true}).waitFor();
   await page.evaluate(()=>{missing=false;});
   await page.getByRole('button',{name:'message.editRetry',exact:true}).click();
   await page.waitForFunction(()=>deps.conversation.draftImages(shell.snapshot.imageIds)[0]?.loadState==='ready');

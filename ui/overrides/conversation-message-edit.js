@@ -54,7 +54,10 @@ class XHarnessMessageEditor {
   constructor(deps) {
     this.d = deps;
     this.off = deps.shell.state.subscribe(() => {
-      if (this.state.editing && !this.ownChange && !this.disposed && !this.busy()) this.persist().catch(()=>{});
+      if (!this.ownChange && !this.disposed) {
+        if (this.state.editing && !this.busy()) this.persist().catch(()=>{});
+        this.set({}); // Refresh missing-image controls and busy buttons with the real shell.
+      }
     });
     this.ready = deps.storage.load(deps.id).then(record => {
       if (record && !this.disposed && this.state.phase === 'idle') {
@@ -98,7 +101,7 @@ class XHarnessMessageEditor {
     else await this.confirm();
   }
   async confirm() {
-    if (!this.pending || this.busy() || this.d.running() || this.state.editing) return;
+    if (!this.pending || this.busy() || this.d.running() || this.state.editing || this.state.phase === 'saving') return;
     this.set({phase:'saving',error:''});
     const snapshot = this.d.shell.snapshot;
     try {
