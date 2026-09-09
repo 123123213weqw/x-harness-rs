@@ -11,6 +11,20 @@ Commit、Issue、PR 应引用这些 ID。
 当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
 `b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
 
+## 多模态附件专项（2026-09-09）
+
+规范见 [多模态消息与持久附件](specs/multimodal-attachments.md)。以下区分源码完成与安装包交付。
+
+- [x] `MM-01` 消息 Text/Image blocks、兼容旧文本日志，替换图片占位符链路。
+- [x] `MM-02` AttachmentStore 抽象、正式文件持久化、尺寸/格式验证、会话隔离与分叉预览。
+- [x] `MM-03` Chat/Responses 原生图片编码、token count 复用、能力三态与 Debug 图片脱敏。
+- [x] `MM-04` 图片 token 估算、上下文引用保留、协议/重试/持久性测试与真实 DeepSeek 两轮读图验证。
+- [ ] `MM-05` CI 跨平台回归、合并与桌面/服务发布，安装后上传图片验收（当前运行软件尚未替换）。
+- [ ] `MM-06` 附件回收、引用生命周期与失败 admission 的孤儿文件清理。
+- [ ] `MM-07` 工具图片输出、PDF/音频扩展与按 Provider 校准图片预算。
+- [ ] `MM-08` 自动发现视觉能力；当前提供显式声明/未知状态，不猜模型名。
+- [ ] `OBS-EXIT-01` 单独核对 Bash 非零退出码与外层 outcome 的呈现及模型可见语义，不将图片丢失问题归因于工具探索本身。
+
 ## 当前状态快照
 
 当前正式 `xharness-host-app` 已具备可日常使用的本地 Coding Agent 主链路：Web RPC、

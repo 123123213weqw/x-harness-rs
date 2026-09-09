@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -36,8 +35,8 @@ use crate::{
     },
     runtime::{AgentRuntimeError, ModelRoute},
     state::{
-        iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
-        PendingResponse, SessionRecord, SettingsNamespace, WorkspaceRecord,
+        iso_now, now_ms, AgentPreset, DriverCommand, GoalState, ModelSelection, PendingResponse,
+        SessionRecord, SettingsNamespace, WorkspaceRecord,
     },
     BasicHost,
 };
@@ -1397,26 +1396,32 @@ impl BasicHost {
                             json!({"reason": "EMPTY_IMAGE"}),
                         ));
                     }
-                    let attachment_id = self.mint_id("attachment");
-                    let bytes = ((data.len() * 3) / 4).max(1);
+                    let upload = xharness_attachments::Upload::from_base64(media_type, &data)
+                        .map_err(|e| {
+                            rpc_error(
+                                RpcErrorCode::AttachmentError,
+                                e.to_string(),
+                                json!({"reason":"INVALID_IMAGE"}),
+                            )
+                        })?;
+                    let reference = self
+                        .config
+                        .attachment_store
+                        .put(session_id, upload)
+                        .await
+                        .map_err(|e| {
+                            rpc_error(
+                                RpcErrorCode::AttachmentError,
+                                e.to_string(),
+                                json!({"reason":"ATTACHMENT_STORE"}),
+                            )
+                        })?;
                     let attachment = json!({
-                        "attachmentId": attachment_id,
-                        "mediaType": media_type,
-                        "bytes": bytes,
-                        "width": 1,
-                        "height": 1,
-                        "name": part.get("name").and_then(Value::as_str),
+                        "attachmentId": reference.id, "mediaType": reference.media_type,
+                        "bytes": reference.bytes, "width": reference.width, "height": reference.height,
+                        "name": part.get("name").and_then(Value::as_str), "reference": reference,
                     });
-                    self.state.write().await.attachments.insert(
-                        attachment_id.clone(),
-                        AttachmentRecord {
-                            attachment: attachment.clone(),
-                            data,
-                            referenced_by: BTreeSet::from([session_id.to_owned()]),
-                        },
-                    );
-                    text.push_str(&format!("\n[attached image: {attachment_id}]"));
-                    durable.push(json!({"type": "image", "attachment": attachment}));
+                    durable.push(json!({"type":"image", "attachment":attachment}));
                 }
                 _ => return Err(bad_request("content part type must be text or image")),
             }
@@ -1434,21 +1439,64 @@ impl BasicHost {
         if !state.sessions.contains_key(&session_id) {
             return Err(session_not_found(&session_id));
         }
-        let attachment = state.attachments.get(&attachment_id).ok_or_else(|| {
-            rpc_error(
-                RpcErrorCode::AttachmentError,
-                "attachment was not found",
-                json!({"reason": "ATTACHMENT_NOT_FOUND"}),
-            )
-        })?;
-        if !attachment.referenced_by.contains(&session_id) {
-            return Err(rpc_error(
-                RpcErrorCode::AttachmentError,
-                "attachment is not referenced by this session",
-                json!({"reason": "ATTACHMENT_NOT_REFERENCED"}),
-            ));
+        drop(state);
+        // A fork may legitimately replay a reference owned by its ancestor.
+        // Authorize via this session's actual history, never a caller-supplied owner.
+        let mut owner = session_id.clone();
+        let reference_owner = |message: &xharness_session::Message| {
+            message.content_blocks.iter().find_map(|block| match block {
+                xharness_session::ContentBlock::Image { attachment }
+                    if attachment.id == attachment_id =>
+                {
+                    Some(attachment.session_id.clone())
+                }
+                _ => None,
+            })
+        };
+        if let Some(session) = self
+            .agent_runtime
+            .authoritative_session(&session_id)
+            .await
+            .map_err(agent_runtime_error)?
+        {
+            if let Some(found) = session
+                .events()
+                .iter()
+                .find_map(|entry| match entry.data() {
+                    xharness_session::EventData::UserMessage { message, .. } => {
+                        reference_owner(message)
+                    }
+                    _ => None,
+                })
+            {
+                owner = found;
+            }
+        } else if let Some(found) = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .and_then(|session| session.messages.iter().find_map(reference_owner))
+        {
+            owner = found;
         }
-        Ok(json!({"attachment": attachment.attachment, "data": attachment.data}))
+        let attachment = self
+            .config
+            .attachment_store
+            .resolve(&owner, &attachment_id)
+            .await
+            .map_err(|e| {
+                rpc_error(
+                    RpcErrorCode::AttachmentError,
+                    e.to_string(),
+                    json!({"reason":"NOT_FOUND"}),
+                )
+            })?;
+        let r = &attachment.reference;
+        Ok(
+            json!({"attachment": {"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height}, "data":attachment.base64()}),
+        )
     }
 
     async fn session_update_queue(&self, payload: &Value) -> Result<Value, RpcError> {
