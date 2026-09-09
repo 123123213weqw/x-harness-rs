@@ -1,0 +1,6 @@
+{"id": 5, "action": "observe", "ok": true, "native_ms": 388, "wall_s": 2.48, "image": false}
+{"id": 6, "action": "keypress", "ok": true, "native_ms": 206, "wall_s": 2.62, "image": false}
+auto-1 complete 4 calls 59.13 s
+{"id": 11, "action": "observe", "ok": true, "native_ms": 329, "wall_s": 2.75, "image": false}
+{"id": 12, "action": "keypress", "ok": true, "native_ms": 345, "wall_s": 2.56, "image": false}
+auto-2 complete 4 calls 55.58 s

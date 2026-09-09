@@ -1,0 +1,7 @@
+{
+  "action": "type",
+  "text": "http://10.0.2.2:18098/expanded.html?case=scroll-detail",
+  "frame_id": "win:9444:1791242784470620000:29",
+  "include_accessibility": false,
+  "include_screenshot": false
+}

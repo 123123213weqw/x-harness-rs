@@ -27,6 +27,10 @@
   "xharness-computer-macos": [
     "xharness-computer"
   ],
+  "xharness-computer-windows": [
+    "xharness-computer",
+    "xharness-win32"
+  ],
   "xharness-context": [
     "xharness-compaction",
     "xharness-session"
@@ -79,6 +83,7 @@
     "xharness-compaction",
     "xharness-computer",
     "xharness-computer-macos",
+    "xharness-computer-windows",
     "xharness-control",
     "xharness-core",
     "xharness-debug",

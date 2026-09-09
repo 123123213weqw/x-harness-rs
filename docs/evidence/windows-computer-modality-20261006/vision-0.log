@@ -1,0 +1,6 @@
+{"mode": "vision", "turn": 0, "model_s": 0.77, "calls": 1, "usage": {"prompt_tokens": 1158, "completion_tokens": 102, "total_tokens": 1260, "prompt_tokens_details": {"cached_tokens": 0}, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1158}}
+{"id": 18, "action": "observe", "ok": true, "native_ms": 470, "wall_s": 10.7, "image": true}
+{"mode": "vision", "turn": 1, "model_s": 1.15, "calls": 1, "usage": {"prompt_tokens": 3875, "completion_tokens": 133, "total_tokens": 4008, "prompt_tokens_details": {"cached_tokens": 1152}, "prompt_cache_hit_tokens": 1152, "prompt_cache_miss_tokens": 2723}}
+{"id": 19, "action": "click", "ok": false, "native_ms": 0, "wall_s": 7.04, "image": false}
+STOP: 'NoneType' object has no attribute 'get'
+{"mode": "vision", "error": "'NoneType' object has no attribute 'get'", "native_calls": 2, "elapsed_s": 48.69}

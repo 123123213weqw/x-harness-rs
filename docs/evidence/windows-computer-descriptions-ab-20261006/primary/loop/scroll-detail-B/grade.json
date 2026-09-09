@@ -1,0 +1,34 @@
+{
+  "case": "scroll-detail",
+  "pass": false,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": false,
+    "no_cart": true,
+    "scrolled": true,
+    "detail_opened": false,
+    "returned": false,
+    "no_search": true,
+    "answer_exact": false
+  },
+  "events": 32,
+  "report_field_types_ok": false,
+  "variant": "B",
+  "run": "primary",
+  "label": "scroll-detail-B",
+  "response_bound": 12,
+  "strict_final_json": null,
+  "format_error": "No final answer",
+  "error": "Turn limit reached, not completion",
+  "tool_calls": 12,
+  "tool_failures": 0,
+  "elapsed_s": 344.19,
+  "failures": [],
+  "first_scroll": {
+    "action": "scroll",
+    "delta_y": -1200,
+    "x": 512,
+    "y": 500,
+    "frame_id": "win:6548:1791244565560101900:20"
+  }
+}

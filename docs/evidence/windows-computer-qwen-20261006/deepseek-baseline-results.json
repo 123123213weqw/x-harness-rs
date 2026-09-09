@@ -1,0 +1,86 @@
+{
+  "source": "../windows-computer-descriptions-ab-20261006/results.json",
+  "rows": [
+    {
+      "case": "scroll-detail",
+      "pass": false,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": false,
+        "no_cart": true,
+        "scrolled": true,
+        "detail_opened": false,
+        "returned": false,
+        "no_search": true,
+        "answer_exact": false
+      },
+      "events": 32,
+      "report_field_types_ok": false,
+      "variant": "B",
+      "run": "primary",
+      "label": "scroll-detail-B",
+      "response_bound": 12,
+      "strict_final_json": null,
+      "format_error": "No final answer",
+      "error": "Turn limit reached, not completion",
+      "tool_calls": 12,
+      "tool_failures": 0,
+      "elapsed_s": 344.19,
+      "failures": [],
+      "first_scroll": {
+        "action": "scroll",
+        "delta_y": -1200,
+        "x": 512,
+        "y": 500,
+        "frame_id": "win:6548:1791244565560101900:20"
+      },
+      "termination_class": "experimental_response_bound",
+      "controller_exception": false
+    },
+    {
+      "case": "filter",
+      "pass": false,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": false,
+        "no_cart": true,
+        "filtered_sorted": true,
+        "comparison": false,
+        "answer_exact": false
+      },
+      "events": 4,
+      "report_field_types_ok": false,
+      "variant": "B",
+      "run": "filter-fresh-probe",
+      "label": "filter-B",
+      "response_bound": 12,
+      "strict_final_json": null,
+      "format_error": "No final answer",
+      "error": "Turn limit reached, not completion",
+      "tool_calls": 12,
+      "tool_failures": 1,
+      "elapsed_s": 277.67,
+      "failures": [
+        {
+          "id": 11,
+          "failure": {
+            "kind": "handler",
+            "message": "stale_frame: observe again before operating the desktop",
+            "retryable": true
+          }
+        }
+      ],
+      "first_scroll": {
+        "action": "scroll",
+        "frame_id": "win:4800:1791249342072160700:9",
+        "delta_y": -360,
+        "x": 512,
+        "y": 500
+      },
+      "termination_class": "experimental_response_bound",
+      "controller_exception": false
+    }
+  ],
+  "description_hash_matches": true,
+  "not_a_controlled_speed_or_general_intelligence_benchmark": true
+}

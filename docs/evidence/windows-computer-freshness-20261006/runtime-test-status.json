@@ -1,0 +1,80 @@
+{
+  "native_executed": true,
+  "native_passed": true,
+  "first_qwen_attempt": {
+    "model_requests": 0,
+    "failure": "Fixture console was foreground; preflight rejected before model call",
+    "probe_finished": true,
+    "automatic_replay": false
+  },
+  "rerun": "Fresh private collector 18106; no failed records overwritten; operator-ready gate before model calls",
+  "native_passed_note": "Two earlier independent 16+4 native suites passed, not a claim that every repeat passed.",
+  "second_qwen_attempt": {
+    "model_requests": 0,
+    "failure": "Read-only preflight desktop_unavailable",
+    "probe_finished": true
+  },
+  "controlled_attempt": {
+    "model_requests": 0,
+    "native_regressions": {
+      "passed": 16,
+      "suite_exit": 0
+    },
+    "freshness_suite": {
+      "suite_exit": 1,
+      "failure": "missing expected fixture control",
+      "delayed_input_not_reached": true
+    },
+    "model_admitted": false
+  },
+  "current_qwen_attempt": {
+    "collector": 18106,
+    "native_gate": "16+4 all passed; 65.015s actual wait",
+    "model_requests": "invoked; in progress",
+    "observed_successful_clicks": 3,
+    "operator_setup": "Browser activated and checked before model requests only",
+    "automatic_input_replay": false,
+    "execution_finished": true,
+    "filter": {
+      "model_responses": 10,
+      "native_calls": 9,
+      "successful_native_calls": 9,
+      "elapsed_s": 451.26,
+      "controller_error": null,
+      "independent_final_grade": "pending retrieval"
+    },
+    "scroll_detail": {
+      "model_responses": 6,
+      "native_calls": 5,
+      "successful_native_calls": 5,
+      "elapsed_s": 168.13,
+      "controller_error": null,
+      "independent_final_grade": "pending retrieval"
+    },
+    "cleanup_receipt": {
+      "phase": "finished",
+      "probe_alive": false,
+      "operations": 22,
+      "host_received_utc": "2026-10-06T13:41:03.641449+00:00"
+    },
+    "retrieval": "Compact independent report and scope diagnosis retrieved; full raw/media sync remains incomplete",
+    "independent_final_grade": {
+      "primary_passed": 0,
+      "cases": 2,
+      "filter": "Wrong fixture collector: operated old 18103 page, callbacks recovered separately; not primary controlled pass",
+      "scroll_detail": "Actual scroll, detail and return verified; original final parser rejects introductory prose plus unfenced JSON",
+      "posthoc_semantic_passes_not_primary": 1
+    }
+  },
+  "scope_guard": {
+    "local_unit_tests": 9,
+    "production_runtime_changed": false,
+    "next_trial_integration": "Prepared in private reset controller; not yet executed in a fresh real model trial"
+  },
+  "cleanup": {
+    "native_probe_finished_verified": true,
+    "own_vnc_tab_and_tunnel_closed": true,
+    "temporary_collectors_cleanup": "Commands sent with exact process/root guards, but SSH closed before confirmation; not claimed complete",
+    "original_vm_app_model_service": "not restarted, replaced or modified"
+  }
+}

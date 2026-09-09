@@ -1,0 +1,239 @@
+[
+  {
+    "turn": 0,
+    "model_elapsed_s": 0.8757455,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "semantic"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "model_elapsed_s": 1.9577925,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "click",
+          "node_id": "uia:win:1272:f0396:30",
+          "frame_id": "win:7076:1791175449062353400:1"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 2,
+    "model_elapsed_s": 2.1732003750000075,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "type",
+          "frame_id": "win:7076:1791175470705682800:2",
+          "text": "https://www.newegg.com/"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 3,
+    "model_elapsed_s": 0.8601817079999989,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "semantic"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 4,
+    "model_elapsed_s": 1.2324432499999887,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "type",
+          "frame_id": "win:7076:1791175537412578800:3",
+          "text": "https://www.newegg.com/"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 5,
+    "model_elapsed_s": 4.032075124999977,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "keypress",
+          "frame_id": "win:7076:1791175554221314300:4",
+          "keys": [
+            "Ctrl",
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "turn": 6,
+    "model_elapsed_s": 1.5591412079999998,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "type",
+          "frame_id": "win:7076:1791175581380068700:5",
+          "text": "https://www.newegg.com/"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 7,
+    "model_elapsed_s": 5.84661141700002,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "keypress",
+          "frame_id": "win:7076:1791175619384643500:6",
+          "keys": [
+            "Enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "turn": 8,
+    "model_elapsed_s": 0.9902355829999863,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "semantic"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 9,
+    "model_elapsed_s": 7.040759541,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "keypress",
+          "frame_id": "win:7076:1791175684329306100:7",
+          "keys": [
+            "Escape"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "turn": 10,
+    "model_elapsed_s": 1.5768994579999571,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "semantic"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 11,
+    "model_elapsed_s": 4.301809500000047,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "keypress",
+          "frame_id": "win:7076:1791175772500588200:8",
+          "keys": [
+            "Enter"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "turn": 12,
+    "model_elapsed_s": 2.8794060409999815,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "wait",
+          "frame_id": "win:7076:1791175790134006800:9",
+          "duration_ms": 3000
+        }
+      }
+    ]
+  },
+  {
+    "turn": 13,
+    "model_elapsed_s": 2.6708527500000514,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "semantic"
+        }
+      }
+    ]
+  },
+  {
+    "turn": 14,
+    "model_elapsed_s": 7.671279665999975,
+    "finish_reason": "tool_calls",
+    "calls": [
+      {
+        "name": "computer",
+        "arguments": {
+          "action": "scroll",
+          "frame_id": "win:7076:1791175878779047700:10",
+          "delta_y": 600,
+          "x": 700,
+          "y": 300
+        }
+      }
+    ]
+  },
+  {
+    "turn": 15,
+    "model_elapsed_s": 6.61837875,
+    "finish_reason": "stop",
+    "calls": []
+  }
+]

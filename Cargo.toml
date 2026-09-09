@@ -8,6 +8,7 @@ members = [
     "crates/xharness-compaction",
     "crates/xharness-computer",
     "crates/xharness-computer-macos",
+    "crates/xharness-computer-windows",
     "crates/xharness-context",
     "crates/xharness-control",
     "crates/xharness-core",

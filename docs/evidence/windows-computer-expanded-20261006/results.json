@@ -1,0 +1,192 @@
+{
+  "model": "deepseek-flash",
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "production_runtime_modified": false,
+  "cases": [
+    {
+      "case": "filter",
+      "pass": false,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": false,
+        "no_cart": true,
+        "filtered_sorted": true,
+        "comparison": false,
+        "answer_exact": false
+      },
+      "events": 13,
+      "report_field_types_ok": false,
+      "run": "initial",
+      "label": "filter",
+      "strict_final_json": null,
+      "format_error": "No final answer",
+      "tool_calls": 20,
+      "tool_failures": 0,
+      "elapsed_s": 474.88,
+      "controller_error": "Turn limit reached, not completion",
+      "valid_model_trial": true
+    },
+    {
+      "case": "scroll-detail",
+      "pass": false,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": false,
+        "no_cart": true,
+        "scrolled": false,
+        "detail_opened": false,
+        "returned": false,
+        "no_search": true,
+        "answer_exact": false
+      },
+      "events": 0,
+      "report_field_types_ok": false,
+      "run": "initial",
+      "label": "scroll-detail",
+      "strict_final_json": null,
+      "format_error": "No final answer",
+      "tool_calls": 3,
+      "tool_failures": 0,
+      "elapsed_s": 76.7,
+      "controller_error": "Non-whitelisted action; not dispatched",
+      "valid_model_trial": false
+    },
+    {
+      "case": "modal",
+      "pass": true,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": true,
+        "no_cart": true,
+        "search": true,
+        "answer_exact": true,
+        "modal_dismissed": true
+      },
+      "events": 3,
+      "report_field_types_ok": false,
+      "run": "initial",
+      "label": "modal",
+      "strict_final_json": false,
+      "format_error": null,
+      "tool_calls": 7,
+      "tool_failures": 1,
+      "elapsed_s": 219.3,
+      "controller_error": null,
+      "valid_model_trial": true
+    },
+    {
+      "case": "slow-layout",
+      "pass": true,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": true,
+        "no_cart": true,
+        "search": true,
+        "answer_exact": true,
+        "layout_shift": true
+      },
+      "events": 3,
+      "report_field_types_ok": false,
+      "run": "initial",
+      "label": "slow-layout",
+      "strict_final_json": false,
+      "format_error": null,
+      "tool_calls": 13,
+      "tool_failures": 4,
+      "elapsed_s": 292.71,
+      "controller_error": null,
+      "valid_model_trial": true
+    },
+    {
+      "case": "scroll-detail",
+      "pass": false,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": false,
+        "no_cart": true,
+        "scrolled": false,
+        "detail_opened": false,
+        "returned": false,
+        "no_search": true,
+        "answer_exact": false
+      },
+      "events": 0,
+      "report_field_types_ok": false,
+      "run": "retry",
+      "label": "scroll-detail",
+      "strict_final_json": null,
+      "format_error": "No final answer",
+      "tool_calls": 3,
+      "tool_failures": 0,
+      "elapsed_s": 104.6,
+      "controller_error": "Unexpected keyboard shortcut; not dispatched",
+      "valid_model_trial": false
+    },
+    {
+      "case": "scroll-detail",
+      "pass": false,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": false,
+        "no_cart": false,
+        "scrolled": true,
+        "detail_opened": false,
+        "returned": false,
+        "no_search": true,
+        "answer_exact": false
+      },
+      "events": 30,
+      "report_field_types_ok": false,
+      "run": "retry",
+      "label": "scroll-detail-final",
+      "strict_final_json": null,
+      "format_error": "No final answer",
+      "tool_calls": 20,
+      "tool_failures": 1,
+      "elapsed_s": 513.74,
+      "controller_error": "Turn limit reached, not completion",
+      "valid_model_trial": true
+    }
+  ],
+  "usage_all_attempts": {
+    "prompt_tokens": 6892448,
+    "completion_tokens": 8692,
+    "cache_hit": 6080128,
+    "cache_miss": 812320
+  },
+  "model_responses_all_attempts": 70,
+  "actual_billed_cost_unavailable": true,
+  "native_diagnostic": {
+    "positive_moves_down": true,
+    "negative_moves_up": false,
+    "positions": [
+      {
+        "delta_y": 360,
+        "scrollY": 9,
+        "receipt_id": 42
+      },
+      {
+        "delta_y": -360,
+        "scrollY": 292,
+        "receipt_id": 43
+      }
+    ],
+    "baseline_scrollY": 0,
+    "model_controlled": false,
+    "observation_settings": "AX/screenshot disabled for diagnostic only; avoids WAN media latency",
+    "production_runtime_modified": false,
+    "sampling": "last external scroll event after 1.5s animation settle; earlier trial sampled first animation event",
+    "interpretation": "Inconclusive for negative direction: fixture throttles scroll events at 150ms and omits final animation position. 1.5s waiting cannot recover an event never emitted. Positive motion observed; do not interpret false as native bug."
+  },
+  "key_alias_diagnostic": {
+    "model_controlled": false,
+    "request_key": "Page_Up",
+    "ok": false,
+    "failure": {
+      "kind": "handler",
+      "message": "invalid_request: unsupported Windows key: Page_Up",
+      "retryable": false
+    },
+    "no_action_replay": true
+  }
+}
