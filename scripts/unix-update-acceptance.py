@@ -315,7 +315,10 @@ def process_group_members(pgid):
     for line in output.splitlines():
         fields = line.split()
         require(len(fields) == 4 and all(value.isdecimal() for value in fields[:3])
-                and fields[3][0] in 'IDRSTUVWXZt', 'Invalid process inventory row')
+                # Darwin's Mach thread states include H (halted) and ? (task
+                # info unavailable, including the exit race). Both stay live
+                # for cleanup purposes; only an explicit Z proves a zombie.
+                and fields[3][0] in 'IDHRSTUVWXZt?', 'Invalid process inventory row')
         pid, group, uid = map(int, fields[:3])
         if group == pgid:
             members.append({'pid': pid, 'pgid': group, 'uid': uid, 'stat': fields[3]})

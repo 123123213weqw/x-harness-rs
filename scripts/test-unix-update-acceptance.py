@@ -525,7 +525,7 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0], ['ps', '-axo', 'pid=,pgid=,uid=,stat='])
 
     def test_unreadable_or_malformed_process_inventory_fails_closed(self):
-        for output in (b'', b'garbage\n', b'1 2 nope S\n', b'1 2 1000 ?\n'):
+        for output in (b'', b'garbage\n', b'1 2 nope S\n', b'1 2 1000 @\n'):
             with self.subTest(output=output), \
                     patch.object(m, 'run', return_value=unittest.mock.Mock(stdout=output)):
                 with self.assertRaises(ValueError):
@@ -533,6 +533,15 @@ class CleanupTests(unittest.TestCase):
         with patch.object(m, 'run', side_effect=subprocess.TimeoutExpired('ps', 10)):
             with self.assertRaises(subprocess.TimeoutExpired):
                 m.process_group_members(20)
+
+    def test_darwin_unknown_and_halted_states_are_parsed_but_not_considered_exited(self):
+        for state in ('?', '?E', 'H'):
+            with self.subTest(state=state), patch.object(m, 'run', return_value=unittest.mock.Mock(
+                    stdout=f'987654322 {self.process.pid} 1000 {state}\n'.encode())):
+                members = m.process_group_members(self.process.pid)
+                self.assertEqual(members[0]['stat'], state)
+                with self.assertRaises(PermissionError):
+                    self.stop([members, members], PermissionError('denied'))
 
     def test_cleanup_evidence_records_failure_without_command_or_environment(self):
         with tempfile.TemporaryDirectory() as temp, \
