@@ -3535,10 +3535,12 @@ impl Runner {
         let completed = completed.into_iter().flatten().collect::<Vec<_>>();
         self.journal_tool_results(&completed).await?;
         for execution in completed {
-            self.messages.push(AgentMessage::tool(
-                execution.call.provider_id(),
-                execution.model_text,
-            ));
+            let mut message =
+                AgentMessage::tool(execution.call.provider_id(), execution.model_text);
+            message.content_blocks = xharness_session::ContentBlock::from_tool_metadata(
+                execution.result.metadata.as_ref(),
+            );
+            self.messages.push(message);
         }
         Ok(())
     }

@@ -65,7 +65,7 @@ let checks=0;
 }
 {
  const f=fixture();await Promise.all([f.editor.request(text('first')),f.editor.request(text('second'))]);assert.equal(f.shell.snapshot.draft,'first');checks++;
- const g=fixture();await g.editor.request([{type:'file',attachment:{}}]);assert.equal(g.shell.snapshot.draft,'');assert.equal(g.editor.state.editing,false);checks++;
+ const g=fixture();await g.editor.request([{type:'audio',attachment:{}}]);assert.equal(g.shell.snapshot.draft,'');assert.equal(g.editor.state.editing,false);checks++;
 }
 {
  const f=fixture();let release;f.d.read=()=>new Promise(r=>release=r);
@@ -89,6 +89,12 @@ let checks=0;
  f.d.storage={...storage,save:()=>{saves++;return new Promise(r=>release=r)}};
  const first=f.editor.confirm();await f.editor.confirm();assert.equal(saves,1);release();await first;
  const before=f.editor.getSnapshot();f.shell.setDraft('changed');assert.notEqual(f.editor.getSnapshot(),before);checks+=2;
+}
+{
+ const f=fixture();await f.editor.request([{type:'file',attachment:{attachmentId:'f',mediaType:'application/pdf',name:'a.pdf'}}]);await tick();
+ const a=f.conversation.draftImages(f.shell.snapshot.imageIds)[0];assert.equal(a.historyKind,'file');assert.equal(a.historyRef.attachmentId,'f');
+ await f.editor.persist();f.editor.dispose();const g=fixture(f.d.id);await g.editor.ready;await g.editor.recover();await tick();
+ assert.equal(g.conversation.draftImages(g.shell.snapshot.imageIds)[0].historyKind,'file');checks+=3;
 }
 const graph=JSON.parse(readFileSync(new URL('ui/dist/client-graph.json',root)));
 for(const [id,patch] of [['dsh-client-ui-conversation',patchConversationMessageEdit],['dsh-client-connection',patchMessageEditConnection],['dsh-client-runtime',patchMessageEditRuntime]]){

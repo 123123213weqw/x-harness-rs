@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Reusable provider-neutral host control plane for XHarness"
 
 [dependencies]
+base64 = "0.22"
 xharness-attachments = { path = "../xharness-attachments" }
 async-stream.workspace = true
 async-trait.workspace = true

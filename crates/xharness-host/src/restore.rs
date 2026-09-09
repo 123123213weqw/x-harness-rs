@@ -1173,7 +1173,7 @@ fn restored_web_event(
                     "content": [{
                         "type": "tool-result",
                         "toolCallId": result.call_id,
-                        "content": [{"type": "text", "text": result.content}],
+                        "content": web_tool_content(&result.content, result.metadata.as_ref()),
                         "isError": result.outcome != ToolOutcome::Success,
                     }],
                     "source": {"kind": "tool", "callId": result.call_id},
@@ -1405,6 +1405,17 @@ fn attach_workspace(
         workspace.session_ids.push(session_id.to_owned());
     }
     workspace.updated_at = created_at_ms.to_string();
+}
+
+/// Shared durable/live attachment projection; binary payloads stay out of events.
+pub(crate) fn web_tool_content(text: &str, metadata: Option<&Value>) -> Vec<Value> {
+    let mut parts = vec![json!({"type":"text","text":text})];
+    for b in xharness_session::ContentBlock::from_tool_metadata(metadata) {
+        if let xharness_session::ContentBlock::Image { attachment: r } = b {
+            parts.push(json!({"type":"image","attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height,"reference":r}}));
+        }
+    }
+    parts
 }
 
 #[cfg(test)]

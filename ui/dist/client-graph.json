@@ -1,5 +1,5 @@
 {
-  "rev": "ca8f4600ddfe6f72",
+  "rev": "14d510ab63d35445",
   "entries": [
     {
       "id": "@deepseek-ai/dsh-typert-registry",
@@ -45,8 +45,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-connection",
-      "url": "/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=b8f1d051feacd6f6",
-      "rev": "b8f1d051feacd6f6",
+      "url": "/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=4f1d4a05001b9a39",
+      "rev": "4f1d4a05001b9a39",
       "inject": [],
       "immediately": true
     },
@@ -61,8 +61,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-runtime",
-      "url": "/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=a142c998f7ea74b6",
-      "rev": "a142c998f7ea74b6",
+      "url": "/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=da1454f2f651bb51",
+      "rev": "da1454f2f651bb51",
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-typert-registry",
@@ -159,8 +159,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-settings-models",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-settings-models/client.js?rev=40d8eb6b5b5ffcf4",
-      "rev": "40d8eb6b5b5ffcf4",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-settings-models/client.js?rev=a3b5eaa1c029ea80",
+      "rev": "a3b5eaa1c029ea80",
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-settings",
@@ -181,8 +181,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-conversation",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=fae2159ecca0b76b",
-      "rev": "fae2159ecca0b76b",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=420576336f7d0cae",
+      "rev": "420576336f7d0cae",
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
@@ -204,8 +204,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-attachment",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-attachment/client.js?rev=0821b218a82249c6",
-      "rev": "0821b218a82249c6",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-attachment/client.js?rev=96600992c04ab34e",
+      "rev": "96600992c04ab34e",
       "inject": [
         "@deepseek-ai/dsh-client-ui-conversation"
       ]

@@ -71,6 +71,14 @@ impl From<JobSnapshot> for PublicJobSnapshot {
     }
 }
 
+#[async_trait::async_trait]
+pub trait MediaReader: Send + Sync {
+    async fn read(
+        &self,
+        path: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ToolOutput>, ToolHandlerError>;
+}
 #[derive(Clone)]
 pub struct CodingToolBundle {
     platform: Arc<NativePlatform>,
@@ -78,6 +86,7 @@ pub struct CodingToolBundle {
     web: Arc<WebRuntime>,
     session_id: Arc<str>,
     owner_id: Arc<str>,
+    media_reader: Option<Arc<dyn MediaReader>>,
 }
 
 impl CodingToolBundle {
@@ -94,7 +103,13 @@ impl CodingToolBundle {
             web,
             session_id: Arc::from(session_id.into()),
             owner_id: Arc::from(owner_id.into()),
+            media_reader: None,
         }
+    }
+
+    pub fn with_media_reader(mut self, reader: Arc<dyn MediaReader>) -> Self {
+        self.media_reader = Some(reader);
+        self
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {
@@ -342,6 +357,7 @@ impl CodingToolBundle {
     fn read_spec(&self) -> ToolSpec {
         let platform = Arc::clone(&self.platform);
         let session_id = Arc::clone(&self.session_id);
+        let media_reader = self.media_reader.clone();
         ToolSpec::new(
             definition(
                 "read",
@@ -361,10 +377,17 @@ impl CodingToolBundle {
                 }),
             ),
             move |context| {
+                let media_reader=media_reader.clone();
                 let platform = Arc::clone(&platform);
                 let session_id = Arc::clone(&session_id);
                 async move {
                     let path = required_string(&context, "path")?;
+                    if let Some(reader)=&media_reader {
+                        if let Some(output)=reader.read(&path,&context.cancellation).await? {
+                            if ["cursor","offset","start_line","limit","line_limit"].iter().any(|k|context.arguments.get(*k).is_some()) {return Err(ToolHandlerError::new("image reads do not support text pagination"));}
+                            return Ok(output);
+                        }
+                    }
                     let cursor = optional_string(&context, "cursor");
                     let offset = optional_u64(&context, "offset");
                     let start_line = optional_u64(&context, "start_line");
@@ -420,9 +443,8 @@ impl CodingToolBundle {
                         MAX_READ_PAGE_LINES,
                         "line_limit",
                     )?;
-                    let target = platform.resolve_file(path).map_err(handler_error)?;
-                    let result = platform
-                        .filesystem()
+                    let (filesystem, target) = platform.resolve_read_file(path).map_err(handler_error)?;
+                    let result = filesystem
                         .read_page(
                             &session_id,
                             &target,

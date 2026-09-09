@@ -1198,7 +1198,7 @@ impl BasicHost {
                             "content": [{
                                 "type": "tool-result",
                                 "toolCallId": call.id,
-                                "content": [{"type": "text", "text": if result.ok { result.content } else { result.error }}],
+                                "content": crate::restore::web_tool_content(if result.ok {&result.content} else {&result.error}, result.metadata.as_ref()),
                                 "isError": !result.ok,
                             }],
                             "source": {"kind": "tool", "callId": call.id},
@@ -1397,10 +1397,10 @@ fn web_assistant_message(id: &str, text: &str, provider: &str, model: &str) -> V
 
 fn prompt_message(id: &str, text: &str, content: &[Value]) -> Result<AgentMessage, RpcError> {
     let mut message = AgentMessage::new(Role::User, text).with_id(id.to_owned());
-    if !content
-        .iter()
-        .any(|p| p.get("type").and_then(Value::as_str) == Some("image"))
-    {
+    if !content.iter().any(|p| {
+        p.get("type").and_then(Value::as_str) == Some("image")
+            || p.get("type").and_then(Value::as_str) == Some("file")
+    }) {
         return Ok(message);
     }
     let mut blocks = Vec::new();
@@ -1409,7 +1409,7 @@ fn prompt_message(id: &str, text: &str, content: &[Value]) -> Result<AgentMessag
             Some("text") => blocks.push(xharness_session::ContentBlock::Text {
                 text: part["text"].as_str().unwrap_or_default().to_owned(),
             }),
-            Some("image") => {
+            Some(kind @ ("image" | "file")) => {
                 let reference = serde_json::from_value(part["attachment"]["reference"].clone())
                     .map_err(|_| {
                         rpc_error(
@@ -1418,8 +1418,15 @@ fn prompt_message(id: &str, text: &str, content: &[Value]) -> Result<AgentMessag
                             json!({"reason":"REATTACH_REQUIRED"}),
                         )
                     })?;
-                blocks.push(xharness_session::ContentBlock::Image {
-                    attachment: reference,
+                blocks.push(if kind == "file" {
+                    xharness_session::ContentBlock::File {
+                        attachment: reference,
+                        name: part["attachment"]["name"].as_str().map(str::to_owned),
+                    }
+                } else {
+                    xharness_session::ContentBlock::Image {
+                        attachment: reference,
+                    }
                 });
             }
             _ => {}

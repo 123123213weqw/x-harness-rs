@@ -11,6 +11,7 @@ default = ["rustls-tls"]
 rustls-tls = ["xharness-web/rustls-tls"]
 
 [dependencies]
+async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -26,7 +27,6 @@ xharness-web = { path = "../xharness-web", default-features = false }
 xharness-debug = { path = "../xharness-debug" }
 
 [dev-dependencies]
-async-trait.workspace = true
 futures.workspace = true
 xharness-core = { path = "../xharness-core" }
 xharness-sandbox = { path = "../xharness-sandbox" }

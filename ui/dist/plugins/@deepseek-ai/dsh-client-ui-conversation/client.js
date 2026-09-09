@@ -56,9 +56,24 @@ window.__ModuleLoader__.load({
 		* private fields bypass that rebinding.
 		*/
 		/** Create one browser-only draft descriptor; only its id enters input state. */
-		function browserDraftAttachment(file) {
+		function attachmentMediaType(file) {
+      if (file.type) return file.type;
+      return ({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp'})[file.name.split('.').pop().toLowerCase()] || 'application/octet-stream';
+    }
+    function attachmentKind(file) { return ['image/png','image/jpeg','image/webp','image/gif'].includes(attachmentMediaType(file)) ? 'image' : 'file'; }
+    function validateAttachments(files) {
+      if (files.length > 128) throw Error('最多同时添加 128 个附件');
+      const images = files.filter(file => attachmentKind(file) === 'image');
+      if (images.length > 16) throw Error('每条消息最多 16 张图片');
+      for (const file of files) {
+        const limit = attachmentKind(file) === 'image' ? 20 : 32;
+        if (file.size > limit * 1024 * 1024) throw Error(file.name + ' 超过 ' + limit + ' MiB 上传限制');
+      }
+      if (files.reduce((sum,file) => sum + file.size,0) > 96 * 1024 * 1024) throw Error('本次附件合计不能超过 96 MiB');
+    }
+    function browserDraftAttachment(file) {
 			return {
-				kind: "image",
+				kind: attachmentKind(file),
 				id: crypto.randomUUID(),
 				previewUrl: URL.createObjectURL(file),
 				file
@@ -131,7 +146,7 @@ window.__ModuleLoader__.load({
 			async sendSession(session, text, imageIds, mode, signal, requireIdle = false) {
 				const attachments = this.draftImages(imageIds);
 				if (attachments.length !== imageIds.length) throw new Error("conversation.sendSession: one or more draft images are no longer available");
-				const content = [...await Promise.all(attachments.map(async attachment => attachment.historyRef ? {type:"image_ref",attachmentId:attachment.historyRef.attachmentId} : (await this.serializeImages([attachment.file]))[0])), ...text === "" ? [] : [{
+				const content = [...await Promise.all(attachments.map(async attachment => attachment.historyRef ? {type:attachment.historyKind === "file" ? "file_ref" : "image_ref",attachmentId:attachment.historyRef.attachmentId,...attachment.historyKind === "file" ? {name:attachment.file.name} : {}} : (await this.serializeImages([attachment.file]))[0])), ...text === "" ? [] : [{
 					type: "text",
 					text
 				}]];
@@ -145,7 +160,7 @@ window.__ModuleLoader__.load({
 			* @returns ordered draft descriptors.
 			*/
 			createDraftImages(files) {
-				for (const file of files) imageMediaType(file.type);
+				validateAttachments(files);
 				return files.map((file) => {
 					const attachment = browserDraftAttachment(file);
 					this.draftAttachments.set(attachment.id, attachment);
@@ -176,7 +191,8 @@ window.__ModuleLoader__.load({
 			async serializeDraftImages(imageIds) {
 				const attachments = this.draftImages(imageIds);
 				if (attachments.length !== imageIds.length) throw new Error("conversation.serializeDraftImages: one or more draft images are no longer available");
-				return Promise.all(attachments.map((attachment) => this.encodeImage(attachment.file)));
+				if (attachments.some(a => a.kind === "file" || a.historyKind === "file")) throw Error("斜杠命令暂不支持普通文件附件，请作为普通消息发送；草稿已保留。");
+ return Promise.all(attachments.map((attachment) => this.encodeImage(attachment.file)));
 			}
 			/**
 			* Release one browser-owned draft image and preview URL.
@@ -283,14 +299,14 @@ window.__ModuleLoader__.load({
 			/** Convert browser files to canonical base64 prompt parts. */
 			serializeImages(images) {
 				return Promise.all(images.map(async (file) => ({
-					type: "image",
+					type: attachmentKind(file),
 					...await this.encodeImage(file)
 				})));
 			}
 			/** Canonical base64 wire form of one browser image file. */
 			async encodeImage(file) {
 				return {
-					mediaType: imageMediaType(file.type),
+					mediaType: attachmentMediaType(file),
 					data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
 					...file.name === "" ? {} : { name: file.name }
 				};
@@ -3751,14 +3767,10 @@ window.__ModuleLoader__.load({
 			const intakeImages = (0, react.useCallback)((files) => {
 				if (addImages === void 0 || files.length === 0) return;
 				const rejected = (() => {
-					if (imageLimits !== void 0) {
-						if (files.some((file) => !imageLimits.mediaTypes.includes(file.type))) return addImages(files);
-						if (attachments.length + files.length > imageLimits.maxImagesPerMessage) return t("image.tooMany", { count: imageLimits.maxImagesPerMessage });
-						if (files.some((file) => file.size > imageLimits.maxImageBytes)) return t("image.fileTooLarge", { size: imageSizeText(imageLimits.maxImageBytes) });
-						if (attachments.reduce((sum, attachment) => sum + attachment.file.size, 0) + files.reduce((sum, file) => sum + file.size, 0) > imageLimits.maxMessageImageBytes) return t("image.totalTooLarge", { size: imageSizeText(imageLimits.maxMessageImageBytes) });
-					}
-					return addImages(files);
-				})();
+      try { validateAttachments([...attachments.map(a => a.file), ...files]); }
+      catch (error) { return error.message; }
+      return addImages(files);
+    })();
 				if (rejected !== null) showToast(rejected);
 			}, [
 				addImages,
@@ -5022,7 +5034,7 @@ class XHarnessMessageEditor {
     const images = this.d.conversation.draftImages(s.imageIds);
     if (images.length !== s.imageIds.length) throw new Error(this.d.t('message.editMissing'));
     return { text: s.draft, images: images.map(a => a.historyRef
-      ? { ref: a.historyRef, name: a.file.name, type: a.file.type }
+      ? { ref: a.historyRef, kind:a.historyKind, name: a.file.name, type: a.file.type }
       : { file: a.file }) };
   }
   persist() {
@@ -5037,11 +5049,11 @@ class XHarnessMessageEditor {
     await this.ready;
     if (this.disposed || this.busy() || this.d.running()) return;
     if (this.state.phase !== 'idle') { this.set({error:this.d.t('message.editFinish')}); return; }
-    if (!Array.isArray(content) || content.some(b => b.type !== 'text' && b.type !== 'image')) {
+    if (!Array.isArray(content) || content.some(b => b.type !== 'text' && b.type !== 'image' && b.type !== 'file')) {
       this.set({error:this.d.t('message.editUnsupported')}); return;
     }
     this.pending = { text: content.filter(b => b.type === 'text').map(b => b.text).join(''),
-      images: content.filter(b => b.type === 'image').map(b => ({ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
+      images: content.filter(b => b.type === 'image' || b.type === 'file').map(b => ({kind:b.type,ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
     if (this.pending.images.some(a => !a.ref?.attachmentId)) { this.set({error:this.d.t('message.editMissing')}); return; }
     const before = this.capture();
     if (before.text || before.images.length) this.set({phase:'confirm',error:''});
@@ -5073,7 +5085,7 @@ class XHarnessMessageEditor {
     try { for (const a of draft.images || []) {
       const file = a.file || new File([], a.name || 'image', {type:a.type || 'image/png'});
       const image = conversation.createDraftImages([file])[0];
-      if (a.ref) { image.historyRef = a.ref; image.loadState = 'loading'; }
+      if (a.ref) { image.historyRef = a.ref; image.historyKind = a.kind || "image"; image.loadState = 'loading'; }
       images.push(image);
     } } catch (error) {
       for (const image of images) conversation.releaseDraftImage(image.id);
@@ -5303,7 +5315,7 @@ function XHarnessEditAction({ content, editMessage, t }) {
 			for (const block of content) {
 				const b = block;
 				if (b.type === "text" && typeof b.text === "string") texts.push(b.text);
-				else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });
+				else if ((b.type === "image" || b.type === "file") && b.attachment !== void 0) images.push({ attachment: b.attachment, kind: b.type });
 				else rest.push(block);
 			}
 			return {
@@ -10449,3 +10461,5 @@ function XHarnessEditAction({ content, editMessage, t }) {
 		return module.exports;
 	}
 });
+
+// XHARNESS DURABLE ATTACHMENTS v1

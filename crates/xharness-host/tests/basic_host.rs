@@ -2095,3 +2095,49 @@ async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn generic_upload_reuses_prompt_history_reference_and_download_authority() {
+    let mut fx = Fixture::new();
+    let id = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fx.value(RpcMethod::SessionPrompt,json!({"sessionId":id,"mode":"queue","content":[{"type":"file","mediaType":"text/plain","name":"a.txt","data":"aGVsbG8="}]})).await;
+    fx.wait_for_assistant(&id).await;
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId":id}))
+        .await;
+    let events = history["events"].as_array().unwrap();
+    let a = events
+        .iter()
+        .find_map(|e| {
+            let c = &e["event"]["data"]["content"][0];
+            (c["type"] == "file").then(|| c["attachment"].clone())
+        })
+        .expect("file in immutable history");
+    let bytes = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":id,"attachmentId":a["attachmentId"]}),
+        )
+        .await;
+    assert_eq!(bytes["data"], "aGVsbG8=");
+    let other = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(!fx
+        .call(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":other,"attachmentId":a["attachmentId"]})
+        )
+        .await
+        .is_ok());
+    assert!(!fx.call(RpcMethod::SessionPrompt,json!({"sessionId":id,"mode":"queue","content":[{"type":"image_ref","attachmentId":a["attachmentId"]}]})).await.is_ok());
+    fx.value(RpcMethod::SessionPrompt,json!({"sessionId":id,"mode":"queue","content":[{"type":"file_ref","attachmentId":a["attachmentId"],"name":"again.txt"}]})).await;
+}

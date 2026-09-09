@@ -1408,9 +1408,30 @@ impl BasicHost {
         session_id: &str,
         content: &[Value],
     ) -> Result<(String, Vec<Value>), RpcError> {
+        if content.len() > 128 {
+            return Err(bad_request("at most 128 content parts"));
+        }
+        let encoded: usize = content
+            .iter()
+            .filter_map(|p| p["data"].as_str())
+            .map(str::len)
+            .sum();
+        if encoded > 128 * 1024 * 1024 {
+            return Err(bad_request(
+                "attachments exceed 96 MiB decoded upload budget",
+            ));
+        }
         let mut text = String::new();
         let mut durable = Vec::new();
         for part in content {
+            if let Some(name) = part.get("name").filter(|v| !v.is_null()) {
+                let name = name
+                    .as_str()
+                    .ok_or_else(|| bad_request("attachment name must be a string"))?;
+                if name.len() > 1024 || name.contains('\0') {
+                    return Err(bad_request("invalid attachment name"));
+                }
+            }
             match part.get("type").and_then(Value::as_str) {
                 Some("text") => {
                     let value = part
@@ -1469,24 +1490,53 @@ impl BasicHost {
                         })?;
                     let attachment = json!({
                         "attachmentId": reference.id, "mediaType": reference.media_type,
-                        "bytes": reference.bytes, "width": reference.width, "height": reference.height,
+                        "bytes": reference.bytes, "width": (reference.width>0).then_some(reference.width), "height": (reference.height>0).then_some(reference.height),
                         "name": part.get("name").and_then(Value::as_str), "reference": reference,
                     });
                     durable.push(json!({"type":"image", "attachment":attachment}));
                 }
-                Some("image_ref") => {
+                Some("file") => {
+                    let media = required_string(part, "mediaType")?;
+                    let data = part["data"]
+                        .as_str()
+                        .ok_or_else(|| bad_request("file requires base64 data"))?;
+                    use base64::Engine;
+                    if data.len() > xharness_attachments::MAX_FILE_BYTES.div_ceil(3) * 4 {
+                        return Err(bad_request("file exceeds 32 MiB"));
+                    }
+                    let data = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .map_err(|_| bad_request("invalid file base64"))?;
+                    let r = self
+                        .config
+                        .attachment_store
+                        .put_file(
+                            session_id,
+                            xharness_attachments::Upload {
+                                media_type: media,
+                                data,
+                            },
+                        )
+                        .await
+                        .map_err(|e| bad_request(e.to_string()))?;
+                    durable.push(json!({"type":"file","attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"name":part["name"],"reference":r}}));
+                }
+                Some(kind @ ("image_ref" | "file_ref")) => {
                     let id = required_string(part, "attachmentId")?;
                     let resolved = self.resolve_session_attachment(session_id, &id).await?;
                     let reference = &resolved.reference;
-                    durable.push(json!({"type":"image", "attachment": {
-                        "attachmentId": reference.id, "mediaType": reference.media_type,
-                        "bytes": reference.bytes, "width": reference.width, "height": reference.height,
+                    if (kind == "image_ref") != (reference.width > 0) {
+                        return Err(bad_request("attachment kind mismatch"));
+                    }
+                    durable.push(json!({"type":if kind=="file_ref" {"file"} else {"image"}, "attachment": {
+                        "name":part["name"], "attachmentId": reference.id, "mediaType": reference.media_type,
+                        "bytes": reference.bytes, "width": (reference.width>0).then_some(reference.width), "height": (reference.height>0).then_some(reference.height),
                         "reference": reference,
                     }}));
                 }
                 _ => {
                     return Err(bad_request(
-                        "content part type must be text, image or image_ref",
+                        "content part type must be text, image, file, image_ref or file_ref",
                     ))
                 }
             }
@@ -1505,7 +1555,7 @@ impl BasicHost {
             .await?;
         let r = &attachment.reference;
         Ok(
-            json!({"attachment": {"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height}, "data":attachment.base64()}),
+            json!({"attachment": {"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":(r.width>0).then_some(r.width),"height":(r.height>0).then_some(r.height)}, "data":attachment.base64()}),
         )
     }
 
@@ -1525,6 +1575,7 @@ impl BasicHost {
         let reference_owner = |message: &xharness_session::Message| {
             message.content_blocks.iter().find_map(|block| match block {
                 xharness_session::ContentBlock::Image { attachment }
+                | xharness_session::ContentBlock::File { attachment, .. }
                     if attachment.id == attachment_id =>
                 {
                     Some(attachment.session_id.to_owned())
@@ -1544,6 +1595,19 @@ impl BasicHost {
                 .find_map(|entry| match entry.data() {
                     xharness_session::EventData::UserMessage { message, .. } => {
                         reference_owner(message)
+                    }
+                    xharness_session::EventData::ToolResult { result, .. } => {
+                        xharness_session::ContentBlock::from_tool_metadata(result.metadata.as_ref())
+                            .iter()
+                            .find_map(|block| match block {
+                                xharness_session::ContentBlock::Image { attachment }
+                                | xharness_session::ContentBlock::File { attachment, .. }
+                                    if attachment.id == attachment_id =>
+                                {
+                                    Some(attachment.session_id.clone())
+                                }
+                                _ => None,
+                            })
                     }
                     _ => None,
                 })

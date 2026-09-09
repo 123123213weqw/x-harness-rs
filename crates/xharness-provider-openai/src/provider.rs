@@ -586,10 +586,10 @@ impl OpenAiProvider {
             .flat_map(|m| &m.content_blocks)
             .filter(|b| matches!(b, xharness_attachments::ContentBlock::Image { .. }))
             .count();
-        if image_count == 0 {
+        if request.messages.iter().all(|m| m.content_blocks.is_empty()) {
             return Ok(body);
         }
-        if self.image_support == Some(false) {
+        if image_count > 0 && self.image_support == Some(false) {
             return Err(ProviderError::new(
                 "selected model does not support image input; choose a vision model",
             ));
@@ -603,11 +603,16 @@ impl OpenAiProvider {
             ProviderError::new("attachment resolver is not configured; image input cannot be sent")
         })?;
         let mut offset = 0usize;
+        let mut inserted = 0usize;
+        let mut tool_images = Vec::new();
         let mut total_bytes = 0u64;
         let mut resolved = HashMap::new();
         for (index, message) in request.messages.iter().enumerate() {
             if !message.content_blocks.is_empty() {
-                if message.role != xharness_core::Role::User {
+                if !matches!(
+                    message.role,
+                    xharness_core::Role::User | xharness_core::Role::Tool
+                ) {
                     return Err(ProviderError::new(
                         "image blocks are supported only on user messages",
                     ));
@@ -617,6 +622,11 @@ impl OpenAiProvider {
                     use xharness_attachments::ContentBlock;
                     match block {
                         ContentBlock::Text { text } => content.push(json!({"type":if self.config.protocol==OpenAiProtocol::ChatCompletions {"text"} else {"input_text"},"text":text})),
+                        ContentBlock::File {attachment,name} => {
+                            let session=request.debug_scope.session_id.as_deref().unwrap_or(&attachment.session_id);
+                            let path=store.file_path(session,attachment).await.map_err(|e|ProviderError::new(e.to_string()))?.ok_or_else(||ProviderError::new("file read namespace unavailable"))?;
+                            content.push(json!({"type":if self.config.protocol==OpenAiProtocol::ChatCompletions {"text"} else {"input_text"},"text":format!("[file attachment: {}; {} bytes; read-only path: {}]",serde_json::to_string(name.as_deref().unwrap_or("attachment")).unwrap(),attachment.bytes,serde_json::to_string(&path).unwrap())}));
+                        }
                         ContentBlock::Image { attachment } => {
                             total_bytes=total_bytes.saturating_add(attachment.bytes);
                             if total_bytes>40*1024*1024 { return Err(ProviderError::new("request images exceed 40 MiB; reduce image context")); }
@@ -637,14 +647,42 @@ impl OpenAiProvider {
                         }
                     }
                 }
-                match self.config.protocol {
-                    OpenAiProtocol::ChatCompletions => {
-                        body["messages"][index]["content"] = json!(content)
+                if message.role == xharness_core::Role::Tool {
+                    tool_images.extend(content);
+                } else {
+                    match self.config.protocol {
+                        OpenAiProtocol::ChatCompletions => {
+                            body["messages"][index + inserted]["content"] = json!(content)
+                        }
+                        OpenAiProtocol::Responses => {
+                            body["input"][offset]["content"] = json!(content)
+                        }
                     }
-                    OpenAiProtocol::Responses => body["input"][offset]["content"] = json!(content),
                 }
             }
             offset += crate::protocol::encode_response_message(message).len();
+            // Do not interleave user images into an unfinished assistant tool batch.
+            if !tool_images.is_empty()
+                && request
+                    .messages
+                    .get(index + 1)
+                    .is_none_or(|m| m.role != xharness_core::Role::Tool)
+            {
+                let item = json!({"role":"user","content":std::mem::take(&mut tool_images)});
+                match self.config.protocol {
+                    OpenAiProtocol::ChatCompletions => {
+                        body["messages"]
+                            .as_array_mut()
+                            .unwrap()
+                            .insert(index + inserted + 1, item);
+                        inserted += 1;
+                    }
+                    OpenAiProtocol::Responses => {
+                        body["input"].as_array_mut().unwrap().insert(offset, item);
+                        offset += 1;
+                    }
+                }
+            }
         }
         Ok(body)
     }
@@ -1604,6 +1642,98 @@ mod multimodal_tests {
                 debug_scope: DebugScope::default(),
             },
         )
+    }
+
+    #[tokio::test]
+    async fn image_tool_output_follows_the_complete_tool_batch() {
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (p, mut request) = fixture(protocol).await;
+            let image = request
+                .messages
+                .iter()
+                .flat_map(|m| &m.content_blocks)
+                .find(|b| matches!(b, ContentBlock::Image { .. }))
+                .unwrap()
+                .clone();
+            request.messages = vec![
+                AgentMessage::user("inspect"),
+                AgentMessage::tool("a", "image output").with_content_blocks(vec![image]),
+                AgentMessage::tool("b", "second result"),
+                AgentMessage::user("continue"),
+            ];
+            let body = p
+                .multimodal_body(&request, false, &CancellationToken::new())
+                .await
+                .unwrap();
+            let rows = if protocol == OpenAiProtocol::ChatCompletions {
+                &body["messages"]
+            } else {
+                &body["input"]
+            };
+            assert_eq!(rows.as_array().unwrap().len(), 5);
+            if protocol == OpenAiProtocol::ChatCompletions {
+                assert_eq!(rows[1]["role"], "tool");
+                assert_eq!(rows[2]["role"], "tool");
+                assert!(rows[3]["content"][0]["image_url"]["url"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("data:image/png;base64,"));
+            } else {
+                assert_eq!(rows[1]["type"], "function_call_output");
+                assert_eq!(rows[2]["type"], "function_call_output");
+                assert_eq!(rows[3]["content"][0]["type"], "input_image");
+            }
+            assert_eq!(rows[3]["role"], "user");
+        }
+    }
+    #[tokio::test]
+    async fn generic_file_is_a_verified_read_only_descriptor_not_fake_vision() {
+        let root = std::env::temp_dir().join(format!("xh-provider-file-{}", std::process::id()));
+        let store = Arc::new(xharness_attachments::FileAttachmentStore::new(&root).unwrap());
+        let r = store
+            .put_file(
+                "parent",
+                Upload {
+                    media_type: "text/plain".into(),
+                    data: b"hello file".to_vec(),
+                },
+            )
+            .await
+            .unwrap();
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (_, mut request) = fixture(protocol).await;
+            request.debug_scope.session_id = Some("child".into());
+            request.messages = vec![AgentMessage::user("").with_content_blocks(vec![
+                ContentBlock::File {
+                    attachment: r.clone(),
+                    name: Some("note.txt".into()),
+                },
+            ])];
+            let p = OpenAiProvider::new(OpenAiProviderConfig::new(
+                protocol,
+                "http://127.0.0.1:1",
+                "",
+                "test",
+            ))
+            .unwrap()
+            .with_attachments(store.clone())
+            .with_image_support(Some(false));
+            let body = p
+                .multimodal_body(&request, false, &CancellationToken::new())
+                .await
+                .unwrap();
+            let rows = if protocol == OpenAiProtocol::ChatCompletions {
+                &body["messages"]
+            } else {
+                &body["input"]
+            };
+            assert!(rows[0]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("read-only path"));
+            assert!(!body.to_string().contains("base64"));
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
     #[tokio::test]
     async fn both_protocols_and_token_count_send_ordered_real_images() {

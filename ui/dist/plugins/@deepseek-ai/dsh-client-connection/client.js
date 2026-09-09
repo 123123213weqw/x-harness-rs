@@ -5401,7 +5401,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		]);
 		/** Prompt wire content is intentionally narrower than merge-extensible durable core content. */
 		// xharness-edit-reference-wire/v1
-const promptContentPartSchema = discriminatedUnion("type", [object({type:literal("image_ref"),attachmentId:string().min(1)}),object({
+const promptContentPartSchema = discriminatedUnion("type", [object({type:literal("image_ref"),attachmentId:string().min(1)}),object({type:literal("file_ref"),attachmentId:string().min(1),name:string().optional()}),object({
 			type: literal("text"),
 			text: string()
 		}), object({
@@ -5409,7 +5409,7 @@ const promptContentPartSchema = discriminatedUnion("type", [object({type:literal
 			mediaType: imageMediaTypeSchema,
 			data: string(),
 			name: string().optional()
-		})]);
+		}), object({type:literal("file"),mediaType:string(),data:string(),name:string().optional()})]);
 		object({
 			sessionId: sessionIdSchema,
 			mode: union([literal("queue"), literal("steer")]),
@@ -5430,10 +5430,10 @@ requireIdle: boolean().optional(),
 		/** Durable image reference returned from the authenticated session lookup. */
 		const imageAttachmentRefSchema = object({
 			attachmentId: attachmentIdSchema,
-			mediaType: imageMediaTypeSchema,
-			bytes: number().int().positive(),
-			width: number().int().positive(),
-			height: number().int().positive(),
+			mediaType: string(),
+			bytes: number().int().nonnegative(),
+			width: number().int().positive().nullish(),
+			height: number().int().positive().nullish(),
 			name: string().optional()
 		});
 		object({
@@ -10342,3 +10342,5 @@ requireIdle: boolean().optional(),
 		return module.exports;
 	}
 });
+
+// XHARNESS DURABLE ATTACHMENTS v1
