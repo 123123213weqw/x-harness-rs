@@ -603,7 +603,7 @@ def export_native(args):
     args.output.mkdir(parents=True, exist_ok=False)
     # Never upload source, TLS CA/private keys, disposable signer keys or HOME.
     names = ['acceptance.json', 'evidence.json', 'FAIL.json', 'app.log', 'events.jsonl', 'http-requests.jsonl',
-             'repetition-summary.json',
+             'repetition-summary.json', 'cleanup.json',
              'codesign.log', 'gatekeeper.log', 'stapler.log']
     for name in names:
         source = args.root / name

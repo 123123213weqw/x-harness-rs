@@ -72,6 +72,7 @@ jobs:
           python3 -B scripts/test-desktop-assets.py
           python3 -B scripts/test-desktop-release.py
           python3 -B scripts/test-desktop-release-build.py
+          python3 -B scripts/test-windows-desktop-bundle.py
           python3 -B scripts/test-unified-desktop-release.py
       - uses: actions/upload-artifact@v7
         with:
