@@ -183,8 +183,15 @@ def select_ci(runs, sha):
     return ci
 
 
+def release_platforms(plan):
+    scope = plan.get('release_scope', 'all')
+    require(isinstance(scope, str) and scope in {'all', 'windows-linux'}, 'Unknown release scope')
+    return tuple(p for p in PLATFORMS if scope == 'all' or not p.startswith('darwin-'))
+
+
 def validate_plan(plan):
-    fields(plan, PLAN_FIELDS, 'plan')
+    fields(plan, PLAN_FIELDS | ({'release_scope'} if 'release_scope' in plan else set()), 'plan')
+    release_platforms(plan)
     require(type(plan['schema_version']) is int and plan['schema_version'] == 1, 'Unknown schema')
     validate_repository(plan['repository'], plan['repository'])
     version(plan['version'])
@@ -197,7 +204,7 @@ def validate_plan(plan):
     return plan
 
 
-def make_plan(repository, configured_repository, tag, sha, run_id, attempt, releases, runs):
+def make_plan(repository, configured_repository, tag, sha, run_id, attempt, releases, runs, release_scope='all'):
     validate_repository(repository, configured_repository)
     require(isinstance(tag, str) and tag.startswith(PREFIX), 'Wrong release tag prefix')
     target = tag[len(PREFIX):]
@@ -214,11 +221,11 @@ def make_plan(repository, configured_repository, tag, sha, run_id, attempt, rele
     return validate_plan({'schema_version': 1, 'repository': repository, 'tag': tag,
                           'version': target, 'sha': sha, 'endpoint': endpoint(repository),
                           'release_run_id': str(run_id), 'release_run_attempt': str(attempt),
-                          'ci': select_ci(runs, sha)})
+                          'ci': select_ci(runs, sha), **({'release_scope': release_scope} if release_scope != 'all' else {})})
 
 
 def package_name(plan, platform):
-    require(platform in PLATFORMS, 'Unsupported updater platform')
+    require(platform in release_platforms(plan), 'Unsupported or unselected updater platform')
     return PLATFORMS[platform][1].format(version=plan['version'])
 
 
@@ -275,7 +282,7 @@ def validate_receipt(plan, platform, root, expected_public_key, *, receipt_name=
     if strict_tree:
         exact_tree(root, {name, name + '.sig', 'updater.pub', receipt_name})
     receipt = read_json(root / receipt_name)
-    fields(receipt, RECEIPT_FIELDS, 'receipt')
+    fields(receipt, RECEIPT_FIELDS | ({'release_scope'} if 'release_scope' in plan else set()), 'receipt')
     require(type(receipt['schema_version']) is int and receipt['schema_version'] == 1, 'Unknown receipt schema')
     validate_ci(receipt['ci'], plan['sha'])
     for key, value in plan.items():
@@ -298,7 +305,7 @@ def validate_receipt(plan, platform, root, expected_public_key, *, receipt_name=
 
 def release_names(plan):
     names = {'latest.json', 'SHA256SUMS', 'release-evidence.json', 'updater.pub'}
-    for platform in PLATFORMS:
+    for platform in release_platforms(plan):
         name = package_name(plan, platform)
         names.update({name, name + '.sig', platform + '.receipt.json'})
     return names
@@ -312,8 +319,8 @@ def assemble(plan, artifacts, public_key_path, output):
     validate_plan(plan)
     artifacts = Path(artifacts)
     require(artifacts.is_dir() and not artifacts.is_symlink(), 'Unsafe artifacts root')
-    require({path.name for path in artifacts.iterdir()} == set(PLATFORMS), 'Require exactly all four platform artifact directories')
-    receipts = {platform: validate_receipt(plan, platform, artifacts / platform, public_key_path) for platform in PLATFORMS}
+    require({path.name for path in artifacts.iterdir()} == set(release_platforms(plan)), 'Require exactly selected platform artifact directories')
+    receipts = {platform: validate_receipt(plan, platform, artifacts / platform, public_key_path) for platform in release_platforms(plan)}
     dest = new_directory(output)
     key, key_hash = public_key(public_key_path)
     (dest / 'updater.pub').write_text(key + '\n', encoding='utf-8')
@@ -331,7 +338,7 @@ def assemble(plan, artifacts, public_key_path, output):
     write_json(dest / 'latest.json', manifest)
     evidence = {'schema_version': 1, 'plan': plan, 'public_key_sha256': key_hash,
                 'manifest_sha256': sha256(dest / 'latest.json'),
-                'receipts': {platform: sha256(dest / (platform + '.receipt.json')) for platform in PLATFORMS},
+                'receipts': {platform: sha256(dest / (platform + '.receipt.json')) for platform in release_platforms(plan)},
                 'status': 'candidate-verified-not-native-accepted'}
     write_json(dest / 'release-evidence.json', evidence)
     (dest / 'SHA256SUMS').write_text(checksums(dest), encoding='ascii')
@@ -350,15 +357,15 @@ def validate_release(plan, root, public_key_path):
     key, key_hash = public_key(public_key_path)
     require(public_key(root / 'updater.pub')[1] == evidence['public_key_sha256'] == key_hash, 'Release trust key mismatch')
     require(evidence['manifest_sha256'] == sha256(root / 'latest.json'), 'Manifest hash mismatch')
-    require(set(evidence['receipts']) == set(PLATFORMS), 'Incomplete release receipt evidence')
+    require(set(evidence['receipts']) == set(release_platforms(plan)), 'Incomplete release receipt evidence')
     manifest = read_json(root / 'latest.json')
     fields(manifest, {'version', 'notes', 'pub_date', 'platforms'}, 'manifest')
     require(manifest['version'] == plan['version'], 'Manifest version mismatch')
     require(manifest['notes'] == MANIFEST_NOTES and isinstance(manifest['pub_date'], str)
             and re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', manifest['pub_date']), 'Unexpected manifest metadata')
     datetime.datetime.strptime(manifest['pub_date'], '%Y-%m-%dT%H:%M:%SZ')
-    require(set(manifest['platforms']) == set(PLATFORMS), 'Manifest platform set incomplete or unexpected')
-    for platform in PLATFORMS:
+    require(set(manifest['platforms']) == set(release_platforms(plan)), 'Manifest platform set incomplete or unexpected')
+    for platform in release_platforms(plan):
         name = package_name(plan, platform)
         expected_url = f'https://github.com/{plan["repository"]}/releases/download/{plan["tag"]}/{name}'
         entry = manifest['platforms'][platform]
@@ -407,9 +414,9 @@ def validate_live(plan, live_root, candidate_manifest, public_key_path):
 def validate_acceptance(plan, root, release_root, manifest_hash):
     root, release_root = Path(root), Path(release_root)
     require(root.is_dir() and not root.is_symlink(), 'Missing native acceptance directory')
-    require({path.name for path in root.iterdir()} == set(PLATFORMS), 'Require native acceptance from all four platforms')
+    require({path.name for path in root.iterdir()} == set(release_platforms(plan)), 'Require native acceptance from all selected platforms')
     results = {}
-    for platform in PLATFORMS:
+    for platform in release_platforms(plan):
         directory = root / platform
         exact_tree(directory, {'acceptance.json'})
         value = read_json(directory / 'acceptance.json')
@@ -481,6 +488,7 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     sub = commands.add_parser('plan')
     sub.add_argument('tag')
+    sub.add_argument('--release-scope', choices=['all', 'windows-linux'], default='all')
     sub.add_argument('--output', required=True, type=Path)
     sub = commands.add_parser('receipt')
     for name in ('plan', 'package', 'public-key', 'binary', 'output'):
@@ -502,7 +510,7 @@ def main():
         repository = os.environ['GITHUB_REPOSITORY']
         plan = make_plan(repository, os.environ.get('XHARNESS_FRIENDS_RELEASE_REPOSITORY', ''), args.tag,
                          os.environ['GITHUB_SHA'], os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT'],
-                         _friends.releases(repository), fetch_ci(repository, os.environ['GITHUB_SHA']))
+                         _friends.releases(repository), fetch_ci(repository, os.environ['GITHUB_SHA']), args.release_scope)
         require_environment(plan, building=True)
         tag_sha = subprocess.check_output(['git', 'rev-parse', args.tag + '^{commit}'], cwd=ROOT, text=True, encoding='utf-8').strip()
         require(tag_sha == plan['sha'], 'Release tag differs from checked-out source')

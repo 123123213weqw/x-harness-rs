@@ -9,6 +9,12 @@ on:
         description: Existing desktop-vMAJOR.MINOR.PATCH tag at this exact green master commit
         required: true
         type: string
+      release_scope:
+        description: Selected platforms; never removes a platform from the live stable feed
+        type: choice
+        options: [all, windows-linux]
+        default: all
+        required: true
 
 # Matrix workers cannot write a release or replace latest.json.
 permissions:
@@ -30,6 +36,7 @@ jobs:
     outputs:
       version: ${{ steps.plan.outputs.version }}
       endpoint: ${{ steps.plan.outputs.endpoint }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -42,6 +49,7 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SCOPE_INPUT: ${{ inputs.release_scope || 'all' }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag || github.ref_name }}
           XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
         run: python3 -B scripts/desktop-release-build.py plan --output dist/desktop-plan/plan.json
@@ -56,7 +64,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: python3 -B scripts/desktop-release-build.py signing-gate --platform darwin-aarch64
+        run: python3 -B scripts/desktop-release-build.py signing-plan --plan dist/desktop-plan/plan.json
       - name: No-secret release and updater contracts
         run: |
           node scripts/test-desktop-updater.mjs
@@ -78,24 +86,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: windows-x86_64
-            runner: windows-2025
-            target: x86_64-pc-windows-msvc
-            bundles: nsis
-          - platform: linux-x86_64-appimage
-            runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: appimage
-          - platform: darwin-aarch64
-            runner: macos-15
-            target: aarch64-apple-darwin
-            bundles: app
-          - platform: darwin-x86_64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            bundles: app
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -222,7 +213,7 @@ jobs:
         with:
           pattern: desktop-package-*
           path: dist/matrix-artifacts
-      - name: Independently verify all four immutable platform receipts and aggregate once
+      - name: Independently verify all selected immutable platform receipts and aggregate once
         env:
           XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
         run: python3 -B scripts/desktop-release-build.py aggregate --plan dist/desktop-candidate/plan.json --artifacts dist/matrix-artifacts --output dist/desktop-candidate/release
