@@ -1027,14 +1027,22 @@ impl BasicHost {
                 approval_id,
                 call,
                 approved,
+                cancelled,
                 reason: _,
             } => {
+                self.state.write().await.pending.retain(|_, p| match p {
+                    PendingResponse::Approval {
+                        session_id: id,
+                        approval_id: aid,
+                        ..
+                    } => !(id == session_id && aid == &approval_id),
+                });
                 self.push_mux(json!({
                     "type": "approval/resolved",
                     "sessionId": session_id,
                     "approvalId": approval_id,
                     "callId": call.id,
-                    "outcome": if approved { "allowed-once" } else { "rejected" },
+                    "outcome": if cancelled { "cancelled" } else if approved { "allowed-once" } else { "rejected" },
                 }));
             }
             LoopEventKind::RunFailed { error } => {
@@ -1246,14 +1254,22 @@ impl BasicHost {
                 approval_id,
                 call,
                 approved,
+                cancelled,
                 reason: _,
             } => {
+                self.state.write().await.pending.retain(|_, p| match p {
+                    PendingResponse::Approval {
+                        session_id: id,
+                        approval_id: aid,
+                        ..
+                    } => !(id == session_id && aid == &approval_id),
+                });
                 self.append_session_event(
                     session_id,
                     "approval/decided",
                     json!({
                         "id": approval_id,
-                        "outcome": if approved { "allowed-once" } else { "rejected" },
+                        "outcome": if cancelled { "cancelled" } else if approved { "allowed-once" } else { "rejected" },
                     }),
                     None,
                 )
@@ -1263,7 +1279,7 @@ impl BasicHost {
                     "sessionId": session_id,
                     "approvalId": approval_id,
                     "callId": call.id,
-                    "outcome": if approved { "allowed-once" } else { "rejected" },
+                    "outcome": if cancelled { "cancelled" } else if approved { "allowed-once" } else { "rejected" },
                 }));
             }
             LoopEventKind::ModelRetry {

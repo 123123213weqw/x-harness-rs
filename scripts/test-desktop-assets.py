@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import json
 import plistlib
+import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +45,18 @@ def verify(app=None):
                          'plugins/@deepseek-ai/dsh-client-connection/client.js',
                          'plugins/@deepseek-ai/dsh-client-ui-model-selection/client.js']:
             assert digest(web / relative) == digest(ROOT / 'ui/dist' / relative), f'packaged UI is stale: {relative}'
+
+        # Execute the final signed sidecar, not the CI machine's PATH rg.
+        rg = app.resolve() / 'Contents/MacOS/rg'
+        env = {'PATH': '/usr/bin:/bin', 'HOME': tempfile.gettempdir()}
+        dependencies = subprocess.check_output(['otool', '-L', str(rg)], text=True).splitlines()[1:]
+        assert all(line.strip().startswith(('/usr/lib/', '/System/Library/')) for line in dependencies), 'rg has external dylibs'
+        subprocess.run([str(rg), '--version'], check=True, env=env, capture_output=True)
+        with tempfile.TemporaryDirectory(prefix='xh-signed-rg-') as tmp:
+            Path(tmp, 'sample.txt').write_text('signed-sidecar-fixture\n')
+            for args, code in [(['--files', '-g', '*.txt'], 0), (['signed-sidecar-fixture', '.'], 0), (['no-such-content', '.'], 1)]:
+                result = subprocess.run([str(rg), *args], cwd=tmp, env=env, capture_output=True)
+                assert result.returncode == code, (args, result.returncode, result.stderr)
 
         for binary in ['xharness-desktop', 'xharness-host', 'rg']:
             assert (app / 'Contents/MacOS' / binary).is_file(), f'missing executable: {binary}'

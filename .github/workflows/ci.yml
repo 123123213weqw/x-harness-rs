@@ -270,7 +270,8 @@ jobs:
         run: cargo build --locked --release -p xharness-host-app
       - name: Check native Tauri desktop shell
         run: |
-          command -v rg >/dev/null || brew install ripgrep
+          bash scripts/install-portable-rg.sh
+          export PATH="$RUNNER_TEMP/xharness-portable-rg/bin:$PATH"
           python3 scripts/stage-tauri-sidecar.py target/release/xharness-host aarch64-apple-darwin
           python3 scripts/stage-tauri-sidecar.py "$(command -v rg)" aarch64-apple-darwin --name rg
           cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
@@ -305,7 +306,8 @@ jobs:
           if-no-files-found: error
       - name: Package native host
         run: |
-          command -v rg >/dev/null || brew install ripgrep
+          bash scripts/install-portable-rg.sh
+          export PATH="$RUNNER_TEMP/xharness-portable-rg/bin:$PATH"
           mkdir -p dist/xharness-host-darwin-arm64
           cp target/release/xharness-host dist/xharness-host-darwin-arm64/
           cp "$(command -v rg)" dist/xharness-host-darwin-arm64/

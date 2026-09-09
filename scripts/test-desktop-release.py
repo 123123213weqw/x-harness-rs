@@ -5,12 +5,48 @@ import json
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('prepare', ROOT / 'scripts/prepare-desktop-test-version.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+stage_spec = importlib.util.spec_from_file_location('stage', ROOT / 'scripts/stage-tauri-sidecar.py')
+stage = importlib.util.module_from_spec(stage_spec)
+stage_spec.loader.exec_module(stage)
+
+
+class PortableSearch(unittest.TestCase):
+    def test_macos_accepts_only_system_libraries_and_executes_binary(self):
+        with patch.object(stage.sys, 'platform', 'darwin'), \
+             patch.object(stage.subprocess, 'check_output', return_value='rg:\n /usr/lib/libSystem.B.dylib (version 1)\n'), \
+             patch.object(stage.subprocess, 'run') as run:
+            stage.validate_macos_rg(Path('/fixture/rg'))
+            run.assert_called_once()
+
+    def test_homebrew_relative_and_empty_linkage_fail_before_execution(self):
+        for library in ('/opt/homebrew/opt/pcre2/lib/libpcre2-8.0.dylib',
+                        '/usr/local/opt/pcre2/lib/libpcre2-8.0.dylib',
+                        '@rpath/libpcre2-8.0.dylib', ''):
+            output = 'rg:\n' + (f' {library} (version 1)\n' if library else '')
+            with self.subTest(library=library), \
+                 patch.object(stage.sys, 'platform', 'darwin'), \
+                 patch.object(stage.subprocess, 'check_output', return_value=output), \
+                 patch.object(stage.subprocess, 'run') as run, self.assertRaises(ValueError):
+                stage.validate_macos_rg(Path('/fixture/rg'))
+            run.assert_not_called()
+
+    def test_all_mac_packaging_paths_use_portable_rg(self):
+        for name in ('ci.yml', 'desktop-release.yml', 'desktop-update-test.yml',
+                     'desktop-unix-update-acceptance.yml'):
+            source = (ROOT / '.github/workflows' / name).read_text()
+            self.assertIn('scripts/install-portable-rg.sh', source, name)
+            self.assertNotIn('brew install ripgrep', source, name)
+        source = (ROOT / 'scripts/test-desktop-assets.py').read_text()
+        self.assertIn('otool', source)
+        self.assertIn('signed-sidecar-fixture', source)
 
 
 class ReleaseProjection(unittest.TestCase):
