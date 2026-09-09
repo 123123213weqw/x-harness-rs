@@ -217,6 +217,72 @@ def snapshot(release):
     return result
 
 
+def validate_draft_identity(value, plan):
+    require(type(value.get('id')) is int and value['id'] > 0, 'Invalid draft Release ID')
+    require(value.get('tag_name') == plan['tag'] and value.get('target_commitish') == plan['sha'],
+            'Draft tag/source differs from the immutable plan')
+    require(value.get('draft') is True and value.get('prerelease') is False,
+            'Candidate is no longer a private stable draft')
+
+
+def draft_by_id(repo, plan, identity):
+    validate_draft_identity(identity, plan)
+    # GitHub's /releases/tags endpoint only resolves published releases. Never
+    # rediscover a draft by name after its ID has been bound to this candidate.
+    current = api(f'repos/{repo}/releases/{identity["id"]}')
+    validate_draft_identity(current, plan)
+    require(current['id'] == identity['id'], 'Draft Release ID changed')
+    return current
+
+
+def bound_draft(repo, plan, expected):
+    current = draft_by_id(repo, plan, expected)
+    require(snapshot(current) == expected, 'Draft changed after candidate staging')
+    return current
+
+
+def stage_draft(args):
+    repo, sha = trusted_checkout()
+    plan = load(args.candidate / 'plan.json')
+    require(plan['sha'] == sha == os.environ.get('GITHUB_SHA') and plan['repository'] == repo,
+            'Draft source differs from plan')
+    contract('verify-release', '--plan', args.candidate / 'plan.json', '--release-dir', args.candidate / 'release',
+             '--public-key', args.candidate / 'release/updater.pub')
+    verify_tag(repo, plan['tag'], sha)
+    files = list_files(args.candidate / 'release')
+    # Include private drafts and every page; creation must not reuse an earlier
+    # failed attempt, even if /releases/tags would incorrectly report it absent.
+    pages = json.loads(run('gh', 'api', '--paginate', '--slurp', f'repos/{repo}/releases?per_page=100', capture=True))
+    require(isinstance(pages, list) and pages and all(isinstance(page, list) for page in pages),
+            'Invalid release inventory')
+    require(not any(item['tag_name'] == plan['tag'] for page in pages for item in page),
+            'Release or draft already exists; inspect it before any recovery')
+    write(args.candidate / 'draft-creation-attempt.json', {'repository': repo, 'tag': plan['tag'],
+          'sha': sha, 'state': 'creation_requested'})
+    try:
+        created = json.loads(run('gh', 'api', '--method', 'POST', f'repos/{repo}/releases',
+            '-f', 'tag_name=' + plan['tag'], '-f', 'target_commitish=' + sha,
+            '-F', 'draft=true', '-F', 'prerelease=false', '-f', 'make_latest=false',
+            '-f', f'name=XHarness Desktop {plan["version"]}',
+            '-f', f'body=Signed desktop update for {", ".join(release_platforms(plan))}. Native upgrade acceptance is required before publication. Save work before restarting. Other platform channels are unchanged.',
+            capture=True))
+    except Exception:
+        raise ValueError('Draft creation has uncertain server state; inspect staging evidence before retrying') from None
+    # Persist the response before upload. A later failure must not lose the ID
+    # and must never produce an apparently complete candidate snapshot.
+    write(args.candidate / 'draft-created.json', snapshot(created))
+    validate_draft_identity(created, plan)
+    require(not created['assets'], 'New draft unexpectedly contains assets')
+    run('gh', 'release', 'upload', plan['tag'], *[files[n] for n in sorted(files)], '--repo', repo)
+    result = draft_by_id(repo, plan, created)
+    before, after = snapshot(created), snapshot(result)
+    require({k: v for k, v in before.items() if k != 'assets'} ==
+            {k: v for k, v in after.items() if k != 'assets'}, 'Draft metadata changed during upload')
+    require({a['name'] for a in result['assets']} == set(files), 'Incomplete or changed draft')
+    require(all(a['size'] == files[a['name']].stat().st_size for a in result['assets']), 'Uploaded asset size mismatch')
+    write(args.candidate / 'draft-snapshot.json', after)
+
+
 def list_files(root):
     root = Path(root)
     require(root.is_dir() and not root.is_symlink(), 'Unsafe artifact directory')
@@ -339,9 +405,7 @@ def fetch_promotion(args):
             compact.mkdir(parents=True)
             shutil.copyfile(receipt, compact / 'acceptance.json')
         runs[kind] = {'run': value, 'artifacts': artifacts}
-    remote_draft = api(f'repos/{repo}/releases/tags/{plan["tag"]}')
-    require(remote_draft['draft'] and not remote_draft['prerelease'], 'Candidate is no longer a private stable draft')
-    require(snapshot(remote_draft) == load(root / 'candidate/draft-snapshot.json'), 'Draft changed after candidate staging')
+    bound_draft(repo, plan, load(root / 'candidate/draft-snapshot.json'))
     download_release(repo, plan['tag'], root / 'draft-download')
     compare_release_files(root / 'candidate/release', root / 'draft-download')
     live = api(f'repos/{repo}/releases/latest')
@@ -368,8 +432,7 @@ def publish(args):
     # Re-download and re-verify directly before the single publication operation.
     latest = api(f'repos/{repo}/releases/latest')
     require(snapshot(latest) == load(root / 'live-snapshot.json'), 'Live release changed during acceptance/promotion')
-    draft = api(f'repos/{repo}/releases/tags/{plan["tag"]}')
-    require(snapshot(draft) == load(root / 'candidate/draft-snapshot.json') and draft['draft'], 'Draft changed during promotion')
+    draft = bound_draft(repo, plan, load(root / 'candidate/draft-snapshot.json'))
     download_release(repo, plan['tag'], root / 'final-draft')
     compare_release_files(root / 'candidate/release', root / 'final-draft')
     download_release(repo, latest['tag_name'], root / 'final-live', live_names(load(root / 'live/latest.json'), repo, latest['tag_name']))
@@ -378,7 +441,7 @@ def publish(args):
              '--acceptance-root', root / 'acceptance', '--live-dir', root / 'final-live',
              '--public-key', root / 'trusted-updater.pub', '--output', root / 'promotion.json')
     require(snapshot(api(f'repos/{repo}/releases/latest')) == snapshot(latest), 'Live pointer raced with final verification')
-    require(snapshot(api(f'repos/{repo}/releases/tags/{plan["tag"]}')) == snapshot(draft), 'Draft raced with final verification')
+    bound_draft(repo, plan, snapshot(draft))
     verify_tag(repo, plan['tag'], sha)
     promote_draft(repo, draft, root)
 
@@ -684,22 +747,7 @@ def main():
         contract('aggregate', '--plan', args.plan, '--artifacts', normalized, '--public-key', key, '--output', args.output)
         key.unlink()
     elif args.command == 'stage-draft':
-        repo, sha = trusted_checkout()
-        plan = load(args.candidate / 'plan.json')
-        require(plan['sha'] == sha == os.environ.get('GITHUB_SHA') and plan['repository'] == repo, 'Draft source differs from plan')
-        contract('verify-release', '--plan', args.candidate / 'plan.json', '--release-dir', args.candidate / 'release',
-                 '--public-key', args.candidate / 'release/updater.pub')
-        verify_tag(repo, plan['tag'], sha)
-        # gh create fails rather than reusing any pre-existing draft or public release.
-        run('gh', 'release', 'create', plan['tag'], '--repo', repo, '--verify-tag', '--target', sha,
-            '--draft', '--latest=false', '--title', f'XHarness Desktop {plan["version"]}',
-            '--notes', f'Signed desktop update for {", ".join(release_platforms(plan))}. Native upgrade acceptance is required before publication. Save work before restarting. Other platform channels are unchanged.')
-        files = list_files(args.candidate / 'release')
-        run('gh', 'release', 'upload', plan['tag'], *[files[n] for n in sorted(files)], '--repo', repo)
-        result = api(f'repos/{repo}/releases/tags/{plan["tag"]}')
-        require(result['draft'] and not result['prerelease'] and {a['name'] for a in result['assets']} == set(files), 'Incomplete or changed draft')
-        require(all(a['size'] == files[a['name']].stat().st_size for a in result['assets']), 'Uploaded asset size mismatch')
-        write(args.candidate / 'draft-snapshot.json', snapshot(result))
+        stage_draft(args)
     elif args.command == 'resolve-source':
         repo, sha = trusted_checkout()
         require(os.environ.get('GITHUB_REF') == 'refs/heads/master' and sha == os.environ.get('GITHUB_SHA'), 'Resolve source from the trusted master control checkout')
