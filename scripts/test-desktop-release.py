@@ -38,6 +38,18 @@ class PortableSearch(unittest.TestCase):
                 stage.validate_macos_rg(Path('/fixture/rg'))
             run.assert_not_called()
 
+    def test_real_search_dependencies_are_installed_before_workspace_tests(self):
+        source = (ROOT / '.github/workflows/ci.yml').read_text()
+        for job, dependency in [('rust-linux', 'Install search integration test dependency'),
+                                ('rust-windows', 'Install pinned ripgrep'),
+                                ('rust-macos-arm64', 'Install portable search')]:
+            body = source.split('  ' + job + ':', 1)[1]
+            self.assertLess(body.index(dependency), body.index('cargo test --workspace'))
+        source = (ROOT / '.github/workflows/desktop-update-test.yml').read_text()
+        self.assertLess(source.index('bash scripts/install-portable-rg.sh'), source.index('cargo test --locked --workspace'))
+        source = (ROOT / '.github/workflows/friends-release.yml').read_text()
+        self.assertLess(source.index('Install pinned ripgrep'), source.index('cargo test --locked --workspace'))
+
     def test_all_mac_packaging_paths_use_portable_rg(self):
         for name in ('ci.yml', 'desktop-release.yml', 'desktop-update-test.yml',
                      'desktop-unix-update-acceptance.yml'):
