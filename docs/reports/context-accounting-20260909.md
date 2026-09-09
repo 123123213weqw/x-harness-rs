@@ -32,7 +32,9 @@
 
 ## 自动化回归
 
-WZU_Server：workspace/all-targets 474 passed、0 failed、4 ignored；Clippy `-D warnings` 通过。
+WZU_Server：workspace/all-targets 484 passed、0 failed、4 ignored；Clippy `-D warnings` 通过。
 前端计量、历史回放、插件契约通过；Chromium / WebKit 各 19 个布局用例通过。
 
 跨平台 CI 与安装包交付在 PR 中继续记录，未完成前不能声称本机运行版本已修复。
+
+说明：最终测试使用 stdout/stderr 分开收集，避免并行 Cargo 输出交错导致漏计汇总；69 组结果合计 484 passed、4 ignored。
