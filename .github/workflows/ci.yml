@@ -45,6 +45,7 @@ jobs:
       - run: python -B scripts/test-friends-release.py
       - run: python -B scripts/test-unified-desktop-release.py
       - run: python -B scripts/test-desktop-release-build.py
+      - run: python -B scripts/test-windows-desktop-bundle.py
       - name: Unix updater isolation and candidate contracts
         if: runner.os != 'Windows'
         run: python3 -B scripts/test-unix-update-acceptance.py
@@ -201,16 +202,25 @@ jobs:
         run: |
           $target = 'x86_64-pc-windows-msvc'
           python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe $target
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
       - name: Check native Tauri desktop shell
         run: |
           cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           python scripts/test-windows-desktop-bundle.py
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           node scripts/test-desktop-updater.mjs
+          if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
       - name: Build installable Windows application
         id: windows-bundle
         uses: tauri-apps/tauri-action@v0.6.2
