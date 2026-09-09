@@ -4,6 +4,30 @@
 > 三者不能互相替代。验收结束时 Windows 原通道为 friends-v0.2.6；Mac/Linux 的正式
 > 发布必须满足本规范门禁。Apple 凭据缺失时明确阻断，不退化成 ad-hoc 正式包。
 
+## 2026-09-09：显式 Windows/Linux 发布范围
+
+维护者可在 `Desktop Release` 的 master 手动运行中选择 `release_scope=windows-linux`。
+这次正式发布只包含 Windows x64 NSIS 与 Linux x64 AppImage，不构建、不发布、不修改
+macOS 固定测试通道。默认 `all` 和标签自动触发仍要求四个平台及 Apple 正式凭据；
+不是自动降级，也不会把 ad-hoc Mac 包混入稳定源。
+
+范围写入不可变 plan 和每份平台 receipt。构建矩阵、包清单、签名检查和 Promote 证据
+均从同一个计划推导，必须恰好覆盖选定平台。Unix candidate 验收先验证真实构建来源、
+聚合包签名和计划，再生成矩阵；不提供独立“跳过 Mac 验收”输入。无 Secret 的 CI
+rehearsal 继续跑 Linux 和两种 Mac 架构。
+
+稳定源平台只能增加，不能减少：如果未来 live latest.json 已包含 Mac，windows-linux
+发布将被 Promote 拒绝，必须恢复 all 或先设计独立平台通道，不能静默删除 Mac。
+旧无 release_scope 的计划按 all 验证，旧客户端协议、版本号格式、公钥和标识不变。
+
+操作：创建已通过精确 master CI 的 desktop-vX.Y.Z 标签，再从 master 显式 dispatch
+Desktop Release（release_tag=该标签，release_scope=windows-linux）。标签触发的 all
+运行在缺 Apple 凭据时会在构建前拒绝；它不能作为候选或发布证据。记录成功的 scoped
+构建 Run ID，继续原来的 Windows + Unix(candidate) 验收和 Promote，不能跳过任一项。
+首次 Linux 用户仍需安装新的 AppImage 基础包；macOS 用户保持原样。
+
+以下“四个平台”描述是默认 all 范围的要求；windows-linux 对应上述严格两平台集合。
+
 ## 1. 支持范围与复用边界
 
 不新增第二套更新器、Agent Loop 或前端。复用 Tauri 原生更新器、已有左下角下载入口、
