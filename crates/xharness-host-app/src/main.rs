@@ -84,10 +84,13 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         ))
         .await?;
     let workspace = std::fs::canonicalize(&args.workspace)?;
+    let attachments: Arc<dyn xharness_attachments::AttachmentStore> = Arc::new(
+        xharness_attachments::FileAttachmentStore::new(args.state_dir.join("attachments"))?,
+    );
     let deployment = match &args.providers_file {
         Some(path) => ModelDeployment::bootstrap_from_file(path)?,
         None => {
-            ModelDeployment::single_with_debug(
+            ModelDeployment::single_with_attachments(
                 SingleModelDeployment {
                     provider: args.provider.clone(),
                     model: args.model.clone(),
@@ -100,12 +103,14 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
                     token_safety_margin: args.token_safety_margin,
                 },
                 debug.clone(),
+                Some(attachments.clone()),
             )
             .await?
         }
     };
     let mut config = HostConfig::new(&workspace);
     config.auto_titles = true;
+    config.attachment_store = attachments.clone();
     config.provider_id = deployment.default_route.provider.clone();
     config.provider_display_name = deployment.default_provider_display_name.clone();
     config.model_id = deployment.default_route.model.clone();
@@ -165,6 +170,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     };
     let credentials = Arc::new(NativeCredentialStore::new(&args.state_dir)?);
     let model_settings = NativeModelSettings::new(runtime.clone(), credentials, debug.clone())
+        .with_attachments(attachments)
         .with_process_key(
             "XHARNESS_BOOTSTRAP_API_KEY".to_owned(),
             args.api_key.clone(),

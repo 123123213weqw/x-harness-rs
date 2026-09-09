@@ -387,6 +387,7 @@ impl LoopEngine {
             pending_messages: VecDeque::new(),
             paused: false,
             approval_decisions: HashMap::new(),
+            closed_approval_calls: HashSet::new(),
             startup_error,
             journal,
             recovered_tool_batch: None,
@@ -450,7 +451,13 @@ fn estimate_message_tokens(message: &AgentMessage) -> Result<u64, RunFailure> {
     // JSON-heavy tool observations while staying provider-neutral.
     Ok(u64::try_from(bytes.saturating_add(2) / 3)
         .unwrap_or(u64::MAX)
-        .max(1))
+        .max(1)
+        .saturating_add(
+            xharness_token::image_estimate(&[
+                serde_json::to_value(message).map_err(|e| RunFailure::Failed(e.to_string()))?
+            ])
+            .map_err(|e| RunFailure::Failed(e.to_string()))?,
+        ))
 }
 
 fn continuation_instruction(had_tool_call_fragments: bool, visible_text_is_empty: bool) -> String {
@@ -512,6 +519,7 @@ struct Runner {
     pending_messages: VecDeque<AgentMessage>,
     paused: bool,
     approval_decisions: HashMap<String, ApprovalDecision>,
+    closed_approval_calls: HashSet<String>,
     startup_error: Option<String>,
     journal: Option<JournalState>,
     recovered_tool_batch: Option<RecoveredToolBatch>,
@@ -901,6 +909,7 @@ impl Runner {
                 if !model.text.is_empty() || !model.reasoning.is_empty() {
                     self.final_text = model.text.clone();
                     self.messages.push(AgentMessage {
+                        content_blocks: Vec::new(),
                         id: None,
                         role: Role::Assistant,
                         content: model.text,
@@ -949,6 +958,7 @@ impl Runner {
                 None
             };
             let assistant = AgentMessage {
+                content_blocks: Vec::new(),
                 id: None,
                 role: Role::Assistant,
                 content: model.text.clone(),
@@ -1091,8 +1101,11 @@ impl Runner {
         let guard = guard.clone();
         let provider_cancellation = self.cancellation.child_token();
         let provider = self.request.provider.clone();
-        let mut count_future =
-            Box::pin(provider.count_input_tokens(provider_request, provider_cancellation.clone()));
+        let mut count_future = Box::pin(tokio::time::timeout(
+            guard.counter_timeout(),
+            provider.count_input_tokens(provider_request, provider_cancellation.clone()),
+        ));
+        let mut fallback_reason = None;
         let provider_count = loop {
             enum CountProgress {
                 Command(Option<CommandEnvelope>),
@@ -1103,14 +1116,26 @@ impl Runner {
                 command = self.command_rx.recv(), if self.command_open => {
                     CountProgress::Command(command)
                 }
-                count = &mut count_future => CountProgress::Ready(count),
+                count = &mut count_future => CountProgress::Ready(match count {
+                    Ok(result)=>result,
+                    Err(_)=> { provider_cancellation.cancel(); Err(ProviderError::retryable("input count deadline exceeded")) },
+                }),
             };
             match progress {
-                CountProgress::Ready(count) => {
-                    break count.map_err(|error| {
-                        RunFailure::Failed(format!("provider input token count failed: {error}"))
-                    })?
-                }
+                CountProgress::Ready(count) => match count {
+                    Ok(value) => break value,
+                    Err(error) if error.retryable && guard.allows_counter_fallback() => {
+                        fallback_reason = Some("transient_counter_failure".to_owned());
+                        provider.input_counter_failed();
+                        self.debug("token_count.fallback",json!({"reason":"transient_counter_failure","status":error.http_status})).await;
+                        break None;
+                    }
+                    Err(error) => {
+                        return Err(RunFailure::Failed(format!(
+                            "provider input token count failed: {error}"
+                        )))
+                    }
+                },
                 CountProgress::Command(Some(envelope)) => {
                     let interrupt = self.handle_envelope(envelope, true).await?;
                     if interrupt || self.paused {
@@ -1121,9 +1146,17 @@ impl Runner {
                 CountProgress::Command(None) => self.command_open = false,
             }
         };
-        if let Some(count) = provider_count {
+        if let Some(count) = provider_count.or_else(|| {
+            guard
+                .allows_provider_estimate()
+                .then(|| provider.estimate_input_tokens(provider_request))
+                .flatten()
+        }) {
             return match guard.check_provider_count(&count) {
-                Ok(report) => Ok(TokenBudgetCheck::Ready(Some(report))),
+                Ok(mut report) => {
+                    report.fallback_reason = fallback_reason.clone();
+                    Ok(TokenBudgetCheck::Ready(Some(report)))
+                }
                 Err(
                     error @ TokenBudgetError::Exceeded {
                         estimated_input_tokens,
@@ -1161,7 +1194,10 @@ impl Runner {
             conversation_messages,
             tools: tools.to_vec(),
         }) {
-            Ok(report) => Ok(TokenBudgetCheck::Ready(Some(report))),
+            Ok(mut report) => {
+                report.fallback_reason = fallback_reason.clone();
+                Ok(TokenBudgetCheck::Ready(Some(report)))
+            }
             Err(
                 error @ TokenBudgetError::Exceeded {
                     estimated_input_tokens,
@@ -1923,6 +1959,14 @@ impl Runner {
             .collect::<Vec<_>>()
             .join("\n\n");
         let mut header = RequestHeader::new(provider, model);
+        header.options.insert(
+            "measurement".into(),
+            json!({
+                "requestId":format!("{}:{}",self.run_id,self.step),
+                "turn":self.journal.as_ref().map(|j|j.turn),"step":self.step,
+                "source":"request_admission","phase":"prepared",
+            }),
+        );
         header.system = (!system.is_empty()).then_some(system);
         header.options.insert(
             "toolDefinitionsSha256".to_owned(),
@@ -2412,6 +2456,15 @@ impl Runner {
     }
 
     fn validate_command(&self, command: &LoopCommand) -> Result<(), LoopControlError> {
+        if let LoopCommand::ApproveTool { call_id } | LoopCommand::RejectTool { call_id, .. } =
+            command
+        {
+            if self.closed_approval_calls.contains(call_id) {
+                return Err(LoopControlError::Rejected(
+                    "approval is no longer pending".into(),
+                ));
+            }
+        }
         if self.journal.is_none() {
             return Ok(());
         }
@@ -2956,6 +3009,7 @@ impl Runner {
                 // Never execute or replay an unacknowledged fragmented tool call.
                 // Keep the original text/reasoning as explicitly interrupted history.
                 let partial = AgentMessage {
+                    content_blocks: Vec::new(),
                     id: None,
                     role: Role::Assistant,
                     content: round.text,
@@ -3065,14 +3119,22 @@ impl Runner {
             };
             match input {
                 RuntimeInput::Cancelled => {
-                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
-                        .await?;
+                    self.cancel_runtime_tool_batch(
+                        &mut batch,
+                        &mut pending_approval_ids,
+                        &mut pending_runtime_approvals,
+                    )
+                    .await?;
                     return Err(self.stopped_failure());
                 }
                 RuntimeInput::Command(Some(envelope)) => {
                     if let Err(failure) = self.handle_envelope(envelope, false).await {
-                        self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
-                            .await?;
+                        self.cancel_runtime_tool_batch(
+                            &mut batch,
+                            &mut pending_approval_ids,
+                            &mut pending_runtime_approvals,
+                        )
+                        .await?;
                         return Err(failure);
                     }
                 }
@@ -3090,14 +3152,22 @@ impl Runner {
                         )
                         .await
                     {
-                        self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
-                            .await?;
+                        self.cancel_runtime_tool_batch(
+                            &mut batch,
+                            &mut pending_approval_ids,
+                            &mut pending_runtime_approvals,
+                        )
+                        .await?;
                         return Err(failure);
                     }
                 }
                 RuntimeInput::Signal(None) => {
-                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
-                        .await?;
+                    self.cancel_runtime_tool_batch(
+                        &mut batch,
+                        &mut pending_approval_ids,
+                        &mut pending_runtime_approvals,
+                    )
+                    .await?;
                     return Err(RunFailure::Failed(
                         "tool runtime lifecycle channel closed before batch completion".to_owned(),
                     ));
@@ -3119,6 +3189,13 @@ impl Runner {
                             completed.order
                         )));
                     }
+                    self.close_runtime_approvals(
+                        &mut pending_runtime_approvals,
+                        &mut pending_approval_ids,
+                        Some(&call.id),
+                    )
+                    .await?;
+                    self.closed_approval_calls.insert(call.id.clone());
                     let result = runtime_tool_result(&completed.result);
                     self.emit(LoopEventKind::ToolCompleted {
                         call: call.clone(),
@@ -3128,8 +3205,12 @@ impl Runner {
                     completion_count += 1;
                 }
                 RuntimeInput::Batch(None) => {
-                    self.cancel_runtime_tool_batch(&mut batch, &mut pending_approval_ids)
-                        .await?;
+                    self.cancel_runtime_tool_batch(
+                        &mut batch,
+                        &mut pending_approval_ids,
+                        &mut pending_runtime_approvals,
+                    )
+                    .await?;
                     return Err(RunFailure::Failed(
                         "tool runtime batch stopped before every result completed".to_owned(),
                     ));
@@ -3181,8 +3262,11 @@ impl Runner {
         &mut self,
         batch: &mut RuntimeBatchRun,
         pending_approval_ids: &mut Vec<String>,
+        pending: &mut Vec<PendingRuntimeApproval>,
     ) -> Result<(), RunFailure> {
         batch.cancel();
+        self.close_runtime_approvals(pending, pending_approval_ids, None)
+            .await?;
         let journal = self
             .journal_cancel_pending_approvals(pending_approval_ids)
             .await;
@@ -3227,6 +3311,9 @@ impl Runner {
                 reasons,
                 response,
             } => {
+                if response.is_closed() {
+                    return Ok(());
+                }
                 let _approval_reasons = reasons;
                 let (order, call) = calls
                     .iter()
@@ -3280,11 +3367,51 @@ impl Runner {
         }
     }
 
+    async fn close_runtime_approvals(
+        &mut self,
+        pending: &mut Vec<PendingRuntimeApproval>,
+        ids: &mut Vec<String>,
+        execution: Option<&str>,
+    ) -> Result<(), RunFailure> {
+        let mut i = 0;
+        while i < pending.len() {
+            if execution.is_some_and(|id| id != pending[i].execution_id) {
+                i += 1;
+                continue;
+            }
+            let approval = pending.remove(i);
+            self.closed_approval_calls
+                .insert(approval.execution_id.clone());
+            self.approval_decisions.remove(&approval.execution_id);
+            self.journal_approval_decided(&approval.approval_id, ApprovalOutcome::Cancelled)
+                .await?;
+            ids.retain(|id| id != &approval.approval_id);
+            self.emit(LoopEventKind::ToolApprovalResolved {
+                approval_id: approval.approval_id,
+                call: approval.call,
+                approved: false,
+                cancelled: true,
+                reason: Some("approval expired or its tool invocation ended".into()),
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
     async fn resolve_runtime_approval_decisions(
         &mut self,
         pending: &mut Vec<PendingRuntimeApproval>,
         pending_approval_ids: &mut Vec<String>,
     ) -> Result<(), RunFailure> {
+        let closed = pending
+            .iter()
+            .filter(|p| p.response.is_closed())
+            .map(|p| p.execution_id.clone())
+            .collect::<Vec<_>>();
+        for id in closed {
+            self.close_runtime_approvals(pending, pending_approval_ids, Some(&id))
+                .await?;
+        }
         if self.paused {
             return Ok(());
         }
@@ -3296,6 +3423,8 @@ impl Runner {
                 continue;
             };
             let approval = pending.remove(index);
+            self.closed_approval_calls
+                .insert(approval.execution_id.clone());
             let (runtime, outcome, approved, reason) = match decision {
                 ApprovalDecision::Approved => (
                     RuntimeApprovalDecision::Approved,
@@ -3326,14 +3455,20 @@ impl Runner {
                 approval_id: approval.approval_id,
                 call: approval.call,
                 approved,
+                cancelled: false,
                 reason,
             })
             .await?;
-            approval.response.send(Ok(runtime)).map_err(|_| {
-                RunFailure::Failed(
-                    "tool runtime stopped while receiving approval decision".to_owned(),
+            // A deadline may win while the durable decision is being flushed.
+            // The executor's terminal result remains authoritative; do not fail
+            // the whole agent or revive the expired invocation.
+            if approval.response.send(Ok(runtime)).is_err() {
+                self.debug(
+                    "approval.delivery_expired",
+                    json!({"executionId":approval.execution_id}),
                 )
-            })?;
+                .await;
+            }
         }
         Ok(())
     }

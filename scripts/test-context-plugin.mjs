@@ -71,7 +71,7 @@ const ctx = {
 }
 client.apply(ctx)
 
-assert.equal(eventDefinitions.length, 2)
+assert.equal(eventDefinitions.length, 3)
 assert.equal(viewDefinitions.length, 1)
 assert.equal(tabs.length, 2)
 assert.equal(tabs[0].options.id, 'context')
@@ -135,3 +135,16 @@ assert.match(inspectorStyle.textContent, /min-height:0/)
 assert.equal((inspectorStyle.textContent.match(/var\(--dsh-composer-height,150px\)/g) ?? []).length, 2,
   'desktop and narrow layouts must both reserve the dynamic composer height')
 console.log('context inspector plugin smoke and layout contract tests passed')
+
+// Exact per-request attribution, cached input included, late samples excluded.
+const usageDef=eventDefinitions.find(d=>d.kind==='xharness-context-usage');
+function usageNode(seq,turn,step,usage) {
+ const state=usageDef.start({}, {event:{seq,data:{chunk:{kind:'usage',data:usage}}},location:{kind:'step',turn:{turn},step:{step}}});
+ return usageDef.buildViewNode({key:'usage-'+seq,state});
+}
+const measured=builder.replace({nodes:[node,usageNode(12,2,3,{input_tokens:454,cache_read_tokens:116992}),usageNode(13,1,3,{input_tokens:999999})]});
+assert.equal(measured.requests[0].usage.input_tokens,454);
+assert.equal(measured.requests[0].usage.cache_read_tokens,116992);
+const next={...node,key:'next',anchorSeq:14,data:{...node.data,seq:14,step:4}};
+const changed=builder.replace({nodes:[node,next,usageNode(15,2,3,{input_tokens:999})]});
+assert.equal(changed.requests[1].usage,undefined);

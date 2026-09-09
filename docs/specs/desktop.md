@@ -108,11 +108,14 @@ Tauri WebView
 - 2026-09-05：已配置独立的演练 Updater Secrets；正式 Developer ID/公证与生产更新签名
   配置仍未完成。演练 Pre-release 不等于正式签名版本，不替代用户手动升级验收。
 
+统一正式发布与旧通道迁移的权威流程见 [三平台稳定更新规范](unified-desktop-updates.md)。
+不得用 Windows-only 清单覆盖已接通 Mac/Linux 的稳定通道。
+
 CI Secret：
 
-- `TAURI_SIGNING_PRIVATE_KEY`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-- `XHARNESS_UPDATER_PUBKEY`
+- `XHARNESS_FRIENDS_PRIVATE_KEY`（沿用现有稳定通道私钥）
+- `XHARNESS_FRIENDS_PASSWORD`
+- `XHARNESS_FRIENDS_PUBLIC_KEY`（构建时同时投影到 Native 和 Tauri Config）
 - macOS：`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、
   `APPLE_ID`、`APPLE_PASSWORD`、`APPLE_TEAM_ID`
 - Windows 正式品牌发布：代码签名证书相关 Secret（没有证书时 Updater 签名仍能防篡改，

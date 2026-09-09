@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Reusable provider-neutral host control plane for XHarness"
 
 [dependencies]
+xharness-attachments = { path = "../xharness-attachments" }
 async-stream.workspace = true
 async-trait.workspace = true
 futures.workspace = true
@@ -30,6 +31,9 @@ xharness-token = { path = "../xharness-token" }
 xharness-tools = { path = "../xharness-tools" }
 
 xharness-debug = { path = "../xharness-debug" }
+
+[target.'cfg(windows)'.dependencies]
+xharness-win32 = { path = "../xharness-win32" }
 
 [dev-dependencies]
 chrono.workspace = true

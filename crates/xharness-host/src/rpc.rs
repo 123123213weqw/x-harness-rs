@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -36,8 +35,8 @@ use crate::{
     },
     runtime::{AgentRuntimeError, ModelRoute},
     state::{
-        iso_now, now_ms, AgentPreset, AttachmentRecord, DriverCommand, GoalState, ModelSelection,
-        PendingResponse, SessionRecord, SettingsNamespace, WorkspaceRecord,
+        iso_now, now_ms, AgentPreset, DriverCommand, GoalState, ModelSelection, PendingResponse,
+        SessionRecord, SettingsNamespace, WorkspaceRecord,
     },
     BasicHost,
 };
@@ -1287,6 +1286,11 @@ impl BasicHost {
             return Err(bad_request("mode must be queue or steer"));
         }
         let content = required_array(payload, "content")?.clone();
+        let require_idle = match payload.get("requireIdle") {
+            None => false,
+            Some(Value::Bool(value)) => *value,
+            _ => return Err(bad_request("requireIdle must be a boolean")),
+        };
         let client_time_zone = optional_string(payload, "clientTimeZone")?;
         if let Some(zone) = &client_time_zone {
             if zone.trim().is_empty() || zone.contains('\0') {
@@ -1304,6 +1308,52 @@ impl BasicHost {
             .await?
         {
             return Ok(json!({"accepted": true}));
+        }
+
+        if require_idle {
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| session_not_found(&session_id))?;
+            if session.running {
+                return Err(rpc_error(
+                    RpcErrorCode::SessionConflict,
+                    "session started running; edited draft was not submitted",
+                    json!({"reason":"session-running"}),
+                ));
+            }
+        }
+
+        if content.iter().any(|part| {
+            matches!(
+                part.get("type").and_then(Value::as_str),
+                Some("image" | "image_ref")
+            )
+        }) {
+            let state = self.state.read().await;
+            if let Some(session) = state.sessions.get(&session_id) {
+                let unsupported = state
+                    .settings
+                    .get(crate::MODEL_SETTINGS_NAMESPACE)
+                    .and_then(|ns| {
+                        ns.value["providers"][&session.model.provider]["models"].as_array()
+                    })
+                    .and_then(|models| {
+                        models
+                            .iter()
+                            .find(|m| m["id"].as_str() == Some(&session.model.model))
+                    })
+                    .and_then(|model| model["imageInput"].as_bool())
+                    == Some(false);
+                if unsupported {
+                    return Err(rpc_error(
+                        RpcErrorCode::AttachmentError,
+                        "current model does not support images",
+                        json!({"reason":"MODEL_DOES_NOT_SUPPORT_IMAGES"}),
+                    ));
+                }
+            }
         }
 
         // Attachment materialization is deliberately after receipt lookup:
@@ -1397,28 +1447,48 @@ impl BasicHost {
                             json!({"reason": "EMPTY_IMAGE"}),
                         ));
                     }
-                    let attachment_id = self.mint_id("attachment");
-                    let bytes = ((data.len() * 3) / 4).max(1);
+                    let upload = xharness_attachments::Upload::from_base64(media_type, &data)
+                        .map_err(|e| {
+                            rpc_error(
+                                RpcErrorCode::AttachmentError,
+                                e.to_string(),
+                                json!({"reason":"INVALID_IMAGE"}),
+                            )
+                        })?;
+                    let reference = self
+                        .config
+                        .attachment_store
+                        .put(session_id, upload)
+                        .await
+                        .map_err(|e| {
+                            rpc_error(
+                                RpcErrorCode::AttachmentError,
+                                e.to_string(),
+                                json!({"reason":"ATTACHMENT_STORE"}),
+                            )
+                        })?;
                     let attachment = json!({
-                        "attachmentId": attachment_id,
-                        "mediaType": media_type,
-                        "bytes": bytes,
-                        "width": 1,
-                        "height": 1,
-                        "name": part.get("name").and_then(Value::as_str),
+                        "attachmentId": reference.id, "mediaType": reference.media_type,
+                        "bytes": reference.bytes, "width": reference.width, "height": reference.height,
+                        "name": part.get("name").and_then(Value::as_str), "reference": reference,
                     });
-                    self.state.write().await.attachments.insert(
-                        attachment_id.clone(),
-                        AttachmentRecord {
-                            attachment: attachment.clone(),
-                            data,
-                            referenced_by: BTreeSet::from([session_id.to_owned()]),
-                        },
-                    );
-                    text.push_str(&format!("\n[attached image: {attachment_id}]"));
-                    durable.push(json!({"type": "image", "attachment": attachment}));
+                    durable.push(json!({"type":"image", "attachment":attachment}));
                 }
-                _ => return Err(bad_request("content part type must be text or image")),
+                Some("image_ref") => {
+                    let id = required_string(part, "attachmentId")?;
+                    let resolved = self.resolve_session_attachment(session_id, &id).await?;
+                    let reference = &resolved.reference;
+                    durable.push(json!({"type":"image", "attachment": {
+                        "attachmentId": reference.id, "mediaType": reference.media_type,
+                        "bytes": reference.bytes, "width": reference.width, "height": reference.height,
+                        "reference": reference,
+                    }}));
+                }
+                _ => {
+                    return Err(bad_request(
+                        "content part type must be text, image or image_ref",
+                    ))
+                }
             }
         }
         if durable.is_empty() {
@@ -1430,25 +1500,79 @@ impl BasicHost {
     async fn session_attachment(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let attachment_id = required_string(payload, "attachmentId")?;
+        let attachment = self
+            .resolve_session_attachment(&session_id, &attachment_id)
+            .await?;
+        let r = &attachment.reference;
+        Ok(
+            json!({"attachment": {"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height}, "data":attachment.base64()}),
+        )
+    }
+
+    async fn resolve_session_attachment(
+        &self,
+        session_id: &str,
+        attachment_id: &str,
+    ) -> Result<xharness_attachments::ResolvedAttachment, RpcError> {
         let state = self.state.read().await;
-        if !state.sessions.contains_key(&session_id) {
-            return Err(session_not_found(&session_id));
+        if !state.sessions.contains_key(session_id) {
+            return Err(session_not_found(session_id));
         }
-        let attachment = state.attachments.get(&attachment_id).ok_or_else(|| {
-            rpc_error(
-                RpcErrorCode::AttachmentError,
-                "attachment was not found",
-                json!({"reason": "ATTACHMENT_NOT_FOUND"}),
-            )
-        })?;
-        if !attachment.referenced_by.contains(&session_id) {
-            return Err(rpc_error(
-                RpcErrorCode::AttachmentError,
-                "attachment is not referenced by this session",
-                json!({"reason": "ATTACHMENT_NOT_REFERENCED"}),
-            ));
+        drop(state);
+        // A fork may legitimately replay a reference owned by its ancestor.
+        // Authorize via this session's actual history, never a caller-supplied owner.
+        let mut owner = session_id.to_owned();
+        let reference_owner = |message: &xharness_session::Message| {
+            message.content_blocks.iter().find_map(|block| match block {
+                xharness_session::ContentBlock::Image { attachment }
+                    if attachment.id == attachment_id =>
+                {
+                    Some(attachment.session_id.to_owned())
+                }
+                _ => None,
+            })
+        };
+        if let Some(session) = self
+            .agent_runtime
+            .authoritative_session(session_id)
+            .await
+            .map_err(agent_runtime_error)?
+        {
+            if let Some(found) = session
+                .events()
+                .iter()
+                .find_map(|entry| match entry.data() {
+                    xharness_session::EventData::UserMessage { message, .. } => {
+                        reference_owner(message)
+                    }
+                    _ => None,
+                })
+            {
+                owner = found;
+            }
+        } else if let Some(found) = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .and_then(|session| session.messages.iter().find_map(reference_owner))
+        {
+            owner = found;
         }
-        Ok(json!({"attachment": attachment.attachment, "data": attachment.data}))
+        let attachment = self
+            .config
+            .attachment_store
+            .resolve(&owner, attachment_id)
+            .await
+            .map_err(|e| {
+                rpc_error(
+                    RpcErrorCode::AttachmentError,
+                    e.to_string(),
+                    json!({"reason":"NOT_FOUND"}),
+                )
+            })?;
+        Ok(attachment)
     }
 
     async fn session_update_queue(&self, payload: &Value) -> Result<Value, RpcError> {
@@ -1755,9 +1879,30 @@ impl BasicHost {
     }
 
     async fn host_list_directory(&self, payload: &Value) -> Result<Value, RpcError> {
-        require_object(payload)?;
-        let requested = optional_string(payload, "path")?
-            .unwrap_or_else(|| self.config.home.to_string_lossy().into_owned());
+        let requested = match require_object(payload)?.get("path") {
+            None => self.config.home.to_string_lossy().into_owned(),
+            Some(Value::String(path)) => path.clone(),
+            Some(_) => return Err(bad_request("path, when present, must be a string")),
+        };
+        // Empty path is a virtual location overview, not the process cwd.
+        // Omitted path retains the existing home-directory wire contract.
+        if requested.is_empty() {
+            let roots = directory_roots().map_err(|message| {
+                rpc_error(
+                    RpcErrorCode::DirectoryUnreadable,
+                    message,
+                    json!({"path": ""}),
+                )
+            })?;
+            let entries = roots
+                .iter()
+                .map(|path| json!({"name": path, "path": path, "hidden": false}))
+                .collect::<Vec<_>>();
+            return Ok(json!({
+                "path": "", "home": self.config.home,
+                "crumbs": [], "entries": entries, "truncated": false,
+            }));
+        }
         let path = canonical_directory(&requested).map_err(|message| {
             rpc_error(
                 RpcErrorCode::DirectoryUnreadable,
@@ -1804,11 +1949,8 @@ impl BasicHost {
     async fn host_create_directory(&self, payload: &Value) -> Result<Value, RpcError> {
         let parent = required_string(payload, "path")?;
         let name = required_string(payload, "name")?;
-        if name.trim().is_empty()
-            || matches!(name.as_str(), "." | "..")
-            || name.contains(['/', '\\'])
-        {
-            return Err(bad_request("name must be one non-blank path segment"));
+        if !valid_directory_name(&name) {
+            return Err(bad_request("name must be one valid, non-blank folder name"));
         }
         let parent = canonical_directory(&parent).map_err(|message| {
             rpc_error(
@@ -3246,6 +3388,9 @@ fn credential_rejected(reference: &str) -> RpcError {
 }
 
 fn canonical_directory(path: &str) -> Result<String, String> {
+    if path.is_empty() {
+        return Err("select a filesystem directory, not the location overview".to_owned());
+    }
     let canonical = std::fs::canonicalize(path)
         .map_err(|error| format!("could not resolve directory {path:?}: {error}"))?;
     if !canonical.is_dir() {
@@ -3254,18 +3399,86 @@ fn canonical_directory(path: &str) -> Result<String, String> {
     Ok(canonical.to_string_lossy().into_owned())
 }
 
+fn directory_roots() -> Result<Vec<std::path::PathBuf>, String> {
+    #[cfg(windows)]
+    {
+        // Do not stat every drive: disconnected mapped drives and empty media
+        // should not delay the overview. Read errors belong to the chosen path.
+        xharness_win32::logical_drive_roots().map_err(|error| error.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(vec![
+            std::path::PathBuf::from("/"),
+            #[cfg(target_os = "macos")]
+            std::path::PathBuf::from("/Volumes"),
+        ])
+    }
+}
+
+fn valid_directory_name(name: &str) -> bool {
+    // Path::join replaces the parent for absolute/prefixed paths on Windows.
+    // Validate a component, not just the absence of slash characters.
+    if name.trim().is_empty() || name.contains(['/', '\\', '\0']) {
+        return false;
+    }
+    let mut components = Path::new(name).components();
+    if !matches!(components.next(), Some(std::path::Component::Normal(_)))
+        || components.next().is_some()
+    {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        // Reject Win32 aliases even with a verbatim canonical parent path:
+        // folders must remain accessible to Explorer and ordinary tools.
+        if name.ends_with(['.', ' ']) || name.chars().any(|c| c < ' ' || "<>:\"|?*".contains(c)) {
+            return false;
+        }
+        let stem = name
+            .split('.')
+            .next()
+            .unwrap_or(name)
+            .trim_end()
+            .to_uppercase();
+        if matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) {
+            return false;
+        }
+        if let Some(suffix) = stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+        {
+            if matches!(
+                suffix,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            ) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn breadcrumb_entries(path: &Path) -> Vec<Value> {
     let mut current = PathBuf::new();
     path.components()
-        .map(|component| {
+        .filter_map(|component| {
             current.push(component.as_os_str());
+            // A Windows drive prefix (e.g. C: or \\?\C:) is not a complete
+            // absolute directory. Emit it together with the following root.
+            if matches!(component, std::path::Component::Prefix(_)) {
+                return None;
+            }
             let display = current.to_string_lossy().into_owned();
             let name = component.as_os_str().to_string_lossy();
-            json!({
-                "name": if name.is_empty() { display.clone() } else { name.into_owned() },
+            Some(json!({
+                "name": if matches!(component, std::path::Component::RootDir) || name.is_empty() { display.clone() } else { name.into_owned() },
                 "path": display,
                 "hidden": false,
-            })
+            }))
         })
         .collect()
 }
@@ -3485,4 +3698,75 @@ fn queue_item_not_found(item_id: &str, error: AgentRuntimeError) -> RpcError {
 fn mint_stream_id(next_id: &AtomicU64, prefix: &str) -> String {
     let ordinal = next_id.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{}-{ordinal}", now_ms())
+}
+
+#[cfg(test)]
+mod edit_admission_tests {
+    use super::*;
+    use crate::{HostConfig, NoTools};
+
+    #[tokio::test]
+    async fn edit_admission_rejects_running_invalid_flags_and_text_only_models() {
+        let root = std::env::temp_dir().join(format!("xh-edit-admission-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let host = BasicHost::new(HostConfig::new(&root), None, Arc::new(NoTools));
+        let created = host.session_create(&json!({"cwd":root})).await.unwrap();
+        let id = created["sessionId"].as_str().unwrap();
+        host.state
+            .write()
+            .await
+            .sessions
+            .get_mut(id)
+            .unwrap()
+            .running = true;
+        let error = host
+            .session_prompt(
+                RpcId::new("edit-running"),
+                &json!({
+                    "sessionId":id,"mode":"queue","requireIdle":true,
+                    "content":[{"type":"text","text":"draft"}]
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("started running"));
+        assert!(host.state.read().await.sessions[id].queue.is_empty());
+        let error = host
+            .session_prompt(
+                RpcId::new("edit-invalid"),
+                &json!({
+                    "sessionId":id,"mode":"queue","requireIdle":"true","content":[]
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("boolean"));
+        {
+            let mut state = host.state.write().await;
+            let session = state.sessions.get_mut(id).unwrap();
+            session.running = false;
+            let provider = session.model.provider.clone();
+            let model = session.model.model.clone();
+            state
+                .settings
+                .get_mut(crate::MODEL_SETTINGS_NAMESPACE)
+                .unwrap()
+                .value = json!({
+                "providers":{provider:{"models":[{"id":model,"imageInput":false}]}}
+            });
+        }
+        let error = host
+            .session_prompt(
+                RpcId::new("edit-no-vision"),
+                &json!({
+                    "sessionId":id,"mode":"queue","requireIdle":true,
+                    "content":[{"type":"image_ref","attachmentId":"missing"}]
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("does not support images"));
+        assert!(host.state.read().await.sessions[id].queue.is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

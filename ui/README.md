@@ -45,6 +45,46 @@ branding, injects the product plugins into the dependency-ordered client graph,
 and writes the result back to `ui/dist/`. Commit `ui/dist/client-graph.json`
 and the rebuilt assets with every source-level Web change.
 
+## Workspace directory browser (Web / Windows / macOS / Linux)
+
+`ui/plugins/@xlang/xharness-client-ui-directory/client.js` fills both existing
+workspace directory-flow slots. The sidebar Add workspace button and the
+new-conversation workspace picker can browse existing folders or create one
+child folder, then open it using the shared workspace service. Paths, including
+Windows drive letters/UNC paths, are resolved by the Rust Host, not joined in
+JavaScript. Browsing acts on the Host filesystem (not a remote browser's disk).
+
+The static assembler explicitly includes this plugin: the upstream Node host's
+dynamic auto-picker composition does not run in a static Rust deployment.
+To refresh only this capability without changing other upstream packages:
+
+```bash
+node scripts/sync-workspace-directory.mjs
+node scripts/test-workspace-directory.mjs
+# UI_TEST_DEPS contains Playwright; UI_TEST_BROWSER=chromium or webkit.
+node scripts/test-workspace-directory-browser.mjs
+```
+
+Commit source, shipped plugin, graph and HTML together. CI checks both slot
+owners in the shipped browser UI, plus the Windows NSIS/macOS app payloads.
+Opening an existing workspace reuses its registration; cancelling the browser
+does not create a workspace. A folder already explicitly created remains on
+disk if the user subsequently cancels opening it. No existing files are deleted.
+
+The picker starts at **Drives and locations**, with one-click shortcuts for the
+host's Windows drive letters, Home, or `/` on POSIX (`/Volumes` on macOS too).
+`host.listDirectory` with an explicit empty path returns this virtual overview
+using the existing response shape; omitted path still lists Home. The overview
+cannot be opened as a workspace or used as a folder-creation parent. Assigned
+but unavailable drives remain selectable and report errors only when opened.
+
+Both picker entry points remember the last successful path in session storage
+for the current window and origin, with an in-memory fallback when storage is
+blocked. This is not cross-device or durable across desktop port changes.
+An unavailable remembered path falls back to the overview; hosts without the
+overview extension fall back to Home. Typed paths, including UNC paths, remain
+available. Clicking Drives and locations refreshes attached drive letters.
+
 ## Context Inspector
 
 产品自有插件 `@xlang/xharness-client-ui-context` 在会话顶部注册第三个
@@ -94,3 +134,10 @@ node scripts/test-model-controls.mjs
 
 必须同时提交更新后的 `ui/dist` 模块、图 revision 和 HTML。软件加载安装包内置资源，
 不会随着浏览器目录或 Git 源码更新而自动更新；包内资源一致性由桌面资产测试校验。
+
+## 编辑历史用户消息
+
+会话停止后，点击消息旁的“编辑并重新发送”，可恢复文字和图片到输入框。
+已有草稿需要确认；取消编辑恢复原草稿。发送会创建新一轮，不修改或删除旧历史。
+图片缺失时需重试、重新添加或主动移除；不会自动丢图发送。刷新可恢复未完成的编辑。
+详细语义与边界见 [规范](../docs/specs/message-edit-resend.md)。

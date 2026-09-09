@@ -1578,3 +1578,79 @@ impl AppendAtForTest for Session {
             .unwrap())
     }
 }
+
+#[test]
+fn stale_approval_repair_is_append_only_idempotent_and_never_approves() {
+    let mut s = Session::new(header("stale-approval")).unwrap();
+    let mut assistant = Message::assistant("");
+    assistant.tool_calls = vec![call("c", 0)];
+    s.append_batch(
+        s.revision(),
+        vec![
+            EventData::TurnStart { turn: 1 }.into(),
+            EventData::StepStart { turn: 1, step: 1 }.into(),
+            EventData::AssistantMessage {
+                turn: 1,
+                step: 1,
+                message: assistant,
+                usage: None,
+            }
+            .into(),
+            EventData::ToolCall {
+                turn: 1,
+                step: 1,
+                call: call("c", 0),
+            }
+            .into(),
+            EventData::ApprovalAsked {
+                id: "a".into(),
+                tool_name: "read_file".into(),
+                call_id: Some("c".into()),
+                reason: None,
+            }
+            .into(),
+        ],
+    )
+    .unwrap();
+    assert!(xharness_session::stale_approval_cancellations(s.events()).is_empty());
+    s.append_batch(
+        s.revision(),
+        vec![
+            EventData::ToolResult {
+                turn: 1,
+                step: 1,
+                result: ToolResultData::error("c", "approval timed out"),
+            }
+            .into(),
+            EventData::StepEnd { turn: 1, step: 1 }.into(),
+            EventData::TurnEnd {
+                turn: 1,
+                reason: TurnEndReason::Completed,
+            }
+            .into(),
+        ],
+    )
+    .unwrap();
+    assert!(s
+        .append(
+            s.revision(),
+            EventData::ApprovalDecided {
+                id: "a".into(),
+                outcome: ApprovalOutcome::AllowedOnce
+            }
+        )
+        .is_err());
+    let original = s.events().to_vec();
+    let repair = xharness_session::stale_approval_cancellations(s.events());
+    assert_eq!(repair.len(), 1);
+    s.append_batch(s.revision(), repair).unwrap();
+    assert_eq!(&s.events()[..original.len()], original.as_slice());
+    assert!(xharness_session::stale_approval_cancellations(s.events()).is_empty());
+    assert!(matches!(
+        s.events().last().unwrap().data(),
+        EventData::ApprovalDecided {
+            outcome: ApprovalOutcome::Cancelled,
+            ..
+        }
+    ));
+}

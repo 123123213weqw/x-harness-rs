@@ -56,8 +56,11 @@ XHarness Web UI / future CLI
 在随机 Loopback 端口启动完整 Web 产品，通过每次启动随机 Token 建立 HttpOnly Cookie，
 并在关窗/更新前走 Host 的结构化 Shutdown。普通 Web/服务器部署不受影响。
 
-正式 Release CI 当前生成 macOS ARM64、Linux x64、Windows x64 安装包以及 Tauri 签名更新
-清单；前端只在桌面环境显示“一键检查/下载/安装”，更新包验证后才会停止 Host 并重启。
+统一发布流水线覆盖 macOS ARM64/Intel、Linux x64 AppImage、Windows x64；四平台
+签名包先聚合为完整 Draft，原生升级验收与正式门禁通过后才更新稳定通道。Windows 现有
+稳定通道继续维护；Mac/Linux 正式通道仍需 Apple 凭据和发布验收，不能把 CI 构件当成已经上线。
+前端只在桌面环境显示更新入口，下载不停止 Host，用户确认重启安装后才停止任务。
+详见[三平台稳定更新规范](docs/specs/unified-desktop-updates.md)。
 Windows 安装包同时携带 Host、固定版本的 `rg.exe`、Web UI 和 ACL sandbox runner，仍要求系统
 安装 PowerShell 7。构建、数据目录、安全边界和发布 Secret 见[桌面规范](docs/specs/desktop.md)。
 

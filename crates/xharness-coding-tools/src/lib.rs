@@ -577,9 +577,9 @@ impl CodingToolBundle {
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
-                    Ok(process_output(
+                    search_process_output(
                         run_process(platform, spec, &context.cancellation).await?,
-                    ))
+                    )
                 }
             },
         )
@@ -626,9 +626,9 @@ impl CodingToolBundle {
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
-                    Ok(process_output(
+                    search_process_output(
                         run_process(platform, spec, &context.cancellation).await?,
-                    ))
+                    )
                 }
             },
         )
@@ -741,8 +741,20 @@ async fn run_process(
     }
 }
 
-fn process_output(output: ProcessOutput) -> ToolOutput {
-    json_output(process_output_value(output))
+fn search_process_output(output: ProcessOutput) -> Result<ToolOutput, ToolHandlerError> {
+    let accepted = output.termination == TerminationReason::Exited
+        && output.status.signal.is_none()
+        && matches!(output.status.code, Some(0 | 1));
+    let no_matches = accepted && output.status.code == Some(1);
+    let mut value = process_output_value(output);
+    value["no_matches"] = json!(no_matches);
+    if accepted {
+        Ok(json_output(value))
+    } else {
+        Err(ToolHandlerError::new(format!(
+            "search process failed: {value}"
+        )))
+    }
 }
 
 fn process_output_value(output: ProcessOutput) -> Value {
@@ -1075,8 +1087,47 @@ fn job_id_key(arguments: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{managed_environment, managed_path};
+    use super::{managed_environment, managed_path, search_process_output};
     use xharness_process::is_secret_env_name;
+
+    #[test]
+    fn search_process_exit_matrix_preserves_diagnostics() {
+        use xharness_process::{CapturedOutput, ProcessOutput, ProcessStatus, TerminationReason};
+        for (code, signal, termination, ok) in [
+            (Some(0), None, TerminationReason::Exited, true),
+            (Some(1), None, TerminationReason::Exited, true),
+            (Some(2), None, TerminationReason::Exited, false),
+            (None, Some(6), TerminationReason::Exited, false),
+            (Some(0), None, TerminationReason::TimedOut, false),
+            (Some(0), None, TerminationReason::Cancelled, false),
+            (None, None, TerminationReason::Exited, false),
+        ] {
+            let capture = CapturedOutput {
+                text: "diagnostic fixture".into(),
+                truncated: false,
+                bytes_read: 18,
+            };
+            let result = search_process_output(ProcessOutput {
+                pid: 42,
+                status: ProcessStatus {
+                    success: code == Some(0),
+                    code,
+                    signal,
+                    core_dumped: false,
+                },
+                termination,
+                stdout: capture.clone(),
+                stderr: capture,
+            });
+            assert_eq!(result.is_ok(), ok, "{code:?}/{signal:?}/{termination:?}");
+            let text = match result {
+                Ok(out) => out.content,
+                Err(err) => err.message,
+            };
+            assert!(text.contains("diagnostic fixture"));
+            assert!(text.contains("exit_code") && text.contains("stderr"));
+        }
+    }
 
     #[test]
     fn managed_environment_preserves_runtime_state_without_credentials() {

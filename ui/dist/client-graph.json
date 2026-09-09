@@ -1,5 +1,5 @@
 {
-  "rev": "f35acd19a72fa65b",
+  "rev": "a3f71a093fde4179",
   "entries": [
     {
       "id": "@deepseek-ai/dsh-typert-registry",
@@ -45,8 +45,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-connection",
-      "url": "/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=818cc6c5a1a98f46",
-      "rev": "818cc6c5a1a98f46",
+      "url": "/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=b8f1d051feacd6f6",
+      "rev": "b8f1d051feacd6f6",
       "inject": [],
       "immediately": true
     },
@@ -61,8 +61,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-runtime",
-      "url": "/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=13a5fe0ee8cddda2",
-      "rev": "13a5fe0ee8cddda2",
+      "url": "/plugins/@deepseek-ai/dsh-client-runtime/client.js?rev=a142c998f7ea74b6",
+      "rev": "a142c998f7ea74b6",
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-typert-registry",
@@ -181,8 +181,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-conversation",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=8ba14bd089c73b77",
-      "rev": "8ba14bd089c73b77",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=3cecbd2231e61188",
+      "rev": "3cecbd2231e61188",
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
@@ -438,8 +438,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-context",
-      "url": "/plugins/@xlang/xharness-client-ui-context/client.js?rev=718fb01f76154016",
-      "rev": "718fb01f76154016",
+      "url": "/plugins/@xlang/xharness-client-ui-context/client.js?rev=6a93bb49a5f3c8e6",
+      "rev": "6a93bb49a5f3c8e6",
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation"
@@ -453,6 +453,16 @@
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-directory",
+      "url": "/plugins/@xlang/xharness-client-ui-directory/client.js?rev=a96b21df5a9d17af",
+      "rev": "a96b21df5a9d17af",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-locale"
       ]
     }
   ]

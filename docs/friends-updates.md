@@ -42,7 +42,7 @@ and public key into the bundler, builds/signs NSIS, independently verifies the
 signatures, tests native installation ownership/crash cleanup, and uploads all
 assets to a private Draft. It does not automatically change the live latest feed.
 Run `Windows Direct Latest Acceptance` with that successful release run ID and
-candidate version. Inspect all 0.2.2/0.2.3/0.2.4 native single-hop results before a
+candidate version. Inspect all 0.2.2/0.2.3/0.2.4/0.2.5 native single-hop results before a
 maintainer promotes the complete draft to public/latest. Future base-version
 coverage must be maintained as the supported population changes.
 Published or draft versions cannot be overwritten. Versions must increase.

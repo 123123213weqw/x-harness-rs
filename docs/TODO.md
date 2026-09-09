@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**状态日期：** 2026-09-05
+**状态日期：** 2026-09-09
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -10,6 +10,52 @@ Commit、Issue、PR 应引用这些 ID。
 
 当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
 `b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
+
+## 历史消息重新编辑专项（PR #35）
+
+规范见 [历史消息编辑后重新发送](specs/message-edit-resend.md)。
+
+- [x] `MSG-EDIT-01` 停止后的文字/图片消息恢复为新草稿，不修改历史；保留主分支最新 UI。
+- [x] `MSG-EDIT-02` 草稿覆盖确认、取消还原、会话隔离、刷新恢复和发送失败保留。
+- [x] `MSG-EDIT-03` 复用附件读取与 prompt，增加授权图片引用和运行态/模型能力检查。
+- [x] `MSG-EDIT-04` Node、真实 Chromium/WebKit 与远程 Rust 回归覆盖正常和异常路径。
+- [ ] `MSG-EDIT-05` PR CI 全通过后合并；后续发布新安装包才会进入已安装软件。
+
+## 桌面搜索与审批专项（2026-09-09）
+
+规范见 [桌面搜索与审批终态](specs/desktop-search-approval.md)。
+
+- [x] `DESKTOP-FIX-01` macOS CI 固定无 PCRE2 的内部 rg，拒绝外部 dylib，增加签名包内真实搜索验收。
+- [x] `DESKTOP-FIX-02` glob/grep 区分无匹配与进程失败，保留诊断，不再误报 success。
+- [x] `DESKTOP-FIX-03` 审批超时/取消收敛、Host/UI 清理、迟到回答拒绝和旧日志追加式修复。
+- [x] `DESKTOP-FIX-04` PR #43 全部跨平台 CI 通过并合并；macOS 0.2.9 已发布、验证签名并替换本机。28 个旧会话及 Provider 配置保留，旧审批追加 cancelled 且 UI history 已返回终态，最终签名包内 rg 实测通过。独立 3082 Web 未重启。
+
+## 请求级上下文计量专项（2026-09-09）
+
+规范见 [请求级上下文计量](specs/context-accounting.md)，证据见 [回放及真实请求报告](reports/context-accounting-20260909.md)。
+
+- [x] `CTX-ACC-01` 请求前估算与 Provider 实际 usage 分离；按请求/模型隔离，修复实际值被估算覆盖。
+- [x] `CTX-ACC-02` 完整编码请求特征、配置隔离、内存有界校准、漂移与多模态保守回退。
+- [x] `CTX-ACC-03` 可配置计数截止时间/严格模式、瞬态降级与冷却；保留 token guard 和鉴权失败。
+- [x] `CTX-ACC-04` 无损解开已知工具结果内层 JSON；正文、诊断字段和持久日志不裁减。
+- [x] `CTX-ACC-05` Web/Tauri 共享显示、历史 inspector、重建补丁与自动化回归；真实 DeepSeek 12 轮工具调用及 112 次历史数字回放。
+- [x] `CTX-ACC-06` PR #42 全部跨平台 CI 通过并合并；macOS 个人测试版 0.2.8 已签名发布并替换本机，27 个会话/Provider 配置保留，历史实际输入 117,446 验收通过。
+- [ ] `CTX-ACC-08` 将本次修复部署到独立 Web / Linux / Windows 已安装实例；本次没有重启 3082 独立服务。
+- [ ] `CTX-ACC-07` Provider 专用图片计量/校准；当前明确保守估算，不套用文本模型。
+
+## 多模态附件专项（2026-09-09）
+
+规范见 [多模态消息与持久附件](specs/multimodal-attachments.md)。以下区分源码完成与安装包交付。
+
+- [x] `MM-01` 消息 Text/Image blocks、兼容旧文本日志，替换图片占位符链路。
+- [x] `MM-02` AttachmentStore 抽象、正式文件持久化、尺寸/格式验证、会话隔离与分叉预览。
+- [x] `MM-03` Chat/Responses 原生图片编码、token count 复用、能力三态与 Debug 图片脱敏。
+- [x] `MM-04` 图片 token 估算、上下文引用保留、协议/重试/持久性测试与真实 DeepSeek 两轮读图验证。
+- [ ] `MM-05` CI 跨平台回归和合并已完成；macOS 0.2.8 已替换本机；独立服务更新与桌面上传图片端到端验收仍待完成。
+- [ ] `MM-06` 附件回收、引用生命周期与失败 admission 的孤儿文件清理。
+- [ ] `MM-07` 工具图片输出、PDF/音频扩展与按 Provider 校准图片预算。
+- [ ] `MM-08` 自动发现视觉能力；当前提供显式声明/未知状态，不猜模型名。
+- [ ] `OBS-EXIT-01` 单独核对 Bash 非零退出码与外层 outcome 的呈现及模型可见语义，不将图片丢失问题归因于工具探索本身。
 
 ## 当前状态快照
 
@@ -29,7 +75,7 @@ Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Co
 - 长生命周期 Agent 已接管正式 Host；输入先 Flush 再确认，Claim 与 `turn/start + user/message`
   原子提交，Pending Turn/Approval 可以在重启后续跑。
 - 正式生产 Tool 路径已经由 `xharness-tools::ToolExecutor` 接管；Core 旧 Tool 类型、Request 字段与 Scheduler/Approval 分支已删除（`P0-03`）。
-- Provider 原生输入 Token 计数端点已经接入；端点不支持时才回退到保守 Meter。
+- Provider 原生输入 Token 计数端点已接入；不支持或可重试故障时，经可配置策略降级为 Adapter 校准/保守估算，仍执行预算守卫。
 - 自动 Context Compaction 已接入正式 Durable Host：80% Pressure、请求前 Hard Overflow 和
   Provider 无 Delta 的 400 Context Overflow 都会进入有界压缩恢复；成功后重新构造并计量请求，
   Session/Web 使用不删除原 Event Log 的 Surface Replace。
@@ -785,3 +831,25 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] 人工改名、切模型、删除、重启、空/截断输出与 Host 新消息全链路回归；V100 新增 14 项专项＋全 Workspace 测试和 Clippy 通过。规范见 `specs/auto-titles.md`，记录见 `evidence/auto-titles-20260907.md`。
 - [ ] 正式更新包安装及真实模型标题质量验收（不把 Fake Provider 回归算作发布）。
 - [ ] 手动重新生成入口、专用标题模型/预算配置、大规模旧会话补齐进度、专用 Debug 指标。
+
+### 2026-09-08 · 三平台稳定更新（DESKTOP-UPDATE-02）
+
+- [x] 统一发布协议与四目标矩阵：Windows x64、Linux x64 AppImage、Mac ARM64/Intel；
+  复用既有更新器、UI、Host 生命周期和 Windows 原生安装验收。
+- [x] 单次完整清单聚合、公开构建收据、独立签名校验、同 SHA/Run/Attempt 绑定；
+  沿用现有 Windows 公钥，禁止清单退化、错误包类型回退及覆盖已发布版本。
+- [x] 候选 Draft 与正式 Promote 分离；Apple Developer ID/公证缺失硬失败，不降级
+  ad-hoc；公开更新源只在全部正式验收通过后改变。
+- [x] 新增原生 Unix 候选升级、Windows 当前稳定包单跳升级的验收脚本与来源绑定；
+  文档明确临时基础包/真实候选包、Smoke/演练/正式发布的不同证据等级。
+- [x] 核心改动 GitHub CI [34171760874](https://github.com/123123213weqw/x-harness-rs/actions/runs/34171760874)
+  11/11 Job 成功；Linux AppImage、Mac ARM64、Mac Intel 各三轮真实升级，共 9/9。
+  已在真实 UI 自动产生两个会话时验证完整 Journal 库存与重启恢复，不再硬编码单会话数量。
+  详细证据见 [三平台更新回归验收](reports/unified-update-ci-2026-09-08.md)。
+- [ ] 配置 Apple 凭据并完成正式四目标候选包构建、真实候选升级验收及发布。
+  用户已确认当前无 Apple 证书，保留门禁；本项是真实外部依赖，不用测试包顶替。
+- [ ] 旧 Mac 0.1.4 固定测试通道一次性基础包迁移与用户桌面点击验收。
+- [ ] Linux DEB/RPM 独立包类型更新、提权/取消/失败恢复；Linux ARM64、Windows ARM64。
+- 规范：[三平台稳定更新](specs/unified-desktop-updates.md)。现有 Windows 稳定通道继续保留
+  （验收结束时独立发布流水线已更新至 `friends-v0.2.6`）；
+  本次开发不改用户的应用安装、对话和生产模型服务。
