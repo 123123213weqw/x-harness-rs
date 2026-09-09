@@ -306,23 +306,71 @@ def process_ownership(name):
     return {'start_new_session': True}
 
 
-def stop_process(process):
+def process_group_members(pgid):
+    # ps exposes only numeric identity and state here, never command lines or
+    # inherited environments. A failed/truncated inventory is not proof of exit.
+    output = run(['ps', '-axo', 'pid=,pgid=,uid=,stat='], timeout=10).stdout.decode('ascii')
+    require(output.strip() and output.endswith('\n'), 'Invalid process inventory')
+    members = []
+    for line in output.splitlines():
+        fields = line.split()
+        require(len(fields) == 4 and all(value.isdecimal() for value in fields[:3])
+                and fields[3][0] in 'IDRSTUVWXZt', 'Invalid process inventory row')
+        pid, group, uid = map(int, fields[:3])
+        if group == pgid:
+            members.append({'pid': pid, 'pgid': group, 'uid': uid, 'stat': fields[3]})
+    return members
+
+
+def stop_process(process, evidence_root=None):
     if process is None:
         return
-    # The original desktop PID may have exited on restart; its owned group is
-    # still ours. Never kill by process name or target any existing installation.
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            break
-        if sig == signal.SIGTERM:
-            time.sleep(1)
+    evidence = {'status': 'failed', 'pgid': process.pid, 'snapshots': [], 'signals': []}
+
+    def live_members():
+        # Reap the direct child, but keep inspecting the group after an updater
+        # restart: its surviving descendants are no longer children of Python.
+        process.poll()
+        members = process_group_members(process.pid)
+        evidence['snapshots'].append(members)
+        require(all(member['uid'] == os.getuid() for member in members),
+                'Owned process group ownership changed')
+        return [member for member in members if not member['stat'].startswith('Z')]
+
     try:
+        require(process.pid > 1 and process.pid != os.getpgrp(), 'Refusing to signal own process group')
+        live = live_members()
+        for sig, grace in ((signal.SIGTERM, 1), (signal.SIGKILL, 5)):
+            if not live:
+                break
+            evidence['signals'].append(int(sig))
+            try:
+                os.killpg(process.pid, sig)
+            except (ProcessLookupError, PermissionError) as error:
+                # Darwin killpg can return EPERM for a zombie-only group.
+                # Never ignore it for a live member or an unreadable inventory.
+                evidence.setdefault('signalErrors', []).append({'signal': int(sig),
+                    'errorType': type(error).__name__})
+                live = live_members()
+                if live:
+                    raise
+                break
+            deadline = time.monotonic() + grace
+            while True:
+                live = live_members()
+                if not live or time.monotonic() >= deadline:
+                    break
+                time.sleep(.1)
+        if live:
+            raise TimeoutError('Owned process group still has live members after SIGKILL')
         process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=5)
+        evidence['status'] = 'passed'
+    except Exception as error:
+        evidence['errorType'] = type(error).__name__
+        raise
+    finally:
+        if evidence_root is not None:
+            write_json(evidence_root / 'cleanup.json', evidence)
 
 
 def json_lines(path):
@@ -664,7 +712,7 @@ def candidate_native(args):
         raise
     finally:
         try:
-            stop_process(process)
+            stop_process(process, root)
         except Exception as error:
             (root / 'acceptance.json').unlink(missing_ok=True)
             write_json(root / 'FAIL.json', {'status': 'failed', 'errorType': type(error).__name__,
@@ -791,7 +839,7 @@ def candidate_update(args):
     finally:
         try:
             try:
-                stop_process(process)
+                stop_process(process, root)
             finally:
                 if server is not None:
                     server.shutdown()

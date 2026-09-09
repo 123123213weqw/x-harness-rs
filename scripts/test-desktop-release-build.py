@@ -469,10 +469,10 @@ class WorkflowGuard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root, output = Path(temporary) / 'root', Path(temporary) / 'output'
             root.mkdir()
-            for name in ['acceptance.json', 'app.log', 'tls.key', 'ca.pem', 'disposable.key', 'providers.json']:
+            for name in ['acceptance.json', 'app.log', 'cleanup.json', 'tls.key', 'ca.pem', 'disposable.key', 'providers.json']:
                 (root / name).write_text('{}')
             build.export_native(type('Args', (), {'root': root, 'output': output})())
-            self.assertEqual({p.name for p in output.iterdir()}, {'acceptance.json', 'app.log'})
+            self.assertEqual({p.name for p in output.iterdir()}, {'acceptance.json', 'app.log', 'cleanup.json'})
 
 
 if __name__ == '__main__':

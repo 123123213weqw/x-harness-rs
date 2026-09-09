@@ -453,16 +453,148 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
                 m.process_ownership('darwin-aarch64')
 
     def test_timeout_terminates_owned_process_group(self):
-        process = unittest.mock.Mock(pid=987654321)
-        with patch.object(m.os, 'killpg') as killpg, patch.object(m.time, 'sleep'):
-            m.stop_process(process)
-        self.assertEqual(killpg.call_args_list, [
-            unittest.mock.call(process.pid, m.signal.SIGTERM),
-            unittest.mock.call(process.pid, m.signal.SIGKILL)])
-        process.wait.assert_called_once_with(timeout=5)
         with self.assertRaises(subprocess.TimeoutExpired):
             m.run([sys.executable, '-c', 'import time;time.sleep(90)'], timeout=.05)
 
+
+class CleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.process = unittest.mock.Mock(pid=987654321)
+        self.live = [{'pid': 987654322, 'pgid': self.process.pid, 'uid': 1000, 'stat': 'S'}]
+        self.zombie = [{**self.live[0], 'stat': 'Z+'}]
+        for target, name, value in ((m.os, 'getpgrp', lambda: 42), (m.os, 'getuid', lambda: 1000),
+                                    (m.signal, 'SIGKILL', 9)):
+            p = patch.object(target, name, value, create=True)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def stop(self, snapshots, errors=None):
+        # Advance fake time without slowing down permission/timeout regressions.
+        with patch.object(m, 'process_group_members', side_effect=snapshots), \
+                patch.object(m.os, 'killpg', side_effect=errors, create=True) as killpg, \
+                patch.object(m.time, 'sleep'), \
+                patch.object(m.time, 'monotonic', side_effect=range(100)):
+            m.stop_process(self.process)
+        return killpg
+
+    def test_absent_group_is_already_stopped(self):
+        self.stop([[]]).assert_not_called()
+        self.process.poll.assert_called()
+        self.process.wait.assert_called_once_with(timeout=5)
+
+    def test_zombie_only_group_is_reaped_without_signalling(self):
+        self.stop([self.zombie]).assert_not_called()
+        self.process.wait.assert_called_once_with(timeout=5)
+
+    def test_term_completion_does_not_send_kill_to_zombies(self):
+        killpg = self.stop([self.live, self.zombie])
+        killpg.assert_called_once_with(self.process.pid, m.signal.SIGTERM)
+
+    def test_restarted_descendant_is_killed_after_original_parent_exits(self):
+        self.process.poll.return_value = 0
+        killpg = self.stop([self.live, self.live, self.live, []])
+        self.assertEqual(killpg.call_args_list, [unittest.mock.call(self.process.pid, m.signal.SIGTERM),
+                                               unittest.mock.call(self.process.pid, m.signal.SIGKILL)])
+
+    def test_permission_error_after_exit_requires_no_live_members(self):
+        self.stop([self.live, self.zombie], PermissionError('race')).assert_called_once()
+
+    def test_live_permission_error_is_not_suppressed(self):
+        with self.assertRaises(PermissionError):
+            self.stop([self.live, self.live], PermissionError('denied'))
+
+    def test_process_lookup_race_is_not_success_if_members_remain(self):
+        with self.assertRaises(ProcessLookupError):
+            self.stop([self.live, self.live], ProcessLookupError('race'))
+
+    def test_kill_must_actually_stop_descendants(self):
+        with self.assertRaisesRegex(TimeoutError, 'still has live'):
+            self.stop([self.live] * 20)
+
+    def test_foreign_uid_and_own_group_are_never_signalled(self):
+        with self.assertRaisesRegex(ValueError, 'ownership'):
+            self.stop([[{**self.live[0], 'uid': 2000}]])
+        self.process.pid = 42
+        with self.assertRaisesRegex(ValueError, 'own process group'):
+            self.stop([self.live])
+
+    def test_ps_parser_selects_only_exact_group(self):
+        output = b' 101 20 1000 S\n 102 21 1000 Z+\n 103 20 1000 R\n'
+        with patch.object(m, 'run', return_value=unittest.mock.Mock(stdout=output)) as run:
+            self.assertEqual([p['pid'] for p in m.process_group_members(20)], [101, 103])
+        self.assertEqual(run.call_args.args[0], ['ps', '-axo', 'pid=,pgid=,uid=,stat='])
+
+    def test_unreadable_or_malformed_process_inventory_fails_closed(self):
+        for output in (b'', b'garbage\n', b'1 2 nope S\n', b'1 2 1000 ?\n'):
+            with self.subTest(output=output), \
+                    patch.object(m, 'run', return_value=unittest.mock.Mock(stdout=output)):
+                with self.assertRaises(ValueError):
+                    m.process_group_members(20)
+        with patch.object(m, 'run', side_effect=subprocess.TimeoutExpired('ps', 10)):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                m.process_group_members(20)
+
+    def test_cleanup_evidence_records_failure_without_command_or_environment(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.object(m, 'process_group_members', return_value=self.live), \
+                patch.object(m.os, 'killpg', side_effect=PermissionError('denied'), create=True):
+            with self.assertRaises(PermissionError):
+                m.stop_process(self.process, pathlib.Path(temp))
+            evidence = m.read_json(pathlib.Path(temp) / 'cleanup.json')
+            self.assertEqual(evidence['status'], 'failed')
+            self.assertEqual(evidence['errorType'], 'PermissionError')
+            self.assertEqual(evidence['snapshots'][-1], self.live)
+            self.assertEqual(set(evidence['snapshots'][0][0]), {'pid', 'pgid', 'uid', 'stat'})
+
+    def test_cleanup_success_requires_direct_child_reaped(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.object(m, 'process_group_members', return_value=[]):
+            self.process.wait.side_effect = subprocess.TimeoutExpired('child', 5)
+            with self.assertRaises(subprocess.TimeoutExpired):
+                m.stop_process(self.process, pathlib.Path(temp))
+            self.assertEqual(m.read_json(pathlib.Path(temp) / 'cleanup.json')['status'], 'failed')
+            self.process.wait.side_effect = None
+            m.stop_process(self.process, pathlib.Path(temp))
+            self.assertEqual(m.read_json(pathlib.Path(temp) / 'cleanup.json')['status'], 'passed')
+
+
+@unittest.skipUnless(os.name == 'posix', 'Requires real Unix process groups')
+class NativeCleanupTests(unittest.TestCase):
+    def test_real_exited_child_is_reaped(self):
+        process = subprocess.Popen([sys.executable, '-c', 'pass'], process_group=0)
+        try:
+            time_limit = m.time.monotonic() + 5
+            while m.time.monotonic() < time_limit:
+                members = m.process_group_members(process.pid)
+                if members and all(p['stat'].startswith('Z') for p in members):
+                    break
+                m.time.sleep(.05)
+            m.stop_process(process)
+            self.assertIsNotNone(process.returncode)
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+
+    def test_real_restarted_term_resistant_descendant_is_stopped(self):
+        child_code = 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print("ready",flush=True); time.sleep(60)'
+        parent_code = 'import subprocess,sys; subprocess.Popen([sys.executable,"-c",sys.argv[1]])'
+        outsider = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'], process_group=0)
+        process = subprocess.Popen([sys.executable, '-c', parent_code, child_code],
+                                   process_group=0, stdout=subprocess.PIPE, text=True)
+        try:
+            import select
+            self.assertTrue(select.select([process.stdout], [], [], 10)[0], 'Descendant readiness timed out')
+            self.assertEqual(process.stdout.readline().strip(), 'ready')
+            process.wait(timeout=5)
+            m.stop_process(process)
+            self.assertFalse([p for p in m.process_group_members(process.pid) if not p['stat'].startswith('Z')])
+            self.assertIsNone(outsider.poll(), 'Cleanup touched unrelated group')
+        finally:
+            m.stop_process(process)
+            process.stdout.close()
+            outsider.kill()
+            outsider.wait(timeout=5)
 
 
 if __name__ == '__main__':
