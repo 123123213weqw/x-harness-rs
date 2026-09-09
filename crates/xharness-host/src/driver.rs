@@ -1120,6 +1120,15 @@ impl BasicHost {
             .await?;
         let step = u32::try_from(event.step).unwrap_or(u32::MAX);
         match event.kind {
+            LoopEventKind::ExecutionNotice(notice) => {
+                self.append_session_event(
+                    session_id,
+                    "run/checkpoint",
+                    crate::restore::web_execution_notice(turn, Some(&notice)),
+                    None,
+                )
+                .await?;
+            }
             LoopEventKind::TextDelta(text) => {
                 self.append_session_event(
                     session_id,

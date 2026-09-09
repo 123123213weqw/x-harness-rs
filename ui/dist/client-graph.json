@@ -1,5 +1,5 @@
 {
-  "rev": "14d510ab63d35445",
+  "rev": "c38fb4133a614e95",
   "entries": [
     {
       "id": "@deepseek-ai/dsh-typert-registry",
@@ -181,8 +181,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-conversation",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=420576336f7d0cae",
-      "rev": "420576336f7d0cae",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js?rev=a010abc4b4a54e11",
+      "rev": "a010abc4b4a54e11",
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",

@@ -1,5 +1,7 @@
 //! XHarness' embeddable, provider-independent agent loop.
 
+mod checkpoint;
+pub use checkpoint::CheckpointConfig;
 mod engine;
 mod session;
 mod tool;

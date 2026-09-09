@@ -208,3 +208,8 @@ Web UI 是 Session/Agent 状态的 Projection，不拥有模型历史。`xharnes
 `xharness-attachments::AttachmentStore` 管理字节，Host 负责接收和会话访问；Provider 在发送前
 解析附件并编码各协议图片字段。Core 不接触 base64 或本机路径，Context 保留有序引用并纳入图片预算。
 详见 [多模态附件规范](specs/multimodal-attachments.md)。
+
+
+## 执行检查点（2026-09-10）
+
+Loop 内置阶段检查点与精确重复观察，不增加模型工具。Core 负责判断/临时注入，Tools Registry 声明轮询豁免和稳定观察适配，Session 保存小型状态，Host 共用投影，Conversation 渲染实时及历史通知。默认阶段不是硬限额；输出预算和用户硬限额独立生效。详见 [规范](specs/execution-checkpoints.md)。

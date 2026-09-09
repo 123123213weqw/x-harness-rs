@@ -482,6 +482,14 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Runtime control state, not user text or a replayable tool operation.
+    #[serde(rename = "run/checkpoint")]
+    ExecutionCheckpoint {
+        turn: u32,
+        step: u32,
+        state: crate::ExecutionCheckpointState,
+        notice: Option<crate::ExecutionNotice>,
+    },
     /// Failure before a normal TurnEnd could be journaled; never replay its work automatically.
     #[serde(rename = "agent/delegation-failure")]
     AgentDelegationFailure { message_id: String, error: String },

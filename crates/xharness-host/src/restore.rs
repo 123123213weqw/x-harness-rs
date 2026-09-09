@@ -1010,7 +1010,18 @@ fn restored_web_event(
     if matches!(event.data(), EventData::SessionTitleGeneration { .. }) {
         return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"title-generation"}, "hidden":true});
     }
+    if matches!(
+        event.data(),
+        EventData::ExecutionCheckpoint { notice: None, .. }
+    ) {
+        return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"execution-checkpoint-state"}, "hidden":true});
+    }
     let (event_type, data, surface_op) = match event.data() {
+        EventData::ExecutionCheckpoint { turn, notice, .. } => (
+            "run/checkpoint".into(),
+            web_execution_notice(web_turn(*turn), notice.as_ref()),
+            None,
+        ),
         EventData::SessionTitleGeneration { .. }
         | EventData::AgentDelegationFailure { .. }
         | EventData::AgentFailureDelivered { .. }
@@ -1204,6 +1215,13 @@ fn restored_web_event(
             .insert("sourceEventSeqs".to_owned(), json!(replace.shadowed_seqs));
     }
     web
+}
+
+pub(crate) fn web_execution_notice(
+    turn: u32,
+    notice: Option<&xharness_session::ExecutionNotice>,
+) -> Value {
+    json!({"turn":turn,"notice":notice})
 }
 
 fn tagged_event_data(event: &EventData) -> (String, Value, Option<Value>) {
@@ -1734,6 +1752,60 @@ mod tests {
             )
             .unwrap();
         session
+    }
+
+    #[test]
+    fn execution_checkpoint_projection_is_shared_and_internal_snapshots_are_hidden() {
+        let mut session = Session::new(SessionHeader::new("checkpoint-projection")).unwrap();
+        let state = xharness_session::ExecutionCheckpointState {
+            phase: 1,
+            phase_end_step: 1024,
+            stage_pending: false,
+            repetition: Default::default(),
+            pending_notice: None,
+            pending_repetitions: Vec::new(),
+        };
+        let notice = xharness_session::ExecutionNotice {
+            kind: "issued".into(),
+            message: "检查点".into(),
+            phase: 1,
+            steps_completed: 0,
+            phase_end_step: 1024,
+            hard_max_steps: None,
+        };
+        session
+            .append_batch_at(
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::ExecutionCheckpoint {
+                        turn: 1,
+                        step: 0,
+                        state: state.clone(),
+                        notice: None,
+                    }
+                    .into(),
+                    EventData::ExecutionCheckpoint {
+                        turn: 1,
+                        step: 0,
+                        state,
+                        notice: Some(notice.clone()),
+                    }
+                    .into(),
+                ],
+                1,
+            )
+            .unwrap();
+        let tail =
+            project_session_event_tail(&session, &ModelRoute::new("test", "test"), 100, usize::MAX);
+        assert_eq!(tail.events[1]["hidden"], true);
+        assert_eq!(tail.events[1]["type"], "xharness/internal");
+        assert_eq!(tail.events[2]["type"], "run/checkpoint");
+        assert_eq!(
+            tail.events[2]["data"],
+            super::web_execution_notice(0, Some(&notice))
+        );
+        assert!(session.derive_messages().is_empty());
     }
 
     #[test]

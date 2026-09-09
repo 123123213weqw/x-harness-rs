@@ -364,8 +364,10 @@ impl LoopEngine {
             pending_stream_fragments: 0,
             stream_batch_started_at: None,
         });
+        let checkpoint = request.config.checkpoints.initial();
         let runner = Runner {
             run_id: run_id.clone(),
+            checkpoint,
             request,
             cancellation: cancellation.clone(),
             consumer_dropped: Arc::clone(&consumer_dropped),
@@ -495,6 +497,7 @@ fn surface_node(seq: u64, message: &AgentMessage) -> Result<SurfaceNode, RunFail
 }
 
 struct Runner {
+    checkpoint: xharness_session::ExecutionCheckpointState,
     run_id: String,
     request: LoopRequest,
     cancellation: CancellationToken,
@@ -693,8 +696,20 @@ impl Runner {
             self.snapshot("recovered_tool_batch_saved", true).await?;
         }
 
-        'steps: while self.step < self.request.config.max_steps {
+        'steps: loop {
             self.settle_control_at_boundary().await?;
+            self.ensure_running()?;
+            if self.step >= self.request.config.max_steps {
+                break;
+            }
+            if let Some(notice) = crate::checkpoint::issue(
+                &mut self.checkpoint,
+                &self.request.config.checkpoints,
+                self.step,
+                self.request.config.max_steps,
+            ) {
+                self.save_checkpoint(Some(notice)).await?;
+            }
             self.step += 1;
             self.journal_step_start().await?;
             let mut pressure_attempted = false;
@@ -718,7 +733,7 @@ impl Runner {
                     )
                     .with_step(self.step)
                     .with_tools(context_tools.clone());
-                let prepared = self
+                let mut prepared = self
                     .request
                     .context_policy
                     .prepare(context_request)
@@ -728,6 +743,17 @@ impl Runner {
                     .validate()
                     .map_err(|error| RunFailure::Failed(error.to_string()))?;
                 self.validate_prompt_surface(&prepared)?;
+                // Runtime controls are transient, not new user history. Add AFTER
+                // policy projection so compaction/custom policies cannot remove
+                // an unconsumed notice, and BEFORE admission/counting/audit.
+                // A user-role control note keeps the assembled system prompt
+                // immutable and works with providers requiring one initial system.
+                if let Some(notice) = &self.checkpoint.pending_notice {
+                    prepared.messages.push(
+                        AgentMessage::user(notice.clone())
+                            .with_id(format!("execution-notice-{}-{}", self.run_id, self.step)),
+                    );
+                }
                 self.debug(
                     "context.prepared",
                     json!({
@@ -1023,6 +1049,18 @@ impl Runner {
                 })
                 .await?;
                 return Ok(LoopStatus::MaxTokens);
+            }
+
+            if self.checkpoint.pending_notice.is_some() {
+                self.ensure_running()?;
+                let notice = crate::checkpoint::consume(
+                    &mut self.checkpoint,
+                    &self.request.config.checkpoints,
+                    self.step,
+                    self.request.config.max_steps,
+                    !model.calls.is_empty(),
+                );
+                self.save_checkpoint(notice).await?;
             }
 
             if model.calls.is_empty() {
@@ -1675,6 +1713,14 @@ impl Runner {
             self.messages = self.prompt_prefixed(session.derive_messages());
             self.step = usize::try_from(step)
                 .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
+            if let Some(state) = session.events().iter().rev().find_map(|e| match e.data() {
+                SessionEventData::ExecutionCheckpoint { turn: t, state, .. } if *t == turn => {
+                    Some(state.clone())
+                }
+                _ => None,
+            }) {
+                self.checkpoint = state;
+            }
             self.recovered_tool_batch = Some(RecoveredToolBatch { calls });
             if let Some(journal) = self.journal.as_mut() {
                 journal.revision = session.revision();
@@ -2168,7 +2214,7 @@ impl Runner {
         let turn = journal.turn;
         let step = u32::try_from(self.step)
             .map_err(|_| RunFailure::Failed("session step counter overflow".to_owned()))?;
-        let events = executions
+        let mut events: Vec<SessionEventData> = executions
             .iter()
             .map(|execution| SessionEventData::ToolResult {
                 turn,
@@ -2181,7 +2227,36 @@ impl Runner {
                 },
             })
             .collect();
+        events.push(SessionEventData::ExecutionCheckpoint {
+            turn,
+            step,
+            state: self.checkpoint.clone(),
+            notice: None,
+        });
         self.journal_append(events, true).await
+    }
+
+    async fn save_checkpoint(
+        &mut self,
+        notice: Option<xharness_session::ExecutionNotice>,
+    ) -> Result<(), RunFailure> {
+        if let Some(journal) = &self.journal {
+            self.journal_append(
+                vec![SessionEventData::ExecutionCheckpoint {
+                    turn: journal.turn,
+                    step: u32::try_from(self.step)
+                        .map_err(|_| RunFailure::Failed("step overflow".into()))?,
+                    state: self.checkpoint.clone(),
+                    notice: notice.clone(),
+                }],
+                true,
+            )
+            .await?;
+        }
+        if let Some(notice) = notice {
+            self.emit(LoopEventKind::ExecutionNotice(notice)).await?;
+        }
+        Ok(())
     }
 
     fn approval_id(&self, order: usize) -> String {
@@ -3533,6 +3608,42 @@ impl Runner {
         completed: Vec<Option<ToolExecution>>,
     ) -> Result<(), RunFailure> {
         let completed = completed.into_iter().flatten().collect::<Vec<_>>();
+        for execution in &completed {
+            let spec = if let Some(executor) = &self.request.tool_executor {
+                executor.registry().get(&execution.call.name).await
+            } else {
+                None
+            };
+            if spec.as_ref().is_some_and(|s| s.repetition_exempt) {
+                continue;
+            }
+            let result = &execution.result;
+            let mut content = result.content.clone();
+            let mut ok = result.ok;
+            let mut reliable = !result.truncated;
+            if result.ok {
+                if let Some(adapter) = spec.as_ref().and_then(|s| s.repetition_observation) {
+                    match adapter(&content) {
+                        Some((success, value)) => {
+                            ok = success;
+                            content = serde_json::to_string(&value)
+                                .map_err(|e| RunFailure::Failed(e.to_string()))?;
+                        }
+                        None => reliable = false,
+                    }
+                }
+            }
+            crate::checkpoint::observe(
+                &mut self.checkpoint,
+                &self.request.config.checkpoints,
+                &execution.call.name,
+                &execution.call.arguments_json,
+                ok,
+                &content,
+                &result.error,
+                reliable,
+            );
+        }
         self.journal_tool_results(&completed).await?;
         for execution in completed {
             let mut message =

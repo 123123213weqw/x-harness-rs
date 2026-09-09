@@ -568,6 +568,18 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
 
         match logged.data() {
+            EventData::ExecutionCheckpoint { turn, state, .. } => {
+                if open_turn != Some(*turn)
+                    || state.phase == 0
+                    || state.phase_end_step == 0
+                    || state.pending_repetitions.len() > 16
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "invalid execution checkpoint scope/state",
+                    ));
+                }
+            }
             EventData::AgentDelegated {
                 parent_session_id,
                 invocation_id,

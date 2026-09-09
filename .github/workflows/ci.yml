@@ -75,6 +75,7 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/ui-tests" --no-save --package-lock=false playwright@1.61.1 react@18.3.1 react-dom@18.3.1
           node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
       - run: python3 -B scripts/test-remote-sync.py
+      - run: node scripts/test-execution-checkpoints.mjs
       - run: node scripts/test-attachments.mjs
       - run: node scripts/test-conversation-message-edit.mjs
       - run: node scripts/test-context-plugin.mjs
@@ -99,6 +100,8 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-conversation-message-edit-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-attachments-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-attachments-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-execution-checkpoints-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-execution-checkpoints-browser.mjs
       - name: Upload workspace directory UI evidence
         if: always()
         uses: actions/upload-artifact@v7
