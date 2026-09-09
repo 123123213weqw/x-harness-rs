@@ -4376,3 +4376,57 @@ async fn interrupted_text_is_durable_and_explicit_new_turn_has_no_orphan_tools()
     assert_eq!(recovered.status, LoopStatus::Completed);
     assert_eq!(recovered.final_text, "new attempt");
 }
+
+#[derive(Clone)]
+struct UnavailableCounter {
+    inner: ScriptProvider,
+    status: u16,
+}
+#[async_trait]
+impl ModelProvider for UnavailableCounter {
+    async fn count_input_tokens(
+        &self,
+        _: &ProviderRequest,
+        cancel: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        if self.status == 0 {
+            cancel.cancelled().await;
+            return Ok(None);
+        }
+        Err(ProviderError::http(self.status, "counter unavailable"))
+    }
+    async fn stream(
+        &self,
+        r: ProviderRequest,
+        c: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.inner.stream(r, c).await
+    }
+}
+#[tokio::test]
+async fn optional_counter_failure_timeout_auth_and_strict_policy() {
+    for (status, allow, completed_ok) in [
+        (503, true, true),
+        (0, true, true),
+        (401, true, false),
+        (503, false, false),
+    ] {
+        let provider = Arc::new(UnavailableCounter {
+            inner: ScriptProvider::new([vec![Ok(completed())]]),
+            status,
+        });
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("hello")]);
+        request.token_guard = Some(
+            TokenGuard::conservative(TokenBudget::new(8192, 1024))
+                .unwrap()
+                .with_counter_policy(Duration::from_millis(5), allow),
+        );
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(
+            result.status == LoopStatus::Completed,
+            completed_ok,
+            "status {status}, allow {allow}"
+        );
+        assert_eq!(provider.inner.attempts(), usize::from(completed_ok));
+    }
+}

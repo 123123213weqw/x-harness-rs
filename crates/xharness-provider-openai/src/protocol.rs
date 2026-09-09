@@ -117,10 +117,41 @@ fn encode_tool(protocol: OpenAiProtocol, tool: &ToolDefinition) -> Value {
     }
 }
 
+/// Project only the known Harness tool envelope. No textual content is cut,
+/// and every unknown/diagnostic field survives. Logs keep the original result.
+fn model_content(message: &AgentMessage) -> String {
+    if message.role != Role::Tool {
+        return message.content.clone();
+    }
+    let Ok(mut outer) = serde_json::from_str::<Value>(&message.content) else {
+        return message.content.clone();
+    };
+    if !outer.get("ok").is_some_and(Value::is_boolean)
+        || !outer.get("truncated").is_some_and(Value::is_boolean)
+    {
+        return message.content.clone();
+    }
+    let Some(content) = outer.get("content").and_then(Value::as_str) else {
+        return message.content.clone();
+    };
+    let Ok(inner) = serde_json::from_str::<Value>(content) else {
+        return message.content.clone();
+    };
+    if !inner.is_object()
+        || !(inner.get("exit_code").is_some()
+            || inner.get("job_id").is_some()
+            || inner.get("bytes_read").is_some())
+    {
+        return message.content.clone();
+    }
+    outer["content"] = inner;
+    serde_json::to_string(&outer).unwrap_or_else(|_| message.content.clone())
+}
+
 fn encode_chat_message(message: &AgentMessage) -> Value {
     let mut object = Map::new();
     object.insert("role".to_owned(), json!(message.role.as_str()));
-    object.insert("content".to_owned(), json!(message.content));
+    object.insert("content".to_owned(), json!(model_content(message)));
     if !message.reasoning.is_empty() {
         object.insert("reasoning_content".to_owned(), json!(message.reasoning));
     }
@@ -156,7 +187,7 @@ pub(crate) fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
         return vec![json!({
             "type": "function_call_output",
             "call_id": message.tool_call_id.clone().unwrap_or_default(),
-            "output": message.content,
+            "output": model_content(message),
         })];
     }
     if message.role == Role::Assistant && !message.provider_items.is_empty() {
@@ -170,7 +201,7 @@ pub(crate) fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
     };
     let mut output = vec![json!({
         "role": message.role.as_str(),
-        "content": [{ "type": content_type, "text": message.content }],
+        "content": [{ "type": content_type, "text": model_content(message) }],
     })];
     if message.role == Role::Assistant {
         output.extend(message.tool_calls.iter().map(encode_response_tool_call));
@@ -536,4 +567,55 @@ fn error_message(error: &Value) -> String {
         .and_then(Value::as_str)
         .map(str::to_owned)
         .unwrap_or_else(|| error.to_string())
+}
+
+#[cfg(test)]
+mod lossless_tool_projection_tests {
+    use super::*;
+    #[test]
+    fn envelope_projection_keeps_all_output_and_diagnostics() {
+        let inner = json!({"kind":"foreground","exit_code":141,"stdout":"a\n\"中文\"".repeat(9000),"stderr":"broken pipe","stdout_truncated":false,"future_field":[1,2,3]});
+        let outer = json!({"ok":true,"content":inner.to_string(),"error":"","truncated":false,"metadata":{"unknown":7}});
+        let m = AgentMessage {
+            role: Role::Tool,
+            content: outer.to_string(),
+            ..Default::default()
+        };
+        let projected: Value = serde_json::from_str(&model_content(&m)).unwrap();
+        assert_eq!(projected["content"], inner);
+        assert_eq!(projected["metadata"], outer["metadata"]);
+        assert_eq!(m.content, outer.to_string());
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let request = ProviderRequest {
+                messages: vec![m.clone()],
+                tools: vec![],
+                step: 1,
+                reasoning_effort: None,
+                max_output_tokens: Some(100),
+                debug_scope: Default::default(),
+            };
+            let body = build_openai_request(protocol, "m", &request);
+            let content = if protocol == OpenAiProtocol::ChatCompletions {
+                &body["messages"][0]["content"]
+            } else {
+                &body["input"][0]["output"]
+            };
+            // role=tool needs an ID to become function output; this fixture exercises text mapping too.
+            assert_eq!(
+                serde_json::from_str::<Value>(content.as_str().unwrap()).unwrap(),
+                projected
+            );
+        }
+    }
+    #[test]
+    fn arbitrary_json_and_error_text_are_not_reinterpreted() {
+        for raw in ["not json", r#"{"content":"{\"stdout\":\"x\"}"}"#] {
+            let m = AgentMessage {
+                role: Role::Tool,
+                content: raw.into(),
+                ..Default::default()
+            };
+            assert_eq!(model_content(&m), raw);
+        }
+    }
 }

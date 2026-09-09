@@ -357,6 +357,9 @@ struct RouteBoundProvider {
 
 #[async_trait]
 impl ModelProvider for RouteBoundProvider {
+    fn input_counter_failed(&self) {
+        self.inner.input_counter_failed();
+    }
     fn provider_name(&self) -> &str {
         &self.provider_id
     }
@@ -365,6 +368,12 @@ impl ModelProvider for RouteBoundProvider {
         Some(&self.model_id)
     }
 
+    fn estimate_input_tokens(
+        &self,
+        request: &xharness_core::ProviderRequest,
+    ) -> Option<xharness_core::ProviderInputTokenCount> {
+        self.inner.estimate_input_tokens(request)
+    }
     async fn count_input_tokens(
         &self,
         request: &xharness_core::ProviderRequest,

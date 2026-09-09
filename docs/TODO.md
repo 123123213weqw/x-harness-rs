@@ -1,6 +1,6 @@
 # XHarness 总任务清单
 
-**状态日期：** 2026-09-08
+**状态日期：** 2026-09-09
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。
 
@@ -10,6 +10,18 @@ Commit、Issue、PR 应引用这些 ID。
 
 当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
 `b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
+
+## 请求级上下文计量专项（2026-09-09）
+
+规范见 [请求级上下文计量](specs/context-accounting.md)，证据见 [回放及真实请求报告](reports/context-accounting-20260909.md)。
+
+- [x] `CTX-ACC-01` 请求前估算与 Provider 实际 usage 分离；按请求/模型隔离，修复实际值被估算覆盖。
+- [x] `CTX-ACC-02` 完整编码请求特征、配置隔离、内存有界校准、漂移与多模态保守回退。
+- [x] `CTX-ACC-03` 可配置计数截止时间/严格模式、瞬态降级与冷却；保留 token guard 和鉴权失败。
+- [x] `CTX-ACC-04` 无损解开已知工具结果内层 JSON；正文、诊断字段和持久日志不裁减。
+- [x] `CTX-ACC-05` Web/Tauri 共享显示、历史 inspector、重建补丁与自动化回归；真实 DeepSeek 12 轮工具调用及 112 次历史数字回放。
+- [ ] `CTX-ACC-06` 跨平台 CI、合并、签名更新包及本机安装后验收（不能把源码完成等同已部署）。
+- [ ] `CTX-ACC-07` Provider 专用图片计量/校准；当前明确保守估算，不套用文本模型。
 
 ## 多模态附件专项（2026-09-09）
 
@@ -43,7 +55,7 @@ Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Co
 - 长生命周期 Agent 已接管正式 Host；输入先 Flush 再确认，Claim 与 `turn/start + user/message`
   原子提交，Pending Turn/Approval 可以在重启后续跑。
 - 正式生产 Tool 路径已经由 `xharness-tools::ToolExecutor` 接管；Core 旧 Tool 类型、Request 字段与 Scheduler/Approval 分支已删除（`P0-03`）。
-- Provider 原生输入 Token 计数端点已经接入；端点不支持时才回退到保守 Meter。
+- Provider 原生输入 Token 计数端点已接入；不支持或可重试故障时，经可配置策略降级为 Adapter 校准/保守估算，仍执行预算守卫。
 - 自动 Context Compaction 已接入正式 Durable Host：80% Pressure、请求前 Hard Overflow 和
   Provider 无 Delta 的 400 Context Overflow 都会进入有界压缩恢复；成功后重新构造并计量请求，
   Session/Web 使用不删除原 Event Log 的 Surface Replace。

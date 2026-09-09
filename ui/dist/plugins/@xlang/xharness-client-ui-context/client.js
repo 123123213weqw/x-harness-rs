@@ -52,6 +52,17 @@ window.__ModuleLoader__.load({
         : contextNode(context, context.state.seq, context.state),
     }
 
+    const usageDefinition = {
+      kind: 'xharness-context-usage', target: TARGET,
+      match: event => ((event.type === 'assistant/chunk' && (event.data?.chunk?.kind ?? event.data?.chunk?.type) === 'usage') || (event.type === 'assistant/message' && event.data?.usage))
+        ? { id: String(event.seq), role: 'start' } : null,
+      start: (_context, match) => ({kind: 'usage', seq: match.event.seq,
+        usage: match.event.data?.usage ?? match.event.data?.chunk?.usage ?? match.event.data?.chunk?.data,
+        ...locationFields(match.location)}),
+      update: context => context.state,
+      buildViewNode: context => context.state === undefined ? null : contextNode(context, context.state.seq, context.state),
+    }
+
     const compactionDefinition = {
       kind: 'xharness-context-compaction',
       target: TARGET,
@@ -91,10 +102,17 @@ window.__ModuleLoader__.load({
       snapshot() {
         const ordered = [...this.nodes.values()]
           .sort((left, right) => left.anchorSeq - right.anchorSeq || left.key.localeCompare(right.key))
-        return {
-          requests: ordered.filter(node => node.data.kind === 'request').map(node => node.data),
-          compactions: ordered.filter(node => node.data.kind === 'compaction').map(node => node.data),
+        const requests = [], compactions = [];
+        let active;
+        for (const node of ordered) {
+          if (node.data.kind === 'request') {
+            active = {...node.data}; requests.push(active);
+          } else if (node.data.kind === 'usage' && active
+            && node.data.turn === active.turn && node.data.step === active.step) {
+            active.usage = node.data.usage;
+          } else if (node.data.kind === 'compaction') compactions.push(node.data);
         }
+        return {requests, compactions};
       }
     }
 
@@ -143,12 +161,23 @@ window.__ModuleLoader__.load({
       const estimate = asObject(report.estimate)
       return {
         used: numberOrUndefined(estimate.totalInputTokens ?? estimate.total_input_tokens),
+        actual: actualInput(view.request?.usage),
         window: numberOrUndefined(report.contextWindowTokens ?? report.context_window_tokens),
         available: numberOrUndefined(report.availableInputTokens ?? report.available_input_tokens),
         reserved: numberOrUndefined(report.reservedOutputTokens ?? report.reserved_output_tokens),
         meter: typeof report.meter === 'string' ? report.meter : undefined,
         accuracy: typeof report.accuracy === 'string' ? report.accuracy : undefined,
       }
+    }
+
+    function actualInput(usage) {
+      const input = usage?.inputTokens ?? usage?.input_tokens;
+      if (!Number.isSafeInteger(input) || input < 0) return undefined;
+      const read = usage?.cacheReadTokens ?? usage?.cache_read_tokens ?? 0;
+      const write = usage?.cacheWriteTokens ?? usage?.cache_write_tokens ?? 0;
+      if (![read, write].every(x => Number.isSafeInteger(x) && x >= 0)) return undefined;
+      const total = input + read + write;
+      return Number.isSafeInteger(total) ? total : undefined;
     }
 
     function numberOrUndefined(value) {
@@ -216,8 +245,12 @@ window.__ModuleLoader__.load({
           detailRow('Provider', view.config.provider ?? 'unknown', 'provider'),
           detailRow('Model', view.config.model ?? 'unknown', 'model'),
           detailRow('Sequence', String(request.seq), 'sequence'),
+          detailRow('请求标识', request.header?.options?.measurement?.requestId ?? `legacy:${request.seq}`, 'request-id'),
           detailRow('Context Policy', `${policy.name ?? 'identity'} v${policy.version ?? 1}`, 'policy'),
-          detailRow('Token Meter', budget.meter ?? '未记录', 'meter'),
+          detailRow('最近请求实际输入', budget.actual === undefined ? '未返回 usage' : `${fmtTokens(budget.actual)} tokens`, 'actual'),
+          detailRow('请求前计数', `${['exact_request','exact_tokenizer'].includes(budget.accuracy) ? '' : '≈'}${fmtTokens(budget.used)} tokens`, 'estimate'),
+          detailRow('输出预留', `${fmtTokens(budget.reserved)} tokens`, 'reserve'),
+          detailRow('计数来源', budget.meter ?? '未记录', 'meter'),
           detailRow('Accuracy', budget.accuracy ?? 'estimated', 'accuracy'),
         ]),
       ])
@@ -441,7 +474,9 @@ window.__ModuleLoader__.load({
               detailRow('Messages', `${context.visible_message_count ?? context.visibleMessageCount ?? view.messages.length} / ${context.source_message_count ?? context.sourceMessageCount ?? view.messages.length}`, 'messages'),
               detailRow('Context Window', `${fmtTokens(budget.window)} tokens`, 'window'),
               detailRow('Reserved Output', `${fmtTokens(budget.reserved)} tokens`, 'reserved'),
-              detailRow('Token Meter', budget.meter ?? '未记录', 'meter'),
+              detailRow('最近请求实际输入', budget.actual === undefined ? '未返回 usage' : `${fmtTokens(budget.actual)} tokens`, 'actual'),
+          detailRow('请求前计数', `${['exact_request','exact_tokenizer'].includes(budget.accuracy) ? '' : '≈'}${fmtTokens(budget.used)} tokens`, 'estimate'),
+          detailRow('计数来源', budget.meter ?? '未记录', 'meter'),
               detailRow('Accuracy', budget.accuracy ?? 'estimated', 'accuracy'),
             ]),
           ]),
@@ -699,6 +734,7 @@ window.__ModuleLoader__.load({
       }, 'xharness-context: styles')
       ctx.conversationEvents.register(requestDefinition)
       ctx.conversationEvents.register(compactionDefinition)
+      ctx.conversationEvents.register(usageDefinition)
       ctx.conversationViews.register(viewDefinition)
       ctx.slots.inject('conversation.view', () => ctx.slots.register({
         name: 'conversation.view',

@@ -5,6 +5,9 @@
 //! intentionally overestimates ordinary BPE token counts rather than risking
 //! an HTTP request that the model server must reject.
 
+mod calibration;
+pub use calibration::{Calibration, WireFeatures};
+
 use std::{fmt, sync::Arc};
 
 use serde::{Deserialize, Serialize};
@@ -87,6 +90,10 @@ pub enum TokenMeterError {
 /// disjoint buckets and a total equal to their saturating sum.
 pub trait TokenMeter: Send + Sync + 'static {
     fn id(&self) -> &str;
+
+    fn accuracy(&self) -> TokenCountAccuracy {
+        TokenCountAccuracy::Estimated
+    }
 
     fn estimate(&self, request: &TokenEstimateRequest) -> Result<TokenBreakdown, TokenMeterError>;
 }
@@ -243,6 +250,8 @@ impl TokenBudget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenBudgetReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
     pub meter: String,
     #[serde(default)]
     pub accuracy: TokenCountAccuracy,
@@ -279,16 +288,51 @@ pub enum TokenBudgetError {
 pub struct TokenGuard {
     meter: Arc<dyn TokenMeter>,
     budget: TokenBudget,
+    counter_timeout: std::time::Duration,
+    allow_counter_fallback: bool,
+    allow_provider_estimate: bool,
 }
 
 impl TokenGuard {
     pub fn new(meter: Arc<dyn TokenMeter>, budget: TokenBudget) -> Result<Self, TokenBudgetError> {
         budget.validate()?;
-        Ok(Self { meter, budget })
+        Ok(Self {
+            meter,
+            budget,
+            counter_timeout: std::time::Duration::from_secs(10),
+            allow_counter_fallback: true,
+            allow_provider_estimate: false,
+        })
+    }
+
+    /// A bounded optional counter must not block generation indefinitely.
+    /// Strict hosts may disable transient fallback without changing the adapter.
+    pub fn with_counter_policy(
+        mut self,
+        timeout: std::time::Duration,
+        allow_fallback: bool,
+    ) -> Self {
+        self.counter_timeout = timeout.max(std::time::Duration::from_millis(1));
+        self.allow_counter_fallback = allow_fallback;
+        self
+    }
+    pub fn counter_timeout(&self) -> std::time::Duration {
+        self.counter_timeout
+    }
+    pub fn allows_counter_fallback(&self) -> bool {
+        self.allow_counter_fallback
+    }
+    /// An explicitly supplied local meter is not silently overridden by an adapter estimate.
+    pub fn with_provider_estimate(mut self, allow: bool) -> Self {
+        self.allow_provider_estimate = allow;
+        self
+    }
+    pub fn allows_provider_estimate(&self) -> bool {
+        self.allow_provider_estimate
     }
 
     pub fn conservative(budget: TokenBudget) -> Result<Self, TokenBudgetError> {
-        Self::new(Arc::new(ConservativeByteMeter), budget)
+        Self::new(Arc::new(ConservativeByteMeter), budget).map(|g| g.with_provider_estimate(true))
     }
 
     pub fn check(
@@ -309,8 +353,9 @@ impl TokenGuard {
             });
         }
         Ok(TokenBudgetReport {
+            fallback_reason: None,
             meter: self.meter.id().to_owned(),
-            accuracy: TokenCountAccuracy::Estimated,
+            accuracy: self.meter.accuracy(),
             context_window_tokens: self.budget.context_window_tokens,
             reserved_output_tokens: self.budget.reserved_output_tokens,
             minimum_output_tokens: self.budget.minimum_output_tokens,
@@ -324,7 +369,7 @@ impl TokenGuard {
     }
 
     /// Enforce the same hard budget using a count supplied by the selected
-    /// provider. The total is exact even though a provider count endpoint does
+    /// provider. Its accuracy is retained; even a provider count endpoint does
     /// not expose the system/message/tool bucket breakdown; it is placed in
     /// `message_tokens` so the disjoint-total invariant remains true.
     pub fn check_provider_count(
@@ -348,6 +393,7 @@ impl TokenGuard {
             });
         }
         Ok(TokenBudgetReport {
+            fallback_reason: None,
             meter: count.counter.clone(),
             accuracy: count.accuracy,
             context_window_tokens: self.budget.context_window_tokens,
@@ -373,7 +419,10 @@ impl TokenGuard {
     ) -> Result<Self, TokenBudgetError> {
         let mut budget = self.budget.clone();
         budget.context_window_tokens = context_window_tokens;
-        Self::new(Arc::clone(&self.meter), budget)
+        Self::new(Arc::clone(&self.meter), budget).map(|g| {
+            g.with_counter_policy(self.counter_timeout, self.allow_counter_fallback)
+                .with_provider_estimate(self.allow_provider_estimate)
+        })
     }
 }
 
@@ -391,6 +440,22 @@ impl fmt::Debug for TokenGuard {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn explicit_meter_and_smaller_window_keep_selection_policy() {
+        let custom = TokenGuard::new(
+            Arc::new(ConservativeByteMeter),
+            TokenBudget::new(8192, 1024),
+        )
+        .unwrap();
+        assert!(!custom.allows_provider_estimate());
+        let fallback = TokenGuard::conservative(TokenBudget::new(8192, 1024))
+            .unwrap()
+            .with_counter_policy(std::time::Duration::from_secs(2), false);
+        let changed = fallback.with_context_window(4096).unwrap();
+        assert!(changed.allows_provider_estimate());
+        assert!(!changed.allows_counter_fallback());
+        assert_eq!(changed.counter_timeout(), std::time::Duration::from_secs(2));
+    }
 
     #[test]
     fn conservative_meter_is_deterministic_and_reports_disjoint_buckets() {
