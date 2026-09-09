@@ -5,6 +5,9 @@
 //! intentionally overestimates ordinary BPE token counts rather than risking
 //! an HTTP request that the model server must reject.
 
+mod calibration;
+pub use calibration::{Calibration, WireFeatures};
+
 use std::{fmt, sync::Arc};
 
 use serde::{Deserialize, Serialize};
@@ -88,6 +91,10 @@ pub enum TokenMeterError {
 pub trait TokenMeter: Send + Sync + 'static {
     fn id(&self) -> &str;
 
+    fn accuracy(&self) -> TokenCountAccuracy {
+        TokenCountAccuracy::Estimated
+    }
+
     fn estimate(&self, request: &TokenEstimateRequest) -> Result<TokenBreakdown, TokenMeterError>;
 }
 
@@ -105,12 +112,8 @@ impl TokenMeter for ConservativeByteMeter {
     fn estimate(&self, request: &TokenEstimateRequest) -> Result<TokenBreakdown, TokenMeterError> {
         let mut breakdown = TokenBreakdown {
             system_tokens: encoded_len(&request.system_messages)?,
-            message_tokens: encoded_len(&request.conversation_messages)?.saturating_add(
-                request
-                    .conversation_messages
-                    .iter()
-                    .fold(0u64, |n, v| n.saturating_add(attachment_token_reserve(v))),
-            ),
+            message_tokens: encoded_len(&request.conversation_messages)?
+                .saturating_add(image_estimate(&request.conversation_messages)?),
             tool_tokens: encoded_len(&request.tools)?,
             // Account for role/message delimiters and the streaming request
             // envelope even if an adapter's JSON happens to be very compact.
@@ -126,31 +129,35 @@ impl TokenMeter for ConservativeByteMeter {
     }
 }
 
-/// Conservative attachment reserve until an exact provider counter is available.
-/// Visual tokens do not correlate with the length of a durable digest.
-fn attachment_token_reserve(value: &Value) -> u64 {
-    match value {
-        Value::Object(object) => {
-            if object.get("type").and_then(Value::as_str) == Some("image")
-                && object.contains_key("attachment")
-            {
-                return 8_192;
+/// Conservative patch-based fallback, not a universal tokenizer bound. Exact
+/// provider counts supersede this. Metadata is verified by AttachmentStore.
+pub fn image_estimate(messages: &[Value]) -> Result<u64, TokenMeterError> {
+    let mut tokens = 0u64;
+    for message in messages {
+        if let Some(blocks) = message.get("content_blocks").and_then(Value::as_array) {
+            for block in blocks {
+                if block.get("type").and_then(Value::as_str) != Some("image") {
+                    continue;
+                }
+                let a = &block["attachment"];
+                let w = a["width"]
+                    .as_u64()
+                    .filter(|w| *w > 0)
+                    .ok_or_else(|| TokenMeterError::Failed("image width unavailable".into()))?;
+                let h = a["height"]
+                    .as_u64()
+                    .filter(|h| *h > 0)
+                    .ok_or_else(|| TokenMeterError::Failed("image height unavailable".into()))?;
+                tokens = tokens.saturating_add(
+                    w.div_ceil(16)
+                        .saturating_mul(h.div_ceil(16))
+                        .saturating_mul(4)
+                        .max(4096),
+                );
             }
-            if object.get("type").and_then(Value::as_str) == Some("file")
-                && object.contains_key("attachment")
-            {
-                // Include a request-local escaped absolute read-only path/descriptor.
-                return 4_096;
-            }
-            object
-                .values()
-                .fold(0u64, |n, v| n.saturating_add(attachment_token_reserve(v)))
         }
-        Value::Array(values) => values
-            .iter()
-            .fold(0u64, |n, v| n.saturating_add(attachment_token_reserve(v))),
-        _ => 0,
     }
+    Ok(tokens)
 }
 
 fn encoded_len(value: &impl Serialize) -> Result<u64, TokenMeterError> {
@@ -243,6 +250,8 @@ impl TokenBudget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenBudgetReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
     pub meter: String,
     #[serde(default)]
     pub accuracy: TokenCountAccuracy,
@@ -279,16 +288,51 @@ pub enum TokenBudgetError {
 pub struct TokenGuard {
     meter: Arc<dyn TokenMeter>,
     budget: TokenBudget,
+    counter_timeout: std::time::Duration,
+    allow_counter_fallback: bool,
+    allow_provider_estimate: bool,
 }
 
 impl TokenGuard {
     pub fn new(meter: Arc<dyn TokenMeter>, budget: TokenBudget) -> Result<Self, TokenBudgetError> {
         budget.validate()?;
-        Ok(Self { meter, budget })
+        Ok(Self {
+            meter,
+            budget,
+            counter_timeout: std::time::Duration::from_secs(10),
+            allow_counter_fallback: true,
+            allow_provider_estimate: false,
+        })
+    }
+
+    /// A bounded optional counter must not block generation indefinitely.
+    /// Strict hosts may disable transient fallback without changing the adapter.
+    pub fn with_counter_policy(
+        mut self,
+        timeout: std::time::Duration,
+        allow_fallback: bool,
+    ) -> Self {
+        self.counter_timeout = timeout.max(std::time::Duration::from_millis(1));
+        self.allow_counter_fallback = allow_fallback;
+        self
+    }
+    pub fn counter_timeout(&self) -> std::time::Duration {
+        self.counter_timeout
+    }
+    pub fn allows_counter_fallback(&self) -> bool {
+        self.allow_counter_fallback
+    }
+    /// An explicitly supplied local meter is not silently overridden by an adapter estimate.
+    pub fn with_provider_estimate(mut self, allow: bool) -> Self {
+        self.allow_provider_estimate = allow;
+        self
+    }
+    pub fn allows_provider_estimate(&self) -> bool {
+        self.allow_provider_estimate
     }
 
     pub fn conservative(budget: TokenBudget) -> Result<Self, TokenBudgetError> {
-        Self::new(Arc::new(ConservativeByteMeter), budget)
+        Self::new(Arc::new(ConservativeByteMeter), budget).map(|g| g.with_provider_estimate(true))
     }
 
     pub fn check(
@@ -309,8 +353,9 @@ impl TokenGuard {
             });
         }
         Ok(TokenBudgetReport {
+            fallback_reason: None,
             meter: self.meter.id().to_owned(),
-            accuracy: TokenCountAccuracy::Estimated,
+            accuracy: self.meter.accuracy(),
             context_window_tokens: self.budget.context_window_tokens,
             reserved_output_tokens: self.budget.reserved_output_tokens,
             minimum_output_tokens: self.budget.minimum_output_tokens,
@@ -324,7 +369,7 @@ impl TokenGuard {
     }
 
     /// Enforce the same hard budget using a count supplied by the selected
-    /// provider. The total is exact even though a provider count endpoint does
+    /// provider. Its accuracy is retained; even a provider count endpoint does
     /// not expose the system/message/tool bucket breakdown; it is placed in
     /// `message_tokens` so the disjoint-total invariant remains true.
     pub fn check_provider_count(
@@ -348,6 +393,7 @@ impl TokenGuard {
             });
         }
         Ok(TokenBudgetReport {
+            fallback_reason: None,
             meter: count.counter.clone(),
             accuracy: count.accuracy,
             context_window_tokens: self.budget.context_window_tokens,
@@ -373,7 +419,10 @@ impl TokenGuard {
     ) -> Result<Self, TokenBudgetError> {
         let mut budget = self.budget.clone();
         budget.context_window_tokens = context_window_tokens;
-        Self::new(Arc::clone(&self.meter), budget)
+        Self::new(Arc::clone(&self.meter), budget).map(|g| {
+            g.with_counter_policy(self.counter_timeout, self.allow_counter_fallback)
+                .with_provider_estimate(self.allow_provider_estimate)
+        })
     }
 }
 
@@ -391,6 +440,22 @@ impl fmt::Debug for TokenGuard {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn explicit_meter_and_smaller_window_keep_selection_policy() {
+        let custom = TokenGuard::new(
+            Arc::new(ConservativeByteMeter),
+            TokenBudget::new(8192, 1024),
+        )
+        .unwrap();
+        assert!(!custom.allows_provider_estimate());
+        let fallback = TokenGuard::conservative(TokenBudget::new(8192, 1024))
+            .unwrap()
+            .with_counter_policy(std::time::Duration::from_secs(2), false);
+        let changed = fallback.with_context_window(4096).unwrap();
+        assert!(changed.allows_provider_estimate());
+        assert!(!changed.allows_counter_fallback());
+        assert_eq!(changed.counter_timeout(), std::time::Duration::from_secs(2));
+    }
 
     #[test]
     fn conservative_meter_is_deterministic_and_reports_disjoint_buckets() {
@@ -532,5 +597,26 @@ mod tests {
             .check_provider_count(&ProviderInputTokenCount::exact_request("exact", 242_000))
             .unwrap_err();
         assert!(matches!(error, TokenBudgetError::Exceeded { .. }));
+    }
+}
+
+#[cfg(test)]
+mod multimodal_tests {
+    use super::*;
+    #[test]
+    fn image_metadata_adds_budget_and_missing_dimensions_fail() {
+        let mut request = TokenEstimateRequest::default();
+        let base = ConservativeByteMeter
+            .estimate(&request)
+            .unwrap()
+            .total_input_tokens;
+        request.conversation_messages.push(serde_json::json!({"role":"user","content":"","content_blocks":[{"type":"image","attachment":{"id":"a","width":1024,"height":1024}}]}));
+        let images = ConservativeByteMeter
+            .estimate(&request)
+            .unwrap()
+            .total_input_tokens;
+        assert!(images >= base + 16384);
+        request.conversation_messages[0]["content_blocks"][0]["attachment"]["width"] = Value::Null;
+        assert!(ConservativeByteMeter.estimate(&request).is_err());
     }
 }

@@ -742,7 +742,7 @@ window.__ModuleLoader__.load({
 			return {
 				id: candidate.id,
 				...candidate.name === void 0 ? {} : { name: candidate.name },
-                ...candidate.inputModalities === void 0 ? {} : { inputModalities: candidate.inputModalities },
+ ...typeof candidate.imageInput === "boolean" ? {imageInput:candidate.imageInput} : {},
 				...candidate.contextWindow === void 0 ? {} : { contextWindow: candidate.contextWindow },
 				...candidate.maxTokens === void 0 ? {} : { maxTokens: candidate.maxTokens }
 			};
@@ -953,11 +953,11 @@ window.__ModuleLoader__.load({
 							]
 						}), expanded.has(index) ? (0, react_jsx_runtime.jsxs)("div", {
 							className: ModelsSection_module_css_default["modelAdvanced"],
-            children: [(0,react_jsx_runtime.jsxs)('label',{className:ModelsSection_module_css_default['modelField'],children:[
-              (0,react_jsx_runtime.jsx)('span',{children:'支持图片输入'}),
-              (0,react_jsx_runtime.jsx)('input',{type:'checkbox',disabled,checked:Array.isArray(model.inputModalities)&&model.inputModalities.includes('image'),'aria-label':'支持图片输入 '+(index+1),onChange:event=>patch(index,{inputModalities:event.target.checked?['text','image']:['text']})}),
-              (0,react_jsx_runtime.jsx)('small',{children:'仅在此模型 API 确实支持看图时启用；关闭时图片保留为附件，不自动调用其他模型。'})
-            ]}),(0, react_jsx_runtime.jsxs)("label", {
+      children: [(0,react_jsx_runtime.jsxs)('label',{className:ModelsSection_module_css_default['modelField'],children:[
+        (0,react_jsx_runtime.jsx)('span',{children:'支持图片输入'}),
+        (0,react_jsx_runtime.jsx)('input',{type:'checkbox',disabled,checked:model.imageInput===true,'aria-label':'支持图片输入 '+(index+1),onChange:event=>patch(index,{imageInput:event.target.checked})}),
+        (0,react_jsx_runtime.jsx)('small',{children:model.imageInput===undefined?'视觉能力未声明；请确认模型 API 支持后启用。':'不支持视觉时明确报错，不自动丢弃图片。'})
+      ]}),(0, react_jsx_runtime.jsxs)("label", {
 								className: ModelsSection_module_css_default["modelField"],
 								children: [(0, react_jsx_runtime.jsx)("span", {
 									className: ModelsSection_module_css_default["modelFieldLabel"],

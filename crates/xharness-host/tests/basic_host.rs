@@ -30,65 +30,6 @@ use xharness_tools::{ToolDefinition, ToolExecutor, ToolOutput, ToolRegistry, Too
 
 struct TextProvider;
 
-#[tokio::test]
-async fn generic_attachment_admission_is_atomic_and_session_authorized() {
-    let mut fx = Fixture::new();
-    // Use the same durable byte-store configuration as the native composition.
-    let mut config = HostConfig::new(&fx.root);
-    config.provider_id = "test".into();
-    config.model_id = "test-model".into();
-    config.attachments =
-        Arc::new(xharness_attachment::AttachmentStore::new(fx.root.join("attachments")).unwrap());
-    fx.host = BasicHost::new(config, Some(Arc::new(TextProvider)), Arc::new(NoTools));
-    let cwd = fx.root.to_string_lossy().into_owned();
-    let created = fx.value(RpcMethod::SessionCreate, json!({"cwd":cwd})).await;
-    let session = created["sessionId"].as_str().unwrap().to_owned();
-    let failed = fx
-        .call(
-            RpcMethod::SessionPrompt,
-            json!({"sessionId":session,"mode":"queue","content":[
-                {"type":"file","mediaType":"text/plain","name":"note.txt","data":"aGVsbG8="},
-                {"type":"image","mediaType":"image/png","data":"bm90LWFuLWltYWdl"}
-            ]}),
-        )
-        .await;
-    assert!(matches!(failed, RpcResult::Failure { .. }));
-    let history = fx
-        .value(RpcMethod::SessionHistory, json!({"sessionId":session}))
-        .await;
-    assert!(!history.to_string().contains("note.txt"));
-    fx.value(RpcMethod::SessionPrompt, json!({"sessionId":session,"mode":"queue","content":[
-        {"type":"file","mediaType":"text/plain","name":"C:\\private\\note.txt","data":"aGVsbG8="},
-        {"type":"text","text":"read this file"}
-    ]})).await;
-    fx.wait_for_assistant(&session).await;
-    let history = fx
-        .value(RpcMethod::SessionHistory, json!({"sessionId":session}))
-        .await;
-    let reference = fx
-        .host
-        .attachment_store()
-        .save_file(b"hello", "text/plain", Some("note.txt"))
-        .unwrap();
-    assert!(history.to_string().contains(&reference.attachment_id));
-    assert!(!history.to_string().contains("aGVsbG8="));
-    let fetched = fx
-        .value(
-            RpcMethod::SessionAttachment,
-            json!({"sessionId":session,"attachmentId":reference.attachment_id}),
-        )
-        .await;
-    assert_eq!(fetched["data"], "aGVsbG8=");
-    let other = fx.value(RpcMethod::SessionCreate, json!({"cwd":cwd})).await;
-    let denied = fx
-        .call(
-            RpcMethod::SessionAttachment,
-            json!({"sessionId":other["sessionId"],"attachmentId":reference.attachment_id}),
-        )
-        .await;
-    assert!(matches!(denied, RpcResult::Failure { .. }));
-}
-
 #[async_trait]
 impl ModelProvider for TextProvider {
     fn provider_name(&self) -> &str {
@@ -2016,4 +1957,187 @@ async fn web_response_resumes_a_real_tool_approval() {
     .await
     .expect("approved tool was not executed");
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
+    use xharness_session::ContentBlock;
+    let mut fx = Fixture::new();
+    let mut config = HostConfig::new(&fx.root);
+    config.provider_id = "capture".into();
+    config.model_id = "capture-model".into();
+    let provider = Arc::new(CapturingProvider::default());
+    fx.host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+    let sid = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let bytes = include_bytes!("../../xharness-attachments/tests/fixtures/red-blue.png").to_vec();
+    // Reuse the storage encoding helper rather than add an independent base64 implementation.
+    let fake = xharness_attachments::ResolvedAttachment {
+        reference: xharness_session::AttachmentRef {
+            id: String::new(),
+            session_id: String::new(),
+            media_type: "image/png".into(),
+            width: 64,
+            height: 32,
+            bytes: bytes.len() as u64,
+        },
+        data: Arc::new(bytes),
+    };
+    let upload = fake.base64();
+    fx.value(RpcMethod::SessionPrompt,json!({"sessionId":sid,"mode":"queue","content":[{"type":"image","mediaType":"image/png","data":upload}]})).await;
+    fx.wait_for_assistant(&sid).await;
+    let id = {
+        let requests = provider.requests.lock().unwrap();
+        let message = requests[0]
+            .messages
+            .iter()
+            .find(|m| !m.content_blocks.is_empty())
+            .unwrap();
+        let ContentBlock::Image { attachment } = &message.content_blocks[0] else {
+            panic!("missing image")
+        };
+        assert_eq!((attachment.width, attachment.height), (64, 32));
+        assert!(message.content.is_empty());
+        attachment.id.clone()
+    };
+    let restored = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":sid,"attachmentId":id}),
+        )
+        .await;
+    assert_eq!(restored["data"], upload);
+    fx.value(RpcMethod::SessionPrompt, json!({"sessionId":sid,"mode":"queue",
+        "requireIdle":true,"content":[{"type":"image_ref","attachmentId":id}, {"type":"text","text":"edited"}]})).await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if provider.requests.lock().unwrap().len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    {
+        let requests = provider.requests.lock().unwrap();
+        let users: Vec<_> = requests[1]
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::User)
+            .collect();
+        assert_eq!(
+            users.len(),
+            2,
+            "editing appends rather than overwrites history"
+        );
+        assert_eq!(users[0].content, "");
+        assert_eq!(users[1].content, "edited");
+        let ContentBlock::Image { attachment } = &users[1].content_blocks[0] else {
+            panic!("missing reused image")
+        };
+        assert_eq!(
+            attachment.id, id,
+            "resending must reuse the durable attachment"
+        );
+    }
+    assert!(!fx
+        .call(
+            RpcMethod::SessionPrompt,
+            json!({"sessionId":sid,"mode":"queue",
+        "content":[{"type":"image_ref","attachmentId":"missing"}]})
+        )
+        .await
+        .is_ok());
+
+    let fork = fx
+        .value(RpcMethod::SessionFork, json!({"sessionId":sid}))
+        .await;
+    let child = fork["sessionId"].as_str().unwrap();
+    let inherited = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":child,"attachmentId":id}),
+        )
+        .await;
+    assert_eq!(inherited["data"], upload);
+
+    let other = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(!fx
+        .call(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":other,"attachmentId":id})
+        )
+        .await
+        .is_ok());
+    assert!(!fx.call(RpcMethod::SessionPrompt,json!({"sessionId":sid,"mode":"queue","content":[{"type":"image","mediaType":"image/png","data":"broken"}]})).await.is_ok());
+    assert!(!fx
+        .call(
+            RpcMethod::SessionPrompt,
+            json!({"sessionId":other,"mode":"queue",
+        "content":[{"type":"image_ref","attachmentId":id}]})
+        )
+        .await
+        .is_ok());
+    fx.value(
+        RpcMethod::SessionPrompt,
+        json!({"sessionId":child,"mode":"queue",
+        "content":[{"type":"image_ref","attachmentId":id}]}),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn generic_upload_reuses_prompt_history_reference_and_download_authority() {
+    let mut fx = Fixture::new();
+    let id = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fx.value(RpcMethod::SessionPrompt,json!({"sessionId":id,"mode":"queue","content":[{"type":"file","mediaType":"text/plain","name":"a.txt","data":"aGVsbG8="}]})).await;
+    fx.wait_for_assistant(&id).await;
+    let history = fx
+        .value(RpcMethod::SessionHistory, json!({"sessionId":id}))
+        .await;
+    let events = history["events"].as_array().unwrap();
+    let a = events
+        .iter()
+        .find_map(|e| {
+            let c = &e["event"]["data"]["content"][0];
+            (c["type"] == "file").then(|| c["attachment"].clone())
+        })
+        .expect("file in immutable history");
+    let bytes = fx
+        .value(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":id,"attachmentId":a["attachmentId"]}),
+        )
+        .await;
+    assert_eq!(bytes["data"], "aGVsbG8=");
+    let other = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(!fx
+        .call(
+            RpcMethod::SessionAttachment,
+            json!({"sessionId":other,"attachmentId":a["attachmentId"]})
+        )
+        .await
+        .is_ok());
+    assert!(!fx.call(RpcMethod::SessionPrompt,json!({"sessionId":id,"mode":"queue","content":[{"type":"image_ref","attachmentId":a["attachmentId"]}]})).await.is_ok());
+    fx.value(RpcMethod::SessionPrompt,json!({"sessionId":id,"mode":"queue","content":[{"type":"file_ref","attachmentId":a["attachmentId"],"name":"again.txt"}]})).await;
 }

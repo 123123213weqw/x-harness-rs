@@ -7193,7 +7193,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			* @param mode - queue appends after the current turn; steer interrupts it.
 			* @returns the prompt result (also mirrored into promptError on failure).
 			*/
-			async prompt(content, mode, signal) {
+			// xharness-edit-admission/v1
+async prompt(content, mode, signal, options = {}) {
 				this.promptError = null;
 				this.lastAgentError = null;
 				this.promptAttempted = true;
@@ -7205,6 +7206,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						sessionId: this.sessionId,
 						mode,
 						content,
+						...(options.requireIdle === true ? {requireIdle:true} : {}),
 						clientTimeZone: resolvedClientTimeZone()
 					}, signal)).result;
 					else if (this.address.mode === "one-shot") result = {
@@ -7215,7 +7217,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 							details: { childSessionId: this.address.childSessionId }
 						}
 					};
-					else if (content.some((part) => part.type === "image")) result = {
+					else if (content.some((part) => part.type === "image" || part.type === "image_ref" || part.type === "file" || part.type === "file_ref")) result = {
 						ok: false,
 						error: {
 							code: "attachment-error",
@@ -10571,4 +10573,4 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 	}
 });
 
-//# sourceMappingURL=client.js.map
+// XHARNESS DURABLE ATTACHMENTS v1

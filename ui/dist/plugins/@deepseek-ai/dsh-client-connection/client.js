@@ -5400,7 +5400,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			literal("image/gif")
 		]);
 		/** Prompt wire content is intentionally narrower than merge-extensible durable core content. */
-		const promptContentPartSchema = discriminatedUnion("type", [object({
+		// xharness-edit-reference-wire/v1
+const promptContentPartSchema = discriminatedUnion("type", [object({type:literal("image_ref"),attachmentId:string().min(1)}),object({type:literal("file_ref"),attachmentId:string().min(1),name:string().optional()}),object({
 			type: literal("text"),
 			text: string()
 		}), object({
@@ -5413,6 +5414,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			sessionId: sessionIdSchema,
 			mode: union([literal("queue"), literal("steer")]),
 			content: array(promptContentPartSchema),
+requireIdle: boolean().optional(),
 			clientTimeZone: string().optional()
 		});
 		/** session.prompt response value (the command slot appears only when the prompt dispatched a slash command). */
@@ -5430,8 +5432,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			attachmentId: attachmentIdSchema,
 			mediaType: string(),
 			bytes: number().int().nonnegative(),
-			width: number().int().positive().optional(),
-			height: number().int().positive().optional(),
+			width: number().int().positive().nullish(),
+			height: number().int().positive().nullish(),
 			name: string().optional()
 		});
 		object({
@@ -7605,18 +7607,33 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* the projection did before that field existed.
 		*/
 		function contextPressureOf(log) {
-			let pressureTokens;
-			for (const event of log) {
-				const sample = usageSampleOf(event);
-				if (sample === void 0) continue;
-				pressureTokens = sample.usage.inputTokens + (sample.usage.cacheReadTokens ?? 0) + (sample.usage.cacheWriteTokens ?? 0);
-			}
-			const contextWindow = lastRequestContext(log)?.contextWindow;
-			return {
-				...pressureTokens === void 0 ? {} : { pressureTokens },
-				...contextWindow === void 0 ? {} : { contextWindow }
-			};
-		}
+            // xharness-context-replay/v1
+            let value = {}, active, waiting = false;
+            for (const event of log) {
+                const d=event.data ?? {};
+                if(event.type === 'session/model-selected') { value={}; active=undefined; waiting=true; }
+                if(event.type === 'step/start') {
+                    active=[d.turn,d.step]; waiting=false;
+                    value={contextWindow:value.contextWindow, phase:'preparing'};
+                }
+                if(event.type === 'request/header') {
+                    const b=d.header?.options?.tokenBudget;
+                    waiting=false;
+                    value={contextWindow:value.contextWindow ?? b?.contextWindowTokens,
+                        projectedTokens:b?.estimate?.totalInputTokens,
+                        accuracy:b?.accuracy ?? 'estimated', phase:'in_flight',
+                        measurement:d.header?.options?.measurement};
+                }
+                if(event.type === 'request/context') value.contextWindow=d.contextWindow;
+                const sample=usageSampleOf(event);
+                if(!waiting && sample && (!active || (active[0]===sample.turn && active[1]===sample.step))) {
+                    const n=sample.usage.inputTokens+(sample.usage.cacheReadTokens??0)+(sample.usage.cacheWriteTokens??0);
+                    if(Number.isSafeInteger(n)&&n>=0)Object.assign(value,{pressureTokens:n,accuracy:'provider_reported',phase:'measured'});
+                }
+                if(['user/message','tool/result','compaction/summary'].includes(event.type))value.phase='history_changed';
+            }
+            return Object.fromEntries(Object.entries(value).filter(([,v])=>v!==undefined));
+        }
 		function projectionValuesOf(log) {
 			const values = {};
 			const titleEvent = log.findLast((item) => item.type === "session/title");
@@ -7661,7 +7678,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				value: contextPressureOf(log),
 				seq: event.seq
 			});
-			if (type === "request/context") frames.push({
+			if (["request/context", "request/header", "step/start", "session/model-selected", "user/message", "tool/result", "compaction/summary"].includes(type)) frames.push({
 				type: "session/projection",
 				sessionId: id,
 				key: "contextPressure",

@@ -1,0 +1,71 @@
+name: Desktop Windows Update Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Desktop Release run (immutable private candidate)
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  acceptance:
+    if: github.ref == 'refs/heads/master' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    runs-on: windows-2025
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+      XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+      UPSTREAM_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+    steps:
+      - name: Resolve trusted release source
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ($env:RELEASE_RUN_ID -notmatch '^[1-9][0-9]*$') { throw 'Invalid run ID' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:RELEASE_RUN_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -or $run.conclusion -ne 'success' -or $run.path -ne '.github/workflows/desktop-release.yml' -or ($run.event -notin @('push', 'workflow_dispatch')) -or ($run.event -eq 'push' -and $run.head_branch -notmatch '^desktop-v[0-9]+\.[0-9]+\.[0-9]+$') -or ($run.event -eq 'workflow_dispatch' -and $run.head_branch -ne 'master') -or $run.head_sha -notmatch '^[a-f0-9]{40}$') { throw 'Untrusted candidate source' }
+          "sha=$($run.head_sha)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source, aggregate signatures and stable base
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/desktop-windows-acceptance.mjs stage
+          if ($LASTEXITCODE) { throw 'Unified candidate staging failed' }
+      - name: Install isolated native UI test dependency
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/migration-deps" --no-save --package-lock=false playwright@1.61.1
+          if ($LASTEXITCODE) { throw 'Playwright installation failed' }
+          "MIGRATION_TEST_DEPS=$env:RUNNER_TEMP/migration-deps/node_modules/playwright/index.mjs" >> $env:GITHUB_ENV
+      - name: Exact candidate single-hop upgrade and data preservation
+        run: |
+          ./scripts/windows-migration-acceptance.ps1
+          if ($LASTEXITCODE) { throw 'Native updater acceptance failed' }
+      - name: Bind native evidence to candidate and workflow run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/desktop-windows-acceptance.mjs collect
+          if ($LASTEXITCODE) { throw 'Native acceptance evidence failed' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: desktop-acceptance-windows-x86_64
+          path: dist/migration-acceptance/evidence/
+          if-no-files-found: warn

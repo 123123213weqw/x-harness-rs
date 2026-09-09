@@ -51,6 +51,33 @@ impl ToolCall {
     }
 }
 
+/// Durable identity and verified metadata. No local path, base64 or provider fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachmentRef {
+    pub id: String,
+    pub session_id: String,
+    pub media_type: String,
+    pub bytes: u64,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    Text {
+        text: String,
+    },
+    Image {
+        attachment: AttachmentRef,
+    },
+    File {
+        attachment: AttachmentRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
+}
+
 /// Provider-neutral message used by [`crate::derive_messages`].
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Message {
@@ -61,13 +88,9 @@ pub struct Message {
     pub role: MessageRole,
     #[serde(default)]
     pub content: String,
-    /// Ordered durable content. Empty means the legacy `content` text is authoritative.
-    /// Only immutable references belong here, never base64 or host paths.
-    #[serde(
-        default,
-        rename = "contentBlocks",
-        skip_serializing_if = "Vec::is_empty"
-    )]
+    /// Ordered multimodal content, authoritative when present. `content` remains
+    /// a text projection for legacy stores, UI and text-only policies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content_blocks: Vec<ContentBlock>,
     #[serde(default)]
     pub reasoning: String,
@@ -90,16 +113,31 @@ const fn is_false(value: &bool) -> bool {
 }
 
 impl Message {
-    pub fn with_content_blocks(mut self, blocks: Vec<ContentBlock>) -> Self {
-        self.content_blocks = blocks;
-        self
-    }
     pub fn new(role: MessageRole, content: impl Into<String>) -> Self {
         Self {
             role,
             content: content.into(),
             ..Self::default()
         }
+    }
+
+    /// Attach tool media without replacing the bounded model-facing result text.
+    pub fn with_tool_blocks(mut self, blocks: Vec<ContentBlock>) -> Self {
+        self.content_blocks = blocks;
+        self
+    }
+
+    pub fn with_content_blocks(mut self, blocks: Vec<ContentBlock>) -> Self {
+        self.content = blocks
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                ContentBlock::Image { .. } | ContentBlock::File { .. } => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        self.content_blocks = blocks;
+        self
     }
 
     pub fn system(content: impl Into<String>) -> Self {
@@ -129,83 +167,36 @@ impl Message {
     }
 }
 
-/// Provider-neutral reference to a validated, immutable attachment object.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AttachmentRef {
-    pub attachment_id: String,
-    pub media_type: String,
-    pub bytes: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub width: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub height: Option<u32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ContentBlock {
-    Text {
-        text: String,
-    },
-    Image {
-        attachment: AttachmentRef,
-        /// Request-local only: never read from or written to session JSON.
-        #[serde(skip)]
-        data_url: Option<String>,
-    },
-    File {
-        attachment: AttachmentRef,
-    },
-}
-
 impl ContentBlock {
-    /// Typed image-tool payload retained in the existing durable result metadata.
     pub fn from_tool_metadata(metadata: Option<&Value>) -> Vec<Self> {
         metadata
-            .and_then(|v| v.get("xharnessContentBlocks"))
+            .and_then(|m| m.get("xharnessContentBlocks"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
-    }
-
-    pub fn attachment(&self) -> Option<&AttachmentRef> {
-        match self {
-            Self::Image { attachment, .. } | Self::File { attachment } => Some(attachment),
-            Self::Text { .. } => None,
-        }
     }
 }
 
 #[cfg(test)]
-mod attachment_tests {
+mod multimodal_tests {
     use super::*;
-
     #[test]
-    fn legacy_messages_and_request_only_image_bytes() {
+    fn legacy_string_and_new_reference_roundtrip_without_base64() {
         let old: Message = serde_json::from_str(r#"{"role":"user","content":"hello"}"#).unwrap();
         assert!(old.content_blocks.is_empty());
-        assert!(serde_json::to_value(old)
-            .unwrap()
-            .get("contentBlocks")
-            .is_none());
-        let block = ContentBlock::Image {
-            attachment: AttachmentRef {
-                attachment_id: format!("sha256:{}", "a".repeat(64)),
-                media_type: "image/png".into(),
-                bytes: 10,
-                name: None,
-                width: Some(1),
-                height: Some(1),
-            },
-            data_url: Some("data:image/png;base64,PRIVATE_BYTES".into()),
+        assert_eq!(old.content, "hello");
+        let r = AttachmentRef {
+            id: "a".repeat(64),
+            session_id: "s".into(),
+            media_type: "image/png".into(),
+            width: 64,
+            height: 32,
+            bytes: 123,
         };
-        let encoded = serde_json::to_string(&block).unwrap();
-        assert!(!encoded.contains("PRIVATE_BYTES"));
-        assert!(matches!(
-            serde_json::from_str::<ContentBlock>(&encoded).unwrap(),
-            ContentBlock::Image { data_url: None, .. }
-        ));
+        let image =
+            Message::user("").with_content_blocks(vec![ContentBlock::Image { attachment: r }]);
+        let json = serde_json::to_string(&image).unwrap();
+        assert_eq!(serde_json::from_str::<Message>(&json).unwrap(), image);
+        assert!(!json.contains("base64"));
+        assert!(image.content.is_empty());
     }
 }

@@ -58,8 +58,6 @@ pub struct ProviderProfile {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConfiguredModel {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_modalities: Option<Vec<String>>,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -78,6 +76,9 @@ pub struct ConfiguredModel {
     pub reasoning: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window_capability: Option<Value>,
+    /// None: unknown; false: reject images before network; true: explicitly supported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_input: Option<bool>,
 }
 
 pub fn valid_credential_reference(value: &str) -> bool {
@@ -139,11 +140,6 @@ pub fn parse_model_settings(value: &Value) -> Result<ModelSettingsDocument, Stri
         }
         let mut ids = BTreeSet::new();
         for model in &profile.models {
-            if model.input_modalities.as_ref().is_some_and(|modalities| {
-                modalities.is_empty() || modalities.iter().any(|m| m != "text" && m != "image")
-            }) {
-                return Err("Input modalities must contain text and/or image".into());
-            }
             if model.id.trim().is_empty()
                 || model.id.trim() != model.id
                 || model.id.len() > 512
@@ -196,7 +192,7 @@ pub fn model_settings_schema() -> Value {
         "4": {"type":"const", "value":"openai-responses"},
         "5": {"type":"union", "list":[3,4]},
         "6": {"type":"any"},
-        "7": {"type":"object", "dict": {"id":1,"name":1,"contextWindow":2,"maxTokens":2,"upstreamModel":1,"minimumOutputTokens":2,"tokenSafetyMargin":2,"reasoning":6,"contextWindowCapability":6,"inputModalities":6}},
+        "7": {"type":"object", "dict": {"id":1,"name":1,"contextWindow":2,"maxTokens":2,"upstreamModel":1,"minimumOutputTokens":2,"tokenSafetyMargin":2,"reasoning":6,"contextWindowCapability":6,"imageInput":6}},
         "8": {"type":"array", "inner":7},
         "9": {"type":"object", "dict": {"displayName":1,"baseURL":1,"api":5,"apiKeyEnv":1,"defaultContextWindow":2,"maxTokens":2,"models":8}},
         "10": {"type":"dict", "inner":9},

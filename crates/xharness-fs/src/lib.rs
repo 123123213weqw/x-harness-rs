@@ -586,6 +586,49 @@ impl FsService {
         .await
     }
 
+    pub async fn read_prefix(
+        &self,
+        session_id: &str,
+        target: &FsTarget,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, FsError> {
+        validate_session_id(session_id)?;
+        let (record, guard) = self.lock_target(target).await?;
+        let root = self.inner.root.clone();
+        let root_fd = self.inner.root_fd.clone();
+        run_blocking(move || {
+            let _guard = guard;
+            let physical = physical_target(&root, root_fd.as_ref(), &record)?;
+            let mut file =
+                open_regular_contained(&root, &physical)?.ok_or_else(|| FsError::NotFound {
+                    display: physical.display.clone(),
+                })?;
+            let before = MetadataStamp::from_metadata(
+                &file
+                    .metadata()
+                    .map_err(|source| io_error("inspect binary target", &physical.path, source))?,
+            );
+            let mut bytes = Vec::new();
+            (&mut file)
+                .take(max_bytes as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|source| io_error("read binary target", &physical.path, source))?;
+            bytes.truncate(max_bytes);
+            let after = MetadataStamp::from_metadata(
+                &file
+                    .metadata()
+                    .map_err(|source| io_error("inspect binary target", &physical.path, source))?,
+            );
+            if before != after {
+                return Err(FsError::ConcurrentModification {
+                    display: physical.display,
+                });
+            }
+            Ok(bytes)
+        })
+        .await
+    }
+
     pub async fn read_page(
         &self,
         session_id: &str,

@@ -71,6 +71,14 @@ impl From<JobSnapshot> for PublicJobSnapshot {
     }
 }
 
+#[async_trait::async_trait]
+pub trait MediaReader: Send + Sync {
+    async fn read(
+        &self,
+        path: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ToolOutput>, ToolHandlerError>;
+}
 #[derive(Clone)]
 pub struct CodingToolBundle {
     platform: Arc<NativePlatform>,
@@ -78,6 +86,7 @@ pub struct CodingToolBundle {
     web: Arc<WebRuntime>,
     session_id: Arc<str>,
     owner_id: Arc<str>,
+    media_reader: Option<Arc<dyn MediaReader>>,
 }
 
 impl CodingToolBundle {
@@ -94,7 +103,13 @@ impl CodingToolBundle {
             web,
             session_id: Arc::from(session_id.into()),
             owner_id: Arc::from(owner_id.into()),
+            media_reader: None,
         }
+    }
+
+    pub fn with_media_reader(mut self, reader: Arc<dyn MediaReader>) -> Self {
+        self.media_reader = Some(reader);
+        self
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {
@@ -342,6 +357,7 @@ impl CodingToolBundle {
     fn read_spec(&self) -> ToolSpec {
         let platform = Arc::clone(&self.platform);
         let session_id = Arc::clone(&self.session_id);
+        let media_reader = self.media_reader.clone();
         ToolSpec::new(
             definition(
                 "read",
@@ -361,10 +377,17 @@ impl CodingToolBundle {
                 }),
             ),
             move |context| {
+                let media_reader=media_reader.clone();
                 let platform = Arc::clone(&platform);
                 let session_id = Arc::clone(&session_id);
                 async move {
                     let path = required_string(&context, "path")?;
+                    if let Some(reader)=&media_reader {
+                        if let Some(output)=reader.read(&path,&context.cancellation).await? {
+                            if ["cursor","offset","start_line","limit","line_limit"].iter().any(|k|context.arguments.get(*k).is_some()) {return Err(ToolHandlerError::new("image reads do not support text pagination"));}
+                            return Ok(output);
+                        }
+                    }
                     let cursor = optional_string(&context, "cursor");
                     let offset = optional_u64(&context, "offset");
                     let start_line = optional_u64(&context, "start_line");
@@ -576,9 +599,9 @@ impl CodingToolBundle {
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
-                    Ok(process_output(
+                    search_process_output(
                         run_process(platform, spec, &context.cancellation).await?,
-                    ))
+                    )
                 }
             },
         )
@@ -625,9 +648,9 @@ impl CodingToolBundle {
                         .args(args)
                         .timeout(Duration::from_secs(30))
                         .envs(managed_environment());
-                    Ok(process_output(
+                    search_process_output(
                         run_process(platform, spec, &context.cancellation).await?,
-                    ))
+                    )
                 }
             },
         )
@@ -740,8 +763,20 @@ async fn run_process(
     }
 }
 
-fn process_output(output: ProcessOutput) -> ToolOutput {
-    json_output(process_output_value(output))
+fn search_process_output(output: ProcessOutput) -> Result<ToolOutput, ToolHandlerError> {
+    let accepted = output.termination == TerminationReason::Exited
+        && output.status.signal.is_none()
+        && matches!(output.status.code, Some(0 | 1));
+    let no_matches = accepted && output.status.code == Some(1);
+    let mut value = process_output_value(output);
+    value["no_matches"] = json!(no_matches);
+    if accepted {
+        Ok(json_output(value))
+    } else {
+        Err(ToolHandlerError::new(format!(
+            "search process failed: {value}"
+        )))
+    }
 }
 
 fn process_output_value(output: ProcessOutput) -> Value {
@@ -1074,8 +1109,47 @@ fn job_id_key(arguments: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{managed_environment, managed_path};
+    use super::{managed_environment, managed_path, search_process_output};
     use xharness_process::is_secret_env_name;
+
+    #[test]
+    fn search_process_exit_matrix_preserves_diagnostics() {
+        use xharness_process::{CapturedOutput, ProcessOutput, ProcessStatus, TerminationReason};
+        for (code, signal, termination, ok) in [
+            (Some(0), None, TerminationReason::Exited, true),
+            (Some(1), None, TerminationReason::Exited, true),
+            (Some(2), None, TerminationReason::Exited, false),
+            (None, Some(6), TerminationReason::Exited, false),
+            (Some(0), None, TerminationReason::TimedOut, false),
+            (Some(0), None, TerminationReason::Cancelled, false),
+            (None, None, TerminationReason::Exited, false),
+        ] {
+            let capture = CapturedOutput {
+                text: "diagnostic fixture".into(),
+                truncated: false,
+                bytes_read: 18,
+            };
+            let result = search_process_output(ProcessOutput {
+                pid: 42,
+                status: ProcessStatus {
+                    success: code == Some(0),
+                    code,
+                    signal,
+                    core_dumped: false,
+                },
+                termination,
+                stdout: capture.clone(),
+                stderr: capture,
+            });
+            assert_eq!(result.is_ok(), ok, "{code:?}/{signal:?}/{termination:?}");
+            let text = match result {
+                Ok(out) => out.content,
+                Err(err) => err.message,
+            };
+            assert!(text.contains("diagnostic fixture"));
+            assert!(text.contains("exit_code") && text.contains("stderr"));
+        }
+    }
 
     #[test]
     fn managed_environment_preserves_runtime_state_without_credentials() {

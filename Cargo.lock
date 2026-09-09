@@ -3285,13 +3285,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "xharness-attachment"
+name = "xharness-attachments"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64",
  "image",
+ "serde",
+ "serde_json",
  "sha2",
  "thiserror 2.0.20",
+ "tokio",
  "xharness-session",
 ]
 
@@ -3412,6 +3416,7 @@ version = "0.1.0"
 dependencies = [
  "async-stream",
  "async-trait",
+ "base64",
  "chrono",
  "futures",
  "serde",
@@ -3424,7 +3429,7 @@ dependencies = [
  "url",
  "xharness-agent",
  "xharness-api",
- "xharness-attachment",
+ "xharness-attachments",
  "xharness-compaction",
  "xharness-control",
  "xharness-core",
@@ -3454,7 +3459,7 @@ dependencies = [
  "tokio-util",
  "xharness-agent",
  "xharness-api",
- "xharness-attachment",
+ "xharness-attachments",
  "xharness-coding-tools",
  "xharness-compaction",
  "xharness-control",
@@ -3543,11 +3548,13 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-util",
+ "xharness-attachments",
  "xharness-core",
  "xharness-debug",
- "xharness-session",
+ "xharness-token",
 ]
 
 [[package]]

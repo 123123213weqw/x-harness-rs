@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use xharness_agent::InboxProjection;
 use xharness_api::{RpcError, RpcErrorCode, RpcId};
-use xharness_core::{LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
+use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
 use xharness_session::SessionEvent;
 
 use crate::{
@@ -75,6 +75,8 @@ impl BasicHost {
         notice: xharness_schedule::ScheduleDeliveryNotice,
     ) -> Result<(), (String, String)> {
         let session_id = notice.session_id;
+        // Serialize background starts with prompt/model admission checks.
+        let _admission_guard = self.lock_admission(&session_id).await;
         let run = self
             .agent_runtime
             .take_resumed_turn(&session_id, &notice.work_id)
@@ -437,6 +439,7 @@ impl BasicHost {
             source,
             fingerprint,
         } = admission;
+        let _ = prompt_message(rpc_id.as_str(), &text, &content)?;
         let session_id = session_id.as_str();
         // Only an explicit user prompt resumes a stopped admission gate.
         if source.get("kind").and_then(Value::as_str) == Some("user") {
@@ -475,11 +478,7 @@ impl BasicHost {
                 (session.control.clone(), None)
             } else {
                 let mut messages = session.messages.clone();
-                messages.push(crate::attachments::message_with_blocks(
-                    text.clone(),
-                    rpc_id.as_str().to_owned(),
-                    &content,
-                ));
+                messages.push(prompt_message(rpc_id.as_str(), &text, &content)?);
                 (
                     None,
                     Some(AgentTurnRequest {
@@ -501,11 +500,7 @@ impl BasicHost {
         };
 
         if let Some(control) = steer_control {
-            let message = crate::attachments::message_with_blocks(
-                text.clone(),
-                rpc_id.as_str().to_owned(),
-                &content,
-            );
+            let message = prompt_message(rpc_id.as_str(), &text, &content)?;
             let (acknowledgement, accepted) = oneshot::channel();
             control
                 .send(DriverCommand {
@@ -798,11 +793,7 @@ impl BasicHost {
             session.next_turn = session.next_turn.saturating_add(1);
             session
                 .messages
-                .push(crate::attachments::message_with_blocks(
-                    prompt.text.clone(),
-                    prompt.id.clone(),
-                    &prompt.content,
-                ));
+                .push(prompt_message(&prompt.id, &prompt.text, &prompt.content)?);
             (
                 turn,
                 session.cwd.clone(),
@@ -1038,14 +1029,22 @@ impl BasicHost {
                 approval_id,
                 call,
                 approved,
+                cancelled,
                 reason: _,
             } => {
+                self.state.write().await.pending.retain(|_, p| match p {
+                    PendingResponse::Approval {
+                        session_id: id,
+                        approval_id: aid,
+                        ..
+                    } => !(id == session_id && aid == &approval_id),
+                });
                 self.push_mux(json!({
                     "type": "approval/resolved",
                     "sessionId": session_id,
                     "approvalId": approval_id,
                     "callId": call.id,
-                    "outcome": if approved { "allowed-once" } else { "rejected" },
+                    "outcome": if cancelled { "cancelled" } else if approved { "allowed-once" } else { "rejected" },
                 }));
             }
             LoopEventKind::RunFailed { error } => {
@@ -1199,7 +1198,7 @@ impl BasicHost {
                             "content": [{
                                 "type": "tool-result",
                                 "toolCallId": call.id,
-                                "content": crate::attachments::web_tool_content(if result.ok { &result.content } else { &result.error }, result.metadata.as_ref()),
+                                "content": crate::restore::web_tool_content(if result.ok {&result.content} else {&result.error}, result.metadata.as_ref()),
                                 "isError": !result.ok,
                             }],
                             "source": {"kind": "tool", "callId": call.id},
@@ -1257,14 +1256,22 @@ impl BasicHost {
                 approval_id,
                 call,
                 approved,
+                cancelled,
                 reason: _,
             } => {
+                self.state.write().await.pending.retain(|_, p| match p {
+                    PendingResponse::Approval {
+                        session_id: id,
+                        approval_id: aid,
+                        ..
+                    } => !(id == session_id && aid == &approval_id),
+                });
                 self.append_session_event(
                     session_id,
                     "approval/decided",
                     json!({
                         "id": approval_id,
-                        "outcome": if approved { "allowed-once" } else { "rejected" },
+                        "outcome": if cancelled { "cancelled" } else if approved { "allowed-once" } else { "rejected" },
                     }),
                     None,
                 )
@@ -1274,7 +1281,7 @@ impl BasicHost {
                     "sessionId": session_id,
                     "approvalId": approval_id,
                     "callId": call.id,
-                    "outcome": if approved { "allowed-once" } else { "rejected" },
+                    "outcome": if cancelled { "cancelled" } else if approved { "allowed-once" } else { "rejected" },
                 }));
             }
             LoopEventKind::ModelRetry {
@@ -1386,4 +1393,45 @@ fn web_assistant_message(id: &str, text: &str, provider: &str, model: &str) -> V
         "content": [{"type": "text", "text": text}],
         "source": {"kind": "model", "provider": provider, "model": model},
     })
+}
+
+fn prompt_message(id: &str, text: &str, content: &[Value]) -> Result<AgentMessage, RpcError> {
+    let mut message = AgentMessage::new(Role::User, text).with_id(id.to_owned());
+    if !content.iter().any(|p| {
+        p.get("type").and_then(Value::as_str) == Some("image")
+            || p.get("type").and_then(Value::as_str) == Some("file")
+    }) {
+        return Ok(message);
+    }
+    let mut blocks = Vec::new();
+    for part in content {
+        match part.get("type").and_then(Value::as_str) {
+            Some("text") => blocks.push(xharness_session::ContentBlock::Text {
+                text: part["text"].as_str().unwrap_or_default().to_owned(),
+            }),
+            Some(kind @ ("image" | "file")) => {
+                let reference = serde_json::from_value(part["attachment"]["reference"].clone())
+                    .map_err(|_| {
+                        rpc_error(
+                            RpcErrorCode::AttachmentError,
+                            "legacy attachment bytes unavailable; reattach the image",
+                            json!({"reason":"REATTACH_REQUIRED"}),
+                        )
+                    })?;
+                blocks.push(if kind == "file" {
+                    xharness_session::ContentBlock::File {
+                        attachment: reference,
+                        name: part["attachment"]["name"].as_str().map(str::to_owned),
+                    }
+                } else {
+                    xharness_session::ContentBlock::Image {
+                        attachment: reference,
+                    }
+                });
+            }
+            _ => {}
+        }
+    }
+    message = message.with_content_blocks(blocks);
+    Ok(message)
 }

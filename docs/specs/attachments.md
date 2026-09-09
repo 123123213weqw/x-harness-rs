@@ -1,89 +1,53 @@
-# Durable image and file attachments
+# 附件能力统一整合（PR #39）
 
-This implements the portable attachment behavior of DeepSeek Harness, referenced
-at upstream `c389f96bf3a9b6807cb71ed6bdad5849be0df6d8`, in the shared Rust host and
-shared Web/desktop composer. It is not a separate Windows UI or a second agent.
+## 基线与兼容
 
-## User behavior
+在主分支的 `xharness-attachments` 上扩展，不引入 PR 旧版的第二个
+`xharness-attachment` 库。既有图片 ID、session_id、存储目录、metadata.json 和 image
+对象布局保持不变。消息增加 File 类型，文件名作为消息可选元数据，不参与磁盘路径。
+未发布的 PR 旧版 `sha256:` / contentBlocks 格式不是当前数据基线，本次不将它覆盖到
+已安装软件的数据上。PR #35 的草稿事务、同源刷新恢复和权限检查继续复用。
 
-- Drag files into the conversation, paste clipboard images, or use **添加附件**.
-- Images have thumbnail/original previews; other formats have filename/size cards.
-- Remove unwanted drafts before sending. Rejected sends retain all drafts.
-- Historical images can be reopened; ordinary files can be downloaded. Retrieval
-  uses the authenticated session attachment RPC and supports retries.
-- In model settings, open a model's advanced settings and enable **支持图片输入**
-  only when that exact model/API route accepts images. Existing models remain
-  text-only until explicitly enabled. The setting is persisted as
-  `inputModalities: ["text", "image"]` in provider profiles; the legacy native JSON
-  config uses `input_modalities`.
-- A capable model receives image bytes. A text-only model receives an explicit
-  omission descriptor; the original attachment stays in the conversation. This
-  does **not** automatically call another vision model or silently incur a second
-  model call.
-- Generic files are preserved byte-for-byte and exposed to tools at a verified
-  read-only path retaining a safe extension. PDF/Office/archive attachment does
-  not imply automatic document extraction: the agent needs a suitable available
-  tool. SVG/HTML are downloadable files, not active inline previews.
+## 用户输入
 
-## Storage and protocol
+- 图片：上传→校验→持久引用→Provider 自动编码；模型不必调用 read 或寻找路径。
+- 普通文件：字节完整保存，模型收到文件名、字节数、会话只读路径；不伪装成视觉内容，
+  不自动解析 PDF/Office 文档。模型可以使用 read/命令按权限探索文件。
+- 同一个 session.prompt 同时支持 text/image/file，以及已授权的 image_ref/file_ref。
+- 新文件单个不超过 32 MiB（允许空文件），图片沿用单张 20 MiB；单次上传合计
+  96 MiB、最多 128 内容块；图片请求仍遵守 16 张/40 MiB 总量和像素上限。
+- 文件 ID 使用版本化域分隔哈希，避免同字节图片和文件互相覆盖元数据。名称不影响
+  对象身份。文件下载、历史编辑恢复不重新上传二进制。
+- 图片/文件 UI 共用选择、拖拽、删除、历史下载/重试；SVG 等非支持图片作为普通文件
+  下载，不作为可执行页面内嵌。明确声明不支持视觉时拒绝图片，绝不静默省略。
 
-The native host uses `<state-dir>/attachments/v1`. SHA-256-addressed objects are
-published atomically before a message/result can reference them. A read checks
-the digest and size. Safe filename aliases are separate from immutable objects.
-Session messages and tool-result metadata store typed refs, never image base64.
-Request image caches are disposable and do not replace the durable originals.
+## 工具与权限
 
-Authorization uses typed references in durable session events, including old
-history outside the bounded Web cache. Arbitrary tool arguments, request headers,
-guessed IDs and client-provided local paths do not grant attachment access.
-Generic attachments are projected into a stable per-session directory, including
-new steering inputs and refs inherited by forks. Only that session directory is an
-additional **read-only** filesystem/sandbox root; other sessions and the global
-object store are not granted. This does not enlarge normal workspace write authority. OS read-only attributes
-and hashes are not protection against a hostile administrator/same-user process.
+不新增模型工具名。现有 `read` 先经 FsService 受限文件句柄读取短前缀；若是
+PNG/JPEG/WebP/GIF，复用图片读取模块校验并返回类型化图片引用。否则仍走原有文本分页。
+图片不接受文本分页参数；模型视觉能力必须明确为 true；取消、超限、不存在、越权
+读取返回明确错误。识别依据内容，不依赖扩展名，也不安装额外图像程序。
 
-PNG/JPEG/WebP/GIF are decoded with allocation/dimension limits and EXIF orientation,
-then normalized (animated inputs become a static frame). Request variants are
-bounded separately. `read_image` uses the existing filesystem permission seam,
-checks the exact active route before reading, and produces durable image refs.
+平台按会话/工作区/权限缓存。只授予当前会话附件根的额外读取能力，不增加 Workspace
+写权限；Full Access 仍遵循用户明确选择的全盘权限。分叉文件按授权引用发布到子会话
+根，不给子会话祖先整个附件目录的权限。存储解析校验尺寸、长度和哈希，失败不降级。
 
-Chat Completions tool messages support text only, so tool images become a
-request-local user-image envelope **after the complete tool-result batch**.
-Responses uses image parts in `function_call_output`. Durable history is unchanged.
-See the [Chat schema](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
-and [function output guidance](https://developers.openai.com/api/docs/guides/function-calling).
+## 工具图片与重放
 
-## Deliberate compatibility limits
+ToolResult.metadata 保存 xharnessContentBlocks，核心 Loop 和持久日志重放都恢复图片
+引用，保留原有结果正文及 tool-call ID。Provider 在完整连续工具结果批次之后注入
+图片消息，避免破坏 assistant→所有 tool results 的顺序。Chat/Responses 共用此策略；
+调试输出对图片 data URL 脱敏。Web 历史/live 展示复用同一附件投影。
 
-- Current inline JSON RPC: 128 attachments, 20 images, 20 MiB per image,
-  32 MiB per generic file and 96 MiB combined per prompt. This is **not** the
-  latest upstream's unbounded streaming generic-file upload transport.
-- Images: maximum decoded dimension 8192, 64 million source pixels; normalized
-  at most 4 million pixels/4 MiB; request variants at most 640,000 pixels/1 MiB,
-  retaining the newest 20 images per request with explicit omissions for others.
-- Portable inline provider images are implemented. DeepSeek-specific Files API
-  uploads/cache optimization are not part of this implementation.
-- Legacy text-only session JSON remains readable. Images whose bytes existed
-  only in the previous process's memory cannot be recovered after that process
-  has exited. Existing on-disk sessions/configuration are not rewritten.
-- There is no automatic object garbage collection; retain the attachment folder
-  together with the session store when backing up or migrating application data.
+## 验收与边界
 
-## Verification
+- 旧图片回归、新文件字节一致/空文件/重开、跨会话拒绝、分叉只读授权。
+- 上传/引用/下载/历史编辑，发送失败保留草稿，图片与文件混合、灯箱、窄屏。
+- 实际 read 模块：扩展名错误/无扩展名、视觉开关、取消、路径越权。
+- 两种 Provider 协议验证工具批次顺序、图片真实字节与文件只读描述。
+- 现有 Node、Chromium/WebKit、远程全 workspace Rust 和三平台 CI 回归。
 
-Rust tests cover normalization, corrupt payload rejection, byte-exact generic
-files, reopened storage, persisted refs, bounded-history authorization, cross-session
-refusal, route projection, tool-image call ordering, and read-only file access.
-`read_image` tests cover capability gating, actual image output, invalid bytes,
-and cancellation without paid model calls.
+本次不发布安装包，不重启用户软件。流式文件上传、远端文件 API 缓存、附件垃圾回收和
+普通文件解析器另行迭代；不会以此 PR 改写历史文件。
 
-`node scripts/test-attachments.mjs` exercises the shipped conversation controller
-and actual wire schemas. `scripts/test-attachments-browser.mjs` mounts the shipped
-React attachment components in an isolated fixture: mixed picker/drop, real image
-decode/lightbox, removal, disabled input, history retry and narrow layout. CI runs
-this with Chromium and WebKit. This component fixture is not an installer or a
-live-provider end-to-end test.
-
-Per repository policy, Rust compilation/testing runs remotely or in CI, never on
-the local Windows development machine. No live user application is restarted by
-these tests, and no real model credentials are used.
+- 普通文件使用常规 prompt 链路；目前斜杠命令和不支持附件的 Subagent 续写入口明确拒绝，保留草稿，不静默丢弃。

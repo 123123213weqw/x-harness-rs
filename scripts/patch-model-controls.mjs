@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const source = readFileSync(resolve(root, 'ui/overrides/model-controls.js'), 'utf8').replaceAll('\r\n', '\n')
+const source = readFileSync(resolve(root, 'ui/overrides/model-controls.js'), 'utf8')
 const begin = '// XHARNESS MODEL CONTROLS BEGIN\n'
 const end = '// XHARNESS MODEL CONTROLS END\n'
 function once(text, before, after) {
@@ -13,7 +13,7 @@ function once(text, before, after) {
   return text.replace(before, after)
 }
 export function patchModelControls(bytes) {
-  let text = bytes.toString('utf8').replaceAll('\r\n', '\n')
+  let text = bytes.toString('utf8')
   if (text.includes(begin)) {
     const start = text.indexOf(begin), finish = text.indexOf(end, start)
     if (finish < 0) throw new Error('unterminated model-controls source')
@@ -57,7 +57,7 @@ export function patchModelControls(bytes) {
   return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client.js.map\s*$/, '').trimEnd() + '\n')
 }
 export function patchModelConnection(bytes) {
-  let text = bytes.toString('utf8').replaceAll('\r\n', '\n')
+  let text = bytes.toString('utf8')
   const marker = '// XHARNESS MODEL CAPABILITY WIRE'
   if (!text.includes(marker)) {
     text = once(text, 'const modelSelectionSchema = object({', marker + '\n\t\tconst modelSelectionSchema = object({\n            contextWindowTokens: number().int().positive().optional(),')

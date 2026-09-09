@@ -108,11 +108,23 @@ impl BasicHost {
 
         for header in headers {
             let session_id = header.id.clone();
-            let session = store.load(&session_id).await?.ok_or_else(|| {
+            let mut session = store.load(&session_id).await?.ok_or_else(|| {
                 HostRestoreError::SessionDisappeared {
                     session_id: session_id.clone(),
                 }
             })?;
+            let cancellations = xharness_session::stale_approval_cancellations(session.events());
+            if !cancellations.is_empty() {
+                store
+                    .append(&session_id, session.revision(), cancellations)
+                    .await?;
+                store.flush(&session_id).await?;
+                session = store.load(&session_id).await?.ok_or_else(|| {
+                    HostRestoreError::SessionDisappeared {
+                        session_id: session_id.clone(),
+                    }
+                })?;
+            }
             let inbox = InboxProjection::from_session(&session).map_err(|error| {
                 HostRestoreError::InvalidInbox {
                     session_id: session_id.clone(),
@@ -1161,7 +1173,7 @@ fn restored_web_event(
                     "content": [{
                         "type": "tool-result",
                         "toolCallId": result.call_id,
-                        "content": crate::attachments::web_tool_content(&result.content, result.metadata.as_ref()),
+                        "content": web_tool_content(&result.content, result.metadata.as_ref()),
                         "isError": result.outcome != ToolOutcome::Success,
                     }],
                     "source": {"kind": "tool", "callId": result.call_id},
@@ -1339,7 +1351,7 @@ fn web_message(
     json!({
         "id": id,
         "role": message.role.as_str(),
-        "content": if message.content_blocks.is_empty() { json!([{"type":"text","text":message.content}]) } else { json!(message.content_blocks) },
+        "content": [{"type": "text", "text": message.content}],
         "source": source,
     })
 }
@@ -1393,6 +1405,17 @@ fn attach_workspace(
         workspace.session_ids.push(session_id.to_owned());
     }
     workspace.updated_at = created_at_ms.to_string();
+}
+
+/// Shared durable/live attachment projection; binary payloads stay out of events.
+pub(crate) fn web_tool_content(text: &str, metadata: Option<&Value>) -> Vec<Value> {
+    let mut parts = vec![json!({"type":"text","text":text})];
+    for b in xharness_session::ContentBlock::from_tool_metadata(metadata) {
+        if let xharness_session::ContentBlock::Image { attachment: r } = b {
+            parts.push(json!({"type":"image","attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height,"reference":r}}));
+        }
+    }
+    parts
 }
 
 #[cfg(test)]
@@ -1869,6 +1892,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn restore_persists_orphan_approval_cancellation_once_without_resuming_tools() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        store.create(SessionHeader::new("orphan")).await.unwrap();
+        let call = ToolCall {
+            id: "c".into(),
+            name: "read".into(),
+            arguments_json: "{}".into(),
+            ..Default::default()
+        };
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls = vec![call.clone()];
+        store
+            .append(
+                "orphan",
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call,
+                    }
+                    .into(),
+                    EventData::ApprovalAsked {
+                        id: "a".into(),
+                        tool_name: "read".into(),
+                        call_id: Some("c".into()),
+                        reason: None,
+                    }
+                    .into(),
+                    EventData::ToolResult {
+                        turn: 1,
+                        step: 1,
+                        result: ToolResultData::error("c", "timeout"),
+                    }
+                    .into(),
+                    EventData::StepEnd { turn: 1, step: 1 }.into(),
+                    EventData::TurnEnd {
+                        turn: 1,
+                        reason: TurnEndReason::Completed,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let host = BasicHost::without_provider(config(&std::env::temp_dir()));
+        let report = host.restore_from_store(store.clone()).await.unwrap();
+        assert_eq!(report.resumed_pending_approvals, 0);
+        let s = store.load("orphan").await.unwrap().unwrap();
+        assert!(matches!(
+            s.events().last().unwrap().data(),
+            EventData::ApprovalDecided {
+                outcome: ApprovalOutcome::Cancelled,
+                ..
+            }
+        ));
+        assert!(host.state.read().await.pending.is_empty());
+        let revision = s.revision();
+        BasicHost::without_provider(config(&std::env::temp_dir()))
+            .restore_from_store(store.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            store.load("orphan").await.unwrap().unwrap().revision(),
+            revision
+        );
+    }
+
+    #[tokio::test]
     async fn durable_history_remains_complete_after_tail_eviction_and_restart() {
         let cwd = std::env::temp_dir();
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
@@ -2130,154 +2231,6 @@ mod tests {
             ControlRevision(3)
         );
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn durable_attachments_survive_reopen_and_bounded_web_history() {
-        use xharness_attachment::AttachmentStore;
-        use xharness_session::ContentBlock;
-        let root = std::env::temp_dir().join(format!(
-            "xh-attachment-reopen-{}-{}",
-            std::process::id(),
-            now_ms()
-        ));
-        let objects = AttachmentStore::new(&root).unwrap();
-        let image = objects
-            .save_image(
-                include_bytes!("../../../apps/desktop/src-tauri/icons/32x32.png"),
-                "image/png",
-                Some("界面.png"),
-            )
-            .unwrap();
-        let file = objects
-            .save_file(
-                b"original document bytes",
-                "application/pdf",
-                Some("说明.pdf"),
-            )
-            .unwrap();
-        let hidden = objects
-            .save_file(b"other session only", "text/plain", Some("private.txt"))
-            .unwrap();
-        let blocks = vec![
-            ContentBlock::Image {
-                attachment: image.clone(),
-                data_url: None,
-            },
-            ContentBlock::File {
-                attachment: file.clone(),
-            },
-        ];
-        drop(objects);
-        let cwd = std::env::temp_dir();
-        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-        let mut header = SessionHeader::new("attachment-reopen");
-        header.cwd = Some(cwd.to_string_lossy().into_owned());
-        store.create(header).await.unwrap();
-        let mut events = closed_text_turn(1, "attachments", "received");
-        if let EventData::UserMessage { message, .. } = events[1].data_mut() {
-            message.content_blocks = blocks.clone();
-        }
-        // Later prompt-like arbitrary JSON must NOT authorize a hidden object.
-        if let EventData::RequestHeader { header } = events[3].data_mut() {
-            header.options.insert(
-                "untrusted".into(),
-                json!({"type":"file","attachment":hidden}),
-            );
-        }
-        for turn in 2..5 {
-            events.extend(closed_text_turn(turn, "later", "done"));
-        }
-        // Exercise the actual serialized contract: no base64 or local path in the journal.
-        let serialized = serde_json::to_string(&events).unwrap();
-        assert!(!serialized.contains("base64"));
-        assert!(!serialized.contains("xh-attachment-reopen-"));
-        let events: Vec<SessionEvent> = serde_json::from_str(&serialized).unwrap();
-        store
-            .append("attachment-reopen", Revision::ZERO, events)
-            .await
-            .unwrap();
-        let runtime = Arc::new(DurableLoopAgentRuntime::new(
-            "test",
-            "test-model",
-            None,
-            Arc::new(NoTools),
-            Arc::new(IdentityContextPolicy),
-            store.clone(),
-            Arc::new(MemoryLeaseManager::default()),
-            32,
-        ));
-        let mut configuration = config(&cwd);
-        configuration.session_event_cache_capacity = 2;
-        configuration.attachments = Arc::new(AttachmentStore::new(&root).unwrap());
-        let host = BasicHost::with_agent_runtime(configuration, runtime);
-        host.restore_from_store(store).await.unwrap();
-        for reference in [&image, &file] {
-            assert_eq!(
-                &host
-                    .authorized_attachment("attachment-reopen", &reference.attachment_id)
-                    .await
-                    .unwrap(),
-                reference
-            );
-            assert_eq!(
-                host.attachment_store().read(reference).unwrap().len() as u64,
-                reference.bytes
-            );
-        }
-        assert!(host
-            .authorized_attachment("attachment-reopen", &hidden.attachment_id)
-            .await
-            .is_err());
-        assert!(host
-            .authorized_attachment("another-session", &file.attachment_id)
-            .await
-            .is_err());
-        let request = ProviderRequest {
-            messages: vec![Message::user("look").with_content_blocks(blocks)],
-            tools: vec![],
-            step: 1,
-            reasoning_effort: None,
-            max_output_tokens: None,
-            debug_scope: xharness_debug::DebugScope::default().with_session("attachment-reopen"),
-        };
-        let projected = crate::attachments::project_request(
-            request.clone(),
-            Some(host.attachment_store()),
-            true,
-            CancellationToken::new(),
-        )
-        .await
-        .unwrap();
-        assert!(matches!(&projected.messages[0].content_blocks[0],
-            ContentBlock::Image { data_url: Some(url), .. } if url.starts_with("data:image/")));
-        let expected_path = host
-            .attachment_store()
-            .session_file_path("attachment-reopen", &file)
-            .unwrap()
-            .unwrap();
-        assert!(projected.messages[0]
-            .content
-            .contains(&serde_json::to_string(&expected_path.to_string_lossy()).unwrap()));
-        let text_only = crate::attachments::project_request(
-            request.clone(),
-            Some(host.attachment_store()),
-            false,
-            CancellationToken::new(),
-        )
-        .await
-        .unwrap();
-        assert!(text_only.messages[0]
-            .content
-            .contains("this model accepts text only"));
-        assert!(matches!(
-            request.messages[0].content_blocks[0],
-            ContentBlock::Image { data_url: None, .. }
-        ));
-        assert_eq!(
-            host.attachment_store().read(&file).unwrap(),
-            b"original document bytes"
-        );
     }
 
     #[tokio::test]

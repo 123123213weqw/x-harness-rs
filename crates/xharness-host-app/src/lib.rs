@@ -6,7 +6,7 @@
 //! implementations.
 
 pub mod ownership;
-mod read_image;
+mod read_media;
 
 use std::{
     collections::BTreeMap,
@@ -34,7 +34,7 @@ use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
 use xharness_web::WebRuntime;
 
 /// Native Linux/macOS/Windows implementation of the standard coding-tool factory.
-/// Platforms are cached per session/workspace so attachment read capabilities stay isolated and filesystem observations
+/// Platforms are cached per canonical workspace so filesystem observations
 /// survive across turns. Background jobs are shared by the factory and fenced
 /// by session owner so they remain collectable across model turns.
 pub struct NativeToolFactory {
@@ -124,13 +124,11 @@ impl NativeToolFactory {
             PermissionPreset::DangerFullAccess => PlatformConfig::new(cwd).full_access(),
         };
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
-            let store = host.attachment_store();
-            let session = session_id.to_owned();
-            let root = tokio::task::spawn_blocking(move || store.session_root(&session))
-                .await
+            if let Some(root) = host
+                .attachment_store()
+                .read_only_root(session_id)
                 .map_err(|e| e.to_string())?
-                .map_err(|e| e.to_string())?;
-            if let Some(root) = root {
+            {
                 config = config.read_only_root(root);
             }
         }
@@ -178,18 +176,27 @@ impl SessionToolFactory for NativeToolFactory {
     ) -> Result<ToolExecutor, String> {
         let platform = self.platform(session_id, cwd, permission).await?;
         let readiness = self.readiness(session_id, cwd, permission).await?;
-        let mut specs = CodingToolBundle::new(
+        let mut bundle = CodingToolBundle::new(
             platform.clone(),
             Arc::clone(&self.jobs),
             Arc::clone(&self.web),
             session_id,
             session_id,
-        )
-        .specs();
+        );
+        if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+            bundle = bundle.with_media_reader(Arc::new(read_media::Reader {
+                host: Arc::downgrade(&host),
+                platform,
+                session: session_id.into(),
+            }));
+        }
+        let mut specs = bundle.specs();
+        if let Some(read) = specs.iter_mut().find(|s| s.definition.name == "read") {
+            read.definition.description.push_str(" PNG/JPEG/WebP/GIF files return image content when the selected model explicitly supports vision; no separate read_image tool is needed. Uploaded user images are already provided directly. Image reads do not accept text pagination options.");
+        }
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
             specs.push(xharness_host::AgentTool::for_host(&host, session_id));
-            specs.push(read_image::spec(&host, platform, session_id));
         }
         if let Some(schedules) = &self.schedules {
             specs.extend(schedules.specs(session_id));
@@ -362,57 +369,6 @@ mod tests {
     #[cfg(windows)]
     const BACKGROUND_COMMAND: &str =
         r#"{"command":"Start-Sleep -Seconds 30","run_in_background":true}"#;
-
-    #[tokio::test]
-    async fn native_attachment_roots_are_session_scoped_and_accept_later_inputs() {
-        let workspace = TempWorkspace::new();
-        let storage = TempWorkspace::new();
-        let mut config = xharness_host::HostConfig::new(&workspace.0);
-        config.attachments =
-            Arc::new(xharness_attachment::AttachmentStore::new(&storage.0).unwrap());
-        let host = xharness_host::BasicHost::without_provider(config);
-        let factory = NativeToolFactory::new(WebRuntime::default());
-        factory.bind_agent_host(&host).unwrap();
-        let cwd = workspace.0.to_string_lossy();
-        let first = factory
-            .platform("first", &cwd, PermissionPreset::WorkspaceWrite)
-            .await
-            .unwrap();
-        let second = factory
-            .platform("second", &cwd, PermissionPreset::WorkspaceWrite)
-            .await
-            .unwrap();
-        assert!(
-            !Arc::ptr_eq(&first, &second),
-            "same workspace must not share attachment capabilities"
-        );
-        let store = host.attachment_store();
-        let reference = store
-            .save_file(b"private attachment", "text/plain", Some("note.txt"))
-            .unwrap();
-        let first_path = store
-            .session_file_path("first", &reference)
-            .unwrap()
-            .unwrap();
-        assert!(first.resolve_read_file(&first_path).is_ok());
-        assert!(second.resolve_read_file(&first_path).is_err());
-        assert!(
-            first.resolve_file(&first_path).is_err(),
-            "read grant must not authorize writes"
-        );
-        // A later admitted/forked ref is published into the already-granted stable root.
-        let second_path = store
-            .session_file_path("second", &reference)
-            .unwrap()
-            .unwrap();
-        assert_ne!(first_path, second_path);
-        let (filesystem, target) = second.resolve_read_file(&second_path).unwrap();
-        assert_eq!(
-            filesystem.read_bytes("second", &target, 100).await.unwrap(),
-            b"private attachment"
-        );
-        assert!(first.resolve_read_file(&second_path).is_err());
-    }
 
     struct TempWorkspace(std::path::PathBuf);
 

@@ -35,6 +35,11 @@ def plan(repository, tag, releases, *, configured_repository):
         raise ValueError('Wrong release tag prefix')
     target = tag[len(PREFIX):]
     parts = version(target)
+    # A Windows-only feed would make every installed Mac/Linux client lose its
+    # platform entry. Once the unified channel has been published, this legacy
+    # builder is permanently retired (including for higher Windows versions).
+    if any(not r['isDraft'] and r['tagName'].startswith('desktop-v') for r in releases):
+        raise ValueError('Unified desktop channel is active; use desktop-v tags for every platform')
     if any(r['tagName'] == tag for r in releases):
         raise ValueError('Release already exists; never overwrite a published or draft version')
     published = [r for r in releases if not r['isDraft'] and r['tagName'].startswith(PREFIX)]

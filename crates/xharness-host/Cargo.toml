@@ -7,6 +7,8 @@ repository.workspace = true
 description = "Reusable provider-neutral host control plane for XHarness"
 
 [dependencies]
+base64 = "0.22"
+xharness-attachments = { path = "../xharness-attachments" }
 async-stream.workspace = true
 async-trait.workspace = true
 futures.workspace = true
@@ -18,7 +20,6 @@ tokio.workspace = true
 tokio-util.workspace = true
 url = "2"
 xharness-api = { path = "../xharness-api" }
-xharness-attachment = { path = "../xharness-attachment" }
 xharness-agent = { path = "../xharness-agent" }
 xharness-core = { path = "../xharness-core" }
 xharness-control = { path = "../xharness-control" }

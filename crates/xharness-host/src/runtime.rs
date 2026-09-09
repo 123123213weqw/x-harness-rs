@@ -47,8 +47,6 @@ pub struct ModelRoute {
 /// at different endpoints and wire-level model names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelDescriptor {
-    /// Exact-route input capability; unknown defaults to text only.
-    pub input_modalities: Vec<String>,
     pub provider: String,
     pub provider_display_name: String,
     pub model: String,
@@ -122,7 +120,6 @@ impl ModelDescriptor {
         model_display_name: impl Into<String>,
     ) -> Self {
         Self {
-            input_modalities: vec!["text".into()],
             provider: provider.into(),
             provider_display_name: provider_display_name.into(),
             model: model.into(),
@@ -222,7 +219,6 @@ pub enum ModelRegistryError {
 pub struct ModelRegistry {
     entries: HashMap<(String, String), RegisteredModel>,
     order: Vec<(String, String)>,
-    attachments: Arc<StdRwLock<Option<Arc<xharness_attachment::AttachmentStore>>>>,
 }
 
 impl ModelRegistry {
@@ -286,8 +282,6 @@ impl ModelRegistry {
             provider_id: descriptor.provider.clone(),
             model_id: descriptor.model.clone(),
             inner: model.provider,
-            attachments: self.attachments.clone(),
-            images: descriptor.input_modalities.iter().any(|m| m == "image"),
         });
         self.order.push(key.clone());
         self.entries.insert(key, model);
@@ -356,8 +350,6 @@ impl ModelRegistry {
 }
 
 struct RouteBoundProvider {
-    attachments: Arc<StdRwLock<Option<Arc<xharness_attachment::AttachmentStore>>>>,
-    images: bool,
     provider_id: String,
     model_id: String,
     inner: Arc<dyn ModelProvider>,
@@ -365,6 +357,9 @@ struct RouteBoundProvider {
 
 #[async_trait]
 impl ModelProvider for RouteBoundProvider {
+    fn input_counter_failed(&self) {
+        self.inner.input_counter_failed();
+    }
     fn provider_name(&self) -> &str {
         &self.provider_id
     }
@@ -373,26 +368,18 @@ impl ModelProvider for RouteBoundProvider {
         Some(&self.model_id)
     }
 
+    fn estimate_input_tokens(
+        &self,
+        request: &xharness_core::ProviderRequest,
+    ) -> Option<xharness_core::ProviderInputTokenCount> {
+        self.inner.estimate_input_tokens(request)
+    }
     async fn count_input_tokens(
         &self,
         request: &xharness_core::ProviderRequest,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Result<Option<xharness_core::ProviderInputTokenCount>, xharness_core::ProviderError> {
-        let store = self
-            .attachments
-            .read()
-            .expect("attachment store lock")
-            .clone();
-        let projected = crate::attachments::project_request(
-            request.clone(),
-            store,
-            self.images,
-            cancellation.clone(),
-        )
-        .await?;
-        self.inner
-            .count_input_tokens(&projected, cancellation)
-            .await
+        self.inner.count_input_tokens(request, cancellation).await
     }
 
     async fn capabilities(
@@ -407,15 +394,7 @@ impl ModelProvider for RouteBoundProvider {
         request: xharness_core::ProviderRequest,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Result<xharness_core::ProviderStream, xharness_core::ProviderError> {
-        let store = self
-            .attachments
-            .read()
-            .expect("attachment store lock")
-            .clone();
-        let projected =
-            crate::attachments::project_request(request, store, self.images, cancellation.clone())
-                .await?;
-        self.inner.stream(projected, cancellation).await
+        self.inner.stream(request, cancellation).await
     }
 }
 
@@ -529,7 +508,6 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
-    fn set_attachment_store(&self, _store: Arc<xharness_attachment::AttachmentStore>) {}
     fn auxiliary_model(&self, _route: &ModelRoute) -> Option<AuxiliaryModel> {
         None
     }
@@ -647,8 +625,6 @@ pub trait AgentRuntime: Send + Sync + 'static {
 /// Adapter from the v0 [`LoopEngine`] to the Host-facing Agent runtime seam.
 /// It is intentionally replaceable by a durable Agent/Inbox runtime later.
 pub struct LoopAgentRuntime {
-    attachments: Arc<StdRwLock<Option<Arc<xharness_attachment::AttachmentStore>>>>,
-    image_input: bool,
     provider_id: String,
     model_id: String,
     provider: Option<Arc<dyn ModelProvider>>,
@@ -659,12 +635,6 @@ pub struct LoopAgentRuntime {
 }
 
 impl LoopAgentRuntime {
-    /// Explicit opt-in for embedded runtimes; text-only remains the safe default.
-    pub fn with_image_input(mut self, enabled: bool) -> Self {
-        self.image_input = enabled;
-        self
-    }
-
     pub fn new(
         provider_id: impl Into<String>,
         model_id: impl Into<String>,
@@ -673,8 +643,6 @@ impl LoopAgentRuntime {
         context_policy: Arc<dyn ContextPolicy>,
     ) -> Self {
         Self {
-            attachments: Arc::default(),
-            image_input: false,
             provider_id: provider_id.into(),
             model_id: model_id.into(),
             provider,
@@ -698,10 +666,6 @@ impl LoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for LoopAgentRuntime {
-    fn set_attachment_store(&self, store: Arc<xharness_attachment::AttachmentStore>) {
-        *self.attachments.write().expect("attachment store lock") = Some(store);
-    }
-
     fn has_available_route(&self) -> bool {
         self.provider.is_some()
     }
@@ -724,16 +688,12 @@ impl AgentRuntime for LoopAgentRuntime {
         if self.provider.is_none() {
             return Vec::new();
         }
-        let mut descriptor = ModelDescriptor::new(
+        vec![ModelDescriptor::new(
             &self.provider_id,
             &self.provider_id,
             &self.model_id,
             &self.model_id,
-        );
-        if self.image_input {
-            descriptor.input_modalities.push("image".into());
-        }
-        vec![descriptor]
+        )]
     }
 
     async fn start_turn(
@@ -746,13 +706,7 @@ impl AgentRuntime for LoopAgentRuntime {
                 model: request.route.model,
             });
         }
-        let provider = Arc::new(RouteBoundProvider {
-            provider_id: self.provider_id.clone(),
-            model_id: self.model_id.clone(),
-            inner: Arc::clone(self.provider.as_ref().expect("route checked provider")),
-            attachments: self.attachments.clone(),
-            images: self.image_input,
-        });
+        let provider = Arc::clone(self.provider.as_ref().expect("route checked provider"));
         let token_guard = match request.route.context_window_tokens {
             Some(tokens) => self
                 .token_guard
@@ -1010,13 +964,7 @@ impl DurableLoopAgentRuntime {
     /// Future turns use the new immutable provider instances. Active turns
     /// already own their provider Arc and are never cancelled by configuration.
     pub fn replace_model_registry(&self, registry: ModelRegistry) {
-        let mut models = self.models.write().expect("model registry lock poisoned");
-        *registry.attachments.write().expect("attachment store lock") = models
-            .attachments
-            .read()
-            .expect("attachment store lock")
-            .clone();
-        *models = registry;
+        *self.models.write().expect("model registry lock poisoned") = registry;
     }
 
     pub fn with_token_guard(self, token_guard: Option<TokenGuard>) -> Self {
@@ -1145,15 +1093,6 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
-    fn set_attachment_store(&self, store: Arc<xharness_attachment::AttachmentStore>) {
-        *self
-            .models
-            .read()
-            .expect("model registry lock")
-            .attachments
-            .write()
-            .expect("attachment store lock") = Some(store);
-    }
     fn auxiliary_model(&self, route: &ModelRoute) -> Option<AuxiliaryModel> {
         let models = self.models.read().expect("model registry lock poisoned");
         let model = models.resolve(route)?;

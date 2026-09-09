@@ -8,8 +8,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: friends-windows-release
+  group: desktop-stable-release
   cancel-in-progress: false
+
+env:
+  PYTHONUTF8: '1'
 
 jobs:
   windows:
@@ -43,6 +46,16 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Install pinned ripgrep before integration tests
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'ripgrep-15.2.0.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'ripgrep-15.2.0'
+          Invoke-WebRequest 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5') { throw 'ripgrep hash mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $rg = "$extract/ripgrep-15.2.0-x86_64-pc-windows-msvc/rg.exe"
+          "XHARNESS_RG=$rg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Split-Path -Parent $rg) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Full native regression suite
         run: |
           cargo fmt --check --all
@@ -61,14 +74,9 @@ jobs:
         run: |
           cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
           if ($LASTEXITCODE) { throw 'Host build failed' }
-          $archive = Join-Path $env:RUNNER_TEMP 'ripgrep-15.2.0.zip'
-          $extract = Join-Path $env:RUNNER_TEMP 'ripgrep-15.2.0'
-          Invoke-WebRequest 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip' -OutFile $archive
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5') { throw 'ripgrep hash mismatch' }
-          Expand-Archive -LiteralPath $archive -DestinationPath $extract
           python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe x86_64-pc-windows-msvc
           if ($LASTEXITCODE) { throw 'Host stage failed' }
-          python scripts/stage-tauri-sidecar.py "$extract/ripgrep-15.2.0-x86_64-pc-windows-msvc/rg.exe" x86_64-pc-windows-msvc --name rg
+          python scripts/stage-tauri-sidecar.py "$env:XHARNESS_RG" x86_64-pc-windows-msvc --name rg
           if ($LASTEXITCODE) { throw 'rg stage failed' }
           python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
           if ($LASTEXITCODE) { throw 'ACL runner stage failed' }

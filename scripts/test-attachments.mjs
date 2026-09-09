@@ -33,13 +33,13 @@ result = await controller.sendSession(session,'检查附件',drafts.map(d=>d.id)
 assert.equal(result.kind,'success');assert.equal(controller.draftImages(drafts.map(d=>d.id)).length,0)
 assert.equal(revoked.length,3)
 assert.throws(()=>context.validate([{name:'huge.bin',type:'',size:33*1024*1024}]),/32 MiB/)
-assert.throws(()=>context.validate(Array.from({length:21},()=>({name:'a.png',type:'image/png',size:1}))),/20/)
+assert.throws(()=>context.validate(Array.from({length:21},()=>({name:'a.png',type:'image/png',size:1}))),/16/)
 const svg=controller.createDraftImages([new File(['<svg/>'],'unsafe.svg',{type:'image/svg+xml'})])[0]
 assert.equal(svg.kind,'file','SVG stays a download, not active inline content')
 const cards=readFileSync(resolve(root,'ui/dist/plugins/@deepseek-ai/dsh-client-ui-attachment/client.js'),'utf8')
 assert.ok(cards.includes('XHarnessHistoryFile'));assert.ok(cards.includes('multiple:true'))
 const models=readFileSync(resolve(root,'ui/dist/plugins/@deepseek-ai/dsh-client-ui-settings-models/client.js'),'utf8')
-assert.ok(models.includes("inputModalities:event.target.checked?['text','image']:['text']"))
+assert.ok(models.includes("imageInput"), "reuse the existing explicit model capability")
 console.log('attachments: ordered mixed payloads, failure retention, success release, size/count limits, safe generic fallback, model checkbox and idempotent UI patch passed')
 // Decode through the actual shipped connection schemas, not only a stub session.
 let wireRegistration;
@@ -53,3 +53,11 @@ assert.equal(wire.testAttachment.parse(emptyFile).attachment.bytes,0);
 const imageRef={attachment:{attachmentId:'sha256:fixture',mediaType:'image/png',bytes:12,width:32,height:32},data:'fixture'};
 assert.equal(wire.testAttachment.parse(imageRef).attachment.width,32);
 console.log('actual connection schemas preserve mixed prompts, zero-byte generic files, and image dimensions');
+
+const restored=controller.createDraftImages([code])[0];restored.historyRef={attachmentId:'existing'};restored.historyKind='file';
+accept=false;await controller.sendSession(session,'',[restored.id],'queue',undefined,true);
+assert.equal(captured[0].type,'file_ref');assert.equal(captured[0].attachmentId,'existing');assert.equal(captured[0].data,undefined);
+assert.equal(wire.testPart.parse(captured[0]).type,'file_ref');
+
+await assert.rejects(controller.serializeDraftImages([restored.id]), /斜杠命令/);
+assert.equal(controller.draftImages([restored.id]).length,1,"unsupported command retains file draft");

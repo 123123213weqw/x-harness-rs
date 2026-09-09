@@ -320,7 +320,7 @@ pub fn derive_surface_messages(events: &[LoggedEvent]) -> Vec<SurfaceMessage> {
                     provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
                     content,
                 )
-                .with_content_blocks(blocks),
+                .with_tool_blocks(blocks),
             });
         }
         // A valid log associates results with the current assistant batch.
@@ -335,7 +335,7 @@ pub fn derive_surface_messages(events: &[LoggedEvent]) -> Vec<SurfaceMessage> {
                     provider_call_ids.get(&call_id).cloned().unwrap_or(call_id),
                     content,
                 )
-                .with_content_blocks(blocks),
+                .with_tool_blocks(blocks),
             });
         }
     }
@@ -851,8 +851,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     }
                 }
             }
-            EventData::ApprovalDecided { id, .. } => {
-                if open_turn.is_none() {
+            EventData::ApprovalDecided { id, outcome } => {
+                if open_turn.is_none() && *outcome != crate::ApprovalOutcome::Cancelled {
                     return Err(lifecycle_error(
                         logged.seq,
                         "approval/decided requires an open turn",

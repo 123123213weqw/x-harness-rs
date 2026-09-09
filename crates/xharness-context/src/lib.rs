@@ -552,6 +552,7 @@ mod tests {
         })
         .unwrap();
         let assistant = Message {
+            content_blocks: Vec::new(),
             role: MessageRole::Assistant,
             tool_calls: vec![ToolCall {
                 id: "execution-1".to_owned(),
@@ -611,6 +612,7 @@ mod tests {
         let provider_call_id = format!("provider-{name}");
         vec![
             Message {
+                content_blocks: Vec::new(),
                 role: MessageRole::Assistant,
                 reasoning: reasoning.to_owned(),
                 tool_calls: vec![ToolCall {
@@ -709,6 +711,7 @@ mod tests {
             false,
         );
         let unresolved = Message {
+            content_blocks: Vec::new(),
             role: MessageRole::Assistant,
             tool_calls: vec![ToolCall {
                 id: "execution-unresolved".to_owned(),
@@ -720,6 +723,7 @@ mod tests {
             ..Message::default()
         };
         let invalid = Message {
+            content_blocks: Vec::new(),
             role: MessageRole::Assistant,
             tool_calls: vec![ToolCall {
                 id: "execution-invalid".to_owned(),
@@ -813,5 +817,40 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("successful edit.new omitted"));
+    }
+    #[tokio::test]
+    async fn context_projection_preserves_image_blocks() {
+        let message =
+            Message::user("").with_content_blocks(vec![xharness_session::ContentBlock::Image {
+                attachment: xharness_session::AttachmentRef {
+                    id: "sha256-ref".into(),
+                    session_id: "image-session".into(),
+                    media_type: "image/png".into(),
+                    bytes: 128,
+                    width: 64,
+                    height: 32,
+                },
+            }]);
+        let source = vec![
+            message,
+            Message::assistant("red and blue"),
+            Message::user("look again"),
+        ];
+        assert_eq!(
+            IdentityContextPolicy
+                .prepare(ContextRequest::new(source.clone()))
+                .await
+                .unwrap()
+                .messages,
+            source
+        );
+        assert_eq!(
+            ToolResultPruningContextPolicy::default()
+                .prepare(ContextRequest::new(source.clone()))
+                .await
+                .unwrap()
+                .messages,
+            source
+        );
     }
 }

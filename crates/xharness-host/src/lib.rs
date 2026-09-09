@@ -4,7 +4,6 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
-mod attachments;
 mod control;
 mod delegation;
 mod delegation_concurrency;
@@ -58,9 +57,6 @@ pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, Workspa
 /// Host process configuration visible at the browser boundary.
 #[derive(Clone, Debug)]
 pub struct HostConfig {
-    /// Shared immutable store. Embeddings default to memory; native deployments
-    /// explicitly select their durable state directory.
-    pub attachments: Arc<xharness_attachment::AttachmentStore>,
     pub cwd: PathBuf,
     pub home: PathBuf,
     pub version: String,
@@ -73,6 +69,7 @@ pub struct HostConfig {
     pub token_guard: Option<TokenGuard>,
     /// Enabled by the native app composition; embeddings opt in explicitly.
     pub auto_titles: bool,
+    pub attachment_store: Arc<dyn xharness_attachments::AttachmentStore>,
     pub event_capacity: usize,
     /// Maximum number of projected Session events retained in Host memory for
     /// a durable session. Older history remains queryable from the append-only
@@ -97,7 +94,6 @@ impl HostConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|| cwd.clone());
         Self {
-            attachments: Arc::new(xharness_attachment::AttachmentStore::default()),
             cwd,
             home,
             version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -107,6 +103,7 @@ impl HostConfig {
             reasoning_effort: None,
             token_guard: None,
             auto_titles: false,
+            attachment_store: Arc::new(xharness_attachments::MemoryAttachmentStore::default()),
             event_capacity: 2_048,
             session_event_cache_capacity: 2_048,
             session_event_cache_bytes: 16 * 1024 * 1024,
@@ -240,7 +237,6 @@ impl BasicHost {
         questions: Arc<DurableQuestionHub>,
     ) -> Arc<Self> {
         let capacity = config.event_capacity.max(16);
-        agent_runtime.set_attachment_store(config.attachments.clone());
         let (mux_tx, _) = broadcast::channel(capacity);
         let (host_tx, _) = broadcast::channel(capacity);
         Arc::new(Self {
@@ -321,5 +317,24 @@ impl BasicHost {
                 .filter_map(|id| state.workspaces.get(id)).collect::<Vec<_>>(),
             "archivedSessionIds": state.archived_sessions,
         })
+    }
+}
+
+impl BasicHost {
+    pub fn attachment_store(&self) -> Arc<dyn xharness_attachments::AttachmentStore> {
+        self.config.attachment_store.clone()
+    }
+    pub async fn session_accepts_images(&self, id: &str) -> bool {
+        let state = self.state.read().await;
+        let Some(s) = state.sessions.get(id) else {
+            return false;
+        };
+        state
+            .settings
+            .get(crate::MODEL_SETTINGS_NAMESPACE)
+            .and_then(|ns| ns.value["providers"][&s.model.provider]["models"].as_array())
+            .and_then(|ms| ms.iter().find(|m| m["id"].as_str() == Some(&s.model.model)))
+            .and_then(|m| m["imageInput"].as_bool())
+            == Some(true)
     }
 }

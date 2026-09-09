@@ -11,7 +11,7 @@ name = "xharness-host"
 path = "src/main.rs"
 
 [dependencies]
-xharness-attachment = { path = "../xharness-attachment" }
+xharness-attachments = { path = "../xharness-attachments" }
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true

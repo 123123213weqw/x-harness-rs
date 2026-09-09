@@ -8,6 +8,8 @@ import {
 } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { patchAttachments } from './patch-attachments.mjs'
+import { patchConversationMessageEdit, patchMessageEditConnection, patchMessageEditRuntime } from './patch-conversation-message-edit.mjs'
+import { patchContextAccounting, patchContextConnection } from './patch-context-accounting.mjs'
 import { patchModelControls, patchModelConnection } from './patch-model-controls.mjs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
@@ -100,12 +102,15 @@ for (const entry of composed) {
     throw new Error(`${entry.name} declares dsh.client without a ./client export`)
   }
   const source = resolve(dirname(packagePath), relative)
-  let bytes = patchAttachments(entry.name, portableBytes(readFileSync(source)))
+  let bytes = portableBytes(readFileSync(source))
   if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') {
-    bytes = patchConversationClient(bytes)
+    bytes = patchConversationMessageEdit(patchContextAccounting(patchConversationClient(bytes)))
   }
   if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchModelConnection(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextConnection(patchModelConnection(bytes))
+  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchMessageEditConnection(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchMessageEditRuntime(bytes)
+  bytes = patchAttachments(entry.name, bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
@@ -185,7 +190,7 @@ for (const entry of entries) {
   writeFileSync(target, plugin.bytes)
   const sourceMap = `${plugin.source}.map`
   try {
-    if (!['@deepseek-ai/dsh-client-ui-model-selection', '@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-attachment', '@deepseek-ai/dsh-client-ui-settings-models'].includes(entry.id)) writeFileSync(`${target}.map`, portableBytes(readFileSync(sourceMap)))
+    if (!['@deepseek-ai/dsh-client-ui-attachment', '@deepseek-ai/dsh-client-ui-settings-models', '@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-model-selection', '@deepseek-ai/dsh-client-connection'].includes(entry.id)) writeFileSync(`${target}.map`, portableBytes(readFileSync(sourceMap)))
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
