@@ -612,6 +612,22 @@ def fixture_server(root, asset, signature, config):
     return server
 
 
+def isolate_base_updater_timers(path):
+    # Only the disposable base is instrumented. Its native driver owns the
+    # check/download/install sequence (including an intentional concurrent pair).
+    # A second browser timer must not inject unrelated operations mid-assertion.
+    require(path.is_file() and not path.is_symlink(), 'Missing regular base updater UI')
+    text = path.read_text(encoding='utf-8')
+    initial = '    initialTimer = window.setTimeout(() => controller.check(), 1500)'
+    periodic = ("    periodicTimer = window.setInterval(() => {\n"
+                "      if (document.visibilityState === 'visible') controller.check()\n"
+                "    }, 6 * 60 * 60 * 1000)")
+    require(text.count(initial) == 1 and text.count(periodic) == 1,
+            'Base updater timer injection anchor drifted')
+    text = text.replace(initial, '    // Isolated base: native driver owns automatic checks.', 1)
+    path.write_text(text.replace(periodic, '    // Production target timers remain unmodified.', 1), encoding='utf-8')
+
+
 def prepare(args):
     root = isolated_root(args.root, create=True)
     source = pathlib.Path(args.source).resolve()
@@ -629,6 +645,7 @@ def prepare(args):
                         'credentials*', 'id_rsa*', 'id_ed25519*', '__pycache__'))
     if (source / 'ui/dist').is_dir():
         shutil.copytree(source / 'ui/dist', root / 'source/ui/dist', symlinks=True)
+    isolate_base_updater_timers(root / 'source/ui/dist/desktop-updater.js')
     desktop = root / 'source/apps/desktop/src-tauri'
     shutil.copy2(REPO / 'scripts/fixtures/unix-update-driver.rs', desktop / 'src/rehearsal.rs')
     path = desktop / 'src/sidecar.rs'
