@@ -26,7 +26,11 @@ try {
   await page.goto('https://attachment-fixture.test/')
   await page.waitForFunction(()=>window.staticModules)
   await page.evaluate(()=>{window.registrations={};window.__ModuleLoader__={load:r=>registrations[r.id]=r}})
-  for(const id of ['@deepseek-ai/dsh-client-runtime','@deepseek-ai/dsh-client-ui-theme','@deepseek-ai/dsh-client-ui-attachment']) await page.addScriptTag({content:readFileSync(resolve(dist,'plugins/'+id+'/client.js'),'utf8')})
+  for(const name of readdirSync(resolve(dist,'plugins/@deepseek-ai'))) {
+    let content=readFileSync(resolve(dist,'plugins/@deepseek-ai',name,'client.js'),'utf8')
+    if(name==='dsh-client-ui-conversation') content=content.replace('exports.ConversationController =', 'exports.InputBar = InputBar; exports.SessionInputShell = SessionInputShell; exports.ConversationController =')
+    await page.addScriptTag({content})
+  }
   await page.evaluate(()=>{
     const React=staticModules.react,h=React.createElement,ReactDOM=staticModules['react-dom']
     const runtime=registrations['@deepseek-ai/dsh-client-runtime'].factory(id=>staticModules[id])
@@ -37,25 +41,76 @@ try {
     for(const [name,value] of Object.entries(ctx.theme.getTheme().active.tokens))document.documentElement.style.setProperty(name,value)
     document.body.style.fontFamily='system-ui,sans-serif'
     document.body.style.background='var(--dsw-alias-bg-base)'
+    document.body.style.color='var(--dsw-alias-label-primary)'
     const slots={}
-    const api=registrations['@deepseek-ai/dsh-client-ui-attachment'].factory(id=>staticModules[id])
+    const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
+    const api=load('@deepseek-ai/dsh-client-ui-attachment/client')
     api.apply({slots:{inject(_name,callback){callback()},register(definition,component){slots[definition.name]=component}}})
     const Composer=slots['conversation.input.attachments'],History=slots['conversation.message.images']
-    window.added=[];window.locked=false
+    const module=load('@deepseek-ai/dsh-client-ui-conversation/client')
+    const owner=Object.assign(Object.create(module.ConversationController.prototype),{draftAttachments:new Map(),createdImageUrls:new Set()})
+    const shell=new module.SessionInputShell({defaultSink:async()=>({kind:'error'}),commandImages:{serialize:async()=>[],release:()=>{},unsupportedNotice:()=>''}})
+    const useInput=select=>select(React.useSyncExternalStore(shell.state.subscribe,shell.state.getSnapshot))
+    const labels={'input.add':'添加附件或命令','input.attachFiles':'添加图片或文件','input.commands':'命令','input.send':'发送','placeholder.default':'给 XHarness 发送消息'}
+    const t=key=>labels[key]??key
+    window.added=[];window.locked=false;window.commandCalls=[];window.sessionId='fixture';window.shell=shell
+    window.setTheme=preference=>{
+      document.documentElement.dataset.theme=preference
+      document.body.toggleAttribute('data-ds-dark-theme',preference==='dark')
+      const theme=ctx.theme.getTheme().themes.find(theme=>theme.id===preference)
+      if(theme)for(const [name,value] of Object.entries(theme.tokens))document.documentElement.style.setProperty(name,value)
+    }
     function Fixture(){
-      const [attachments,setAttachments]=React.useState([])
-      window.toggleLock=()=>{window.locked=!window.locked;setAttachments(items=>[...items])}
-      return h('main',{style:{margin:'40px auto',maxWidth:720,padding:12}},
-        h('h2',{},'附件测试'),h('p',{},'拖入、粘贴或选择图片及文件'),
-        h(Composer,{attachments,canAcceptDrop:!window.locked,onAddImages:files=>{window.added.push(...files.map(f=>f.name));setAttachments(items=>[...items,...files.map(file=>({id:crypto.randomUUID(),kind:file.type==='image/png'?'image':'file',file,previewUrl:URL.createObjectURL(file)}))])},onRemoveImage:id=>setAttachments(items=>items.filter(a=>a.id!==id)),t:key=>key}),
-        h('textarea',{'aria-label':'消息',placeholder:'给 XHarness 发送消息',style:{width:'100%',minHeight:100,marginTop:12}}),
+      const [,rerender]=React.useState(0)
+      window.toggleLock=()=>{window.locked=!window.locked;rerender(n=>n+1)}
+      window.changeSession=()=>{window.sessionId+='-next';rerender(n=>n+1)}
+      return h('main',{style:{margin:'160px auto 40px',maxWidth:720,padding:12}},
+        h('h2',{},'开始新的对话'),
+        h(module.InputBar,{sessionId,disabled:locked,keyboard:shell,inputActions:shell.actions,
+          useSession:select=>select({running:false,subagent:null,removed:false}),useInput,
+          useNotices:()=>null,useLexicon:()=>new Map(),useMenuLauncher:()=>false,useProjection:()=>undefined,
+          renderSlot:(name,props)=>name==='conversation.input.attachments'?h(Composer,{...props,t}):null,t,
+          resolveSubmitMode:()=> 'queue',draftImages:ids=>owner.draftImages(ids),
+          toggleCommandMenu:selection=>commandCalls.push(selection),
+          addImages:files=>{const images=owner.createDraftImages(files);const accepted=shell.addImages(images.map(a=>a.id));if(accepted)added.push(...files.map(f=>f.name));else owner.releaseDraftImages(images);return accepted?null:'locked'},
+          removeImage:id=>{shell.removeImage(id);owner.releaseDraftImage(id)}}),
+        h('button',{type:'button','data-outside':true,style:{marginTop:16}},'聊天框外'),
         h('h3',{style:{marginTop:32}},'历史附件'),h(History,{images:[{kind:'file',attachment:{attachmentId:'sha256:fixture',name:'产品说明.pdf',mediaType:'application/pdf',bytes:1234}}],loadImage:async()=>{throw Error('fixture retry')},align:'start',t:key=>key}))
     }
     ReactDOM.createRoot(document.getElementById('root')).render(h(Fixture))
   })
-  await page.getByRole('button',{name:'＋ 添加附件'}).waitFor()
-  const input=page.getByLabel('添加附件',{exact:true})
-  await input.setInputFiles([{name:'界面.png',mimeType:'image/png',buffer:readFileSync(resolve(root,'apps/desktop/src-tauri/icons/32x32.png'))},{name:'说明.pdf',mimeType:'application/pdf',buffer:Buffer.from('pdf fixture')},{name:'main.rs',mimeType:'text/plain',buffer:Buffer.from('fn main() {}')}])
+  const plus=page.getByRole('button',{name:'添加附件或命令',exact:true}),input=page.getByLabel('添加图片或文件',{exact:true}),textarea=page.locator('textarea')
+  await plus.waitFor()
+  assert.equal(await page.locator('.xh-attachment-toolbar').count(),0)
+  assert.equal(await page.locator('[data-composer-card] [data-composer-add-menu]').count(),1)
+  const evidence=resolve(root,'dist/attachment-ui-evidence');mkdirSync(evidence,{recursive:true})
+  await page.screenshot({path:resolve(evidence,engine+'-empty.png')})
+  await textarea.fill('保留当前草稿')
+  await textarea.evaluate(el=>el.setSelectionRange(2,4))
+  await plus.click()
+  const menu=page.getByRole('menu')
+  await menu.waitFor()
+  await page.screenshot({path:resolve(evidence,engine+'-plus-menu.png')})
+  const cardBox=await page.locator('[data-composer-card]').boundingBox(),menuBox=await menu.boundingBox()
+  const clipTop=Math.min(cardBox.y,menuBox.y)-12
+  await page.screenshot({path:resolve(evidence,engine+'-menu-detail.png'),clip:{x:cardBox.x-12,y:clipTop,width:cardBox.width+24,height:cardBox.y+cardBox.height-clipTop+12}})
+  assert.equal(await page.getByRole('menuitem',{name:'添加图片或文件'}).evaluate(el=>el===document.activeElement),true)
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await menu.waitFor({state:'detached'})
+  assert.deepEqual(await page.evaluate(()=>commandCalls),[{start:2,end:4}])
+  assert.equal(await textarea.inputValue(),'保留当前草稿')
+  await plus.focus();await page.keyboard.press('ArrowDown');await menu.waitFor()
+  await page.keyboard.press('Escape');await menu.waitFor({state:'detached'})
+  assert.equal(await plus.evaluate(el=>el===document.activeElement),true)
+  await plus.click();await menu.waitFor();await page.keyboard.press('Tab');await menu.waitFor({state:'detached'})
+  await plus.click();await page.locator('[data-outside]').click();await menu.waitFor({state:'detached'})
+  await plus.click()
+  const chooser=page.waitForEvent('filechooser')
+  await page.getByRole('menuitem',{name:'添加图片或文件'}).click()
+  const dialog=await chooser
+  assert.equal(dialog.isMultiple(),true)
+  await dialog.setFiles([{name:'界面.png',mimeType:'image/png',buffer:readFileSync(resolve(root,'apps/desktop/src-tauri/icons/32x32.png'))},{name:'说明.pdf',mimeType:'application/pdf',buffer:Buffer.from('pdf fixture')},{name:'main.rs',mimeType:'text/plain',buffer:Buffer.from('fn main() {}')}])
   assert.deepEqual(await page.evaluate(()=>added),['界面.png','说明.pdf','main.rs'])
   const thumbnail=page.getByRole('img',{name:'界面.png',exact:true})
   await thumbnail.waitFor()
@@ -82,13 +137,36 @@ try {
   await page.getByText('日志.log',{exact:true}).waitFor()
   await page.getByRole('button',{name:/产品说明.pdf/}).click()
   await page.getByText('读取失败，点击重试',{exact:true}).waitFor()
-  await page.evaluate(()=>toggleLock());await page.waitForFunction(()=>document.querySelector('.xh-attachment-toolbar button').disabled)
-  assert.equal(await page.getByRole('button',{name:'＋ 添加附件'}).isDisabled(),true)
-  const evidence=resolve(root,'dist/attachment-ui-evidence');mkdirSync(evidence,{recursive:true})
+  await textarea.evaluate(el=>{const data=new DataTransfer();data.items.add(new File(['paste'],'粘贴.txt',{type:'text/plain'}));el.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,clipboardData:data}))})
+  await page.getByText('粘贴.txt',{exact:true}).waitFor()
+  // Empty selection/cancel leaves both text and attachments intact.
+  const count=await page.evaluate(()=>added.length)
+  await input.setInputFiles([])
+  assert.equal(await page.evaluate(()=>added.length),count)
+  assert.equal(await textarea.inputValue(),'保留当前草稿')
+  await input.setInputFiles({name:'same.txt',mimeType:'text/plain',buffer:Buffer.from('same')})
+  await input.setInputFiles({name:'same.txt',mimeType:'text/plain',buffer:Buffer.from('same')})
+  assert.equal(await page.evaluate(()=>added.filter(name=>name==='same.txt').length),2)
+  await plus.click();await page.evaluate(()=>toggleLock())
+  await page.waitForFunction(()=>document.querySelector('[data-composer-add-menu] button').disabled)
+  await menu.waitFor({state:'detached'})
+  assert.equal(await plus.isDisabled(),true);assert.equal(await input.isDisabled(),true)
+  const lockedCount=await page.evaluate(()=>added.length)
+  await page.evaluate(()=>{const input=document.querySelector('[data-composer-add-menu] input');const data=new DataTransfer();data.items.add(new File(['late'],'late.txt'));Object.defineProperty(input,'files',{configurable:true,value:data.files});input.dispatchEvent(new Event('change',{bubbles:true}));delete input.files})
+  assert.equal(await page.evaluate(()=>added.length),lockedCount,'late file dialog result while locked is ignored')
+  await page.evaluate(()=>toggleLock())
   await page.screenshot({path:resolve(evidence,engine+'-mixed.png')})
   await page.setViewportSize({width:375,height:700})
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true)
   await page.screenshot({path:resolve(evidence,engine+'-narrow.png')})
+  await plus.click();await menu.waitFor()
+  const bounds=await menu.boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=375&&bounds.y>=0)
+  await page.screenshot({path:resolve(evidence,engine+'-narrow-menu.png')})
+  const lightMenu=await menu.evaluate(el=>getComputedStyle(el).backgroundColor)
+  await page.evaluate(()=>setTheme('dark'))
+  assert.notEqual(await menu.evaluate(el=>getComputedStyle(el).backgroundColor),lightMenu,'dark theme must actually change menu palette')
+  await page.screenshot({path:resolve(evidence,engine+'-dark-menu.png')})
+  await page.evaluate(()=>changeSession());await menu.waitFor({state:'detached'})
   assert.deepEqual(errors,[])
-  console.log(engine+': real image decode/lightbox, file picker, mixed cards, remove, drop, locked input, history retry and narrow layout passed')
+  console.log(engine+': actual composer plus, commands/caret, keyboard/outside close, mixed picker, image/lightbox, drop/paste, cancel/reselect, late locked result, session switch and narrow layout passed')
 } finally {await browser.close()}
