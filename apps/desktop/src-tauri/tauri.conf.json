@@ -13,6 +13,7 @@
         "label": "main",
         "title": "XHarness",
         "url": "index.html",
+        "dragDropEnabled": false,
         "width": 1360,
         "height": 900,
         "minWidth": 900,
