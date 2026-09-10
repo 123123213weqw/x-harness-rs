@@ -119,7 +119,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
     let control_dir = args.state_dir.join("control");
-    let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?);
+    let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?.for_runtime());
     let questions = DurableQuestionHub::new(store.clone(), ManagedAgentMarkdownSink::new());
     let schedules = ScheduleManager::new(Arc::clone(&store));
     let web = WebRuntime::default().with_debug(debug.clone());

@@ -129,6 +129,7 @@ impl ApiBackend for BasicHost {
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
         let result = match endpoint {
+            "session.requestSnapshot" => self.request_snapshot(&payload).await.map(Some),
             "commands/list" => self.commands_list(&payload).await.map(Some),
             "commands/execute" => self.commands_execute(&payload).await,
             _ => return None,
@@ -288,10 +289,23 @@ impl ApiBackend for BasicHost {
                 json!({"sessionId": session_id}),
             )
         })?;
+        let mut exported =
+            serde_json::to_value(session).map_err(|e| RpcError::internal(e.to_string()))?;
+        drop(state);
+        if let Some(source) = self
+            .agent_runtime
+            .authoritative_session(session_id)
+            .await
+            .map_err(agent_runtime_error)?
+        {
+            exported["messages"] = serde_json::to_value(source.derive_messages())
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+        }
         let bytes = serde_json::to_vec_pretty(&json!({
             "format": "xharness-session-export",
             "version": 1,
-            "session": session,
+            "session": exported,
+            "requestAudit": "full request snapshots remain in the state-directory audit archive",
         }))
         .map_err(|error| RpcError::internal(format!("could not encode session: {error}")))?;
         Ok(SessionExport::json(format!("{session_id}.json"), bytes))
@@ -2559,6 +2573,24 @@ impl BasicHost {
         }
         state.presets.remove(&id);
         Ok(json!({}))
+    }
+
+    async fn request_snapshot(&self, payload: &Value) -> Result<Value, RpcError> {
+        let id = required_string(payload, "sessionId")?;
+        let seq = payload
+            .get("seq")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| bad_request("seq must be a nonnegative integer"))?;
+        if !self.state.read().await.sessions.contains_key(&id) {
+            return Err(session_not_found(&id));
+        }
+        let header = self
+            .agent_runtime
+            .request_header(&id, seq)
+            .await
+            .map_err(agent_runtime_error)?
+            .ok_or_else(|| bad_request("request snapshot not found at this sequence"))?;
+        Ok(json!({"sessionId":id,"seq":seq,"header":header}))
     }
 
     async fn execute_goal_command(

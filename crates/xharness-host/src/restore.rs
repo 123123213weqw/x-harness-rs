@@ -157,16 +157,25 @@ impl BasicHost {
                     false
                 }
             };
-            let metric_events =
-                project_session_event_range(&session, &route, 0, session.events().len());
-            let metrics = MetricsProjectionState::rebuild(metric_events.iter());
+            // Fold one event at a time: startup must not materialize a second
+            // whole-log JSON projection just to compute counters.
+            let mut metrics = MetricsProjectionState::default();
+            let prompts = prompt_views(&session);
+            let initial = initial_request_header_seq(&session);
+            for event in session.events() {
+                metrics.apply(&restored_web_event(event, &route, &prompts, initial, None));
+            }
             let tail = project_session_event_tail(
                 &session,
                 &route,
                 self.config.session_event_cache_capacity,
                 self.config.session_event_cache_bytes,
             );
-            let messages = session.derive_messages();
+            let messages = if self.agent_runtime.has_authoritative_sessions() {
+                Vec::new()
+            } else {
+                session.derive_messages()
+            };
             let updated_at = session
                 .events()
                 .last()
@@ -180,7 +189,12 @@ impl BasicHost {
                 })
                 .max()
                 .unwrap_or_default();
-            let blank = messages.is_empty() && !inbox.has_pending();
+            let blank = !session.events().iter().any(|e| {
+                matches!(
+                    e.data(),
+                    EventData::UserMessage { .. } | EventData::AssistantMessage { .. }
+                )
+            }) && !inbox.has_pending();
             let permission = restored_permission(&session);
             let plan_active = restored_plan_mode(&session);
             let goal = restored_goal(&session);
@@ -1265,19 +1279,23 @@ fn web_request_header(header: &RequestHeader, initial: bool) -> (String, Value, 
             );
     }
 
-    let mut web_header = json!({
-        "config": config,
-        "tools": header.tools,
-        "input": header.input,
-        "options": header.options,
-        "xharnessVersion": 1,
-    });
-    if let Some(system) = &header.system {
-        web_header
-            .as_object_mut()
-            .expect("request header is an object")
-            .insert("system".to_owned(), Value::String(system.clone()));
+    // Ordinary live/history frames carry metadata only, including for old
+    // stores. Context/Harness explicitly resolve one selected snapshot by seq.
+    let mut options = header.options.clone();
+    if let Some(Value::Object(context)) = options.get_mut("context") {
+        if let Some(Value::Array(edits)) = context.remove("edits") {
+            context.insert("edit_count".into(), json!(edits.len()));
+        }
     }
+    options
+        .entry("inputMessageCount".into())
+        .or_insert(json!(header.input.len()));
+    options
+        .entry("toolCount".into())
+        .or_insert(json!(header.tools.len()));
+    options.insert("snapshotOnDemand".into(), json!(true));
+    let web_header =
+        json!({"config":config,"tools":[],"input":[],"options":options,"xharnessVersion":1});
 
     (
         "request/header".to_owned(),
@@ -2396,10 +2414,7 @@ mod tests {
             })
         );
         assert_eq!(projected_header["data"]["reason"], "initial");
-        assert_eq!(
-            projected_header["data"]["header"]["input"][0]["content"],
-            "hello"
-        );
+        assert_eq!(projected_header["data"]["header"]["input"], json!([]));
         assert_eq!(
             projected_header["data"]["header"]["options"]["tokenBudget"]["contextWindowTokens"],
             53_248

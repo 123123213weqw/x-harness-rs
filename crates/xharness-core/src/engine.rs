@@ -856,19 +856,21 @@ impl Runner {
                     }
                 }
             };
-            self.debug(
-                "provider.request.prepared",
-                json!({
-                    "request": {
-                        "messages": &provider_request.messages,
-                        "tools": &provider_request.tools,
-                        "step": provider_request.step,
-                        "maxOutputTokens": provider_request.max_output_tokens,
-                    },
-                    "tokenBudget": &token_budget,
-                }),
-            )
-            .await;
+            if self.request.debug.enabled() {
+                self.debug(
+                    "provider.request.prepared",
+                    json!({
+                        "request": {
+                            "messages": &provider_request.messages,
+                            "tools": &provider_request.tools,
+                            "step": provider_request.step,
+                            "maxOutputTokens": provider_request.max_output_tokens,
+                        },
+                        "tokenBudget": &token_budget,
+                    }),
+                )
+                .await;
+            }
             self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
                 .await?;
 
@@ -2059,6 +2061,16 @@ impl Runner {
             .journal
             .as_ref()
             .is_some_and(|journal| journal.last_request_context.as_ref() != Some(&request_context));
+        let header = self
+            .journal
+            .as_ref()
+            .unwrap()
+            .store
+            .archive_request(header)
+            .await
+            .map_err(|error| {
+                RunFailure::Failed(format!("request audit archive failed: {error}"))
+            })?;
         let mut events = vec![SessionEventData::RequestHeader { header }];
         if context_changed {
             events.push(SessionEventData::RequestContext {

@@ -96,9 +96,9 @@ pub struct RequestHeader {
     pub system: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<Value>,
-    /// Exact provider-neutral input after context policy preparation. Keeping
-    /// it here makes every model-visible request independently auditable even
-    /// while compaction policies are still evolving.
+    /// Exact provider-neutral input after context policy preparation. JSONL
+    /// may archive it losslessly and leave an options.auditSnapshot reference;
+    /// use Store::request_header for explicit full-fidelity audit access.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub input: Vec<Message>,
     /// Provider- or harness-specific call controls not yet promoted to stable

@@ -292,7 +292,9 @@ impl BasicHost {
                     tail.events,
                     tail.bytes,
                 );
-                record.messages = session.derive_messages();
+                // Durable Runtime derives provider messages from the journal on demand.
+                // Do not retain a second transcript for every idle conversation.
+                record.messages.clear();
                 record.permission_preset = permission;
                 record.agent_preset = agent_preset;
                 record.title = title;

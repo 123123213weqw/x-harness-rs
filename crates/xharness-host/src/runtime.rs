@@ -537,6 +537,23 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(None)
     }
 
+    async fn request_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        Ok(self.authoritative_session(session_id).await?.and_then(|s| {
+            s.events().iter().find_map(|e| {
+                if e.seq == seq {
+                    if let xharness_session::EventData::RequestHeader { header } = e.data() {
+                        return Some(header.clone());
+                    }
+                }
+                None
+            })
+        }))
+    }
+
     /// Persist product/control-plane session facts outside an active model
     /// turn. Returns `true` only when this runtime owns and flushed an
     /// authoritative Session log; ephemeral runtimes leave projection to the
@@ -1292,6 +1309,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .await
             .map_err(|error| AgentRuntimeError::Preparation {
                 message: format!("could not load durable session {session_id:?}: {error}"),
+            })
+    }
+
+    async fn request_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        self.store
+            .request_header(session_id, seq)
+            .await
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: format!("request audit unavailable: {e}"),
             })
     }
 

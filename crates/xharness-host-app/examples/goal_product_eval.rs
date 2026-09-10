@@ -104,8 +104,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
-    let root = std::path::PathBuf::from(std::env::args().nth(1).ok_or("new root required")?);
-    if root.exists() {
+    let revise = std::env::args().nth(1).as_deref() == Some("--revise");
+    let root = std::path::PathBuf::from(
+        std::env::args()
+            .nth(if revise { 2 } else { 1 })
+            .ok_or("root required")?,
+    );
+    if root.exists() && !revise {
         return Err("refusing to overwrite an existing evaluation".into());
     }
     let mut input = String::new();
@@ -120,9 +125,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(input);
     std::fs::create_dir_all(root.join("work"))?;
     let cwd = root.join("work").canonicalize()?;
-    let store: Arc<dyn Store> = Arc::new(xharness_session_jsonl::JsonlSessionStore::new(
-        root.join("sessions"),
-    )?);
+    let store: Arc<dyn Store> = Arc::new(
+        xharness_session_jsonl::JsonlSessionStore::new(root.join("sessions"))?.for_runtime(),
+    );
     let tools = xharness_host_app::NativeToolFactory::new(xharness_web::WebRuntime::new(
         xharness_web::WebConfig::default(),
     )?);
@@ -141,27 +146,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.model_id = "deepseek".into();
     let host = BasicHost::with_agent_runtime(config, runtime.clone());
     host.restore_from_store(store.clone()).await?;
-    call(
-        &host,
-        "session",
-        RpcMethod::SessionCreate,
-        json!({"sessionId":"goal-product","cwd":cwd}),
-    )
-    .await?;
-    // Isolated disposable workspace; no external package/network access is needed.
-    let permission=host.call_dynamic(RpcId::new("permission"),"commands/execute",json!({"args":{"agentId":"goal-product","line":"/permission danger-full-access","images":[]}}),CancellationToken::new()).await.ok_or("permission route missing")?;
-    if !permission.is_ok() {
-        return Err("permission setup failed".into());
+    if !revise {
+        call(
+            &host,
+            "session",
+            RpcMethod::SessionCreate,
+            json!({"sessionId":"goal-product","cwd":cwd}),
+        )
+        .await?;
+        // Isolated disposable workspace; no external package/network access is needed.
+        let permission=host.call_dynamic(RpcId::new("permission"),"commands/execute",json!({"args":{"agentId":"goal-product","line":"/permission danger-full-access","images":[]}}),CancellationToken::new()).await.ok_or("permission route missing")?;
+        if !permission.is_ok() {
+            return Err("permission setup failed".into());
+        }
     }
     let objective=std::env::var("XHARNESS_GOAL_EVAL_OBJECTIVE").unwrap_or_else(|_|"Implement a dependency-free Python CSV ledger in ledger.py, test_ledger.py, README.md. parse_rows(text)->list, summarize(rows)->dict with count, total (two decimal string), by_category sorted keys. Require exactly date,category,amount headers; validate real YYYY-MM-DD dates, nonempty trimmed Unicode categories, finite signed decimal amounts at most 2 decimal places, no exponent syntax. Use Decimal exactly. Reject invalid rows with ValueError and row context. Header-only returns zero. CLI python3 ledger.py INPUT.csv supports UTF-8 BOM and JSON output, invalid data exits nonzero with no traceback. Work exclusively in the current workspace; do not use network, external packages, git or background processes. Deliver in three substantive Goal rounds: (1) parser/core and unit tests, report progress; (2) CLI and integration tests, report progress; (3) robustness audit and README, run all tests, then report complete with evidence via goal_report. Use actual coding tools, not only prose. Finish each round after reporting; the Goal runtime will resume the next round.".into());
     let start = Instant::now();
-    call(
-        &host,
-        "goal",
-        RpcMethod::GoalCreate,
-        json!({"sessionId":"goal-product","objective":objective,"maxGoalRounds":6}),
-    )
-    .await?;
+    if revise {
+        let old = execution_state(&store.load("goal-product").await?.ok_or("missing Goal")?)
+            .ok_or("missing Goal state")?;
+        let updated=call(&host,"acceptance-feedback",RpcMethod::GoalEdit,json!({"sessionId":"goal-product","ref":{"id":old.definition.snapshot.id,"revision":old.definition.snapshot.revision},"objective":objective})).await?;
+        call(
+            &host,
+            "resume-after-acceptance",
+            RpcMethod::GoalResume,
+            json!({"sessionId":"goal-product","ref":updated["ref"]}),
+        )
+        .await?;
+    } else {
+        call(
+            &host,
+            "goal",
+            RpcMethod::GoalCreate,
+            json!({"sessionId":"goal-product","objective":objective,"maxGoalRounds":6}),
+        )
+        .await?;
+    }
     let mut last = 0;
     let snapshot = tokio::time::timeout(Duration::from_secs(1200), async {
         loop {

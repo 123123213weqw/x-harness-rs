@@ -11,6 +11,17 @@ Commit、Issue、PR 应引用这些 ID。
 当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
 `b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
 
+## 内存与请求审计（2026-09-10）
+
+规范见 [请求审计与内存边界](specs/request-audit-storage.md)。
+
+- [x] `MEM-01` 请求审计无损冷存储、消息级去重，普通 Journal/前端不重复保存完整请求。
+- [x] `MEM-02` Session 缓存容量/数量限制、旧审计轻量视图、流式恢复、目标记录偏移读取。
+- [x] `MEM-03` Durable Host 移除第二份常驻 transcript；启动计量增量 fold，导出按需完整派生。
+- [x] `MEM-04` Context/Harness 按需读取、Diff、错误重试与切换/卸载；边界回归。
+- [x] `MEM-05` V100 全仓 564 项/Clippy、Chromium/WebKit、合成历史内存对照；真实 DeepSeek 4 轮及 151 项代码测试 + 12 项独立验收。见 [实验记录](evaluations/memory-audit-20260910.md)。
+- [ ] `MEM-06` GitHub 跨平台 CI、合并发布、已安装 App 的同一真实历史升级前后内存验收（不以合成 Linux 数据冒充 Mac 实测）。
+
 ## GoalController：外层持续目标推进（产品源码/真实实验已通，待发布）
 
 规范见 [GoalController 设计](specs/goal-controller.md)。复用已完成的 `DONE-33` Goal 状态/RPC，不能将它当作自动执行已经实现。

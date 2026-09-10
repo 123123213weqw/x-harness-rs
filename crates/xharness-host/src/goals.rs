@@ -877,4 +877,62 @@ mod tests {
         assert_eq!(execution_state(&session).unwrap().rounds_started, 0);
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
+    #[tokio::test]
+    async fn request_snapshot_is_on_demand_scoped_and_durable_host_does_not_cache_messages() {
+        let (host, store, _) = setup_with_tools("complete", Arc::new(crate::NoTools)).await;
+        call(
+            &host,
+            "create",
+            RpcMethod::GoalCreate,
+            json!({"sessionId":"g","objective":"Complete the fixture"}),
+        )
+        .await;
+        let session = wait(&host, &store, "awaiting_confirmation").await;
+        let seq = session
+            .events()
+            .iter()
+            .find(|e| matches!(e.data(), EventData::RequestHeader { .. }))
+            .unwrap()
+            .seq;
+        let result = host
+            .call_dynamic(
+                xharness_api::RpcId::new("snapshot"),
+                "session.requestSnapshot",
+                json!({"sessionId":"g","seq":seq}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let xharness_api::RpcResult::Success { value: Some(value) } = result else {
+            panic!("snapshot failed")
+        };
+        assert!(!value["header"]["input"].as_array().unwrap().is_empty());
+        assert!(host.state.read().await.sessions["g"].messages.is_empty());
+        let exported = host
+            .export_session("g", CancellationToken::new())
+            .await
+            .unwrap();
+        let exported: Value = serde_json::from_slice(&exported.bytes).unwrap();
+        assert!(!exported["session"]["messages"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        for payload in [
+            json!({"sessionId":"missing","seq":seq}),
+            json!({"sessionId":"g","seq":-1}),
+            json!({"sessionId":"g","seq":999999}),
+        ] {
+            assert!(!host
+                .call_dynamic(
+                    xharness_api::RpcId::new("invalid"),
+                    "session.requestSnapshot",
+                    payload,
+                    CancellationToken::new()
+                )
+                .await
+                .unwrap()
+                .is_ok());
+        }
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
 }

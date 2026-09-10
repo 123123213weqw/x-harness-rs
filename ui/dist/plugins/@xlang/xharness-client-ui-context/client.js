@@ -347,15 +347,59 @@ window.__ModuleLoader__.load({
           ? cards
           : h('div', { className: 'xhctx-empty' }, view.messages.length > 0
             ? '当前筛选隐藏了所有上下文内容。点击上方筛选项恢复显示。'
-            : '这个请求没有记录 input；请使用包含 RequestHeader.input 的 XHarness 后端。')),
+            : (view.options.snapshotOnDemand ? '完整请求按需读取，不常驻对话事件。' : '此请求没有输入消息。'))),
       ])
     }
 
-    function HarnessView({ useSession }) {
+    // Full request bodies live outside ordinary event replay. At most the
+    // selected request + one compaction pair are retained while this view is open.
+    function useRequestAudits(sessionId, snapshot, selectedSeq, mode) {
+      const [loaded,setLoaded]=useState({key:'',headers:new Map(),error:'',loading:false})
+      const [attempt,setAttempt]=useState(0)
+      const requests=snapshot.requests
+      const selected=requests.find(r=>r.seq===selectedSeq)??requests.at(-1)
+      let wanted=selected?[selected]:[]
+      if(mode!=='actual' && selected) {
+        const compact=snapshot.compactions.filter(c=>c.seq<selected.seq).at(-1)
+        if(compact)wanted.push(requests.filter(r=>r.seq<compact.seq).at(-1),requests.find(r=>r.seq>compact.seq))
+      }
+      const targets=[...new Map(wanted.filter(r=>r?.header?.options?.snapshotOnDemand).map(r=>[r.seq,r])).values()]
+      const key=JSON.stringify([sessionId,targets.map(r=>r.seq)])
+      useEffect(()=>{
+        let live=true;const controller=new AbortController()
+        setLoaded({key,headers:new Map(),error:'',loading:targets.length>0})
+        if(targets.length===0)return()=>{live=false;controller.abort()}
+        const timeout=setTimeout(()=>controller.abort(),120000)
+        ;(async()=>{
+          try {
+            if(!sessionId)throw Error('缺少会话标识，无法读取请求快照')
+            const headers=new Map()
+            // Sequential reads bound temporary bodies, including diff mode.
+            for(const target of targets) {
+              const response=await fetch('/api/session.requestSnapshot',{method:'POST',credentials:'same-origin',signal:controller.signal,headers:{'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'audit-'+Date.now()+'-'+target.seq,method:'session.requestSnapshot',payload:{sessionId,seq:target.seq}})})
+              if(!response.ok)throw Error('快照读取失败：HTTP '+response.status)
+              const envelope=await response.json(),result=envelope.result
+              if(!result?.ok)throw Error(result?.error?.message??'请求快照不可用')
+              if(result.value?.sessionId!==sessionId || result.value?.seq!==target.seq)throw Error('快照身份不匹配')
+              headers.set(target.seq,result.value.header)
+            }
+            if(live)setLoaded({key,headers,error:'',loading:false})
+          }catch(error){if(live)setLoaded({key,headers:new Map(),error:controller.signal.aborted?'读取超时，请重试':String(error?.message??error),loading:false})}
+          finally{clearTimeout(timeout)}
+        })()
+        return()=>{live=false;controller.abort();clearTimeout(timeout)}
+      },[key,attempt])
+      const current=loaded.key===key?loaded:{headers:new Map(),loading:targets.length>0,error:''}
+      return {requests:requests.map(r=>current.headers.has(r.seq)?{...r,header:current.headers.get(r.seq)}:r),
+        notice:current.loading?h('p',{role:'status',key:'audit-state'},'正在按需读取完整请求快照…'):current.error?h('div',{role:'alert',key:'audit-state'},[current.error,h('button',{type:'button',onClick:()=>setAttempt(n=>n+1),key:'retry'},'重试')]):null}
+    }
+
+    function HarnessView({ useSession, sessionId }) {
       const snapshot = useSession(state => state.views.get(TARGET) ?? EMPTY)
       const [selectedSeq, setSelectedSeq] = useState(null)
       const [toolQuery, setToolQuery] = useState('')
-      const requests = snapshot.requests
+      const audits=useRequestAudits(sessionId,snapshot,selectedSeq,'actual')
+      const requests = audits.requests
       const latest = requests.at(-1)
       const selected = requests.find(request => request.seq === selectedSeq) ?? latest
 
@@ -384,6 +428,7 @@ window.__ModuleLoader__.load({
       const reasoningEffort = view.config.reasoningEffort ?? view.config.reasoning_effort ?? '未设置'
 
       return h('div', { className: 'xhctx-root xhctx-harness-root', 'data-conversation-composer-overlay': '' }, [
+        audits.notice,
         h('div', { className: 'xhctx-toolbar xhctx-harness-toolbar', key: 'toolbar' }, [
           h('select', {
             className: 'xhctx-select',
@@ -590,13 +635,14 @@ window.__ModuleLoader__.load({
       ])
     }
 
-    function ContextView({ useSession }) {
+    function ContextView({ useSession, sessionId }) {
       const snapshot = useSession(state => state.views.get(TARGET) ?? EMPTY)
       const [selectedSeq, setSelectedSeq] = useState(null)
       const [mode, setMode] = useState('actual')
       const [query, setQuery] = useState('')
       const [hiddenKinds, setHiddenKinds] = useState(() => new Set())
-      const requests = snapshot.requests
+      const audits=useRequestAudits(sessionId,snapshot,selectedSeq,mode)
+      const requests = audits.requests
       const latest = requests.at(-1)
       const selected = requests.find(request => request.seq === selectedSeq) ?? latest
 
@@ -656,6 +702,7 @@ window.__ModuleLoader__.load({
       }
 
       return h('div', { className: 'xhctx-root', 'data-conversation-composer-overlay': '' }, [
+        audits.notice,
         h('div', { className: 'xhctx-toolbar', key: 'toolbar' }, [
           h('select', {
             className: 'xhctx-select',
