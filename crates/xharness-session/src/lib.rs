@@ -5,6 +5,10 @@
 //! single-writer [`Revision`]. Model history is always derived from those
 //! facts; it is never maintained as a second mutable transcript.
 
+mod checkpoint;
+pub mod goal;
+mod goal_validation;
+pub use checkpoint::*;
 mod event;
 mod message;
 mod recovery;

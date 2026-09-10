@@ -18,6 +18,8 @@ tokio-util.workspace = true
 xharness-session = { path = "../xharness-session" }
 xharness-core = { path = "../xharness-core" }
 
+xharness-goal = { path = "../xharness-goal" }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream.workspace = true

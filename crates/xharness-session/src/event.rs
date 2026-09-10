@@ -96,9 +96,9 @@ pub struct RequestHeader {
     pub system: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<Value>,
-    /// Exact provider-neutral input after context policy preparation. Keeping
-    /// it here makes every model-visible request independently auditable even
-    /// while compaction policies are still evolving.
+    /// Exact provider-neutral input after context policy preparation. JSONL
+    /// may archive it losslessly and leave an options.auditSnapshot reference;
+    /// use Store::request_header for explicit full-fidelity audit access.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub input: Vec<Message>,
     /// Provider- or harness-specific call controls not yet promoted to stable
@@ -482,6 +482,19 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Versioned durable Goal controller state, never model conversation text.
+    #[serde(rename = "goal/execution")]
+    GoalExecution {
+        change: Box<crate::goal::GoalExecutionChange>,
+    },
+    /// Runtime control state, not user text or a replayable tool operation.
+    #[serde(rename = "run/checkpoint")]
+    ExecutionCheckpoint {
+        turn: u32,
+        step: u32,
+        state: crate::ExecutionCheckpointState,
+        notice: Option<crate::ExecutionNotice>,
+    },
     /// Failure before a normal TurnEnd could be journaled; never replay its work automatically.
     #[serde(rename = "agent/delegation-failure")]
     AgentDelegationFailure { message_id: String, error: String },

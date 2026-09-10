@@ -3269,6 +3269,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "xharness-core",
+ "xharness-goal",
  "xharness-session",
 ]
 
@@ -3408,6 +3409,16 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "xharness-win32",
+]
+
+[[package]]
+name = "xharness-goal"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "xharness-session",
 ]
 
 [[package]]
@@ -3630,6 +3641,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "xharness-session",
 ]

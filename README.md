@@ -16,6 +16,8 @@ XHarness Web UI / future CLI
               |
  xharness-api + server + host
               |
+     Goal Controller（可选）
+              |
       Long-lived Agent
               |
        Shared Loop Core
@@ -39,6 +41,7 @@ XHarness Web UI / future CLI
 - [上下文预算与压缩](docs/specs/context.md)
 - [用户提问与等待交互](docs/specs/user-questions.md)
 - [持久定时提醒](docs/specs/schedule.md)
+- [Goal 持续目标与现有 UI](docs/specs/goal-runtime.md)
 - [Prompt 组装与注入](docs/specs/prompt.md)
 - [运行、诊断与故障处理](docs/operations.md)
 - [Linux `.deb` 安装与沙箱自配置](docs/specs/linux-deb.md)
@@ -173,7 +176,8 @@ Credential Reference、其余变更 RPC Receipt，并实现真正自主 Subagent
 - 工具超时、取消、panic、未知工具和参数错误统一写回模型
 - 默认完整上下文重放，单个工具结果写回限制为 256 KiB；超限使用确定性 UTF-8 Head/Tail
   Envelope（含原始/遗漏 Byte 与 SHA-256），但这仍不是整体 Token 预算或持久 Spill
-- 默认最多 128 个模型步骤
+- 默认每 1024 步一个执行阶段，提前 64 步提醒；模型正常调用工具即可续行，不再默认 128 步截停。显式步骤硬限额和输出预算仍生效
+- 精确重复结果/错误只提醒、不拦截；复用工具注册元数据排除后台任务轮询。详见 [执行检查点](docs/specs/execution-checkpoints.md)
 - Session 检查点和中断工具批次防重放
 - `LoopRun::send(LoopCommand)` 运行时控制：消息注入、Steering、暂停/恢复、取消
 - 可选的逐次工具审批；拒绝结果按普通工具错误安全写回模型

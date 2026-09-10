@@ -623,3 +623,336 @@ async fn image_references_survive_jsonl_restart_without_payload() {
     assert!(!raw.contains("base64"));
     assert!(raw.contains("sha256-ref"));
 }
+
+#[tokio::test]
+async fn future_goal_record_fails_closed_without_truncating_or_appending() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("future-goal")).await.unwrap();
+    store
+        .append("future-goal", Revision::ZERO, vec![turn_start(1)])
+        .await
+        .unwrap();
+    let path = dir.session_file("future-goal");
+    let text = fs::read_to_string(&path).unwrap();
+    let mut rows: Vec<Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    rows[1]["events"][0]["event"] =
+        serde_json::json!({"type":"goal/future-version","data":{"version":999}});
+    // Locate the actual flattened SessionEvent representation instead of inventing a second record.
+    let event = rows[1]["events"][0].as_object_mut().unwrap();
+    if event.contains_key("type") {
+        event.insert("type".into(), Value::String("goal/future-version".into()));
+    }
+    let bytes = rows
+        .iter()
+        .map(|v| serde_json::to_string(v).unwrap() + "\n")
+        .collect::<String>();
+    fs::write(&path, bytes.as_bytes()).unwrap();
+    assert!(store.load("future-goal").await.is_err());
+    assert!(store
+        .append("future-goal", Revision::ZERO, vec![turn_start(2)])
+        .await
+        .is_err());
+    assert_eq!(fs::read(&path).unwrap(), bytes.as_bytes());
+}
+
+fn audited_turn(turn: u32, h: xharness_session::RequestHeader) -> Vec<SessionEvent> {
+    vec![
+        turn_start(turn),
+        user_message("original user fact"),
+        EventData::StepStart { turn, step: 1 }.into(),
+        EventData::RequestHeader { header: h }.into(),
+        EventData::AssistantMessage {
+            turn,
+            step: 1,
+            message: Message::assistant("original answer"),
+            usage: None,
+        }
+        .into(),
+        EventData::StepEnd { turn, step: 1 }.into(),
+        EventData::TurnEnd {
+            turn,
+            reason: xharness_session::TurnEndReason::Completed,
+        }
+        .into(),
+    ]
+}
+fn large_request() -> xharness_session::RequestHeader {
+    let mut h = xharness_session::RequestHeader::new("test", "model");
+    h.input = vec![Message::user("中文🚀".repeat(32768))];
+    h.system = Some("system prompt".into());
+    h.tools = vec![serde_json::json!({"name":"read","description":"test"})];
+    h.options.insert(
+        "context".into(),
+        serde_json::json!({"edits":[{"reason":"visible surface"}],"visible_message_count":1}),
+    );
+    h
+}
+#[tokio::test]
+async fn audit_archive_is_lossless_deduplicated_and_not_in_hot_history() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("audit")).await.unwrap();
+    let original = large_request();
+    let compact = store.archive_request(original.clone()).await.unwrap();
+    assert!(compact.input.is_empty());
+    assert!(compact.tools.is_empty());
+    assert!(compact.system.is_none());
+    let archive_dir = dir.path().join("request-audit");
+    let count = fs::read_dir(&archive_dir).unwrap().count();
+    assert_eq!(
+        store.archive_request(original.clone()).await.unwrap(),
+        compact
+    );
+    assert_eq!(fs::read_dir(&archive_dir).unwrap().count(), count);
+    store
+        .append("audit", Revision::ZERO, audited_turn(1, compact))
+        .await
+        .unwrap();
+    store.flush("audit").await.unwrap();
+    assert!(fs::metadata(dir.session_file("audit")).unwrap().len() < 8192);
+    let loaded = store.load("audit").await.unwrap().unwrap();
+    assert_eq!(loaded.derive_messages()[0].content, "original user fact");
+    assert_eq!(
+        store.request_header("audit", 3).await.unwrap(),
+        Some(original.clone())
+    );
+    assert!(store.request_header("audit", 0).await.unwrap().is_none());
+    let reopened = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    assert_eq!(
+        reopened.request_header("audit", 3).await.unwrap(),
+        Some(original)
+    );
+    assert!(reopened.cache_stats().accounted_bytes < 8192);
+}
+#[tokio::test]
+async fn legacy_audit_view_is_small_and_does_not_rewrite_disk_or_model_history() {
+    let dir = TestDir::new();
+    let raw = JsonlSessionStore::new(dir.path()).unwrap();
+    raw.create(header("legacy")).await.unwrap();
+    let original = large_request();
+    raw.append("legacy", Revision::ZERO, audited_turn(1, original.clone()))
+        .await
+        .unwrap();
+    raw.flush("legacy").await.unwrap();
+    let before = fs::read(dir.session_file("legacy")).unwrap();
+    let runtime = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    let small = runtime.load("legacy").await.unwrap().unwrap();
+    let full = raw.load("legacy").await.unwrap().unwrap();
+    assert_eq!(small.derive_messages(), full.derive_messages());
+    assert_eq!(small.revision(), full.revision());
+    assert_eq!(small.next_seq(), full.next_seq());
+    assert!(runtime.cache_stats().accounted_bytes < 16384);
+    assert_eq!(
+        runtime.request_header("legacy", 3).await.unwrap(),
+        Some(original)
+    );
+    assert_eq!(
+        runtime.inspect("legacy").await.unwrap().unwrap(),
+        full.inspect()
+    );
+    assert_eq!(fs::read(dir.session_file("legacy")).unwrap(), before);
+    runtime
+        .append("legacy", small.revision(), vec![turn_start(2)])
+        .await
+        .unwrap();
+    assert!(fs::read(dir.session_file("legacy"))
+        .unwrap()
+        .starts_with(&before));
+}
+#[tokio::test]
+async fn cache_eviction_disabled_oversized_and_old_snapshot_cas_remain_correct() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_cache_limits(4096, 2);
+    for id in ["a", "b", "c"] {
+        store.create(header(id)).await.unwrap();
+    }
+    assert_eq!(store.cache_stats().entries, 2);
+    assert!(store.cache_stats().accounted_bytes <= 4096);
+    let old = store.load("a").await.unwrap().unwrap();
+    store
+        .append(
+            "a",
+            Revision::ZERO,
+            vec![turn_start(1), user_message(&"x".repeat(65536))],
+        )
+        .await
+        .unwrap();
+    assert!(store.cache_stats().accounted_bytes <= 4096);
+    assert!(old.events().is_empty());
+    assert!(matches!(
+        store.append("a", Revision::ZERO, vec![]).await,
+        Err(StoreError::RevisionConflict { .. })
+    ));
+    let fresh = store.load("a").await.unwrap().unwrap();
+    assert_eq!(fresh.derive_messages()[0].content.len(), 65536);
+    let disabled = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_cache_limits(0, 0);
+    disabled.load("a").await.unwrap();
+    disabled.flush("a").await.unwrap();
+    assert_eq!(disabled.cache_stats().entries, 0);
+}
+#[tokio::test]
+async fn missing_or_corrupt_audit_is_explicit_error_but_does_not_break_conversation() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("bad-audit")).await.unwrap();
+    let h = store.archive_request(large_request()).await.unwrap();
+    let key = h.options["auditSnapshot"]["sha256"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    store
+        .append("bad-audit", Revision::ZERO, audited_turn(1, h))
+        .await
+        .unwrap();
+    let manifest = dir.path().join("request-audit").join(format!("{key}.json"));
+    let before = fs::read(&manifest).unwrap();
+    fs::write(&manifest, b"{}").unwrap();
+    assert!(store.request_header("bad-audit", 3).await.is_err());
+    assert_eq!(
+        store
+            .load("bad-audit")
+            .await
+            .unwrap()
+            .unwrap()
+            .derive_messages()
+            .len(),
+        2
+    );
+    fs::write(&manifest, before).unwrap();
+    fs::remove_file(&manifest).unwrap();
+    assert!(store.request_header("bad-audit", 3).await.is_err());
+    // Recovery never removes committed conversation facts merely because audit is missing.
+    assert!(store.inspect("bad-audit").await.unwrap().is_some());
+}
+#[tokio::test]
+async fn complete_unknown_unterminated_record_is_not_a_torn_tail() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("unknown")).await.unwrap();
+    store
+        .append("unknown", Revision::ZERO, vec![turn_start(1)])
+        .await
+        .unwrap();
+    let p = dir.session_file("unknown");
+    let data = fs::read_to_string(&p)
+        .unwrap()
+        .replace("turn/start", "turn/future");
+    let data = data.trim_end();
+    fs::write(&p, data).unwrap();
+    assert!(store.load("unknown").await.is_err());
+    assert!(store
+        .append("unknown", Revision::ZERO, vec![])
+        .await
+        .is_err());
+    assert_eq!(fs::read_to_string(p).unwrap(), data);
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn audit_directory_symlink_is_rejected_without_writing_outside() {
+    let dir = TestDir::new();
+    let outside = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("request-audit")).unwrap();
+    assert!(store.archive_request(large_request()).await.is_err());
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn switching_to_runtime_drops_existing_full_audit_cache() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("switch")).await.unwrap();
+    store
+        .append("switch", Revision::ZERO, audited_turn(1, large_request()))
+        .await
+        .unwrap();
+    assert!(store.cache_stats().accounted_bytes > 100000);
+    let store = store.for_runtime();
+    assert_eq!(store.cache_stats().entries, 0);
+    store.load("switch").await.unwrap();
+    assert!(store.cache_stats().accounted_bytes < 16384);
+}
+
+#[tokio::test]
+async fn audit_offsets_survive_cache_hit_eviction_and_unterminated_last_record() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("offset")).await.unwrap();
+    let h = large_request();
+    let compact = store.archive_request(h.clone()).await.unwrap();
+    let r = store
+        .append("offset", Revision::ZERO, audited_turn(1, compact.clone()))
+        .await
+        .unwrap();
+    let p = dir.session_file("offset");
+    let mut bytes = fs::read(&p).unwrap();
+    assert_eq!(bytes.pop(), Some(b'\n'));
+    fs::write(&p, &bytes).unwrap();
+    // Appending must account for the newline separating the prior record.
+    store
+        .append("offset", r.revision, audited_turn(2, compact))
+        .await
+        .unwrap();
+    assert_eq!(
+        store.request_header("offset", 10).await.unwrap(),
+        Some(h.clone())
+    );
+    let uncached = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .for_runtime()
+        .with_cache_limits(0, 0);
+    assert_eq!(
+        uncached.request_header("offset", 10).await.unwrap(),
+        Some(h)
+    );
+}
+
+#[tokio::test]
+async fn audit_preserves_multimodal_opaque_reasoning_and_crlf_legacy_history() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("opaque")).await.unwrap();
+    let mut h = large_request();
+    h.input[0].content_blocks = vec![xharness_session::ContentBlock::Image {
+        attachment: xharness_session::AttachmentRef {
+            id: "image-ref".into(),
+            session_id: "opaque".into(),
+            media_type: "image/png".into(),
+            bytes: 128,
+            width: 20,
+            height: 30,
+        },
+    }];
+    let mut reasoning = Message::assistant("");
+    reasoning.provider_items =
+        vec![serde_json::json!({"type":"reasoning","encrypted_content":"opaque-provider-value"})];
+    h.input.push(reasoning);
+    let archived = store.archive_request(h.clone()).await.unwrap();
+    store
+        .append("opaque", Revision::ZERO, audited_turn(1, archived))
+        .await
+        .unwrap();
+    let path = dir.session_file("opaque");
+    let text = fs::read_to_string(&path).unwrap().replace('\n', "\r\n");
+    fs::write(&path, &text).unwrap();
+    assert_eq!(store.request_header("opaque", 3).await.unwrap(), Some(h));
+    assert_eq!(
+        store
+            .load("opaque")
+            .await
+            .unwrap()
+            .unwrap()
+            .derive_messages()
+            .len(),
+        2
+    );
+    assert_eq!(fs::read_to_string(path).unwrap(), text);
+}

@@ -225,6 +225,7 @@ impl CodingToolBundle {
             },
         )
         .with_timeout(TOOL_TIMEOUT)
+        .with_repetition_observation(process_repetition_observation)
         .requiring_approval(true)
     }
 
@@ -285,6 +286,7 @@ impl CodingToolBundle {
         .with_concurrency(ToolConcurrency::Keyed)
         .with_resource_key_resolver(job_id_key)
         .with_timeout(TOOL_TIMEOUT)
+        .with_repetition_exemption()
     }
 
     fn job_list_spec(&self) -> ToolSpec {
@@ -310,6 +312,7 @@ impl CodingToolBundle {
             },
         )
         .with_concurrency(ToolConcurrency::Parallel)
+        .with_repetition_exemption()
     }
 
     fn job_kill_spec(&self) -> ToolSpec {
@@ -1107,10 +1110,45 @@ fn job_id_key(arguments: &Value) -> Option<String> {
     arguments.get("job_id")?.as_str().map(ToOwned::to_owned)
 }
 
+// Ignore process identity, but never compare incomplete previews.
+fn process_repetition_observation(content: &str) -> Option<(bool, Value)> {
+    let mut value: Value = serde_json::from_str(content).ok()?;
+    if value["kind"] != "foreground"
+        || value["stdout_truncated"] != false
+        || value["stderr_truncated"] != false
+    {
+        return None;
+    }
+    let success = value["success"].as_bool()?;
+    value.as_object_mut()?.remove("pid");
+    Some((success, value))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{managed_environment, managed_path, search_process_output};
     use xharness_process::is_secret_env_name;
+
+    #[test]
+    fn repetition_process_observation_ignores_pid_not_failure_or_truncation() {
+        let mut v = serde_json::json!({"kind":"foreground","pid":1,"success":false,"exit_code":1,"stdout":"","stderr":"missing","stdout_truncated":false,"stderr_truncated":false});
+        let first = super::process_repetition_observation(&v.to_string()).unwrap();
+        assert!(!first.0);
+        v["pid"] = serde_json::json!(2);
+        assert_eq!(
+            first,
+            super::process_repetition_observation(&v.to_string()).unwrap()
+        );
+        v["stderr"] = serde_json::json!("different");
+        assert_ne!(
+            first,
+            super::process_repetition_observation(&v.to_string()).unwrap()
+        );
+        v["stdout_truncated"] = serde_json::json!(true);
+        assert!(super::process_repetition_observation(&v.to_string()).is_none());
+        assert!(super::process_repetition_observation(r#"{"kind":"background"}"#).is_none());
+        assert!(super::process_repetition_observation("bad JSON").is_none());
+    }
 
     #[test]
     fn search_process_exit_matrix_preserves_diagnostics() {

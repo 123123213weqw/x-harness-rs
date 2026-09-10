@@ -409,3 +409,47 @@ impl Session {
         pending_user_questions(self.events())
     }
 }
+
+impl Session {
+    /// Close an abandoned ordinary turn without re-executing side effects.
+    /// Durable human interactions must instead be resumed by their existing adapters.
+    pub fn interrupted_turn_recovery(&self) -> Vec<SessionEvent> {
+        if !self.pending_tool_approvals().is_empty()
+            || !self.recoverable_user_questions().is_empty()
+        {
+            return Vec::new();
+        }
+        let mut open = None;
+        let mut step = None;
+        for e in self.events() {
+            match e.data() {
+                EventData::TurnStart { turn } => {
+                    open = Some(*turn);
+                    step = None
+                }
+                EventData::StepStart { step: s, .. } => step = Some(*s),
+                EventData::StepEnd { .. } => step = None,
+                EventData::TurnEnd { .. } => {
+                    open = None;
+                    step = None
+                }
+                _ => {}
+            }
+        }
+        let mut events = self.interrupted_compaction_recovery();
+        events.extend(self.outcome_unknown_recovery());
+        if let Some(turn) = open {
+            if let Some(step) = step {
+                events.push(EventData::StepEnd { turn, step }.into())
+            }
+            events.push(
+                EventData::TurnEnd {
+                    turn,
+                    reason: crate::TurnEndReason::Interrupted,
+                }
+                .into(),
+            );
+        }
+        events
+    }
+}
