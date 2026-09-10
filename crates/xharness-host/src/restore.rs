@@ -1038,6 +1038,7 @@ fn restored_web_event(
         | EventData::CommandRun { .. }
         | EventData::CommandDone { .. }
         | EventData::SessionTitle { .. }
+        | EventData::GoalExecution { .. }
         | EventData::GoalChange { .. }
         | EventData::ScheduleChange { .. }
         | EventData::PlanMode { .. }

@@ -33,6 +33,14 @@ pub trait TurnRequestFactory: Send + Sync + 'static {
         Ok(None)
     }
     async fn build(&self, agent_id: &str, input: Vec<AgentMessage>) -> Result<LoopRequest, String>;
+    /// Optional host-owned report adapter. Default does not infer completion from prose.
+    async fn goal_report(
+        &self,
+        _agent_id: &str,
+        _result: &LoopResult,
+    ) -> Result<Option<crate::GoalReportBody>, String> {
+        Ok(None)
+    }
 }
 
 /// Long-lived events. Loop event sequence numbers remain scoped to one turn;
@@ -435,6 +443,10 @@ struct DriverWorker {
 }
 
 impl DriverWorker {
+    fn goal_controller(&self) -> crate::GoalController {
+        crate::GoalController::new(self.activation.inbox().store(), self.activation.id())
+    }
+
     async fn run(mut self) {
         if let Err(error) = self.activation.inbox().reconcile_consumed().await {
             self.publish_error(error.to_string());
@@ -463,7 +475,19 @@ impl DriverWorker {
             };
             if self.wake_requested {
                 self.wake_requested = false;
-                if !snapshot.next_turn().is_empty() {
+                if !snapshot.next_turn().is_empty()
+                    || self
+                        .goal_controller()
+                        .state()
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some_and(|s| {
+                            s.definition.execution_enabled
+                                && s.definition.snapshot.phase
+                                    == xharness_session::GoalPhase::Active
+                        })
+                {
                     if let Err(error) = self.drive_pending().await {
                         if self.shutdown.is_cancelled() {
                             return;
@@ -500,6 +524,7 @@ impl DriverWorker {
     }
 
     async fn drive_pending_inner(&mut self) -> Result<(), AgentCommandError> {
+        let mut admission_retries = 0u32;
         loop {
             if self.shutdown.is_cancelled() {
                 return Err(AgentCommandError::Closed);
@@ -524,6 +549,21 @@ impl DriverWorker {
             }) {
                 self.park_pending().await?;
                 return Ok(());
+            }
+            match self.goal_controller().reconcile().await {
+                Ok(_) => {}
+                Err(crate::GoalError::Store(xharness_session::StoreError::RevisionConflict {
+                    ..
+                })) => {
+                    admission_retries += 1;
+                    if admission_retries >= 16 {
+                        return Err(AgentCommandError::Failed(
+                            "goal reconcile stayed contended".into(),
+                        ));
+                    }
+                    continue;
+                }
+                Err(e) => return Err(AgentCommandError::Failed(e.to_string())),
             }
             let factory = self.factory.clone();
             let id = self.activation.id().to_owned();
@@ -553,7 +593,7 @@ impl DriverWorker {
             if claim.is_empty() {
                 return Ok(());
             }
-            let (_expected_revision, claimed, deletion_events) = claim.into_loop_parts();
+            let (expected_revision, claimed, mut deletion_events) = claim.into_loop_parts();
             let input_ids = claimed
                 .iter()
                 .map(|message| message.id.clone())
@@ -567,12 +607,60 @@ impl DriverWorker {
                 .build(self.activation.id(), input)
                 .await
                 .map_err(AgentCommandError::Failed)?;
+            let cut = self
+                .activation
+                .inbox()
+                .store()
+                .load(self.activation.id())
+                .await
+                .map_err(|e| AgentCommandError::Failed(e.to_string()))?
+                .ok_or_else(|| AgentCommandError::Failed("session missing".into()))?;
+            if cut.revision() != expected_revision {
+                admission_retries += 1;
+                if admission_retries >= 16 {
+                    return Err(AgentCommandError::Failed("claim stayed contended".into()));
+                }
+                continue;
+            }
+            let turn = self.next_turn().await?;
+            let goal_events = crate::GoalController::claim_events(&cut, &claimed, turn)
+                .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+            if !goal_events.is_empty() {
+                request.journal_expected_revision = Some(expected_revision);
+            }
+            deletion_events.extend(goal_events);
             request.session_id = Some(self.activation.id().to_owned());
             request.journal_store = Some(self.activation.inbox().store());
             request.journal_prelude = deletion_events;
 
-            let turn = self.next_turn().await?;
             self.drive_request(request, turn, input_ids).await?;
+            let after = self
+                .activation
+                .inbox()
+                .store()
+                .load(self.activation.id())
+                .await
+                .map_err(|e| AgentCommandError::Failed(e.to_string()))?
+                .ok_or_else(|| AgentCommandError::Failed("session missing".into()))?;
+            if !after
+                .events()
+                .iter()
+                .any(|e| matches!(e.data(), EventData::TurnStart { turn: t } if *t == turn))
+            {
+                admission_retries += 1;
+                if admission_retries >= 16 {
+                    self.goal_controller()
+                        .pause()
+                        .await
+                        .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+                    return Err(AgentCommandError::Failed(
+                        "goal admission failed repeatedly; paused".into(),
+                    ));
+                }
+                continue;
+            }
+            admission_retries = 0;
+
             self.activation
                 .inbox()
                 .reconcile_consumed()
@@ -584,7 +672,16 @@ impl DriverWorker {
                 .snapshot()
                 .await
                 .map_err(inbox_error)?;
-            if pending.next_turn().is_empty() && !self.wake_requested {
+            let continue_goal = self
+                .goal_controller()
+                .state()
+                .await
+                .map_err(|e| AgentCommandError::Failed(e.to_string()))?
+                .is_some_and(|s| {
+                    s.definition.execution_enabled
+                        && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
+                });
+            if pending.next_turn().is_empty() && !self.wake_requested && !continue_goal {
                 return Ok(());
             }
             self.wake_requested = false;
@@ -704,6 +801,32 @@ impl DriverWorker {
             }
         }
         let result = run.result().await;
+        if self
+            .goal_controller()
+            .state()
+            .await
+            .map_err(|e| AgentCommandError::Failed(e.to_string()))?
+            .is_some_and(|s| s.running.as_ref().is_some_and(|r| r.turn == turn))
+        {
+            let body = match self
+                .factory
+                .goal_report(self.activation.id(), &result)
+                .await
+            {
+                Ok(body) => body,
+                Err(e) => {
+                    self.publish_error(format!("goal report rejected: {e}"));
+                    None
+                }
+            };
+            if let Err(e) = self.goal_controller().settle(body).await {
+                self.publish_error(e.to_string());
+                self.goal_controller()
+                    .settle(None)
+                    .await
+                    .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+            }
+        }
         let _ = self.events.send(AgentEvent::TurnFinished { turn, result });
         Ok(())
     }
@@ -731,6 +854,14 @@ impl DriverWorker {
     }
 
     async fn park_pending(&mut self) -> Result<(), AgentCommandError> {
+        self.goal_controller()
+            .pause()
+            .await
+            .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+        self.goal_controller()
+            .reconcile()
+            .await
+            .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
         self.wake_requested = false;
         let pending = self
             .activation
@@ -825,7 +956,17 @@ impl DriverWorker {
                     Err(error) => Err(error),
                 }
             }
-            DriverCommand::Control(command) => map_loop_control(run.send(command).await, false),
+            DriverCommand::Control(command) => {
+                if matches!(command, LoopCommand::Cancel) {
+                    if let Err(e) = self.goal_controller().pause().await {
+                        let _ = envelope
+                            .acknowledgement
+                            .send(Err(AgentCommandError::Failed(e.to_string())));
+                        return;
+                    }
+                }
+                map_loop_control(run.send(command).await, false)
+            }
         };
         let _ = envelope.acknowledgement.send(result);
     }

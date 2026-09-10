@@ -799,6 +799,7 @@ pub struct LoopRequest {
     /// Durable control-plane facts committed in the same atomic batch as the
     /// next `turn/start` and new user input. Long-lived agents use this to
     /// claim inbox messages without a crash window between dequeue and turn.
+    pub journal_expected_revision: Option<xharness_session::Revision>,
     pub journal_prelude: Vec<xharness_session::SessionEvent>,
     pub context_policy: Arc<dyn crate::ContextPolicy>,
     pub config: LoopConfig,
@@ -819,6 +820,7 @@ impl LoopRequest {
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
             journal_store: None,
+            journal_expected_revision: None,
             journal_prelude: Vec::new(),
             context_policy: Arc::new(crate::IdentityContextPolicy),
             config: LoopConfig::default(),

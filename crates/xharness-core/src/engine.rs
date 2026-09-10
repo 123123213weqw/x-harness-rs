@@ -1733,6 +1733,16 @@ impl Runner {
             return Ok(());
         }
 
+        if self
+            .request
+            .journal_expected_revision
+            .is_some_and(|r| r != session.revision())
+        {
+            return Err(RunFailure::Failed(
+                "admission revision changed; reload the durable claim".into(),
+            ));
+        }
+
         let mut recovery = session.interrupted_compaction_recovery();
         recovery.extend(session.outcome_unknown_recovery());
         if let Some(turn) = open_turn {
@@ -1874,6 +1884,15 @@ impl Runner {
             match store.append(&session_id, revision, events.clone()).await {
                 Ok(receipt) => break receipt,
                 Err(xharness_session::StoreError::RevisionConflict { .. }) => {
+                    if self.request.journal_expected_revision.is_some()
+                        && events
+                            .iter()
+                            .any(|e| matches!(e.data(), SessionEventData::TurnStart { .. }))
+                    {
+                        return Err(RunFailure::Failed(
+                            "admission revision changed; reload the durable claim".into(),
+                        ));
+                    }
                     inbox_conflicts = inbox_conflicts.saturating_add(1);
                     if inbox_conflicts > 16 {
                         return Err(RunFailure::Failed(
@@ -1914,6 +1933,7 @@ impl Runner {
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }
                                     | SessionEventData::SessionTitle { .. }
+                                    | SessionEventData::GoalExecution { .. }
                                     | SessionEventData::GoalChange { .. }
                                     | SessionEventData::ScheduleChange { .. }
                                     | SessionEventData::SessionMutationCommitted { .. }

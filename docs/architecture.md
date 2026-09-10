@@ -215,8 +215,8 @@ Web UI 是 Session/Agent 状态的 Projection，不拥有模型历史。`xharnes
 Loop 内置阶段检查点与精确重复观察，不增加模型工具。Core 负责判断/临时注入，Tools Registry 声明轮询豁免和稳定观察适配，Session 保存小型状态，Host 共用投影，Conversation 渲染实时及历史通知。默认阶段不是硬限额；输出预算和用户硬限额独立生效。详见 [规范](specs/execution-checkpoints.md)。
 
 
-## GoalController（已实现纯决策，尚未接入执行）
+## GoalController（已接入 Agent Driver，产品入口尚未发布）
 
 外层只负责观察目标状态、判断是否允许继续、向已有 Agent Runtime 提交推进意图。`xharness-goal` 已提供报告/观察/决策契约及纯函数 `decide`，不另造 Provider Loop、工具调度、队列或持久化真源；Host 通过现有 Admission Fence、Session CAS 和 DurableInbox 完成适配。普通 Turn 结束不等于 Goal 完成，Goal 续轮与同一 Turn 内的执行检查点严格分开。
 
-状态迁移、幂等入队/领取、用户消息优先、模型报告、恢复及发布门禁见 [GoalController 设计](specs/goal-controller.md)。当前已存在 Goal RPC/快照不代表自动推进已上线。新 crate 尚未被 Host 引用，不注册模型工具、不更改 v1 持久化协议；决策只是提案，原子入队和恢复仍待实现。接口与测试说明见 [Goal 契约](../crates/xharness-goal/README.md)。
+状态迁移、幂等入队/领取、用户消息优先、模型报告、恢复及发布门禁见 [GoalController 设计](specs/goal-controller.md)。当前已存在 Goal RPC/快照不代表自动推进已上线。`xharness-agent::GoalController` 已复用 DurableInbox/Driver，以 Session CAS 原子提交续轮和启动记账，`xharness-session::goal` 保存共享协议；`xharness-goal` 保留纯决策。旧 v1 Goal 不自启动，新的执行事件使用 v2。未注册模型工具，真实实验通过 Factory 报告适配器运行；产品 RPC、UI 和必要依赖接入仍待完成。接口与测试说明见 [Goal 契约](../crates/xharness-goal/README.md)。

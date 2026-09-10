@@ -482,6 +482,11 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Versioned durable Goal controller state, never model conversation text.
+    #[serde(rename = "goal/execution")]
+    GoalExecution {
+        change: Box<crate::goal::GoalExecutionChange>,
+    },
     /// Runtime control state, not user text or a replayable tool operation.
     #[serde(rename = "run/checkpoint")]
     ExecutionCheckpoint {

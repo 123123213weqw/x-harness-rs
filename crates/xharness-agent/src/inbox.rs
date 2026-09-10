@@ -324,9 +324,34 @@ impl DurableInbox {
             ));
         }
         if target == InboxTarget::NextTurn {
-            if let Some(message) = projection.next_turn.first() {
+            let goal = xharness_session::goal::execution_state(&session);
+            let goal_id = goal
+                .as_ref()
+                .and_then(|s| s.pending.as_ref())
+                .map(|p| p.message_id.as_str());
+            let user = projection
+                .next_turn
+                .iter()
+                .position(|m| !crate::goal::is_goal_message(m));
+            let index = user.or_else(|| {
+                if !messages.is_empty()
+                    || !goal.as_ref().is_some_and(|s| {
+                        s.definition.execution_enabled
+                            && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
+                    })
+                {
+                    return None;
+                }
+                projection
+                    .next_turn
+                    .iter()
+                    .position(|m| Some(m.id.as_str()) == goal_id)
+            });
+            if let Some((index, message)) =
+                index.and_then(|i| projection.next_turn.get(i).map(|m| (i, m)))
+            {
                 messages.push(message.clone());
-                deletion_events.push(splice(InboxTarget::NextTurn, 0, 1, Vec::new(), None));
+                deletion_events.push(splice(InboxTarget::NextTurn, index, 1, Vec::new(), None));
             }
         }
         Ok(PreparedClaim {
