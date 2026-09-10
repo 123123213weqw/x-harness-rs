@@ -3990,6 +3990,7 @@ function XHarnessComposerAddMenu({ className, canAttach, canCommands, onAddFiles
 					(0, react_jsx_runtime.jsxs)("div", {
 						ref: cardRef,
 						className: clsx(InputBar_module_css_default.card, workspaceTrigger && InputBar_module_css_default.cardWorkspaceTrigger),
+						"data-xh-silver-input": workspaceTrigger ? void 0 : "",
 						"data-composer-card": true,
 						onClick: workspaceTrigger ? onRequestWorkspace : void 0,
 						onPointerDown: workspaceTrigger ? (e) => {
@@ -6439,7 +6440,7 @@ function XHarnessEditAction({ content, editMessage, t }) {
 			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
 			"access.confirm.cancel": "取消",
 			"access.confirm.enable": "启用 Full access",
-			"hero.headline": "探索未至之境",
+			"hero.headline": "新时代的语言",
 			"hero.preview": "预览版",
 			"hero.chooseWorkspace": "选择工作区",
 			"session.hierarchy": "会话层级",
@@ -6631,7 +6632,7 @@ function XHarnessEditAction({ content, editMessage, t }) {
 			"access.confirm.acknowledge": "I understand the risks and want to continue",
 			"access.confirm.cancel": "Cancel",
 			"access.confirm.enable": "Enable Full access",
-			"hero.headline": "Into the Unknown",
+			"hero.headline": "The Language of a New Era",
 			"hero.preview": "Preview",
 			"hero.chooseWorkspace": "Choose workspace",
 			"session.hierarchy": "Session hierarchy",
@@ -7323,47 +7324,10 @@ function XHarnessEditAction({ content, editMessage, t }) {
 		* @returns the blurred-ellipse svg element.
 		*/
 		function HeroGlow({ className }) {
-			const glowFilterId = `empty-glow-${(0, react.useId)().replace(/:/g, "")}`;
-			return (0, react_jsx_runtime.jsxs)("svg", {
+			return (0, react_jsx_runtime.jsx)("div", {
 				className,
-				viewBox: "0 0 1051 468",
-				fill: "none",
-				"aria-hidden": "true",
-				children: [(0, react_jsx_runtime.jsx)("defs", { children: (0, react_jsx_runtime.jsxs)("filter", {
-					id: glowFilterId,
-					x: "0",
-					y: "0",
-					width: "1051",
-					height: "468",
-					filterUnits: "userSpaceOnUse",
-					colorInterpolationFilters: "sRGB",
-					children: [
-						(0, react_jsx_runtime.jsx)("feFlood", {
-							floodOpacity: "0",
-							result: "BackgroundImageFix"
-						}),
-						(0, react_jsx_runtime.jsx)("feBlend", {
-							mode: "normal",
-							in: "SourceGraphic",
-							in2: "BackgroundImageFix",
-							result: "shape"
-						}),
-						(0, react_jsx_runtime.jsx)("feGaussianBlur", {
-							stdDeviation: "50",
-							result: "effect1_foregroundBlur"
-						})
-					]
-				}) }), (0, react_jsx_runtime.jsx)("g", {
-					filter: `url(#${glowFilterId})`,
-					children: (0, react_jsx_runtime.jsx)("ellipse", {
-						cx: "525.5",
-						cy: "234",
-						rx: "425.5",
-						ry: "134",
-						fill: "#6187D8",
-						fillOpacity: "0.08"
-					})
-				})]
+				"data-xh-silver-glow": "",
+				"aria-hidden": "true"
 			});
 		}
 		/**
@@ -7393,10 +7357,6 @@ function XHarnessEditAction({ content, editMessage, t }) {
 							(0, react_jsx_runtime.jsx)("span", {
 								className: HeroShell_module_css_default.headlineText,
 								children: t("hero.headline")
-							}),
-							(0, react_jsx_runtime.jsx)("span", {
-								className: HeroShell_module_css_default.previewBadge,
-								children: t("hero.preview")
 							})
 						]
 					}), (0, react_jsx_runtime.jsx)("div", { className: HeroShell_module_css_default.body })]

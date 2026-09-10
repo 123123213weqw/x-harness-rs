@@ -1,0 +1,14 @@
+/* One short sweep followed by a rest; only the small SVG rectangle moves. */
+.xh-logo-sweep {
+  transform: translateX(0);
+  animation: xh-logo-sweep 5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes xh-logo-sweep {
+  0% { transform: translateX(0); }
+  28%, 100% { transform: translateX(92px); }
+}
+html[data-xh-page-hidden] .xh-logo-sweep { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .xh-logo-sweep { animation: none; display: none; }
+}
