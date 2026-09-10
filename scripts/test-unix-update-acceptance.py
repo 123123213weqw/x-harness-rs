@@ -518,6 +518,44 @@ class CleanupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'own process group'):
             self.stop([self.live])
 
+    def test_transient_foreign_helper_after_term_only_waits_for_exit(self):
+        foreign = [{**self.live[0], 'uid': 0, 'stat': 'R'}]
+        killpg = self.stop([self.live, self.zombie + foreign, self.live, self.zombie])
+        killpg.assert_called_once_with(self.process.pid, m.signal.SIGTERM)
+        self.process.wait.assert_called_once_with(timeout=5)
+
+    def test_foreign_helper_wait_never_signals_even_if_uid_becomes_owned_again(self):
+        foreign = [{**self.live[0], 'uid': 0}]
+        for remaining in (foreign, self.live):
+            with self.subTest(remaining=remaining), \
+                    patch.object(m, 'process_group_members', side_effect=[self.live, foreign] + [remaining] * 20), \
+                    patch.object(m.os, 'killpg', create=True) as killpg, \
+                    patch.object(m.time, 'sleep'), \
+                    patch.object(m.time, 'monotonic', side_effect=range(100)):
+                with self.assertRaisesRegex(ValueError, 'did not settle'):
+                    m.stop_process(self.process)
+                killpg.assert_called_once_with(self.process.pid, m.signal.SIGTERM)
+
+    def test_foreign_helper_wait_inventory_failure_is_not_ignored(self):
+        foreign = [{**self.live[0], 'uid': 0}]
+        with patch.object(m, 'process_group_members', side_effect=[self.live, foreign, ValueError('inventory')]), \
+                patch.object(m.os, 'killpg', create=True) as killpg, patch.object(m.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, 'inventory'):
+                m.stop_process(self.process)
+            killpg.assert_called_once_with(self.process.pid, m.signal.SIGTERM)
+
+    def test_passive_foreign_exit_preserves_numeric_cleanup_evidence(self):
+        foreign = [{**self.live[0], 'uid': 0}]
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.object(m, 'process_group_members', side_effect=[self.live, foreign, []]), \
+                patch.object(m.os, 'killpg', create=True), patch.object(m.time, 'sleep'):
+            m.stop_process(self.process, pathlib.Path(temp))
+            evidence = m.read_json(pathlib.Path(temp) / 'cleanup.json')
+            self.assertEqual(evidence['status'], 'passed')
+            self.assertTrue(evidence['passiveOwnershipWait'])
+            self.assertEqual(evidence['signals'], [m.signal.SIGTERM])
+            self.assertEqual(evidence['snapshots'], [self.live, foreign, []])
+
     def test_ps_parser_selects_only_exact_group(self):
         output = b' 101 20 1000 S\n 102 21 1000 Z+\n 103 20 1000 R\n'
         with patch.object(m, 'run', return_value=unittest.mock.Mock(stdout=output)) as run:
