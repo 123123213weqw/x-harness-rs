@@ -130,10 +130,17 @@ try {
   await page.getByText('说明.pdf',{exact:true}).waitFor()
   const remove=page.locator('.xh-file-remove').first();await remove.click()
   assert.equal(await page.getByText('说明.pdf',{exact:true}).count(),0)
-  await page.evaluate(()=>{
-    const transfer=new DataTransfer();transfer.items.add(new File(['log'],'日志.log',{type:'text/plain'}))
-    document.dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:transfer}))
+  // DOM regression only: native Explorer -> WebView2 delivery also requires
+  // the Tauri dragDropEnabled contract and a packaged Windows acceptance run.
+  const dropFiles=await page.evaluateHandle(()=>{
+    const transfer=new DataTransfer();transfer.items.add(new File(['log'],'日志.log',{type:'text/plain'}));return transfer
   })
+  await textarea.dispatchEvent('dragenter',{dataTransfer:dropFiles})
+  await page.getByText('拖入图片或文件',{exact:true}).waitFor()
+  await textarea.dispatchEvent('dragover',{dataTransfer:dropFiles})
+  assert.equal(await textarea.evaluate((el,transfer)=>!el.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer})),dropFiles),true,'file drop must prevent browser navigation')
+  await dropFiles.dispose()
+  await page.getByText('拖入图片或文件',{exact:true}).waitFor({state:'detached'})
   await page.getByText('日志.log',{exact:true}).waitFor()
   await page.getByRole('button',{name:/产品说明.pdf/}).click()
   await page.getByText('读取失败，点击重试',{exact:true}).waitFor()
@@ -152,6 +159,8 @@ try {
   await menu.waitFor({state:'detached'})
   assert.equal(await plus.isDisabled(),true);assert.equal(await input.isDisabled(),true)
   const lockedCount=await page.evaluate(()=>added.length)
+  assert.equal(await textarea.evaluate(el=>{const data=new DataTransfer();data.items.add(new File(['blocked'],'blocked.txt'));return !el.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data}))}),true,'locked drops must still prevent file navigation')
+  assert.equal(await page.evaluate(()=>added.length),lockedCount,'locked drops must not add attachments')
   await page.evaluate(()=>{const input=document.querySelector('[data-composer-add-menu] input');const data=new DataTransfer();data.items.add(new File(['late'],'late.txt'));Object.defineProperty(input,'files',{configurable:true,value:data.files});input.dispatchEvent(new Event('change',{bubbles:true}));delete input.files})
   assert.equal(await page.evaluate(()=>added.length),lockedCount,'late file dialog result while locked is ignored')
   await page.evaluate(()=>toggleLock())
