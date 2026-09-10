@@ -336,8 +336,22 @@ def stop_process(process, evidence_root=None):
         process.poll()
         members = process_group_members(process.pid)
         evidence['snapshots'].append(members)
-        require(all(member['uid'] == os.getuid() for member in members),
-                'Owned process group ownership changed')
+        if any(member['uid'] != os.getuid() for member in members):
+            # AppImage teardown can briefly spawn a setuid FUSE unmount helper
+            # after TERM. Never signal that mixed-UID group or assume a foreign
+            # member is ours. After a previously owned signal only, allow a
+            # bounded passive exit: every live member must disappear naturally.
+            require(evidence['signals'], 'Owned process group ownership changed')
+            evidence['passiveOwnershipWait'] = True
+            deadline = time.monotonic() + 5
+            while any(not member['stat'].startswith('Z') for member in members):
+                require(time.monotonic() < deadline,
+                        'Owned process group ownership changed and did not settle without signalling')
+                time.sleep(.1)
+                process.poll()
+                members = process_group_members(process.pid)
+                evidence['snapshots'].append(members)
+            return []
         return [member for member in members if not member['stat'].startswith('Z')]
 
     try:
