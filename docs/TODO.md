@@ -11,22 +11,23 @@ Commit、Issue、PR 应引用这些 ID。
 当前冻结兼容基线为 `deepseek-harness@141eb6fef8`。2026-08-21 已检测到远端 HEAD
 `b150a551b8d4`，但在增量目录和兼容测试完成前不移动冻结基线。
 
-## GoalController：外层持续目标推进（Runtime 实验已通，未发布 UI）
+## GoalController：外层持续目标推进（产品源码/真实实验已通，待发布）
 
 规范见 [GoalController 设计](specs/goal-controller.md)。复用已完成的 `DONE-33` Goal 状态/RPC，不能将它当作自动执行已经实现。
 
 - [x] `GOAL-01` 中文设计文档：薄外层 Controller、现有 Runtime 复用、状态/报告/事务/恢复和验收契约。
 - [x] `GOAL-02a` v2 `goal/execution` 契约与 Session 校验、配套 v2 Goal 快照、JSONL 重放；v1 active 不自动启用，暂停/恢复保留已用轮数。
-- [ ] `GOAL-02b` 正式发布格式门禁、旧版本降级说明、安装实例升级验收。
+- [x] `GOAL-02b` v2 状态/未知记录失败关闭门禁与降级说明；安装实例升级验收归 GOAL-08。
 - [x] `GOAL-03a` 独立 `xharness-goal` 契约与纯 `decide`：报告作用域、完成确认、等待/暂停原因、稳定续轮 Key 和提交 Fence；V100 18 个测试通过（含状态矩阵）。不执行入队或自动续轮。
 - [x] `GOAL-03b` Agent Runtime 事务适配：Session 一致观察、CAS/claim 版本校验、意图与 Inbox 原子提交、claim/start/轮数原子提交、收据去重与用户输入优先。复用原 Driver 与 Loop。
-- [ ] `GOAL-03c` Host 产品入口：显式 enable/review 控制、统一 Admission Fence/RPC 及实时 Goal 状态推送，接入启动恢复策略。
-- [ ] `GOAL-04` 一个窄报告工具、目标快照注入、完成证据/待确认和阻塞语义，不另加评审模型。
-- [ ] `GOAL-05` 暂停/恢复/编辑/清除竞态、依赖唤醒、预算收敛、崩溃恢复且不重放未知副作用。
-- [ ] `GOAL-06` 复用 Goal UI：实时/历史一致、运行与目标状态分离、明确暂停/等待/完成原因。
+- [x] `GOAL-03c` Host 产品入口：新建/恢复原子 Enable、复用 complete/resume 用户裁决、统一 Admission Fence/RPC、实时投影和启动恢复。
+- [x] `GOAL-04` 一个窄报告工具、目标快照注入、完成证据/待确认和阻塞语义，不另加评审模型。
+- [x] `GOAL-05` 暂停/恢复/编辑/清除竞态、依赖唤醒、预算收敛、崩溃恢复且不重放未知副作用。
+- [x] `GOAL-06` 复用 Goal UI：实时/历史一致、运行与目标状态分离、明确暂停/等待/完成原因。
 - [x] `GOAL-07a` V100 Rust 回归、丢失提交回执/过期 claim 等故障测试；当前 DeepSeek 三轮真实编码，106 个产物测试与 12 个独立验收通过，JSONL 恢复及确认完成通过。见 [实验报告](evaluations/goal-multi-round-20260910.md)。
-- [ ] `GOAL-07b` 完整恢复/依赖故障矩阵、浏览器与跨平台 CI；开放任务模型调度稳定性测试。
-- [ ] `GOAL-08` 评审、合并、发布与已安装实例升级验收。
+- [x] `GOAL-07b` 产品 Host 恢复/依赖矩阵、Chromium/WebKit 和正式 DeepSeek 三轮实作；115 个产物测试 + 12 个独立验收通过。见 [产品实验](evaluations/goal-product-20260910.md)。
+- [ ] `GOAL-07c` 当前分支的 macOS/Windows GitHub CI 与长时间稳定性观测；不能用 Linux 或一次真实实验代替。
+- [ ] `GOAL-08` 分支评审/合并、发布与已安装实例升级验收。源码完成不等于用户软件已更新；本次未替换现有 App/Web。
 
 ## 执行检查点与精确重复提醒（2026-09-10）
 

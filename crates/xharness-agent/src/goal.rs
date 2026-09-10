@@ -101,6 +101,7 @@ impl GoalController {
             empty_report_limit,
             review: None,
             pause_reason: None,
+            pause_detail: None,
         };
         state.definition.validate()?;
         self.append(
@@ -143,14 +144,74 @@ impl GoalController {
         }
         Err(GoalError::Invalid("pause stayed contended".into()))
     }
+    /// Durable diagnostic for a failed dependency/preparation; never inferred completion.
+    pub async fn pause_error(&self, message: &str) -> Result<(), GoalError> {
+        for _ in 0..16 {
+            let session = self.load().await?;
+            let Some(mut state) = execution_state(&session) else {
+                return self.pause().await;
+            };
+            if state.definition.snapshot.phase != GoalPhase::Active || state.running.is_some() {
+                return self.pause().await;
+            }
+            let mut events = if let Some(p) = state.pending.take() {
+                remove_intent(&session, &p)?
+            } else {
+                vec![]
+            };
+            state.definition.snapshot.phase = GoalPhase::Paused;
+            state.definition.snapshot.revision = state
+                .definition
+                .snapshot
+                .revision
+                .checked_add(1)
+                .ok_or_else(|| GoalError::Invalid("revision overflow".into()))?;
+            state.pause_reason = Some(PauseReason::ExecutionError);
+            state.pause_detail = Some(message.chars().take(2048).collect());
+            events.push(
+                EventData::GoalChange {
+                    change: GoalChange::Snapshot(snapshot_change(
+                        &session,
+                        &state,
+                        GoalSnapshotOperation::Pause,
+                    )?),
+                }
+                .into(),
+            );
+            events.push(execution(GoalExecutionOperation::Decision, state));
+            match self.append(session.revision(), events).await {
+                Err(GoalError::Store(StoreError::RevisionConflict { .. })) => continue,
+                result => return result,
+            }
+        }
+        Err(GoalError::Invalid("error pause stayed contended".into()))
+    }
+    /// Only call after acquiring the Agent lease and before waking its worker.
+    pub async fn recover_abandoned(&self) -> Result<(), GoalError> {
+        let session = self.load().await?;
+        if execution_state(&session).is_some_and(|s| s.running.is_some()) {
+            let events = session.interrupted_turn_recovery();
+            if !events.is_empty() {
+                self.append(session.revision(), events).await?;
+            }
+            self.reconcile().await?;
+        }
+        Ok(())
+    }
     pub async fn state(&self) -> Result<Option<GoalExecutionState>, GoalError> {
         Ok(execution_state(&self.load().await?))
     }
 
     /// Re-evaluate durable facts. Conflicts are returned; caller reloads, never reuses a stale proposal.
     pub async fn reconcile(&self) -> Result<GoalDecision, GoalError> {
+        self.reconcile_with_dependencies(false).await
+    }
+    pub async fn reconcile_with_dependencies(
+        &self,
+        dependencies: bool,
+    ) -> Result<GoalDecision, GoalError> {
         for _ in 0..3 {
-            let d = self.reconcile_once().await?;
+            let d = self.reconcile_once(dependencies).await?;
             if d == (GoalDecision::Wait {
                 reason: WaitReason::Recovery,
             }) && self.state().await?.is_some_and(|s| s.running.is_none())
@@ -163,7 +224,7 @@ impl GoalController {
             reason: WaitReason::Recovery,
         })
     }
-    async fn reconcile_once(&self) -> Result<GoalDecision, GoalError> {
+    async fn reconcile_once(&self, dependencies: bool) -> Result<GoalDecision, GoalError> {
         let session = self.load().await?;
         let state = execution_state(&session);
         let inbox = InboxProjection::from_session(&session)?;
@@ -251,9 +312,8 @@ impl GoalController {
                     .next_turn()
                     .iter()
                     .any(|m| Some(m.id.as_str()) != pending_id),
-            // No dependency-producing Goal API is registered in this stage. A future
-            // dependency adapter must populate this before enabling those tools.
-            unresolved_dependencies: false,
+            // Host adapter resolves only explicitly required Goal dependencies.
+            unresolved_dependencies: dependencies,
             rounds_started: s.rounds_started,
             latest_turn: s.latest_turn.clone(),
             completion_review: s.review.clone(),
@@ -408,6 +468,7 @@ impl GoalController {
         let outcome = closed_outcome(&session, running.turn)
             .ok_or_else(|| GoalError::Invalid("turn is not durably settled".into()))?;
         let key = &running.intent.key;
+        let body = body.or_else(|| recorded_goal_report(&session));
         let report = body.map(|b| GoalReport {
             goal_id: key.goal_id.clone(),
             definition_revision: key.definition_revision,
@@ -554,13 +615,30 @@ fn closed_outcome(session: &Session, t: u32) -> Option<GoalTurnOutcome> {
     })
 }
 fn goal_prompt(s: &GoalExecutionState) -> String {
-    format!("[Goal continuation]\nObjective: {}\nAcceptance criteria: {}\nLatest progress: {}\nContinue substantive work towards this goal. A normal turn ending is not goal completion. Do not repeat already completed side effects. Report missing requirements or blockers honestly.\n[/Goal continuation]", s.definition.snapshot.objective, s.definition.acceptance_criteria.join("; "), s.latest_turn.as_ref().and_then(|t| t.report.as_ref()).map_or("No report yet".into(), |r| format!("{}; remaining: {}", r.summary, r.remaining.join("; "))))
+    let activation_note = if s.activation_epoch > 1 && s.latest_turn.is_none() {
+        "The user explicitly resumed/reopened this Goal. Completion claims from earlier activations do not finish this activation; reassess the objective and remaining work without repeating completed side effects.\n"
+    } else {
+        ""
+    };
+    format!("[Goal continuation]\n{activation_note}Objective: {}\nAcceptance criteria: {}\nLatest progress: {}\nContinue substantive work towards this goal. A normal turn ending is not goal completion. Do not repeat already completed side effects. Report missing requirements or blockers honestly.\n[/Goal continuation]", s.definition.snapshot.objective, s.definition.acceptance_criteria.join("; "), s.latest_turn.as_ref().and_then(|t| t.report.as_ref()).map_or("No report yet".into(), |r| format!("{}; remaining: {}", r.summary, r.remaining.join("; "))))
 }
 
-pub(crate) fn is_goal_message(m: &InboxMessage) -> bool {
+pub fn is_goal_message(m: &InboxMessage) -> bool {
     m.source
         .as_ref()
         .and_then(|v| v.get("kind"))
         .and_then(|v| v.as_str())
         == Some("goal")
+}
+
+pub fn recorded_goal_report(session: &Session) -> Option<GoalReportBody> {
+    let state = execution_state(session)?;
+    let turn = state.running?.turn;
+    session.events().iter().rev().find_map(|e| {
+        let EventData::ToolResult {turn:t,result,..}=e.data() else {return None};
+        if *t!=turn || result.outcome!=xharness_session::ToolOutcome::Success {return None}
+        let authentic=session.events().iter().any(|c|matches!(c.data(),EventData::ToolCall{turn:t,call,..} if *t==turn && call.id==result.call_id && call.name=="goal_report"));
+        if !authentic {return None}
+        serde_json::from_value(result.metadata.as_ref()?.get("goalReport")?.clone()).ok()
+    })
 }

@@ -646,3 +646,67 @@ async fn late_completion_after_pause_never_reactivates_goal() {
     ));
     assert!(!inbox.snapshot().await.unwrap().has_pending());
 }
+
+#[tokio::test]
+async fn abandoned_goal_turn_is_closed_unknown_and_not_reexecuted() {
+    let (store, inbox, c) = setup().await;
+    enable(&store, &c).await;
+    c.reconcile().await.unwrap();
+    claim(&store, &inbox, 1).await;
+    c.recover_abandoned().await.unwrap();
+    let state = c.state().await.unwrap().unwrap();
+    assert_eq!(state.definition.snapshot.phase, GoalPhase::Paused);
+    assert_eq!(state.pause_reason, Some(PauseReason::OutcomeUnknown));
+    assert_eq!(state.rounds_started, 1);
+    assert!(state.running.is_none());
+    assert!(!inbox.snapshot().await.unwrap().has_pending());
+    let revision = store.load("goal-test").await.unwrap().unwrap().revision();
+    c.recover_abandoned().await.unwrap();
+    assert_eq!(
+        store.load("goal-test").await.unwrap().unwrap().revision(),
+        revision
+    );
+}
+
+#[tokio::test]
+async fn dependencies_wait_without_spending_rounds_then_continue_once() {
+    let (store, inbox, c) = setup().await;
+    enable(&store, &c).await;
+    assert!(matches!(
+        c.reconcile_with_dependencies(true).await.unwrap(),
+        GoalDecision::Wait {
+            reason: WaitReason::Dependencies
+        }
+    ));
+    assert!(!inbox.snapshot().await.unwrap().has_pending());
+    assert_eq!(c.state().await.unwrap().unwrap().rounds_started, 0);
+    c.reconcile_with_dependencies(false).await.unwrap();
+    c.reconcile_with_dependencies(false).await.unwrap();
+    assert_eq!(inbox.snapshot().await.unwrap().next_turn().len(), 1);
+    assert_eq!(c.state().await.unwrap().unwrap().admitted.len(), 1);
+}
+
+#[tokio::test]
+async fn preparation_failure_persists_diagnostic_and_discards_only_goal_intent() {
+    let (store, inbox, c) = setup().await;
+    enable(&store, &c).await;
+    c.reconcile().await.unwrap();
+    c.pause_error("required job is missing after restart")
+        .await
+        .unwrap();
+    let state = c.state().await.unwrap().unwrap();
+    assert_eq!(state.pause_reason, Some(PauseReason::ExecutionError));
+    assert_eq!(
+        state.pause_detail.as_deref(),
+        Some("required job is missing after restart")
+    );
+    assert_eq!(state.definition.snapshot.phase, GoalPhase::Paused);
+    assert!(!inbox.snapshot().await.unwrap().has_pending());
+    assert_eq!(state.rounds_started, 0);
+    let revision = store.load("goal-test").await.unwrap().unwrap().revision();
+    c.pause_error("duplicate error").await.unwrap();
+    assert_eq!(
+        store.load("goal-test").await.unwrap().unwrap().revision(),
+        revision
+    );
+}

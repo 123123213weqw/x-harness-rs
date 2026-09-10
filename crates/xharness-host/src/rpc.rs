@@ -317,7 +317,8 @@ impl BasicHost {
                 "name": "plan",
                 "description": "Enter or leave plan mode",
                 "input": {"hint": "[off|message]", "images": true},
-            }
+            },
+            {"name":"goal","description":"Set a persistent Goal and continue automatically until review, pause or budget limit","input":{"hint":"<objective> | pause | resume | complete | clear | edit <objective> | budget <rounds>"}}
         ]))
     }
 
@@ -326,8 +327,19 @@ impl BasicHost {
             .get("args")
             .ok_or_else(|| bad_request("commands/execute requires args"))?;
         let session_id = required_string(args, "agentId")?;
-        let _session_guard = self.lock_admission(&session_id).await;
         let line = required_string(args, "line")?;
+        if line.trim() == "/goal" || line.trim_start().starts_with("/goal ") {
+            let images = required_array(args, "images")?;
+            return self
+                .execute_goal_command(
+                    &session_id,
+                    line.trim_start().strip_prefix("/goal").unwrap().trim(),
+                    images,
+                )
+                .await
+                .map(Some);
+        }
+        let _session_guard = self.lock_admission(&session_id).await;
         let images = required_array(args, "images")?;
 
         if let Some(raw_input) = plan_command_input(&line) {
@@ -2549,6 +2561,87 @@ impl BasicHost {
         Ok(json!({}))
     }
 
+    async fn execute_goal_command(
+        &self,
+        id: &str,
+        input: &str,
+        images: &[Value],
+    ) -> Result<Value, RpcError> {
+        let command_id = self.mint_id("command");
+        self.commit_session_events(
+            id,
+            vec![SessionEventData::CommandRun {
+                command_id: command_id.clone(),
+                name: "goal".into(),
+                args: Some(input.into()),
+                source: CommandSource::User,
+            }
+            .into()],
+        )
+        .await?;
+        self.sync_authoritative_session(id).await?;
+        let current = self.state.read().await.goals.get(id).cloned();
+        let result: Result<String, RpcError> = if !images.is_empty() {
+            Err(bad_request(
+                "/goal currently accepts text only; send attachments in a normal message first",
+            ))
+        } else if input.is_empty() {
+            Ok(current
+                .as_ref()
+                .map_or("Usage: /goal <objective>".into(), |g| {
+                    format!(
+                        "Goal: {} ({:?}, {}/{})",
+                        g.objective, g.phase, g.rounds_started, g.max_goal_rounds
+                    )
+                }))
+        } else {
+            let rpc = RpcId::new(format!("goal-command:{command_id}"));
+            let payload = json!({"sessionId":id,"ref":current.as_ref().map(|g|json!({"id":g.id,"revision":g.revision}))});
+            let action = match input {
+                "pause" => self.goal_transition(rpc, &payload, "paused").await,
+                "resume" => self.goal_transition(rpc, &payload, "active").await,
+                "complete" => self.goal_transition(rpc, &payload, "complete").await,
+                "clear" => self.goal_clear(rpc, &payload).await,
+                _ if input.starts_with("budget ") => match input[7..].trim().parse::<u64>() {
+                    Ok(n) => {
+                        let mut p = payload;
+                        p["maxGoalRounds"] = json!(n);
+                        self.goal_edit(rpc, &p).await
+                    }
+                    Err(_) => Err(bad_request("budget must be a positive integer")),
+                },
+                _ if input.starts_with("edit ") => {
+                    let mut p = payload;
+                    p["objective"] = json!(input[5..].trim());
+                    self.goal_edit(rpc, &p).await
+                }
+                _ => {
+                    self.goal_create(rpc, &json!({"sessionId":id,"objective":input}))
+                        .await
+                }
+            };
+            action.map(|_| "Goal updated. The Goal bar shows execution and review status.".into())
+        };
+        let (kind, text) = match result {
+            Ok(text) => (CommandResultKind::Success, text),
+            Err(e) => (CommandResultKind::Error, e.message),
+        };
+        self.commit_session_events(
+            id,
+            vec![SessionEventData::CommandDone {
+                command_id: command_id.clone(),
+                kind,
+                text: Some(text.clone()),
+                source_event_seq: None,
+            }
+            .into()],
+        )
+        .await?;
+        Ok(
+            json!({"commandId":command_id,"result":{"kind":if kind==CommandResultKind::Success {"success"} else {"error"},"text":text}}),
+        )
+    }
+
     async fn goal_create(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
         let objective = nonempty(required_string(payload, "objective")?, "objective")?;
@@ -2578,6 +2671,7 @@ impl BasicHost {
         }
         let now = now_ms();
         let goal = GoalState {
+            execution: None,
             id: self.mint_id("goal"),
             revision: 1,
             objective,
@@ -2588,17 +2682,21 @@ impl BasicHost {
             created_at: now,
             updated_at: now,
         };
+        let mut events = vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Create)];
+        if payload.get("executionEnabled").and_then(Value::as_bool) != Some(false) {
+            events.extend(self.goal_enable_events(&session_id, &goal).await?);
+        }
         let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
         self.commit_session_mutation(
             &session_id,
             &rpc_id,
             RpcMethod::GoalCreate,
             payload,
-            vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Create)],
+            events,
             SessionMutationResponse::fixed(response.clone()),
         )
         .await?;
-        {
+        if !self.agent_runtime.has_authoritative_sessions() {
             let mut state = self.state.write().await;
             state
                 .sessions
@@ -2607,8 +2705,13 @@ impl BasicHost {
                 .goal = Some(goal.clone());
             state.goals.insert(session_id.clone(), goal.clone());
         }
-        self.push_projection(&session_id, "goal", goal.projection())
-            .await;
+        if self.agent_runtime.has_authoritative_sessions() {
+            self.sync_authoritative_session(&session_id).await?;
+        } else {
+            self.push_projection(&session_id, "goal", goal.projection())
+                .await;
+        }
+        self.activate_goal(&session_id).await?;
         Ok(response)
     }
 
@@ -2627,6 +2730,7 @@ impl BasicHost {
         {
             return Ok(response);
         }
+        self.sync_authoritative_session(&session_id).await?;
         let mut goal = self
             .state
             .read()
@@ -2654,16 +2758,21 @@ impl BasicHost {
         goal.revision = goal.revision.saturating_add(1);
         goal.updated_at = now_ms().max(goal.updated_at);
         let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
+        let mut events = vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Edit)];
+        events.extend(
+            self.invalidate_goal_pending(&session_id, Some(&goal))
+                .await?,
+        );
         self.commit_session_mutation(
             &session_id,
             &rpc_id,
             RpcMethod::GoalEdit,
             payload,
-            vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Edit)],
+            events,
             SessionMutationResponse::fixed(response.clone()),
         )
         .await?;
-        {
+        if !self.agent_runtime.has_authoritative_sessions() {
             let mut state = self.state.write().await;
             state
                 .sessions
@@ -2672,8 +2781,12 @@ impl BasicHost {
                 .goal = Some(goal.clone());
             state.goals.insert(session_id.clone(), goal.clone());
         }
-        self.push_projection(&session_id, "goal", goal.projection())
-            .await;
+        if self.agent_runtime.has_authoritative_sessions() {
+            self.sync_authoritative_session(&session_id).await?;
+        } else {
+            self.push_projection(&session_id, "goal", goal.projection())
+                .await;
+        }
         Ok(response)
     }
 
@@ -2698,6 +2811,7 @@ impl BasicHost {
         {
             return Ok(response);
         }
+        self.sync_authoritative_session(&session_id).await?;
         let mut goal = self
             .state
             .read()
@@ -2738,17 +2852,27 @@ impl BasicHost {
         goal.blocked_reason = None;
         goal.revision = goal.revision.saturating_add(1);
         goal.updated_at = now_ms().max(goal.updated_at);
+        let mut events = vec![goal_snapshot_event(&goal, operation)];
+        if transition == "active" {
+            events.extend(self.goal_enable_events(&session_id, &goal).await?);
+        }
+        if transition != "active" {
+            events.extend(
+                self.invalidate_goal_pending(&session_id, Some(&goal))
+                    .await?,
+            );
+        }
         let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
         self.commit_session_mutation(
             &session_id,
             &rpc_id,
             method,
             payload,
-            vec![goal_snapshot_event(&goal, operation)],
+            events,
             SessionMutationResponse::fixed(response.clone()),
         )
         .await?;
-        {
+        if !self.agent_runtime.has_authoritative_sessions() {
             let mut state = self.state.write().await;
             state
                 .sessions
@@ -2757,8 +2881,15 @@ impl BasicHost {
                 .goal = Some(goal.clone());
             state.goals.insert(session_id.clone(), goal.clone());
         }
-        self.push_projection(&session_id, "goal", goal.projection())
-            .await;
+        if self.agent_runtime.has_authoritative_sessions() {
+            self.sync_authoritative_session(&session_id).await?;
+        } else {
+            self.push_projection(&session_id, "goal", goal.projection())
+                .await;
+        }
+        if transition == "active" {
+            self.activate_goal(&session_id).await?;
+        }
         Ok(response)
     }
 
@@ -2772,6 +2903,7 @@ impl BasicHost {
         {
             return Ok(response);
         }
+        self.sync_authoritative_session(&session_id).await?;
         let goal = self
             .state
             .read()
@@ -2786,25 +2918,27 @@ impl BasicHost {
             revision: goal.revision.saturating_add(1),
         };
         let response = json!({"cleared": true});
+        let mut events = vec![SessionEventData::GoalChange {
+            change: SessionGoalChange::Clear(GoalClearChange {
+                kind: GoalChangeKind::GoalChange,
+                version: 1,
+                operation: GoalClearOperation::Clear,
+                cleared,
+                cleared_at: now_ms().max(goal.updated_at),
+            }),
+        }
+        .into()];
+        events.extend(self.invalidate_goal_pending(&session_id, None).await?);
         self.commit_session_mutation(
             &session_id,
             &rpc_id,
             RpcMethod::GoalClear,
             payload,
-            vec![SessionEventData::GoalChange {
-                change: SessionGoalChange::Clear(GoalClearChange {
-                    kind: GoalChangeKind::GoalChange,
-                    version: 1,
-                    operation: GoalClearOperation::Clear,
-                    cleared,
-                    cleared_at: now_ms().max(goal.updated_at),
-                }),
-            }
-            .into()],
+            events,
             SessionMutationResponse::fixed(response.clone()),
         )
         .await?;
-        {
+        if !self.agent_runtime.has_authoritative_sessions() {
             let mut state = self.state.write().await;
             state
                 .sessions

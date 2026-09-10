@@ -1,0 +1,44 @@
+{
+  "tool_calls": {
+    "bash": 20,
+    "write": 3,
+    "edit": 19,
+    "goal_report": 3,
+    "read": 1
+  },
+  "tool_outcomes": {
+    "success": 46
+  },
+  "report_statuses": [
+    "progress",
+    "progress",
+    "complete"
+  ],
+  "hashes": {
+    "test_ledger.py": "9995321bcd33822a85cd1f0045b27521984a0b3c3e9d76b322f3a02b0434d238",
+    "README.md": "fe6ef0a787d1af8ab121cbc31150e3bd9935c0b20c8854090f204347575f4aaf",
+    "ledger.py": "96ea32b752db332e121ca144f6e4156c10c811af3ea518a92e5b36632137e491"
+  },
+  "date": "2026-09-10",
+  "provider": "DeepSeek configured locally, credential via Keychain/SSH stdin",
+  "model": "deepseek-flash",
+  "path": "production Host RPC -> DurableLoopAgentRuntime -> NativeToolFactory + goal_report",
+  "rounds": 3,
+  "elapsed_ms": 205389,
+  "model_generated_tests_passed": 115,
+  "independent_acceptance_passed": 12,
+  "goal_confirmed_via_existing_rpc": true,
+  "duplicate_confirmation_idempotent": true,
+  "jsonl_replay": "passed",
+  "rust": {
+    "passed": 554,
+    "failed": 0,
+    "ignored": 5
+  },
+  "clippy": "all targets -D warnings passed",
+  "ui_engines": [
+    "Chromium",
+    "WebKit"
+  ],
+  "deployed": false
+}

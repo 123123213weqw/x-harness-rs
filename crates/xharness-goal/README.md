@@ -7,7 +7,7 @@
 ## 纯决策层交付
 
 只提供 `decide(&GoalObservation) -> Result<GoalDecision, GoalContractError>`。
-**本 crate 没有 I/O 或模型调用，也没有注册新工具。** Runtime 层已提供可显式启用的持久续轮；尚未发布产品 UI。
+**本 crate 没有 I/O 或模型调用，也没有注册新工具。** Runtime/Host 已提供可显式启用的持久续轮与上游 Goal UI 接入，尚未合并发布安装包。
 
 - `GoalDefinition` 复用 Session 的 `GoalSnapshot`，增加执行观察需要的定义版本、验收条件、显式启用和确认方式。不是另一个持久化真源；v2 落盘和迁移约束由 Session 层承担。
 - `GoalReport` 表达 `progress / blocked / complete`，报告绑定目标、定义版本、Turn 和报告 ID。
@@ -35,7 +35,7 @@
 - `GoalFence` 同时携带 Session revision、Goal revision、定义版本和激活世代；后续 Host 必须在现有 Admission Fence 下重新核对全部字段，再原子写入状态、收据和 Inbox。
 - **纯函数不能保证事务幂等或副作用 exactly-once。** 收据、原子 claim、轮数记账和 CAS 冲突重算由 Agent 适配器承担，不由纯函数执行。
 - `Pause/Edit/Clear` 取消旧排队意图由生命周期控制和 Agent 适配器负责；`DiscardPending` 不是全局队列清理器。运行中和非 active 目标不会在本函数中清队列。
-- 模型不得自行指定可信身份字段；未来报告入口必须从宿主执行上下文绑定报告 ID、目标/Turn/版本。
+- 模型不得自行指定可信身份字段；产品报告入口会从宿主执行上下文绑定报告 ID、目标/Turn/版本。
 - 旧 v1 active Goal 不得在适配时隐式设置 `execution_enabled=true`；需显式启用。这里只定义契约，没有执行迁移。
 
 ## 回归
@@ -52,6 +52,6 @@ cargo clippy --offline --locked --workspace --all-targets -- -D warnings
 
 2026-09-10 V100 验证：纯决策 18 项、持久 Runtime 16 项；全仓 541 通过、0 失败、5 忽略；全仓 Clippy（`-D warnings`）通过。完整本机日志：`/tmp/xh-goal-final-checked.log`。此结果是 Linux 回归，不等价于已通过 Mac/Windows CI。
 
-纯状态函数自身不调用 DeepSeek；Runtime 层另已完成三轮真实实验和独立验收，见 [实验报告](../../docs/evaluations/goal-multi-round-20260910.md)。完整故障矩阵和跨平台 UI 验收仍在 TODO。
+纯状态函数自身不调用 DeepSeek；Runtime 层另已完成三轮真实实验和独立验收，见 [实验报告](../../docs/evaluations/goal-multi-round-20260910.md)。产品链路和 Chromium/WebKit 已验收，分支的 Mac/Windows CI 与安装升级仍需执行。
 
-下一步：产品级 Host 控制入口、报告通道、必要后台依赖和 UI；不要绕过现有事务队列，直接把 `Continue` 接成循环调用模型。
+产品接入：Host 已复用原有控制入口、工具注册和 GoalBar/GoalDock，必要依赖通过 Native JobRegistry/子 Agent 状态解析；详见 Runtime 实施说明。本 crate 保持纯决策，不直接调用模型。

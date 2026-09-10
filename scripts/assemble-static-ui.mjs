@@ -1,5 +1,6 @@
-import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
 #!/usr/bin/env node
+import { patchGoalRuntime } from './patch-goal-runtime.mjs'
+import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
 
 import {
   mkdirSync,
@@ -112,6 +113,7 @@ for (const entry of composed) {
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchMessageEditConnection(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchMessageEditRuntime(bytes)
   bytes = patchAttachments(entry.name, bytes)
+  if (entry.name === "@deepseek-ai/dsh-client-ui-goal") bytes = patchGoalRuntime(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })

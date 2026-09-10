@@ -96,6 +96,7 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                             || s.latest_turn.is_some()
                             || s.review.is_some()
                             || s.pause_reason.is_some()
+                            || s.pause_detail.is_some()
                             || s.empty_report_rounds != 0
                             || s.activation_epoch
                                 != previous
@@ -290,6 +291,7 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                         }
                         expected.pending = None;
                         expected.pause_reason = s.pause_reason;
+                        expected.pause_detail = s.pause_detail.clone();
                     }
                 }
                 if expected != *s {

@@ -102,6 +102,8 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-attachments-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-execution-checkpoints-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-execution-checkpoints-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-goal-runtime-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-goal-runtime-browser.mjs
       - name: Upload workspace directory UI evidence
         if: always()
         uses: actions/upload-artifact@v7

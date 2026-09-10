@@ -139,6 +139,7 @@ impl BasicHost {
             let queue = inbox
                 .next_turn()
                 .iter()
+                .filter(|m| !xharness_agent::is_goal_message(m))
                 .map(restored_prompt)
                 .collect::<VecDeque<_>>();
             let projected_queue = restored_queue(&inbox);
@@ -493,6 +494,7 @@ pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
         };
         current = match change {
             xharness_session::GoalChange::Snapshot(change) => Some(GoalState {
+                execution: None,
                 id: change.goal.id.clone(),
                 revision: change.goal.revision,
                 objective: change.goal.objective.clone(),
@@ -505,6 +507,9 @@ pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
             }),
             xharness_session::GoalChange::Clear(_) => None,
         };
+    }
+    if let Some(goal) = current.as_mut() {
+        goal.execution = Some(crate::goals::execution_projection(session));
     }
     current
 }
@@ -545,6 +550,7 @@ pub(crate) fn restored_queue(inbox: &InboxProjection) -> Vec<QueuedPrompt> {
     let mut items = inbox
         .next_turn()
         .iter()
+        .filter(|m| !xharness_agent::is_goal_message(m))
         .map(restored_prompt)
         .collect::<Vec<_>>();
     items.extend(inbox.next_step().iter().map(|input| {
@@ -3422,6 +3428,7 @@ mod tests {
                 json!({
                     "sessionId": "goal-session",
                     "objective": "Ship the durable agent",
+                    "executionEnabled": false,
                     "maxGoalRounds": 8,
                 }),
                 CancellationToken::new(),

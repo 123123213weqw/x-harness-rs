@@ -1743,20 +1743,7 @@ impl Runner {
             ));
         }
 
-        let mut recovery = session.interrupted_compaction_recovery();
-        recovery.extend(session.outcome_unknown_recovery());
-        if let Some(turn) = open_turn {
-            if let Some(step) = open_step {
-                recovery.push(SessionEventData::StepEnd { turn, step }.into());
-            }
-            recovery.push(
-                SessionEventData::TurnEnd {
-                    turn,
-                    reason: TurnEndReason::Interrupted,
-                }
-                .into(),
-            );
-        }
+        let recovery = session.interrupted_turn_recovery();
         if !recovery.is_empty() {
             store
                 .append(&session_id, session.revision(), recovery)

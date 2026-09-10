@@ -623,3 +623,38 @@ async fn image_references_survive_jsonl_restart_without_payload() {
     assert!(!raw.contains("base64"));
     assert!(raw.contains("sha256-ref"));
 }
+
+#[tokio::test]
+async fn future_goal_record_fails_closed_without_truncating_or_appending() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("future-goal")).await.unwrap();
+    store
+        .append("future-goal", Revision::ZERO, vec![turn_start(1)])
+        .await
+        .unwrap();
+    let path = dir.session_file("future-goal");
+    let text = fs::read_to_string(&path).unwrap();
+    let mut rows: Vec<Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    rows[1]["events"][0]["event"] =
+        serde_json::json!({"type":"goal/future-version","data":{"version":999}});
+    // Locate the actual flattened SessionEvent representation instead of inventing a second record.
+    let event = rows[1]["events"][0].as_object_mut().unwrap();
+    if event.contains_key("type") {
+        event.insert("type".into(), Value::String("goal/future-version".into()));
+    }
+    let bytes = rows
+        .iter()
+        .map(|v| serde_json::to_string(v).unwrap() + "\n")
+        .collect::<String>();
+    fs::write(&path, bytes.as_bytes()).unwrap();
+    assert!(store.load("future-goal").await.is_err());
+    assert!(store
+        .append("future-goal", Revision::ZERO, vec![turn_start(2)])
+        .await
+        .is_err());
+    assert_eq!(fs::read(&path).unwrap(), bytes.as_bytes());
+}

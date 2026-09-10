@@ -26,6 +26,13 @@ pub enum VerificationMode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum GoalEvidence {
+    /// Explicit necessary background dependencies, scoped by the Host to this session.
+    Job {
+        reference: String,
+    },
+    Agent {
+        reference: String,
+    },
     ToolResult {
         execution_id: String,
     },
@@ -313,7 +320,9 @@ impl GoalReport {
         require(
             self.evidence.iter().all(|e| match e {
                 GoalEvidence::ToolResult { execution_id } => !execution_id.trim().is_empty(),
-                GoalEvidence::Artifact { reference } => !reference.trim().is_empty(),
+                GoalEvidence::Artifact { reference }
+                | GoalEvidence::Job { reference }
+                | GoalEvidence::Agent { reference } => !reference.trim().is_empty(),
             }),
             "report.evidence",
         )
@@ -335,6 +344,8 @@ pub struct GoalExecutionState {
     pub empty_report_limit: u32,
     pub review: Option<CompletionReview>,
     pub pause_reason: Option<PauseReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pause_detail: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

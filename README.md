@@ -16,6 +16,8 @@ XHarness Web UI / future CLI
               |
  xharness-api + server + host
               |
+     Goal Controller（可选）
+              |
       Long-lived Agent
               |
        Shared Loop Core
@@ -39,6 +41,7 @@ XHarness Web UI / future CLI
 - [上下文预算与压缩](docs/specs/context.md)
 - [用户提问与等待交互](docs/specs/user-questions.md)
 - [持久定时提醒](docs/specs/schedule.md)
+- [Goal 持续目标与现有 UI](docs/specs/goal-runtime.md)
 - [Prompt 组装与注入](docs/specs/prompt.md)
 - [运行、诊断与故障处理](docs/operations.md)
 - [Linux `.deb` 安装与沙箱自配置](docs/specs/linux-deb.md)

@@ -148,6 +148,8 @@ pub struct AgentPreset {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GoalState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<Value>,
     pub id: String,
     pub revision: u64,
     pub objective: String,
@@ -175,6 +177,7 @@ impl GoalState {
     pub(crate) fn projection(&self) -> Value {
         json!({
             "goal": self.snapshot(),
+            "execution": self.execution,
             "roundsStarted": self.rounds_started,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,

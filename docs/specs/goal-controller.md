@@ -1,12 +1,12 @@
 # GoalController：复用现有 Runtime 的持续目标推进
 
-- 状态：**已实现契约、纯决策、持久化与 Agent Driver 适配；三轮真实实验通过，产品入口/UI/依赖恢复仍待实施**。
+- 状态：**契约、持久 Runtime、Host 控制、报告工具、必要依赖与现有 UI 已接通；待跨平台分支 CI、合并发布和安装验收**。
 - 日期：2026-09-10。
 - 代码核对基线：`64635a4`（含执行检查点），其上游基线为 `ee02f5d`。
 - 核心决定：**外层只观察目标、判断状态、推进任务；内层继续使用现有 Agent Runtime 和 Loop。**
 - 本文不授权创建真实目标、执行后台任务、修改权限或部署软件。
 
-当前实现范围见 [`xharness-goal` 契约说明](../../crates/xharness-goal/README.md)。已落地的事件和事务边界见 [Runtime 实施说明](goal-runtime.md)，真实结果见 [实验报告](../evaluations/goal-multi-round-20260910.md)。下文产品报告工具、UI、完整依赖恢复等仍为待实施方案。
+当前实现范围见 [`xharness-goal` 契约说明](../../crates/xharness-goal/README.md)。已落地的事件和事务边界见 [Runtime 实施说明](goal-runtime.md)，真实结果见 [实验报告](../evaluations/goal-multi-round-20260910.md)。下文保留原设计依据；当前产品协议、用户控制语义和验收结果以 Runtime 实施说明为准。
 
 ## 1. 目标与非目标
 
