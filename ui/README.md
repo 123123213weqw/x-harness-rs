@@ -148,3 +148,27 @@ node scripts/test-model-controls.mjs
 文件引用，不重新上传。上传图片直接交给视觉模型；文件以只读路径提供给工具。
 现有 read 工具能够查看工作区图片，不需要另一个 read_image 工具。详见
 [统一附件规范](../docs/specs/attachments.md)。
+
+## 黑白灰产品配色
+
+`ui/overrides/monochrome.css` 统一覆盖上游语义 Token：浅色黑色强调、深色白色强调，
+背景与气泡使用中性灰。保留错误、警告、成功色，以及图片与代码高亮，不使用整页灰度滤镜。
+执行 `node scripts/patch-monochrome-theme.mjs` 更新静态包；完整重建也会自动应用。
+执行 `node scripts/test-monochrome-theme.mjs` 检查幂等注入、资源一致性和主色对比度。
+Web 与 Tauri 使用同一资源；已安装的软件须重新打包更新后才能使用新配色。
+
+X 标志使用五段中性色 SVG 渐变，沿用 `currentColor`，自动适配浅/深主题，
+通过 React `useId` 避免侧栏与首页标志的渐变 ID 冲突。文字保持实色，仅 X 有下述扫光动画。
+源码为 `overrides/FishLogo.tsx` 和 `BrandWordmark.tsx`；现有打包产物可用
+`node scripts/patch-logo-gradient.mjs` 更新（上游编译结构变化会拒绝应用）；
+完整重建直接编译 TSX 源码。验证：`node scripts/test-logo-gradient.mjs`。
+
+Logo 扫光：`overrides/logo-motion.css/js`，每 5 秒一次、前 1.4 秒扫过，
+其余时间静止。只对 X 内裁剪的高光矩形做 transform；不驱动 React 更新，
+不使用 JS 帧循环或定时器。页面隐藏暂停，减少动态效果时隐藏高光。
+完整重建自动注入相同资源；测试 `node scripts/test-logo-motion.mjs`。
+
+首页光场使用 `overrides/hero-glow.js` 的静态装饰节点和黑白主题中的 radial-gradient，
+不再渲染上游蓝色 SVG 模糊光晕。输入框仅增加渐变边缘，保留工作区选择器的虚线状态，
+不使用遮挡点击的叠层。支持浅/深色和强制高对比模式。重建通过产品补丁自动应用；
+验证 `node scripts/test-silver-surface.mjs`。

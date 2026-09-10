@@ -79,6 +79,11 @@ jobs:
       - run: node scripts/test-attachments.mjs
       - run: node scripts/test-conversation-message-edit.mjs
       - run: node scripts/test-context-plugin.mjs
+      - run: node scripts/test-brand-headline.mjs
+      - run: node scripts/test-logo-gradient.mjs
+      - run: node scripts/test-logo-motion.mjs
+      - run: node scripts/test-monochrome-theme.mjs
+      - run: node scripts/test-silver-surface.mjs
       - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-model-controls.mjs
       - run: node scripts/test-workspace-directory.mjs

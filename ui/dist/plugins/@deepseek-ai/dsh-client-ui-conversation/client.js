@@ -3507,6 +3507,87 @@ window.__ModuleLoader__.load({
 			textRefs: [],
 			hint: null
 		};
+// Shared composer entry point. Picker ownership stays local to this InputBar.
+function XHarnessComposerAddMenu({ className, canAttach, canCommands, onAddFiles, onCommands, onOpen, focusInput, t }) {
+  const h = react.createElement;
+  const { Menu, IconPlusOutline16, IconPaperclipOutline16, IconCodeOutline16 } = _deepseek_ai_dsh_client_ui_primitives;
+  const [open, setOpen] = react.useState(false);
+  const picker = react.useRef(null), trigger = react.useRef(null);
+  const fileLabel = react.useRef(null), commandLabel = react.useRef(null);
+  const lastFirst = react.useRef(false);
+  const disabled = !canAttach && !canCommands;
+  const buttons = () => [fileLabel.current, commandLabel.current]
+    .map(label => label?.closest('[role="menuitem"]')).filter(button => button && !button.disabled);
+  const close = () => {
+    if (buttons().includes(document.activeElement)) trigger.current?.focus({ preventScroll: true });
+    setOpen(false);
+  };
+  const show = (last = false) => {
+    if (disabled) return;
+    onOpen?.();
+    lastFirst.current = last;
+    setOpen(true);
+  };
+  react.useEffect(() => {
+    if (!open || disabled) return;
+    // The shared portal is initially hidden until Menu has measured it.
+    const frame = requestAnimationFrame(() => {
+      const items = buttons();
+      (lastFirst.current ? items.at(-1) : items[0])?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, disabled]);
+  react.useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  react.useEffect(() => {
+    const input = picker.current;
+    const cancel = () => focusInput();
+    input?.addEventListener('cancel', cancel);
+    return () => input?.removeEventListener('cancel', cancel);
+  }, [focusInput]);
+  const select = id => {
+    setOpen(false);
+    if (id === 'attachment' && canAttach) picker.current?.click();
+    if (id === 'commands' && canCommands) { focusInput(); onCommands(); }
+  };
+  const onKeyDown = event => {
+    if (event.key === 'Tab' && open) { close(); return; }
+    if (event.key === 'Escape' && open) {
+      event.preventDefault(); event.stopPropagation(); close(); return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    if (!open && event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault(); event.stopPropagation();
+    if (!open) { show(event.key === 'ArrowUp'); return; }
+    const items = buttons(), current = items.indexOf(document.activeElement);
+    const index = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[index]?.focus({ preventScroll: true });
+  };
+  return h('span', { 'data-composer-add-menu': true, onKeyDown, style: { display: 'inline-flex' } },
+    h('style', null, '[role="menuitem"]:has([data-composer-add-label]):focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px;border-radius:6px}'),
+    h(Menu, { open: open && !disabled, side: 'top', portal: true, compact: true, onClose: close, onSelect: select,
+      items: [
+        { id: 'attachment', disabled: !canAttach, icon: h(IconPaperclipOutline16, { size: 16 }),
+          label: h('span', { ref: fileLabel, 'data-composer-add-label': true }, t('input.attachFiles')) },
+        { type: 'separator', id: 'attachment-commands' },
+        { id: 'commands', disabled: !canCommands, icon: h(IconCodeOutline16, { size: 16 }),
+          label: h('span', { ref: commandLabel, 'data-composer-add-label': true }, t('input.commands')) },
+      ],
+      anchor: h('button', { ref: trigger, type: 'button', className, disabled,
+        title: t('input.add'), 'aria-label': t('input.add'), 'aria-haspopup': 'menu', 'aria-expanded': open && !disabled,
+        onMouseDown: event => event.preventDefault(), onClick: () => open ? close() : show(),
+        children: h(IconPlusOutline16, { size: 14 }) }),
+    }),
+    h('input', { ref: picker, type: 'file', multiple: true, hidden: true, disabled: !canAttach,
+      'aria-label': t('input.attachFiles'), onChange: event => {
+        const files = Array.from(event.target.files ?? []);
+        event.target.value = '';
+        if (canAttach && files.length) onAddFiles(files);
+        focusInput();
+      } }),
+  );
+}
+
 		function InputBar({ useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages, resolveSubmitMode, toggleCommandMenu, stop, command, t, renderSlot, useNotices, useLexicon, useMenuLauncher, useProjection, sessionId, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory, overlay, leftItems, rightItems, footer }) {
 			const input = useInput((s) => s);
 			const notice = useNotices((s) => s);
@@ -3909,6 +3990,7 @@ window.__ModuleLoader__.load({
 					(0, react_jsx_runtime.jsxs)("div", {
 						ref: cardRef,
 						className: clsx(InputBar_module_css_default.card, workspaceTrigger && InputBar_module_css_default.cardWorkspaceTrigger),
+						"data-xh-silver-input": workspaceTrigger ? void 0 : "",
 						"data-composer-card": true,
 						onClick: workspaceTrigger ? onRequestWorkspace : void 0,
 						onPointerDown: workspaceTrigger ? (e) => {
@@ -3989,22 +4071,17 @@ window.__ModuleLoader__.load({
 								children: [(0, react_jsx_runtime.jsxs)("div", {
 									className: InputBar_module_css_default.tools,
 									children: [
-										(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
-											label: t("input.commands"),
-											side: "top",
-											delayMs: 500,
-											children: (0, react_jsx_runtime.jsx)("button", {
-												type: "button",
-												className: InputBar_module_css_default.add,
-												"aria-label": t("input.commands"),
-												"aria-haspopup": "listbox",
-												"aria-expanded": commandMenuOpen,
-												disabled: locked || toggleCommandMenu === void 0,
-												onMouseDown: keepFocus,
-												onClick: onToggleCommandMenu,
-												children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, { size: 14 })
-											})
-										}),
+										(0, react_jsx_runtime.jsx)(XHarnessComposerAddMenu, {
+      key: sessionId,
+      className: InputBar_module_css_default.add,
+      canAttach: canAcceptDrop,
+      canCommands: !locked && !machineBusy && toggleCommandMenu !== void 0,
+      onAddFiles: intakeImages,
+      onCommands: onToggleCommandMenu,
+      onOpen: () => { if (commandMenuOpen) onToggleCommandMenu(); },
+      focusInput: () => inputRef.current?.focus({ preventScroll: true }),
+      t
+    }),
 										(0, react_jsx_runtime.jsxs)("div", {
 											className: InputBar_module_css_default.modes,
 											children: [accessSelect, renderSlot("conversation.input.plan", { locked })]
@@ -6311,6 +6388,8 @@ function XHarnessEditAction({ content, editMessage, t }) {
 			"placeholder.hero": "描述你想要构建的内容",
 			"placeholder.workspace": "选择一个工作区开始",
 			"input.commands": "命令",
+"input.add": "添加附件或命令",
+"input.attachFiles": "添加图片或文件",
 			"input.stop": "停止生成",
 			"input.send": "发送消息",
 			"placeholder.steerQueue": "Cmd/Ctrl+Enter 插话发送全部排队消息",
@@ -6361,7 +6440,7 @@ function XHarnessEditAction({ content, editMessage, t }) {
 			"access.confirm.acknowledge": "我已了解风险，并愿意继续",
 			"access.confirm.cancel": "取消",
 			"access.confirm.enable": "启用 Full access",
-			"hero.headline": "探索未至之境",
+			"hero.headline": "新时代的语言",
 			"hero.preview": "预览版",
 			"hero.chooseWorkspace": "选择工作区",
 			"session.hierarchy": "会话层级",
@@ -6501,6 +6580,8 @@ function XHarnessEditAction({ content, editMessage, t }) {
 			"placeholder.hero": "Describe what you want to build",
 			"placeholder.workspace": "Choose a workspace to start",
 			"input.commands": "Commands",
+"input.add": "Add attachments or commands",
+"input.attachFiles": "Add images or files",
 			"input.stop": "Stop generating",
 			"input.send": "Send message",
 			"placeholder.steerQueue": "Cmd/Ctrl+Enter steers all queued messages",
@@ -6551,7 +6632,7 @@ function XHarnessEditAction({ content, editMessage, t }) {
 			"access.confirm.acknowledge": "I understand the risks and want to continue",
 			"access.confirm.cancel": "Cancel",
 			"access.confirm.enable": "Enable Full access",
-			"hero.headline": "Into the Unknown",
+			"hero.headline": "The Language of a New Era",
 			"hero.preview": "Preview",
 			"hero.chooseWorkspace": "Choose workspace",
 			"session.hierarchy": "Session hierarchy",
@@ -7243,47 +7324,10 @@ function XHarnessEditAction({ content, editMessage, t }) {
 		* @returns the blurred-ellipse svg element.
 		*/
 		function HeroGlow({ className }) {
-			const glowFilterId = `empty-glow-${(0, react.useId)().replace(/:/g, "")}`;
-			return (0, react_jsx_runtime.jsxs)("svg", {
+			return (0, react_jsx_runtime.jsx)("div", {
 				className,
-				viewBox: "0 0 1051 468",
-				fill: "none",
-				"aria-hidden": "true",
-				children: [(0, react_jsx_runtime.jsx)("defs", { children: (0, react_jsx_runtime.jsxs)("filter", {
-					id: glowFilterId,
-					x: "0",
-					y: "0",
-					width: "1051",
-					height: "468",
-					filterUnits: "userSpaceOnUse",
-					colorInterpolationFilters: "sRGB",
-					children: [
-						(0, react_jsx_runtime.jsx)("feFlood", {
-							floodOpacity: "0",
-							result: "BackgroundImageFix"
-						}),
-						(0, react_jsx_runtime.jsx)("feBlend", {
-							mode: "normal",
-							in: "SourceGraphic",
-							in2: "BackgroundImageFix",
-							result: "shape"
-						}),
-						(0, react_jsx_runtime.jsx)("feGaussianBlur", {
-							stdDeviation: "50",
-							result: "effect1_foregroundBlur"
-						})
-					]
-				}) }), (0, react_jsx_runtime.jsx)("g", {
-					filter: `url(#${glowFilterId})`,
-					children: (0, react_jsx_runtime.jsx)("ellipse", {
-						cx: "525.5",
-						cy: "234",
-						rx: "425.5",
-						ry: "134",
-						fill: "#6187D8",
-						fillOpacity: "0.08"
-					})
-				})]
+				"data-xh-silver-glow": "",
+				"aria-hidden": "true"
 			});
 		}
 		/**
@@ -7313,10 +7357,6 @@ function XHarnessEditAction({ content, editMessage, t }) {
 							(0, react_jsx_runtime.jsx)("span", {
 								className: HeroShell_module_css_default.headlineText,
 								children: t("hero.headline")
-							}),
-							(0, react_jsx_runtime.jsx)("span", {
-								className: HeroShell_module_css_default.previewBadge,
-								children: t("hero.preview")
 							})
 						]
 					}), (0, react_jsx_runtime.jsx)("div", { className: HeroShell_module_css_default.body })]
@@ -10489,3 +10529,4 @@ const XhCheckpointView=(0,react.memo)(function XhCheckpointView({node}){
 });
 
 // XHARNESS DURABLE ATTACHMENTS v1
+// XHARNESS COMPOSER ADD MENU v1

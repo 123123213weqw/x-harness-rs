@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { patchComposerAddMenu } from './patch-composer-add-menu.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const marker = '// XHARNESS DURABLE ATTACHMENTS v1\n'
 function once(text, before, after) {
@@ -11,7 +12,7 @@ function once(text, before, after) {
 }
 export function patchAttachments(id, bytes) {
   let text = bytes.toString('utf8').replaceAll('\r\n', '\n')
-  if (text.includes(marker)) return Buffer.from(text)
+  if (text.includes(marker)) return patchComposerAddMenu(id, Buffer.from(text))
   if (id === '@deepseek-ai/dsh-client-connection') {
     text = once(text, "name: string().optional()\n\t\t})]);\n\t\tobject({\n\t\t\tsessionId: sessionIdSchema,\n\t\t\tmode:", "name: string().optional()\n\t\t}), object({type:literal(\"file\"),mediaType:string(),data:string(),name:string().optional()})]);\n\t\tobject({\n\t\t\tsessionId: sessionIdSchema,\n\t\t\tmode:");
     text = once(text, "attachmentId: attachmentIdSchema,\n\t\t\tmediaType: imageMediaTypeSchema,\n\t\t\tbytes: number().int().positive(),\n\t\t\twidth: number().int().positive(),\n\t\t\theight: number().int().positive(),", "attachmentId: attachmentIdSchema,\n\t\t\tmediaType: string(),\n\t\t\tbytes: number().int().nonnegative(),\n\t\t\twidth: number().int().positive().nullish(),\n\t\t\theight: number().int().positive().nullish(),");
@@ -77,7 +78,7 @@ export function patchAttachments(id, bytes) {
       ]}),`);
     text += '\n' + marker;
   }
-  return Buffer.from(text)
+  return patchComposerAddMenu(id, Buffer.from(text))
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

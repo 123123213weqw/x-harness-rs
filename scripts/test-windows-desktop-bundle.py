@@ -28,6 +28,17 @@ EXTERNAL_BINARIES = [
 
 
 class WindowsDesktopBundleTests(unittest.TestCase):
+    def test_composer_receives_html_file_drops(self) -> None:
+        # Tauri defaults to intercepting WebView2 drops. The shared composer
+        # consumes DOM File objects, not tauri://drag-drop path events.
+        config = json.loads((TAURI_ROOT / "tauri.conf.json").read_text(encoding="utf-8"))
+        overlay = json.loads(WINDOWS_CONFIG.read_text(encoding="utf-8"))
+        # A platform overlay replaces an entire windows array, if present.
+        windows = overlay.get("app", {}).get("windows", config["app"]["windows"])
+        main = next(window for window in windows if window["label"] == "main")
+        self.assertIs(main.get("dragDropEnabled", True), False,
+                      "Native Tauri drop interception blocks HTML file drops on Windows")
+
     def test_stager_emits_target_suffixed_windows_executables(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
