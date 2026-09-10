@@ -3411,6 +3411,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-goal"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "xharness-session",
+]
+
+[[package]]
 name = "xharness-host"
 version = "0.1.0"
 dependencies = [
