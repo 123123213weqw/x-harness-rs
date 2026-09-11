@@ -59,16 +59,18 @@ try {
     const action=name=>async()=>{calls.push(name);if(window.hold)await new Promise(resolve=>window.pendingResolve=resolve);if(window.fail)throw Error('connection lost');return {ok:true,value:{}}};
     window.renderGoal=(state='awaiting_confirmation',phase='active',id='goal-1')=>{
       const projection={goal:{id,revision:3,objective:'实现解析器并验证测试',phase,maxGoalRounds:5},roundsStarted:3,execution:{state,enabled:true,roundsStarted:3,maxGoalRounds:5,report:{summary:'测试通过，请确认',remaining:[],evidence:[{kind:'artifact',reference:'tests/result.txt'}]}}};
-      DOM.flushSync(()=>root.render(React.createElement(module.GoalDock,{useProjection:()=>projection,onBudget:action('budget'),onComplete:action('complete'),onResume:action('resume'),onPause:action('pause'),onClear:action('clear'),onEdit:action('edit'),t:key=>key})));
+      DOM.flushSync(()=>root.render(React.createElement(module.GoalDock,{useProjection:()=>state==='absent'?null:projection,goalSessionId:id,onCreate:action('create'),onBudget:action('budget'),onComplete:action('complete'),onResume:action('resume'),onPause:action('pause'),onClear:action('clear'),onEdit:action('edit'),t:key=>key})));
     };
     renderGoal();
   });
-  await page.getByText('等待你确认完成 · 3/5 轮',{exact:true}).click();
-  await page.getByText('artifact: tests/result.txt',{exact:true}).waitFor();
+  await page.getByText('等待你确认完成 · 3/5 轮',{exact:true}).waitFor();
+  assert.equal(await page.locator('details').count(),0);
+  assert.equal(await page.locator('[data-goal-bar] [data-goal-runtime]').count(),1);
+  assert.ok(await page.locator('[data-goal-bar] > div').getAttribute('title').then(v=>v.includes('artifact: tests/result.txt')));
   await page.getByRole('button',{name:'确认完成',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>calls),['complete']);
   await page.evaluate(()=>{fail=true});
-  await page.getByRole('button',{name:'尚未完成，继续',exact:true}).click();
+  await page.getByRole('button',{name:'继续',exact:true}).click();
   await page.getByRole('alert').getByText('connection lost').waitFor();
   assert.equal(await page.getByRole('button',{name:'确认完成',exact:true}).isEnabled(),true);
   await page.evaluate(()=>{fail=false;hold=true});
@@ -78,22 +80,56 @@ try {
   await page.evaluate(()=>{hold=false;pendingResolve()});
   assert.equal(await page.getByRole('alert').count(),0);
   await page.evaluate(()=>renderGoal('complete','complete','goal-2'));
-  await page.getByText('已完成',{exact:true}).waitFor();
+  await page.getByText('已完成 · 3/5 轮',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'确认完成',exact:true}).count(),0);
   await page.evaluate(()=>renderGoal('blocked','blocked'));
   await page.getByRole('button',{name:'action.resume',exact:true}).waitFor();
   await page.evaluate(()=>renderGoal('disabled','active'));
-  await page.locator('summary').click();
-  // details open state may survive projection updates; ensure open explicitly.
-  await page.locator('details').evaluate(el=>el.open=true);
   await page.getByRole('button',{name:'启用自动推进',exact:true}).click();
+  await page.getByRole('button',{name:'预算',exact:true}).click();
   await page.getByRole('spinbutton',{name:'轮数预算'}).fill('12');
-  await page.getByRole('button',{name:'保存预算（暂停自动推进）',exact:true}).click();
+  await page.getByRole('button',{name:'保存轮数预算',exact:true}).click();
   assert.equal(await page.evaluate(()=>calls.includes('budget')),true);
-  await page.setViewportSize({width:375,height:700});
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  // No goal remains hidden; completed goals stay in the original single card.
+  await page.evaluate(()=>renderGoal('running','active','goal-wide'));
   const evidence=resolve(root,'dist/goal-ui');mkdirSync(evidence,{recursive:true});
+  await page.screenshot({path:resolve(evidence,engine+'-desktop.png')});
+  await page.setViewportSize({width:375,height:700});
+  for(const state of ['running','blocked','awaiting_confirmation','disabled']) {
+    await page.evaluate(state=>renderGoal(state,state==='blocked'?'blocked':'active','goal-'+state),state);
+    assert.equal(await page.locator('details').count(),0);
+    assert.equal(await page.locator('[data-goal-bar] [data-goal-runtime]').count(),1);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  }
+  await page.getByRole('button',{name:'预算',exact:true}).click();
+  assert.equal(await page.locator('[data-goal-bar] input[aria-label="轮数预算"]').count(),1);
+  await page.getByRole('spinbutton',{name:'轮数预算'}).fill('0');
+  assert.equal(await page.getByRole('button',{name:'保存轮数预算',exact:true}).isEnabled(),false);
+  await page.getByRole('spinbutton',{name:'轮数预算'}).press('Escape');
+
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.screenshot({path:resolve(evidence,engine+'.png')});
+  await page.evaluate(()=>renderGoal('absent'));
+  assert.equal(await page.locator('[data-goal-bar]').count(),0);
+  assert.equal(await page.locator('[data-goal-runtime]').count(),0);
+  await page.getByRole('button',{name:'设定目标',exact:true}).click();
+  const create=page.getByRole('button',{name:'创建并启动目标',exact:true});
+  assert.equal(await create.isEnabled(),false);
+  await page.getByRole('textbox',{name:'目标内容',exact:true}).fill('实现一个小目标');
+  await page.evaluate(()=>{fail=true});await create.click();
+  await page.getByRole('alert').getByText('connection lost').waitFor();
+  assert.equal(await create.isEnabled(),true);
+  await page.evaluate(()=>{fail=false;hold=true});await create.click();
+  assert.equal(await create.isEnabled(),false);
+  await page.evaluate(()=>renderGoal('absent','active','different-session'));
+  await page.evaluate(()=>{hold=false;pendingResolve()});
+  assert.equal(await page.getByRole('alert').count(),0);
+  await page.getByRole('button',{name:'设定目标',exact:true}).click();
+  await page.getByRole('textbox',{name:'目标内容',exact:true}).fill('目标');
+  await create.click();
+  await page.getByRole('button',{name:'设定目标',exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>calls.filter(c=>c==='create').length),3);
+
   assert.deepEqual(errors.filter(e=>!e.includes('isolated fixture')),[]);
-  console.log(engine+': upstream GoalDock/GoalBar + report details, confirm, retry, stale pending action, complete, blocked resume, legacy enable, narrow layout passed');
+  console.log(engine+': upstream GoalDock/GoalBar single inline card, confirm, retry, stale pending action, complete, blocked resume, legacy enable, narrow layout passed');
 } finally {await browser.close()}
