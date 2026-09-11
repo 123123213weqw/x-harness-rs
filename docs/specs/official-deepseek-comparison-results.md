@@ -1,4 +1,167 @@
-# Official DeepSeek comparison: preflight checkpoint
+# Official DeepSeek comparison: first paired pilot results
+
+## Completed real batch: `paired-live-1`
+
+**Outcome: XHarness 2/3 tasks; official full-headless 3/3 tasks.** All six trials
+have independent verifier evidence; none is missing or an infrastructure NA.
+These are three selected development tasks, one sample per cell on Linux, NOT a
+leaderboard result or evidence of general superiority. The XHarness candidate
+is the frozen PR #54 source identified below, not a claim about current main or
+the Windows desktop UI.
+
+| Task | XHarness | Official DeepSeek full-headless |
+|---|---|---|
+| cancel-async-tasks | FAIL, 0/6 checks | PASS, 6/6 checks |
+| build-cython-ext | PASS, 11/11 checks | PASS, 11/11 checks |
+| log-summary-date-ranges | PASS, 2/2 checks | PASS, 2/2 checks |
+
+Both Cython trials hit the 40-request limit. Grading the retained workspaces
+still passes: termination reason and final correctness are separate facts.
+No trial was selectively rerun. `unstarted.json` is empty, every ledger has zero
+in-flight requests, and all six owned task containers were removed afterward.
+
+### Tokens, requests and conservative cost
+
+Input counts are cumulative across requests, NOT peak context occupancy.
+Output includes reasoning. Costs here charge all input at the peak cache-miss
+rate and retain a full reservation for missing usage; they are NOT an invoice.
+
+| Task / agent | Requests | Input tokens | Output tokens | Cache-hit input | Conservative USD bound | End-to-end seconds |
+|---|---:|---:|---:|---:|---:|---:|
+| Async / XHarness | 5 | >=8,908 | >=28,818 | >=7,296 | 0.059734 | 168.7 |
+| Async / official | 14 | 219,306 | 14,699 | 208,512 | 0.083431 | 215.5 |
+| Cython / official | 40 | 1,126,873 | 19,097 | 1,074,432 | 0.360978 | 243.8 |
+| Cython / XHarness | 40 | 853,185 | 10,941 | 826,240 | 0.269085 | 232.2 |
+| Logs / XHarness | 6 | 36,578 | 2,075 | 30,976 | 0.013463 | 53.1 |
+| Logs / official | 7 | 66,588 | 2,369 | 61,696 | 0.022819 | 54.4 |
+
+Total: **112 provider requests**, conservative bound **$0.809510**, below the
+$3 batch ceiling. One cancelled XHarness async auxiliary request has no usage;
+its $0.0224796 reservation is retained. All other 111 requests have usage.
+Known total input/output are 2,311,438 / 77,999, with 54,487 reasoning tokens
+included in output. All observed provider model IDs are `deepseek-flash`.
+
+Using the known cache hit/miss counts and peak cache-aware prices yields about
+$0.137540 for the KNOWN usage alone, excluding that unknown auxiliary call.
+This is a price-based estimate, not an account balance or billing reconciliation.
+Cache state was not controlled; hit counts and interleaved ordering are retained.
+
+Only compare efficiency on the two tasks BOTH passed:
+
+| Shared passing tasks combined | XHarness | Official |
+|---|---:|---:|
+| Input tokens | 889,763 | 1,193,461 |
+| Output tokens, including reasoning | 13,016 | 21,466 |
+| Provider requests | 46 | 47 |
+| Conservative USD bound | 0.282548 | 0.383798 |
+
+For these two samples, XHarness used **25.4% less input** and **39.4% less
+output**, with complete usage evidence. This does not excuse the async failure,
+nor establish a general efficiency advantage from only two shared passing tasks.
+End-to-end seconds include environment setup, grading and cleanup; they are not
+pure model latency or identical effective agent execution time.
+
+### Concrete async failure and next optimization hypothesis
+
+XHarness stopped at a native `LOOP_FAILED` error: locally estimated input 61,563
+exceeded the available 48,128 under the 65,536 context / 16,384 output / 1,024
+safety configuration. Overflow compaction then rejected a checkpoint estimated
+at 828 versus its 771-token source range. This was not a provider confirmation
+that the true input was 61,563 tokens and not an installer/network failure.
+
+Source inspection shows the cold calibration path uses conservative serialized
+wire units until eight similar samples are available; distribution changes also
+fall back conservatively. The shrinkage guard correctly refuses to replace a
+range with a larger checkpoint, but this run has no successful recovery afterward.
+The first provider response used its entire 16,384 output allocation on reasoning;
+the async attempt's known reasoning total is 27,705. These observations point to
+the interaction of cold input estimation, lengthy reasoning and the compaction
+recovery path, not proof that tool count or Rust execution speed caused failure.
+
+A separate authenticated, bounded capability probe after the failure confirmed
+the provider itself returns **404** for `/chat/completions/input_tokens`; it made
+no generation request. The broker's unsupported-route fallback therefore did not
+hide an available counter endpoint in this test.
+
+The frozen wrapper labeled a settled Host session `COMPLETED` even though its
+native turn reason contained this error. The original raw report is preserved;
+the FAIL grade above is unaffected. A POST-BATCH wrapper-only regression fix now
+labels such inner failures `AGENT_ERROR` while still running independent grading.
+It was not applied during the scored batch and is not presented as an improvement
+to the evaluated agent. No product Rust, prompt, history or compaction code was
+changed in this batch.
+
+Next controlled optimization should target this cold estimation/recovery path,
+with an explicit reproduction and safety regression tests before another paired
+batch. Do not simply remove the shrinkage guard, silently lose historical output,
+or compare only the successful trials. No extra paid retry or product change has
+been performed based on these scores.
+
+### Resource scope and retained evidence
+
+On the shared passing log task, whole-container peak memory was approximately
+35.6 MiB (XHarness) versus 137.3 MiB (official). These are headless Linux task
+containers including setup and descendants, not desktop App RAM measurements.
+Cython peaks were approximately 655 / 731 MiB respectively and include compilers;
+their last pre-termination samples may miss up to 3 seconds of peak growth.
+
+Private evidence under the remote root listed below:
+`paired-live-1/protocol.json`, `paired-report.json`, `unstarted.json`, and
+`trials/<task>--<harness>/{agent,verifier,result.json}`. Oracle/hidden-test contents,
+raw prompts, API keys and expired trial capabilities are not published here.
+The real key was supplied via non-echoing SSH stdin, not argv/files or containers.
+
+---
+
+## Paired runner acceptance and live batch (2026-09-11)
+
+The paired integration gates are now implemented in `run_paired.py`, separate
+from the historical Terminus-2 entry point. Runtime code was frozen at `038ad60`
+before `paired-live-1` started with the user's approval. Do not interpret the
+older NOT_READY checkpoints below as the current runner state.
+
+| End-to-end mock | Both actual native harnesses | Independent synthetic verifier |
+|---|---|---|
+| `paired-mock-normal-final` | COMPLETED | PASS for both |
+| `paired-mock-timeout-final` | TIMEOUT, whole-container cleanup | PASS for both retained marker files |
+| `paired-mock-budget-final` | BUDGET_LIMIT at three permitted mock calls | PASS for both retained marker files |
+
+All six integration checks used zero real model requests, and WZU passed 47
+tooling tests before launch. Earlier failed mock attempts remain recorded:
+`normal-1/2` used an invalid synthetic task package name; `normal-3/5` attempted
+Harbor's unnecessary egress-sidecar build; `normal-4` used an invalid network
+enum; `normal-6` lacked the matching static-network capability declaration.
+These were setup errors with zero provider calls, not agent-quality scores.
+
+The final environment subclass enforces Docker's actual `network_mode: none`,
+rejects broader/dynamic phase policies and checks non-privileged state. Both
+groups use the same restricted public artifact socket and read-only cache;
+no host firewall changes or privileged network sidecar are used. Official
+hidden test bytes and task instructions are verified against the pinned source
+archive and unchanged. Only controller-side image/network metadata differs.
+
+Frozen live protocol: 600 seconds from native task submission, 65536 context,
+16384 output ceiling, thinking enabled/high, temperature 1.0, top_p 0.95,
+40 total requests and $0.50 peak/no-cache reservation ceiling per trial, six
+trials maximum ($3). Smaller native auxiliary limits remain smaller. Official
+CLI process startup is included in its submission window; XHarness submits
+through its already-running Host RPC. This residual startup difference is
+disclosed, not presented as identical startup work.
+
+Price/model metadata was verified from the live
+[official pricing page](https://api-docs.deepseek.com/quick_start/pricing)
+on 2026-09-11: `deepseek-flash` is V4.1 Flash, peak input miss $0.30/M,
+peak output $1.20/M. The search index contained older V4 pricing, so the live
+HTTPS page was checked directly. These rates are conservative reservation
+inputs, not a billing invoice. Actual response model identifiers are retained.
+
+`paired-live-1` is the first real official paired batch and completed all six trials.
+No test-time prompt/dependency/protocol changes or selective retries are allowed.
+Unknown provider usage retains its reservation; known token totals are lower
+bounds when a cancelled auxiliary request supplies no usage. Independent grader
+results, native turn errors and wrapper exit status must be reported separately.
+
+---
 
 ## Clean installation and environment acceptance (2026-09-11)
 

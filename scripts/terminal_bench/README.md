@@ -115,8 +115,8 @@ The policy is restricted artifact access, not arbitrary internet access.
 `proxy_exec.py` selects the Tsinghua PyPI mirror and the official Astral CDN for
 the task's pinned uv 0.9.5 installer. It does not upgrade task Python/Cython/NumPy
 versions or weaken TLS/APT signature verification. These transport differences
-must be applied to both groups and recorded before scoring; the production
-Harbor adapters do not yet integrate this bridge.
+are applied to both groups by the paired Harbor environment and recorded before
+scoring; the legacy Terminus adapter does not integrate this bridge.
 
 On the evaluation host, from this directory:
 
@@ -140,7 +140,7 @@ APT/PyPI preparation, and is not yet wired into scored agent trials.
 
 The validated mock launcher `official_headless.py` expects `node` and
 `dsh-official/node_modules/@deepseek-ai/dsh/lib/bin.js` below the runtime root.
-It is NOT yet an integrated Harbor adapter. A clean Linux install from the
+It is integrated through `deepseek_agent.NativeAgent`. A clean Linux install from the
 checked-in `official-package.json` and `official-package-lock.json` passes
 `npm ls --all`, all five native-module probes, and actual native `bash` execution
 against a mock provider. Do not reuse the earlier failed runtime trees.
@@ -188,5 +188,5 @@ against a mock provider. Do not reuse the earlier failed runtime trees.
 
 Current artifact identities, evidence and remaining gates are recorded in the
 [environment report](../../docs/specs/official-deepseek-comparison-results.md).
-The paid runner still needs both Harbor adapter integration and shared protocol
-configuration; these preparation commands do not enable paid calls.
+The paired runner above integrates both adapters and the shared protocol.
+Preparation commands themselves never enable paid calls.
