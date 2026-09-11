@@ -22,7 +22,11 @@ def run(args):
         def do_POST(self):
             self.connection.settimeout(10)
             size = int(self.headers.get('Content-Length', '0'))
-            if self.path not in ('/v1/chat/completions', '/chat/completions') or not 0 < size < 2**20:
+            if self.path not in ('/v1/chat/completions', '/chat/completions'):
+                # Match an absent optional provider API: XHarness can fall
+                # back to its native token estimate after an unsupported route.
+                return self.send_error(404)
+            if not 0 < size < 2**20:
                 return self.send_error(400)
             if self.headers.get('Authorization') != 'Bearer fixture-capability':
                 return self.send_error(403)
@@ -34,12 +38,13 @@ def run(args):
             evidence.append({'tool_names': sorted(tools), 'tool_results': tool_results,
                              'model': body.get('model'), 'max_tokens': body.get('max_tokens')})
             calls = None
-            if 'bash' in tools and not tool_results:
-                properties = tools['bash']['parameters'].get('properties', {})
+            shell_tool = next((name for name in tools if name.lower() == 'bash'), None)
+            if shell_tool and not tool_results:
+                properties = tools[shell_tool]['parameters'].get('properties', {})
                 arguments = {key: value for key, value in {'command': 'pwd', 'description': 'Read working directory'}.items()
                              if key in properties}
                 calls = [{'index': 0, 'id': 'fixture-pwd', 'type': 'function',
-                          'function': {'name': 'bash', 'arguments': json.dumps(arguments)}}]
+                          'function': {'name': shell_tool, 'arguments': json.dumps(arguments)}}]
             delta = {'role': 'assistant', 'reasoning_content': 'Checking the workspace.'}
             delta.update({'tool_calls': calls} if calls else {'content': 'Fixture complete.'})
             usage = {'prompt_tokens': 10, 'completion_tokens': 5, 'total_tokens': 15}
@@ -69,15 +74,20 @@ def run(args):
             command = ['docker', 'run', '--rm', '-i', '--name', name, '--network', 'none',
                        '--cpus', '1', '--memory', '2g',
                        '--mount', f'type=bind,src={directory},dst=/opt/benchmark-broker,readonly',
-                       '--mount', f'type=bind,src={args.runtime.resolve()},dst=/opt/official,readonly',
                        '--mount', f'type=bind,src={Path(__file__).parent.resolve()},dst=/opt/bench,readonly',
-                       '--mount', f'type=bind,src={output},dst=/logs/agent',
-                       'alexgshaw/cancel-async-tasks:20251031', 'python3', '/opt/bench/official_headless.py']
+                       '--mount', f'type=bind,src={output},dst=/logs/agent']
+            if args.harness == 'official':
+                command += ['--mount', f'type=bind,src={args.runtime.resolve()},dst=/opt/official,readonly']
+                launcher = 'official_headless.py'
+            else:
+                command += ['--mount', f'type=bind,src={args.binary.resolve()},dst=/opt/xharness/xharness-host,readonly']
+                launcher = 'headless.py'
+            command += [args.image, 'python3', '/opt/bench/' + launcher]
             result = subprocess.run(command, input=json.dumps(config), text=True, capture_output=True, timeout=90)
             (output / 'launcher.json').write_text(json.dumps({'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}))
             (output / 'wire-summary.json').write_text(json.dumps(evidence, indent=2))
             passed = result.returncode == 0 and any('/app' in value for item in evidence for value in item['tool_results'])
-            print(json.dumps({'official_native_tool_preflight': 'PASS' if passed else 'FAIL',
+            print(json.dumps({'native_tool_preflight': 'PASS' if passed else 'FAIL', 'harness': args.harness,
                               'mock_requests': len(evidence), 'real_model_requests': 0,
                               'exit_code': result.returncode}))
             return 0 if passed else 1
@@ -90,6 +100,12 @@ def run(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--runtime', type=Path, required=True)
+    parser.add_argument('--runtime', type=Path)
+    parser.add_argument('--binary', type=Path)
+    parser.add_argument('--harness', choices=('official', 'xharness'), default='official')
+    parser.add_argument('--image', default='alexgshaw/cancel-async-tasks:20251031')
     parser.add_argument('--output', type=Path, required=True)
-    raise SystemExit(run(parser.parse_args()))
+    args = parser.parse_args()
+    if (args.harness == 'official' and not args.runtime) or (args.harness == 'xharness' and not args.binary):
+        parser.error('official requires --runtime; xharness requires --binary')
+    raise SystemExit(run(args))

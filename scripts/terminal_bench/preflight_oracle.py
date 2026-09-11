@@ -32,13 +32,15 @@ def run(args):
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False, mode=0o700)
     name = 'xhbench-oracle-' + uuid.uuid4().hex[:12]
+    if args.diagnose_cython_repository and args.task != 'build-cython-ext':
+        raise ValueError('repository diagnostic only applies to Cython')
     bundle_hash = None
     if args.source_bundle:
         if args.task != 'build-cython-ext':
             raise ValueError('source bundle only applies to the Cython oracle fixture')
         bundle_hash = verify_bundle(args.source_bundle, args.source_sha256)
     with tempfile.TemporaryDirectory(prefix='xhbench-deps-') as directory:
-        proxy = DependencyProxy(Path(directory) / 'deps.sock', seconds=1200)
+        proxy = DependencyProxy(Path(directory) / 'deps.sock', seconds=args.oracle_seconds + 900)
         def docker(*argv, timeout=30):
             return subprocess.run(['docker', *argv], timeout=timeout, check=True, capture_output=True, text=True)
         def command(command, logfile, timeout):
@@ -47,10 +49,18 @@ def run(args):
                                        'bash', '-c', command], stdout=stream, stderr=subprocess.STDOUT,
                                       timeout=timeout).returncode
         try:
+            mounts = []
+            if args.wheelhouse:
+                mounts = ['--mount', f'type=bind,src={args.wheelhouse.resolve()},dst=/opt/benchmark-wheels,readonly']
+            if args.offline_wheels:
+                if not args.wheelhouse:
+                    raise ValueError('offline pip requires a wheelhouse')
+                mounts += ['--env', 'BENCH_PIP_OFFLINE=1']
             docker('run', '-d', '--rm', '--name', name, '--network', 'none', '--cpus', '1', '--memory', '2g',
                    '--mount', f'type=bind,src={directory},dst=/opt/benchmark-dependencies,readonly',
                    '--mount', f'type=bind,src={Path(__file__).parent.resolve()},dst=/opt/bench,readonly',
-                   args.prepared_image or f'alexgshaw/{args.task}:20251031', 'sleep', '1200')
+                   *mounts, args.prepared_image or f'alexgshaw/{args.task}:20251031',
+                   'sleep', str(args.oracle_seconds + 900))
             # Neutral OS tools only. Never upgrade the task's Python/Cython/NumPy.
             if args.prepared_image:
                 prepare = 'command -v curl && command -v rg && command -v ps && mkdir -p /logs/agent /logs/verifier'
@@ -61,7 +71,7 @@ def run(args):
             code = command(prepare, 'prepare.log', 240)
             if code:
                 raise RuntimeError('neutral dependency installation failed')
-            if args.task == 'build-cython-ext':
+            if args.task == 'build-cython-ext' and args.source_bundle:
                 # Grader-only fixture: the shipped oracle assumes the checkout
                 # requested in instruction.md already exists. Never add this to
                 # a scored agent's initial image or count it as agent work.
@@ -79,18 +89,44 @@ def run(args):
                 if code:
                     raise RuntimeError('oracle-only source fixture failed')
             docker('cp', str(task / 'solution'), name + ':/solution')
-            code = command('bash /solution/solve.sh', 'oracle.log', 300)
+            code = command('bash /solution/solve.sh', 'oracle.log', args.oracle_seconds)
             if code:
                 raise RuntimeError('official oracle execution failed')
             docker('cp', str(task / 'tests'), name + ':/tests')
-            command('bash /tests/test.sh', 'verifier.log', 300)
+            verifier = 'bash /tests/test.sh'
+            if args.verifier_showlocals:
+                # Diagnostic output stays in the private grader directory. This
+                # changes traceback verbosity, never tests or scoring rules.
+                verifier = 'PYTEST_ADDOPTS=--showlocals ' + verifier
+            command(verifier, 'verifier.log', 300)
             docker('cp', name + ':/logs/verifier/.', str(output))
             reward = float((output / 'reward.txt').read_text().strip())
             ctrf = json.loads((output / 'ctrf.json').read_text())
+            grade = grade_evidence(reward, ctrf)
+            diagnostic_exit = None
+            if args.diagnose_cython_repository:
+                # Run only AFTER preserving the unmodified official grade. Its
+                # subprocess capture hides inner tracebacks; retain them in a
+                # separate private log, never substitute this for the grade.
+                diagnostic = ('diagnostic_dir=$(mktemp -d) && '
+                              'git clone --depth 1 --branch 0.5.3 '
+                              'https://github.com/SPOCKnots/pyknotid.git "$diagnostic_dir" && '
+                              'cd /app/pyknotid && python -m pytest "$diagnostic_dir/tests" '
+                              '--ignore "$diagnostic_dir/tests/test_random_curves.py" '
+                              '--ignore "$diagnostic_dir/tests/test_catalogue.py" -v')
+                try:
+                    diagnostic_exit = command(diagnostic, 'repository-diagnostic.log', 60)
+                except (OSError, subprocess.SubprocessError) as error:
+                    diagnostic_exit = type(error).__name__
             result = dict(task=args.task, model_requests=0,
                           prepared_image=args.prepared_image,
+                          oracle_seconds=args.oracle_seconds, public_wheel_cache=bool(args.wheelhouse),
+                          offline_pip=args.offline_wheels,
+                          verifier_showlocals=args.verifier_showlocals,
+                          repository_diagnostic=args.diagnose_cython_repository,
+                          repository_diagnostic_exit=diagnostic_exit,
                           source_bundle_sha256=bundle_hash,
-                          oracle_fixture_checkout=args.task == 'build-cython-ext', **grade_evidence(reward, ctrf))
+                          oracle_fixture_checkout=bool(args.source_bundle), **grade)
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             result = {'task': args.task, 'status': 'INFRA_ERROR', 'model_requests': 0,
                       'error_type': type(error).__name__}
@@ -110,4 +146,10 @@ if __name__ == '__main__':
     parser.add_argument('--source-bundle', type=Path)
     parser.add_argument('--source-sha256')
     parser.add_argument('--prepared-image', help='Clean neutral image ID, never an oracle snapshot')
+    parser.add_argument('--wheelhouse', type=Path, help='Public original dependencies only, never oracle-built wheels')
+    parser.add_argument('--offline-wheels', action='store_true', help='Require pip to use the prepared public wheelhouse')
+    parser.add_argument('--verifier-showlocals', action='store_true', help='Private verbose verifier tracebacks for infrastructure diagnosis')
+    parser.add_argument('--diagnose-cython-repository', action='store_true', help='After grading, capture nested public repository test output separately')
+    parser.add_argument('--oracle-seconds', type=int, choices=range(1, 1801), default=300,
+                        metavar='1..1800', help='Reference-solution setup timeout, not agent time budget')
     raise SystemExit(run(parser.parse_args()))

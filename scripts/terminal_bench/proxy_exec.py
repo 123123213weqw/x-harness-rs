@@ -1,5 +1,6 @@
 """Run one disposable-container command with the private dependency proxy."""
 import os
+from pathlib import Path
 import subprocess
 import sys
 from relay import Relay
@@ -17,6 +18,11 @@ def main():
                    # Supported by the task's exact uv 0.9.5 installer. The
                    # official Astral CDN serves the same versioned artifacts.
                    UV_DOWNLOAD_URL='https://releases.astral.sh/github/uv/releases/download/0.9.5')
+        if Path('/opt/benchmark-wheels').is_dir():
+            env['PIP_FIND_LINKS'] = '/opt/benchmark-wheels'
+            env['UV_FIND_LINKS'] = '/opt/benchmark-wheels'
+            if env.get('BENCH_PIP_OFFLINE') == '1':
+                env['PIP_NO_INDEX'] = '1'
         return subprocess.run(sys.argv[1:], env=env).returncode
     finally:
         relay.stop()
