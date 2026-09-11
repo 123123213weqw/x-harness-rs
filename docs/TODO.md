@@ -904,3 +904,11 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - 规范：[三平台稳定更新](specs/unified-desktop-updates.md)。现有 Windows 稳定通道继续保留
   （验收结束时独立发布流水线已更新至 `friends-v0.2.6`）；
   本次开发不改用户的应用安装、对话和生产模型服务。
+
+## 2026-09-11 Goal 入口收敛
+
+- [x] 常规 `goal` 工具：与 Bash 一样通过 ToolRegistry 暴露，复用 Host Goal RPC；create/get/update/pause/resume/report，不额外注册 goal_report。
+- [x] 只保留原 GoalBar：状态、轮数、预算、确认在框内；移除下方展开区；空状态提供“设定目标”，源覆盖文件与部署 bundle 同步。
+- [x] 参数隔离、取消、创建幂等、过期 ref、报告限制及多轮现有测试；Chromium/WebKit 单框与异步异常回归。
+- [ ] 本次变更跨平台 CI、macOS/Windows/Linux 安装包发布和软件替换；尚未更新 0.2.16 已安装实例。
+- [ ] 用真实模型额外验收“自然语言要求 → goal.create → 自动推进 → goal.report”；既有真实 DeepSeek 报告实验不代表本次新增入口已实测。
