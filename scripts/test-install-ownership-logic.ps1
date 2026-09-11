@@ -94,6 +94,24 @@ Copy-Item -LiteralPath $savedLegacy.FullName -Destination $legacyShortcutBackup
 Invoke-XHarnessReconcile $canonical $nextInventory
 Assert-That (-not (Test-Path -LiteralPath $legacyShortcutBackup)) 'Retired-install shortcut backup was not migrated'
 
+# Hash helper is literal-path safe, streams large files, and releases file handles.
+$hashPath = Join-Path $fixture ('hash [literal] ' + [char]0x4e2d + '.bin')
+foreach ($bytes in @([byte[]]@(), [Text.Encoding]::UTF8.GetBytes('abc'), (New-Object byte[] (1024 * 1024 + 7)))) {
+    [IO.File]::WriteAllBytes($hashPath, $bytes)
+    $expectedHash = (Get-FileHash -LiteralPath $hashPath -Algorithm SHA256).Hash
+    $actualHash = & {
+        function Get-FileHash { throw 'Unavailable in installer subprocess' }
+        Get-XHarnessFileHash $hashPath
+    }
+    Assert-That ($actualHash -ceq $expectedHash) 'Module-independent SHA256 did not match'
+    # No leaked reader should block an exclusive writer on Windows.
+    $exclusive = [IO.File]::Open($hashPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $exclusive.Dispose()
+}
+$hashFailure = $false
+try { Get-XHarnessFileHash (Join-Path $fixture 'no-such-hash-file') | Out-Null } catch { $hashFailure = $true }
+Assert-That $hashFailure 'Missing file hash must fail closed'
+
 $version = [version](Get-Item -LiteralPath $DesktopBinary).VersionInfo.FileVersion
 $target = Join-Path $canonical 'xharness-desktop.exe'
 function New-TestShortcutPair([string]$Name, [string]$BackupTarget, [string]$Arguments = '') {

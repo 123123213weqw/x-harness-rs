@@ -104,10 +104,21 @@ function Assert-XHarnessRecoveryPath([string]$Path) {
     }
 }
 
+# NSIS may launch a PowerShell process without the module providing Get-FileHash.
+# Use framework APIs and a bounded streaming hash instead of module auto-loading.
+function Get-XHarnessFileHash([string]$Path) {
+    $digest = [Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try { return [BitConverter]::ToString($digest.ComputeHash($stream)).Replace('-', '') }
+        finally { $stream.Dispose() }
+    } finally { $digest.Dispose() }
+}
+
 function Save-XHarnessShortcutBackup([string]$Path, [version]$Version) {
     $source = [IO.Path]::GetFullPath($Path)
     Assert-XHarnessRecoveryPath $source
-    $hash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+    $hash = (Get-XHarnessFileHash $source)
     $digest = [Security.Cryptography.SHA256]::Create()
     try {
         $identity = [Text.Encoding]::UTF8.GetBytes($source.ToUpperInvariant() + "`n" + $hash)
@@ -122,7 +133,7 @@ function Save-XHarnessShortcutBackup([string]$Path, [version]$Version) {
     Assert-XHarnessRecoveryPath $copy
     Assert-XHarnessRecoveryPath $metadata
     if (-not (Test-Path -LiteralPath $copy)) { [IO.File]::Copy($source, $copy, $false) }
-    if ((Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -ne $hash) { throw 'Shortcut recovery copy does not match; original retained' }
+    if ((Get-XHarnessFileHash $copy) -ne $hash) { throw 'Shortcut recovery copy does not match; original retained' }
     if (-not (Test-Path -LiteralPath $metadata)) {
         $json = [pscustomobject]@{ original_path = $source; sha256 = $hash; destination_version = $Version.ToString() } | ConvertTo-Json
         # Never overwrite existing recovery metadata, even on a racing retry.
@@ -160,7 +171,7 @@ function Move-XHarnessLegacyShortcutBackup([string]$Link, [string]$Target, [vers
         }
         $hash = Save-XHarnessShortcutBackup $legacy $Version
         Assert-XHarnessRecoveryPath $legacy
-        if ((Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash -ne $hash) { throw 'Legacy shortcut changed during backup; original retained' }
+        if ((Get-XHarnessFileHash $legacy) -ne $hash) { throw 'Legacy shortcut changed during backup; original retained' }
         # The only deletion here: one validated shortcut backup, after verified archival.
         # Never recurse, use a wildcard, or remove program/user data.
         Remove-Item -LiteralPath $legacy -ErrorAction Stop
