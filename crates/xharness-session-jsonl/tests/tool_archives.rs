@@ -83,9 +83,16 @@ async fn corrupt_archive_is_rejected_not_overwritten() {
     let store = JsonlSessionStore::new(dir.path()).unwrap();
     store.create(SessionHeader::new("one")).await.unwrap();
     let reference = store.archive_tool_result("one", "original").await.unwrap();
-    let path = dir.path().join("tool-results").join(format!("{:x}", Sha256::digest(b"one"))).join(format!("{}.json", reference.sha256));
+    let path = dir
+        .path()
+        .join("tool-results")
+        .join(format!("{:x}", Sha256::digest(b"one")))
+        .join(format!("{}.json", reference.sha256));
     std::fs::write(&path, "corrupt").unwrap();
-    assert!(store.tool_result_archive("one", &reference.sha256).await.is_err());
+    assert!(store
+        .tool_result_archive("one", &reference.sha256)
+        .await
+        .is_err());
     assert!(store.archive_tool_result("one", "original").await.is_err());
     assert_eq!(std::fs::read_to_string(path).unwrap(), "corrupt");
 }
@@ -95,9 +102,18 @@ async fn concurrent_publication_is_complete_and_bounded() {
     let dir = TestDir::new();
     let store = JsonlSessionStore::new(dir.path()).unwrap();
     store.create(SessionHeader::new("one")).await.unwrap();
-    let (a, b) = tokio::join!(store.archive_tool_result("one", "same"), store.archive_tool_result("one", "same"));
+    let (a, b) = tokio::join!(
+        store.archive_tool_result("one", "same"),
+        store.archive_tool_result("one", "same")
+    );
     assert_eq!(a.unwrap(), b.unwrap());
-    assert!(store.archive_tool_result("one", &"x".repeat(xharness_session::MAX_TOOL_ARCHIVE_BYTES + 1)).await.is_err());
+    assert!(store
+        .archive_tool_result(
+            "one",
+            &"x".repeat(xharness_session::MAX_TOOL_ARCHIVE_BYTES + 1)
+        )
+        .await
+        .is_err());
 }
 
 #[cfg(unix)]

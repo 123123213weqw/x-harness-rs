@@ -246,12 +246,17 @@ impl Store for JsonlSessionStore {
         let root = self.root.clone();
         let session_id = session_id.to_owned();
         let text = text.to_owned();
-        let _permit = self
+        let permit = self
             .audit_reads
-            .acquire()
+            .clone()
+            .acquire_owned()
             .await
             .map_err(|e| backend_message(e.to_string()))?;
-        run_blocking(move || results::put(&root, &session_id, &text)).await
+        run_blocking(move || {
+            let _permit = permit;
+            results::put(&root, &session_id, &text)
+        })
+        .await
     }
 
     async fn tool_result_archive(
@@ -264,12 +269,17 @@ impl Store for JsonlSessionStore {
         let root = self.root.clone();
         let session_id = session_id.to_owned();
         let key = key.to_owned();
-        let _permit = self
+        let permit = self
             .audit_reads
-            .acquire()
+            .clone()
+            .acquire_owned()
             .await
             .map_err(|e| backend_message(e.to_string()))?;
-        run_blocking(move || results::read(&root, &session_id, &key)).await
+        run_blocking(move || {
+            let _permit = permit;
+            results::read(&root, &session_id, &key)
+        })
+        .await
     }
 
     async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
