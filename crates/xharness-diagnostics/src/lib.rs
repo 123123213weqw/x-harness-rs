@@ -23,6 +23,7 @@ pub fn now_ms() -> u64 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
+    HeapValidation,
     Activity,
     DesktopStart,
     HostStart,
@@ -42,7 +43,14 @@ pub enum Phase {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Activity { Model, Tool, Session, Network, Host, Other }
+pub enum Activity {
+    Model,
+    Tool,
+    Session,
+    Network,
+    Host,
+    Other,
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -55,6 +63,7 @@ pub struct Resources {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Record {
+    pub version: Option<[u32; 3]>,
     pub activity: Option<Activity>,
     pub sequence: Option<u64>,
     pub time_ms: u64,
@@ -70,6 +79,7 @@ pub struct Record {
 impl Record {
     pub fn new(phase: Phase) -> Self {
         Self {
+            version: None,
             activity: None,
             sequence: None,
             time_ms: now_ms(),
