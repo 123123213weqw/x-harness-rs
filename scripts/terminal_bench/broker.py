@@ -1,6 +1,6 @@
 """Local, bounded DeepSeek credential broker for disposable benchmark containers.
 
-Bind only to a private Docker bridge address. Real credentials stay in this
+Bind only to host loopback and a dedicated Unix socket. Real credentials stay in this
 process. Per-trial bearer capabilities expire at close/deadline and grant only
 bounded chat completions to one fixed model/HTTPS endpoint, never general proxying.
 """
