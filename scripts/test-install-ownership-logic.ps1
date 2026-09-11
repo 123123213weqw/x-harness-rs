@@ -7,18 +7,13 @@ New-Item -ItemType Directory -Path $fixture | Out-Null
 function Assert-That($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Get-XHarnessProcesses { @() }
 function Get-XHarnessShortcutBackupRoot { Join-Path $fixture 'local-app-data/installer-backups' }
-$shell = New-Object -ComObject WScript.Shell
-# WScript.Shell.TargetPath rejects non-ANSI targets on some Windows locales.
-# Use it only to seed arguments on an empty link; all target/directory writes
-# go through the production Unicode IShellLinkW wrapper. Update must preserve
-# the custom arguments, which are checked before the migration under test.
+# ANSI WScript setters can reject Chinese targets or corrupt Chinese arguments.
+# Build all links through IShellLinkW, then check the fixture before migration.
 function New-TestShortcut([string]$Path, [string]$TargetPath, [string]$LaunchArguments = '') {
     $TargetPath = [IO.Path]::GetFullPath($TargetPath)
-    if ($LaunchArguments) {
-        $link = $shell.CreateShortcut($Path)
-        $link.Arguments = $LaunchArguments
-        $link.Save()
-    }
+    [XHarnessInstaller.Shortcuts]::Update($Path, $TargetPath, ([IO.Path]::GetDirectoryName($TargetPath)))
+    [XHarnessInstaller.Shortcuts]::SetArguments($Path, $LaunchArguments)
+    # Retargeting an existing link must not clear custom launch arguments.
     [XHarnessInstaller.Shortcuts]::Update($Path, $TargetPath, ([IO.Path]::GetDirectoryName($TargetPath)))
     $actual = [XHarnessInstaller.Shortcuts]::Read($Path)
     Assert-That ($actual.TargetPath -ieq $TargetPath) ('Fixture target did not round-trip: ' + $Path)
