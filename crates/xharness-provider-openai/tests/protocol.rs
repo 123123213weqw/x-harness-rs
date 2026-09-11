@@ -100,7 +100,7 @@ fn chat_request_and_stream_are_normalized() {
 }
 
 #[tokio::test]
-async fn projected_completed_writes_keep_chat_and_responses_call_topology() {
+async fn completed_writes_keep_exact_arguments_in_chat_and_responses() {
     let arguments = json!({
         "path": "artifact.txt",
         "content": "x".repeat(8 * 1_024),
@@ -154,10 +154,7 @@ async fn projected_completed_writes_keep_chat_and_responses_call_topology() {
     let chat = build_openai_request(OpenAiProtocol::ChatCompletions, "model", &request);
     let chat_call = &chat["messages"][1]["tool_calls"][0];
     assert_eq!(chat_call["id"], "provider-write");
-    assert!(chat_call["function"]["arguments"]
-        .as_str()
-        .unwrap()
-        .contains("tool_arguments_pruned/v1"));
+    assert_eq!(chat_call["function"]["arguments"], arguments);
     assert!(chat["messages"][1].get("reasoning_content").is_none());
     assert_eq!(chat["messages"][2]["tool_call_id"], "provider-write");
 
@@ -169,10 +166,7 @@ async fn projected_completed_writes_keep_chat_and_responses_call_topology() {
         .find(|item| item["type"] == "function_call")
         .unwrap();
     assert_eq!(function_call["call_id"], "provider-write");
-    assert!(function_call["arguments"]
-        .as_str()
-        .unwrap()
-        .contains("tool_arguments_pruned/v1"));
+    assert_eq!(function_call["arguments"], arguments);
     let output = responses["input"]
         .as_array()
         .unwrap()

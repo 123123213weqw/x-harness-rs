@@ -1,5 +1,7 @@
 # Context History Pruning P0 消融证据
 
+> 历史测量，不代表当前行为：2026-09-11 的 v3 修复取消了工具参数投影，原因是模型会照抄省略标记为可执行写入。以下 v2 数据保留用于审计，不能再用作当前压缩率承诺。当前策略见 [上下文规范](../../specs/context.md)。
+
 **日期：** 2026-09-02  
 **实现：** `context-history-pruning/v2`  
 **编译与测试主机：** `WZU_Server`（Linux，Release 优化构建）
