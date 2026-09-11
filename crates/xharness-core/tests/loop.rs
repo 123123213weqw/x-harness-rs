@@ -1,3 +1,126 @@
+#[tokio::test]
+async fn durable_large_result_has_recoverable_original_and_exact_call() {
+    let original = format!(
+        "{}MIDDLE-EVIDENCE{}",
+        "汉字\n".repeat(5000),
+        "z".repeat(5000)
+    );
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(
+                0,
+                "provider-archive",
+                "echo",
+                "{ \"value\": 7 }",
+            )),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+    ]));
+    let output = original.clone();
+    let tool = TestToolSpec::new("echo", "echo", json!({"type":"object"}), move |_, _| {
+        let output = output.clone();
+        async move { ToolResult::success(output) }
+    });
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("archive-core".into());
+    request.journal_store = Some(journal.clone());
+    install_tool(&mut request, tool).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let requests = provider.requests();
+    let observation = requests[1]
+        .messages
+        .iter()
+        .find(|m| m.role == Role::Tool)
+        .unwrap();
+    assert_eq!(
+        observation.tool_call_id.as_deref(),
+        Some("provider-archive")
+    );
+    assert!(observation.content.len() <= 8192);
+    assert!(!observation.content.contains("MIDDLE-EVIDENCE"));
+    let value: Value = serde_json::from_str(&observation.content).unwrap();
+    let key = value["archive"]["sha256"].as_str().unwrap();
+    let archived = journal
+        .tool_result_archive("archive-core", key)
+        .await
+        .unwrap()
+        .unwrap();
+    let raw: ToolResult = serde_json::from_str(&archived).unwrap();
+    assert_eq!(raw.content, original);
+    let snapshot = journal.load("archive-core").await.unwrap().unwrap();
+    assert!(snapshot.events().iter().any(|e| matches!(e.data(), SessionEventData::ToolResult {result,..} if result.content == observation.content)));
+    assert!(snapshot.events().iter().any(|e| matches!(e.data(), SessionEventData::ToolCall {call,..} if call.arguments_json == "{ \"value\": 7 }")));
+}
+
+#[derive(Default)]
+struct NoToolArchive(EventMemorySessionStore);
+#[async_trait]
+impl EventStore for NoToolArchive {
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        self.0.list_headers().await
+    }
+    async fn create(&self, h: SessionHeader) -> Result<Session, StoreError> {
+        self.0.create(h).await
+    }
+    async fn load(&self, id: &str) -> Result<Option<Session>, StoreError> {
+        self.0.load(id).await
+    }
+    async fn append(
+        &self,
+        id: &str,
+        r: Revision,
+        e: Vec<SessionEvent>,
+    ) -> Result<AppendReceipt, StoreError> {
+        self.0.append(id, r, e).await
+    }
+    async fn flush(&self, id: &str) -> Result<Revision, StoreError> {
+        self.0.flush(id).await
+    }
+    async fn inspect(&self, id: &str) -> Result<Option<SessionInspection>, StoreError> {
+        self.0.inspect(id).await
+    }
+}
+
+#[tokio::test]
+async fn failed_archive_stops_before_next_provider_call_without_tool_retry() {
+    let store = Arc::new(NoToolArchive::default());
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "provider-failure", "mutate", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(completed())],
+    ]));
+    let count = Arc::new(AtomicUsize::new(0));
+    let observed = count.clone();
+    let tool = TestToolSpec::new(
+        "mutate",
+        "mutation",
+        json!({"type":"object"}),
+        move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("x".repeat(20000)) }
+        },
+    );
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.session_id = Some("archive-failure".into());
+    request.journal_store = Some(store.clone());
+    install_tool(&mut request, tool).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert!(result
+        .error
+        .unwrap()
+        .contains("could not persist original tool result"));
+    assert_eq!(provider.attempts(), 1);
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    let snapshot = store.load("archive-failure").await.unwrap().unwrap();
+    assert!(!snapshot.events().iter().any(|e| matches!(e.data(), SessionEventData::ToolResult {result,..} if result.content.contains("\"archive\""))));
+}
+
 use std::{
     collections::VecDeque,
     sync::{

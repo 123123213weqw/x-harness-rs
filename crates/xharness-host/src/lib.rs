@@ -9,6 +9,7 @@ mod delegation;
 mod delegation_concurrency;
 mod goal_tool;
 mod goals;
+mod history_tool;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod driver;

@@ -31,6 +31,29 @@ pub enum StoreError {
 /// Durable append-only storage seam.
 #[async_trait]
 pub trait Store: Send + Sync + 'static {
+    /// Persist the exact tool-returned envelope before publishing a reduced result.
+    /// Implementations must not return a reference until publication succeeds.
+    async fn archive_tool_result(
+        &self,
+        _session_id: &str,
+        _text: &str,
+    ) -> Result<crate::ToolArchiveRef, StoreError> {
+        Err(StoreError::Backend {
+            message: "tool result archival is not supported by this store".into(),
+        })
+    }
+
+    /// Only read within this session's namespace; never accept a filesystem path.
+    async fn tool_result_archive(
+        &self,
+        _session_id: &str,
+        _key: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Err(StoreError::Backend {
+            message: "tool result archival is not supported by this store".into(),
+        })
+    }
+
     /// Enumerate every durable session known to this store.
     ///
     /// Implementations must return headers in ascending session-id order and
@@ -94,10 +117,43 @@ pub trait Store: Send + Sync + 'static {
 #[derive(Clone, Default)]
 pub struct MemorySessionStore {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
+    tool_archives: Arc<RwLock<HashMap<(String, String), String>>>,
 }
 
 #[async_trait]
 impl Store for MemorySessionStore {
+    async fn archive_tool_result(
+        &self,
+        session_id: &str,
+        text: &str,
+    ) -> Result<crate::ToolArchiveRef, StoreError> {
+        if !self.sessions.read().await.contains_key(session_id) {
+            return Err(StoreError::NotFound {
+                session_id: session_id.into(),
+            });
+        }
+        let reference = crate::ToolArchiveRef::for_text(text)?;
+        self.tool_archives
+            .write()
+            .await
+            .insert((session_id.into(), reference.sha256.clone()), text.into());
+        Ok(reference)
+    }
+
+    async fn tool_result_archive(
+        &self,
+        session_id: &str,
+        key: &str,
+    ) -> Result<Option<String>, StoreError> {
+        crate::ToolArchiveRef::validate_key(key)?;
+        Ok(self
+            .tool_archives
+            .read()
+            .await
+            .get(&(session_id.into(), key.into()))
+            .cloned())
+    }
+
     async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
         let mut headers = self
             .sessions

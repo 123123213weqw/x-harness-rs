@@ -3334,8 +3334,6 @@ impl Runner {
                         ))
                     })?;
                 let result = runtime_tool_result(&completed.result);
-                let (model_text, _) =
-                    tool_result_for_model(&result, self.request.config.tool_result_limit_bytes);
                 Ok(ToolExecution {
                     order: completed.order,
                     call,
@@ -3345,7 +3343,7 @@ impl Runner {
                         ToolOutcome::Error
                     },
                     result,
-                    model_text,
+                    model_text: String::new(),
                 })
             })
             .collect::<Result<Vec<_>, RunFailure>>()?;
@@ -3626,7 +3624,30 @@ impl Runner {
         &mut self,
         completed: Vec<Option<ToolExecution>>,
     ) -> Result<(), RunFailure> {
-        let completed = completed.into_iter().flatten().collect::<Vec<_>>();
+        let mut completed = completed.into_iter().flatten().collect::<Vec<_>>();
+        for execution in &mut completed {
+            if execution.outcome == ToolOutcome::OutcomeUnknown {
+                continue;
+            }
+            let limit = self.request.config.tool_result_limit_bytes;
+            let raw = serde_json::to_string(&execution.result).map_err(|e| {
+                RunFailure::Failed(format!("could not serialize original tool result: {e}"))
+            })?;
+            if let Some(journal) = &self.journal {
+                if raw.len() > limit.min(xharness_session::TOOL_ARCHIVE_THRESHOLD_BYTES) {
+                    let reference = journal.store.archive_tool_result(&journal.session_id, &raw).await
+                        .map_err(|e| RunFailure::Failed(format!("could not persist original tool result for {}: {e}. The tool may already have performed side effects; it was not retried. No recoverable reference was published.", execution.call.id)))?;
+                    execution.model_text = crate::tool::tool_result_with_archive(
+                        &execution.result,
+                        &reference,
+                        limit.min(xharness_session::TOOL_ARCHIVE_THRESHOLD_BYTES),
+                    )
+                    .map_err(RunFailure::Failed)?;
+                    continue;
+                }
+            }
+            execution.model_text = tool_result_for_model(&execution.result, limit).0;
+        }
         for execution in &completed {
             let spec = if let Some(executor) = &self.request.tool_executor {
                 executor.registry().get(&execution.call.name).await
