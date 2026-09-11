@@ -13,6 +13,7 @@ $shell = New-Object -ComObject WScript.Shell
 # go through the production Unicode IShellLinkW wrapper. Update must preserve
 # the custom arguments, which are checked before the migration under test.
 function New-TestShortcut([string]$Path, [string]$TargetPath, [string]$LaunchArguments = '') {
+    $TargetPath = [IO.Path]::GetFullPath($TargetPath)
     if ($LaunchArguments) {
         $link = $shell.CreateShortcut($Path)
         $link.Arguments = $LaunchArguments
