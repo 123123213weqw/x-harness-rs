@@ -41,6 +41,8 @@ jobs:
       - run: node scripts/test-migration-acceptance-guards.mjs
       - run: node scripts/test-install-ownership-contract.mjs
       - run: node scripts/test-desktop-bootstrap.mjs
+      - run: node scripts/test-runtime-diagnostics.mjs
+      - run: python -B scripts/test-desktop-symbols.py
       - run: node scripts/test-updater-signature.mjs
       - run: python -B scripts/test-friends-release.py
       - run: python -B scripts/test-unified-desktop-release.py
@@ -94,6 +96,7 @@ jobs:
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=chromium node scripts/test-desktop-updater-layer.mjs
+          node scripts/test-runtime-diagnostics-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-desktop-updater-layer.mjs
           UI_TEST_BROWSER=chromium node scripts/test-model-controls-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-model-controls-browser.mjs

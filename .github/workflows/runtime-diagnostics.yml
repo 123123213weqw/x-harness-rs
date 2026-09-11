@@ -1,0 +1,33 @@
+name: Runtime diagnostics acceptance
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'crates/xharness-diagnostics/**'
+      - 'crates/xharness-debug/**'
+      - 'crates/xharness-win32/**'
+      - 'apps/desktop/**'
+      - 'scripts/*diagnostics*'
+      - '.github/workflows/runtime-diagnostics.yml'
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32
+      - run: cargo clippy --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32 --all-targets -- -D warnings
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/test-runtime-diagnostics.mjs
