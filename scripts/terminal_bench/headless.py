@@ -13,6 +13,8 @@ import sys
 import time
 import urllib.request
 from relay import Relay
+from launcher_control import begin_trial
+from official_headless import stop_process_group
 
 
 class Rpc:
@@ -57,12 +59,13 @@ def main():
     rpc = Rpc(port)
     relay = Relay()
     env = os.environ.copy()
-    env["XHARNESS_API_KEY"] = config.pop("capability")
+    capability = config.pop("capability")
+    env["XHARNESS_API_KEY"] = capability
     command = ["/opt/xharness/xharness-host", "--bind", f"127.0.0.1:{port}",
                "--workspace", str(Path.cwd()), "--state-dir", str(root / "state"),
                "--provider", "deepseek-pilot", "--model", "deepseek-flash",
-               "--base-url", relay.url, "--context-window", "65536",
-               "--max-output-tokens", "4096", "--token-safety-margin", "1024",
+               "--base-url", relay.url, "--context-window", str(config.get('context_window', 65536)),
+               "--max-output-tokens", str(config.get('max_output_tokens', 4096)), "--token-safety-margin", "1024",
                "--debug-trace", "off"]
     start = time.monotonic()
     report = {"status": "starting", "protocol": "actual-host-rpc", "context_window": 65536}
@@ -87,10 +90,13 @@ def main():
                 {"op": "set", "path": ["defaultPreset"], "value": "danger-full-access"}],
                 "expectedRevision": permission["revision"]})
             sid = rpc.call("session.create", {"sessionId": "benchmark", "cwd": str(Path.cwd())})["sessionId"]
+            begin_trial(config, relay.url, capability)
+            submitted = time.monotonic()
+            report['startup_seconds'] = submitted - start
             rpc.call("session.prompt", {"sessionId": sid, "mode": "queue", "content": [
                 {"type": "text", "text": config["instruction"]}]})
             quiet = 0
-            while time.monotonic() - start < 290:
+            while time.monotonic() - submitted < config.get('seconds', 290):
                 history = rpc.call("session.history", {"sessionId": sid, "maxMessages": 2000})
                 quiet = quiet + 1 if finished(history, rpc.call("session.list", {})) else 0
                 if quiet >= 3:
@@ -107,13 +113,9 @@ def main():
             report["error"] = str(error)
         finally:
             # Stop only the process group created for this isolated host.
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=5)
+            stop_process_group(process)
+            if 'submitted' in locals():
+                report['agent_seconds'] = time.monotonic() - submitted
             report["elapsed_seconds"] = time.monotonic() - start
             (root / "adapter.json").write_text(json.dumps(report, indent=2))
             relay.stop()

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 from relay import Relay
+from launcher_control import begin_trial
 
 
 def provider_patch(base_url, context, output):
@@ -33,11 +34,16 @@ def launch_command(runtime, patch, instruction):
 
 
 def runtime_environment(root, capability, base_url):
-    return {'PATH': '/opt/official:/usr/local/bin:/usr/bin:/bin', 'HOME': str(PurePosixPath(root) / 'user'),
+    env = {'PATH': '/opt/official:/usr/local/bin:/usr/bin:/bin', 'HOME': str(PurePosixPath(root) / 'user'),
             'LANG': 'C.UTF-8', 'DSH_HOME': str(PurePosixPath(root) / 'home'),
             'DEEPSEEK_API_KEY': capability, 'DEEPSEEK_BASE_URL': base_url,
             'DSH_PERMISSION_MODE': 'danger-full-access', 'DSH_TELEMETRY_MODE': 'DISABLED',
             'UV_USE_IO_URING': '0'}
+    for key in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'no_proxy', 'NO_PROXY',
+                'PIP_INDEX_URL', 'UV_INDEX_URL', 'PIP_FIND_LINKS', 'UV_FIND_LINKS', 'PIP_NO_INDEX', 'UV_DOWNLOAD_URL'):
+        if key in os.environ:
+            env[key] = os.environ[key]
+    return env
 
 
 def stop_process_group(process):
@@ -73,8 +79,12 @@ def main():
     try:
         patch = root / 'provider.patch.json'
         patch.write_text(json.dumps(provider_patch(relay.url, config['context_window'], config['max_output_tokens'])))
-        env = runtime_environment(root, config.pop('capability'), relay.url)
+        capability = config.pop('capability')
+        env = runtime_environment(root, capability, relay.url)
         with (root / 'stdout.log').open('w') as stdout, (root / 'stderr.log').open('w') as stderr:
+            begin_trial(config, relay.url, capability)
+            submitted = time.monotonic()
+            report['startup_seconds'] = submitted - started
             process = subprocess.Popen(launch_command('/opt/official', patch, config['instruction']),
                                        env=env, stdout=stdout, stderr=stderr, start_new_session=True)
             env.pop('DEEPSEEK_API_KEY')
@@ -88,6 +98,8 @@ def main():
     finally:
         if process is not None:
             stop_process_group(process)
+        if 'submitted' in locals():
+            report['agent_seconds'] = time.monotonic() - submitted
         relay.stop()
         report['elapsed_seconds'] = time.monotonic() - started
         (root / 'adapter.json').write_text(json.dumps(report, indent=2))

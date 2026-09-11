@@ -55,6 +55,8 @@ class XHarnessAgent(BaseAgent):
         await environment.upload_file(BINARY, "/opt/xharness/xharness-host")
         await environment.upload_file(Path(__file__).with_name("headless.py"), "/opt/xharness/headless.py")
         await environment.upload_file(Path(__file__).with_name("relay.py"), "/opt/xharness/relay.py")
+        for helper in ('launcher_control.py', 'official_headless.py'):
+            await environment.upload_file(Path(__file__).with_name(helper), '/opt/xharness/' + helper)
         result = await environment.exec("python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.connect(\"/opt/benchmark-broker/api.sock\"); s.close()'", timeout_sec=10)
         if result.return_code:
             raise RuntimeError("broker Unix socket preflight failed")
