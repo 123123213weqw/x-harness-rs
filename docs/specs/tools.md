@@ -22,7 +22,7 @@ Capability 产生本 Step 的 Definition Projection；投影保持名称/Schema 
 同一个值必须原样进入 Middleware、Approval、Handler、Observer 和最终 Result。执行顺序如下：
 
 ```text
-查找 -> 解析 JSON Object -> Schema 校验
+查找 -> 解析 JSON Object -> 旧历史投影兼容检查 -> Schema 校验
   -> pre middleware
   -> 单调 guard
   -> fail-closed 审批
@@ -34,6 +34,12 @@ Capability 产生本 Step 的 Definition Projection；投影保持名称/Schema 
 
 所有失败都必须成为值（`ToolResult`/`ToolFailure`），不能变成未控制的 Loop Panic。
 Handler 和 Middleware Panic 必须在各自信任边界捕获。
+
+旧历史投影兼容检查只针对 `write/edit`：拒绝根参数里的 `_xharness_history_projection`，
+以及完整符合旧 v2 省略标记格式的 `content/old/new`。这些文本不包含原始文件数据，不能删除
+内部字段后继续执行。失败返回不可自动重试的 `InvalidArguments`，要求模型先 `read` 再提交
+真实参数；没有审批、文件 Handler 或副作用。正常正文中引用标记的文档/代码不受影响，其他
+未知属性仍由原有严格 Schema 拒绝。详见 [上下文规范](context.md)。
 
 ## Policy 语义
 

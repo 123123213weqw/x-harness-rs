@@ -437,6 +437,8 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   用户选择的推理强度恢复成模型默认值；真实 Web 权限回归新增浏览器 Reload，Composer 在 Turn
   运行期间禁用权限切换，避免 Host 拒绝策略热切换后 UI 暂时显示未落盘的 Full access。
 - [x] `DONE-73` 历史 Assistant 请求侧投影：正式 Context Policy 升级为
+  **历史记录：以下 v2 参数投影已于 2026-09-11 被 v3 撤回；当前工具参数逐字保留，
+  防止省略标记被照抄成写入。旧测量仅保留作审计，见 `docs/specs/context.md`。**
   `context-history-pruning/v2`；只有匹配到后续 `ok=true` Tool Result 的大型 `write.content`、
   `edit.old/new` 才替换成带字符数、UTF-8 Byte 数和 SHA-256 的
   `tool_arguments_pruned/v1`，失败、未完成和坏 JSON 调用逐字保留。最新 User Turn reasoning 与
@@ -654,7 +656,7 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   Compact 已使用独立 `compaction_reasoning_effort`，由精确模型能力列表解析最低成本档，不继承
   主对话 high/xhigh；摘要请求固定 `tools=[]`，并已回归覆盖思考档位与 Tool Schema 隔离。
   **剩余：** 手动 `/compact`、Purpose 路由到独立摘要模型、把 `DONE-68` 的请求侧 Tool Result
-  Pruner 和请求侧 `tool_arguments_pruned/v1` 接入持久 Replace/内容引用缓存、Provider 结构化
+  Pruner 接入持久 Replace/内容引用缓存（不得恢复已撤回的工具参数占位投影）、Provider 结构化
   错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点矩阵、按模型本地精确 Tokenizer，以及把
   已解决 Question/Answer/Tool Result 作为不可拆分单元选择 Compact 安全切点；未决 Question
   始终留在当前开放 Step，不参与 Compact。还需增加基于 `source_revision + surface_fingerprint` 的

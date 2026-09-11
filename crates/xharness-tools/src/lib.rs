@@ -10,6 +10,7 @@
 mod batch;
 mod definition;
 mod executor;
+mod legacy_projection;
 mod middleware;
 mod registry;
 mod schema;
