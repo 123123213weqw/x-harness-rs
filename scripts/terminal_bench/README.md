@@ -1,10 +1,62 @@
 # Small real-agent Terminal-Bench pilot
 
-> **Official DeepSeek comparison: preparation only.** The approved replacement
+> **Official DeepSeek comparison: use `run_paired.py`.** The approved replacement
 > protocol is in [the plan](../../docs/plans/2026-09-11-official-deepseek-comparison.md).
 > `run_pilot.py` below still implements the OLD Terminus-2 protocol: do not use
 > it to claim an official DeepSeek comparison. No paid run under the replacement
-> protocol is enabled yet. See [preflight status](../../docs/specs/official-deepseek-comparison-results.md).
+> protocol is separate from the legacy entry point. See [preflight status](../../docs/specs/official-deepseek-comparison-results.md).
+
+## Official paired execution
+
+`run_paired.py` uses the actual XHarness Host and official dsh full headless,
+with Harbor 0.16.1 lifecycle/grading. It validates the frozen task archive bytes,
+runtime and cache checksums, and neutral image IDs BEFORE reading a credential.
+
+```sh
+python run_paired.py --binary /absolute/xharness-host --runtime /absolute/official-clean-1 \
+  --tasks /absolute/tasks-pinned/tasks --wheelhouse /absolute/wheelhouse-compatible \
+  --output /absolute/NEW_DIRECTORY --check
+```
+
+Replace `--check` with `--mock normal`, `--mock timeout`, or `--mock budget` to
+exercise BOTH native harnesses and the independent synthetic verifier with zero
+real model requests. Use a new output directory each time. Synthetic passes are
+integration evidence, not Terminal-Bench scores.
+
+Only after those gates, omit `--check`/`--mock` and supply a SINGLE JSON line
+containing `api_key` on protected stdin. Never place the real key in argv, files,
+shell history, container mounts or logs. The controller alone retains it.
+The runner never retries an entire paid trial or changes task order after grades.
+
+Shared limits: 600 seconds from native task submission, 65536 context, maximum
+16384 output tokens/request, thinking enabled/high, temperature 1.0, top_p 0.95,
+40 requests and $0.50 conservative peak/no-cache ceiling per trial; six trials
+at most $3 reserved. Smaller native auxiliary output limits (e.g. title=64) stay
+smaller. All main/child/auxiliary/retry requests share the same capability and
+ledger. The official submission boundary is CLI launch, so its process startup
+is included; XHarness submits through its running Host RPC. Startup and full
+launcher elapsed times are separately retained, not presented as equal overhead.
+
+The controller watchdog stops the whole owned container at the deadline or first
+budget refusal. It also restarts the container after ordinary completion to stop
+detached descendants before hidden grading. Files survive; old agent processes
+do not. In-flight requests settle before the report/next trial, with unknown
+usage retaining the full reservation. All-provider failures stop the batch and
+are NA/INFRA_ERROR, not a zero-score model result.
+
+All phases use Docker `network_mode: none` with the same read-only public
+dependency cache and restricted Unix-socket transport. The Harbor subclass
+rejects any broader phase policy and checks the actual Docker network mode and
+non-privileged state before credentials. It does not build/install a privileged
+network sidecar or change host networking. Hidden task/test bytes are unchanged;
+only controller-side environment image/network metadata is replaced and recorded.
+
+`protocol.json`, `paired-report.json`, `unstarted.json` and per-trial artifacts
+are retained. Usage rows include response model and hashes of tool/system
+payloads. Cgroup telemetry covers the WHOLE container (setup and descendants),
+not just the Rust process; watchdog termination may miss peak growth after the
+last sample. Missing telemetry is not reported as zero. Conservative dollar
+accounting is not the provider's billing invoice.
 
 This is evaluation tooling, not a replacement agent or a production updater. It runs the actual `xharness-host` executable and native tools inside Harbor task containers, and compares them to Harbor's actual Terminus-2 implementation. No evaluation scores are hard-coded.
 

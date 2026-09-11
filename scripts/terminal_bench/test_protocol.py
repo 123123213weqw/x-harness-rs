@@ -7,6 +7,20 @@ from protocol import OFFICIAL, Protocol
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_submission_starts_once_and_cannot_extend_budget(self):
+        ledger = Ledger(protocol=OFFICIAL, deferred=True)
+        with self.assertRaises(PermissionError):
+            ledger.reserve(ledger.token, 10)
+        with self.assertRaises(PermissionError):
+            ledger.start('wrong')
+        ledger.start(ledger.token)
+        deadline = ledger.deadline
+        ledger.start(ledger.token)
+        self.assertEqual(ledger.deadline, deadline)
+        ledger.close()
+        with self.assertRaises(PermissionError):
+            ledger.start(ledger.token)
+
     def test_frozen_approved_limits(self):
         self.assertEqual(OFFICIAL.seconds, 600)
         with self.assertRaises(FrozenInstanceError):

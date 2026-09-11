@@ -121,11 +121,12 @@ def normalize(body, protocol=None):
 
 
 class Broker:
-    def __init__(self, api_key, bind, unix_path=None):
+    def __init__(self, api_key, bind, unix_path=None, upstream_factory=None):
         if unix_path is not None:
             from socketserver import UnixStreamServer
         self.api_key = api_key
         self.ledger = None
+        self.upstream_factory = upstream_factory or http.client.HTTPSConnection
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -179,7 +180,8 @@ class Broker:
                 evidence = {'tools_sha256': hashlib.sha256(json.dumps(body.get('tools', []), sort_keys=True).encode()).hexdigest(),
                             'system_sha256': hashlib.sha256(json.dumps([m for m in body['messages'] if m.get('role') == 'system'], sort_keys=True).encode()).hexdigest(),
                             'max_tokens': body['max_tokens'], 'response_model': None}
-                upstream = http.client.HTTPSConnection("api.deepseek.com", timeout=max(.1, min(120, ledger.deadline - started)))
+                upstream = (owner.upstream_factory if upstream_factory else http.client.HTTPSConnection)(
+                    "api.deepseek.com", timeout=max(.1, min(120, ledger.deadline - started)))
                 try:
                     upstream.request("POST", "/chat/completions", encoded,
                                      {"Authorization": "Bearer " + owner.api_key, "Content-Type": "application/json"})
