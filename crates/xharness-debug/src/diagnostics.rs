@@ -114,7 +114,10 @@ impl Observer {
 fn classify(layer: &str, event: &str) -> Activity {
     if event.starts_with("tool.") {
         Activity::Tool
-    } else if layer == "provider" || event.starts_with("model.") {
+    } else if layer.starts_with("provider")
+        || event.starts_with("model.")
+        || event.starts_with("provider.")
+    {
         Activity::Model
     } else if layer == "server" {
         Activity::Network

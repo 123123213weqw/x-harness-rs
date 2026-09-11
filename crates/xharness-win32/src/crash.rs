@@ -118,7 +118,17 @@ impl CrashCapture {
     /// Called only for a nonempty context belonging to this still-owned child.
     /// Always acknowledges the crash signal, including I/O/budget failures.
     pub fn capture(&self, context: &Path, destination: &Path, full: bool) -> io::Result<u64> {
-        let result = self.write_dump(context, destination, full);
+        // Never expose a .dmp until writing, flushing and publication succeed.
+        // An I/O failure or desktop interruption leaves at most a bounded
+        // .partial file, which is not advertised as a successful capture.
+        let partial = destination.with_extension("partial");
+        let result = self.write_dump(context, &partial, full).and_then(|size| {
+            fs::rename(&partial, destination)?;
+            Ok(size)
+        });
+        if result.is_err() {
+            let _ = fs::remove_file(&partial);
+        }
         // SAFETY: owned event stays alive for this call and belongs to this Host.
         unsafe {
             SetEvent(self.ack.as_raw());
@@ -343,6 +353,7 @@ mod tests {
             let mut signature = [0u8; 4];
             File::open(root.join("crash.dmp"))?.read_exact(&mut signature)?;
             assert_eq!(&signature, b"MDMP");
+            assert!(!root.join("crash.partial").exists());
             Ok(())
         })();
         let _ = child.kill();
