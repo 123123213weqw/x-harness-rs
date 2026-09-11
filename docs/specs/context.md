@@ -117,15 +117,32 @@ selected_output_tokens = min(
 4. 相同 Tool Call 的压缩结果必须稳定；禁止依据进程随机状态改变内容。
 5. Tool Call/Result 配对和 Provider 原生 Call ID 不得因压缩断裂。
 
-当前已实现单结果 `head_tail/v1`：在 Core 模型写回预算内保留 UTF-8 安全的头尾，并携带
-原始/遗漏 Byte 数和 SHA-256；相同输入逐字稳定。它还不是完整 Spill/Surface 方案：持久
-Session 当前保存模型可见版本，原始结果只存在于运行时 `ToolCompleted` 事件，进程重启后不能
-通过内容引用重新分页读取。因此“大结果先持久化”的完整不变量仍待内容寻址 Spill Store 落地。
+Durable Core 在发布大结果前先通过 `Store::archive_tool_result` 保存完整 `ToolResult` JSON
+（含 content/error/truncated/metadata）。触发大小为序列化字节数超过
+`min(tool_result_limit_bytes, 8192)`。小结果沿用原格式；大结果保存成功后才生成
+`head_tail/v1` 片段，模型可见 JSON 包含独立 `archive` 字段（sha256、bytes、read_with、format），
+片段和引用共同遵守相同字节预算。后续请求侧 Pruner 保留引用，不将其埋入被裁剪文本。
+
+JSONL Store 将原文写入 `tool-results/<sha256(session-id)>/<sha256(payload)>.json`，原文不进入
+热日志/快照缓存。先独占创建临时文件、sync，再以 hard-link 原子无覆盖发布，验证摘要后返回引用。
+拒绝符号链接和 Windows reparse 路径；Unix 使用 0700 目录和 0600 文件，Windows 继承状态目录 ACL。
+这不是对同一 OS 用户恶意替换文件的沙箱隔离。文件系统必须支持 hard-link；不支持时明确失败。
+单原文上限 32 MiB，超过上限、磁盘写入失败、引用预算不足均停止本轮，不自动重跑已执行工具。
+不得把存档错误当成工具尚未执行：工具可能已经产生副作用。
+
+共享 Host 的只读 `history` 工具按会话隔离，支持日志搜索及通过 seq/archive 分页回读；
+搜索使用原始事件而不是压缩后的模型 Surface。每次读取验证完整 blob（最多 32 MiB），只返回
+最多 2,048 字节原文页；后续可优化底层分块读取，但不能省略完整性检查。存储层以 semaphore
+限制并发 blob I/O，不在普通模型请求中展开存档。没有自动过期删除，因此磁盘会随使用增长。
+
+此保证覆盖工具实际返回给 Core 的数据，不会还原工具内部已经截断的进程输出，也不会补回
+旧版本已经丢失的内容。非 Durable 的兼容嵌入仍采用原有有损截断，不伪造可回读引用。
 
 旧工具结果现在会先经过请求侧 Tool Result Pruner，因此即使它属于当前最新工具批次、暂时不能
 进入历史 Compact 的安全范围，也不能单独撑爆下一次 Provider Request。该投影不修改日志；后续
-仍需通过持久 Surface Replace/Spill 把引用和摘要变成可审计事务。摘要失败时应回退到确定性截断，
-而不是继续发送超预算请求。
+引用和片段随现有 ToolResult 事务持久化；原文先于事务发布，崩溃可能留下未引用的 blob，
+但正常提交不产生悬空引用。后续可增加保守的孤立 blob 回收；本版不删除任何存档。
+不得发送超预算请求，也不得用假引用掩盖持久化失败。
 
 ## 文件读取策略
 
@@ -161,12 +178,12 @@ WZU_4080 的 llama-server 使用 `-c 53248`。一个 Web Turn 的原始消息约
   Coordinator 按 0.8 阈值、0.16 尾部、8,192 摘要上限自动改写当前 Session Surface，并在每次
   成功后重新计量。
 - `compaction/start|summary|end|prune`、Checkpoint Replace、Web 投影和未闭合 Start 恢复已
-  落地；请求侧 Pruner 已接入，手动 `/compact`、Pruner 的持久 Replace/Spill 与全 SIGKILL
+  落地；请求侧 Pruner 与大工具结果 Spill 已接入，手动 `/compact`、Pruner 的持久 Replace 与全 SIGKILL
   切点矩阵尚未完成。
 - Provider 原生完整请求计数已接入；不支持计数端点的模型使用保守 Byte Meter。按模型注册本地
   Tokenizer 与统一 Capability Catalog 尚未实现。
 - Core 的单个模型可见工具结果上限仍为 256 KiB。
-- `read` 已分页；其他工具结果仍缺统一 Spill/Reduce。
+- `read` 已分页；Durable Core 的大结果统一 Spill/Reduce，`history` 可回读；工具内部预先截断的输出仍不在恢复保证内。
 - Host 已按 Platform/Search Readiness 发送工具子集；Profile/Step 级投影仍待实现。
 - 工具 Schema 和 System/Message/Protocol 分项已经记录；Provider 原生 Chat Template 的精确开销
   仍需要 Provider-aware Meter。

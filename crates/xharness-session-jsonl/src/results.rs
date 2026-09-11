@@ -28,12 +28,14 @@ fn directory(root: &Path, session: &str, create: bool) -> Result<Option<PathBuf>
     ] {
         dir.push(part);
         if create {
-            let mut builder = fs::DirBuilder::new();
+            let builder = fs::DirBuilder::new();
             #[cfg(unix)]
-            {
+            let builder = {
                 use std::os::unix::fs::DirBuilderExt;
+                let mut builder = builder;
                 builder.mode(0o700);
-            }
+                builder
+            };
             match builder.create(&dir) {
                 Ok(()) => sync_parent_directory(&dir)?,
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
