@@ -49,6 +49,13 @@ def exit_code(status):
     return {"settled": 0, "timeout": 124}.get(status, 1)
 
 
+def settled_status(reasons):
+    # A settled Host RPC session can still contain a native turn failure.
+    # Report that separately; Harbor must still grade the retained workspace.
+    return 'agent_error' if any(isinstance(reason, dict) and reason.get('kind') == 'error'
+                                for reason in reasons) else 'settled'
+
+
 def main():
     config = json.load(sys.stdin)
     root = Path("/logs/agent/xharness")
@@ -100,8 +107,8 @@ def main():
                 history = rpc.call("session.history", {"sessionId": sid, "maxMessages": 2000})
                 quiet = quiet + 1 if finished(history, rpc.call("session.list", {})) else 0
                 if quiet >= 3:
-                    report["status"] = "settled"
                     report["turn_reasons"] = [event.get("data", {}).get("reason") for event in events(history) if event.get("type") == "turn/end"]
+                    report["status"] = settled_status(report['turn_reasons'])
                     (root / "history.json").write_text(json.dumps(history))
                     break
                 time.sleep(0.5)
