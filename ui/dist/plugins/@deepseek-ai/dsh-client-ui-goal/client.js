@@ -76,20 +76,6 @@ function XhGoalControls({projection,onComplete,onResume,onBudget,runAction,pendi
   ]}):button('预算',()=>{setBudget(String(e?.maxGoalRounds??projection.goal.maxGoalRounds));setEditing(true)}))
  ]});
 }
-// Empty state is an explicit entry, not an automatically created task.
-function XhGoalCreate({onCreate}) {
- const [editing,setEditing]=react.useState(false),[draft,setDraft]=react.useState(''),[pending,setPending]=react.useState(false),[error,setError]=react.useState('');
- const lock=react.useRef(false),alive=react.useRef(true);
- react.useEffect(()=>{alive.current=true;return()=>{alive.current=false}},[]);
- const submit=async ev=>{ev.preventDefault();const text=draft.trim();if(!text||lock.current)return;lock.current=true;setPending(true);setError('');try{const r=await onCreate(text);if(alive.current){if(!r?.ok)setError(r?.error?.message??'创建失败，请重试');else{setEditing(false);setDraft('')}}}catch(e){if(alive.current)setError(String(e?.message??e))}finally{if(alive.current){lock.current=false;setPending(false)}}};
- return react_jsx_runtime.jsx('div',{className:GoalBar_module_css_default.dock,'data-goal-create':true,children:react_jsx_runtime.jsxs('form',{className:GoalBar_module_css_default.bar,style:{minHeight:36,height:'auto',flexWrap:'wrap'},onSubmit:submit,children:[
-  react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconGoalOutline16,{size:14}),
-  react_jsx_runtime.jsx('span',{className:GoalBar_module_css_default.label,children:'Goal'}),
-  editing?react_jsx_runtime.jsx('input',{className:GoalBar_module_css_default.objectiveInput,'aria-label':'目标内容',placeholder:'描述要持续推进的目标',value:draft,disabled:pending,autoFocus:true,onChange:e=>setDraft(e.target.value),onKeyDown:e=>{if(e.key==='Escape'&&!pending){setEditing(false);setError('')}}}):react_jsx_runtime.jsx('span',{className:GoalBar_module_css_default.objective,children:'未设置目标'}),
-  error&&react_jsx_runtime.jsx('span',{className:GoalBar_module_css_default.error,role:'alert',children:error}),
-  editing?react_jsx_runtime.jsxs('span',{className:GoalBar_module_css_default.actions,children:[react_jsx_runtime.jsx('button',{type:'submit',className:GoalBar_module_css_default.iconBtn,disabled:pending||!draft.trim(),'aria-label':'创建并启动目标',title:'创建并启动目标',children:'✓'}),react_jsx_runtime.jsx('button',{type:'button',className:GoalBar_module_css_default.iconBtn,disabled:pending,'aria-label':'取消创建目标',onClick:()=>{setEditing(false);setError('')},children:'×'})]}):react_jsx_runtime.jsx('button',{type:'button',className:GoalBar_module_css_default.iconBtn,style:{width:'auto',padding:'0 8px'},'aria-label':'设定目标',onClick:()=>setEditing(true),children:'设定目标'})
- ]})});
-}
 // xh-goal-runtime/end
 
 		// xh-goal-inline/v2

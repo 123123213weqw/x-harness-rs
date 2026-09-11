@@ -1,5 +1,5 @@
 {
-  "rev": "376ac086049f8236",
+  "rev": "edad80a5df0b555b",
   "entries": [
     {
       "id": "@deepseek-ai/dsh-typert-registry",
@@ -45,8 +45,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-connection",
-      "url": "/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=4f1d4a05001b9a39",
-      "rev": "4f1d4a05001b9a39",
+      "url": "/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=d7988a9e0b01fa15",
+      "rev": "d7988a9e0b01fa15",
       "inject": [],
       "immediately": true
     },
@@ -338,8 +338,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-goal",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-goal/client.js?rev=39886840d7e01556",
-      "rev": "39886840d7e01556",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-goal/client.js?rev=92b433598e6b18b8",
+      "rev": "92b433598e6b18b8",
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-api-remotes",
@@ -419,8 +419,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-user-questions",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-user-questions/client.js?rev=fb09dc290c9f361b",
-      "rev": "fb09dc290c9f361b",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-user-questions/client.js?rev=201e222352864bae",
+      "rev": "201e222352864bae",
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation"

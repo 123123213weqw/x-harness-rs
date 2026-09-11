@@ -20,8 +20,9 @@ if(process.argv[1]&&realpathSync(process.argv[1])===fileURLToPath(import.meta.ur
  const dist=resolve(process.argv[2]??'ui/dist');const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
  const hash=b=>createHash('sha256').update(b).digest('hex').slice(0,16);
  for(const e of graph.entries) {
+  if(!['@deepseek-ai/dsh-client-connection','@deepseek-ai/dsh-client-ui-user-questions'].includes(e.id))continue;
   const p=resolve(dist,'plugins',e.id,'client.js');const old=readFileSync(p),b=patchQuestionContinuation(e.id,old);
-  if(b.equals(old))continue;writeFileSync(p,b);e.rev=hash(b);e.url='/plugins/'+e.id+'/client.js?rev='+e.rev;
+  if(!b.equals(old))writeFileSync(p,b);e.rev=hash(b);e.url='/plugins/'+e.id+'/client.js?rev='+e.rev;
  }
  graph.rev=hash(JSON.stringify(graph.entries));writeFileSync(resolve(dist,'client-graph.json'),JSON.stringify(graph,null,2)+'\n');
  const p=resolve(dist,'index.html');writeFileSync(p,readFileSync(p,'utf8').replace(/window\.__DSH_BOOT__ = .*?<\/script>/,()=>`window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`));
