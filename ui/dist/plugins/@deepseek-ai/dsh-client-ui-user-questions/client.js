@@ -1,3 +1,4 @@
+// xh-question-strip/v2
 // xh-question-deferred/v1
 window.__ModuleLoader__.load({
 	id: "@deepseek-ai/dsh-client-ui-user-questions",
@@ -238,7 +239,7 @@ window.__ModuleLoader__.load({
 			const tag = document.createElement("style");
 			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-user-questions";
 			tag.dataset.pluginCss = tagId;
-			tag.textContent = css;
+			tag.textContent = css + "\n [data-composer-seat]:has([data-question-deferred=\"true\"]) [data-chain-overlay-fallback=\"conversation.composer\"]{display:contents!important}\n [data-composer-seat]:has([data-question-deferred=\"true\"]) [data-slot=\"conversation.composer\"]{display:flex;flex-direction:column}\n [data-composer-seat]:has([data-question-deferred=\"true\"]) [data-chain-overlay-fallback=\"conversation.composer\"]>*{order:2}\n [data-question-deferred=\"true\"]{order:1;flex-shrink:0}\n [data-question-deferred=\"true\"][data-question-minimized=\"true\"] .r3cF6q_card{padding:0;box-shadow:none;border-radius:12px}\n [data-question-deferred=\"true\"][data-question-minimized=\"true\"] .r3cF6q_header{padding:8px 12px;align-items:center;gap:8px}\n [data-question-deferred=\"true\"][data-question-minimized=\"true\"] .r3cF6q_headingBlock{display:flex;align-items:center;gap:10px;min-width:0}\n [data-question-deferred=\"true\"][data-question-minimized=\"true\"] [role=\"status\"]{font-size:12px;white-space:nowrap;color:var(--dsw-alias-label-secondary)}\n [data-question-deferred=\"true\"][data-question-minimized=\"true\"] .r3cF6q_eyebrow{display:none}\n [data-question-deferred=\"true\"][data-question-minimized=\"true\"] .r3cF6q_title{font-size:12px;line-height:18px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}\n @media(max-width:520px){[data-question-deferred=\"true\"][data-question-minimized=\"true\"] .r3cF6q_title{display:none}}\n ";
 			document.head.appendChild(tag);
 		}
 		var QuestionComposer_module_css_default = {
@@ -330,7 +331,12 @@ window.__ModuleLoader__.load({
 			})));
 			const [busy, setBusy] = (0, react.useState)(null);
 			const [error, setError] = (0, react.useState)(null);
-			const [minimized, setMinimized] = (0, react.useState)(false);
+			const [minimized, setMinimized] = (0, react.useState)(pending.deferred);
+ const deferredSeen = react.useRef(pending.deferred);
+ react.useEffect(() => {
+  if(pending.deferred && !deferredSeen.current)setMinimized(true);
+  deferredSeen.current=pending.deferred;
+ },[pending.deferred]);
 			const focusedQuestions = (0, react.useRef)(/* @__PURE__ */ new Set());
 			const question = questions[index];
 			const draft = drafts[index];
@@ -438,6 +444,7 @@ window.__ModuleLoader__.load({
 				className: QuestionComposer_module_css_default.frame,
 				"data-question-key": pending.key,
  "data-question-deferred": pending.deferred ? "true" : "false",
+ "data-question-minimized": minimized ? "true" : "false",
 				children: (0, react_jsx_runtime.jsxs)("section", {
 					className: clsx(QuestionComposer_module_css_default.card, minimized && QuestionComposer_module_css_default.cardMinimized),
 					"aria-labelledby": `question-${pending.key}-${String(index)}`,
@@ -445,7 +452,7 @@ window.__ModuleLoader__.load({
 						className: QuestionComposer_module_css_default.header,
 						children: [(0, react_jsx_runtime.jsxs)("div", {
 							className: QuestionComposer_module_css_default.headingBlock,
-							children: [pending.deferred && react_jsx_runtime.jsx("div",{role:"status",children:"等待回答 · 已解除阻塞，仅允许独立的只读探索；未回答不代表同意"}),question.header !== void 0 && (0, react_jsx_runtime.jsx)("div", {
+							children: [pending.deferred && react_jsx_runtime.jsx("div",{role:"status",children:minimized ? "待回答 · 不阻塞当前对话" : "等待回答 · 仅允许独立的只读探索；未回答不代表同意"}),question.header !== void 0 && (0, react_jsx_runtime.jsx)("div", {
 								className: QuestionComposer_module_css_default.eyebrow,
 								children: question.header
 							}), (0, react_jsx_runtime.jsx)("h2", {
@@ -458,7 +465,7 @@ window.__ModuleLoader__.load({
 							children: [(0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: QuestionComposer_module_css_default.iconButton,
-								"aria-label": t(minimized ? "nav.maximize" : "nav.minimize"),
+								"aria-label": pending.deferred && minimized ? "展开待回答问题" : t(minimized ? "nav.maximize" : "nav.minimize"),
 								title: t(minimized ? "nav.maximize" : "nav.minimize"),
 								"aria-expanded": !minimized,
 								disabled: busy !== null,

@@ -51,22 +51,46 @@ try {
     const root=DOM.createRoot(document.getElementById('root'));window.answers=[];
     window.renderQuestion=(deferred=false,key='q:test')=>{
       const wait={key,sessionId:'test',payload:{deferred,questions:[{id:'target',header:'选择',question:'Choose target?',options:[],multiSelect:false}]},respond:async answer=>{answers.push(answer);return {accepted:true}}};
-      DOM.flushSync(()=>root.render(React.createElement(module.QuestionComposer,{matched:wait,t:key=>key})));
+      DOM.flushSync(()=>root.render(React.createElement('div',{'data-composer-seat':''},
+        React.createElement('div',{'data-slot':'conversation.composer'},
+          React.createElement('div',{'data-chain-overlay-fallback':'conversation.composer',style:{display:'none'}},
+            React.createElement('div',{'data-normal-composer':''},React.createElement('textarea',{'aria-label':'Message the agent'}))),
+          key==='approval' ? React.createElement('div',{'data-approval':''},'Approval required') :
+          React.createElement(module.QuestionComposer,{matched:wait,t:key=>key})))));
     };renderQuestion();
   });
-  const input=page.locator('textarea');
+  const input=page.locator('[data-question-key] textarea');
+  const composer=page.getByRole('textbox',{name:'Message the agent',exact:true});
+  assert.equal(await composer.isVisible(),false,'blocking question retains takeover');
   await input.fill('my partial answer');
   await page.evaluate(()=>renderQuestion(true));
   assert.equal(await page.locator('[data-question-deferred="true"]').count(),1);
+  assert.equal(await input.count(),0,'timeout automatically folds question body');
+  assert.equal(await composer.isVisible(),true,'deferred question releases normal composer');
+  await composer.fill('independent message draft');
+  await page.getByRole('button',{name:'展开待回答问题',exact:true}).click();
   assert.equal(await input.inputValue(),'my partial answer','same-question timeout must retain draft');
+  assert.equal(await composer.inputValue(),'independent message draft');
   assert.equal(await page.evaluate(()=>answers.length),0,'timeout is not an answer');
   await page.getByRole('status').getByText(/等待回答/).waitFor();
   await page.evaluate(()=>renderQuestion(true));
   assert.equal(await page.locator('[data-question-key]').count(),1,'replayed notification does not duplicate question');
   assert.equal(await input.inputValue(),'my partial answer');
+  assert.equal(await input.isVisible(),true,'duplicate deferred frame must not fold manually reopened card');
+  await page.getByRole('button',{name:'nav.minimize',exact:true}).click();
+  assert.equal(await composer.isVisible(),true);
+  await page.setViewportSize({width:390,height:720});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=390),true,'narrow viewport must not overflow');
+  await page.getByRole('button',{name:'展开待回答问题',exact:true}).click();
+  assert.equal(await input.inputValue(),'my partial answer');
+  await page.evaluate(()=>renderQuestion(true,'q:restored'));
+  assert.equal(await input.count(),0,'restored deferred question starts folded');
   await page.evaluate(()=>renderQuestion(false,'q:another'));
   assert.equal(await input.inputValue(),'','different question must not inherit another draft');
+  assert.equal(await composer.isVisible(),false,'next blocking question takes over');
+  await page.evaluate(()=>renderQuestion(true,'approval'));
+  assert.equal(await composer.isVisible(),false,'approval winner must never be unblocked');
   assert.equal(await page.getByRole('status').filter({hasText:'等待回答'}).count(),0);
   assert.deepEqual(errors.filter(e=>!e.includes('isolated fixture')),[]);
-  console.log(engine+': question deferred banner, draft preserved, no implicit answer, repeated frame, session isolation passed');
+  console.log(engine+': question deferred banner, draft preserved, no implicit answer, repeated frame, session isolation, automatic fold, restored fold, normal composer, approval isolation, narrow layout passed');
 } finally {await browser.close()}
