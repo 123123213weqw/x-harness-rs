@@ -216,3 +216,16 @@ Secret 配置完成为门禁；Windows ARM64 与 Authenticode 品牌签名仍是
 ### Linux AppImage 原生升级验收（2026-09-07）
 
 已在 WZU_Server 隔离环境连续 3 次完成签名 AppImage 的发现、下载、验签、安装、重启和持久会话恢复。测试直接调用生产更新 Handler，不代表真实鼠标点击或正式发布通道已经验收。完整范围、复现命令与异常测试见 [Linux 桌面更新演练](linux-desktop-update-rehearsal.md)。当前 Updater 2.11.0 同时有 Deb/RPM 安装分支，但本轮未测试提权安装。
+
+### Windows 快捷方式恢复文件（2026-09-11）
+
+- 安装器在 `%LOCALAPPDATA%\XHarness\installer-backups\<目标版本>\<路径及内容摘要>\`
+  保存 `shortcut.lnk` 和记录原位置、SHA-256、目标版本的 `source.json`，不再在桌面或开始菜单旁生成白纸图标备份。
+- 相同版本、来源路径及内容的备份复用，不覆盖已有恢复文件。备份保留在专用目录；本次不增加按年龄删除策略。
+- 当前快捷方式修复并验证新目标后，迁移其同名 `.before-xharness-update` 旧备份。
+  必须能确认旧目标是 XHarness 安装，或已知旧安装位置中保留的 XHarness 可执行文件。
+  自定义参数、损坏文件、无对应快捷方式、无法确认归属和重定向路径均不自动清理。
+- 先复制、校验内容及恢复元数据，再移除原位置的单个备份。迁移失败保留原文件并输出警告；
+  当前快捷方式无法备份时不继续改写。安装位置、聊天状态、模型配置及旧可执行文件退役策略不变。
+- `test-install-ownership-logic.ps1` 在隔离目录使用真实 Shell Link API 覆盖迁移、重复更新、
+  已退役安装、失败重试、归档损坏、自定义/无关文件保护及源/目标目录重定向拒绝；由 Windows CI 在 PowerShell 5.1/7 执行。

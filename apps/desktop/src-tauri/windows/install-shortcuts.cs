@@ -47,6 +47,16 @@ namespace XHarnessInstaller {
                 return new ShortcutInfo { TargetPath = target.ToString(), Arguments = arguments.ToString() };
             } finally { Marshal.FinalReleaseComObject(link); }
         }
+        // Explicit argument updates use the same Unicode interface as targets.
+        // Keep Update's existing argument-preservation semantics unchanged.
+        public static void SetArguments(string path, string arguments) {
+            IShellLinkW link = Create();
+            try {
+                ((IPersistFile)link).Load(path, 0);
+                link.SetArguments(arguments ?? String.Empty);
+                ((IPersistFile)link).Save(path, true);
+            } finally { Marshal.FinalReleaseComObject(link); }
+        }
         public static void Update(string path, string target, string directory) {
             IShellLinkW link = Create();
             try {
