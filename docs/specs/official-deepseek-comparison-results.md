@@ -1,5 +1,110 @@
 # Official DeepSeek comparison: preflight checkpoint
 
+## Clean installation and environment acceptance (2026-09-11)
+
+This section supersedes the older checkpoints below. All work in this follow-up
+used **zero real model requests**. No production App, host firewall, global proxy,
+DNS or model credentials were changed. Installation artifacts are retained for
+reuse on WZU; earlier failed runtime trees are not reused.
+
+| Gate | Evidence | Result |
+|---|---|---|
+| Complete official runtime | `official-clean-1`, offline clean Linux `npm ci`, `npm ls --all` | PASS; required peers explicitly declared, all official components rc.1 |
+| Native modules | builtin addon, koffi, sharp, system addon, node-pty | All five load and exit 0; no SIGBUS |
+| Official native tool | `official-mock-final`, clean async image | PASS; real `bash` / `pwd`, 3 mock requests, exit 0 |
+| XHarness native tool | `xharness-mock-final-2`, same async image | PASS; real `bash` / `pwd`, 3 mock requests, exit 0 |
+| Async oracle + verifier | `oracle-async-final` | PASS; 6 tests, 0 failed |
+| Log oracle + verifier | `oracle-log-final` | PASS; 2 tests, 0 failed |
+| Cython oracle + verifier | `oracle-cython-10` | PASS; 11 tests, 0 failed; separate public repository diagnostic 18/18 |
+| Tooling regression suite | Windows / WZU | 38 tests: Windows 35 pass + 3 environment skips; WZU 38 pass |
+| Paid comparison integration | Existing `run_pilot.py` | NOT_READY; still legacy Terminus-2 adapter and old 290/300 s, 4096-token, $0.30 settings |
+
+The functional mocks preserve 26 official tools and 17 XHarness tools. They do
+not establish equal generation settings: the old XHarness launcher still uses
+4096 output tokens, while the official main mock uses 16384 (auxiliary title
+requests use 64). No token-efficiency or agent-quality conclusion follows.
+
+### Retained environment identities
+
+Remote root: `/home/wzu/codex-build/x-harness-rs/tbench-pilot-20260911`.
+Use its `venv/bin/python` (Python 3.12.14, Harbor 0.16.1), `adapter/`,
+`official-clean-1/`, `xharness-host`, and `tasks-pinned/tasks`.
+XHarness binary/source, task revision and Node identities remain as recorded in
+the runtime-identity section below. Official npm artifact identity is pinned;
+its correspondence to an upstream Git SHA is still **not verified**.
+
+- Verified lockfile SHA-256:
+  `3330bea6e9351a27c3531ffdbf6f47d6a4ac7da63ed405633aabfdda09173388`.
+  `official-package.json` declares 236 fixed dependencies and overrides;
+  `official-package-lock.json` fixes the complete artifact graph.
+- Forwarded npm cache: 503 Linux-compatible public original artifacts,
+  `transfer-3185838e/clean-cache.tar`, 80,548,864 bytes, SHA-256
+  `d4447bb8abfdf76fa277ae2c9833d0a575a3c0f6b1fafb694372ba93e645efa9`.
+  npm 10.8.2 installs offline on Linux; it does not reuse Windows node_modules.
+- Public source bundle: SHA-256
+  `5c77c9b81dec173e146bb582ff0f8377c8d595273345a54dba11b6f9f96ad83f`,
+  tag 0.5.3 at `441c807dbec2ee32e1da572e24e58d52a4eb7afa`.
+- Public original Python distribution archives:
+  `wheelhouse.tar`: `f26c6d36ee6e68f6158d49448c408e45227c69624785cec208d13cc0c399031f`;
+  `wheelhouse-pinned.tar`: `ef47e71018ea9708d9f625ac2fab14ab64519b817606ae3bb8a6f40d337838c3`;
+  `wheelhouse-grader.tar`: `08cae2c946f9c57f2b48a158142dd7d1141f68e624a17ca5d8e7adb837bfee00`.
+  Final compatible selection is `transfer-3185838e/wheelhouse-compatible`,
+  mounted read-only with offline pip. It replaces the original planarity 1.0.0
+  distribution with the public planarity 0.6 source archive, SHA-256
+  `9852691d9c0d05e26a2fcbf2fce5a2632e8847ec462e816fa02e72d35013da68`.
+  Includes setuptools 80.9.0, Cython 3.1.3, pytest 8.4.1 and
+  pytest-json-ctrf 0.3.5. Exact cached files are listed in
+  [the checksum manifest](../../scripts/terminal_bench/python-artifacts.sha256).
+  No oracle-repaired project wheel is forwarded. A cached NumPy 2.5.3 wheel is
+  available but NOT installed; the original image and passing verifier retain
+  the required NumPy 2.3.0. Cache inventory is not an installed-package list.
+
+Clean image IDs (committed BEFORE any oracle, tests or agent task):
+
+| Task | Manifest directory | Image ID |
+|---|---|---|
+| Async | `neutral-async-1` | `sha256:051de08970a9b9fe32918a897b29100fc27a5c6825daac525eba96bd65a179c7` |
+| Log | `neutral-log-1` | `sha256:617c818d28f27f6dc87cdbb96025a839529a01e8a8306ecd7728660313c2c7de` |
+| Cython | `neutral-cython-2` | `sha256:f3165ea87eb47f2ecfca1f1234867f46e24289968317a5cd23b489202f62db53` |
+
+Preparation adds curl/ripgrep/procps without changing the original Python package
+list. Cython retains NumPy 2.3.0 and pip 25.2. Only the original bare public Git
+repository is cached under `/opt/benchmark-sources`, with an exact URL mapping
+inside the image; `/app/pyknotid` is NOT created. Agents must still clone and
+repair the task. Caches/transport must be identical for both scored groups.
+
+### Additional preserved attempts
+
+- `oracle-cython-4`: 300-second reference setup timeout while installing deps.
+- `oracle-cython-5`: online pip preferred the index over cached files; received
+  truncated index JSON and failed installation. Not an agent score.
+- `oracle-cython-6`: reference compiled/installed successfully, but the offline
+  cache lacked verifier pytest distributions; no CTRF, therefore INFRA_ERROR.
+- `oracle-cython-7` / `8`: completed verifier and retained actual failures;
+  verbose tracebacks alone still abbreviate the inner subprocess output.
+- `oracle-cython-9`: separate public repository diagnostic located the failure:
+  planarity 1.0.0's graph output lacks the `pos` node attribute used by the old
+  project. This is an unbounded dependency compatibility failure, not an agent
+  quality result. Official grade remains FAIL (10/11); it was not overwritten.
+- `oracle-cython-10`: a NEW clean container with planarity 0.6 as the sole
+  planarity artifact passes the unmodified oracle/verifier, 11/11. The separate
+  public repository diagnostic passes 18/18. No task/source/test edits were
+  made. This dependency policy is now frozen before any paired model trial and
+  must be identical for both groups; it is not an unmodified online-latest run.
+- `xharness-mock-final`: mock returned HTTP 400 for an unsupported token-count
+  route, preventing fallback. Returning the correct unsupported-route 404
+  enabled XHarness's existing fallback; no product code was changed.
+
+Oracle/private verifier logs are never exposed to scored agents. Diagnostic
+retests are recorded separately and cannot replace the original official grade.
+All owned `xhbench-*` containers were absent after the completed checks; unrelated
+workloads were left untouched. Environment acceptance is complete, but the paid
+Harbor integration and shared protocol gates are not. No paid trial was started.
+
+---
+
+## Historical checkpoints (superseded where noted above)
+
 ## Local forwarding follow-up (2026-09-11)
 
 The user's local-download/SSH-forward approach works. No host network settings

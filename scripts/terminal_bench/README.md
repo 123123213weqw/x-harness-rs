@@ -75,9 +75,8 @@ python preflight_official.py --runtime /absolute/official-runtime --output /abso
 ```
 
 The oracle preflight deliberately exposes the official solution only in its own
-grader-only container, never an agent image. The Cython oracle needs the checkout
-specified by the task instruction; this fixture is NOT an allowed head start for
-scored agents. Preserve failed directories and keep oracle/verifier logs private.
+grader-only container, never an agent image. Preserve failed directories and
+keep oracle/verifier logs private. Do not commit or reuse an oracle container.
 No output directory may be reused. A reward file without consistent executed
 CTRF tests is an infrastructure error, not a score; inspect failed test logs too.
 
@@ -87,10 +86,55 @@ again after copying into the isolated grader container; its 0.5.3 checkout must
 match the pinned commit. This bypasses only that fixture's GitHub download, not
 APT/PyPI preparation, and is not yet wired into scored agent trials.
 
-The experimental `official_headless.py` currently expects `node` and
+The validated mock launcher `official_headless.py` expects `node` and
 `dsh-official/node_modules/@deepseek-ai/dsh/lib/bin.js` below the runtime root.
-It is a mock-only launcher, NOT a validated Harbor adapter. Its normal npm
-installation mixed rc.1/rc.2 packages and failed native tool execution.
-`official-package.json` records the attempted all-rc.1 override experiment;
-installation did not complete and it is **not a verified dependency lockfile**.
-Do not run a billed comparison with either unvalidated runtime tree.
+It is NOT yet an integrated Harbor adapter. A clean Linux install from the
+checked-in `official-package.json` and `official-package-lock.json` passes
+`npm ls --all`, all five native-module probes, and actual native `bash` execution
+against a mock provider. Do not reuse the earlier failed runtime trees.
+
+### Reusable environment preparation
+
+1. In a new staging directory, copy `official-package.json` as `package.json`
+   and `official-package-lock.json` as `package-lock.json`. Run
+   `node collect_npm_cache.cjs STAGING NPM_NODE_MODULES [EXISTING_CACACHE]` on a
+   machine with registry access. The collector selects Linux x64 glibc artifacts,
+   verifies npm integrity, and copies no user npm configuration or credentials.
+2. Archive that staging directory, record SHA-256, forward with SSH, and verify
+   the same hash on Linux before extraction. With Node 22.19.0 / npm 10.8.2 run
+   `npm ci --prefix RUNTIME/dsh-official --offline --cache STAGING/cache
+   --legacy-peer-deps --ignore-scripts --no-audit --no-fund`. The manifest declares
+   required peers explicitly; verify `npm ls --all`, not just installer exit 0.
+   Preserve the Node binary and lockfile hashes. No Windows node_modules tree is
+   used. The Linux runtime root also contains the pinned `node` executable.
+3. Run `prepare_environment.py --task TASK --output NEW_DIRECTORY` once per task.
+   This adds only neutral OS tools and refuses to commit if Python packages
+   change. For Cython, also pass the verified public `--source-bundle` and
+   `--source-sha256`. The result holds a bare original repository cache and an
+   exact Git URL mapping; `/app/pyknotid` is not prepopulated. Both agents must
+   still clone and repair the original project themselves.
+4. Prepare public original PyPI wheels/source distributions for CPython 3.13
+   Linux x64, including build and verifier requirements. Never forward a wheel
+   built from an oracle's repaired checkout. Mount the cache read-only through
+   `preflight_oracle.py --wheelhouse PATH --offline-wheels`; this prevents pip
+   preferring an unreliable online index over an equally versioned local file.
+   The cache does not install or upgrade anything in the initial agent image.
+   Use the checked-in `python-artifacts.sha256` inventory: planarity must be 0.6,
+   not 1.0.0 (which drops the node attribute expected by the old task project).
+   Verify `sha256sum -c /absolute/python-artifacts.sha256` inside the cache.
+   Preserve the original image's NumPy 2.3.0; the cache is not a requirements
+   list to install wholesale. Apply the same selection to BOTH groups.
+5. Test both launchers on the SAME `--image sha256:...` with
+   `preflight_official.py --harness official --runtime RUNTIME --output NEW_DIR`
+   and `preflight_official.py --harness xharness --binary HOST --output NEW_DIR`.
+   Both must return a real native tool result and exit cleanly. These are
+   functional mock tests, not a comparison of normalized model budgets.
+6. Run each `preflight_oracle.py --prepared-image sha256:...` with a new output
+   directory. `--oracle-seconds 600` is a reference setup allowance, not a change
+   to the paid agent protocol. `--verifier-showlocals` optionally expands private
+   diagnostic tracebacks without changing tests or scoring.
+
+Current artifact identities, evidence and remaining gates are recorded in the
+[environment report](../../docs/specs/official-deepseek-comparison-results.md).
+The paid runner still needs both Harbor adapter integration and shared protocol
+configuration; these preparation commands do not enable paid calls.
