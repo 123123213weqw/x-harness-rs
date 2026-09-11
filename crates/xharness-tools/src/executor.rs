@@ -298,6 +298,20 @@ impl ToolExecutor {
                     .await;
             }
         };
+        // Legacy context markers are missing data, not optional tool parameters.
+        // Diagnose before schema validation/approval/handlers; never sanitize and run.
+        if let Some(failure) = crate::legacy_projection::reject_legacy_projection(&name, &arguments)
+        {
+            return self
+                .finish_without_context(
+                    execution_id,
+                    name,
+                    started_at_ms,
+                    started,
+                    ToolOutcome::failure(failure),
+                )
+                .await;
+        }
         if let Err(violation) = validate_arguments(&spec.definition.parameters, &arguments) {
             return self
                 .finish_without_context(

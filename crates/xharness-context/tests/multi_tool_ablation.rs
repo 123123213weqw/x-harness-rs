@@ -91,7 +91,7 @@ async fn elapsed<P: ContextPolicy>(policy: &P, source: &[Message]) -> Duration {
 }
 
 #[tokio::test]
-async fn many_completed_tool_calls_are_smaller_deterministic_and_replay_safe() {
+async fn many_completed_tool_calls_preserve_arguments_while_pruning_old_reasoning() {
     let source = fixture();
     let identity = IdentityContextPolicy
         .prepare(ContextRequest::new(source.clone()))
@@ -117,21 +117,21 @@ async fn many_completed_tool_calls_are_smaller_deterministic_and_replay_safe() {
     let original_estimate = estimate(&identity.messages);
     let projected_estimate = estimate(&projected.messages);
     assert!(
-        projected_bytes * 5 < original_bytes,
-        "the P0 surface should be at least 5x smaller"
+        projected_bytes < original_bytes,
+        "old reasoning is still pruned"
     );
-    assert!(projected_estimate * 5 < original_estimate);
+    assert!(projected_estimate < original_estimate);
 
     let mut observed_calls = 0;
     let mut observed_results = 0;
-    for message in &projected.messages {
+    for (message, original) in projected.messages.iter().zip(&identity.messages) {
+        assert_eq!(message.tool_calls, original.tool_calls);
+        assert_eq!(message.provider_items, original.provider_items);
         for call in &message.tool_calls {
             observed_calls += 1;
             let arguments: Value = serde_json::from_str(&call.arguments_json).unwrap();
-            assert_eq!(
-                arguments["_xharness_history_projection"]["format"],
-                "tool_arguments_pruned/v1"
-            );
+            assert!(arguments.get("_xharness_history_projection").is_none());
+            assert_eq!(arguments["content"], "x".repeat(FILE_BYTES));
             let expected_provider_id = format!("provider-write-{}", observed_calls - 1);
             assert_eq!(call.provider_id(), expected_provider_id);
         }

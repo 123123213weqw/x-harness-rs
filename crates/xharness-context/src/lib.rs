@@ -7,14 +7,13 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use xharness_compaction::{ToolResultPruner, ToolResultPrunerConfig};
 use xharness_session::{Message, MessageRole};
 
-/// Historical `write`/`edit` string arguments at or above this character count
-/// are replaced on the disposable provider surface after the matching tool
-/// result proves that the side effect completed successfully.
+/// Legacy threshold retained for source compatibility. Tool arguments are no
+/// longer pruned: historical calls must not teach executable placeholder text.
+#[deprecated(note = "tool arguments are preserved exactly; use whole-history compaction")]
 pub const DEFAULT_TOOL_ARGUMENT_PRUNE_THRESHOLD_CHARS: usize = 1_024;
 
 /// Everything the context layer can inspect before a provider request is
@@ -95,6 +94,7 @@ pub enum SurfaceEditKind {
     /// removed from reasoning and tool arguments.
     AssistantHistoryPruned {
         reasoning_chars_removed: usize,
+        /// Legacy audit field; v3 leaves tool arguments intact and records zero.
         tool_argument_chars_removed: usize,
     },
     HistoryCompacted,
@@ -247,15 +247,14 @@ impl ContextPolicy for IdentityContextPolicy {
     }
 }
 
-/// Production-safe projection that deterministically shortens oversized tool
-/// observations, completed large file mutations and reasoning from completed
-/// turns while preserving the immutable session transcript.
+/// Projection that deterministically shortens oversized tool observations and
+/// reasoning from completed turns while preserving the immutable transcript.
 ///
-/// Reasoning in the current user turn and provider-owned opaque items stay
-/// byte-for-byte intact. Known Responses `function_call` items are projected
-/// together with their provider-neutral tool call so both wire forms agree.
-/// Historical tool calls keep their provider identity and valid JSON argument
-/// shape, so the matching tool result remains replayable.
+/// Reasoning in the current user turn, every tool call's arguments and all
+/// provider-owned replay items stay byte-for-byte intact. Do not replace file
+/// contents with omission markers or add private fields to executable inputs.
+/// Large input histories are handled by the separate whole-history compaction
+/// coordinator, which creates a clearly framed summary instead of fake calls.
 /// This is deliberately model-free, so it also protects the request used to
 /// run the normal LLM compaction coordinator.
 #[derive(Clone, Debug, Default)]
@@ -286,20 +285,6 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
             }
         }
 
-        let successful_tool_results = request
-            .messages
-            .iter()
-            .enumerate()
-            .filter_map(|(index, message)| {
-                if message.role != MessageRole::Tool || !tool_result_succeeded(&message.content) {
-                    return None;
-                }
-                message
-                    .tool_call_id
-                    .as_ref()
-                    .map(|call_id| (call_id.clone(), index))
-            })
-            .collect::<HashMap<_, _>>();
         let latest_user_index = request
             .messages
             .iter()
@@ -310,7 +295,6 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
         for (index, message) in messages.iter_mut().enumerate() {
             if message.role == MessageRole::Assistant {
                 let mut reasoning_chars_removed = 0;
-                let mut tool_argument_chars_removed = 0usize;
 
                 if latest_user_index.is_some_and(|latest| index < latest)
                     && !message.reasoning.is_empty()
@@ -319,38 +303,14 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
                     message.reasoning.clear();
                 }
 
-                for call in &mut message.tool_calls {
-                    let Some(result_index) = successful_tool_results.get(call.provider_id()) else {
-                        continue;
-                    };
-                    if *result_index <= index {
-                        continue;
-                    }
-                    let provider_call_id = call.provider_id().to_owned();
-                    let removed = prune_completed_tool_arguments(
-                        &call.name,
-                        &mut call.arguments_json,
-                        DEFAULT_TOOL_ARGUMENT_PRUNE_THRESHOLD_CHARS,
-                    );
-                    if removed > 0 {
-                        tool_argument_chars_removed = tool_argument_chars_removed
-                            .saturating_add(removed)
-                            .saturating_add(project_response_function_call(
-                                &mut message.provider_items,
-                                &provider_call_id,
-                                &call.arguments_json,
-                            ));
-                    }
-                }
-
-                if reasoning_chars_removed > 0 || tool_argument_chars_removed > 0 {
+                if reasoning_chars_removed > 0 {
                     edits.push(SurfaceEdit::new(
                         index,
                         index + 1,
                         1,
                         SurfaceEditKind::AssistantHistoryPruned {
                             reasoning_chars_removed,
-                            tool_argument_chars_removed,
+                            tool_argument_chars_removed: 0,
                         },
                     ));
                 }
@@ -386,104 +346,12 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
         }
 
         Ok(ContextSurface::transformed(
-            ContextPolicyId::new("context-history-pruning", 2),
+            ContextPolicyId::new("context-history-pruning", 3),
             source_message_count,
             messages,
             edits,
         ))
     }
-}
-
-fn tool_result_succeeded(content: &str) -> bool {
-    serde_json::from_str::<Value>(content)
-        .ok()
-        .and_then(|value| value.get("ok").and_then(Value::as_bool))
-        .unwrap_or(false)
-}
-
-fn prune_completed_tool_arguments(
-    tool: &str,
-    arguments_json: &mut String,
-    threshold_chars: usize,
-) -> usize {
-    if !matches!(tool, "write" | "edit") {
-        return 0;
-    }
-    let Ok(mut arguments) = serde_json::from_str::<Value>(arguments_json) else {
-        return 0;
-    };
-    let Some(object) = arguments.as_object_mut() else {
-        return 0;
-    };
-
-    let fields: &[&str] = if tool == "write" {
-        &["content"]
-    } else {
-        &["old", "new"]
-    };
-    let mut removed = 0usize;
-    for field in fields {
-        let Some(source) = object.get(*field).and_then(Value::as_str) else {
-            continue;
-        };
-        let source_chars = source.chars().count();
-        if source_chars < threshold_chars {
-            continue;
-        }
-        let source_bytes = source.len();
-        let digest = Sha256::digest(source.as_bytes());
-        let marker = format!(
-            "[xharness history projection: successful {tool}.{field} omitted; chars={source_chars}; utf8_bytes={source_bytes}; sha256={digest:x}; re-read the file if content is needed]"
-        );
-        removed = removed.saturating_add(source_chars.saturating_sub(marker.chars().count()));
-        object.insert((*field).to_owned(), Value::String(marker));
-    }
-
-    if removed == 0 {
-        return 0;
-    }
-    object.insert(
-        "_xharness_history_projection".to_owned(),
-        json!({
-            "format": "tool_arguments_pruned/v1",
-            "successful": true,
-        }),
-    );
-    *arguments_json =
-        serde_json::to_string(&arguments).expect("serializing an in-memory JSON value cannot fail");
-    removed
-}
-
-fn project_response_function_call(
-    provider_items: &mut [Value],
-    provider_call_id: &str,
-    projected_arguments_json: &str,
-) -> usize {
-    let mut removed = 0usize;
-    for item in provider_items {
-        let Some(object) = item.as_object_mut() else {
-            continue;
-        };
-        if object.get("type").and_then(Value::as_str) != Some("function_call")
-            || object.get("call_id").and_then(Value::as_str) != Some(provider_call_id)
-        {
-            continue;
-        }
-        let Some(original) = object.get("arguments").and_then(Value::as_str) else {
-            continue;
-        };
-        removed = removed.saturating_add(
-            original
-                .chars()
-                .count()
-                .saturating_sub(projected_arguments_json.chars().count()),
-        );
-        object.insert(
-            "arguments".to_owned(),
-            Value::String(projected_arguments_json.to_owned()),
-        );
-    }
-    removed
 }
 
 #[cfg(test)]
@@ -647,7 +515,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn completed_large_write_arguments_are_projected_but_identity_is_stable() {
+    async fn completed_large_write_arguments_and_provider_items_remain_exact() {
         let original_content = "甲乙丙丁".repeat(400);
         let mut source = vec![Message::user("write it")];
         source.extend(completed_call(
@@ -669,22 +537,8 @@ mod tests {
         assert!(assistant.reasoning.is_empty());
         assert_eq!(assistant.provider_items[0], source[1].provider_items[0]);
         assert_eq!(assistant.tool_calls[0].provider_id(), "provider-write");
-        let projected: Value =
-            serde_json::from_str(&assistant.tool_calls[0].arguments_json).unwrap();
-        assert_eq!(projected["path"], "demo.txt");
-        assert_eq!(
-            projected["_xharness_history_projection"]["format"],
-            "tool_arguments_pruned/v1"
-        );
-        let marker = projected["content"].as_str().unwrap();
-        assert!(marker.contains("successful write.content omitted"));
-        assert!(marker.contains("sha256="));
-        assert!(!marker.contains(&original_content));
-        assert_eq!(
-            assistant.provider_items[1]["arguments"],
-            assistant.tool_calls[0].arguments_json
-        );
-        assert_ne!(assistant.provider_items[1], source[1].provider_items[1]);
+        assert_eq!(assistant.tool_calls, source[1].tool_calls);
+        assert_eq!(assistant.provider_items, source[1].provider_items);
         assert_eq!(surface.messages[2], source[2]);
         assert_eq!(source[1].reasoning, "private completed reasoning");
         assert!(source[1].tool_calls[0]
@@ -696,14 +550,14 @@ mod tests {
             surface.edits[0].kind,
             SurfaceEditKind::AssistantHistoryPruned {
                 reasoning_chars_removed: 27,
-                tool_argument_chars_removed: _
+                tool_argument_chars_removed: 0
             }
         ));
     }
 
     #[tokio::test]
     async fn failed_or_unresolved_mutations_keep_exact_arguments() {
-        let content = "x".repeat(DEFAULT_TOOL_ARGUMENT_PRUNE_THRESHOLD_CHARS + 10);
+        let content = "x".repeat(2_048);
         let failed = completed_call(
             "write",
             json!({"path":"failed.txt","content":content}).to_string(),
@@ -771,6 +625,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn current_turn_large_mutations_and_opaque_replay_stay_byte_for_byte_intact() {
+        for (name, arguments) in [
+            (
+                "write",
+                format!(
+                    "{{ \"path\": \"demo.txt\", \"content\": \"{}\" }}",
+                    "x".repeat(8192)
+                ),
+            ),
+            (
+                "edit",
+                json!({"path":"demo.txt","old":"before".repeat(1000),"new":"after".repeat(1000)})
+                    .to_string(),
+            ),
+        ] {
+            let mut source = vec![Message::user("current turn")];
+            source.extend(completed_call(name, arguments, "current reasoning", true));
+            let surface = ToolResultPruningContextPolicy::default()
+                .prepare(ContextRequest::new(source.clone()))
+                .await
+                .unwrap();
+            assert_eq!(surface.policy.version, 3);
+            assert_eq!(surface.messages, source);
+            assert!(surface.edits.is_empty());
+        }
+    }
+
+    #[tokio::test]
     async fn current_turn_reasoning_and_small_mutations_remain_exact() {
         let mut source = vec![Message::user("current")];
         source.extend(completed_call(
@@ -788,7 +670,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn completed_large_edit_projects_old_and_new_deterministically() {
+    async fn completed_large_edit_keeps_old_and_new_exactly_and_deterministically() {
         let old = "old".repeat(600);
         let new = "new".repeat(700);
         let mut source = vec![Message::user("edit")];
@@ -805,18 +687,13 @@ mod tests {
             .prepare(ContextRequest::new(source.clone()))
             .await
             .unwrap();
-        let second = policy.prepare(ContextRequest::new(source)).await.unwrap();
+        let second = policy
+            .prepare(ContextRequest::new(source.clone()))
+            .await
+            .unwrap();
         assert_eq!(first, second);
-        let projected: Value =
-            serde_json::from_str(&first.messages[1].tool_calls[0].arguments_json).unwrap();
-        assert!(projected["old"]
-            .as_str()
-            .unwrap()
-            .contains("successful edit.old omitted"));
-        assert!(projected["new"]
-            .as_str()
-            .unwrap()
-            .contains("successful edit.new omitted"));
+        assert_eq!(first.messages[1].tool_calls, source[1].tool_calls);
+        assert_eq!(first.messages[1].provider_items, source[1].provider_items);
     }
     #[tokio::test]
     async fn context_projection_preserves_image_blocks() {
