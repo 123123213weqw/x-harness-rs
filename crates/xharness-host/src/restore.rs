@@ -40,6 +40,7 @@ pub struct HostRestoreIssue {
 #[serde(rename_all = "camelCase")]
 pub struct HostRestoreReport {
     pub discovered_sessions: usize,
+    pub model_settings_error: Option<String>,
     pub restored_sessions: usize,
     pub resumed_pending_turns: usize,
     pub resumed_pending_approvals: usize,
@@ -99,9 +100,20 @@ impl BasicHost {
     ) -> Result<HostRestoreReport, HostRestoreError> {
         self.start_background_turn_listener();
         self.restore_control_state().await?;
+        // Persisted model overrides and credentials must be activated before
+        // any recovered input is admitted. Bootstrap registries may be empty.
+        let model_settings_error = self.refresh_model_settings().await.err();
+        if model_settings_error.is_some() {
+            // Keep settings repair available, but never execute queued work
+            // against a stale bootstrap route when activation failed.
+            if let Some(backend) = self.model_settings.get() {
+                backend.activate(crate::ModelRegistry::new());
+            }
+        }
         let headers = store.list_headers().await?;
         let mut report = HostRestoreReport {
             discovered_sessions: headers.len(),
+            model_settings_error,
             ..HostRestoreReport::default()
         };
         let mut resumable = Vec::new();
@@ -125,6 +137,7 @@ impl BasicHost {
                     }
                 })?;
             }
+            self.questions.restore_snapshot(&session).await;
             let inbox = InboxProjection::from_session(&session).map_err(|error| {
                 HostRestoreError::InvalidInbox {
                     session_id: session_id.clone(),
@@ -388,6 +401,12 @@ impl BasicHost {
         // Reapply durable custom ordering/tombstones after those ids exist.
         self.reload_control_projection().await?;
 
+        if let Err(error) = self.questions.deliver_restored_answers().await {
+            report.issues.push(HostRestoreIssue {
+                session_id: "question-outbox".into(),
+                message: error.to_string(),
+            });
+        }
         Ok(report)
     }
 }
@@ -1105,6 +1124,8 @@ fn restored_web_event(
             });
         }
         EventData::QuestionRequested { .. }
+        | EventData::QuestionDeferred { .. }
+        | EventData::QuestionAnswerDelivered { .. }
         | EventData::QuestionDraftUpdated { .. }
         | EventData::QuestionResolved { .. }
         | EventData::QuestionCancelled { .. } => {

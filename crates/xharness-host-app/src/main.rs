@@ -179,8 +179,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
         .await?;
     let restore = host.restore_from_store(store).await?;
     host.start_delegation_listener();
-    if let Err(error) = host.refresh_model_settings().await {
-        runtime.replace_model_registry(xharness_host::ModelRegistry::new());
+    if let Some(error) = &restore.model_settings_error {
         eprintln!("Model settings require attention: {error}");
     }
     debug
@@ -188,6 +187,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
             "host",
             "restore",
             serde_json::json!({
+                "modelSettingsError": &restore.model_settings_error,
                 "restoredSessions": restore.restored_sessions,
                 "resumedPendingTurns": restore.resumed_pending_turns,
                 "resumedPendingApprovals": restore.resumed_pending_approvals,

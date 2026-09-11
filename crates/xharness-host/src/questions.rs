@@ -15,6 +15,8 @@ use xharness_interaction::{
 };
 use xharness_session::{EventData, SessionEvent, Store, StoreError};
 
+mod continuation;
+
 const APPEND_RETRIES: usize = 16;
 pub const AGENT_MEMORY_BEGIN: &str = "<!-- XHARNESS:USER-MEMORY:BEGIN -->";
 pub const AGENT_MEMORY_END: &str = "<!-- XHARNESS:USER-MEMORY:END -->";
@@ -67,6 +69,8 @@ struct PendingQuestion {
     workspace: String,
     invocation: QuestionInvocation,
     settlement: watch::Sender<Option<QuestionSettlement>>,
+    gate: tokio::sync::Mutex<()>,
+    deferred: std::sync::atomic::AtomicBool,
 }
 
 /// Process-local answer routing over a durable Session authority. Pending
@@ -77,6 +81,8 @@ pub struct DurableQuestionHub {
     sink: Arc<dyn AgentMarkdownSink>,
     pending: RwLock<BTreeMap<String, Arc<PendingQuestion>>>,
     events: broadcast::Sender<ServerRequest>,
+    host: std::sync::OnceLock<std::sync::Weak<crate::BasicHost>>,
+    wait_timeout: Duration,
 }
 
 impl DurableQuestionHub {
@@ -87,6 +93,8 @@ impl DurableQuestionHub {
             sink,
             pending: RwLock::new(BTreeMap::new()),
             events,
+            host: std::sync::OnceLock::new(),
+            wait_timeout: Duration::from_secs(60),
         })
     }
 
@@ -97,6 +105,8 @@ impl DurableQuestionHub {
             sink: Arc::new(NoopAgentMarkdownSink),
             pending: RwLock::new(BTreeMap::new()),
             events,
+            host: std::sync::OnceLock::new(),
+            wait_timeout: Duration::from_secs(60),
         })
     }
 
@@ -181,6 +191,8 @@ impl DurableQuestionHub {
                     workspace: workspace.to_owned(),
                     invocation,
                     settlement,
+                    gate: tokio::sync::Mutex::new(()),
+                    deferred: std::sync::atomic::AtomicBool::new(false),
                 });
                 all.insert(rpc_id, Arc::clone(&pending));
                 (pending, true)
@@ -203,6 +215,9 @@ impl DurableQuestionHub {
             }
             tokio::select! {
                 biased;
+                _ = cancellation.cancelled() => {
+                    return Err(QuestionProviderError { message: "question execution cancelled; pending question retained".into(), retryable: true });
+                }
                 changed = settlement.changed() => {
                     if changed.is_err() {
                         return Err(QuestionProviderError {
@@ -226,7 +241,12 @@ impl DurableQuestionHub {
                         ));
                     }
                     match durable.1 {
-                        QuestionTerminalState::Pending => {}
+                        QuestionTerminalState::Pending => {
+                            if !cancellation.is_cancelled() && self.defer_if_due(&pending).await.map_err(provider_error)? {
+                                if cancellation.is_cancelled() { return Err(QuestionProviderError::new("question execution cancelled")); }
+                                return Ok(continuation::deferred_resolution(&pending.invocation));
+                            }
+                        }
                         QuestionTerminalState::Resolved(resolution) => {
                             self.persist_agent_markdown(
                                 &pending.workspace,
@@ -289,6 +309,7 @@ impl DurableQuestionHub {
         pending: &Arc<PendingQuestion>,
         value: Value,
     ) -> Result<(), QuestionHubError> {
+        let _gate = pending.gate.lock().await;
         if value.get("sessionId").and_then(Value::as_str) != Some(&pending.session_id) {
             return Err(QuestionHubError::BadResponse(
                 "sessionId does not own this question".to_owned(),
@@ -324,6 +345,7 @@ impl DurableQuestionHub {
         }
         self.persist_agent_markdown(&pending.workspace, &pending.invocation, &resolution)
             .await?;
+        self.deliver_late_answer(pending).await?;
         pending
             .settlement
             .send_replace(Some(QuestionSettlement::Resolved(resolution)));
@@ -337,6 +359,7 @@ impl DurableQuestionHub {
         pending: &Arc<PendingQuestion>,
         reason: String,
     ) -> Result<(), QuestionHubError> {
+        let _gate = pending.gate.lock().await;
         let reason = if reason.trim().is_empty() {
             "the user closed this question request".to_owned()
         } else {
@@ -347,6 +370,15 @@ impl DurableQuestionHub {
             .await?
             .ok_or(QuestionHubError::NotPending)?
             .1;
+        if let QuestionTerminalState::Cancelled(previous) = &state {
+            self.deliver_late_answer(pending).await?;
+            pending
+                .settlement
+                .send_replace(Some(QuestionSettlement::Cancelled(previous.clone())));
+            self.finish_pending(pending, QuestionOutcome::Cancelled)
+                .await;
+            return Ok(());
+        }
         if !matches!(state, QuestionTerminalState::Pending) {
             return Err(QuestionHubError::NotPending);
         }
@@ -359,6 +391,7 @@ impl DurableQuestionHub {
             .into(),
         )
         .await?;
+        self.deliver_late_answer(pending).await?;
         pending
             .settlement
             .send_replace(Some(QuestionSettlement::Cancelled(reason)));
@@ -406,8 +439,7 @@ impl DurableQuestionHub {
             .await
             .map_err(store_error)?
             .ok_or_else(|| QuestionHubError::Persistence("session not found".to_owned()))?;
-        let question = session
-            .recoverable_user_questions()
+        let question = xharness_session::all_user_questions(session.events())
             .into_iter()
             .find(|question| question.invocation.interaction_id == interaction_id);
         let Some(question) = question else {
@@ -641,6 +673,8 @@ fn question_requested_frame(pending: &PendingQuestion) -> ServerRequest {
             "type": "question/requested",
             "sessionId": pending.session_id,
             "questions": questions,
+            "deferred": pending.deferred.load(std::sync::atomic::Ordering::Acquire),
+            "waitTimeoutSeconds": 60,
         }),
     )
 }
@@ -798,7 +832,8 @@ mod tests {
         ProviderError, ProviderEvent, ProviderRequest, ProviderStream, TokenUsage,
     };
     use xharness_interaction::{
-        AnswerDestination, AskUserQuestionRequest, QuestionOption, QuestionSpec,
+        AnswerDestination, AskUserQuestionRequest, AskUserQuestionTool, QuestionOption,
+        QuestionSpec,
     };
     use xharness_session::{MemorySessionStore, Message, Revision, SessionHeader, ToolCall};
 
@@ -933,6 +968,255 @@ mod tests {
             .await
             .unwrap();
         store.flush(session_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn deferred_wait_is_not_an_answer_replays_once_and_survives_restore() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "deferred").await;
+        let sink = Arc::new(RecordingSink::default());
+        let mut hub = DurableQuestionHub::new(store.clone(), sink.clone());
+        Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
+        let invocation =
+            QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+        let answer = hub
+            .ask(
+                "deferred",
+                "/workspace",
+                invocation.clone(),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            answer.status,
+            xharness_interaction::ResolutionStatus::Deferred
+        );
+        assert!(answer.answers.is_empty());
+        assert_eq!(answer.unanswered_question_ids, ["target"]);
+        assert!(sink.0.lock().unwrap().is_empty());
+        assert_eq!(hub.baseline().await[0].payload["deferred"], true);
+        let restored = DurableQuestionHub::new(store.clone(), sink);
+        restored.restore_detached().await.unwrap();
+        assert_eq!(restored.baseline().await.len(), 1);
+        // Default 60 seconds does not reset an already-expired persisted wait.
+        let replay = restored
+            .ask(
+                "deferred",
+                "/workspace",
+                invocation,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(replay, answer);
+        let session = store.load("deferred").await.unwrap().unwrap();
+        assert_eq!(
+            session
+                .events()
+                .iter()
+                .filter(|e| matches!(e.data(), EventData::QuestionDeferred { .. }))
+                .count(),
+            1
+        );
+        assert!(xharness_session::has_unanswered_deferred_question(
+            session.events()
+        ));
+        assert!(!session
+            .events()
+            .iter()
+            .any(|e| matches!(e.data(), EventData::QuestionResolved { .. })));
+    }
+
+    #[tokio::test]
+    async fn answer_before_deadline_and_deadline_race_do_not_double_settle() {
+        for expire in [false, true] {
+            let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+            session_with_question_call(&store, "deadline-race").await;
+            let mut hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+            if expire {
+                Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
+            }
+            let invocation =
+                QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+            let mut frames = hub.subscribe();
+            let h = hub.clone();
+            let waiter = tokio::spawn(async move {
+                h.ask(
+                    "deadline-race",
+                    "/workspace",
+                    invocation,
+                    CancellationToken::new(),
+                )
+                .await
+            });
+            frames.recv().await.unwrap();
+            let pending = hub
+                .pending
+                .read()
+                .await
+                .get("question:execution-1")
+                .unwrap()
+                .clone();
+            if !expire {
+                assert!(!hub.defer_if_due(&pending).await.unwrap());
+            }
+            let response = json!({"sessionId":"deadline-race","answer":{"answers":[{"id":"target","selected":["本机"]}]}});
+            let (_, answer) = tokio::join!(
+                hub.defer_if_due(&pending),
+                hub.resolve_response(&pending, response)
+            );
+            if !expire {
+                assert!(answer.is_ok());
+            }
+            let result = tokio::time::timeout(Duration::from_secs(2), waiter)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_ne!(
+                result.status,
+                xharness_interaction::ResolutionStatus::Skipped
+            );
+            let session = store.load("deadline-race").await.unwrap().unwrap();
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|e| matches!(e.data(), EventData::QuestionResolved { .. }))
+                    .count(),
+                1
+            );
+            assert!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|e| matches!(e.data(), EventData::QuestionDeferred { .. }))
+                    .count()
+                    <= 1
+            );
+            assert!(!xharness_session::has_unanswered_deferred_question(
+                session.events()
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn cancellation_does_not_trigger_timeout_continuation() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "cancel-defer").await;
+        let mut hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let result = hub
+            .ask(
+                "cancel-defer",
+                "/workspace",
+                QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown)),
+                cancel,
+            )
+            .await;
+        assert!(result.is_err());
+        tokio::time::sleep(Duration::from_millis(550)).await;
+        let session = store.load("cancel-defer").await.unwrap().unwrap();
+        assert!(!xharness_session::question_is_deferred(
+            session.events(),
+            "question:execution-1"
+        ));
+    }
+
+    #[tokio::test]
+    async fn live_loop_deferred_question_completes_tool_but_keeps_question_and_guard() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        store
+            .create(SessionHeader::new("live-defer"))
+            .await
+            .unwrap();
+        let mut hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
+        let registry = Arc::new(xharness_tools::ToolRegistry::new());
+        AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
+            hub.clone(),
+            "live-defer",
+            "/workspace",
+        )))
+        .register(&registry)
+        .await
+        .unwrap();
+        let mut request = LoopRequest::new(
+            Arc::new(QuestionLoopProvider::default()),
+            vec![AgentMessage::user("ask")],
+        );
+        request.session_id = Some("live-defer".into());
+        request.journal_store = Some(store.clone());
+        request.tool_executor = Some(xharness_tools::ToolExecutor::new(registry));
+        let mut run = LoopEngine.start(request);
+        while run.next().await.is_some() {}
+        let result = run.result().await;
+        assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+        let s = store.load("live-defer").await.unwrap().unwrap();
+        assert!(s.recoverable_user_questions().is_empty());
+        assert_eq!(s.pending_user_questions().len(), 1);
+        assert_eq!(hub.baseline().await.len(), 1);
+        let guard = hub.exploration_guard("live-defer");
+        for (name, args, allowed) in [
+            ("read", json!({}), true),
+            ("glob", json!({}), true),
+            ("grep", json!({}), true),
+            ("bash", json!({"command":"echo harmless"}), false),
+            ("write", json!({}), false),
+            ("ask_user_question", json!({}), false),
+            ("agent", json!({}), false),
+            ("job_create", json!({}), false),
+            ("web_fetch", json!({}), false),
+            ("goal", json!({"action":"create"}), false),
+            ("goal", json!({"action":"get"}), true),
+        ] {
+            let ctx = xharness_tools::ToolExecutionContext {
+                execution_id: xharness_tools::ExecutionId::new("probe").unwrap(),
+                definition: Arc::new(xharness_tools::ToolDefinition::new(name, "test", json!({}))),
+                arguments: Arc::new(args.clone()),
+                arguments_json: args.to_string().into(),
+                cancellation: CancellationToken::new(),
+            };
+            let verdict = guard.evaluate(&ctx).await.unwrap();
+            assert_eq!(
+                matches!(verdict, xharness_tools::GuardDecision::Allow),
+                allowed,
+                "{name}"
+            );
+        }
+        // A late answer remains durable even if delivery is temporarily unavailable.
+        let pending = hub.pending.read().await.values().next().unwrap().clone();
+        let error=hub.resolve_response(&pending,json!({"sessionId":"live-defer","answer":{"answers":[{"id":"target","selected":["本机"]}]}})).await.unwrap_err();
+        assert!(error.to_string().contains("retained for retry"));
+        let s = store.load("live-defer").await.unwrap().unwrap();
+        assert!(!xharness_session::has_unanswered_deferred_question(
+            s.events()
+        ));
+        assert!(matches!(
+            xharness_session::all_user_questions(s.events())[0].terminal,
+            QuestionTerminalState::Resolved(_)
+        ));
+        let ctx = xharness_tools::ToolExecutionContext {
+            execution_id: xharness_tools::ExecutionId::new("late-probe").unwrap(),
+            definition: Arc::new(xharness_tools::ToolDefinition::new(
+                "write",
+                "test",
+                json!({}),
+            )),
+            arguments: Arc::new(json!({})),
+            arguments_json: "{}".into(),
+            cancellation: CancellationToken::new(),
+        };
+        assert!(
+            matches!(
+                guard.evaluate(&ctx).await.unwrap(),
+                xharness_tools::GuardDecision::Deny { .. }
+            ),
+            "late answer must not unlock the stale current turn"
+        );
     }
 
     #[tokio::test]
