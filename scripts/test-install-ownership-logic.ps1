@@ -8,6 +8,21 @@ function Assert-That($Condition, [string]$Message) { if (-not $Condition) { thro
 function Get-XHarnessProcesses { @() }
 function Get-XHarnessShortcutBackupRoot { Join-Path $fixture 'local-app-data/installer-backups' }
 $shell = New-Object -ComObject WScript.Shell
+# WScript.Shell.TargetPath rejects non-ANSI targets on some Windows locales.
+# Use it only to seed arguments on an empty link; all target/directory writes
+# go through the production Unicode IShellLinkW wrapper. Update must preserve
+# the custom arguments, which are checked before the migration under test.
+function New-TestShortcut([string]$Path, [string]$TargetPath, [string]$LaunchArguments = '') {
+    if ($LaunchArguments) {
+        $link = $shell.CreateShortcut($Path)
+        $link.Arguments = $LaunchArguments
+        $link.Save()
+    }
+    [XHarnessInstaller.Shortcuts]::Update($Path, $TargetPath, ([IO.Path]::GetDirectoryName($TargetPath)))
+    $actual = [XHarnessInstaller.Shortcuts]::Read($Path)
+    Assert-That ($actual.TargetPath -ieq $TargetPath) ('Fixture target did not round-trip: ' + $Path)
+    Assert-That ($actual.Arguments -ceq $LaunchArguments) ('Fixture arguments did not round-trip: ' + $Path)
+}
 function New-TestCopy([string]$Name) {
     $directory = Join-Path $fixture $Name
     New-Item -ItemType Directory -Path $directory | Out-Null
@@ -29,10 +44,8 @@ $records = @()
 foreach ($copy in @($old, $custom, $unknown)) {
     Write-Output "Creating fixture shortcut for $copy"
     $shortcut = Join-Path $fixture ((Split-Path $copy -Leaf) + '.lnk')
-    $link = $shell.CreateShortcut($shortcut)
-    $link.TargetPath = Join-Path $copy 'xharness-desktop.exe'
-    if ($copy -eq $custom) { $link.Arguments = '--custom-profile' }
-    $link.Save()
+    $launchArguments = if ($copy -eq $custom) { '--custom-profile' } else { '' }
+    New-TestShortcut $shortcut (Join-Path $copy 'xharness-desktop.exe') $launchArguments
     $records += [pscustomobject]@{ Link = $shortcut; Directory = $copy; Custom = ($copy -eq $custom) }
 }
 $inventory = Join-Path $fixture 'inventory.json'
@@ -60,7 +73,7 @@ Assert-That ((Get-Content -LiteralPath (Join-Path $old 'user-project.txt') -Raw)
 Assert-That (Test-Path -LiteralPath (Join-Path $custom 'xharness-desktop.exe')) 'Custom launcher was retired'
 Assert-That (Test-Path -LiteralPath (Join-Path $unknown 'xharness-desktop.exe')) 'Unknown directory was retired'
 Assert-That ([XHarnessInstaller.Shortcuts]::Read($records[0].Link).TargetPath -ieq (Join-Path $canonical 'xharness-desktop.exe')) 'Known shortcut not updated'
-Assert-That ($shell.CreateShortcut($records[1].Link).Arguments -eq '--custom-profile') 'Custom shortcut changed'
+Assert-That ([XHarnessInstaller.Shortcuts]::Read($records[1].Link).Arguments -eq '--custom-profile') 'Custom shortcut changed'
 [IO.File]::WriteAllText((Join-Path $fixture 'broken.lnk'), 'Not a shell link')
 $links = @(Get-XHarnessLinks -Roots @($fixture))
 Assert-That ($links.Count -gt 0) 'Known links were not inventoried'
@@ -91,10 +104,7 @@ function New-TestShortcutPair([string]$Name, [string]$BackupTarget, [string]$Arg
     $path = Join-Path $fixture ($Name + '.lnk')
     [XHarnessInstaller.Shortcuts]::Update($path, $target, $canonical)
     $staging = Join-Path $fixture ($Name + '-staging.lnk')
-    $link = $shell.CreateShortcut($staging)
-    $link.TargetPath = $BackupTarget
-    $link.Arguments = $Arguments
-    $link.Save()
+    New-TestShortcut $staging $BackupTarget $Arguments
     Move-Item -LiteralPath $staging -Destination ($path + '.before-xharness-update')
     return $path
 }
@@ -109,6 +119,7 @@ $unicodeMetadata = @(Get-ChildItem -LiteralPath (Get-XHarnessShortcutBackupRoot)
 Assert-That ($unicodeMetadata.Count -eq 1) 'Unicode recovery metadata did not round-trip'
 foreach ($case in @(
     @{ Name = 'custom-backup'; Target = $target; Arguments = '--custom-profile' },
+    @{ Name = 'unicode-custom-backup'; Target = $target; Arguments = ('--profile "' + $unicodeName + '"') },
     @{ Name = 'unrelated-backup'; Target = "$env:SystemRoot/notepad.exe"; Arguments = '' },
     @{ Name = 'unverified-backup'; Target = (Join-Path $fixture 'missing/xharness-desktop.exe'); Arguments = '' }
 )) {

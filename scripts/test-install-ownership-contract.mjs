@@ -32,3 +32,12 @@ assert.match(script, /FFFF0FFF/)
 assert.match(script, /record.Custom/)
 assert.match(read('scripts/test-windows-install-ownership.ps1'), /github-hosted/)
 console.log('Installation ownership contracts passed (native runtime acceptance remains separate).')
+
+// Fixtures must exercise Unicode paths through the same Shell Link API as production.
+const fixture = read('scripts/test-install-ownership-logic.ps1')
+assert.doesNotMatch(fixture, /\.TargetPath\s*=/)
+assert.match(fixture, /Shortcuts\]::Update\(\$Path, \$TargetPath,/)
+assert.match(fixture, /Fixture target did not round-trip/)
+assert.match(fixture, /Fixture arguments did not round-trip/)
+assert.match(fixture, /unicode-custom-backup/)
+assert.match(fixture, /spaces \[literal\]/)
