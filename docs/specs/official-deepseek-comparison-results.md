@@ -1,5 +1,63 @@
 # Official DeepSeek comparison: preflight checkpoint
 
+## Local forwarding follow-up (2026-09-11)
+
+The user's local-download/SSH-forward approach works. No host network settings
+were changed and no real model requests were made. This follow-up supersedes
+the earlier claim that no consistent-version npm tree could be downloaded,
+but **does not mark the environment or official adapter ready**.
+
+- Forwarded `pyknotid 0.5.3` Git bundle (2,087,284 bytes), SHA-256
+  `5c77c9b81dec173e146bb582ff0f8377c8d595273345a54dba11b6f9f96ad83f`.
+  Local and remote hashes match; remote Git fsck passes; tag resolves to
+  `441c807dbec2ee32e1da572e24e58d52a4eb7afa`.
+- Added `preflight_oracle.py --source-bundle PATH --source-sha256 HASH`, restricted
+  to the Cython grader-only fixture. It checks the transferred and copied bytes
+  and the expected checkout commit. It does not preload a solution for an agent.
+- `oracle-cython-3` timed out after 240 seconds during Debian index download,
+  before the new fixture stage or any hidden tests. The original failure is
+  retained; no Cython grader PASS is claimed.
+- Local npm normal peer resolution emitted conflicting override diagnostics.
+  An experimental `--legacy-peer-deps --ignore-scripts --os=linux --cpu=x64
+  --libc=glibc` install then encountered ECONNRESET; one cache-assisted retry
+  completed. All 267 installed DeepSeek package instances checked as rc.1.
+  However, this success did NOT guarantee a complete or uncorrupted runtime.
+- Forwarded runtime archive: 76,242,908 bytes, SHA-256
+  `5f77935717055879ab58f88dfde3fe89868099e4470805230c5ada0547ad01d4`.
+  Both hosts agree. Its original package-lock SHA-256 is
+  `e29bb016120aeb344e8079873f284a2c35b3cae9e1cace9a4aa7baf1f5cf551f`.
+  These hashes identify a FAILED experimental tree, not an approved build.
+
+| Attempt | Actual result |
+|---|---|
+| `official-mock-2` / `official-forwarded-1` | Missing `cordis-plugin-group`; zero mock and real requests |
+| `official-mock-3` / `official-forwarded-2` | Added declared Cordis peers via a separately forwarded overlay; process SIGBUS before requests |
+| Native module probe | `node-addon-require-builtin` and sharp caused SIGBUS; koffi, system addon and node-pty loaded successfully |
+| `official-mock-4` / `official-forwarded-3` | Re-extracted same-version original addon/sharp npm tarballs on Linux; startup moved past its initial crash but loader failed on missing peer packages, including `dsh-scope`; zero requests |
+| Repeated native probe on forwarded-3 | Builtin addon now loads; sharp still SIGBUS (its shared-library chain is not yet verified); other three probes pass |
+
+The installed builtin addon's hash differed from the file extracted from its
+same-version original npm tarball. This is evidence of an incomplete/corrupted
+installed tree, consistent with the interrupted installation, not proof of a
+Windows/Linux incompatibility in official source. Replacing that exact artifact
+removed its isolated SIGBUS. Peer resolution was bypassed only as a diagnostic
+experiment and left many dependencies absent/unreachable. Do not fix this by
+ignoring loader failures or by altering official code.
+
+The transferred overlays and raw tarballs are preserved under
+`transfer-3185838e`. Runtime snapshots and all mock outputs are separate; no old
+runtime or production App was overwritten. The 30-test suite passes on WZU;
+Windows passes 27 with 3 environment-specific skips. The prior `ff664f0` PR CI
+completed green; this does not certify the later runtime experiments.
+
+Next installation should be a clean, complete dependency resolution from
+verified original artifacts (including peers), with integrity and native-module
+checks before the headless mock. Reusing the partially unpacked Windows
+node_modules tree is not a reliable scored-run setup. Both the Cython grader gate
+and official native-tool gate remain incomplete; paid comparison remains paused.
+
+---
+
 Date: 2026-09-11. **Preparation only; no scored comparison and no real model
 requests in this checkpoint.** The old, incomplete Terminus-2 paid attempt is
 reported separately in [the prior results](terminal-bench-pilot-results.md).

@@ -81,6 +81,12 @@ scored agents. Preserve failed directories and keep oracle/verifier logs private
 No output directory may be reused. A reward file without consistent executed
 CTRF tests is an infrastructure error, not a score; inspect failed test logs too.
 
+For a locally downloaded Cython source bundle, pass `--source-bundle PATH
+--source-sha256 LOWERCASE_SHA256` to `preflight_oracle.py`. The bundle is checked
+again after copying into the isolated grader container; its 0.5.3 checkout must
+match the pinned commit. This bypasses only that fixture's GitHub download, not
+APT/PyPI preparation, and is not yet wired into scored agent trials.
+
 The experimental `official_headless.py` currently expects `node` and
 `dsh-official/node_modules/@deepseek-ai/dsh/lib/bin.js` below the runtime root.
 It is a mock-only launcher, NOT a validated Harbor adapter. Its normal npm
