@@ -29,6 +29,7 @@ use xharness_session::{
 };
 
 mod audit;
+mod results;
 
 const FILE_FORMAT: &str = "xharness.session.jsonl";
 const FILE_FORMAT_VERSION: u32 = 1;
@@ -232,6 +233,45 @@ impl JsonlSessionStore {
 
 #[async_trait]
 impl Store for JsonlSessionStore {
+    async fn archive_tool_result(
+        &self,
+        session_id: &str,
+        text: &str,
+    ) -> Result<xharness_session::ToolArchiveRef, StoreError> {
+        if self.load(session_id).await?.is_none() {
+            return Err(StoreError::NotFound {
+                session_id: session_id.into(),
+            });
+        }
+        let root = self.root.clone();
+        let session_id = session_id.to_owned();
+        let text = text.to_owned();
+        let _permit = self
+            .audit_reads
+            .acquire()
+            .await
+            .map_err(|e| backend_message(e.to_string()))?;
+        run_blocking(move || results::put(&root, &session_id, &text)).await
+    }
+
+    async fn tool_result_archive(
+        &self,
+        session_id: &str,
+        key: &str,
+    ) -> Result<Option<String>, StoreError> {
+        validate_session_id(session_id)?;
+        xharness_session::ToolArchiveRef::validate_key(key)?;
+        let root = self.root.clone();
+        let session_id = session_id.to_owned();
+        let key = key.to_owned();
+        let _permit = self
+            .audit_reads
+            .acquire()
+            .await
+            .map_err(|e| backend_message(e.to_string()))?;
+        run_blocking(move || results::read(&root, &session_id, &key)).await
+    }
+
     async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
         let root = Arc::clone(&self.root);
         let mut session_ids = run_blocking(move || discover_session_ids(root.as_path())).await?;
