@@ -50,11 +50,15 @@ def run(args):
             docker('run', '-d', '--rm', '--name', name, '--network', 'none', '--cpus', '1', '--memory', '2g',
                    '--mount', f'type=bind,src={directory},dst=/opt/benchmark-dependencies,readonly',
                    '--mount', f'type=bind,src={Path(__file__).parent.resolve()},dst=/opt/bench,readonly',
-                   f'alexgshaw/{args.task}:20251031', 'sleep', '1200')
+                   args.prepared_image or f'alexgshaw/{args.task}:20251031', 'sleep', '1200')
             # Neutral OS tools only. Never upgrade the task's Python/Cython/NumPy.
-            code = command('apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 update && '
+            if args.prepared_image:
+                prepare = 'command -v curl && command -v rg && command -v ps && mkdir -p /logs/agent /logs/verifier'
+            else:
+                prepare = ('apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 update && '
                            'apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 install -y curl ripgrep procps && '
-                           'mkdir -p /logs/agent /logs/verifier', 'prepare.log', 240)
+                           'mkdir -p /logs/agent /logs/verifier')
+            code = command(prepare, 'prepare.log', 240)
             if code:
                 raise RuntimeError('neutral dependency installation failed')
             if args.task == 'build-cython-ext':
@@ -84,6 +88,7 @@ def run(args):
             reward = float((output / 'reward.txt').read_text().strip())
             ctrf = json.loads((output / 'ctrf.json').read_text())
             result = dict(task=args.task, model_requests=0,
+                          prepared_image=args.prepared_image,
                           source_bundle_sha256=bundle_hash,
                           oracle_fixture_checkout=args.task == 'build-cython-ext', **grade_evidence(reward, ctrf))
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
@@ -104,4 +109,5 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--source-bundle', type=Path)
     parser.add_argument('--source-sha256')
+    parser.add_argument('--prepared-image', help='Clean neutral image ID, never an oracle snapshot')
     raise SystemExit(run(parser.parse_args()))
