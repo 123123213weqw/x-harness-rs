@@ -1,5 +1,11 @@
 # Small real-agent Terminal-Bench pilot
 
+> **Official DeepSeek comparison: preparation only.** The approved replacement
+> protocol is in [the plan](../../docs/plans/2026-09-11-official-deepseek-comparison.md).
+> `run_pilot.py` below still implements the OLD Terminus-2 protocol: do not use
+> it to claim an official DeepSeek comparison. No paid run under the replacement
+> protocol is enabled yet. See [preflight status](../../docs/specs/official-deepseek-comparison-results.md).
+
 This is evaluation tooling, not a replacement agent or a production updater. It runs the actual `xharness-host` executable and native tools inside Harbor task containers, and compares them to Harbor's actual Terminus-2 implementation. No evaluation scores are hard-coded.
 
 ## Frozen pilot
@@ -44,3 +50,41 @@ The first paid attempt (`runs-2`) is **incomplete and unscored**, not a 0% resul
 - `run_pilot.py`: frozen selection/order, isolated trials, grading and report persistence.
 - `health.py`: bounded dependency reachability check before paid calls.
 - `test_*.py`, `preflight*.py`: offline and zero-bill integration checks; not model-quality evidence.
+
+## Official comparison preflights (zero model requests)
+
+`dependency_proxy.py` exposes only a private Unix socket, mounted into a disposable
+network-disabled container. It permits exact public dependency hosts, validates
+resolved addresses before connecting, and bounds time, bytes and concurrent
+handlers. It does not expose the model API or a host TCP listener. CONNECT retains
+end-to-end TLS; it cannot restrict methods/paths within allowed encrypted hosts.
+The policy is restricted artifact access, not arbitrary internet access.
+
+`proxy_exec.py` selects the Tsinghua PyPI mirror and the official Astral CDN for
+the task's pinned uv 0.9.5 installer. It does not upgrade task Python/Cython/NumPy
+versions or weaken TLS/APT signature verification. These transport differences
+must be applied to both groups and recorded before scoring; the production
+Harbor adapters do not yet integrate this bridge.
+
+On the evaluation host, from this directory:
+
+```sh
+python preflight_dependencies.py
+python preflight_oracle.py --tasks /absolute/pinned/tasks --task cancel-async-tasks --output /absolute/NEW_PREFLIGHT_DIR
+python preflight_official.py --runtime /absolute/official-runtime --output /absolute/NEW_MOCK_DIR
+```
+
+The oracle preflight deliberately exposes the official solution only in its own
+grader-only container, never an agent image. The Cython oracle needs the checkout
+specified by the task instruction; this fixture is NOT an allowed head start for
+scored agents. Preserve failed directories and keep oracle/verifier logs private.
+No output directory may be reused. A reward file without consistent executed
+CTRF tests is an infrastructure error, not a score; inspect failed test logs too.
+
+The experimental `official_headless.py` currently expects `node` and
+`dsh-official/node_modules/@deepseek-ai/dsh/lib/bin.js` below the runtime root.
+It is a mock-only launcher, NOT a validated Harbor adapter. Its normal npm
+installation mixed rc.1/rc.2 packages and failed native tool execution.
+`official-package.json` records the attempted all-rc.1 override experiment;
+installation did not complete and it is **not a verified dependency lockfile**.
+Do not run a billed comparison with either unvalidated runtime tree.
