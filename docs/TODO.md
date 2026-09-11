@@ -906,7 +906,17 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 ## 2026-09-11 Goal 入口收敛
 
 - [x] 常规 `goal` 工具：与 Bash 一样通过 ToolRegistry 暴露，复用 Host Goal RPC；create/get/update/pause/resume/report，不额外注册 goal_report。
-- [x] 只保留原 GoalBar：状态、轮数、预算、确认在框内；移除下方展开区；空状态提供“设定目标”，源覆盖文件与部署 bundle 同步。
+- [x] 只保留原 GoalBar：状态、轮数、预算、确认在框内；移除下方展开区；空状态静默隐藏，模型通过常规 goal 工具创建后显示，源覆盖文件与部署 bundle 同步。
 - [x] 参数隔离、取消、创建幂等、过期 ref、报告限制及多轮现有测试；Chromium/WebKit 单框与异步异常回归。
 - [ ] 本次变更跨平台 CI、macOS/Windows/Linux 安装包发布和软件替换；尚未更新 0.2.16 已安装实例。
 - [ ] 用真实模型额外验收“自然语言要求 → goal.create → 自动推进 → goal.report”；既有真实 DeepSeek 报告实验不代表本次新增入口已实测。
+
+## 2026-09-11 问答软等待与低风险继续
+
+- [x] Interaction/Session：Deferred 非答案结果、独立持久事件、一次性等待解除、保留迟答问题。
+- [x] Host：60 秒持久截止时间、取消不唤醒、固定 RPC 身份的迟答 Steering outbox。
+- [x] Tool Guard：只读探索白名单、Full Access 不绕过、同轮迟答不提前开放写入。
+- [x] UI：同一问答卡片提示超时可继续、保持当前草稿、无自动选择。
+- [x] 远程 333 项回归、Clippy、Chromium/WebKit；真实 DeepSeek 60.022 秒解除等待 → 只读侦查 → 重启 → 接收迟答 → 正常继续。
+- [ ] CI 构建并部署新版后端/安装包（当前运行服务仍为 Goal 版本，未启用问答软等待）。
+- [ ] 问答草稿跨页面重载的持久化：单独设计用户隐私、清理和会话隔离，不将未提交草稿当答案。

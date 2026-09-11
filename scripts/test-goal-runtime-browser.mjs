@@ -112,23 +112,15 @@ try {
   await page.evaluate(()=>renderGoal('absent'));
   assert.equal(await page.locator('[data-goal-bar]').count(),0);
   assert.equal(await page.locator('[data-goal-runtime]').count(),0);
-  await page.getByRole('button',{name:'设定目标',exact:true}).click();
-  const create=page.getByRole('button',{name:'创建并启动目标',exact:true});
-  assert.equal(await create.isEnabled(),false);
-  await page.getByRole('textbox',{name:'目标内容',exact:true}).fill('实现一个小目标');
-  await page.evaluate(()=>{fail=true});await create.click();
-  await page.getByRole('alert').getByText('connection lost').waitFor();
-  assert.equal(await create.isEnabled(),true);
-  await page.evaluate(()=>{fail=false;hold=true});await create.click();
-  assert.equal(await create.isEnabled(),false);
+  assert.equal(await page.locator('[data-goal-create]').count(),0);
+  assert.equal(await page.getByRole('button',{name:'设定目标',exact:true}).count(),0);
+  assert.equal(await page.evaluate(()=>calls.filter(c=>c==='create').length),0);
+  // A model-created projection reveals the bar; clear/switch back to absent hides it.
+  await page.evaluate(()=>renderGoal('running'));
+  assert.equal(await page.locator('[data-goal-bar]').count(),1);
   await page.evaluate(()=>renderGoal('absent','active','different-session'));
-  await page.evaluate(()=>{hold=false;pendingResolve()});
-  assert.equal(await page.getByRole('alert').count(),0);
-  await page.getByRole('button',{name:'设定目标',exact:true}).click();
-  await page.getByRole('textbox',{name:'目标内容',exact:true}).fill('目标');
-  await create.click();
-  await page.getByRole('button',{name:'设定目标',exact:true}).waitFor();
-  assert.equal(await page.evaluate(()=>calls.filter(c=>c==='create').length),3);
+  assert.equal(await page.locator('[data-goal-bar]').count(),0);
+  assert.equal(await page.locator('[data-goal-runtime]').count(),0);
 
   assert.deepEqual(errors.filter(e=>!e.includes('isolated fixture')),[]);
   console.log(engine+': upstream GoalDock/GoalBar single inline card, confirm, retry, stale pending action, complete, blocked resume, legacy enable, narrow layout passed');

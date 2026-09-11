@@ -297,7 +297,9 @@ impl GoalController {
         }
         let inbox = InboxProjection::from_session(&session)?;
         let pending_id = s.pending.as_ref().map(|p| p.message_id.as_str());
-        let runtime = if open_turn(&session).is_some() {
+        let runtime = if xharness_session::has_unanswered_deferred_question(session.events()) {
+            RuntimeState::AwaitingAnswer
+        } else if open_turn(&session).is_some() {
             RuntimeState::NeedsRecovery
         } else {
             RuntimeState::Idle

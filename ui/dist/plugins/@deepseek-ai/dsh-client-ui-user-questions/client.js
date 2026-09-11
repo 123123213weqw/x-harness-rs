@@ -1,3 +1,4 @@
+// xh-question-deferred/v1
 window.__ModuleLoader__.load({
 	id: "@deepseek-ai/dsh-client-ui-user-questions",
 	factory: (require) => {
@@ -80,7 +81,8 @@ window.__ModuleLoader__.load({
 				return this.wait.key;
 			}
 			/** The request's question list, forwarded from the carrier payload. */
-			get questions() {
+			get deferred() { return this.wait.payload.deferred === true; }
+ get questions() {
 				return this.wait.payload.questions;
 			}
 			/**
@@ -435,6 +437,7 @@ window.__ModuleLoader__.load({
 			return (0, react_jsx_runtime.jsx)("div", {
 				className: QuestionComposer_module_css_default.frame,
 				"data-question-key": pending.key,
+ "data-question-deferred": pending.deferred ? "true" : "false",
 				children: (0, react_jsx_runtime.jsxs)("section", {
 					className: clsx(QuestionComposer_module_css_default.card, minimized && QuestionComposer_module_css_default.cardMinimized),
 					"aria-labelledby": `question-${pending.key}-${String(index)}`,
@@ -442,7 +445,7 @@ window.__ModuleLoader__.load({
 						className: QuestionComposer_module_css_default.header,
 						children: [(0, react_jsx_runtime.jsxs)("div", {
 							className: QuestionComposer_module_css_default.headingBlock,
-							children: [question.header !== void 0 && (0, react_jsx_runtime.jsx)("div", {
+							children: [pending.deferred && react_jsx_runtime.jsx("div",{role:"status",children:"等待回答 · 已解除阻塞，仅允许独立的只读探索；未回答不代表同意"}),question.header !== void 0 && (0, react_jsx_runtime.jsx)("div", {
 								className: QuestionComposer_module_css_default.eyebrow,
 								children: question.header
 							}), (0, react_jsx_runtime.jsx)("h2", {

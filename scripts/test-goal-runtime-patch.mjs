@@ -10,6 +10,8 @@ assert.equal(text.includes('XhGoalDetails'),false,'no detached details component
 assert.equal(text.includes("jsx('details'"),false);
 assert.ok(text.includes('jsx(XhGoalControls'));
 assert.ok(text.includes('xh-goal-inline/v2'));
+assert.equal(text.includes('XhGoalCreate'),false,'absent Goal stays silent');
+assert.equal(text.includes('设定目标'),false);
 new Script(text);
 assert.throws(()=>patchGoalRuntime(Buffer.from('unknown upstream payload')),/anchor changed/);
 const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url)));

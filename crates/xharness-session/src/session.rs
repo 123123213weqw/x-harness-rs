@@ -929,6 +929,30 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 );
                 questions.insert(invocation.interaction_id.clone(), interaction);
             }
+            EventData::QuestionDeferred { interaction_id } => {
+                if !questions
+                    .get(interaction_id)
+                    .is_some_and(|q| matches!(q.terminal_state(), QuestionTerminalState::Pending))
+                    || crate::question_is_deferred(&events[..position], interaction_id)
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "question/deferred requires a pending, not-yet-deferred question",
+                    ));
+                }
+            }
+            EventData::QuestionAnswerDelivered { interaction_id } => {
+                if !crate::question_is_deferred(&events[..position], interaction_id)
+                    || !questions.get(interaction_id).is_some_and(|q| {
+                        !matches!(q.terminal_state(), QuestionTerminalState::Pending)
+                    })
+                {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "late answer delivery requires a settled deferred question",
+                    ));
+                }
+            }
             EventData::QuestionDraftUpdated {
                 interaction_id,
                 answers,
@@ -1857,7 +1881,9 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                                 .get(interaction_id)
                                 .expect("question call map references an interaction")
                                 .terminal_state();
-                            if matches!(terminal, QuestionTerminalState::Pending) {
+                            if matches!(terminal, QuestionTerminalState::Pending)
+                                && !crate::question_is_deferred(&events[..position], interaction_id)
+                            {
                                 return Err(lifecycle_error(
                                     logged.seq,
                                     "ask_user_question tool/result cannot precede question settlement",

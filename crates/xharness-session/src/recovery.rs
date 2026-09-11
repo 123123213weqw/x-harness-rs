@@ -61,9 +61,10 @@ pub struct PendingUserQuestion {
     pub draft: Vec<QuestionAnswer>,
 }
 
-/// Fold all durable question events whose associated Tool call still lacks a
-/// result. The Session validator guarantees that every transition is valid.
-pub fn recoverable_user_questions(events: &[LoggedEvent]) -> Vec<RecoverableUserQuestion> {
+/// Fold question authority independently of whether its original tool settled.
+/// Deferred questions remain answerable after that tool result; recovery uses
+/// a separate unsettled-tool filter. The Session validator checks transitions.
+pub fn all_user_questions(events: &[LoggedEvent]) -> Vec<RecoverableUserQuestion> {
     let calls = events
         .iter()
         .filter_map(|event| match event.data() {
@@ -73,13 +74,6 @@ pub fn recoverable_user_questions(events: &[LoggedEvent]) -> Vec<RecoverableUser
             _ => None,
         })
         .collect::<HashMap<_, _>>();
-    let settled = events
-        .iter()
-        .filter_map(|event| match event.data() {
-            EventData::ToolResult { result, .. } => Some(result.call_id.as_str()),
-            _ => None,
-        })
-        .collect::<HashSet<_>>();
     let mut order = Vec::<String>::new();
     let mut interactions = HashMap::<String, QuestionInteraction>::new();
     for event in events {
@@ -139,9 +133,6 @@ pub fn recoverable_user_questions(events: &[LoggedEvent]) -> Vec<RecoverableUser
         .filter_map(|interaction_id| {
             let interaction = interactions.remove(&interaction_id)?;
             let invocation = interaction.invocation().clone();
-            if settled.contains(invocation.execution_id.as_str()) {
-                return None;
-            }
             let (turn, step, call) = calls.get(&invocation.execution_id)?.clone();
             Some(RecoverableUserQuestion {
                 turn,
@@ -155,8 +146,33 @@ pub fn recoverable_user_questions(events: &[LoggedEvent]) -> Vec<RecoverableUser
         .collect()
 }
 
+pub fn recoverable_user_questions(events: &[LoggedEvent]) -> Vec<RecoverableUserQuestion> {
+    let settled = events
+        .iter()
+        .filter_map(|e| match e.data() {
+            EventData::ToolResult { result, .. } => Some(result.call_id.as_str()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    all_user_questions(events)
+        .into_iter()
+        .filter(|q| !settled.contains(q.invocation.execution_id.as_str()))
+        .collect()
+}
+
+pub fn question_is_deferred(events: &[LoggedEvent], id: &str) -> bool {
+    events.iter().any(|e| matches!(e.data(), EventData::QuestionDeferred { interaction_id } if interaction_id == id))
+}
+
+pub fn has_unanswered_deferred_question(events: &[LoggedEvent]) -> bool {
+    all_user_questions(events).iter().any(|q| {
+        matches!(q.terminal, QuestionTerminalState::Pending)
+            && question_is_deferred(events, &q.invocation.interaction_id)
+    })
+}
+
 pub fn pending_user_questions(events: &[LoggedEvent]) -> Vec<PendingUserQuestion> {
-    recoverable_user_questions(events)
+    all_user_questions(events)
         .into_iter()
         .filter_map(|question| {
             matches!(question.terminal, QuestionTerminalState::Pending).then_some(

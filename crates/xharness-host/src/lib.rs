@@ -266,6 +266,7 @@ impl BasicHost {
             delegation_listener_started: Arc::new(AtomicBool::new(false)),
             title_work: Arc::new(titles::TitleWork::default()),
         });
+        host.questions.bind_host(Arc::downgrade(&host));
         host.agent_runtime.bind_host(Arc::downgrade(&host));
         host
     }

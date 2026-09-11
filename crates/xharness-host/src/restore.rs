@@ -125,6 +125,7 @@ impl BasicHost {
                     }
                 })?;
             }
+            self.questions.restore_snapshot(&session).await;
             let inbox = InboxProjection::from_session(&session).map_err(|error| {
                 HostRestoreError::InvalidInbox {
                     session_id: session_id.clone(),
@@ -388,6 +389,12 @@ impl BasicHost {
         // Reapply durable custom ordering/tombstones after those ids exist.
         self.reload_control_projection().await?;
 
+        if let Err(error) = self.questions.deliver_restored_answers().await {
+            report.issues.push(HostRestoreIssue {
+                session_id: "question-outbox".into(),
+                message: error.to_string(),
+            });
+        }
         Ok(report)
     }
 }
@@ -1105,6 +1112,8 @@ fn restored_web_event(
             });
         }
         EventData::QuestionRequested { .. }
+        | EventData::QuestionDeferred { .. }
+        | EventData::QuestionAnswerDelivered { .. }
         | EventData::QuestionDraftUpdated { .. }
         | EventData::QuestionResolved { .. }
         | EventData::QuestionCancelled { .. } => {

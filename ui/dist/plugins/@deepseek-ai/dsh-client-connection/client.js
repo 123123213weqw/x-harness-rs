@@ -1,3 +1,4 @@
+// xh-question-deferred/v1
 window.__ModuleLoader__.load({
 	id: "@deepseek-ai/dsh-client-connection",
 	factory: (require) => {
@@ -5618,7 +5619,8 @@ requireIdle: boolean().optional(),
 			object({
 				type: literal("question/requested"),
 				sessionId: sessionIdSchema,
-				questions: array(askUserQuestionItemSchema).min(1)
+				questions: array(askUserQuestionItemSchema).min(1),
+ deferred: boolean().optional(), waitTimeoutSeconds: number().optional()
 			}),
 			object({
 				type: literal("question/resolved"),
