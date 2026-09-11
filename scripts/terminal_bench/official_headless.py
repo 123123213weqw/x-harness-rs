@@ -1,6 +1,6 @@
 """Thin process wrapper for official dsh 0.1.5-rc.1 full headless.
 
-EXPERIMENTAL: native-tool mock has not passed; not wired into paid trials.
+Native-tool mock passes with the clean locked runtime; not wired into paid trials.
 No replacement prompt, tool loop, compactor or SDK-minimal composition. Real
 provider credentials remain outside the container; stdin carries a capability.
 """
