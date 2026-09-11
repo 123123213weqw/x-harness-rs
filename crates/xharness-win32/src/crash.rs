@@ -289,6 +289,15 @@ mod tests {
     }
     #[test]
     fn external_crash_capture_saves_a_real_minidump() {
+        exercise_capture(false);
+    }
+    #[test]
+    fn external_crash_capture_saves_full_memory_when_selected() {
+        exercise_capture(true);
+    }
+    fn exercise_capture(full: bool) {
+        static FIXTURE_GATE: Mutex<()> = Mutex::new(());
+        let _serial = FIXTURE_GATE.lock().unwrap();
         use std::os::windows::process::CommandExt;
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -321,8 +330,16 @@ mod tests {
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
-            let size = capture.capture(&root.join("context"), &root.join("crash.dmp"), false)?;
-            assert!(size > 100 && size <= 64 * 1024 * 1024);
+            let size = capture.capture(&root.join("context"), &root.join("crash.dmp"), full)?;
+            assert!(
+                size > 100
+                    && size
+                        <= if full {
+                            512 * 1024 * 1024
+                        } else {
+                            64 * 1024 * 1024
+                        }
+            );
             let mut signature = [0u8; 4];
             File::open(root.join("crash.dmp"))?.read_exact(&mut signature)?;
             assert_eq!(&signature, b"MDMP");
@@ -332,5 +349,42 @@ mod tests {
         let _ = child.wait();
         let _ = fs::remove_dir_all(&root); // unique test-only directory
         result.unwrap();
+    }
+    #[test]
+    fn dump_callback_rejects_writes_before_exceeding_budget() {
+        let root =
+            std::env::temp_dir().join(format!("xharness-dump-budget-{}.tmp", std::process::id()));
+        let mut writer = BoundedDump {
+            file: File::create(&root).unwrap(),
+            limit: 8,
+            deadline: Instant::now() + Duration::from_secs(5),
+            used_callback: true,
+        };
+        // SAFETY: zeroed API POD structs are valid buffers for our callback;
+        // below initializes the discriminant and the matching union variant.
+        let mut input: MINIDUMP_CALLBACK_INPUT = unsafe { std::mem::zeroed() };
+        let mut output: MINIDUMP_CALLBACK_OUTPUT = unsafe { std::mem::zeroed() };
+        let mut bytes = [0u8; 9];
+        input.CallbackType = IoWriteAllCallback as u32;
+        input.Anonymous.Io = windows_sys::Win32::System::Diagnostics::Debug::MINIDUMP_IO_CALLBACK {
+            Handle: 0,
+            Offset: 0,
+            Buffer: bytes.as_mut_ptr().cast(),
+            BufferBytes: 9,
+        };
+        // SAFETY: all callback inputs refer to live, exclusively owned locals.
+        assert_eq!(
+            unsafe {
+                dump_io(
+                    (&mut writer as *mut BoundedDump).cast(),
+                    &input,
+                    &mut output,
+                )
+            },
+            0
+        );
+        assert_eq!(writer.file.metadata().unwrap().len(), 0);
+        drop(writer);
+        fs::remove_file(root).unwrap();
     }
 }

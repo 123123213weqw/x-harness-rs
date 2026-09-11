@@ -31,3 +31,8 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/test-runtime-diagnostics.mjs
+      - name: Validate real native EXE/PDB identity parser
+        if: runner.os == 'Windows'
+        env:
+          XHARNESS_TEST_NATIVE_SYMBOLS: '1'
+        run: python -B scripts/test-desktop-symbols.py
