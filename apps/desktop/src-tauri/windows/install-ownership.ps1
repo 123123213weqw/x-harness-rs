@@ -89,6 +89,86 @@ function Get-XHarnessLegacyLocations {
     (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\XHarness-Friends')
 }
 
+function Get-XHarnessShortcutBackupRoot {
+    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'XHarness\installer-backups'
+}
+
+function Assert-XHarnessRecoveryPath([string]$Path) {
+    # Inspect existing ancestors before creating anything, including the leaf.
+    $cursor = [IO.Path]::GetFullPath($Path)
+    while ($cursor) {
+        if (Test-Path -LiteralPath $cursor) {
+            Assert-XHarnessNoRedirect (Get-Item -LiteralPath $cursor -Force)
+        }
+        $cursor = [IO.Path]::GetDirectoryName($cursor)
+    }
+}
+
+function Save-XHarnessShortcutBackup([string]$Path, [version]$Version) {
+    $source = [IO.Path]::GetFullPath($Path)
+    Assert-XHarnessRecoveryPath $source
+    $hash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+    $digest = [Security.Cryptography.SHA256]::Create()
+    try {
+        $identity = [Text.Encoding]::UTF8.GetBytes($source.ToUpperInvariant() + "`n" + $hash)
+        $key = [BitConverter]::ToString($digest.ComputeHash($identity)).Replace('-', '').ToLowerInvariant()
+    } finally { $digest.Dispose() }
+    $directory = Join-Path (Join-Path (Get-XHarnessShortcutBackupRoot) $Version.ToString()) $key
+    Assert-XHarnessRecoveryPath $directory
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    Assert-XHarnessRecoveryPath $directory
+    $copy = Join-Path $directory 'shortcut.lnk'
+    $metadata = Join-Path $directory 'source.json'
+    Assert-XHarnessRecoveryPath $copy
+    Assert-XHarnessRecoveryPath $metadata
+    if (-not (Test-Path -LiteralPath $copy)) { [IO.File]::Copy($source, $copy, $false) }
+    if ((Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -ne $hash) { throw 'Shortcut recovery copy does not match; original retained' }
+    if (-not (Test-Path -LiteralPath $metadata)) {
+        $json = [pscustomobject]@{ original_path = $source; sha256 = $hash; destination_version = $Version.ToString() } | ConvertTo-Json
+        # Never overwrite existing recovery metadata, even on a racing retry.
+        $stream = [IO.File]::Open($metadata, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+            $stream.Write($bytes, 0, $bytes.Length)
+        } finally { $stream.Dispose() }
+    }
+    $saved = Get-Content -LiteralPath $metadata -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($saved.original_path -ine $source -or $saved.sha256 -ne $hash) { throw 'Shortcut recovery metadata does not match; original retained' }
+    return $hash
+}
+
+function Move-XHarnessLegacyShortcutBackup([string]$Link, [string]$Target, [version]$Version) {
+    $legacy = [IO.Path]::GetFullPath($Link + '.before-xharness-update')
+    if (-not (Test-Path -LiteralPath $legacy -PathType Leaf)) { return }
+    try {
+        Assert-XHarnessRecoveryPath $Link
+        Assert-XHarnessRecoveryPath $legacy
+        $current = [XHarnessInstaller.Shortcuts]::Read($Link)
+        if ($current.Arguments -or $current.TargetPath -ine $Target) { return }
+        $backup = [XHarnessInstaller.Shortcuts]::Read($legacy)
+        if ($backup.Arguments -or [IO.Path]::GetFileName($backup.TargetPath) -ine 'xharness-desktop.exe') { return }
+        $oldDirectory = [IO.Path]::GetDirectoryName($backup.TargetPath)
+        try { $null = Get-XHarnessDirectory $oldDirectory }
+        catch {
+            # An earlier installer may have retired the old binary already.
+            # Only recognize its exact retained executable in a known legacy location.
+            if (@(Get-XHarnessLegacyLocations) -inotcontains $oldDirectory) { return }
+            $retired = $backup.TargetPath + '.before-xharness-update'
+            Assert-XHarnessRecoveryPath $retired
+            $file = Get-Item -LiteralPath $retired -Force
+            if ($file.PSIsContainer -or $file.VersionInfo.ProductName -ne 'XHarness') { return }
+        }
+        $hash = Save-XHarnessShortcutBackup $legacy $Version
+        Assert-XHarnessRecoveryPath $legacy
+        if ((Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash -ne $hash) { throw 'Legacy shortcut changed during backup; original retained' }
+        # The only deletion here: one validated shortcut backup, after verified archival.
+        # Never recurse, use a wildcard, or remove program/user data.
+        Remove-Item -LiteralPath $legacy -ErrorAction Stop
+    } catch {
+        Write-Warning ('Legacy shortcut backup retained: ' + $legacy + '. ' + $_.Exception.Message)
+    }
+}
+
 function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
     $canonical = Get-XHarnessDirectory $Directory
     if (@(Get-XHarnessProcesses).Count) { throw 'An XHarness process started during installation; close it and retry' }
@@ -96,6 +176,7 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
     # inside @(...). Keep the parsed array itself, so a first install has no links.
     $records = Get-Content -LiteralPath $Inventory -Raw | ConvertFrom-Json
     $target = Join-Path $canonical 'xharness-desktop.exe'
+    $version = [version](Get-Item -LiteralPath $target).VersionInfo.FileVersion
     foreach ($record in $records) {
         if ($record.Custom) { continue }
         if (-not (Test-Path -LiteralPath $record.Link -PathType Leaf)) { continue }
@@ -104,9 +185,9 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
         # Only the previously observed target or the target NSIS just wrote.
         $observed = Join-Path $record.Directory 'xharness-desktop.exe'
         if ($link.TargetPath -ine $observed -and $link.TargetPath -ine $target) { continue }
-        $backup = $record.Link + '.before-xharness-update'
-        if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $record.Link -Destination $backup }
+        $null = Save-XHarnessShortcutBackup $record.Link $version
         [XHarnessInstaller.Shortcuts]::Update($record.Link, $target, $canonical)
+        Move-XHarnessLegacyShortcutBackup $record.Link $target $version
     }
     # Deliberately retain unknown files/data and old directories. Only known
     # legacy distribution locations can be retired automatically, recoverably.
