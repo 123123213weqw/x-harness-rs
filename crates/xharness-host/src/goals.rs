@@ -8,9 +8,10 @@ use std::{
 use tokio::sync::{broadcast, Mutex, RwLock};
 use xharness_agent::{AgentEvent, DurableAgentHandle, GoalReportBody};
 use xharness_session::{goal::*, EventData, Session, SessionEvent, Store};
-use xharness_tools::{ToolBatchPolicy, ToolDefinition, ToolHandlerError, ToolOutput, ToolSpec};
+use xharness_tools::{ToolHandlerError, ToolOutput};
 
 pub(crate) struct GoalBridge {
+    pub host: std::sync::OnceLock<std::sync::Weak<crate::BasicHost>>,
     pub handles: RwLock<HashMap<String, DurableAgentHandle>>,
     pub prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
     pub notices: broadcast::Sender<xharness_schedule::ScheduleDeliveryNotice>,
@@ -22,6 +23,7 @@ pub(crate) struct GoalBridge {
 impl Default for GoalBridge {
     fn default() -> Self {
         Self {
+            host: Default::default(),
             handles: RwLock::new(HashMap::new()),
             prepared: Mutex::new(HashMap::new()),
             notices: broadcast::channel(2048).0,
@@ -69,40 +71,64 @@ impl GoalBridge {
     }
 }
 
-/// No model-owned identity or state mutation. The successful tool result itself is journalled.
-pub(crate) fn report_tool(
-    store: Arc<dyn Store>,
-    tools: Arc<dyn crate::SessionToolFactory>,
-    session_id: String,
+pub(crate) async fn validate_report(
+    store: &Arc<dyn Store>,
+    tools: &Arc<dyn crate::SessionToolFactory>,
+    id: &str,
     definition: GoalDefinition,
     epoch: u64,
-) -> ToolSpec {
-    let mut spec = ToolSpec::new(ToolDefinition::new("goal_report",
-        "Report progress on the active Goal near the end of this turn, after tools have settled. status=progress for remaining work, blocked only when external help is needed, complete only after checking acceptance criteria. Include concrete evidence references. Use evidence kind=job or agent with its ID only for dependencies that must finish before continuing (not unrelated daemons). This does NOT mark the Goal complete: the user confirms. Do not create or extend goals. Call alone, then give a concise final response.",
-        json!({"type":"object","additionalProperties":false,"required":["status","summary"],"properties":{
-            "status":{"type":"string","enum":["progress","blocked","complete"]},
-            "summary":{"type":"string","minLength":1,"maxLength":8192},
-            "remaining":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":2048}},
-            "evidence":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["kind","reference"],"properties":{"kind":{"type":"string","enum":["artifact","job","agent"]},"reference":{"type":"string","minLength":1,"maxLength":2048}}}},
-            "blocked_reason":{"type":"object","required":["code","message"],"properties":{"code":{"type":"string"},"message":{"type":"string"}}}
-        }})), move |ctx| {
-            let store = Arc::clone(&store); let tools=Arc::clone(&tools); let id=session_id.clone(); let definition=definition.clone();
-            async move {
-                let body: GoalReportBody = serde_json::from_value((*ctx.arguments).clone()).map_err(|e|ToolHandlerError::new(e.to_string()))?;
-                let session=store.load(&id).await.map_err(|e|ToolHandlerError::new(e.to_string()))?.ok_or_else(||ToolHandlerError::new("session missing"))?;
-                let state=execution_state(&session).ok_or_else(||ToolHandlerError::new("no active Goal"))?;
-                if !state.definition.execution_enabled || state.definition.definition_revision != definition.definition_revision || state.definition.snapshot.id != definition.snapshot.id || state.activation_epoch != epoch || state.running.is_none() {
-                    return Err(ToolHandlerError::new("Goal changed or paused; report is stale"));
-                }
-                let r=GoalReport {goal_id:definition.snapshot.id,definition_revision:definition.definition_revision,turn:state.running.as_ref().unwrap().turn,report_id:"validation".into(),status:body.status,summary:body.summary.clone(),remaining:body.remaining.clone(),evidence:body.evidence.clone(),blocked_reason:body.blocked_reason.clone()};
-                r.validate().map_err(|e|ToolHandlerError::new(e.to_string()))?;
-                if body.status == GoalReportStatus::Complete && body.evidence.is_empty() { return Err(ToolHandlerError::new("complete requires evidence references")); }
-                if body.status==GoalReportStatus::Complete && tools.goal_dependencies(&id,&body.evidence).await.map_err(ToolHandlerError::new)? {return Err(ToolHandlerError::new("required background work is still running; report progress instead"))}
-                Ok(ToolOutput {content:"Goal report recorded; finish this turn. Completion still requires user confirmation.".into(),metadata:Some(json!({"goalReport":body}))})
-            }
-        });
-    spec.batch_policy = ToolBatchPolicy::Standalone;
-    spec
+    body: GoalReportBody,
+) -> Result<ToolOutput, ToolHandlerError> {
+    let session = store
+        .load(id)
+        .await
+        .map_err(|e| ToolHandlerError::new(e.to_string()))?
+        .ok_or_else(|| ToolHandlerError::new("session missing"))?;
+    let state = execution_state(&session).ok_or_else(|| ToolHandlerError::new("no active Goal"))?;
+    if !state.definition.execution_enabled
+        || state.definition.definition_revision != definition.definition_revision
+        || state.definition.snapshot.id != definition.snapshot.id
+        || state.activation_epoch != epoch
+        || state.running.is_none()
+    {
+        return Err(ToolHandlerError::new(
+            "Goal changed or paused; report is stale",
+        ));
+    }
+    let r = GoalReport {
+        goal_id: definition.snapshot.id,
+        definition_revision: definition.definition_revision,
+        turn: state.running.as_ref().unwrap().turn,
+        report_id: "validation".into(),
+        status: body.status,
+        summary: body.summary.clone(),
+        remaining: body.remaining.clone(),
+        evidence: body.evidence.clone(),
+        blocked_reason: body.blocked_reason.clone(),
+    };
+    r.validate()
+        .map_err(|e| ToolHandlerError::new(e.to_string()))?;
+    if body.status == GoalReportStatus::Complete && body.evidence.is_empty() {
+        return Err(ToolHandlerError::new(
+            "complete requires evidence references",
+        ));
+    }
+    if body.status == GoalReportStatus::Complete
+        && tools
+            .goal_dependencies(id, &body.evidence)
+            .await
+            .map_err(ToolHandlerError::new)?
+    {
+        return Err(ToolHandlerError::new(
+            "required background work is still running; report progress instead",
+        ));
+    }
+    Ok(ToolOutput {
+        content:
+            "Goal report recorded; finish this turn. Completion still requires user confirmation."
+                .into(),
+        metadata: Some(json!({"goalReport":body})),
+    })
 }
 
 pub(crate) fn enable_event(
@@ -241,18 +267,10 @@ impl crate::BasicHost {
             .authoritative_session(id)
             .await
             .map_err(crate::driver::agent_runtime_error)?;
-        if self
-            .state
-            .read()
-            .await
-            .sessions
-            .get(id)
-            .is_some_and(|r| r.running)
-        {
-            return Err(xharness_api::RpcError::internal(
-                "wait for the current turn to stop before enabling Goal",
-            ));
-        }
+        // Enabling during an ordinary turn only records authorization. The
+        // controller's open-turn fence waits until that turn has settled; it
+        // must not require an idle Host when invoked by the goal tool itself.
+        // enable_event below still rejects a running/pending Goal generation.
         let route = {
             let state = self.state.read().await;
             let r = state
@@ -412,9 +430,18 @@ mod tests {
             _: CancellationToken,
         ) -> Result<ProviderStream, ProviderError> {
             let events = if r.step == 1 {
-                assert!(r.tools.iter().any(|t| t.name == "goal_report"));
+                assert!(r.tools.iter().any(|t| t.name == "goal"));
                 let n = self.rounds.fetch_add(1, Ordering::SeqCst) + 1;
-                let status = if self.status == "three" {
+                assert!(!r.tools.iter().any(|t| t.name == "goal_report"));
+                if self.status == "create_goal" && n == 1 {
+                    return Ok(Box::pin(futures::stream::iter(vec![
+                        Ok(ProviderEvent::ToolCallDelta {index:0,id:"create-from-normal-turn".into(),name:"goal".into(),arguments_delta:json!({"action":"create","objective":"Implement parser and test","max_goal_rounds":2}).to_string()}),
+                        Ok(ProviderEvent::Completed {finish_reason:Some(FinishReason::ToolCalls),usage:None,provider_items:vec![]}),
+                    ])));
+                }
+                let status = if self.status == "create_goal" {
+                    "complete"
+                } else if self.status == "three" {
                     if n < 3 {
                         "progress"
                     } else {
@@ -438,8 +465,8 @@ mod tests {
                     Ok(ProviderEvent::ToolCallDelta {
                         index: 0,
                         id: format!("report-{n}"),
-                        name: "goal_report".into(),
-                        arguments_delta: body.to_string(),
+                        name: "goal".into(),
+                        arguments_delta: json!({"action":"report","report":body}).to_string(),
                     }),
                     Ok(ProviderEvent::Completed {
                         finish_reason: Some(FinishReason::ToolCalls),
@@ -506,7 +533,7 @@ mod tests {
         }
     }
     async fn wait(host: &BasicHost, store: &Arc<dyn Store>, state: &str) -> Session {
-        tokio::time::timeout(Duration::from_secs(10), async {
+        let outcome = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let session = store.load("g").await.unwrap().unwrap();
                 host.sync_authoritative_session("g").await.unwrap();
@@ -518,9 +545,136 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
-        .await
-        .expect("goal did not converge")
+        .await;
+        outcome.expect("goal did not converge")
     }
+    async fn goal_executor(
+        host: &Arc<BasicHost>,
+        store: Arc<dyn Store>,
+    ) -> xharness_tools::ToolExecutor {
+        let registry = Arc::new(xharness_tools::ToolRegistry::new());
+        registry
+            .register(crate::goal_tool::spec(
+                Arc::downgrade(host),
+                store,
+                Arc::new(NoTools),
+                "g".into(),
+                None,
+            ))
+            .await
+            .unwrap();
+        xharness_tools::ToolExecutor::new(registry)
+    }
+    #[tokio::test]
+    async fn ordinary_provider_turn_sees_goal_and_can_create_then_auto_report() {
+        let (host, store, model) = setup("create_goal").await;
+        call(&host,"user-create",RpcMethod::SessionPrompt,json!({"sessionId":"g","mode":"queue","content":[{"type":"text","text":"Set a persistent goal: implement parser and test it"}]})).await;
+        let session = wait(&host, &store, "awaiting_confirmation").await;
+        let goal = execution_state(&session).unwrap();
+        assert_eq!(
+            goal.rounds_started, 1,
+            "ordinary creator turn must not count as a Goal round"
+        );
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 2);
+        assert!(session.events().iter().any(|e|matches!(e.data(),EventData::ToolCall{call,..} if call.name=="goal" && call.arguments_json.contains("create"))));
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn ordinary_goal_tool_creates_reads_updates_replays_and_fences_user_changes() {
+        let (host, store, _) = setup("complete").await;
+        let ex = goal_executor(&host, store.clone()).await;
+        let request = xharness_tools::ToolRequest::new(
+            "goal",
+            json!({"action":"create","objective":"Check parser","max_goal_rounds":4}).to_string(),
+        )
+        .with_execution_id("create-tool-1")
+        .unwrap();
+        let first = ex.execute(request.clone()).await;
+        assert!(first.is_ok(), "{first:?}");
+        wait(&host, &store, "awaiting_confirmation").await;
+        let replay = ex.execute(request).await;
+        assert!(replay.is_ok(), "{replay:?}");
+        assert_eq!(first.output, replay.output);
+        let get = ex
+            .execute(xharness_tools::ToolRequest::new(
+                "goal",
+                r#"{"action":"get"}"#,
+            ))
+            .await;
+        let value: Value = serde_json::from_str(&get.output.as_ref().unwrap().content).unwrap();
+        assert_eq!(value["goal"]["objective"], "Check parser");
+        assert_eq!(value["execution"]["state"], "awaiting_confirmation");
+        let old_ref = value["ref"].clone();
+        let edit = ex
+            .execute(xharness_tools::ToolRequest::new(
+                "goal",
+                json!({"action":"update","ref":old_ref,"max_goal_rounds":8}).to_string(),
+            ))
+            .await;
+        assert!(edit.is_ok(), "{edit:?}");
+        wait(&host, &store, "disabled").await;
+        let stale = ex
+            .execute(xharness_tools::ToolRequest::new(
+                "goal",
+                json!({"action":"resume","ref":old_ref}).to_string(),
+            ))
+            .await;
+        assert!(
+            !stale.is_ok(),
+            "stale tool must not overwrite user/CAS changes"
+        );
+        let current = host.state.read().await.goals["g"].clone();
+        assert_eq!(current.max_goal_rounds, 8);
+        assert_eq!(current.phase, xharness_session::GoalPhase::Active);
+        assert_eq!(current.execution.as_ref().unwrap()["enabled"], false);
+        let resume = ex
+            .execute(xharness_tools::ToolRequest::new(
+                "goal",
+                json!({"action":"resume","ref":{"id":current.id,"revision":current.revision}})
+                    .to_string(),
+            ))
+            .await;
+        assert!(resume.is_ok(), "{resume:?}");
+        wait(&host, &store, "awaiting_confirmation").await;
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+    #[tokio::test]
+    async fn ordinary_goal_tool_rejects_invalid_actions_identity_and_cancel_without_mutation() {
+        let (host, store, _) = setup("complete").await;
+        let ex = goal_executor(&host, store).await;
+        for args in [
+            json!({"action":"get","session_id":"other"}),
+            json!({"action":"complete"}),
+            json!({"action":"clear"}),
+            json!({"action":"create","objective":"   "}),
+            json!({"action":"create","objective":"x","max_goal_rounds":0}),
+            json!({"action":"create","objective":"x","executionEnabled":false}),
+            json!({"action":"pause"}),
+            json!({"action":"get","objective":"mixed fields"}),
+            json!({"action":"report","report":{"status":"complete","summary":"done","evidence":[{"kind":"artifact","reference":"test.py"}]}}),
+        ] {
+            let result = ex
+                .execute(xharness_tools::ToolRequest::new("goal", args.to_string()))
+                .await;
+            assert!(!result.is_ok(), "{args}: {result:?}");
+        }
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let result = ex
+            .execute(
+                xharness_tools::ToolRequest::new(
+                    "goal",
+                    json!({"action":"create","objective":"must not create"}).to_string(),
+                )
+                .with_cancellation(cancel),
+            )
+            .await;
+        assert!(!result.is_ok());
+        assert!(!host.state.read().await.goals.contains_key("g"));
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
     #[tokio::test]
     async fn product_three_rounds_report_confirm_clear_and_live_history() {
         let (host, store, model) = setup("three").await;
@@ -678,12 +832,12 @@ mod tests {
         let state = execution_state(&session).unwrap();
         let registry = Arc::new(xharness_tools::ToolRegistry::new());
         registry
-            .register(report_tool(
+            .register(crate::goal_tool::spec(
+                Arc::downgrade(&host),
                 store.clone(),
                 Arc::new(NoTools),
                 "g".into(),
-                state.definition,
-                state.activation_epoch,
+                Some((state.definition, state.activation_epoch)),
             ))
             .await
             .unwrap();
@@ -695,8 +849,8 @@ mod tests {
         ] {
             let r = ex
                 .execute(xharness_tools::ToolRequest::new(
-                    "goal_report",
-                    body.to_string(),
+                    "goal",
+                    json!({"action":"report","report":body}).to_string(),
                 ))
                 .await;
             assert!(!r.is_ok(), "late or invalid report must fail");
