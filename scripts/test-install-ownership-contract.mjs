@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8')
 const native = 'apps/desktop/src-tauri/'
+assert.match(read(native + 'src/main.rs'), /#!\[cfg_attr\(all\(windows, not\(debug_assertions\)\), windows_subsystem = "windows"\)\]/)
+// Only the desktop shell is a GUI executable. Preserve standalone Host CLI IO.
+assert.doesNotMatch(read('crates/xharness-host-app/src/main.rs'), /windows_subsystem\s*=/)
 const lib = read(native + 'src/lib.rs')
 const stop = read(native + 'src/sidecar.rs')
 const update = read(native + 'src/updater.rs')
