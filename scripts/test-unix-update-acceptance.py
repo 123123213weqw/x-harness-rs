@@ -29,6 +29,19 @@ SPEC.loader.exec_module(m)
 
 
 class HarnessTests(unittest.TestCase):
+    def test_native_signature_delegates_explicit_policy_and_checks_version(self):
+        info = {'CFBundleShortVersionString': '0.2.19'}
+        for preview in (False, True):
+            with patch.object(m, 'mac_binary', return_value=(pathlib.Path('binary'), info)), \
+                    patch.object(m._macos_signing, 'verify', return_value={'codesignVerified': True}) as verify:
+                self.assertEqual(m.native_signature(pathlib.Path('app'), '0.2.19', pathlib.Path('evidence'), preview=preview),
+                                 {'codesignVerified': True})
+                verify.assert_called_once_with(pathlib.Path('app'), preview=preview, evidence=pathlib.Path('evidence'))
+        with patch.object(m, 'mac_binary', return_value=(pathlib.Path('binary'), info)), \
+                patch.object(m._macos_signing, 'verify') as verify, self.assertRaises(ValueError):
+            m.native_signature(pathlib.Path('app'), '0.2.18', pathlib.Path('evidence'), preview=True)
+        verify.assert_not_called()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='unix-harness-unit-')
         self.directory = pathlib.Path(self.tmp.name).resolve()
@@ -320,7 +333,14 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context))
         try:
             with opener.open(url + '/latest.json', timeout=3) as response:
-                self.assertEqual(json.load(response)['version'], '0.2.6')
+                manifest = json.load(response)
+                self.assertEqual(manifest['version'], '0.2.6')
+                self.assertNotIn('macos_distribution', manifest)
+            config['macos_preview'] = True
+            with opener.open(url + '/latest.json', timeout=3) as response:
+                manifest = json.load(response)
+                self.assertEqual(manifest['macos_distribution'], 'ad-hoc-unnotarized-preview')
+                self.assertIn('not notarized', manifest['notes'])
             (root / 'mode').write_text('unavailable')
             with self.assertRaises(urllib.error.HTTPError) as error:
                 opener.open(url + '/latest.json', timeout=3)
