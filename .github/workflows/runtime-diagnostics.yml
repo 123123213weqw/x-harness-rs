@@ -36,3 +36,16 @@ jobs:
         env:
           XHARNESS_TEST_NATIVE_SYMBOLS: '1'
         run: python -B scripts/test-desktop-symbols.py
+      - name: Build Windows Host for offline crash reproduction
+        if: runner.os == 'Windows'
+        run: cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
+      - name: Retain matching Host binary and symbols for local dump analysis
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: diagnostics-windows-host-symbols
+          path: |
+            target/release/xharness-host.exe
+            target/release/xharness_host.pdb
+          if-no-files-found: error
+          retention-days: 30
