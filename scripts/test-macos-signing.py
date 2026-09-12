@@ -24,12 +24,15 @@ class SigningPolicy(unittest.TestCase):
         self.assertIn('--strict', commands[0])
         self.assertEqual([command[0] for command in commands], ['codesign', 'codesign'])
         self.assertTrue(all(call.kwargs['check'] for call in run.call_args_list))
+        self.assertTrue(all(call.kwargs['timeout'] == 90 for call in run.call_args_list))
 
     def test_invalid_unsigned_or_wrong_identity_never_passes(self):
         for detail in ('', 'Signature=adhoc-invalid\n', 'Authority=Developer ID Application: Example\n'):
             with self.subTest(detail=detail), patch.object(m.subprocess, 'run', return_value=self.result(detail)), self.assertRaises(ValueError):
                 m.verify(Path('fixture.app'), preview=True)
         with patch.object(m.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, ['codesign'])), self.assertRaises(subprocess.CalledProcessError):
+            m.verify(Path('fixture.app'), preview=True)
+        with patch.object(m.subprocess, 'run', side_effect=subprocess.TimeoutExpired(['codesign'], 90)), self.assertRaises(subprocess.TimeoutExpired):
             m.verify(Path('fixture.app'), preview=True)
 
     def test_default_still_requires_developer_id_gatekeeper_and_stapled_notarization(self):

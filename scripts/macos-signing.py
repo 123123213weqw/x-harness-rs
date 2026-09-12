@@ -10,7 +10,7 @@ import subprocess
 
 def verify(app, *, preview=False, evidence=None, team=None):
     def inspect(label, command):
-        result = subprocess.run([str(arg) for arg in command], check=True, capture_output=True)
+        result = subprocess.run([str(arg) for arg in command], check=True, capture_output=True, timeout=90)
         if evidence is not None:
             (Path(evidence) / (label + '.log')).write_bytes(result.stdout + result.stderr)
         return (result.stdout + result.stderr).decode('utf-8', errors='replace')
