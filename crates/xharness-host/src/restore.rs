@@ -6,6 +6,7 @@ use std::{
 
 use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use xharness_agent::InboxProjection;
 use xharness_session::{
@@ -1420,6 +1421,20 @@ fn web_message(
     })
 }
 
+/// Identity for a Workspace discovered from a restored Session's `cwd` rather
+/// than an explicit `workspace.create`.
+///
+/// The id must be a pure function of the canonical path. Deriving it from
+/// `state.workspaces.len()` made identity depend on how many other Workspaces
+/// happened to be restored first, so creating or deleting an unrelated
+/// Workspace rebound an existing id to a different directory. The durable
+/// `workspace_order_set` written earlier then replayed that id against the
+/// wrong workspace, permanently reordering the user's sidebar.
+fn discovered_workspace_id(cwd: &str) -> String {
+    let digest = format!("{:x}", Sha256::digest(cwd.as_bytes()));
+    format!("workspace-path-{}", &digest[..16])
+}
+
 fn attach_workspace(
     state: &mut crate::state::HostState,
     session_id: &str,
@@ -1431,8 +1446,7 @@ fn attach_workspace(
         .iter()
         .find_map(|(id, workspace)| (workspace.path == cwd).then(|| id.clone()))
         .unwrap_or_else(|| {
-            let ordinal = state.workspaces.len();
-            let mut id = format!("workspace-recovered-{ordinal}");
+            let mut id = discovered_workspace_id(cwd);
             while state.workspaces.contains_key(&id) {
                 id.push('x');
             }
@@ -2349,6 +2363,368 @@ mod tests {
             ControlRevision(3)
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Shared harness for the workspace identity regressions. Builds a Host on
+    /// a boot cwd, creates the named sessions with custom cwds, and lets each
+    /// caller simulate restarts and unrelated Workspace mutations.
+    struct WorkspaceHarness {
+        _root: std::path::PathBuf,
+        boot: std::path::PathBuf,
+        custom: std::collections::BTreeMap<String, std::path::PathBuf>,
+        session_store: Arc<dyn Store>,
+        control_store: Arc<dyn ControlStore>,
+        control_file: std::path::PathBuf,
+    }
+
+    impl WorkspaceHarness {
+        fn new(label: &str, names: &[&str]) -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "xharness-ws-{label}-{}-{}",
+                std::process::id(),
+                now_ms()
+            ));
+            let boot = root.join("boot");
+            std::fs::create_dir_all(&boot).unwrap();
+            let mut custom = std::collections::BTreeMap::new();
+            for name in names {
+                let dir = root.join(name);
+                std::fs::create_dir_all(&dir).unwrap();
+                custom.insert((*name).to_owned(), dir);
+            }
+            let control_dir = root.join("control");
+            let control_file = control_dir.join("host-control.jsonl");
+            let control_store: Arc<dyn ControlStore> =
+                Arc::new(JsonlControlStore::new(&control_dir).unwrap());
+            let session_store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+            Self {
+                _root: root,
+                boot,
+                custom,
+                session_store,
+                control_store,
+                control_file,
+            }
+        }
+
+        fn build(&self) -> Arc<BasicHost> {
+            let runtime = Arc::new(DurableLoopAgentRuntime::new(
+                "test",
+                "test-model",
+                None,
+                Arc::new(NoTools),
+                Arc::new(IdentityContextPolicy),
+                Arc::clone(&self.session_store),
+                Arc::new(MemoryLeaseManager::default()),
+                64,
+            ));
+            BasicHost::with_agent_runtime_and_control_store(
+                config(&self.boot),
+                runtime,
+                Arc::clone(&self.control_store),
+            )
+        }
+
+        /// Boot once and create one session per configured custom directory.
+        async fn seed_sessions(&self) {
+            let host = self.build();
+            host.restore_from_store(Arc::clone(&self.session_store))
+                .await
+                .unwrap();
+            for (name, dir) in &self.custom {
+                let result = host
+                    .call(
+                        RpcId::new(format!("create-{name}")),
+                        RpcMethod::SessionCreate,
+                        json!({"sessionId": name, "cwd": dir.to_string_lossy()}),
+                        CancellationToken::new(),
+                    )
+                    .await;
+                assert!(
+                    matches!(result, RpcResult::Success { .. }),
+                    "session create failed: {result:?}"
+                );
+            }
+        }
+
+        /// Boot and return the ordered `(workspaceId, path, sessionIds)` rows.
+        async fn boot_and_list(&self) -> Arc<BasicHost> {
+            let host = self.build();
+            host.restore_from_store(Arc::clone(&self.session_store))
+                .await
+                .unwrap();
+            host
+        }
+
+        async fn create_workspace(&self, host: &Arc<BasicHost>, name: &str) -> String {
+            let dir = self.custom.get(name).cloned().unwrap_or_else(|| {
+                let dir = self
+                    .control_file
+                    .parent()
+                    .unwrap()
+                    .join(format!("scratch-{name}"));
+                std::fs::create_dir_all(&dir).unwrap();
+                dir
+            });
+            let created = host
+                .call(
+                    RpcId::new(format!("create-ws-{name}")),
+                    RpcMethod::WorkspaceCreate,
+                    json!({"path": dir.to_string_lossy()}),
+                    CancellationToken::new(),
+                )
+                .await;
+            let RpcResult::Success { value: Some(value) } = created else {
+                panic!("workspace create failed: {created:?}");
+            };
+            value["workspace"]["workspaceId"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        }
+
+        async fn delete_workspace(&self, host: &Arc<BasicHost>, id: &str) {
+            let removed = host
+                .call(
+                    RpcId::new(format!("delete-ws-{id}")),
+                    RpcMethod::WorkspaceDelete,
+                    json!({"workspaceId": id}),
+                    CancellationToken::new(),
+                )
+                .await;
+            assert!(
+                matches!(removed, RpcResult::Success { .. }),
+                "workspace delete failed: {removed:?}"
+            );
+        }
+    }
+
+    async fn workspace_rows(host: &Arc<BasicHost>) -> Vec<(String, String, Vec<String>)> {
+        let listed = host
+            .call(
+                RpcId::new("workspace-list"),
+                RpcMethod::WorkspaceList,
+                json!({}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success { value: Some(value) } = listed else {
+            panic!("workspace list failed: {listed:?}");
+        };
+        value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                let mut sessions = item["sessionIds"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|s| s.as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>();
+                sessions.sort();
+                (
+                    item["workspaceId"].as_str().unwrap().to_owned(),
+                    item["path"].as_str().unwrap().to_owned(),
+                    sessions,
+                )
+            })
+            .collect()
+    }
+
+    /// A session's Workspace identity must depend only on its directory, never
+    /// on how many other Workspaces happen to exist at that moment.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn discovered_workspace_identity_survives_unrelated_workspace_changes() {
+        let harness = WorkspaceHarness::new("identity", &["dir-a", "dir-b"]);
+        harness.seed_sessions().await;
+
+        let host = harness.boot_and_list().await;
+        let before = workspace_rows(&host).await;
+        // An unrelated Workspace is created while the sessions stay untouched.
+        let scratch = harness.create_workspace(&host, "unrelated").await;
+        drop(host);
+
+        let host = harness.boot_and_list().await;
+        let after = workspace_rows(&host).await;
+        harness.delete_workspace(&host, &scratch).await;
+        drop(host);
+
+        let host = harness.boot_and_list().await;
+        let healed = workspace_rows(&host).await;
+
+        let dir_of = |rows: &[(String, String, Vec<String>)], session: &str| {
+            rows.iter()
+                .find(|(_, _, sessions)| sessions.iter().any(|s| s == session))
+                .map(|(id, path, _)| (id.clone(), path.clone()))
+        };
+        for session in ["dir-a", "dir-b"] {
+            let first = dir_of(&before, session);
+            assert_eq!(
+                dir_of(&after, session),
+                first,
+                "creating an unrelated Workspace rebound {session}"
+            );
+            assert_eq!(
+                dir_of(&healed, session),
+                first,
+                "deleting an unrelated Workspace rebound {session}"
+            );
+        }
+    }
+
+    /// The durable order must not be rewritten by an unrelated insert/delete.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn workspace_order_survives_unrelated_insert_and_delete() {
+        let harness = WorkspaceHarness::new("order", &["dir-a", "dir-b"]);
+        harness.seed_sessions().await;
+
+        let host = harness.boot_and_list().await;
+        let before = workspace_rows(&host).await;
+        assert_eq!(before.len(), 3, "expected boot + two session workspaces");
+        let scratch = harness.create_workspace(&host, "unrelated").await;
+        drop(host);
+
+        let host = harness.boot_and_list().await;
+        harness.delete_workspace(&host, &scratch).await;
+        drop(host);
+
+        let host = harness.boot_and_list().await;
+        let after = workspace_rows(&host).await;
+        let order = |rows: &[(String, String, Vec<String>)]| {
+            rows.iter().map(|(id, _, _)| id.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            order(&after),
+            order(&before),
+            "an unrelated insert/delete permuted the durable workspace order"
+        );
+    }
+
+    /// Every id the durable order references must have a definition in the
+    /// same log, so a replayed order can never land on another Workspace.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn restored_log_defines_every_referenced_workspace() {
+        let harness = WorkspaceHarness::new("defined", &["dir-a"]);
+        harness.seed_sessions().await;
+        let host = harness.boot_and_list().await;
+        let _ = harness.create_workspace(&host, "unrelated").await;
+        drop(host);
+
+        // A second boot must not need to append anything.
+        let host = harness.boot_and_list().await;
+        drop(host);
+
+        let log = std::fs::read_to_string(&harness.control_file).unwrap();
+        let defined = log
+            .split("\"workspace_defined\"")
+            .skip(1)
+            .filter_map(|chunk| {
+                let start = chunk.find("\"workspaceId\":\"")? + "\"workspaceId\":\"".len();
+                let end = chunk[start..].find('"')? + start;
+                Some(chunk[start..end].to_owned())
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        for line in log
+            .lines()
+            .filter(|line| line.contains("workspace_order_set"))
+        {
+            let Some(start) = line.find("\"workspace_ids\":[") else {
+                continue;
+            };
+            let rest = &line[start + "\"workspace_ids\":[".len()..];
+            let Some(end) = rest.find(']') else { continue };
+            for raw in rest[..end].split(',') {
+                let id = raw.trim().trim_matches('"');
+                if id.is_empty() {
+                    continue;
+                }
+                assert!(
+                    defined.contains(id),
+                    "durable order references undefined workspace {id:?}"
+                );
+            }
+        }
+    }
+
+    /// A dangling id left by an older build must never be adopted by a
+    /// Workspace discovered during this restore. Discovery names ids from the
+    /// directory itself, so a stale `workspace-recovered-N` entry can only be
+    /// discarded, never rebound to an unrelated directory.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dangling_legacy_id_is_never_adopted_by_new_discovery() {
+        let harness = WorkspaceHarness::new("adopt", &["dir-a", "dir-b"]);
+        harness.seed_sessions().await;
+        let host = harness.boot_and_list().await;
+        let _ = harness.create_workspace(&host, "unrelated").await;
+        drop(host);
+
+        let log = std::fs::read_to_string(&harness.control_file).unwrap();
+        let patched = log.replace(
+            "\"workspace_ids\":[",
+            "\"workspace_ids\":[\"workspace-recovered-1\",\"workspace-recovered-2\",",
+        );
+        assert_ne!(patched, log, "expected a durable order in the log");
+        std::fs::write(&harness.control_file, patched).unwrap();
+
+        let host = harness.boot_and_list().await;
+        let rows = workspace_rows(&host).await;
+        for (id, path, _) in &rows {
+            assert!(
+                !id.starts_with("workspace-recovered-"),
+                "stale legacy id {id:?} was adopted by {path}"
+            );
+        }
+        // The stale entries were dropped, and every surviving workspace still
+        // resolves to its own directory.
+        for session in ["dir-a", "dir-b"] {
+            let found = rows
+                .iter()
+                .find(|(_, _, sessions)| sessions.iter().any(|s| s == session));
+            assert!(found.is_some(), "{session} lost its workspace: {rows:?}");
+        }
+    }
+
+    /// A log already written by an older build may reference synthetic ids that
+    /// were never defined. Restoration must still succeed and must not lose the
+    /// sessions that live in those directories.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn legacy_log_with_dangling_workspace_ids_still_restores() {
+        let harness = WorkspaceHarness::new("legacy", &["dir-a"]);
+        harness.seed_sessions().await;
+        // A real mutation is what first materializes the control log.
+        let host = harness.boot_and_list().await;
+        let _ = harness.create_workspace(&host, "unrelated").await;
+        drop(host);
+        assert!(
+            harness.control_file.exists(),
+            "expected a control log after one mutation"
+        );
+
+        // Rewrite the log to look like the pre-fix output: a durable order that
+        // mentions a synthetic id which no workspace_defined event introduces.
+        let log = std::fs::read_to_string(&harness.control_file).unwrap();
+        let patched = log.replace(
+            "\"workspace_ids\":[",
+            "\"workspace_ids\":[\"workspace-recovered-9\",",
+        );
+        assert_ne!(patched, log, "expected the log to contain a durable order");
+        std::fs::write(&harness.control_file, patched).unwrap();
+
+        let host = harness.build();
+        let restored = host
+            .restore_from_store(Arc::clone(&harness.session_store))
+            .await;
+        assert!(
+            restored.is_ok(),
+            "a legacy dangling reference must not block startup: {restored:?}"
+        );
+        let rows = workspace_rows(&host).await;
+        assert!(
+            rows.iter()
+                .any(|(_, _, sessions)| sessions.iter().any(|s| s == "dir-a")),
+            "the session workspace was lost: {rows:?}"
+        );
     }
 
     #[tokio::test]

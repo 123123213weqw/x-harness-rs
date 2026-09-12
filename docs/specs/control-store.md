@@ -54,6 +54,20 @@ Revision 与 Receipt 唯一性。只有未换行且 JSON 不完整的最后一�
 Host 启动顺序是：先重放 Control Log，再枚举 Agent Session 并恢复 Session→Workspace 归属，最后
 再次应用 Control Workspace 排序和 Tombstone。这样自定义元数据与 Session 真源都不会互相覆盖。
 
+### 未定义 Workspace 的定义时机
+
+由 Session `cwd` 推导出的 Workspace 以及启动播种的 `workspace-default` 只存在于内存，日志里
+没有对应的 `workspace_defined`。因为每个 Mutation Batch 必须恰好携带一条 Receipt，这些定义
+不能单独成批，所以在下一次 Control Mutation 提交时折叠进同一批：批次先输出缺失的
+`workspace_defined`，再输出该变更自身的状态事件，最后是该批唯一 Receipt。
+
+由此保证不变式：**`workspace_order_set` 引用的每个 ID 在同一日志内都有定义**。否则重放排序时
+这些 ID 无法解析，同一个 ID 会被重新推导并绑定到别的目录。推导 ID 必须是规范路径的纯函数；
+按“当前 Workspace 个数”计数会让身份随无关 Workspace 的增删整体平移。
+
+历史日志可能已包含无法解析的排序项。加载时这类 ID 按未知丢弃，不得阻止 Host 启动，也不得被
+本次恢复中新推导出的 Workspace 认领。
+
 ## Secret 边界
 
 Control Log 只保存 Settings 文档和安全 Response，不保存 Credential Value。任何非空字段名命中
