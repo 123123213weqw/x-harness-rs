@@ -14,10 +14,10 @@ try {
     route.fulfill({ contentType: js ? 'text/javascript' : 'text/html', body: readFileSync(new URL('../apps/desktop/frontend/diagnostics.' + (js ? 'js' : 'html'), import.meta.url)) })
   })
   await page.addInitScript(() => {
-    let deep = false
+    let deep = false, persistent = false, fullMemory = false
     window.__TAURI__ = { core: { invoke: async (name, args) => {
-      if (name === 'desktop_diagnostics_status') return { available: true, hostRunning: false, previousAbnormalExit: true, deepRemainingSeconds: deep ? 900 : 0, version: '0.2.x', platform: 'windows' }
-      if (name === 'desktop_set_deep_diagnostics') deep = args.enabled
+      if (name === 'desktop_diagnostics_status') return { available: true, hostRunning: false, previousAbnormalExit: true, deepActive: deep, deepPersistent: persistent, fullMemory, deepRemainingSeconds: deep && !persistent ? 900 : 0, version: '0.2.x', platform: 'windows' }
+      if (name === 'desktop_set_deep_diagnostics') { deep = args.enabled; persistent = deep && args.persistent; fullMemory = deep && args.fullMemory }
       if (name === 'desktop_export_diagnostics') return 'D:\\XHarness\\diagnostics\\export.json'
     } } }
   })
@@ -32,9 +32,17 @@ try {
   await page.setViewportSize({ width: 500, height: 640 })
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   await page.getByRole('button', { name: '立即关闭' }).click()
+  await page.locator('#persistent').check()
+  await page.locator('#full-memory').check()
+  await page.getByRole('button', { name: '持续开启', exact: true }).click()
+  await page.getByText('持续开启 · 重启后保留，直到手动关闭。', { exact: true }).waitFor()
+  assert.equal(await page.locator('#full-memory').isChecked(), true)
+  assert.equal(await page.locator('#disable').isEnabled(), true)
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   assert.deepEqual(errors, [])
   mkdirSync('dist/diagnostics-evidence', { recursive: true })
   await page.setViewportSize({ width: 660, height: 840 })
   await page.screenshot({ path: 'dist/diagnostics-evidence/diagnostics.png', fullPage: true })
+  await page.getByRole('button', { name: '立即关闭' }).click()
   console.log('Diagnostics browser layout, keyboard-accessible inputs and actions passed')
 } finally { await browser.close() }
