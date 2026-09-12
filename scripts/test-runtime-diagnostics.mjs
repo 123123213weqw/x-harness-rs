@@ -16,7 +16,7 @@ vm.runInNewContext(source, {
     calls.push({ command, args })
     if (command === 'desktop_diagnostics_status') return state
     if (command === 'desktop_export_diagnostics') { if (failExport) throw Error('disk full'); return 'D:/diagnostics/export.json' }
-    if (command === 'desktop_set_deep_diagnostics') state = { ...state, deepRemainingSeconds: args.enabled ? 900 : 0 }
+    if (command === 'desktop_set_deep_diagnostics') state = { ...state, deepActive: args.enabled, deepPersistent: args.enabled && args.persistent, fullMemory: args.enabled && args.fullMemory, heapCheck: args.enabled && args.heapCheck, deepRemainingSeconds: args.enabled && !args.persistent ? 900 : 0 }
     if (command === 'desktop_diagnostics_acknowledge') state = { ...state, previousAbnormalExit: false }
   } } } },
 })
@@ -31,6 +31,17 @@ get('consent').checked = true
 await get('enable').click(); await tick()
 assert.match(get('deep-status').textContent, /15 分钟/)
 await get('disable').click(); await tick()
+assert.match(get('deep-status').textContent, /已关闭/)
+get('persistent').checked = true
+get('full-memory').checked = true
+await get('enable').click(); await tick()
+assert.match(get('deep-status').textContent, /持续开启/)
+assert.equal(get('disable').disabled, false, 'persistent mode can be disabled despite zero remaining seconds')
+assert.equal(get('full-memory').checked, true)
+assert.equal(get('persistent').disabled, true)
+await get('disable').click(); await tick()
+assert.equal(state.deepPersistent, false)
+assert.equal(state.fullMemory, false)
 assert.match(get('deep-status').textContent, /已关闭/)
 await get('export').click(); await tick()
 assert.match(get('output').textContent, /已保存到/)

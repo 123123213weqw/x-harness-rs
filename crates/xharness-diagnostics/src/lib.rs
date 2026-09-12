@@ -11,6 +11,51 @@ use std::{
 pub const SEGMENT_BYTES: u64 = 1024 * 1024;
 pub const SEGMENTS: usize = 4;
 pub const DEEP_SECONDS: u64 = 15 * 60;
+/// Distinct protocol marker, not a wall-clock deadline.
+pub const PERSISTENT_DEEP: u64 = u64::MAX;
+
+/// Explicit user preferences only; never infer consent from an old lease file.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DeepPreferences {
+    pub persistent: bool,
+    pub full_memory: bool,
+    pub heap_check: bool,
+}
+impl DeepPreferences {
+    pub fn load(path: &Path) -> io::Result<Self> {
+        let file = match fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(error) => return Err(error),
+        };
+        let mut bytes = Vec::new();
+        file.take(1025).read_to_end(&mut bytes)?;
+        if bytes.len() > 1024 {
+            return Err(io::Error::other("diagnostic preferences exceed budget"));
+        }
+        let value: Self = serde_json::from_slice(&bytes)?;
+        if !value.persistent && (value.full_memory || value.heap_check) {
+            return Err(io::Error::other(
+                "diagnostic options require persistent consent",
+            ));
+        }
+        Ok(value)
+    }
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        if !self.persistent && (self.full_memory || self.heap_check) {
+            return Err(io::Error::other(
+                "diagnostic options require persistent consent",
+            ));
+        }
+        let temporary = path.with_extension("json.tmp");
+        let mut file = fs::File::create(&temporary)?;
+        file.write_all(&serde_json::to_vec(self)?)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(temporary, path)
+    }
+}
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
@@ -224,11 +269,12 @@ fn remove_if_present(path: &Path) -> io::Result<()> {
     }
 }
 
-/// No persistence: application restart ALWAYS disables deep diagnosis. Monotonic
-/// time prevents clock rollback from extending a lease.
+/// Timed consent remains monotonic. Persistent consent is explicit and must be
+/// restored by the caller from validated user preferences, never by default.
 #[derive(Default)]
 pub struct DeepLease {
     deadline: Option<Instant>,
+    persistent: bool,
 }
 impl DeepLease {
     pub fn enable(&mut self, consent: bool) -> io::Result<()> {
@@ -238,10 +284,21 @@ impl DeepLease {
             ));
         }
         self.deadline = Some(Instant::now() + Duration::from_secs(DEEP_SECONDS));
+        self.persistent = false;
         Ok(())
+    }
+    pub fn enable_persistent(&mut self, consent: bool) -> io::Result<()> {
+        self.enable(consent)?;
+        self.deadline = None;
+        self.persistent = true;
+        Ok(())
+    }
+    pub fn persistent(&self) -> bool {
+        self.persistent
     }
     pub fn disable(&mut self) {
         self.deadline = None;
+        self.persistent = false;
     }
     pub fn remaining_seconds(&self) -> u64 {
         self.deadline
@@ -250,7 +307,7 @@ impl DeepLease {
             .unwrap_or(0)
     }
     pub fn active(&self) -> bool {
-        self.remaining_seconds() > 0
+        self.persistent || self.remaining_seconds() > 0
     }
 }
 
@@ -349,5 +406,54 @@ mod tests {
         lease.enable(true).unwrap();
         lease.disable();
         assert!(!lease.active());
+    }
+    #[test]
+    fn persistent_consent_survives_reload_and_explicit_disable() {
+        let dir = Temp::new();
+        fs::create_dir_all(&dir.0).unwrap();
+        let path = dir.0.join("diagnostics.json");
+        assert_eq!(
+            DeepPreferences::load(&path).unwrap(),
+            DeepPreferences::default()
+        );
+        let selected = DeepPreferences {
+            persistent: true,
+            full_memory: true,
+            heap_check: false,
+        };
+        selected.save(&path).unwrap();
+        assert_eq!(DeepPreferences::load(&path).unwrap(), selected);
+        let mut lease = DeepLease::default();
+        assert!(lease.enable_persistent(false).is_err());
+        assert!(!lease.active());
+        lease.enable_persistent(true).unwrap();
+        lease.deadline = Some(Instant::now() - Duration::from_secs(1));
+        assert!(lease.active());
+        assert!(lease.persistent());
+        lease.disable();
+        DeepPreferences::default().save(&path).unwrap();
+        assert!(!lease.active());
+        assert!(!DeepPreferences::load(&path).unwrap().persistent);
+        lease.enable_persistent(true).unwrap();
+        lease.enable(true).unwrap();
+        assert!(!lease.persistent());
+    }
+    #[test]
+    fn preferences_reject_corruption_and_surface_write_failure() {
+        let dir = Temp::new();
+        fs::create_dir_all(&dir.0).unwrap();
+        let path = dir.0.join("diagnostics.json");
+        for bytes in [
+            b"{partial".as_slice(),
+            br#"{"persistent":true,"fullMemory":true,"heapCheck":false,"extra":1}"#,
+        ] {
+            fs::write(&path, bytes).unwrap();
+            assert!(DeepPreferences::load(&path).is_err());
+        }
+        fs::write(&path, vec![b' '; 1025]).unwrap();
+        assert!(DeepPreferences::load(&path).is_err());
+        let blocked = dir.0.join("directory.json");
+        fs::create_dir(&blocked).unwrap();
+        assert!(DeepPreferences::default().save(&blocked).is_err());
     }
 }

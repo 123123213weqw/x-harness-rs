@@ -5,12 +5,13 @@ use serde::Serialize;
 use std::time::Duration;
 use std::{path::PathBuf, sync::Mutex};
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use xharness_diagnostics::{DeepLease, Phase, Record, Recorder};
+use xharness_diagnostics::{DeepLease, DeepPreferences, Phase, Record, Recorder, PERSISTENT_DEEP};
 
 pub struct Diagnostics {
     inner: Mutex<Inner>,
     pub(crate) root: PathBuf,
     pub(crate) control: PathBuf,
+    preferences: PathBuf,
 }
 struct Inner {
     recorder: Option<Recorder>,
@@ -18,6 +19,7 @@ struct Inner {
     incident: bool,
     deep: DeepLease,
     full_memory: bool,
+    heap_check: bool,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +28,9 @@ pub struct Status {
     storage_error: bool,
     previous_abnormal_exit: bool,
     deep_remaining_seconds: u64,
+    deep_active: bool,
+    deep_persistent: bool,
+    heap_check: bool,
     host_running: bool,
     version: &'static str,
     platform: &'static str,
@@ -33,25 +38,44 @@ pub struct Status {
     crash_dump_available: bool,
 }
 impl Diagnostics {
-    pub fn new(root: PathBuf) -> Self {
+    pub fn new(root: PathBuf, preferences: PathBuf) -> Self {
         let control = root.join("deep.request");
         let mut recorder = Recorder::open(&root).ok();
-        // Every desktop launch starts with deep recording disabled. A failed
-        // reset is a storage error and is not silently treated as successful.
-        let reset = std::fs::write(&control, b"0");
+        let loaded = DeepPreferences::load(&preferences);
+        let selected = loaded.as_ref().copied().unwrap_or_default();
+        let mut deep = DeepLease::default();
+        let until = if selected.persistent {
+            PERSISTENT_DEEP
+        } else {
+            0
+        };
+        let reset = std::fs::write(
+            control.with_extension("heap"),
+            if selected.heap_check { until } else { 0 }.to_string(),
+        )
+        .and_then(|_| std::fs::write(&control, until.to_string()));
+        let activated = loaded.is_ok() && reset.is_ok() && selected.persistent;
+        if activated {
+            let _ = deep.enable_persistent(true); // persisted explicit consent
+        } else if reset.is_err() {
+            let _ = std::fs::write(&control, b"0");
+            let _ = std::fs::write(control.with_extension("heap"), b"0");
+        }
         let begin = recorder.as_mut().map(Recorder::begin_run);
         let incident = matches!(begin, Some(Ok(true)));
-        let storage_error = !matches!(begin, Some(Ok(_))) || reset.is_err();
+        let storage_error = !matches!(begin, Some(Ok(_))) || reset.is_err() || loaded.is_err();
         Self {
             inner: Mutex::new(Inner {
                 recorder,
                 storage_error,
                 incident,
-                deep: DeepLease::default(),
-                full_memory: false,
+                deep,
+                full_memory: activated && selected.full_memory,
+                heap_check: activated && selected.heap_check,
             }),
             root,
             control,
+            preferences,
         }
     }
     pub fn record(&self, mut record: Record) {
@@ -135,6 +159,9 @@ pub fn desktop_diagnostics_status(state: State<'_, crate::DesktopState>) -> Resu
             || state.diagnostics.control.with_extension("failed").exists(),
         previous_abnormal_exit: inner.incident,
         deep_remaining_seconds: inner.deep.remaining_seconds(),
+        deep_active: inner.deep.active(),
+        deep_persistent: inner.deep.persistent(),
+        heap_check: inner.deep.active() && inner.heap_check,
         host_running: state.running.load(std::sync::atomic::Ordering::SeqCst),
         version: env!("CARGO_PKG_VERSION"),
         platform: std::env::consts::OS,
@@ -244,6 +271,7 @@ pub fn desktop_set_deep_diagnostics(
     consent: bool,
     full_memory: bool,
     heap_check: bool,
+    persistent: Option<bool>,
 ) -> Result<(), String> {
     let mut inner = state
         .diagnostics
@@ -253,19 +281,50 @@ pub fn desktop_set_deep_diagnostics(
     if enabled && !consent {
         return Err("请先确认深度诊断提示".to_owned());
     }
-    let until = if enabled {
+    let persistent = enabled && persistent.unwrap_or(false);
+    let until = if persistent {
+        PERSISTENT_DEEP
+    } else if enabled {
         xharness_diagnostics::now_ms() + xharness_diagnostics::DEEP_SECONDS * 1000
     } else {
         0
     };
-    std::fs::write(
-        state.diagnostics.control.with_extension("heap"),
-        if enabled && heap_check { until } else { 0 }.to_string(),
-    )
-    .map_err(|_| "无法保存堆检查选项")?;
-    std::fs::write(&state.diagnostics.control, until.to_string())
-        .map_err(|_| "无法写入深度诊断控制，未确认启用成功")?;
-    if enabled {
+    let selected = if persistent {
+        DeepPreferences {
+            persistent,
+            full_memory,
+            heap_check,
+        }
+    } else {
+        DeepPreferences::default()
+    };
+    // Any partial failure disables the in-memory mode and attempts to revoke
+    // both persisted consent and Host controls. Never report partial success.
+    let saved = selected
+        .save(&state.diagnostics.preferences)
+        .and_then(|_| {
+            std::fs::write(
+                state.diagnostics.control.with_extension("heap"),
+                if enabled && heap_check { until } else { 0 }.to_string(),
+            )
+        })
+        .and_then(|_| std::fs::write(&state.diagnostics.control, until.to_string()));
+    if saved.is_err() {
+        inner.deep.disable();
+        inner.full_memory = false;
+        inner.heap_check = false;
+        inner.storage_error = true;
+        let _ = DeepPreferences::default().save(&state.diagnostics.preferences);
+        let _ = std::fs::write(&state.diagnostics.control, b"0");
+        let _ = std::fs::write(state.diagnostics.control.with_extension("heap"), b"0");
+        return Err("诊断设置保存失败，未确认启用或关闭成功，请检查目录权限和磁盘空间".into());
+    }
+    if persistent {
+        inner
+            .deep
+            .enable_persistent(consent)
+            .map_err(|_| "请先确认深度诊断提示")?;
+    } else if enabled {
         inner
             .deep
             .enable(consent)
@@ -274,6 +333,7 @@ pub fn desktop_set_deep_diagnostics(
         inner.deep.disable();
     }
     inner.full_memory = enabled && full_memory;
+    inner.heap_check = enabled && heap_check;
     drop(inner);
     state.diagnostics.record(Record::new(if enabled {
         Phase::DeepEnabled
@@ -281,4 +341,54 @@ pub fn desktop_set_deep_diagnostics(
         Phase::DeepDisabled
     }));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn persistent_options_restore_but_invalid_preferences_fail_closed() {
+        let root = std::env::temp_dir().join(format!(
+            "xh-persistent-{}-{}",
+            std::process::id(),
+            xharness_diagnostics::now_ms()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let settings = root.join("diagnostics.json");
+        let selected = DeepPreferences {
+            persistent: true,
+            full_memory: true,
+            heap_check: false,
+        };
+        selected.save(&settings).unwrap();
+        {
+            let diagnostics = Diagnostics::new(root.join("logs"), settings.clone());
+            let inner = diagnostics.inner.lock().unwrap();
+            assert!(inner.deep.active() && inner.deep.persistent() && inner.full_memory);
+            assert!(!inner.heap_check);
+            assert!(!inner.storage_error);
+            assert_eq!(
+                std::fs::read_to_string(&diagnostics.control).unwrap(),
+                PERSISTENT_DEEP.to_string()
+            );
+            assert_eq!(
+                std::fs::read_to_string(diagnostics.control.with_extension("heap")).unwrap(),
+                "0"
+            );
+        }
+        DeepPreferences::default().save(&settings).unwrap();
+        {
+            let diagnostics = Diagnostics::new(root.join("logs"), settings.clone());
+            assert!(!diagnostics.inner.lock().unwrap().deep.active());
+            assert_eq!(std::fs::read_to_string(&diagnostics.control).unwrap(), "0");
+        }
+        std::fs::write(&settings, b"{partial").unwrap();
+        {
+            let diagnostics = Diagnostics::new(root.join("logs"), settings);
+            let inner = diagnostics.inner.lock().unwrap();
+            assert!(!inner.deep.active() && !inner.full_memory);
+            assert!(inner.storage_error);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

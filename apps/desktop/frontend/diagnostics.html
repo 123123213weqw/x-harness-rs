@@ -37,9 +37,10 @@
     <div class="actions"><button id="export">导出本机诊断包</button></div>
   </section>
   <section>
-    <h2>深度诊断 · 最长 15 分钟</h2>
-    <p id="deep-status">默认关闭；退出应用后不会继续开启。</p><p class="muted">临时提高 Windows 资源采样频率，逐项记录最多 4096 条操作类型事件；不记录对话正文。控制变更最多约 2 秒生效。</p>
-    <label><input id="consent" type="checkbox">我同意临时增加诊断采样。敏感追踪与内存文件不属于标准导出，分享前需单独检查。</label>
+    <h2>深度诊断</h2>
+    <p id="deep-status">默认关闭；可选择临时或持续开启。</p><p class="muted">提高 Windows 资源采样频率，每 15 分钟最多记录 4096 条操作类型事件；日志轮转限额不变，不记录对话正文。控制变更最多约 2 秒生效。</p>
+    <label><input id="persistent" type="checkbox">持续开启，重启后保留，直到我手动关闭（长期增加采样和磁盘写入）。</label>
+    <label><input id="consent" type="checkbox">我同意按所选时长增加诊断采样。敏感追踪与内存文件不属于标准导出，分享前需单独检查。</label>
     <label><input id="full-memory" type="checkbox">同时尝试完整内存转储（仅 Windows，可能含密钥和对话；单份上限 512 MiB，超限会失败而不是伪装完整）。</label>
     <label><input id="heap-check" type="checkbox">每分钟检查 Windows 主进程堆一致性（可能明显卡顿，仅排查内存损坏时开启；不是逐次分配的 PageHeap 检查）。</label>
     <div class="actions"><button id="enable">开启 15 分钟</button><button id="disable">立即关闭</button></div>
