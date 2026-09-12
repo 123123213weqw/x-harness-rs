@@ -235,6 +235,7 @@ impl BasicHost {
                     context_window_tokens: route.context_window_tokens,
                 },
                 permission_preset: permission,
+                active_permission: None,
                 plan_active,
                 goal: goal.clone(),
                 events: tail.events,

@@ -1937,6 +1937,15 @@ async fn web_response_resumes_a_real_tool_approval() {
     })
     .await
     .expect("approval frame timed out");
+    let switched = host.call_dynamic(RpcId::new("permission-during-approval"), "commands/execute",
+        json!({"args":{"agentId":session_id,"line":"/permission danger-full-access","images":[]}}),
+        CancellationToken::new()).await.unwrap();
+    assert!(matches!(switched, RpcResult::Success { .. }));
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(
+        !executed.load(Ordering::SeqCst),
+        "changing the next turn cannot approve the current tool"
+    );
     let receipt = host
         .respond(ClientResponse {
             kind: ClientResponseKind::ClientResponse,
