@@ -16,7 +16,7 @@ const RUNTIME_ID = '@deepseek-ai/dsh-client-runtime'
 const T = '\t'
 const BEGIN = '// XHARNESS WORKSPACE CREATED-AT BEGIN'
 const END = '// XHARNESS WORKSPACE CREATED-AT END'
-const HELPER = readFileSync(resolve(root, 'ui/overrides/workspace-created-at.js'), 'utf8')
+const HELPER = readFileSync(resolve(root, 'ui/overrides/workspace-created-at.js'), 'utf8').replaceAll('\r\n', '\n')
 
 function once(text, before, after) {
   if (text.split(before).length !== 2) {
