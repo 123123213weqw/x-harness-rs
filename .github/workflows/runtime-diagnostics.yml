@@ -1,5 +1,7 @@
 name: Runtime diagnostics acceptance
 on:
+  push:
+    branches: ['btlqql/diagnostic-build-*']
   workflow_dispatch:
     inputs:
       desktop_bundle:
@@ -28,7 +30,7 @@ permissions:
   contents: read
 jobs:
   native:
-    if: ${{ !inputs.desktop_bundle }}
+    if: ${{ github.event_name != 'push' && !inputs.desktop_bundle }}
     strategy:
       fail-fast: false
       matrix:
@@ -97,7 +99,7 @@ jobs:
           retention-days: 30
 
   local-desktop:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.desktop_bundle }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.desktop_bundle) }}
     runs-on: windows-2025
     timeout-minutes: 60
     defaults:
