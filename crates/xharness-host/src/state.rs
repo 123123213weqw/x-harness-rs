@@ -456,6 +456,11 @@ pub(crate) struct HostState {
     pub mutation_receipts: BTreeMap<String, MutationReceipt>,
     pub sessions: BTreeMap<String, SessionRecord>,
     pub workspaces: BTreeMap<String, WorkspaceRecord>,
+    /// Workspace ids the durable control log has a `workspace_defined` record
+    /// for. Workspaces discovered from restored Session cwds enter
+    /// `workspaces` without one; the next control mutation defines them so the
+    /// durable order never references an id the log cannot resolve.
+    pub defined_workspaces: BTreeSet<String>,
     pub workspace_order: Vec<String>,
     pub archived_sessions: BTreeSet<String>,
     pub presets: BTreeMap<String, AgentPreset>,
@@ -590,6 +595,7 @@ impl HostState {
             mutation_receipts: BTreeMap::new(),
             sessions: BTreeMap::new(),
             workspaces,
+            defined_workspaces: BTreeSet::new(),
             workspace_order,
             archived_sessions: BTreeSet::new(),
             presets,

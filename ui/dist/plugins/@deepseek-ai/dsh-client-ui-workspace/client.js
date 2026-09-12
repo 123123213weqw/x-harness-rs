@@ -1,6 +1,30 @@
 window.__ModuleLoader__.load({
 	id: "@deepseek-ai/dsh-client-ui-workspace",
 	factory: (require) => {
+		// XHARNESS WORKSPACE CREATED-AT BEGIN
+		// Product-owned tolerant parser for the Workspace creation timestamp.
+		//
+		// The shipped Host sends epoch milliseconds as a plain decimal string
+		// (`xharness-host/src/state.rs::iso_now` returns `now_ms().to_string()` despite
+		// its name). Upstream fed that straight into `new Date(...)` / `Date.parse(...)`,
+		// which is NaN for a bare 13-digit string: the workspace hover card rendered
+		// "创建于 NaN年NaN月NaN日 NaN:NaN", and `recentWorkspace` silently lost its
+		// recency fallback because every NaN comparison is false.
+		//
+		// Accept both shapes so display and ordering survive a later tightening of the
+		// wire format to real ISO-8601.
+		function xhEpochMs(value) {
+		  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+		  if (typeof value !== 'string') return NaN;
+		  const text = value.trim();
+		  if (text === '') return NaN;
+		  if (/^-?\d+$/.test(text)) {
+		    const numeric = Number(text);
+		    return Number.isSafeInteger(numeric) ? numeric : NaN;
+		  }
+		  return Date.parse(text);
+		}
+		// XHARNESS WORKSPACE CREATED-AT END
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
@@ -156,7 +180,7 @@ window.__ModuleLoader__.load({
 					if (!sessionVisible(summary, list.current, archived)) continue;
 					members.push(summary);
 				}
-				groups.push(buildGroup(workspace.workspaceId, workspace.workspaceId, workspace.path, Date.parse(workspace.createdAt), workspace.title, members, "account"));
+				groups.push(buildGroup(workspace.workspaceId, workspace.workspaceId, workspace.path, xhEpochMs(workspace.createdAt), workspace.title, members, "account"));
 			}
 			const stray = list.ids.map((id) => list.byId[id]).filter((s) => s !== void 0 && !accounted.has(s.id) && sessionVisible(s, list.current, archived));
 			if (stray.length > 0) groups.push(buildGroup("", void 0, void 0, void 0, UNGROUPED_LABEL, ungroupedOrder === void 0 ? stray : orderedUngrouped(stray, ungroupedOrder), ungroupedOrder === void 0 ? "recency" : "account"));
@@ -405,7 +429,8 @@ window.__ModuleLoader__.load({
 		* app locale, and produce mixed-language text after a switch.
 		*/
 		function createdLabel(createdAt, t) {
-			const d = new Date(createdAt);
+			const d = new Date(xhEpochMs(createdAt));
+			if (!Number.isFinite(d.getTime())) return void 0;
 			const pad2 = (v) => String(v).padStart(2, "0");
 			return t("hover.created", { time: `${t("date.ymd", {
 				y: d.getFullYear(),
@@ -426,7 +451,7 @@ window.__ModuleLoader__.load({
 						className: Rows_module_css_default.hoverPath,
 						children: cwd
 					}),
-					(0, react_jsx_runtime.jsx)("div", {
+					createdLabel(createdAt, t) === void 0 ? null : (0, react_jsx_runtime.jsx)("div", {
 						className: Rows_module_css_default.hoverTime,
 						children: createdLabel(createdAt, t)
 					})
