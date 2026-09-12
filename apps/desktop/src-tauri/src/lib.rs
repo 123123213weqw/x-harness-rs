@@ -1,3 +1,4 @@
+mod diagnostics;
 mod sidecar;
 mod updater;
 
@@ -31,6 +32,9 @@ pub fn run() {
         .setup(|app| {
             let state = DesktopState::initialize(app.handle())?;
             app.manage(state);
+            if app.state::<DesktopState>().diagnostics.incident() {
+                let _ = diagnostics::open(app.handle());
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = handle.emit(
@@ -54,12 +58,20 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             sidecar::desktop_status,
+            diagnostics::desktop_open_diagnostics,
+            diagnostics::desktop_diagnostics_status,
+            diagnostics::desktop_export_diagnostics,
+            diagnostics::desktop_diagnostics_acknowledge,
+            diagnostics::desktop_set_deep_diagnostics,
             updater::desktop_check_update,
             updater::desktop_update_status,
             updater::desktop_download_update,
             updater::desktop_install_update,
         ])
         .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
             let WindowEvent::CloseRequested { api, .. } = event else {
                 return;
             };
@@ -90,6 +102,7 @@ pub fn run() {
     app.run(|handle, event| {
         if matches!(event, RunEvent::Exit) {
             sidecar::force_stop(handle);
+            handle.state::<DesktopState>().diagnostics.finish();
         }
     });
 }

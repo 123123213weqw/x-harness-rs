@@ -21,15 +21,22 @@ use tokio::{
     time::{self, Instant},
 };
 use url::Url;
+use xharness_diagnostics::{Phase, Record};
 
 const HOST_START_TIMEOUT: Duration = Duration::from_secs(30);
 const HOST_STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct DesktopState {
+    pub(crate) diagnostics: crate::diagnostics::Diagnostics,
+    stop_requested: AtomicBool,
     #[cfg(windows)]
     host_job: xharness_win32::Job,
     #[cfg(windows)]
     start_file: PathBuf,
+    #[cfg(windows)]
+    crash_context: PathBuf,
+    #[cfg(windows)]
+    crash_event: String,
     pub(crate) child: Mutex<Option<CommandChild>>,
     pub(crate) running: AtomicBool,
     pub(crate) closing: AtomicBool,
@@ -81,10 +88,16 @@ impl DesktopState {
             .transpose()?
             .unwrap_or_default();
         Ok(Self {
+            diagnostics: crate::diagnostics::Diagnostics::new(app_cache.join("diagnostics")),
+            stop_requested: AtomicBool::new(false),
             #[cfg(windows)]
             host_job: xharness_win32::Job::new_kill_on_close()?,
             #[cfg(windows)]
             start_file: runtime_dir.join(format!("start-{runtime_id}.permit")),
+            #[cfg(windows)]
+            crash_context: runtime_dir.join(format!("crash-{runtime_id}.context")),
+            #[cfg(windows)]
+            crash_event: format!("Local\\XHarnessCrash-{runtime_id}"),
             child: Mutex::new(None),
             running: AtomicBool::new(false),
             closing: AtomicBool::new(false),
@@ -147,12 +160,15 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     if state.running.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
+    state.stop_requested.store(false, Ordering::SeqCst);
     *state
         .startup_error
         .lock()
         .expect("startup error mutex poisoned") = None;
     let result = start_claimed(app).await;
     if let Err(error) = &result {
+        state.diagnostics.mark_incident();
+        let _ = crate::diagnostics::open(app);
         state
             .startup_error
             .lock()
@@ -197,12 +213,20 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         .sidecar("xharness-host")
         .map_err(|error| format!("无法定位 xharness-host sidecar：{error}"))?
         .args(args)
-        .env("XHARNESS_DESKTOP_TOKEN", &state.token);
+        .env("XHARNESS_DESKTOP_TOKEN", &state.token)
+        .env(
+            "XHARNESS_DIAGNOSTICS_DIR",
+            state.diagnostics.root.join("host"),
+        )
+        .env("XHARNESS_DIAGNOSTICS_CONTROL", &state.diagnostics.control);
     for (name, value) in &state.provider_env {
         command = command.env(name, value);
     }
     #[cfg(windows)]
     {
+        command = command
+            .env("XHARNESS_CRASH_CONTEXT", &state.crash_context)
+            .env("XHARNESS_CRASH_EVENT", &state.crash_event);
         // Host cannot restore work/spawn children until assigned to our Job.
         match std::fs::remove_file(&state.start_file) {
             Ok(()) => {}
@@ -214,6 +238,12 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     let (mut events, child) = command
         .spawn()
         .map_err(|error| format!("无法启动 xharness-host：{error}"))?;
+    let pid = child.pid();
+    let mut started = Record::new(Phase::HostStart);
+    started.pid = Some(pid);
+    state.diagnostics.record(started);
+    #[cfg(windows)]
+    let observed = xharness_win32::ObservedProcess::open(pid).ok();
     #[cfg(windows)]
     if let Err(error) = state.host_job.assign_pid(child.pid()) {
         let _ = child.kill();
@@ -221,11 +251,79 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     }
     *state.child.lock().expect("child mutex poisoned") = Some(child);
 
+    let generation_alive = std::sync::Arc::new(AtomicBool::new(true));
+    #[cfg(windows)]
+    match xharness_win32::CrashCapture::prepare(pid, &state.crash_event) {
+        Ok(capture) => {
+            let capture_app = app.clone();
+            let capture_alive = generation_alive.clone();
+            std::thread::spawn(move || {
+                let state = capture_app.state::<DesktopState>();
+                while capture_alive.load(Ordering::SeqCst) {
+                    if std::fs::metadata(&state.crash_context).is_ok_and(|meta| meta.len() == 16) {
+                        state.diagnostics.record(Record::new(Phase::CaptureStarted));
+                        let destination = state.diagnostics.root.join("crash-latest.dmp");
+                        let previous = state.diagnostics.root.join("crash-previous.dmp");
+                        // Only these two fixed, application-owned dump files are
+                        // retained; never scan/delete the user's CrashDumps.
+                        if destination.is_file() {
+                            let _ = std::fs::remove_file(&previous);
+                            let _ = std::fs::rename(&destination, &previous);
+                        }
+                        let result = capture.capture(
+                            &state.crash_context,
+                            &destination,
+                            state.diagnostics.full_memory(),
+                        );
+                        let mut record = Record::new(if result.is_ok() {
+                            Phase::CaptureFinished
+                        } else {
+                            Phase::CaptureFailed
+                        });
+                        record.byte_count = result.ok();
+                        state.diagnostics.record(record);
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                let _ = std::fs::remove_file(&state.crash_context);
+            });
+        }
+        Err(_) => state.diagnostics.record(Record::new(Phase::CaptureFailed)),
+    }
+    #[cfg(windows)]
+    if let Some(observed) = observed {
+        let sampler_app = app.clone();
+        let sampler_alive = generation_alive.clone();
+        // Blocking Win32 queries and filesystem writes stay off the async/UI
+        // executor. The retained process handle cannot follow a recycled PID.
+        std::thread::spawn(move || {
+            while sampler_alive.load(Ordering::SeqCst) {
+                let state = sampler_app.state::<DesktopState>();
+                if let Ok(sample) = observed.sample() {
+                    let mut record = Record::new(Phase::Sample);
+                    record.pid = Some(pid);
+                    record.resources = Some(xharness_diagnostics::Resources {
+                        resident_bytes: Some(sample.resident_bytes),
+                        private_bytes: Some(sample.private_bytes),
+                        handles: Some(sample.handles),
+                    });
+                    state.diagnostics.record(record);
+                }
+                std::thread::sleep(state.diagnostics.interval());
+            }
+        });
+    }
+
     let event_app = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = events.recv().await {
             match event {
                 CommandEvent::Stderr(bytes) => {
+                    let mut record = Record::new(Phase::HostStderr);
+                    record.pid = Some(pid);
+                    record.byte_count = Some(bytes.len() as u64);
+                    event_app.state::<DesktopState>().diagnostics.record(record);
                     let message = String::from_utf8_lossy(&bytes).trim().to_owned();
                     // Surface only recognized ownership diagnostics on the
                     // bootstrap screen, not arbitrary provider stderr/secrets.
@@ -249,6 +347,10 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
                     }
                 }
                 CommandEvent::Error(message) => {
+                    event_app
+                        .state::<DesktopState>()
+                        .diagnostics
+                        .record(Record::new(Phase::HostIoError));
                     let _ = event_app.emit(
                         "xharness-host",
                         HostEvent {
@@ -258,7 +360,30 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
                     );
                 }
                 CommandEvent::Terminated(payload) => {
+                    generation_alive.store(false, Ordering::SeqCst);
                     let state = event_app.state::<DesktopState>();
+                    let expected = state.stop_requested.load(Ordering::SeqCst)
+                        && payload.code == Some(0)
+                        && payload.signal.is_none();
+                    let mut record = Record::new(Phase::HostExit);
+                    record.pid = Some(pid);
+                    record.exit_code = payload.code;
+                    record.signal = payload.signal;
+                    record.expected = Some(expected);
+                    state.diagnostics.record(record);
+                    if !expected {
+                        state.diagnostics.mark_incident();
+                        *state
+                            .startup_error
+                            .lock()
+                            .expect("startup error mutex poisoned") = Some(
+                            "后台异常退出，已尝试保存诊断记录。请打开运行诊断；不会自动重跑工具。"
+                                .to_owned(),
+                        );
+                        if !state.closing.load(Ordering::SeqCst) {
+                            let _ = crate::diagnostics::open(&event_app);
+                        }
+                    }
                     *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
                     state.child.lock().expect("child mutex poisoned").take();
                     // Publish stopped only after cleaning up this generation.
@@ -275,6 +400,7 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
                 _ => {}
             }
         }
+        generation_alive.store(false, Ordering::SeqCst);
     });
 
     #[cfg(windows)]
@@ -282,6 +408,7 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|error| format!("无法释放 Host 启动门禁：{error}"))?;
     let endpoint = wait_until_ready(app, &state.ready_file).await?;
+    state.diagnostics.record(Record::new(Phase::HostReady));
     *state.endpoint.lock().expect("endpoint mutex poisoned") = Some(endpoint.clone());
 
     let mut bootstrap = Url::parse(&format!("{endpoint}/desktop/bootstrap"))
@@ -320,9 +447,11 @@ pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
         }
         return Ok(());
     }
-    tokio::fs::write(&state.shutdown_file, b"shutdown")
-        .await
-        .map_err(|error| format!("无法请求 Host 安全退出：{error}"))?;
+    state.stop_requested.store(true, Ordering::SeqCst);
+    if let Err(error) = tokio::fs::write(&state.shutdown_file, b"shutdown").await {
+        state.stop_requested.store(false, Ordering::SeqCst);
+        return Err(format!("无法请求 Host 安全退出：{error}"));
+    }
     wait_for_stop(&state.running, HOST_STOP_TIMEOUT).await?;
     #[cfg(windows)]
     if state

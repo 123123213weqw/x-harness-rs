@@ -46,6 +46,7 @@ tokio = { workspace = true, features = ["process"] }
 tokio-tungstenite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+xharness-win32 = { path = "../xharness-win32" }
 keyring = { version = "3.6.3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

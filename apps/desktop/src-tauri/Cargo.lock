@@ -5361,7 +5361,16 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "url",
+ "xharness-diagnostics",
  "xharness-win32",
+]
+
+[[package]]
+name = "xharness-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

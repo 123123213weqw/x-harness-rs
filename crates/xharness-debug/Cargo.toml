@@ -7,10 +7,14 @@ repository.workspace = true
 description = "Lossless opt-in JSONL debug traces and content-addressed diagnostic blobs for XHarness"
 
 [dependencies]
+xharness-diagnostics = { path = "../xharness-diagnostics" }
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+xharness-win32 = { path = "../xharness-win32" }
 

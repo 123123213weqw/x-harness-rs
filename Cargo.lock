@@ -3397,6 +3397,16 @@ dependencies = [
  "sha2",
  "thiserror 2.0.20",
  "tokio",
+ "xharness-diagnostics",
+ "xharness-win32",
+]
+
+[[package]]
+name = "xharness-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3445,6 +3455,7 @@ dependencies = [
  "xharness-core",
  "xharness-debug",
  "xharness-interaction",
+ "xharness-process",
  "xharness-prompt",
  "xharness-schedule",
  "xharness-session",
@@ -3488,6 +3499,7 @@ dependencies = [
  "xharness-token",
  "xharness-tools",
  "xharness-web",
+ "xharness-win32",
 ]
 
 [[package]]

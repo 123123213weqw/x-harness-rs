@@ -12,6 +12,10 @@ mod acl;
 #[cfg(windows)]
 mod conpty;
 #[cfg(windows)]
+mod crash;
+#[cfg(windows)]
+mod diagnostics;
+#[cfg(windows)]
 mod drives;
 #[cfg(windows)]
 mod file;
@@ -30,6 +34,10 @@ mod token;
 pub use acl::{copy_dacl, grant_write, revoke_write};
 #[cfg(windows)]
 pub use conpty::{spawn_conpty, ConPtyChild, ConPtySession};
+#[cfg(windows)]
+pub use crash::{install_crash_signal, CrashCapture};
+#[cfg(windows)]
+pub use diagnostics::{validate_process_heap, ObservedProcess, ProcessResources};
 #[cfg(windows)]
 pub use drives::logical_drive_roots;
 #[cfg(windows)]

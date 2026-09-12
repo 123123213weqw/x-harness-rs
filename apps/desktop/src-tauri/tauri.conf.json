@@ -24,7 +24,8 @@
     ],
     "security": {
       "capabilities": [
-        "desktop-main"
+        "desktop-main",
+        "diagnostics"
       ]
     }
   },

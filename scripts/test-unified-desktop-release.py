@@ -424,6 +424,20 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
         with self.assertRaisesRegex(ValueError, 'platform set'):
             contract.validate_release(self.plan, self.output, self.pub)
 
+    def test_verified_optional_symbols_are_retained_without_changing_update_manifest(self):
+        self.assemble()
+        before = (self.output / 'latest.json').read_bytes()
+        spec = importlib.util.spec_from_file_location('symbol_tests', ROOT / 'scripts/test-desktop-symbols.py')
+        symbol_tests = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(symbol_tests)
+        symbol_tests.archive_fixture(self.output / 'windows-debug-symbols.zip', self.plan['sha'])
+        (self.output / 'SHA256SUMS').write_text(contract.checksums(self.output), encoding='ascii', newline='\n')
+        contract.validate_release(self.plan, self.output, self.pub)
+        self.assertEqual((self.output / 'latest.json').read_bytes(), before)
+        (self.output / 'windows-debug-symbols.zip').write_bytes(b'mismatched symbols')
+        with self.assertRaises(Exception):
+            contract.validate_release(self.plan, self.output, self.pub)
+
     def test_unsafe_linux_fallback_is_rejected_even_with_valid_checksums(self):
         self.assemble()
         manifest = contract.read_json(self.output / 'latest.json')

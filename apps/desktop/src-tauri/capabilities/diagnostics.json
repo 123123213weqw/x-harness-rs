@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "diagnostics",
+  "description": "Local bundled diagnostic window only; no remote deep-diagnostic control",
+  "windows": ["diagnostics"],
+  "permissions": [
+    "core:default",
+    "allow-desktop-diagnostics-status",
+    "allow-desktop-export-diagnostics",
+    "allow-desktop-diagnostics-acknowledge",
+    "allow-desktop-set-deep-diagnostics"
+  ]
+}
