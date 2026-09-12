@@ -1197,6 +1197,9 @@ fn restored_web_event(
                 "step": step,
                 "message": web_message(message, route, event.seq, prompts),
             });
+            if message.interrupted {
+                data["interrupted"] = json!(true);
+            }
             if let Some(usage) = usage.as_ref().and_then(web_token_usage) {
                 data.as_object_mut()
                     .expect("assistant message data is an object")
@@ -1357,24 +1360,14 @@ fn web_turn_end(reason: &TurnEndReason) -> Value {
 
 fn web_assistant_chunk(chunk: &AssistantChunk) -> Value {
     match chunk {
-        AssistantChunk::TextDelta(text) => {
-            json!({"type": "text-delta", "index": 0, "text": text})
-        }
-        AssistantChunk::ReasoningDelta(text) => {
-            json!({"type": "reasoning-delta", "index": 0, "text": text})
-        }
+        AssistantChunk::TextDelta(text) => crate::assistant_projection::text_delta(text),
+        AssistantChunk::ReasoningDelta(text) => crate::assistant_projection::reasoning_delta(text),
         AssistantChunk::ToolCallDelta {
             index,
             id,
             name,
             arguments_delta,
-        } => json!({
-            "type": "tool-call-delta",
-            "index": index,
-            "id": id,
-            "name": name,
-            "argumentsDelta": arguments_delta,
-        }),
+        } => crate::assistant_projection::tool_delta(*index, id, name, arguments_delta),
         AssistantChunk::Usage(usage) => web_token_usage(usage).map_or_else(
             || json!({"type": "provider", "item": {"kind": "invalid-usage"}}),
             |usage| json!({"type": "usage", "usage": usage}),
@@ -1415,7 +1408,11 @@ fn web_message(
     json!({
         "id": id,
         "role": message.role.as_str(),
-        "content": [{"type": "text", "text": message.content}],
+        "content": if message.role == MessageRole::Assistant {
+            crate::assistant_projection::content(&message.content, &message.reasoning)
+        } else {
+            vec![json!({"type":"text", "text":message.content})]
+        },
         "source": source,
     })
 }
@@ -1801,6 +1798,104 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_text_and_tools_have_disjoint_live_and_restored_blocks() {
+        use crate::assistant_projection as projection;
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../scripts/fixtures/assistant-projection.json"
+        ))
+        .unwrap();
+        for interrupted in [false, true] {
+            let mut session = Session::new(SessionHeader::new("reasoning-replay")).unwrap();
+            let mut message = Message::assistant("正文🙂done");
+            message.reasoning = "思考α再想".into();
+            message.interrupted = interrupted;
+            let chunks = [
+                AssistantChunk::TextDelta("正文🙂".into()),
+                AssistantChunk::ReasoningDelta("思考α".into()),
+                AssistantChunk::ToolCallDelta {
+                    index: 0,
+                    id: "call-a".into(),
+                    name: "read".into(),
+                    arguments_delta: "{}".into(),
+                },
+                AssistantChunk::ReasoningDelta("再想".into()),
+                AssistantChunk::TextDelta("done".into()),
+                AssistantChunk::ToolCallDelta {
+                    index: 1,
+                    id: "call-b".into(),
+                    name: "read".into(),
+                    arguments_delta: "{}".into(),
+                },
+            ];
+            let mut events = vec![
+                EventData::TurnStart { turn: 1 }.into(),
+                EventData::StepStart { turn: 1, step: 1 }.into(),
+            ];
+            for (chunk, expected) in chunks.iter().zip(fixture["chunks"].as_array().unwrap()) {
+                assert_eq!(&web_assistant_chunk(chunk), expected);
+                events.push(
+                    EventData::AssistantChunk {
+                        turn: 1,
+                        step: 1,
+                        chunk: chunk.clone(),
+                    }
+                    .into(),
+                );
+            }
+            session.append_batch_at(Revision::ZERO, events, 1).unwrap();
+            let route = ModelRoute::new("test", "test");
+            let live = project_session_event_range(&session, &route, 2, session.events().len());
+            assert_eq!(
+                live.iter()
+                    .map(|e| e["data"]["chunk"].clone())
+                    .collect::<Vec<_>>(),
+                fixture["chunks"].as_array().unwrap().clone()
+            );
+            let revision = session.revision();
+            session
+                .append_batch_at(
+                    revision,
+                    vec![EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message,
+                        usage: None,
+                    }
+                    .into()],
+                    2,
+                )
+                .unwrap();
+            let all = project_session_event_range(&session, &route, 0, session.events().len());
+            let tail = project_session_event_tail(&session, &route, usize::MAX, usize::MAX);
+            let history = project_session_history(&session, &route, None, 100);
+            for events in [&all, &tail.events, &history.events] {
+                let settled = events
+                    .iter()
+                    .find(|e| e["type"] == "assistant/message")
+                    .unwrap();
+                assert_eq!(settled["data"]["message"]["content"], fixture["content"]);
+                assert_eq!(
+                    settled["data"]["interrupted"].as_bool().unwrap_or(false),
+                    interrupted
+                );
+            }
+            assert_eq!(
+                projection::content("正文🙂done", "思考α再想"),
+                fixture["content"].as_array().unwrap().clone()
+            );
+        }
+        assert_eq!(
+            projection::content("", "only thought"),
+            vec![json!({"type":"reasoning","text":"only thought"})]
+        );
+        assert_eq!(
+            projection::content("text", ""),
+            vec![json!({"type":"text","text":"text"})]
+        );
+        assert!(projection::content("", "").is_empty());
+    }
+
+    #[test]
     fn execution_checkpoint_projection_is_shared_and_internal_snapshots_are_hidden() {
         let mut session = Session::new(SessionHeader::new("checkpoint-projection")).unwrap();
         let state = xharness_session::ExecutionCheckpointState {
@@ -1950,7 +2045,12 @@ mod tests {
                     EventData::AssistantMessage {
                         turn: 1,
                         step: 1,
-                        message: Message::assistant("old answer").with_id("fold-answer"),
+                        message: {
+                            let mut message =
+                                Message::assistant("old answer").with_id("fold-answer");
+                            message.reasoning = "old thought".into();
+                            message
+                        },
                         usage: None,
                     }
                     .into(),

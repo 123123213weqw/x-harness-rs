@@ -114,8 +114,10 @@ Tool Definition 不在 `Context` 正文重复渲染；`Harness` 的 Tool Registr
   Harness 的 Prompt/Tool/Policy/Route 均来自同一 RequestHeader 快照。
 
 具体 Token 用量不在 Context 工具栏重复显示。Host 通过标准 `request/context` 与
-`contextPressure` Projection 驱动输入框底部原生无文字圆环；圆环填充比例表示下一次请求
-预计占用的 Context Window，Hover/点击才显示详细数字。
+`contextPressure` Projection 驱动输入框底部原生无文字圆环：优先显示最近请求的实际输入，
+没有 usage 时显示本次请求前计数，**不是下一请求的预计占用**。估算显示 `≈`，
+Compact/工具结果改变历史后标记“历史已变化”，不虚构压缩后的计数。
+Hover/点击显示读数、容量和来源，独立精度字段见 [上下文计量](context-accounting.md#59每个读数独立标记精度2026-09-12)。
 
 ## 页签滚动隔离（2026-09-05）
 

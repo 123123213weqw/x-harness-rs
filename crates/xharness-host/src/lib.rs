@@ -4,6 +4,7 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
+mod assistant_projection;
 mod control;
 mod delegation;
 mod delegation_concurrency;

@@ -970,7 +970,16 @@ impl BasicHost {
                 });
             return Ok(());
         }
-        if !result.final_text.is_empty() {
+        let final_reasoning = result
+            .messages
+            .last()
+            .filter(|m| {
+                m.role == Role::Assistant
+                    && (result.status == LoopStatus::Completed || m.interrupted)
+                    && (result.final_text == m.content || result.status == LoopStatus::Completed)
+            })
+            .map_or("", |m| m.reasoning.as_str());
+        if !result.final_text.is_empty() || !final_reasoning.is_empty() {
             let model = self
                 .state
                 .read()
@@ -991,10 +1000,14 @@ impl BasicHost {
                 "message": web_assistant_message(
                     &self.mint_id("message"),
                     &result.final_text,
+                    final_reasoning,
                     &model.provider,
                     &model.model,
                 ),
             });
+            if result.status != LoopStatus::Completed {
+                data["interrupted"] = json!(true);
+            }
             if let Some(usage) = &result.usage {
                 data.as_object_mut()
                     .expect("assistant data is object")
@@ -1156,17 +1169,6 @@ impl BasicHost {
                 None,
             )
             .await?;
-            self.append_session_event(
-                session_id,
-                "assistant/chunk",
-                json!({
-                    "turn": turn,
-                    "step": step,
-                    "chunk": {"type": "block-start", "index": 0, "blockType": "text"},
-                }),
-                None,
-            )
-            .await?;
             *current_step = Some(step);
         }
         Ok(())
@@ -1199,7 +1201,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": {"type": "text-delta", "index": 0, "text": text},
+                        "chunk": crate::assistant_projection::text_delta(&text),
                     }),
                     None,
                 )
@@ -1212,7 +1214,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": {"type": "reasoning-delta", "index": 0, "text": text},
+                        "chunk": crate::assistant_projection::reasoning_delta(&text),
                     }),
                     None,
                 )
@@ -1230,13 +1232,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": {
-                            "type": "tool-call-delta",
-                            "index": index,
-                            "id": id,
-                            "name": name,
-                            "argumentsDelta": arguments_delta,
-                        },
+                        "chunk": crate::assistant_projection::tool_delta(index, &id, &name, &arguments_delta),
                     }),
                     None,
                 )
@@ -1458,11 +1454,17 @@ pub(crate) fn web_user_message(id: &str, content: Vec<Value>, source: Value) -> 
     })
 }
 
-fn web_assistant_message(id: &str, text: &str, provider: &str, model: &str) -> Value {
+fn web_assistant_message(
+    id: &str,
+    text: &str,
+    reasoning: &str,
+    provider: &str,
+    model: &str,
+) -> Value {
     json!({
         "id": id,
         "role": "assistant",
-        "content": [{"type": "text", "text": text}],
+        "content": crate::assistant_projection::content(text, reasoning),
         "source": {"kind": "model", "provider": provider, "model": model},
     })
 }

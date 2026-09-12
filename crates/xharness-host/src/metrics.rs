@@ -172,7 +172,9 @@ impl ContextPressureProjectionState {
                     n.saturating_add(usage["cacheReadTokens"].as_u64().unwrap_or(0))
                         .saturating_add(usage["cacheWriteTokens"].as_u64().unwrap_or(0))
                 });
-                self.phase = "measured".into();
+                if self.phase != "history_changed" {
+                    self.phase = "measured".into();
+                }
             }
             "tool/result" | "user/message" | "compaction/summary" => {
                 self.phase = "history_changed".into();
@@ -187,9 +189,11 @@ impl ContextPressureProjectionState {
         let mut v = Map::new();
         if let Some(n) = self.pressure_tokens {
             v.insert("pressureTokens".into(), json!(n));
+            v.insert("pressureAccuracy".into(), json!("provider_reported"));
         }
         if let Some(n) = self.projected_tokens {
             v.insert("projectedTokens".into(), json!(n));
+            v.insert("projectedAccuracy".into(), json!(self.accuracy));
         }
         if let Some(n) = self.context_window {
             v.insert("contextWindow".into(), json!(n));
@@ -571,6 +575,52 @@ mod tests {
     }
 
     #[test]
+    fn context_reading_precision_is_independent_and_history_change_stays_visible() {
+        for accuracy in [
+            "estimated",
+            "calibrated",
+            "exact_request",
+            "exact_tokenizer",
+        ] {
+            let events = [
+                event(0, 0, "step/start", json!({"turn":1,"step":1})),
+                event(
+                    1,
+                    1,
+                    "request/header",
+                    json!({"header":{"options":{"tokenBudget":{
+                        "contextWindowTokens":1000,"accuracy":accuracy,"estimate":{"totalInputTokens":600}
+                    }}}}),
+                ),
+                event(
+                    2,
+                    2,
+                    "assistant/message",
+                    json!({"turn":1,"step":1,"usage":{"inputTokens":200,"cacheReadTokens":100,"outputTokens":0}}),
+                ),
+                event(3, 3, "compaction/summary", json!({})),
+                event(
+                    4,
+                    4,
+                    "assistant/message",
+                    json!({"turn":1,"step":1,"usage":{"inputTokens":200,"cacheReadTokens":100,"outputTokens":0}}),
+                ),
+            ];
+            let rebuilt = MetricsProjectionState::rebuild(events.iter()).context_pressure();
+            let mut incremental = MetricsProjectionState::default();
+            for e in &events {
+                incremental.apply(e);
+            }
+            assert_eq!(incremental.context_pressure(), rebuilt);
+            assert_eq!(rebuilt["pressureAccuracy"], "provider_reported");
+            assert_eq!(rebuilt["projectedAccuracy"], accuracy);
+            assert_eq!(rebuilt["pressureTokens"], 300);
+            assert_eq!(rebuilt["projectedTokens"], 600);
+            assert_eq!(rebuilt["phase"], "history_changed");
+        }
+    }
+
+    #[test]
     fn usage_mapper_accepts_old_snake_case_and_emits_camel_case() {
         assert_eq!(
             web_token_usage(&json!({
@@ -666,7 +716,9 @@ mod tests {
             state.context_pressure(),
             json!({
                 "pressureTokens": 1_850,
+                "pressureAccuracy": "provider_reported",
                 "projectedTokens": 1_830,
+                "projectedAccuracy": "estimated",
                 "contextWindow": 53_248,
                 "accuracy":"provider_reported", "phase":"measured", "measurement":{"source":"legacy_request","turn":null,"step":null}
             })
@@ -687,7 +739,7 @@ mod tests {
         let state = MetricsProjectionState::rebuild([&header]);
         assert_eq!(
             state.context_pressure(),
-            json!({"projectedTokens": 1_830, "contextWindow": 262_144,"accuracy":"estimated","phase":"in_flight","measurement":{"source":"legacy_request","turn":null,"step":null}})
+            json!({"projectedTokens": 1_830, "projectedAccuracy":"estimated", "contextWindow": 262_144,"accuracy":"estimated","phase":"in_flight","measurement":{"source":"legacy_request","turn":null,"step":null}})
         );
     }
 

@@ -2141,3 +2141,79 @@ async fn generic_upload_reuses_prompt_history_reference_and_download_authority()
     assert!(!fx.call(RpcMethod::SessionPrompt,json!({"sessionId":id,"mode":"queue","content":[{"type":"image_ref","attachmentId":a["attachmentId"]}]})).await.is_ok());
     fx.value(RpcMethod::SessionPrompt,json!({"sessionId":id,"mode":"queue","content":[{"type":"file_ref","attachmentId":a["attachmentId"],"name":"again.txt"}]})).await;
 }
+
+struct ReasoningProjectionProvider {
+    reasoning_only: bool,
+}
+#[async_trait]
+impl ModelProvider for ReasoningProjectionProvider {
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+        _cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        let mut events = vec![];
+        if !self.reasoning_only {
+            events.push(Ok(ProviderEvent::TextDelta("answer".into())));
+        }
+        events.push(Ok(ProviderEvent::ReasoningDelta("thought α".into())));
+        if !self.reasoning_only {
+            events.push(Ok(ProviderEvent::TextDelta(" done".into())));
+        }
+        events.push(Ok(ProviderEvent::ReasoningDelta(" β".into())));
+        events.push(Ok(ProviderEvent::Completed {
+            finish_reason: Some(FinishReason::Stop),
+            usage: None,
+            provider_items: vec![],
+        }));
+        Ok(Box::pin(stream::iter(events)))
+    }
+}
+
+#[tokio::test]
+async fn legacy_driver_preserves_reasoning_in_stream_and_settled_history() {
+    for reasoning_only in [false, true] {
+        let mut fx = Fixture::new();
+        fx.host = BasicHost::new(
+            HostConfig::new(&fx.root),
+            Some(Arc::new(ReasoningProjectionProvider { reasoning_only })),
+            Arc::new(NoTools),
+        );
+        let created = fx
+            .value(
+                RpcMethod::SessionCreate,
+                json!({"cwd":fx.root.to_string_lossy()}),
+            )
+            .await;
+        let id = created["sessionId"].as_str().unwrap().to_owned();
+        fx.value(
+            RpcMethod::SessionPrompt,
+            json!({"sessionId":id,"mode":"queue","content":[{"type":"text","text":"test"}]}),
+        )
+        .await;
+        fx.wait_for_assistant(&id).await;
+        let history = fx
+            .value(RpcMethod::SessionHistory, json!({"sessionId":id}))
+            .await;
+        let events = history["events"].as_array().unwrap();
+        for entry in events {
+            let e = &entry["event"];
+            match e["data"]["chunk"]["type"].as_str() {
+                Some("reasoning-delta") => assert_eq!(e["data"]["chunk"]["index"], 0),
+                Some("text-delta") => assert_eq!(e["data"]["chunk"]["index"], 1),
+                _ => {}
+            }
+        }
+        let final_event = events
+            .iter()
+            .find(|e| e["event"]["type"] == "assistant/message")
+            .unwrap();
+        let content = &final_event["event"]["data"]["message"]["content"];
+        assert_eq!(content[0], json!({"type":"reasoning","text":"thought α β"}));
+        if reasoning_only {
+            assert_eq!(content.as_array().unwrap().len(), 1);
+        } else {
+            assert_eq!(content[1], json!({"type":"text","text":"answer done"}));
+        }
+    }
+}

@@ -2929,30 +2929,23 @@ window.__ModuleLoader__.load({
 		function billedInputTokens(usage) {
 			return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
 		}
-		/**
-		* Approximate context occupancy, using the TUI's integer rounding and upper
-		* clamp. The numerator is `projectedTokens` — the provider sample carried
-		* forward over the surface's movement since — so compaction shows immediately
-		* instead of waiting for the next request to report usage; it falls back to the
-		* bare sample only for a log whose projection predates that field. Numerator
-		* and capacity remain independent last-wins projection fields, so this is a
-		* reference figure rather than an exact measurement of one request (see the
-		* token-meter README).
-		* @param pressure - the session's context-pressure projection value.
-		* @returns occupancy with its numerator and denominator, or null until both values are known.
-		*/
+		/** Last request input: provider-reported usage first, otherwise preflight count. Never predicts post-compaction input. */
 		function contextOccupancy(pressure) {
-			// xharness-context-measurement/v1
+            // xharness-context-measurement/v2: accuracy belongs to a reading, not the whole projection.
             const measured = Number.isFinite(pressure?.pressureTokens);
             const usedTokens = measured ? pressure.pressureTokens : pressure?.projectedTokens;
-            const exact = measured || ['exact_request', 'exact_tokenizer'].includes(pressure?.accuracy);
-            const label = measured ? '最近请求实际输入' : exact ? '本次请求输入计数' : '本次请求估算输入';
-			if (!Number.isFinite(usedTokens) || usedTokens < 0 || !Number.isFinite(pressure?.contextWindow) || pressure.contextWindow <= 0) return null;
-			return {
-				percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
-				usedTokens,
-				contextWindow: pressure.contextWindow, exact, label
-			};
+            const accuracy = measured ? (pressure?.pressureAccuracy ?? 'provider_reported')
+                : (pressure?.projectedAccuracy ?? pressure?.accuracy ?? 'estimated');
+            const exact = measured ? accuracy === 'provider_reported'
+                : ['exact_request', 'exact_tokenizer'].includes(accuracy);
+            const stale = pressure?.phase === 'history_changed';
+            const label = (measured ? '最近请求实际输入' : stale ? '最近请求输入计数' : '本次请求输入计数')
+                + (!measured && !exact ? '（估算）' : '') + (stale ? ' · 历史已变化' : '');
+            if (!Number.isFinite(usedTokens) || usedTokens < 0 || !Number.isFinite(pressure?.contextWindow) || pressure.contextWindow <= 0) return null;
+            return {
+                percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
+                usedTokens, contextWindow: pressure.contextWindow, exact, label, accuracy, stale
+            };
 		}
 		const StatsLine = (0, react.memo)(function StatsLine({ useSession, useProjection, t }) {
 			const settledNodes = useSession((s) => s.chat.legacy.nodes);

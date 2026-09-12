@@ -85,6 +85,7 @@ jobs:
       - run: node scripts/test-monochrome-theme.mjs
       - run: node scripts/test-silver-surface.mjs
       - run: node scripts/test-context-accounting.mjs
+      - run: node scripts/test-assistant-projection.mjs
       - run: node scripts/test-model-controls.mjs
       - run: node scripts/test-workspace-directory.mjs
       - name: Real browser layout regression
