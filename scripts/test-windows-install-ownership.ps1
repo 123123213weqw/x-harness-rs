@@ -17,6 +17,18 @@ New-Item -ItemType Directory -Path $fixture | Out-Null
 $evidence = Join-Path $fixture 'result.json'
 $owned = [Collections.Generic.List[int]]::new()
 function Assert-That($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
+function Assert-PeSubsystem([string]$Path, [int]$Expected) {
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    Assert-That ($bytes.Length -ge 64 -and [BitConverter]::ToUInt16($bytes, 0) -eq 0x5A4D) "Invalid DOS header: $Path"
+    $pe = [BitConverter]::ToInt32($bytes, 60)
+    Assert-That ($pe -ge 64 -and $pe -le $bytes.Length - 94) "Invalid PE offset: $Path"
+    Assert-That ([BitConverter]::ToUInt32($bytes, $pe) -eq 0x4550) "Invalid PE signature: $Path"
+    $magic = [BitConverter]::ToUInt16($bytes, $pe + 24)
+    Assert-That ($magic -in @(0x10B, 0x20B)) "Invalid optional header: $Path"
+    # Subsystem has the same offset in PE32 and PE32+ optional headers.
+    $actual = [BitConverter]::ToUInt16($bytes, $pe + 24 + 68)
+    Assert-That ($actual -eq $Expected) "Unexpected PE subsystem $actual (expected $Expected): $Path"
+}
 function Wait-Until([scriptblock]$Check, [string]$Message) {
     $deadline = [DateTime]::UtcNow.AddSeconds(40)
     do { if (& $Check) { return }; Start-Sleep -Milliseconds 200 } while ([DateTime]::UtcNow -lt $deadline)
@@ -51,6 +63,10 @@ function Host-Ready {
 try {
     Install-TestCopy $true
     Assert-That (Test-Path -LiteralPath (Join-Path $canonical 'xharness-desktop.exe')) 'Custom installation path changed'
+    # Inspect installed payload: Start-Process -WindowStyle Hidden alone would
+    # mask an accidental console-subsystem regression in the desktop executable.
+    Assert-PeSubsystem (Join-Path $canonical 'xharness-desktop.exe') 2
+    Assert-PeSubsystem (Join-Path $canonical 'xharness-host.exe') 3
     # Assert the actual NSIS payload, not only the source-side resource manifest.
     foreach ($relative in @('index.html', 'client-graph.json', 'plugins/@xlang/xharness-client-ui-directory/client.js')) {
         $installed = Join-Path (Join-Path $canonical 'web') $relative
@@ -97,6 +113,7 @@ try {
     Wait-Until { Host-Ready } 'Replacement Host failed readiness'
     Assert-That ((Get-FileHash -LiteralPath $sentinel).Hash -eq $before) 'Reinstall changed data'
     @{ passed = $true; signedUpdaterTest = $false; customPath = $canonical; duplicateLaunch = $true;
+       desktopGuiSubsystem = $true; hostCliSubsystem = $true;
        liveInstallBlocked = $true; hostReapedOnCrash = $true; shortcutRetargeted = $true;
        legacyRetiredRecoverably = $true; retainedHash = $before } | ConvertTo-Json | Set-Content -LiteralPath $evidence
     Get-Content -LiteralPath $evidence
