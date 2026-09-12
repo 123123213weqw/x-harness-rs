@@ -1,5 +1,5 @@
-import { patchQuestionContinuation } from './patch-question-continuation.mjs'
 #!/usr/bin/env node
+import { patchQuestionContinuation } from './patch-question-continuation.mjs'
 import { patchGoalRuntime } from './patch-goal-runtime.mjs'
 import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
 
