@@ -1921,6 +1921,62 @@ mod tests {
             .any(|event| event["data"].to_string().contains("question-5")));
     }
 
+    /// A bounded, synthetic experiment for the Windows 0xc0000005 dump in
+    /// restored_web_event -> serde_json::to_value -> BTreeMap::insert_entry.
+    /// Passing is not evidence that the original sporadic crash is fixed.
+    #[test]
+    #[ignore = "offline crash-reproduction stress; run explicitly in CI"]
+    fn offline_reasoning_projection_stress() {
+        let mut session = Session::new(SessionHeader::new("offline-reasoning-stress")).unwrap();
+        let mut events = Vec::new();
+        for turn in 1..=128 {
+            events.extend(closed_text_turn(
+                turn,
+                "synthetic question",
+                "synthetic answer",
+            ));
+        }
+        events.push(EventData::TurnStart { turn: 129 }.into());
+        events.push(EventData::StepStart { turn: 129, step: 1 }.into());
+        for index in 0..64 {
+            events.push(
+                EventData::AssistantChunk {
+                    turn: 129,
+                    step: 1,
+                    chunk: AssistantChunk::ReasoningDelta(format!(
+                        "synthetic-{index}: {}",
+                        "模拟 reasoning 🧪 ".repeat(16)
+                    )),
+                }
+                .into(),
+            );
+        }
+        session.append_batch_at(Revision::ZERO, events, 1).unwrap();
+        let workers = (0..4)
+            .map(|_| {
+                let session = session.clone();
+                std::thread::spawn(move || {
+                    let route = ModelRoute::new("offline", "offline");
+                    for _ in 0..2_000 {
+                        let tail = project_session_event_tail(&session, &route, 64, usize::MAX);
+                        assert_eq!(tail.events.len(), 64);
+                        for event in tail.events {
+                            assert_eq!(event["type"], "assistant/chunk");
+                            assert_eq!(event["data"]["chunk"]["type"], "reasoning-delta");
+                            let serialized = serde_json::to_vec(&event).unwrap();
+                            let copied: Value = serde_json::from_slice(&serialized).unwrap();
+                            assert_eq!(copied, event);
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        eprintln!("offline reasoning projection: 4 workers, 512000 projected events; no live models or tools");
+    }
+
     #[test]
     fn completed_stream_chunks_are_folded_for_tail_and_omitted_from_history() {
         let mut session = Session::new(SessionHeader::new("folded-stream-history")).unwrap();

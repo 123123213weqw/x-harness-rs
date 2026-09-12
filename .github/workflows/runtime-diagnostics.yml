@@ -6,6 +6,7 @@ on:
       - 'crates/xharness-diagnostics/**'
       - 'crates/xharness-debug/**'
       - 'crates/xharness-win32/**'
+      - 'crates/xharness-host/src/restore.rs'
       - 'apps/desktop/**'
       - 'scripts/*diagnostics*'
       - '.github/workflows/runtime-diagnostics.yml'
@@ -49,3 +50,5 @@ jobs:
             target/release/xharness_host.pdb
           if-no-files-found: error
           retention-days: 30
+      - name: Exercise the reasoning projection crash path with synthetic data
+        run: cargo test --locked --release -p xharness-host offline_reasoning_projection_stress -- --ignored --nocapture
