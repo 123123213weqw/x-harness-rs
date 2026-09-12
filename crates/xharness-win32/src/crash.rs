@@ -155,6 +155,7 @@ impl CrashCapture {
             .try_lock()
             .map_err(|_| io::Error::other("another capture is running"))?;
         let file = File::create(destination)?;
+        let started = Instant::now();
         let mut writer = BoundedDump {
             file,
             limit: if full {
@@ -164,6 +165,8 @@ impl CrashCapture {
             },
             deadline: Instant::now() + Duration::from_secs(10),
             used_callback: false,
+            failure: None,
+            high_water: 0,
         };
         let exception = MINIDUMP_EXCEPTION_INFORMATION {
             ThreadId: thread,
@@ -194,11 +197,20 @@ impl CrashCapture {
             )
         };
         if ok == 0 || !writer.used_callback {
+            // Capture the OS error before file cleanup can overwrite it. Keep
+            // budget, deadline and native API failures distinguishable in CI
+            // and support logs without including user memory or file paths.
+            let native_error = io::Error::last_os_error().raw_os_error();
+            let message = format!(
+                "crash capture failed: native_error={native_error:?}, callback={}, reason={}, elapsed_ms={}, written_extent={}",
+                writer.used_callback,
+                writer.failure.unwrap_or("native API failure"),
+                started.elapsed().as_millis(),
+                writer.high_water,
+            );
             drop(writer);
             let _ = fs::remove_file(destination); // only our just-created partial dump
-            return Err(io::Error::other(
-                "crash capture failed, timed out or exceeded size budget",
-            ));
+            return Err(io::Error::other(message));
         }
         writer.file.sync_all()?;
         Ok(writer.file.metadata()?.len())
@@ -209,6 +221,8 @@ struct BoundedDump {
     limit: u64,
     deadline: Instant,
     used_callback: bool,
+    failure: Option<&'static str>,
+    high_water: u64,
 }
 unsafe extern "system" fn dump_io(
     param: *mut c_void,
@@ -232,10 +246,16 @@ unsafe extern "system" fn dump_io(
         // SAFETY: Io is the discriminated union variant for this callback type.
         let request = unsafe { (*input).Anonymous.Io };
         let end = request.Offset.checked_add(request.BufferBytes as u64);
-        if end.is_none_or(|end| end > writer.limit)
-            || Instant::now() >= writer.deadline
-            || (request.Buffer.is_null() && request.BufferBytes > 0)
-        {
+        if end.is_none_or(|end| end > writer.limit) {
+            writer.failure = Some("size budget exceeded");
+            return 0;
+        }
+        if Instant::now() >= writer.deadline {
+            writer.failure = Some("capture deadline exceeded");
+            return 0;
+        }
+        if request.Buffer.is_null() && request.BufferBytes > 0 {
+            writer.failure = Some("invalid native write buffer");
             return 0;
         }
         if request.BufferBytes > 0 {
@@ -252,9 +272,11 @@ unsafe extern "system" fn dump_io(
                 .and_then(|_| writer.file.write_all(bytes))
                 .is_err()
             {
+                writer.failure = Some("dump file I/O failed");
                 return 0;
             }
         }
+        writer.high_water = writer.high_water.max(end.unwrap_or(0));
         unsafe {
             (*output).Anonymous.Status = S_OK;
         }
@@ -370,6 +392,8 @@ mod tests {
             limit: 8,
             deadline: Instant::now() + Duration::from_secs(5),
             used_callback: true,
+            failure: None,
+            high_water: 0,
         };
         // SAFETY: zeroed API POD structs are valid buffers for our callback;
         // below initializes the discriminant and the matching union variant.
@@ -395,6 +419,8 @@ mod tests {
             0
         );
         assert_eq!(writer.file.metadata().unwrap().len(), 0);
+        assert_eq!(writer.failure, Some("size budget exceeded"));
+        assert_eq!(writer.high_water, 0);
         drop(writer);
         fs::remove_file(root).unwrap();
     }
