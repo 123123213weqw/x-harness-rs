@@ -3455,6 +3455,7 @@ dependencies = [
  "xharness-core",
  "xharness-debug",
  "xharness-interaction",
+ "xharness-process",
  "xharness-prompt",
  "xharness-schedule",
  "xharness-session",

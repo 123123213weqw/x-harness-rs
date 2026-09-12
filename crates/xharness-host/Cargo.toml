@@ -37,6 +37,7 @@ xharness-debug = { path = "../xharness-debug" }
 xharness-win32 = { path = "../xharness-win32" }
 
 [dev-dependencies]
+xharness-process = { path = "../xharness-process" }
 xharness-session-jsonl = { path = "../xharness-session-jsonl" }
 chrono.workspace = true
 tower.workspace = true

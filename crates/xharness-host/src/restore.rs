@@ -15,6 +15,10 @@ use xharness_session::{
 
 const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;
 
+#[cfg(test)]
+#[path = "dynamic_projection_tests.rs"]
+mod dynamic_projection_tests;
+
 use crate::{
     metrics::{web_token_usage, MetricsProjectionState},
     runtime::{AgentSessionRequest, ModelRoute},
