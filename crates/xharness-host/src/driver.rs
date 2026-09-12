@@ -29,7 +29,26 @@ pub(crate) struct PromptAdmission {
     pub fingerprint: Option<String>,
 }
 
+/// Owned only by Host clones, never by a listener. Last-owner drop wakes idle
+/// receivers even when an embedding application retains the Runtime/senders.
+#[derive(Default)]
+pub(crate) struct BackgroundListenerLifetime {
+    stop: tokio_util::sync::CancellationToken,
+}
+
+impl Drop for BackgroundListenerLifetime {
+    fn drop(&mut self) {
+        self.stop.cancel();
+    }
+}
+
 impl BasicHost {
+    /// Stop background notification listeners. Already-admitted turns remain
+    /// Runtime-owned and must be drained by AgentRuntime::shutdown separately.
+    /// Terminal and idempotent; this Host does not restart its listeners.
+    pub fn stop_background_listeners(&self) {
+        self.background_listener_lifetime.stop.cancel();
+    }
     /// Bridge runtime-originated turns (currently durable Schedule delivery)
     /// into the same live Web projection used by user-started turns.
     pub(crate) fn start_background_turn_listener(self: &Arc<Self>) {
@@ -42,11 +61,18 @@ impl BasicHost {
         let Some(mut notices) = self.agent_runtime.subscribe_background_turns() else {
             return;
         };
+        let stop = self.background_listener_lifetime.stop.clone();
         if let Some(mut changes) = self.agent_runtime.subscribe_goal_changes() {
             let weak = Arc::downgrade(self);
+            let stop = stop.clone();
             tokio::spawn(async move {
                 loop {
-                    let ids = match changes.recv().await {
+                    let received = tokio::select! {
+                        biased;
+                        _ = stop.cancelled() => break,
+                        received = changes.recv() => received,
+                    };
+                    let ids = match received {
                         Ok(id) => vec![id],
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                             let Some(host) = weak.upgrade() else { break };
@@ -64,12 +90,18 @@ impl BasicHost {
                 }
             });
         }
-        let host = Arc::clone(self);
+        let weak = Arc::downgrade(self);
         tokio::spawn(async move {
             loop {
-                match notices.recv().await {
+                // Never keep a strong Host reference while waiting for input.
+                let received = tokio::select! {
+                    biased;
+                    _ = stop.cancelled() => return,
+                    received = notices.recv() => received,
+                };
+                match received {
                     Ok(notice) => {
-                        let host = Arc::clone(&host);
+                        let Some(host) = weak.upgrade() else { return };
                         tokio::spawn(async move {
                             if let Err(error) = host.start_background_turn(notice).await {
                                 host.push_host(json!({
@@ -81,6 +113,7 @@ impl BasicHost {
                         });
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        let Some(host) = weak.upgrade() else { return };
                         host.push_host(json!({
                             "type": "host/agent-error",
                             "message": format!("background turn listener lagged by {skipped} notice(s)"),
@@ -1473,4 +1506,181 @@ fn prompt_message(id: &str, text: &str, content: &[Value]) -> Result<AgentMessag
     }
     message = message.with_content_blocks(blocks);
     Ok(message)
+}
+
+#[cfg(test)]
+mod listener_lifetime_tests {
+    use super::*;
+    use crate::{runtime::AgentRuntime, HostConfig};
+    use std::time::Duration;
+    use tokio::sync::broadcast;
+    use tokio_util::sync::CancellationToken;
+    use xharness_schedule::ScheduleDeliveryNotice;
+
+    struct NoticesRuntime {
+        notices: broadcast::Sender<ScheduleDeliveryNotice>,
+        changes: broadcast::Sender<String>,
+        entered: CancellationToken,
+        release: CancellationToken,
+    }
+    impl NoticesRuntime {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                notices: broadcast::channel(2).0,
+                changes: broadcast::channel(2).0,
+                entered: CancellationToken::new(),
+                release: CancellationToken::new(),
+            })
+        }
+    }
+    #[async_trait::async_trait]
+    impl AgentRuntime for NoticesRuntime {
+        fn has_available_route(&self) -> bool {
+            false
+        }
+        fn can_route(&self, _: &ModelRoute) -> bool {
+            false
+        }
+        fn subscribe_background_turns(
+            &self,
+        ) -> Option<broadcast::Receiver<ScheduleDeliveryNotice>> {
+            Some(self.notices.subscribe())
+        }
+        fn subscribe_goal_changes(&self) -> Option<broadcast::Receiver<String>> {
+            Some(self.changes.subscribe())
+        }
+        async fn take_resumed_turn(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<Option<Box<dyn RunningTurn>>, AgentRuntimeError> {
+            self.entered.cancel();
+            self.release.cancelled().await;
+            Ok(None)
+        }
+        async fn start_turn(
+            &self,
+            _: AgentTurnRequest,
+        ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+            unreachable!("listener must not start a new model turn")
+        }
+    }
+    fn host(runtime: Arc<NoticesRuntime>) -> Arc<BasicHost> {
+        let host = BasicHost::with_agent_runtime(HostConfig::new(std::env::temp_dir()), runtime);
+        host.start_background_turn_listener();
+        host
+    }
+    async fn eventually(mut condition: impl FnMut() -> bool) {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !condition() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("listener did not release its owners/receiver");
+    }
+    fn notice() -> ScheduleDeliveryNotice {
+        ScheduleDeliveryNotice {
+            session_id: "test".into(),
+            work_id: "pending".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn idle_drop_releases_host_and_both_receivers_with_runtime_alive() {
+        let runtime = NoticesRuntime::new();
+        for _ in 0..32 {
+            let host = host(runtime.clone());
+            host.start_background_turn_listener(); // idempotent registration
+            assert_eq!(runtime.notices.receiver_count(), 1);
+            assert_eq!(runtime.changes.receiver_count(), 1);
+            let weak = Arc::downgrade(&host);
+            let state = Arc::downgrade(&host.state);
+            tokio::task::yield_now().await;
+            drop(host);
+            eventually(|| {
+                weak.upgrade().is_none()
+                    && state.upgrade().is_none()
+                    && runtime.notices.receiver_count() == 0
+                    && runtime.changes.receiver_count() == 0
+            })
+            .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_stop_wakes_idle_receivers_without_dropping_host() {
+        let runtime = NoticesRuntime::new();
+        let host = host(runtime.clone());
+        host.stop_background_listeners();
+        host.stop_background_listeners();
+        eventually(|| {
+            runtime.notices.receiver_count() == 0 && runtime.changes.receiver_count() == 0
+        })
+        .await;
+        host.start_background_turn_listener();
+        assert_eq!(runtime.notices.receiver_count(), 0);
+        assert!(runtime.notices.send(notice()).is_err());
+    }
+
+    #[tokio::test]
+    async fn in_flight_notification_releases_host_after_settling() {
+        let runtime = NoticesRuntime::new();
+        let host = host(runtime.clone());
+        let weak = Arc::downgrade(&host);
+        runtime.notices.send(notice()).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), runtime.entered.cancelled())
+            .await
+            .unwrap();
+        drop(host);
+        assert!(
+            weak.upgrade().is_some(),
+            "in-flight processing temporarily owns Host"
+        );
+        runtime.release.cancel();
+        eventually(|| {
+            weak.upgrade().is_none()
+                && runtime.notices.receiver_count() == 0
+                && runtime.changes.receiver_count() == 0
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn lagged_and_queued_events_cannot_keep_a_dropped_host_alive() {
+        let runtime = NoticesRuntime::new();
+        let host = host(runtime.clone());
+        let weak = Arc::downgrade(&host);
+        // Current-thread runtime: fill channels before the listeners can poll.
+        for _ in 0..64 {
+            runtime.notices.send(notice()).unwrap();
+            runtime.changes.send("test".into()).unwrap();
+        }
+        drop(host);
+        eventually(|| {
+            weak.upgrade().is_none()
+                && runtime.notices.receiver_count() == 0
+                && runtime.changes.receiver_count() == 0
+        })
+        .await;
+        assert!(
+            !runtime.entered.is_cancelled(),
+            "stale notices must not admit work"
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_one_value_clone_does_not_stop_another_owner() {
+        let runtime = NoticesRuntime::new();
+        let host = host(runtime.clone());
+        let clone = host.as_ref().clone();
+        drop(clone);
+        tokio::task::yield_now().await;
+        assert_eq!(runtime.notices.receiver_count(), 1);
+        host.stop_background_listeners();
+        eventually(|| {
+            runtime.notices.receiver_count() == 0 && runtime.changes.receiver_count() == 0
+        })
+        .await;
+    }
 }
