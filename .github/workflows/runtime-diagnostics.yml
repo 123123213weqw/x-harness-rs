@@ -52,3 +52,26 @@ jobs:
           retention-days: 30
       - name: Exercise the reasoning projection crash path with synthetic data
         run: cargo test --locked --release -p xharness-host offline_reasoning_projection_stress -- --ignored --nocapture
+      - name: Package the offline test executable for same-machine reproduction
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $artifacts = @(& cargo test --locked --release -p xharness-host --lib --no-run --message-format=json | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($LASTEXITCODE) { throw 'Offline test build failed' }
+          $tests = @($artifacts | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.profile.test -and $_.target.name -eq 'xharness_host' -and $_.executable })
+          if ($tests.Count -ne 1) { throw 'Expected exactly one offline test executable' }
+          $out = 'dist/offline-projection-test'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -LiteralPath $tests[0].executable -Destination "$out/offline-projection-tests.exe"
+          $pdb = [IO.Path]::ChangeExtension($tests[0].executable, '.pdb')
+          if (Test-Path -LiteralPath $pdb) { Copy-Item -LiteralPath $pdb -Destination $out }
+          $sha = (Get-FileHash -LiteralPath "$out/offline-projection-tests.exe").Hash
+          @{ source = '${{ github.sha }}'; sha256 = $sha; filter = 'offline_reasoning_projection_stress' } | ConvertTo-Json | Set-Content "$out/manifest.json"
+      - name: Retain offline projection test
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-offline-projection-test
+          path: dist/offline-projection-test/
+          if-no-files-found: error
+          retention-days: 30
