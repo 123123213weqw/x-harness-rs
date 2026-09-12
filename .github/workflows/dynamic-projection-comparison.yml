@@ -1,0 +1,66 @@
+name: Dynamic projection release comparison
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'crates/xharness-host/src/dynamic_projection_tests.rs'
+      - 'scripts/prepare-dynamic-projection-comparison.py'
+      - '.github/workflows/dynamic-projection-comparison.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [desktop-v0.2.16, desktop-v0.2.17]
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: harness
+      - uses: actions/checkout@v6
+        with:
+          repository: 123123213weqw/x-harness-rs
+          ref: ${{ matrix.ref }}
+          path: subject
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98.1'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: subject -> target
+          key: dynamic-projection-${{ matrix.ref }}
+      - name: Install the same test-only overlay on both release revisions
+        run: python -B harness/scripts/prepare-dynamic-projection-comparison.py --harness harness --subject subject
+      - name: Build isolated dynamic experiment and retain matching executable
+        working-directory: subject
+        shell: pwsh
+        run: |
+          $artifacts = @(& cargo test --locked --release -p xharness-host --lib --no-run --message-format=json | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($LASTEXITCODE) { throw 'Dynamic test build failed' }
+          $tests = @($artifacts | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.profile.test -and $_.target.name -eq 'xharness_host' -and $_.executable })
+          if ($tests.Count -ne 1) { throw 'Expected one test executable' }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -LiteralPath $tests[0].executable -Destination 'dist/offline-projection-tests.exe'
+          $pdb = [IO.Path]::ChangeExtension($tests[0].executable, '.pdb')
+          if (Test-Path -LiteralPath $pdb) { Copy-Item -LiteralPath $pdb -Destination dist }
+          @{ source = (git rev-parse HEAD); overlay = '${{ github.sha }}'; release = '${{ matrix.ref }}'; sha256 = (Get-FileHash dist/offline-projection-tests.exe).Hash; filter = 'restore::dynamic_projection_tests::offline_dynamic_projection_stress' } | ConvertTo-Json | Set-Content dist/manifest.json
+      - name: Dynamic append, recovery, projection and actual harmless PowerShell probes
+        working-directory: subject
+        shell: pwsh
+        env:
+          XHARNESS_DYNAMIC_PWSH: '1'
+        run: |
+          & ./dist/offline-projection-tests.exe restore::dynamic_projection_tests::offline_dynamic_projection_stress --exact --ignored --nocapture --test-threads=1 2>&1 | Tee-Object -FilePath dist/test.log
+          if ($LASTEXITCODE) { throw 'Dynamic experiment failed' }
+          if (-not (Select-String -LiteralPath dist/test.log -SimpleMatch '1 passed; 0 failed')) { throw 'Expected one passing test' }
+      - name: Retain local-reproduction executable and test result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dynamic-projection-${{ matrix.ref }}
+          path: subject/dist/
+          if-no-files-found: warn
+          retention-days: 30
