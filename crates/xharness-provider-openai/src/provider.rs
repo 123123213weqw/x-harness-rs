@@ -182,6 +182,7 @@ impl OpenAiReasoningProfile {
 #[derive(Clone)]
 pub struct OpenAiProviderConfig {
     pub protocol: OpenAiProtocol,
+    pub usage_input_semantics: crate::InputUsageSemantics,
     pub base_url: String,
     pub api_key: String,
     pub model: String,
@@ -209,6 +210,7 @@ impl OpenAiProviderConfig {
     ) -> Self {
         Self {
             protocol,
+            usage_input_semantics: crate::InputUsageSemantics::Auto,
             base_url: base_url.into(),
             api_key: api_key.into(),
             model: model.into(),
@@ -275,6 +277,7 @@ impl fmt::Debug for OpenAiProviderConfig {
         formatter
             .debug_struct("OpenAiProviderConfig")
             .field("protocol", &self.protocol)
+            .field("usage_input_semantics", &self.usage_input_semantics)
             .field("base_url", &self.base_url)
             .field("api_key", &"[REDACTED]")
             .field("model", &self.model)
@@ -936,6 +939,7 @@ impl ModelProvider for OpenAiProvider {
         }
 
         let protocol = self.config.protocol;
+        let usage_semantics = self.config.usage_input_semantics;
         let max_sse_pending_bytes = self.config.max_sse_pending_bytes;
         let max_sse_event_bytes = self.config.max_sse_event_bytes;
         let debug = self.debug.clone();
@@ -943,7 +947,7 @@ impl ModelProvider for OpenAiProvider {
         let output = async_stream::stream! {
             let mut bytes = response.bytes_stream();
             let mut parser = SseParser::with_limits(max_sse_pending_bytes, max_sse_event_bytes);
-            let mut normalizer = OpenAiStreamNormalizer::new(protocol);
+            let mut normalizer = OpenAiStreamNormalizer::new(protocol).with_usage_semantics(usage_semantics);
             let stream_started = Instant::now();
             let mut received_chunks = 0_u64;
             let mut received_bytes = 0_u64;

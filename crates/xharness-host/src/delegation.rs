@@ -236,7 +236,7 @@ impl BasicHost {
             (
                 parent.cwd.clone(),
                 parent.model.clone(),
-                parent.permission_preset,
+                parent.execution_permission(),
                 parent.agent_preset.clone(),
                 parent.plan_active,
                 existing,

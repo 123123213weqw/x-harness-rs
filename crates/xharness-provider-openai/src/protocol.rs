@@ -28,6 +28,17 @@ impl OpenAiProtocol {
     }
 }
 
+/// Meaning of input counts returned by an OpenAI-compatible gateway, not its
+/// model vendor. Explicit configuration wins over response-shape detection.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputUsageSemantics {
+    #[default]
+    Auto,
+    TotalIncludesCache,
+    UncachedInput,
+}
+
 pub fn build_openai_request(
     protocol: OpenAiProtocol,
     model: &str,
@@ -222,6 +233,7 @@ fn encode_response_tool_call(call: &ToolCall) -> Value {
 pub struct OpenAiStreamNormalizer {
     protocol: OpenAiProtocol,
     usage: Option<TokenUsage>,
+    usage_semantics: InputUsageSemantics,
     finish_reason: Option<FinishReason>,
     saw_tool_call: bool,
     provider_items: Vec<Value>,
@@ -235,6 +247,7 @@ impl OpenAiStreamNormalizer {
         Self {
             protocol,
             usage: None,
+            usage_semantics: InputUsageSemantics::Auto,
             finish_reason: None,
             saw_tool_call: false,
             provider_items: Vec::new(),
@@ -242,6 +255,11 @@ impl OpenAiStreamNormalizer {
             argument_seen: HashSet::new(),
             completed: false,
         }
+    }
+
+    pub fn with_usage_semantics(mut self, semantics: InputUsageSemantics) -> Self {
+        self.usage_semantics = semantics;
+        self
     }
 
     pub fn consume(&mut self, event: SseEvent) -> Result<Vec<ProviderEvent>, ProviderError> {
@@ -281,7 +299,11 @@ impl OpenAiStreamNormalizer {
 
     fn consume_chat(&mut self, root: Value) -> Result<Vec<ProviderEvent>, ProviderError> {
         if let Some(usage) = root.get("usage").filter(|value| !value.is_null()) {
-            self.usage = Some(openai_token_usage(usage, OpenAiProtocol::ChatCompletions));
+            self.usage = Some(openai_token_usage(
+                usage,
+                OpenAiProtocol::ChatCompletions,
+                self.usage_semantics,
+            ));
         }
         if let Some(error) = root.get("error").filter(|value| !value.is_null()) {
             return Err(ProviderError::new(error_message(error)));
@@ -407,7 +429,11 @@ impl OpenAiStreamNormalizer {
     fn complete_response(&mut self, root: &Value, explicit_incomplete: bool) -> ProviderEvent {
         let response = root.get("response").unwrap_or(root);
         if let Some(usage) = response.get("usage").filter(|value| !value.is_null()) {
-            self.usage = Some(openai_token_usage(usage, OpenAiProtocol::Responses));
+            self.usage = Some(openai_token_usage(
+                usage,
+                OpenAiProtocol::Responses,
+                self.usage_semantics,
+            ));
         }
         let items = response
             .get("output")
@@ -494,16 +520,55 @@ fn response_finish_reason(
     }
 }
 
-fn openai_token_usage(usage: &Value, protocol: OpenAiProtocol) -> TokenUsage {
+fn openai_token_usage(
+    usage: &Value,
+    protocol: OpenAiProtocol,
+    semantics: InputUsageSemantics,
+) -> TokenUsage {
+    let native_read = first_u64(usage, &["cache_read_input_tokens"]);
+    let native_write = first_u64(usage, &["cache_creation_input_tokens"]);
+    // Known total-shaped fields win in Auto when a gateway mixes formats.
+    // A gateway that changes their meaning must configure UncachedInput.
+    let total_shape = first_u64(
+        usage,
+        &[
+            "prompt_tokens",
+            "prompt_cache_hit_tokens",
+            "prompt_cache_miss_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+        ],
+    )
+    .is_some()
+        || usage
+            .get("input_tokens_details")
+            .is_some_and(Value::is_object)
+        || usage
+            .get("prompt_tokens_details")
+            .is_some_and(Value::is_object);
+    let uncached_input = match semantics {
+        InputUsageSemantics::UncachedInput => true,
+        InputUsageSemantics::TotalIncludesCache => false,
+        InputUsageSemantics::Auto => {
+            !total_shape
+                && usage.get("input_tokens").and_then(Value::as_u64).is_some()
+                && (native_read.is_some() || native_write.is_some())
+        }
+    };
     let total_input = match protocol {
         OpenAiProtocol::ChatCompletions => first_u64(usage, &["prompt_tokens", "input_tokens"]),
         OpenAiProtocol::Responses => first_u64(usage, &["input_tokens", "prompt_tokens"]),
     }
     .unwrap_or_default();
-    let cache_read_tokens = nested_u64(usage, "input_tokens_details", "cached_tokens")
+    let standard_read = nested_u64(usage, "input_tokens_details", "cached_tokens")
         .or_else(|| nested_u64(usage, "prompt_tokens_details", "cached_tokens"))
-        .or_else(|| first_u64(usage, &["prompt_cache_hit_tokens", "cache_read_tokens"]))
-        .unwrap_or_default();
+        .or_else(|| first_u64(usage, &["prompt_cache_hit_tokens", "cache_read_tokens"]));
+    let cache_read_tokens = if uncached_input {
+        native_read.or(standard_read)
+    } else {
+        standard_read.or(native_read)
+    }
+    .unwrap_or_default();
     let explicitly_uncached = first_u64(usage, &["prompt_cache_miss_tokens"]);
     let total_output_tokens = match protocol {
         OpenAiProtocol::ChatCompletions => {
@@ -516,21 +581,29 @@ fn openai_token_usage(usage: &Value, protocol: OpenAiProtocol) -> TokenUsage {
         .or_else(|| nested_u64(usage, "completion_tokens_details", "reasoning_tokens"))
         .or_else(|| first_u64(usage, &["reasoning_tokens"]))
         .unwrap_or_default();
-    let cache_write_tokens = nested_u64(usage, "input_tokens_details", "cache_write_tokens")
-        .or_else(|| {
-            first_u64(
-                usage,
-                &["cache_write_tokens", "cache_creation_input_tokens"],
-            )
-        })
-        .unwrap_or_default();
+    let standard_write = nested_u64(usage, "input_tokens_details", "cache_write_tokens")
+        .or_else(|| first_u64(usage, &["cache_write_tokens"]));
+    let cache_write_tokens = if uncached_input {
+        native_write.or(standard_write)
+    } else {
+        standard_write.or(native_write)
+    }
+    .unwrap_or_default();
 
     TokenUsage {
-        input_tokens: explicitly_uncached.unwrap_or_else(|| {
-            total_input
-                .saturating_sub(cache_read_tokens)
-                .saturating_sub(cache_write_tokens)
-        }),
+        input_tokens: if uncached_input {
+            first_u64(
+                usage,
+                &["input_tokens", "prompt_cache_miss_tokens", "prompt_tokens"],
+            )
+            .unwrap_or_default()
+        } else {
+            explicitly_uncached.unwrap_or_else(|| {
+                total_input
+                    .saturating_sub(cache_read_tokens)
+                    .saturating_sub(cache_write_tokens)
+            })
+        },
         // OpenAI's completion/output total includes reasoning tokens. Keep the
         // portable TokenUsage buckets disjoint so summing them cannot double
         // count hidden reasoning work.

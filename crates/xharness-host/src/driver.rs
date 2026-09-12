@@ -43,6 +43,43 @@ impl Drop for BackgroundListenerLifetime {
 }
 
 impl BasicHost {
+    /// Serialize the turn preparation snapshot with desired-permission writes.
+    /// The lock ends before any provider/tool work; existing executors are never changed.
+    pub(crate) async fn capture_turn_permission(
+        &self,
+        session_id: &str,
+    ) -> Result<(crate::PermissionPreset, xharness_prompt::PromptAssembly), RpcError> {
+        let _gate = self.lock_permission_selection(session_id).await;
+        let (permission, prompt, view) = {
+            let mut state = self.state.write().await;
+            let prompt = state
+                .prompt_assembly(session_id)
+                .map_err(RpcError::internal)?;
+            let session = state
+                .sessions
+                .get_mut(session_id)
+                .ok_or_else(|| RpcError::internal("session disappeared at permission snapshot"))?;
+            let permission = session.permission_preset;
+            session.active_permission = Some(permission);
+            (permission, prompt, session.permission_projection())
+        };
+        self.push_projection(session_id, "permissions", view).await;
+        Ok((permission, prompt))
+    }
+
+    pub(crate) async fn push_permission_projection(&self, session_id: &str) {
+        let view = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .map(|s| s.permission_projection());
+        if let Some(view) = view {
+            self.push_projection(session_id, "permissions", view).await;
+        }
+    }
+
     /// Stop background notification listeners. Already-admitted turns remain
     /// Runtime-owned and must be drained by AgentRuntime::shutdown separately.
     /// Terminal and idempotent; this Host does not restart its listeners.
@@ -285,9 +322,9 @@ impl BasicHost {
             self.config.session_event_cache_capacity,
             self.config.session_event_cache_bytes,
         );
-        let (new_events, queue_changed) = {
+        let (new_events, queue_changed, permission_changed) = {
             let mut state = self.state.write().await;
-            let (new_events, queue_changed) = {
+            let (new_events, queue_changed, permission_changed) = {
                 let record = state
                     .sessions
                     .get_mut(session_id)
@@ -328,6 +365,7 @@ impl BasicHost {
                 // Durable Runtime derives provider messages from the journal on demand.
                 // Do not retain a second transcript for every idle conversation.
                 record.messages.clear();
+                let permission_changed = record.permission_preset != permission;
                 record.permission_preset = permission;
                 record.agent_preset = agent_preset;
                 record.title = title;
@@ -345,14 +383,14 @@ impl BasicHost {
                 }) {
                     record.blank = false;
                 }
-                (new_events, queue_changed)
+                (new_events, queue_changed, permission_changed)
             };
             if let Some(goal) = goal.as_ref() {
                 state.goals.insert(session_id.to_owned(), goal.clone());
             } else {
                 state.goals.remove(session_id);
             }
-            (new_events, queue_changed)
+            (new_events, queue_changed, permission_changed)
         };
         for (event, updates, view) in new_events {
             let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
@@ -387,6 +425,9 @@ impl BasicHost {
             goal.as_ref().map_or(Value::Null, |g| g.projection()),
         )
         .await;
+        if permission_changed {
+            self.push_permission_projection(session_id).await;
+        }
         Ok(true)
     }
 
@@ -712,6 +753,7 @@ impl BasicHost {
                     record.control = None;
                 }
                 drop(state);
+                self.push_permission_projection(&session_id).await;
                 self.push_host(
                     json!({"type":"host/session-status","sessionId":session_id,"running":false}),
                 );
@@ -735,6 +777,7 @@ impl BasicHost {
                 }
                 drop(state);
                 self.emit_queue(&session_id).await;
+                self.push_permission_projection(&session_id).await;
                 self.push_host(json!({
                     "type": "host/session-status",
                     "sessionId": session_id,
@@ -843,7 +886,25 @@ impl BasicHost {
         prompt: QueuedPrompt,
         control_rx: &mut mpsc::Receiver<DriverCommand>,
     ) -> Result<(), RpcError> {
-        let (turn, cwd, route, permission, messages) = {
+        let authoritative = self.sync_authoritative_session(session_id).await?;
+        let (permission, assembled_prompt) = if authoritative {
+            // The durable driver may already own a started/queued turn. Only
+            // its factory may publish the active snapshot, never this observer.
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(session_id)
+                .ok_or_else(|| RpcError::internal("session disappeared"))?;
+            (
+                session.permission_preset,
+                state
+                    .prompt_assembly(session_id)
+                    .map_err(RpcError::internal)?,
+            )
+        } else {
+            self.capture_turn_permission(session_id).await?
+        };
+        let (turn, cwd, route, messages) = {
             let mut state = self.state.write().await;
             let session = state.sessions.get_mut(session_id).ok_or_else(|| {
                 rpc_error(
@@ -866,12 +927,10 @@ impl BasicHost {
                     reasoning_effort: session.model.reasoning_effort.clone(),
                     context_window_tokens: session.model.context_window_tokens,
                 },
-                session.permission_preset,
                 session.messages.clone(),
             )
         };
 
-        let authoritative = self.sync_authoritative_session(session_id).await?;
         if !authoritative {
             self.append_session_event(
                 session_id,
@@ -899,13 +958,7 @@ impl BasicHost {
                 cwd,
                 route,
                 permission,
-                prompt: self
-                    .state
-                    .read()
-                    .await
-                    .prompt_assembly(session_id)
-                    .map(Some)
-                    .map_err(RpcError::internal)?,
+                prompt: Some(assembled_prompt),
                 messages,
                 input_metadata: None,
             })
@@ -970,7 +1023,16 @@ impl BasicHost {
                 });
             return Ok(());
         }
-        if !result.final_text.is_empty() {
+        let final_reasoning = result
+            .messages
+            .last()
+            .filter(|m| {
+                m.role == Role::Assistant
+                    && (result.status == LoopStatus::Completed || m.interrupted)
+                    && (result.final_text == m.content || result.status == LoopStatus::Completed)
+            })
+            .map_or("", |m| m.reasoning.as_str());
+        if !result.final_text.is_empty() || !final_reasoning.is_empty() {
             let model = self
                 .state
                 .read()
@@ -991,10 +1053,14 @@ impl BasicHost {
                 "message": web_assistant_message(
                     &self.mint_id("message"),
                     &result.final_text,
+                    final_reasoning,
                     &model.provider,
                     &model.model,
                 ),
             });
+            if result.status != LoopStatus::Completed {
+                data["interrupted"] = json!(true);
+            }
             if let Some(usage) = &result.usage {
                 data.as_object_mut()
                     .expect("assistant data is object")
@@ -1156,17 +1222,6 @@ impl BasicHost {
                 None,
             )
             .await?;
-            self.append_session_event(
-                session_id,
-                "assistant/chunk",
-                json!({
-                    "turn": turn,
-                    "step": step,
-                    "chunk": {"type": "block-start", "index": 0, "blockType": "text"},
-                }),
-                None,
-            )
-            .await?;
             *current_step = Some(step);
         }
         Ok(())
@@ -1199,7 +1254,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": {"type": "text-delta", "index": 0, "text": text},
+                        "chunk": crate::assistant_projection::text_delta(&text),
                     }),
                     None,
                 )
@@ -1212,7 +1267,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": {"type": "reasoning-delta", "index": 0, "text": text},
+                        "chunk": crate::assistant_projection::reasoning_delta(&text),
                     }),
                     None,
                 )
@@ -1230,13 +1285,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": {
-                            "type": "tool-call-delta",
-                            "index": index,
-                            "id": id,
-                            "name": name,
-                            "argumentsDelta": arguments_delta,
-                        },
+                        "chunk": crate::assistant_projection::tool_delta(index, &id, &name, &arguments_delta),
                     }),
                     None,
                 )
@@ -1458,11 +1507,17 @@ pub(crate) fn web_user_message(id: &str, content: Vec<Value>, source: Value) -> 
     })
 }
 
-fn web_assistant_message(id: &str, text: &str, provider: &str, model: &str) -> Value {
+fn web_assistant_message(
+    id: &str,
+    text: &str,
+    reasoning: &str,
+    provider: &str,
+    model: &str,
+) -> Value {
     json!({
         "id": id,
         "role": "assistant",
-        "content": [{"type": "text", "text": text}],
+        "content": crate::assistant_projection::content(text, reasoning),
         "source": {"kind": "model", "provider": provider, "model": model},
     })
 }

@@ -382,49 +382,34 @@ impl BasicHost {
         let result = if !images.is_empty() {
             json!({"kind": "error", "text": "/permission does not accept image attachments"})
         } else if raw_input.trim().is_empty() {
-            let current = self
-                .state
-                .read()
-                .await
+            let state = self.state.read().await;
+            let session = state
                 .sessions
                 .get(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?
-                .permission_preset;
+                .ok_or_else(|| session_not_found(&session_id))?;
+            let view = session.permission_projection();
             json!({
-                "kind": "success",
-                "text": format!(
-                    "current preset {} (available: workspace-write, danger-full-access)",
-                    current.as_str()
-                ),
+                "kind":"success",
+                "text":format!("selected preset {}; active this turn: {}; pending: {} (available: workspace-write, danger-full-access)",
+                    session.permission_preset.as_str(), view["activeValue"].as_str().unwrap_or("none"), view["pending"]),
             })
         } else if let Some(preset) = crate::PermissionPreset::parse(raw_input.trim()) {
-            let busy = self
-                .state
-                .read()
-                .await
-                .sessions
-                .get(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?
-                .running;
-            if busy {
-                json!({
-                    "kind": "error",
-                    "text": "cannot change permissions while the session is running",
-                })
-            } else {
-                self.commit_session_events(&session_id, permission_events(preset))
-                    .await?;
-                self.state
-                    .write()
-                    .await
+            let _permission_guard = self.lock_permission_selection(&session_id).await;
+            self.commit_session_events(&session_id, permission_events(preset))
+                .await?;
+            let pending = {
+                let mut state = self.state.write().await;
+                let session = state
                     .sessions
                     .get_mut(&session_id)
-                    .ok_or_else(|| session_not_found(&session_id))?
-                    .permission_preset = preset;
-                self.push_projection(&session_id, "permissions", preset.select())
-                    .await;
-                json!({"kind": "success", "text": format!("preset {}", preset.as_str())})
-            }
+                    .ok_or_else(|| session_not_found(&session_id))?;
+                session.permission_preset = preset;
+                session.running && session.active_permission != Some(preset)
+            };
+            self.push_permission_projection(&session_id).await;
+            json!({"kind":"success", "text": if pending {
+                format!("preset {} saved; applies to the next turn. Current tools and approvals are unchanged.", preset.as_str())
+            } else { format!("preset {}", preset.as_str()) }})
         } else {
             json!({
                 "kind": "error",
@@ -763,6 +748,7 @@ impl BasicHost {
             title: None,
             model: initial_model.clone(),
             permission_preset,
+            active_permission: None,
             plan_active: false,
             goal: None,
             events: Vec::new(),
@@ -1259,6 +1245,7 @@ impl BasicHost {
             title,
             model,
             permission_preset,
+            active_permission: None,
             plan_active,
             goal,
             events: child_events,
