@@ -47,6 +47,8 @@ pub struct ProviderProfile {
     pub base_url: String,
     pub api: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_input_semantics: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_context_window: Option<u64>,
@@ -114,6 +116,13 @@ pub fn parse_model_settings(value: &Value) -> Result<ModelSettingsDocument, Stri
             return Err(
                 "Only OpenAI chat completions and responses protocols are supported".to_owned(),
             );
+        }
+        if profile
+            .usage_input_semantics
+            .as_deref()
+            .is_some_and(|s| !matches!(s, "auto" | "total_includes_cache" | "uncached_input"))
+        {
+            return Err("Invalid input usage semantics".to_owned());
         }
         let url = url::Url::parse(&profile.base_url)
             .map_err(|_| "Invalid provider endpoint".to_owned())?;
@@ -194,7 +203,7 @@ pub fn model_settings_schema() -> Value {
         "6": {"type":"any"},
         "7": {"type":"object", "dict": {"id":1,"name":1,"contextWindow":2,"maxTokens":2,"upstreamModel":1,"minimumOutputTokens":2,"tokenSafetyMargin":2,"reasoning":6,"contextWindowCapability":6,"imageInput":6}},
         "8": {"type":"array", "inner":7},
-        "9": {"type":"object", "dict": {"displayName":1,"baseURL":1,"api":5,"apiKeyEnv":1,"defaultContextWindow":2,"maxTokens":2,"models":8}},
+        "9": {"type":"object", "dict": {"displayName":1,"baseURL":1,"api":5,"apiKeyEnv":1,"usageInputSemantics":1,"defaultContextWindow":2,"maxTokens":2,"models":8}},
         "10": {"type":"dict", "inner":9},
         "12": {"type":"object", "dict":{"providers":10}}
     }})

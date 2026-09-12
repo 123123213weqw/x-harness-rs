@@ -1007,3 +1007,179 @@ async fn read_http_request(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
     }
     request
 }
+
+fn usage_fixture(protocol: OpenAiProtocol, usage: serde_json::Value) -> String {
+    match protocol {
+        OpenAiProtocol::ChatCompletions => format!(
+            "data: {}\n\ndata: [DONE]\n\n",
+            json!({"choices":[],"usage":usage})
+        ),
+        OpenAiProtocol::Responses => format!(
+            "data: {}\n\n",
+            json!({"type":"response.completed","response":{"usage":usage,"output":[]}})
+        ),
+    }
+}
+fn normalize_usage_fixture(
+    protocol: OpenAiProtocol,
+    semantics: InputUsageSemantics,
+    usage: serde_json::Value,
+) -> xharness_core::TokenUsage {
+    let mut parser = SseParser::default();
+    let mut normalizer = OpenAiStreamNormalizer::new(protocol).with_usage_semantics(semantics);
+    let mut result = None;
+    // Exercise arbitrarily split wire data, not a copy of the counting formula.
+    for byte in usage_fixture(protocol, usage).bytes() {
+        for event in parser.feed([byte], false).unwrap() {
+            for event in normalizer.consume(event).unwrap() {
+                if let ProviderEvent::Completed { usage, .. } = event {
+                    result = usage;
+                }
+            }
+        }
+    }
+    normalizer.finish().unwrap();
+    result.unwrap()
+}
+
+#[test]
+fn usage_cache_semantics_matrix_preserves_disjoint_input_in_both_protocols() {
+    use InputUsageSemantics::*;
+    let cases = [
+        (
+            Auto,
+            json!({"input_tokens":3,"cache_creation_input_tokens":1000,"cache_read_input_tokens":2000}),
+            [3, 2000, 1000],
+        ),
+        (
+            Auto,
+            json!({"input_tokens":3,"cache_read_input_tokens":2000}),
+            [3, 2000, 0],
+        ),
+        (
+            Auto,
+            json!({"input_tokens":3,"cache_creation_input_tokens":1000}),
+            [3, 0, 1000],
+        ),
+        (
+            Auto,
+            json!({"input_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}),
+            [3, 0, 0],
+        ),
+        (
+            Auto,
+            json!({"prompt_tokens":3003,"prompt_tokens_details":{"cached_tokens":2000}}),
+            [1003, 2000, 0],
+        ),
+        (
+            Auto,
+            json!({"input_tokens":3003,"input_tokens_details":{"cached_tokens":2000,"cache_write_tokens":1000}}),
+            [3, 2000, 1000],
+        ),
+        (
+            Auto,
+            json!({"prompt_tokens":3003,"prompt_cache_hit_tokens":2000,"prompt_cache_miss_tokens":1003}),
+            [1003, 2000, 0],
+        ),
+        (Auto, json!({"input_tokens":3}), [3, 0, 0]),
+        (Auto, json!({}), [0, 0, 0]),
+        // Standard aggregate markers win in auto, even with native aliases.
+        (
+            Auto,
+            json!({"input_tokens":3003,"input_tokens_details":{"cached_tokens":2000},"cache_creation_input_tokens":1000,"cache_read_input_tokens":9999}),
+            [3, 2000, 1000],
+        ),
+        // Explicit gateway overrides remove ambiguity without changing protocol.
+        (
+            TotalIncludesCache,
+            json!({"input_tokens":3003,"cache_creation_input_tokens":1000,"cache_read_input_tokens":2000}),
+            [3, 2000, 1000],
+        ),
+        (
+            UncachedInput,
+            json!({"input_tokens":3,"input_tokens_details":{"cached_tokens":9999},"cache_creation_input_tokens":1000,"cache_read_input_tokens":2000}),
+            [3, 2000, 1000],
+        ),
+        (
+            Auto,
+            json!({"input_tokens":3,"cache_creation_input_tokens":null,"cache_read_input_tokens":-1}),
+            [3, 0, 0],
+        ),
+        // Cache creation breakdown is not added again to the aggregate.
+        (
+            Auto,
+            json!({"input_tokens":3,"cache_creation_input_tokens":1000,"cache_read_input_tokens":2000,"cache_creation":{"ephemeral_5m_input_tokens":400,"ephemeral_1h_input_tokens":600}}),
+            [3, 2000, 1000],
+        ),
+    ];
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        for (semantics, value, expected) in &cases {
+            let usage = normalize_usage_fixture(protocol, *semantics, value.clone());
+            assert_eq!(
+                [
+                    usage.input_tokens,
+                    usage.cache_read_tokens,
+                    usage.cache_write_tokens
+                ],
+                *expected,
+                "{protocol:?} {semantics:?}: {value}"
+            );
+            assert_eq!(
+                usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens,
+                expected.iter().sum::<u64>()
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn http_provider_honors_input_usage_override_before_emitting_completion() {
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let _ = read_http_request(&mut socket).await;
+            let body = usage_fixture(
+                protocol,
+                json!({"input_tokens":3003,"cache_creation_input_tokens":1000,"cache_read_input_tokens":2000}),
+            );
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body);
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let mut config = OpenAiProviderConfig::new(protocol, url, "test", "test");
+        config.usage_input_semantics = InputUsageSemantics::TotalIncludesCache;
+        let provider = OpenAiProvider::new(config).unwrap();
+        let request = ProviderRequest {
+            messages: vec![AgentMessage::user("test")],
+            tools: vec![],
+            step: 1,
+            reasoning_effort: None,
+            max_output_tokens: None,
+            debug_scope: Default::default(),
+        };
+        let mut stream = provider
+            .stream(request, CancellationToken::new())
+            .await
+            .unwrap();
+        let mut seen = false;
+        while let Some(event) = stream.next().await {
+            if let ProviderEvent::Completed {
+                usage: Some(usage), ..
+            } = event.unwrap()
+            {
+                assert_eq!(
+                    [
+                        usage.input_tokens,
+                        usage.cache_read_tokens,
+                        usage.cache_write_tokens
+                    ],
+                    [3, 2000, 1000]
+                );
+                seen = true;
+            }
+        }
+        assert!(seen);
+        server.await.unwrap();
+    }
+}
