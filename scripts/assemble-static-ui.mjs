@@ -14,6 +14,7 @@ import { patchAttachments } from './patch-attachments.mjs'
 import { patchConversationMessageEdit, patchMessageEditConnection, patchMessageEditRuntime } from './patch-conversation-message-edit.mjs'
 import { patchContextAccounting, patchContextConnection } from './patch-context-accounting.mjs'
 import { patchModelControls, patchModelConnection } from './patch-model-controls.mjs'
+import { patchWorkspaceCreatedAt } from './patch-workspace-created-at.mjs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -117,6 +118,7 @@ for (const entry of composed) {
   if (entry.name === "@deepseek-ai/dsh-client-ui-goal") bytes = patchGoalRuntime(bytes)
   bytes = patchQuestionContinuation(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)
+  bytes = patchWorkspaceCreatedAt(entry.name, bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
