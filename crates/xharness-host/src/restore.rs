@@ -1977,6 +1977,132 @@ mod tests {
         eprintln!("offline reasoning projection: 4 workers, 512000 projected events; no live models or tools");
     }
 
+    /// Local incident replay without constructing a Host, provider or tool executor.
+    /// CI exercises the same loader with synthetic data. Private input is copied
+    /// before the store opens it (the store creates a sidecar lock), and is never
+    /// printed. A passing run does not establish that a sporadic AV is fixed.
+    #[tokio::test]
+    #[ignore = "explicit offline projection experiment; private journals stay local"]
+    async fn offline_journal_projection_stress() {
+        use std::io::{BufRead, Read};
+        use xharness_session_jsonl::JsonlSessionStore;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "xharness-offline-journal-{}-{nonce}",
+            std::process::id()
+        ));
+        // Leave the isolated copy for incident analysis, including on failure.
+        std::fs::create_dir(&root).unwrap();
+        let store = JsonlSessionStore::new(&root).unwrap().for_runtime();
+        let session_id = if let Some(input) = std::env::var_os("XHARNESS_OFFLINE_JOURNAL") {
+            let input = std::path::PathBuf::from(input);
+            assert!(
+                input.is_absolute() && input.is_file(),
+                "expected a local journal file"
+            );
+            let mut header_line = Vec::new();
+            std::io::BufReader::new(std::fs::File::open(&input).unwrap())
+                .take(1024 * 1024)
+                .read_until(b'\n', &mut header_line)
+                .unwrap();
+            let header: Value = serde_json::from_slice(&header_line)
+                .unwrap_or_else(|_| panic!("invalid offline journal header"));
+            let id = header["header"]["id"]
+                .as_str()
+                .expect("missing offline session ID")
+                .to_owned();
+            assert!(
+                !id.is_empty()
+                    && id.len() <= 200
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+                "offline session ID must be a simple file name"
+            );
+            std::fs::copy(&input, root.join(format!("{id}.jsonl"))).unwrap();
+            id
+        } else {
+            let id = "offline-journal-fixture";
+            store.create(SessionHeader::new(id)).await.unwrap();
+            let mut events = closed_text_turn(1, "synthetic question", "synthetic answer");
+            events.push(EventData::TurnStart { turn: 2 }.into());
+            events.push(EventData::StepStart { turn: 2, step: 1 }.into());
+            for _ in 0..64 {
+                events.push(
+                    EventData::AssistantChunk {
+                        turn: 2,
+                        step: 1,
+                        chunk: AssistantChunk::ReasoningDelta("offline reasoning 🧪".repeat(16)),
+                    }
+                    .into(),
+                );
+            }
+            store.append(id, Revision::ZERO, events).await.unwrap();
+            id.to_owned()
+        };
+        eprintln!("offline journal: loading isolated copy; no Host, models or tools");
+        let session = store
+            .load(&session_id)
+            .await
+            .unwrap_or_else(|_| panic!("offline journal failed store/lifecycle validation"))
+            .expect("offline journal missing");
+        drop(store);
+        assert!(
+            !session.events().is_empty(),
+            "empty fixture cannot exercise projection"
+        );
+        eprintln!("offline journal: loaded {} events", session.events().len());
+        let route = ModelRoute::new("offline", "offline");
+        let prompts = prompt_views(&session);
+        let initial = initial_request_header_seq(&session);
+        // Serialize one event at a time: do not materialize a second full history.
+        for event in session.events() {
+            let projected = restored_web_event(event, &route, &prompts, initial, None);
+            let bytes = serde_json::to_vec(&projected).unwrap();
+            let decoded: Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(
+                decoded == projected,
+                "projection round trip failed at seq {}",
+                event.seq
+            );
+        }
+        eprintln!("offline journal: full event projection passed");
+        let workers = (0..4)
+            .map(|worker| {
+                let session = session.clone();
+                std::thread::spawn(move || {
+                    let route = ModelRoute::new("offline", "offline");
+                    let mut count = 0usize;
+                    for iteration in 0..500 {
+                        let tail = project_session_event_tail(&session, &route, 64, 256 * 1024);
+                        for event in tail.events {
+                            let bytes = serde_json::to_vec(&event).unwrap();
+                            let decoded: Value = serde_json::from_slice(&bytes).unwrap();
+                            assert!(decoded == event, "tail round trip failed");
+                            count += 1;
+                        }
+                        if iteration % 25 == 0 {
+                            let before =
+                                ((iteration + worker) * 97 % session.events().len()) as u64;
+                            let page = project_session_history(&session, &route, Some(before), 20);
+                            std::hint::black_box(serde_json::to_vec(&page.events).unwrap());
+                        }
+                    }
+                    count
+                })
+            })
+            .collect::<Vec<_>>();
+        let count: usize = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .sum();
+        eprintln!("offline journal: 4 workers, {count} tail events, 80 history pages passed; no live models or tools");
+    }
+
     #[test]
     fn completed_stream_chunks_are_folded_for_tail_and_omitted_from_history() {
         let mut session = Session::new(SessionHeader::new("folded-stream-history")).unwrap();

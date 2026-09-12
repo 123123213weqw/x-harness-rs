@@ -52,6 +52,8 @@ jobs:
           retention-days: 30
       - name: Exercise the reasoning projection crash path with synthetic data
         run: cargo test --locked --release -p xharness-host offline_reasoning_projection_stress -- --ignored --nocapture
+      - name: Validate isolated journal replay with a synthetic fixture only
+        run: cargo test --locked --release -p xharness-host offline_journal_projection_stress -- --ignored --nocapture
       - name: Package the offline test executable for same-machine reproduction
         if: runner.os == 'Windows'
         shell: pwsh
