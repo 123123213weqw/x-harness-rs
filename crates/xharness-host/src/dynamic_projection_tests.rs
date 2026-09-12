@@ -45,7 +45,7 @@ impl AgentRuntime for SnapshotOnlyRuntime {
     }
 }
 
-fn closed_turn(turn: u32) -> Vec<SessionEvent> {
+fn closed_turn(turn: u32, request_header: &RequestHeader) -> Vec<SessionEvent> {
     vec![
         EventData::TurnStart { turn }.into(),
         EventData::UserMessage {
@@ -55,7 +55,7 @@ fn closed_turn(turn: u32) -> Vec<SessionEvent> {
         .into(),
         EventData::StepStart { turn, step: 1 }.into(),
         EventData::RequestHeader {
-            header: RequestHeader::new("offline", "offline"),
+            header: request_header.clone(),
         }
         .into(),
         EventData::AssistantMessage {
@@ -168,11 +168,20 @@ async fn experiment() {
     let mut header = SessionHeader::new(ID);
     header.cwd = Some(root.to_string_lossy().into_owned());
     store.create(header).await.unwrap();
+    // Match production's archived request representation. Directly appending
+    // legacy audit bodies would intentionally produce a different cold runtime
+    // view and would invalidate the hot/cold equality assertion below.
+    let request_header = store
+        .archive_request(RequestHeader::new("offline", "offline"))
+        .await
+        .unwrap();
     let mut revision = store
         .append(
             ID,
             Revision::ZERO,
-            (1..=WARM_TURNS).flat_map(closed_turn).collect(),
+            (1..=WARM_TURNS)
+                .flat_map(|turn| closed_turn(turn, &request_header))
+                .collect(),
         )
         .await
         .unwrap()
@@ -269,7 +278,7 @@ async fn experiment() {
                 .into(),
                 EventData::StepStart { turn, step: 1 }.into(),
                 EventData::RequestHeader {
-                    header: RequestHeader::new("offline", "offline"),
+                    header: request_header.clone(),
                 }
                 .into(),
             ],
@@ -365,7 +374,7 @@ async fn experiment() {
                         EventData::StepEnd { turn, step }.into(),
                         EventData::StepStart { turn, step: 2 }.into(),
                         EventData::RequestHeader {
-                            header: RequestHeader::new("offline", "offline"),
+                            header: request_header.clone(),
                         }
                         .into(),
                     ],
