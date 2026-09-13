@@ -6,14 +6,13 @@ using System.Runtime.InteropServices;
 public static class XHarnessConsoleProbe {
     [DllImport("kernel32.dll")]
     public static extern IntPtr GetConsoleWindow();
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern uint GetConsoleProcessList([Out] uint[] ids, uint count);
 }
 '@
 $consoleWindow = [XHarnessConsoleProbe]::GetConsoleWindow()
-$consoleProcesses = [XHarnessConsoleProbe]::GetConsoleProcessList([uint[]]::new(8), 8)
-if ($consoleWindow -ne [IntPtr]::Zero -or $consoleProcesses -ne 0) {
-    throw 'Non-interactive child has an attached console'
+# A headless PowerShell can retain internal console process membership. That
+# does not imply a window; this fixture checks the HWND, not process count.
+if ($consoleWindow -ne [IntPtr]::Zero) {
+    throw 'Non-interactive child has a console window'
 }
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::Out.Write('no-console-stdout-你好')

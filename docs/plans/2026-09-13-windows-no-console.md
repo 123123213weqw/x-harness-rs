@@ -14,7 +14,7 @@
 
 Files: `scripts/test-install-ownership-contract.mjs`, `scripts/fixtures/windows-no-console.ps1`, `crates/xharness-process/tests/windows_process.rs`, `crates/xharness-sandbox/tests/windows_acl.rs`.
 
-1. Add a shared synthetic PowerShell probe using GetConsoleWindow and GetConsoleProcessList; fail if a console is attached. Emit distinct UTF-8 stdout/stderr markers and exit 17 to verify redirected streams/exit status.
+1. Add a shared synthetic PowerShell probe using GetConsoleWindow; fail if a console HWND exists. Do not infer window visibility from GetConsoleProcessList: a headless PowerShell may still report internal membership. Emit distinct UTF-8 stdout/stderr markers and exit 17 to verify redirected streams/exit status.
 2. Run that probe through both ProcessRuntime and WindowsAclSandbox, with a bounded timeout and isolated temp workspace. Never use production files or models.
 3. Add source contracts for the combined flags; run `node scripts/test-install-ownership-contract.mjs` before the implementation and record the expected failure. Commit tests.
 
