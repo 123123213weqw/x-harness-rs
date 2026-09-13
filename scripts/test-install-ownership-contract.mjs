@@ -8,7 +8,7 @@ assert.doesNotMatch(read('crates/xharness-host-app/src/main.rs'), /windows_subsy
 // Both non-interactive native launch boundaries must preserve suspended Job
 // assignment while suppressing console allocation; ConPTY stays separate.
 assert.match(read('crates/xharness-process/src/lib.rs'), /creation_flags\(WINDOWS_CREATE_SUSPENDED\s*\|\s*WINDOWS_CREATE_NO_WINDOW\)/)
-assert.match(read('crates/xharness-win32/src/restricted_process.rs'), /CREATE_SUSPENDED\s*\|\s*CREATE_NO_WINDOW/)
+assert.match(read('crates/xharness-win32/src/restricted_process.rs'), /CREATE_SUSPENDED\s*\|\s*DETACHED_PROCESS/)
 const lib = read(native + 'src/lib.rs')
 const stop = read(native + 'src/sidecar.rs')
 const update = read(native + 'src/updater.rs')

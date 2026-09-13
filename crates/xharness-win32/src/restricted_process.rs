@@ -12,7 +12,7 @@ use windows_sys::Win32::{
         Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
         Threading::{
             CreateProcessAsUserW, GetExitCodeProcess, ResumeThread, TerminateProcess,
-            WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, INFINITE, PROCESS_INFORMATION,
+            WaitForSingleObject, CREATE_SUSPENDED, DETACHED_PROCESS, INFINITE, PROCESS_INFORMATION,
             STARTF_USESTDHANDLES, STARTUPINFOW,
         },
     },
@@ -79,9 +79,11 @@ impl RestrictedChild {
                 ptr::null(),
                 ptr::null(),
                 1,
-                // The runner already inherits redirected handles. Its payload
-                // must not create a new console when the runner has none.
-                CREATE_SUSPENDED | CREATE_NO_WINDOW,
+                // A restricted token must not initialize a fresh console:
+                // CREATE_NO_WINDOW can fail during console initialization
+                // (STATUS_DLL_INIT_FAILED). Detach the console, not the explicit
+                // STARTF_USESTDHANDLES pipes; keep Job assignment before resume.
+                CREATE_SUSPENDED | DETACHED_PROCESS,
                 ptr::null(),
                 cwd.as_ptr(),
                 &startup,
