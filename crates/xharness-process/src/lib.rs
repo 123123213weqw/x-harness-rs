@@ -768,6 +768,18 @@ enum StopTrigger {
     TimedOut,
 }
 
+/// JoinHandle drop detaches a task. Keep cancellation armed across every `?`
+/// and supervisor cancellation, without interfering with normal output drain.
+struct CaptureTaskCleanup(Vec<tokio::task::AbortHandle>);
+
+impl Drop for CaptureTaskCleanup {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.abort();
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn supervise(
     mut process_tree_guard: ProcessTreeGuard,
@@ -803,6 +815,8 @@ async fn supervise(
         "stderr",
         live_output,
     ));
+    let _capture_cleanup =
+        CaptureTaskCleanup(vec![stdout_task.abort_handle(), stderr_task.abort_handle()]);
     let timeout_duration = spec.timeout;
     let termination_grace = spec.termination_grace;
     let capture_drain_grace = spec.capture_drain_grace;
@@ -1218,4 +1232,115 @@ pub fn is_secret_env_name(name: &OsStr) -> bool {
                 "TOKEN" | "SECRET" | "PASSWORD" | "PASSWD" | "CREDENTIAL" | "CREDENTIALS"
             )
         })
+}
+
+#[cfg(test)]
+mod capture_cleanup_tests {
+    use super::*;
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+    use tokio::{io::ReadBuf, sync::oneshot};
+
+    struct PendingReader(Option<oneshot::Sender<()>>);
+    impl AsyncRead for PendingReader {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Pending
+        }
+    }
+    impl Drop for PendingReader {
+        fn drop(&mut self) {
+            let _ = self.0.take().unwrap().send(());
+        }
+    }
+
+    fn pending_capture(
+        live: Arc<LiveOutputState>,
+        stream: &'static str,
+    ) -> (
+        tokio::task::JoinHandle<io::Result<CapturedOutput>>,
+        oneshot::Receiver<()>,
+    ) {
+        let (tx, rx) = oneshot::channel();
+        (
+            tokio::spawn(capture(
+                PendingReader(Some(tx)),
+                1024,
+                DebugRecorder::disabled(),
+                0,
+                stream,
+                live,
+            )),
+            rx,
+        )
+    }
+
+    async fn assert_released(rx: oneshot::Receiver<()>) {
+        time::timeout(Duration::from_secs(3), rx)
+            .await
+            .expect("capture cleanup hung")
+            .expect("reader not dropped");
+    }
+
+    #[tokio::test]
+    async fn error_return_cancels_both_detached_captures() {
+        let live = LiveOutputState::new(1024, 1024);
+        let weak = Arc::downgrade(&live);
+        let (stdout, out_dropped) = pending_capture(live.clone(), "stdout");
+        let (stderr, err_dropped) = pending_capture(live, "stderr");
+        let cleanup = CaptureTaskCleanup(vec![stdout.abort_handle(), stderr.abort_handle()]);
+        let result: Result<(), &str> = async move {
+            let _cleanup = cleanup;
+            let _tasks = (stdout, stderr);
+            Err("injected termination failure")?;
+            Ok(())
+        }
+        .await;
+        assert!(result.is_err());
+        assert_released(out_dropped).await;
+        assert_released(err_dropped).await;
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[tokio::test]
+    async fn supervisor_abort_also_cancels_captures() {
+        let live = LiveOutputState::new(1024, 1024);
+        let (stdout, out_dropped) = pending_capture(live.clone(), "stdout");
+        let (stderr, err_dropped) = pending_capture(live, "stderr");
+        let cleanup = CaptureTaskCleanup(vec![stdout.abort_handle(), stderr.abort_handle()]);
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let supervisor = tokio::spawn(async move {
+            let _cleanup = cleanup;
+            let _tasks = (stdout, stderr);
+            let _ = ready_tx.send(());
+            pending::<()>().await;
+        });
+        ready_rx.await.unwrap();
+        supervisor.abort();
+        assert!(supervisor.await.unwrap_err().is_cancelled());
+        assert_released(out_dropped).await;
+        assert_released(err_dropped).await;
+    }
+
+    #[tokio::test]
+    async fn successful_capture_keeps_complete_tail_output() {
+        let live = LiveOutputState::new(1024, 1024);
+        let mut task = tokio::spawn(capture(
+            &b"tail output\n"[..],
+            1024,
+            DebugRecorder::disabled(),
+            0,
+            "stdout",
+            live,
+        ));
+        let _cleanup = CaptureTaskCleanup(vec![task.abort_handle()]);
+        let output = (&mut task).await.unwrap().unwrap();
+        assert_eq!(output.text, "tail output\n");
+        assert_eq!(output.bytes_read, 12);
+    }
 }

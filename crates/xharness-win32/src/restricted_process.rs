@@ -116,10 +116,7 @@ impl RestrictedChild {
                 return Err(Win32Error::code("CreateProcessAsUserW(thread handle)", 6));
             }
         };
-        if let Err(error) = job.assign_process(process.as_raw() as _) {
-            let _ = job.terminate(1);
-            return Err(error);
-        }
+        finish_job_assignment(process.as_raw(), job.assign_process(process.as_raw() as _))?;
         // SAFETY: thread is the live suspended primary thread.
         if unsafe { ResumeThread(thread.as_raw()) } == u32::MAX {
             let error = Win32Error::last("ResumeThread");
@@ -152,6 +149,27 @@ impl RestrictedChild {
         let _ = self.job.accounting();
         Ok(code)
     }
+}
+
+/// Assignment failed, so this process is NOT owned by our Job. Kill by the
+/// still-owned process handle, never by PID or by terminating the empty Job.
+fn finish_job_assignment(
+    process: HANDLE,
+    assignment: Result<(), Win32Error>,
+) -> Result<(), Win32Error> {
+    let Err(error) = assignment else {
+        return Ok(());
+    };
+    // SAFETY: caller retains the creation handle with PROCESS_TERMINATE and
+    // SYNCHRONIZE rights until this function returns. The child is suspended.
+    unsafe {
+        if TerminateProcess(process, 1) != 0 {
+            // Bounded best-effort reap; cleanup must not replace the original
+            // assignment error or hang the sandbox runner indefinitely.
+            WaitForSingleObject(process, 5_000);
+        }
+    }
+    Err(error)
 }
 
 fn std_handle(which: u32, api: &'static str) -> Result<HANDLE, Win32Error> {
@@ -205,6 +223,57 @@ fn quote_arg(argument: &OsStr, output: &mut Vec<u16>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assignment_failure_kills_suspended_child_and_preserves_error() {
+        use std::os::windows::{io::AsRawHandle, process::CommandExt};
+        use std::process::Command;
+
+        // Retain Child for explicit fallback cleanup before assertions. This
+        // fixture has no membership in the Job that assignment failed to join.
+        let mut child = Command::new("cmd.exe")
+            .args(["/D", "/C", "exit 0"])
+            .creation_flags(CREATE_SUSPENDED)
+            .spawn()
+            .expect("create suspended child");
+        let process = child.as_raw_handle() as HANDLE;
+        let result =
+            finish_job_assignment(process, Err(Win32Error::code("injected assignment", 5)));
+        // SAFETY: Child owns a live process handle throughout this wait.
+        let signaled = unsafe { WaitForSingleObject(process, 1000) };
+        if signaled != WAIT_OBJECT_0 {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        assert_eq!(signaled, WAIT_OBJECT_0, "suspended process escaped cleanup");
+        let error = result.unwrap_err();
+        assert_eq!(error.api, "injected assignment");
+        assert_eq!(error.code, 5);
+        assert_eq!(child.wait().unwrap().code(), Some(1));
+    }
+
+    #[test]
+    fn successful_assignment_does_not_terminate_child() {
+        use std::os::windows::{io::AsRawHandle, process::CommandExt};
+        use std::process::Command;
+        use windows_sys::Win32::Foundation::WAIT_TIMEOUT;
+
+        let job = Job::new_kill_on_close().unwrap();
+        let mut child = Command::new("cmd.exe")
+            .args(["/D", "/C", "exit 0"])
+            .creation_flags(CREATE_SUSPENDED)
+            .spawn()
+            .expect("create suspended child");
+        let process = child.as_raw_handle() as HANDLE;
+        let result = finish_job_assignment(process, job.assign_process(process as _));
+        // SAFETY: Child retains ownership; a successfully assigned child should
+        // still be suspended, not killed by the cleanup helper.
+        let state = unsafe { WaitForSingleObject(process, 0) };
+        let _ = child.kill();
+        let _ = child.wait();
+        result.expect("assign child");
+        assert_eq!(state, WAIT_TIMEOUT);
+    }
 
     #[test]
     fn command_line_quoting_handles_spaces_quotes_and_trailing_slashes() {
