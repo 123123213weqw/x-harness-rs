@@ -62,6 +62,23 @@ class SigningGate(unittest.TestCase):
 
 
 class ScopeMatrix(unittest.TestCase):
+    def test_preview_requires_explicit_plan_and_preserves_updater_signing(self):
+        ci = dict(id=1, run_attempt=1, head_sha=SHA, head_branch='master', event='push',
+                  status='completed', conclusion='success', path='.github/workflows/ci.yml')
+        plan = build._contract.make_plan(REPO, REPO, 'desktop-v0.2.10', SHA, '1', '1', [], [ci],
+                                         release_scope='all-macos-preview')
+        env = {k: v for k, v in SigningGate().environment().items() if not k.startswith('APPLE_')}
+        build.signing_plan(plan, env)
+        for key in env:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                build.signing_plan(plan, {**env, key: ''})
+        with self.assertRaises(ValueError):
+            build.signing_gate('darwin-aarch64', env)
+        matrix = build.platform_matrix(plan)['include']
+        self.assertEqual(len(matrix), 4)
+        self.assertEqual({p['platform'] for p in matrix if p.get('macos_preview')},
+                         {'darwin-aarch64', 'darwin-x86_64'})
+
     def test_selected_build_and_unix_acceptance_matrices(self):
         plan = {'release_scope': 'windows-linux'}
         self.assertEqual([p['platform'] for p in build.platform_matrix(plan)['include']],
@@ -598,7 +615,8 @@ class WorkflowGuard(unittest.TestCase):
         self.assertNotIn('tauri-apps/tauri-action', text)
         self.assertNotIn('--clobber', text)
         self.assertIn('fromJSON(needs.plan.outputs.matrix)', text)
-        self.assertIn("inputs.release_scope || 'all'", text)
+        self.assertIn("inputs.release_scope || vars.XHARNESS_DESKTOP_TAG_RELEASE_SCOPE || 'windows-linux'", text)
+        self.assertIn('default: windows-linux', text)
         self.assertIn('signing-plan --plan dist/desktop-plan/plan.json', text)
         matrix = build.platform_matrix({})
         self.assertEqual({p['platform'] for p in matrix['include']}, set(build.PLATFORMS))
@@ -606,7 +624,13 @@ class WorkflowGuard(unittest.TestCase):
         self.assertIn('appimage', {p['bundles'] for p in matrix['include']})
         self.assertNotIn('bundles: deb', text)
         self.assertIn('XHARNESS_FRIENDS_PRIVATE_KEY', text)
-        self.assertIn('Fail early unless every formal platform', text)
+        self.assertIn('Fail early unless every selected platform meets its explicit signing policy', text)
+        self.assertIn('options: [all, windows-linux, all-macos-preview]', text)
+        self.assertIn("signing-gate --platform '${{ matrix.platform }}' --plan dist/desktop-plan/plan.json", text)
+        bundler = text.split('      - name: Build and sign desktop bundle (artifacts only)', 1)[1].split('      - name:', 1)[0]
+        self.assertIn("matrix.macos_preview && '-' || secrets.APPLE_SIGNING_IDENTITY", bundler)
+        for name in ('APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID'):
+            self.assertIn(f"!matrix.macos_preview && secrets.{name} || ''", bundler)
 
     def test_promotion_only_and_shared_serialization(self):
         for name in ['desktop-release.yml', 'desktop-promote.yml', 'friends-release.yml']:

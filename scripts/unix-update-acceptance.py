@@ -14,6 +14,7 @@ import argparse
 import base64
 import hashlib
 import http.server
+import importlib.util
 import json
 import os
 import pathlib
@@ -34,6 +35,12 @@ import time
 import urllib.request
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
+_mac_spec = importlib.util.spec_from_file_location('macos_signing', REPO / 'scripts/macos-signing.py')
+_macos_signing = importlib.util.module_from_spec(_mac_spec)
+_mac_spec.loader.exec_module(_macos_signing)
+_release_spec = importlib.util.spec_from_file_location('desktop_contract', REPO / 'scripts/desktop-release.py')
+_release = importlib.util.module_from_spec(_release_spec)
+_release_spec.loader.exec_module(_release)
 PLATFORMS = {
     'linux-x86_64-appimage': ('linux', 'x86_64', 'x86_64-unknown-linux-gnu'),
     'darwin-aarch64': ('darwin', 'arm64', 'aarch64-apple-darwin'),
@@ -265,19 +272,10 @@ def mac_binary(app):
     return app / 'Contents/MacOS' / name, info
 
 
-def native_signature(app, version, evidence):
+def native_signature(app, version, evidence, *, preview=False):
     binary, info = mac_binary(app)
     require(info['CFBundleShortVersionString'] == version, 'Installed app version mismatch')
-    # Commands inspect only the isolated copy; no security add-trusted-cert,
-    # keychain mutation, xattr deletion, re-signing, sudo, or installation.
-    for label, command in (
-        ('codesign', ['codesign', '--verify', '--deep', '--strict', '--verbose=2', app]),
-        ('gatekeeper', ['spctl', '--assess', '--type', 'execute', '--verbose=4', app]),
-        ('stapler', ['xcrun', 'stapler', 'validate', app]),
-    ):
-        result = run(command)
-        (evidence / (label + '.log')).write_bytes(result.stdout + result.stderr)
-    return {'codesignVerified': True, 'gatekeeperAccepted': True, 'notarizationStapleVerified': True}
+    return _macos_signing.verify(app, preview=preview, evidence=evidence)
 
 
 def launch_command(root, binary, name):
@@ -585,9 +583,15 @@ def fixture_server(root, asset, signature, config):
                 if mode == 'unavailable':
                     self.send_error(503)
                     return
-                body = json.dumps({'version': config['target_version'], 'notes': 'Isolated acceptance feed',
+                manifest = {'version': config['target_version'], 'notes': 'Isolated acceptance feed',
                     'platforms': {config['platform']: {'signature': signature,
-                        'url': config['endpoint'].replace('/latest.json', '/candidate')}}}).encode()
+                        'url': config['endpoint'].replace('/latest.json', '/candidate')}}}
+                if config.get('macos_preview'):
+                    # Exercise the extra public metadata through the real updater,
+                    # including in no-secret Mac rehearsals on PR CI.
+                    manifest['macos_distribution'] = _release.MACOS_PREVIEW_POLICY
+                    manifest['notes'] = _release.MACOS_PREVIEW_NOTES
+                body = json.dumps(manifest).encode()
             elif self.path == '/candidate':
                 body = asset.read_bytes()
                 if mode == 'tampered':
@@ -717,7 +721,7 @@ def candidate_native(args):
         if args.platform.startswith('darwin-'):
             app = safe_extract_app(asset, root / 'installed')
             binary, _ = mac_binary(app)
-            checks.update(native_signature(app, receipt['version'], root))
+            checks.update(native_signature(app, receipt['version'], root, preview=_release.macos_preview(receipt)))
         else:
             binary = root / 'installed.AppImage'
             shutil.copy2(asset, binary)
@@ -770,6 +774,7 @@ def candidate_update(args):
     native_runner(args.platform)
     receipt = verify_receipt(args)
     require(receipt['version'] == config['target_version'], 'Prepared target version mismatch')
+    config['macos_preview'] = _release.macos_preview(receipt) or (args.rehearsal and args.platform.startswith('darwin-'))
     for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'):
         require(re.fullmatch(r'[1-9][0-9]*', os.environ.get(key, '')) is not None, 'Missing CI run identity')
     source_sha = current_checkout_sha()
@@ -789,8 +794,10 @@ def candidate_update(args):
             require(installed.name == expected.name, 'Base/candidate bundle names differ')
             binary, info = mac_binary(installed)
             require(info['CFBundleShortVersionString'] == config['base_version'], 'Base app version mismatch')
-            if not args.rehearsal:
-                checks.update(native_signature(expected, receipt['version'], root))
+            # Rehearsals now verify real ad-hoc signatures too, but remain
+            # non-publishable. Formal preview policy comes only from the receipt.
+            checks.update(native_signature(expected, receipt['version'], root,
+                          preview=args.rehearsal or _release.macos_preview(receipt)))
             expected_hash = tree_digest(expected)
             exact = lambda: installed.exists() and tree_digest(installed) == expected_hash
         else:
@@ -842,8 +849,9 @@ def candidate_update(args):
             tamperedPackageRejected=True, unconfirmedInstallRejected=True,
             exactCandidateInstalled=True, restartVerified=True, dataPreserved=True,
             persistedSessionRestored=True, nativeLaunchVerified=True)
-        if args.platform.startswith('darwin-') and not args.rehearsal:
-            checks.update(native_signature(installed, receipt['version'], root))
+        if args.platform.startswith('darwin-'):
+            checks.update(native_signature(installed, receipt['version'], root,
+                          preview=args.rehearsal or _release.macos_preview(receipt)))
         result = {**receipt_binding(receipt, args.manifest), 'status': 'passed',
             'scope': 'isolated-production-handler-rehearsal' if args.rehearsal else 'instrumented-base-to-signed-candidate',
             'nativeUpdateAccepted': not args.rehearsal, 'baseInstrumented': True,
@@ -854,7 +862,10 @@ def candidate_update(args):
             'base_sha256': digest(base), 'checks': checks, 'retained': retained,
             'journal_sha256': digest(journal), 'replay': replay,
             'limitations': ['Base is a disposable instrumented build, not an untouched historical installer.',
-                            'Production IPC handlers are exercised; UI mouse-click acceptance is separate.']}
+                            'Production IPC handlers are exercised; UI mouse-click acceptance is separate.'] +
+                           (['macOS ad-hoc preview: no notarization or Gatekeeper approval is claimed; '
+                             'browser-download first-open approval requires manual testing.']
+                            if args.platform.startswith('darwin-') and (args.rehearsal or _release.macos_preview(receipt)) else [])}
         write_json(root / 'evidence.json', result)
         fields = {'schema_version', 'platform', 'version', 'sha', 'release_run_id', 'release_run_attempt',
                   'manifest_sha256', 'package_sha256', 'status', 'nativeUpdateAccepted', 'checks',

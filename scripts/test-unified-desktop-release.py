@@ -65,6 +65,16 @@ class ChecksumTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
+    def test_preview_scope_selects_all_without_weakening_default_apple_checks(self):
+        preview = plan(release_scope='all-macos-preview')
+        self.assertEqual(set(contract.release_platforms(preview)), set(contract.PLATFORMS))
+        for platform in ('darwin-aarch64', 'darwin-x86_64'):
+            self.assertEqual(contract.acceptance_checks(preview, platform),
+                             contract.UNIX_CHECKS | {'codesignVerified', 'adHocSignatureVerified'})
+            self.assertIn('notarizationStapleVerified', contract.acceptance_checks(plan(), platform))
+        for platform in ('windows-x86_64', 'linux-x86_64-appimage'):
+            self.assertEqual(contract.acceptance_checks(preview, platform), contract.PLATFORM_CHECKS[platform])
+
     def test_release_scope_is_explicit_allowlisted_and_legacy_defaults_to_all(self):
         self.assertEqual(set(contract.release_platforms(plan())), set(contract.PLATFORMS))
         scoped = plan(release_scope='windows-linux')
@@ -498,6 +508,67 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
             else:
                 path = self.artifacts / platform / 'receipt.json'
                 save(path, dict(contract.read_json(path), release_scope='windows-linux'))
+
+    def preview_artifacts(self):
+        self.plan = plan(release_scope='all-macos-preview')
+        for platform in contract.PLATFORMS:
+            path = self.artifacts / platform / 'receipt.json'
+            save(path, dict(contract.read_json(path), release_scope='all-macos-preview'))
+
+    def test_preview_manifest_policy_cannot_be_hidden_even_with_refreshed_hashes(self):
+        self.preview_artifacts()
+        self.assemble()
+        manifest, _ = contract.validate_release(self.plan, self.output, self.pub)
+        self.assertEqual(manifest['macos_distribution'], 'ad-hoc-unnotarized-preview')
+        self.assertIn('not notarized', manifest['notes'])
+        for policy in (None, 'notarized', True):
+            changed = copy.deepcopy(manifest)
+            if policy is None:
+                del changed['macos_distribution']
+            else:
+                changed['macos_distribution'] = policy
+            save(self.output / 'latest.json', changed)
+            self.refresh_output_hashes()
+            with self.subTest(policy=policy), self.assertRaises(ValueError):
+                contract.validate_release(self.plan, self.output, self.pub)
+
+    def test_preview_never_silently_downgrades_existing_notarized_macs(self):
+        self.preview_artifacts()
+        self.assemble()
+        manifest, _ = contract.validate_release(self.plan, self.output, self.pub)
+        live = self.live(all_platforms=True)
+        with self.assertRaisesRegex(ValueError, 'downgrade'):
+            contract.validate_live(self.plan, live, manifest, self.pub)
+        prior = contract.read_json(live / 'latest.json')
+        prior['macos_distribution'] = 'ad-hoc-unnotarized-preview'
+        save(live / 'latest.json', prior)
+        contract.validate_live(self.plan, live, manifest, self.pub)
+        # Adopting notarization later is allowed, but removes preview permission.
+        contract.validate_live(plan(), live, manifest, self.pub)
+
+    def test_preview_requires_every_native_check_and_cannot_claim_gatekeeper_passed(self):
+        self.preview_artifacts()
+        self.assemble()
+        accepted = self.acceptances()
+        for platform in ('darwin-aarch64', 'darwin-x86_64'):
+            path = accepted / platform / 'acceptance.json'
+            value = contract.read_json(path)
+            value['checks'] = {key: True for key in contract.UNIX_CHECKS | {'codesignVerified', 'adHocSignatureVerified'}}
+            save(path, value)
+        contract.promotion(self.plan, self.output, accepted, self.live(), self.pub, [CI])
+        path = accepted / 'darwin-aarch64/acceptance.json'
+        original = contract.read_json(path)
+        for check in original['checks']:
+            broken = copy.deepcopy(original)
+            broken['checks'][check] = False
+            save(path, broken)
+            with self.subTest(check=check), self.assertRaisesRegex(ValueError, 'native checks'):
+                contract.validate_acceptance(self.plan, accepted, self.output, contract.sha256(self.output / 'latest.json'))
+        broken = copy.deepcopy(original)
+        broken['checks']['gatekeeperAccepted'] = True
+        save(path, broken)
+        with self.assertRaisesRegex(ValueError, 'native checks'):
+            contract.validate_acceptance(self.plan, accepted, self.output, contract.sha256(self.output / 'latest.json'))
 
     def test_windows_linux_promotion_requires_exact_selected_evidence(self):
         self.scoped_artifacts()

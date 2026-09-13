@@ -1,5 +1,7 @@
 # XHarness RS
 
+> 国内只读镜像（分支、标签与发行版自动同步）：<https://gitee.com/wangyue2006/x-harness-rs>
+
 从零实现的跨平台 AI Agent Harness。核心使用 Rust，目标是提供稳定、可嵌入、
 可测试的 Agent Loop；macOS 作为首要本地开发平台，Linux 作为服务器平台。
 

@@ -10,10 +10,10 @@ on:
         required: true
         type: string
       release_scope:
-        description: Selected platforms; never removes a platform from the live stable feed
+        description: Selected platforms; `all` requires Apple Developer ID and notarization secrets, all-macos-preview explicitly uses unnotarized ad-hoc Mac apps
         type: choice
-        options: [all, windows-linux]
-        default: all
+        options: [all, windows-linux, all-macos-preview]
+        default: windows-linux
         required: true
 
 # Matrix workers cannot write a release or replace latest.json.
@@ -49,11 +49,18 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_SCOPE_INPUT: ${{ inputs.release_scope || 'all' }}
+          # A tag push cannot choose a scope and this repository holds no Apple Developer ID
+          # material, so the stable channel resolves to windows-linux: the same scope the
+          # documented manual dispatch uses. Widen it by setting the
+          # XHARNESS_DESKTOP_TAG_RELEASE_SCOPE repository variable (for example to `all`)
+          # once Apple signing exists; workflow_dispatch keeps its own explicit input.
+          # Promote still refuses to drop a platform the live manifest already publishes, so
+          # this default can never silently delete the macOS channel.
+          RELEASE_SCOPE_INPUT: ${{ inputs.release_scope || vars.XHARNESS_DESKTOP_TAG_RELEASE_SCOPE || 'windows-linux' }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag || github.ref_name }}
           XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
         run: python3 -B scripts/desktop-release-build.py plan --output dist/desktop-plan/plan.json
-      - name: Fail early unless every formal platform can be signed and notarized
+      - name: Fail early unless every selected platform meets its explicit signing policy
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
@@ -72,6 +79,7 @@ jobs:
           python3 -B scripts/test-desktop-assets.py
           python3 -B scripts/test-desktop-release.py
           python3 -B scripts/test-desktop-release-build.py
+          python3 -B scripts/test-macos-signing.py
           python3 -B scripts/test-windows-desktop-bundle.py
           python3 -B scripts/test-unified-desktop-release.py
       - uses: actions/upload-artifact@v7
@@ -106,7 +114,7 @@ jobs:
         with:
           name: desktop-plan
           path: dist/desktop-plan
-      - name: Require stable signing identity and real Apple credentials
+      - name: Require updater signing and plan-bound Apple policy
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
@@ -116,7 +124,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: python -B scripts/desktop-release-build.py signing-gate --platform '${{ matrix.platform }}'
+        run: python -B scripts/desktop-release-build.py signing-gate --platform '${{ matrix.platform }}' --plan dist/desktop-plan/plan.json
       - name: Install Linux AppImage dependencies
         if: matrix.platform == 'linux-x86_64-appimage'
         run: |
@@ -170,14 +178,14 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ !matrix.macos_preview && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ !matrix.macos_preview && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.macos_preview && '-' || secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ !matrix.macos_preview && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ !matrix.macos_preview && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ !matrix.macos_preview && secrets.APPLE_TEAM_ID || '' }}
         run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
-      - name: Verify architecture, embedded channel, signature and Apple notarization
+      - name: Verify architecture, embedded channel, updater signature and declared Mac code-signing policy
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: python -B scripts/desktop-release-build.py collect --plan dist/desktop-plan/plan.json --platform '${{ matrix.platform }}' --target '${{ matrix.target }}' --public-key dist/updater.pub --output 'dist/desktop-package/${{ matrix.platform }}'

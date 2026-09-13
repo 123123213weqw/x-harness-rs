@@ -47,6 +47,7 @@ jobs:
       - run: python -B scripts/test-friends-release.py
       - run: python -B scripts/test-unified-desktop-release.py
       - run: python -B scripts/test-desktop-release-build.py
+      - run: python -B scripts/test-macos-signing.py
       - run: python -B scripts/test-windows-desktop-bundle.py
       - name: Unix updater isolation and candidate contracts
         if: runner.os != 'Windows'

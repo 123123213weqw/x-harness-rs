@@ -31,6 +31,9 @@ _spec = importlib.util.spec_from_file_location('desktop_contract', ROOT / 'scrip
 _contract = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_contract)
 release_platforms = _contract.release_platforms
+_mac_spec = importlib.util.spec_from_file_location('macos_signing', ROOT / 'scripts/macos-signing.py')
+_macos_signing = importlib.util.module_from_spec(_mac_spec)
+_mac_spec.loader.exec_module(_macos_signing)
 RUNNERS = {
     'windows-x86_64': ('windows-2025', 'nsis'),
     'linux-x86_64-appimage': ('ubuntu-22.04', 'appimage'),
@@ -41,7 +44,8 @@ RUNNERS = {
 
 def platform_matrix(plan, unix_only=False):
     return {'include': [
-        {'platform': p, 'runner': RUNNERS[p][0], 'target': PLATFORMS[p], 'bundles': RUNNERS[p][1]}
+        {'platform': p, 'runner': RUNNERS[p][0], 'target': PLATFORMS[p], 'bundles': RUNNERS[p][1],
+         **({'macos_preview': True} if p.startswith('darwin-') and _contract.macos_preview(plan) else {})}
         for p in release_platforms(plan) if not unix_only or p != 'windows-x86_64'
     ]}
 
@@ -54,7 +58,7 @@ def write_matrix(plan, unix_only=False):
 def signing_plan(plan, environment=None):
     _contract.validate_plan(plan)
     for platform in release_platforms(plan):
-        signing_gate(platform, environment)
+        signing_gate(platform, environment, plan=plan)
 
 
 ACCEPTANCE_WORKFLOWS = {
@@ -143,15 +147,20 @@ def public_key(path):
         stream.write(value + '\n')
 
 
-def signing_gate(platform, environment=None):
+def signing_gate(platform, environment=None, *, plan=None):
     e = os.environ if environment is None else environment
+    preview = False
+    if plan is not None:
+        _contract.validate_plan(plan)
+        require(platform in release_platforms(plan), 'Unselected signing platform')
+        preview = _contract.macos_preview(plan)
     names = ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD', 'XHARNESS_UPDATER_PUBKEY']
-    if platform.startswith('darwin-'):
+    if platform.startswith('darwin-') and not preview:
         names += ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_SIGNING_IDENTITY',
                   'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID']
     require(all(e.get(name, '').strip() for name in names),
-            'Missing formal signing/notarization configuration; no ad-hoc fallback is allowed')
-    if platform.startswith('darwin-'):
+            'Missing required signing/notarization configuration; no implicit ad-hoc fallback is allowed')
+    if platform.startswith('darwin-') and not preview:
         require(e['APPLE_SIGNING_IDENTITY'].startswith('Developer ID Application:'),
                 'A Developer ID Application identity is required for the stable channel')
         require(re.fullmatch(r'[A-Z0-9]{10}', e['APPLE_TEAM_ID']), 'Invalid Apple team identity')
@@ -168,22 +177,15 @@ def stage(platform, target):
 
 def collect(args):
     require(PLATFORMS.get(args.platform) == args.target, 'Platform/target mismatch')
-    plan = load(args.plan)
+    plan = _contract.validate_plan(load(args.plan))
     root = ROOT / 'apps/desktop/src-tauri/target' / args.target / 'release'
     binary = root / ('xharness-desktop.exe' if args.platform == 'windows-x86_64' else 'xharness-desktop')
     if args.platform.startswith('darwin-'):
         app = root / 'bundle/macos/XHarness.app'
         binary = app / 'Contents/MacOS/xharness-desktop'
         package = root / 'bundle/macos/XHarness.app.tar.gz'
-        run('codesign', '--verify', '--deep', '--strict', app)
-        details = subprocess.run(['codesign', '-dv', '--verbose=4', str(app)], check=True, capture_output=True, text=True, encoding='utf-8').stderr
-        require('Authority=Developer ID Application:' in details and 'Signature=adhoc' not in details,
-                'Formal package is not Developer ID signed')
-        team = os.environ.get('APPLE_TEAM_ID', '')
-        require(re.fullmatch(r'[A-Z0-9]{10}', team) and f'TeamIdentifier={team}\n' in details,
-                'Signed application team differs from configured team')
-        run('xcrun', 'stapler', 'validate', app)
-        run('spctl', '--assess', '--type', 'execute', '--verbose=4', app)
+        preview = _contract.macos_preview(plan)
+        _macos_signing.verify(app, preview=preview, team=None if preview else os.environ.get('APPLE_TEAM_ID', ''))
         run(sys.executable, '-B', ROOT / 'scripts/test-desktop-assets.py', '--app', app)
     elif args.platform == 'windows-x86_64':
         package = root / 'bundle/nsis' / f'XHarness_{plan["version"]}_x64-setup.exe'
@@ -264,7 +266,7 @@ def stage_draft(args):
             '-f', 'tag_name=' + plan['tag'], '-f', 'target_commitish=' + sha,
             '-F', 'draft=true', '-F', 'prerelease=false', '-f', 'make_latest=false',
             '-f', f'name=XHarness Desktop {plan["version"]}',
-            '-f', f'body=Signed desktop update for {", ".join(release_platforms(plan))}. Native upgrade acceptance is required before publication. Save work before restarting. Other platform channels are unchanged.',
+            '-f', f'body=Signed desktop update for {", ".join(release_platforms(plan))}. Native upgrade acceptance is required before publication. {_contract.manifest_notes(plan)} Other platform channels are unchanged.',
             capture=True))
     except Exception:
         raise ValueError('Draft creation has uncertain server state; inspect staging evidence before retrying') from None
@@ -667,7 +669,7 @@ def export_native(args):
     # Never upload source, TLS CA/private keys, disposable signer keys or HOME.
     names = ['acceptance.json', 'evidence.json', 'FAIL.json', 'app.log', 'events.jsonl', 'http-requests.jsonl',
              'repetition-summary.json', 'cleanup.json',
-             'codesign.log', 'gatekeeper.log', 'stapler.log']
+             'codesign.log', 'codesign-identity.log', 'gatekeeper.log', 'stapler.log']
     for name in names:
         source = args.root / name
         if source.is_file() and not source.is_symlink():
@@ -690,6 +692,7 @@ def main():
     p = sub.add_parser('signing-plan'); p.add_argument('--plan', required=True, type=Path)
     p = sub.add_parser('acceptance-matrix'); p.add_argument('--candidate', type=Path)
     p = sub.add_parser('signing-gate'); p.add_argument('--platform', choices=PLATFORMS, required=True)
+    p.add_argument('--plan', type=Path)
     p = sub.add_parser('stage'); p.add_argument('--platform', choices=PLATFORMS, required=True); p.add_argument('--target', required=True)
     p = sub.add_parser('configure'); p.add_argument('--plan', type=Path, required=True); p.add_argument('--public-key', type=Path, required=True)
     p = sub.add_parser('collect')
@@ -725,7 +728,7 @@ def main():
     elif args.command == 'acceptance-matrix':
         plan = _contract.validate_plan(load(args.candidate / 'plan.json')) if args.candidate else {}
         write_matrix(plan, unix_only=True)
-    elif args.command == 'signing-gate': signing_gate(args.platform)
+    elif args.command == 'signing-gate': signing_gate(args.platform, plan=load(args.plan) if args.plan else None)
     elif args.command == 'stage': stage(args.platform, args.target)
     elif args.command == 'configure':
         plan = load(args.plan)
