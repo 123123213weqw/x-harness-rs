@@ -8,6 +8,11 @@ name: Mirror releases to Gitee
 # Upstream has ~1.7 GiB of release assets, so this workflow keeps a rolling
 # window instead of a full backfill: the newest `keep` releases per channel.
 #
+# Measured runner -> Gitee throughput is roughly 25-30 KiB/s for multi-megabyte
+# attachments (a 12 MiB installer took ~8 min), so a 94 MiB AppImage can need
+# over an hour: the per-upload curl timeout and the job timeout are sized for
+# that, and a slow run is expected rather than a failure.
+#
 # Only git-visible branches/tags are mirrored by `mirror-to-gitee.yml`; this
 # workflow owns release bodies and assets. Update feeds (`latest.json`) are
 # mirrored verbatim for download convenience only: its `url` fields still point
@@ -49,7 +54,7 @@ jobs:
   mirror:
     if: vars.XHARNESS_GITEE_REPOSITORY != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 350
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITEE_REPOSITORY: ${{ vars.XHARNESS_GITEE_REPOSITORY }}
@@ -154,7 +159,7 @@ jobs:
               if [[ "${skipped}" == "true" ]]; then
                 echo "  skip (policy ${SKIP_ASSETS}): ${base}"; continue
               fi
-              code=$(curl -sS -m 1800 "${auth[@]}" -o up.json -w '%{http_code}' -X POST \
+              code=$(curl -sS -m 5400 "${auth[@]}" -o up.json -w '%{http_code}' -X POST \
                 -F "file=@${file}" "${API}/releases/${rid}/attach_files")
               if [[ "${code}" != "201" ]]; then
                 echo "::error::upload failed for ${base} (HTTP ${code}): $(cat up.json)"; exit 1
