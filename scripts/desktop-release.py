@@ -38,6 +38,11 @@ PLATFORMS = {
 # Deliberately NO linux-x86_64 fallback: Tauri deb/rpm clients also fall back to
 # that key, and must never receive an AppImage as their native package update.
 MANIFEST_NOTES = 'Signed unified desktop update. Save work before restarting.'
+MACOS_PREVIEW_SCOPE = 'all-macos-preview'
+MACOS_PREVIEW_POLICY = 'ad-hoc-unnotarized-preview'
+MACOS_PREVIEW_NOTES = (MANIFEST_NOTES + ' macOS preview: ad-hoc signed, not notarized by Apple. '
+                      'First launch may require Privacy & Security > Open Anyway; managed Macs may block it. '
+                      'Do not disable system security. Windows/Linux signing requirements are unchanged.')
 PLAN_FIELDS = {'schema_version', 'repository', 'tag', 'version', 'sha', 'endpoint',
                'release_run_id', 'release_run_attempt', 'ci'}
 CI_FIELDS = {'id', 'run_attempt', 'head_sha', 'head_branch', 'event', 'status', 'conclusion', 'path'}
@@ -185,8 +190,24 @@ def select_ci(runs, sha):
 
 def release_platforms(plan):
     scope = plan.get('release_scope', 'all')
-    require(isinstance(scope, str) and scope in {'all', 'windows-linux'}, 'Unknown release scope')
-    return tuple(p for p in PLATFORMS if scope == 'all' or not p.startswith('darwin-'))
+    require(isinstance(scope, str) and scope in {'all', 'windows-linux', MACOS_PREVIEW_SCOPE}, 'Unknown release scope')
+    return tuple(p for p in PLATFORMS if scope != 'windows-linux' or not p.startswith('darwin-'))
+
+
+def macos_preview(plan):
+    release_platforms(plan)  # Reject unknown policies rather than falling back.
+    return plan.get('release_scope') == MACOS_PREVIEW_SCOPE
+
+
+def manifest_notes(plan):
+    return MACOS_PREVIEW_NOTES if macos_preview(plan) else MANIFEST_NOTES
+
+
+def acceptance_checks(plan, platform):
+    require(platform in release_platforms(plan), 'Unselected acceptance platform')
+    if platform.startswith('darwin-') and macos_preview(plan):
+        return UNIX_CHECKS | {'codesignVerified', 'adHocSignatureVerified'}
+    return PLATFORM_CHECKS[platform]
 
 
 def validate_plan(plan):
@@ -337,8 +358,10 @@ def assemble(plan, artifacts, public_key_path, output):
         write_json(dest / (platform + '.receipt.json'), receipt)
         entries[platform] = {'signature': receipt['signature'],
                              'url': f'https://github.com/{plan["repository"]}/releases/download/{plan["tag"]}/{name}'}
-    manifest = {'version': plan['version'], 'notes': MANIFEST_NOTES,
+    manifest = {'version': plan['version'], 'notes': manifest_notes(plan),
                 'pub_date': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'platforms': entries}
+    if macos_preview(plan):
+        manifest['macos_distribution'] = MACOS_PREVIEW_POLICY
     write_json(dest / 'latest.json', manifest)
     evidence = {'schema_version': 1, 'plan': plan, 'public_key_sha256': key_hash,
                 'manifest_sha256': sha256(dest / 'latest.json'),
@@ -376,9 +399,12 @@ def validate_release(plan, root, public_key_path):
     require(evidence['manifest_sha256'] == sha256(root / 'latest.json'), 'Manifest hash mismatch')
     require(set(evidence['receipts']) == set(release_platforms(plan)), 'Incomplete release receipt evidence')
     manifest = read_json(root / 'latest.json')
-    fields(manifest, {'version', 'notes', 'pub_date', 'platforms'}, 'manifest')
+    fields(manifest, {'version', 'notes', 'pub_date', 'platforms'} |
+           ({'macos_distribution'} if macos_preview(plan) else set()), 'manifest')
+    if macos_preview(plan):
+        require(manifest['macos_distribution'] == MACOS_PREVIEW_POLICY, 'Mac preview policy mismatch')
     require(manifest['version'] == plan['version'], 'Manifest version mismatch')
-    require(manifest['notes'] == MANIFEST_NOTES and isinstance(manifest['pub_date'], str)
+    require(manifest['notes'] == manifest_notes(plan) and isinstance(manifest['pub_date'], str)
             and re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', manifest['pub_date']), 'Unexpected manifest metadata')
     datetime.datetime.strptime(manifest['pub_date'], '%Y-%m-%dT%H:%M:%SZ')
     require(set(manifest['platforms']) == set(release_platforms(plan)), 'Manifest platform set incomplete or unexpected')
@@ -404,6 +430,11 @@ def validate_live(plan, live_root, candidate_manifest, public_key_path):
     require(version(live['version']) < version(plan['version']), 'Candidate must be newer than current live version')
     require(isinstance(live['platforms'], dict) and 'windows-x86_64' in live['platforms'], 'Current live Windows channel missing')
     require(set(live['platforms']) <= set(candidate_manifest['platforms']), 'Promotion would drop a live updater platform')
+    if macos_preview(plan) and any(p.startswith('darwin-') for p in live['platforms']):
+        # Legacy Mac feeds are treated as notarized. Enrollment in preview must
+        # never silently downgrade users who installed a notarized application.
+        require(live.get('macos_distribution') == MACOS_PREVIEW_POLICY,
+                'Cannot downgrade an existing notarized Mac channel to unnotarized preview')
     require(public_key(root / 'updater.pub')[1] == public_key(public_key_path)[1], 'Current live updater trust key differs')
     expected = {'latest.json', 'updater.pub'}
     urls = {}
@@ -463,7 +494,7 @@ def validate_acceptance(plan, root, release_root, manifest_hash):
         require(value['manifest_sha256'] == manifest_hash, 'Acceptance tested another manifest')
         require(value['package_sha256'] == sha256(release_root / package_name(plan, platform)), 'Acceptance tested another package')
         require(isinstance(value['checks'], dict)
-                and set(value['checks']) == PLATFORM_CHECKS[platform]
+                and set(value['checks']) == acceptance_checks(plan, platform)
                 and all(check is True for check in value['checks'].values()), 'Required native checks missing or failed')
         results[platform] = sha256(directory / 'acceptance.json')
     return results
@@ -505,7 +536,7 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     sub = commands.add_parser('plan')
     sub.add_argument('tag')
-    sub.add_argument('--release-scope', choices=['all', 'windows-linux'], default='all')
+    sub.add_argument('--release-scope', choices=['all', 'windows-linux', MACOS_PREVIEW_SCOPE], default='all')
     sub.add_argument('--output', required=True, type=Path)
     sub = commands.add_parser('receipt')
     for name in ('plan', 'package', 'public-key', 'binary', 'output'):
