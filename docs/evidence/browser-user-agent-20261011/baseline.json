@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-11",
+  "method": "Same local HTTP and JavaScript capability probe in installed XHarness and same-machine Safari; then actual Bilibili homepage via native UI",
+  "xharness": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+    "platform": "MacIntel",
+    "vendor": "Apple Computer, Inc.",
+    "secureContext": true,
+    "features": {
+      "webAssembly": true,
+      "mediaSource": true,
+      "webCodecs": true,
+      "indexedDB": true,
+      "fetch": true,
+      "bigInt": true
+    },
+    "codecs": {
+      "h264": "probably",
+      "hevc": "probably",
+      "vp9": "probably",
+      "av1": "probably"
+    },
+    "path": "/report"
+  },
+  "safari": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "platform": "MacIntel",
+    "vendor": "Apple Computer, Inc.",
+    "secureContext": true,
+    "features": {
+      "webAssembly": true,
+      "mediaSource": true,
+      "webCodecs": true,
+      "indexedDB": true,
+      "fetch": true,
+      "bigInt": true
+    },
+    "codecs": {
+      "h264": "probably",
+      "hevc": "probably",
+      "vp9": "probably",
+      "av1": "probably"
+    },
+    "path": "/report"
+  },
+  "actualPages": {
+    "xharness": "Redirected from https://www.bilibili.com/ to https://www.bilibili.com/blackboard/fe/activity-CjJbuaD7Xw.html; AX heading 您的浏览器版本过低哦",
+    "safari": "https://www.bilibili.com/ loaded homepage navigation and video recommendation links"
+  },
+  "interpretation": "Identical public homepage requests with only User-Agent changed reproduce the redirect for native WKWebView UA and retain the homepage for same-machine Safari UA. This isolates an HTTP browser-identity gate; actual playback is not established.",
+  "notVerified": [
+    "Actual video playback/DRM",
+    "New XHarness binary native acceptance"
+  ],
+  "modifiedProductionCode": false,
+  "httpUserAgentOnlyAB": {
+    "xharness": {
+      "result": "200 https://www.bilibili.com/blackboard/fe/activity-CjJbuaD7Xw.html",
+      "exit": 0,
+      "error": ""
+    },
+    "safari": {
+      "result": "200 https://www.bilibili.com/",
+      "exit": 0,
+      "error": ""
+    }
+  }
+}

@@ -40,9 +40,31 @@ fn serve_fixture(html: String) -> String {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { break };
             let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
-            let mut headers = [0; 4096];
-            let _ = stream.read(&mut headers);
-            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", html.len(), html);
+            let mut headers = Vec::new();
+            let mut chunk = [0; 1024];
+            while headers.len() < 8192 && !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(length) => headers.extend_from_slice(&chunk[..length]),
+                }
+            }
+            if !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+                continue;
+            }
+            let headers = String::from_utf8_lossy(&headers);
+            let identity = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("user-agent")
+                        .then(|| value.trim())
+                })
+                .unwrap_or_default();
+            let identity = serde_json::to_string(identity)
+                .unwrap()
+                .replace('<', "\\u003c");
+            let response = format!("{html}<script>window.probeHttpUserAgent={identity}</script>");
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response);
         }
     });
     format!("http://{address}/")
@@ -753,6 +775,42 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     if observation.is_null() {
         return Err("native callback did not produce fixture evidence".into());
     }
+    let (guest, _) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    let identity = evidence(
+        &guest,
+        "({http:window.probeHttpUserAgent,js:navigator.userAgent})",
+    )
+    .await?;
+    if !identity["http"].is_string() || identity["http"] != identity["js"] {
+        return Err("guest HTTP and JavaScript browser identities differ".into());
+    }
+    let native = evidence(&main, "navigator.userAgent").await?;
+    #[cfg(target_os = "macos")]
+    {
+        let guest_ua = identity["js"].as_str().ok_or("missing guest identity")?;
+        if !guest_ua.starts_with(native.as_str().ok_or("missing main identity")?)
+            || !guest_ua
+                .split_whitespace()
+                .any(|token| token.starts_with("Version/"))
+            || !guest_ua
+                .split_whitespace()
+                .any(|token| token.starts_with("Safari/"))
+        {
+            return Err(
+                "macOS guest identity did not preserve WebKit and include Safari version".into(),
+            );
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    if identity["js"] != native {
+        return Err("non-macOS browser identity was unexpectedly changed".into());
+    }
+    println!(
+        "USER_AGENT_EVIDENCE {}",
+        json!({"main":native,"guest":identity,"first_request_matches_js":true,"test_only":true})
+    );
     delegation_probe(app, &main).await?;
     observation = observe(app, &main).await?;
     let nodes = observation["nodes"].as_array().ok_or("missing nodes")?;
