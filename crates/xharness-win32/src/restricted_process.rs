@@ -12,7 +12,7 @@ use windows_sys::Win32::{
         Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
         Threading::{
             CreateProcessAsUserW, GetExitCodeProcess, ResumeThread, TerminateProcess,
-            WaitForSingleObject, CREATE_SUSPENDED, INFINITE, PROCESS_INFORMATION,
+            WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, INFINITE, PROCESS_INFORMATION,
             STARTF_USESTDHANDLES, STARTUPINFOW,
         },
     },
@@ -79,7 +79,9 @@ impl RestrictedChild {
                 ptr::null(),
                 ptr::null(),
                 1,
-                CREATE_SUSPENDED,
+                // The runner already inherits redirected handles. Its payload
+                // must not create a new console when the runner has none.
+                CREATE_SUSPENDED | CREATE_NO_WINDOW,
                 ptr::null(),
                 cwd.as_ptr(),
                 &startup,

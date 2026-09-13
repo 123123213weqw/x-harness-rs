@@ -4,13 +4,19 @@ use windows_sys::Win32::System::{
     Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
     },
-    Threading::{OpenThread, ResumeThread, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME},
+    Threading::{
+        OpenThread, ResumeThread, CREATE_NO_WINDOW, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME,
+    },
 };
 
 use crate::{OwnedWin32Handle, Win32Error};
 
 /// Creation flag used to keep a new process from running before Job assignment.
 pub const WINDOWS_CREATE_SUSPENDED: u32 = CREATE_SUSPENDED;
+
+/// Non-interactive pipe-backed children must not allocate a console window.
+/// Interactive terminal sessions use the separate ConPTY path instead.
+pub const WINDOWS_CREATE_NO_WINDOW: u32 = CREATE_NO_WINDOW;
 
 /// Resume the sole primary thread of a freshly created suspended process.
 ///
