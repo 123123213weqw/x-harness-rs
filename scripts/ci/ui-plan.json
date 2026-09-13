@@ -305,6 +305,9 @@
     {"id":"contract-090","suite":"contract","argv":["node","--test","scripts/test-managed-connection-source.mjs"],"env":{},"weight":6},
     {"id":"browser-204","suite":"browser","argv":["node","scripts/test-managed-model-menu-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":120},
     {"id":"browser-205","suite":"browser","argv":["node","scripts/test-managed-model-menu-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120},
-    {"id":"contract-091","suite":"contract","argv":["node","--test","scripts/test-question-answer-queue.mjs"],"env":{},"weight":60}
+    {"id":"contract-091","suite":"contract","argv":["node","--test","scripts/test-question-answer-queue.mjs"],"env":{},"weight":60},
+    {"id":"contract-092","suite":"contract","argv":["node","--test","scripts/test-runtime-environment-source.mjs"],"env":{},"weight":60},
+    {"id":"browser-206","suite":"browser","argv":["node","scripts/test-runtime-environment-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":120},
+    {"id":"browser-207","suite":"browser","argv":["node","scripts/test-runtime-environment-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120}
   ]
 }
