@@ -79,6 +79,7 @@ node "$repo_root/scripts/assemble-static-ui.mjs" "$upstream" "$repo_root/ui/dist
 node "$repo_root/scripts/patch-brand-headline.mjs" "$repo_root/ui/dist"
 node "$repo_root/scripts/patch-monochrome-theme.mjs"
 node "$repo_root/scripts/patch-logo-motion.mjs" "$repo_root/ui/dist" --assets-only
+node "$repo_root/scripts/patch-streaming-math.mjs" "$repo_root/ui/dist"
 
 # Preserve the dynamic brand bundle beside the shell for consumers that want a
 # package-level artifact in addition to the complete static graph in dist/.
