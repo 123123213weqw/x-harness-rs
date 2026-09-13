@@ -1,0 +1,92 @@
+name: Mirror alert
+
+# Notifies on a failed Gitee mirror run by opening (or updating) a tracking issue.
+# The repository had no notification workflow before this one.
+on:
+  workflow_run:
+    workflows: ["Mirror to Gitee", "Mirror releases to Gitee"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      simulate:
+        description: "Open a test alert without a real failure"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: mirror-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITEE_REPOSITORY: ${{ vars.XHARNESS_GITEE_REPOSITORY }}
+    steps:
+      - name: Ensure the alert label exists
+        shell: bash
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/labels" \
+            -f name=mirror-alert -f color=B60205 \
+            -f description='Gitee mirror synchronisation is failing' > /dev/null 2>&1 || true
+
+      - name: Open or update the alert issue
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            run_name="Mirror to Gitee"
+            run_url="${{ github.server_url }}/${{ github.repository }}/actions"
+            run_id="manual-dispatch"
+            conclusion="simulated failure"
+            head_sha="${{ github.sha }}"
+          else
+            run_name="${{ github.event.workflow_run.name }}"
+            run_url="${{ github.event.workflow_run.html_url }}"
+            run_id="${{ github.event.workflow_run.id }}"
+            conclusion="${{ github.event.workflow_run.conclusion }}"
+            head_sha="${{ github.event.workflow_run.head_sha }}"
+          fi
+          title="Gitee 镜像同步失败：${run_name}"
+
+          cat > body.md <<EOF
+          Gitee 只读镜像（gitee.com/${GITEE_REPOSITORY}）可能已经落后于本仓库。
+
+          | 项 | 值 |
+          | --- | --- |
+          | 失败的工作流 | ${run_name} |
+          | 结论 | ${conclusion} |
+          | 运行 | ${run_url} |
+          | 运行 ID | ${run_id} |
+          | 提交 | ${head_sha} |
+
+          排查顺序：
+
+          1. 打开上面的运行日志，确认失败步骤与 HTTP 状态码。
+          2. \`Mirror to Gitee\` 失败：检查 variable \`XHARNESS_GITEE_REPOSITORY\` 与 secret \`XHARNESS_GITEE_TOKEN\` 是否仍有效（Gitee 私人令牌过期会返回 401）。
+          3. \`Mirror releases to Gitee\` 失败：Gitee 限制单附件 100 MiB、单仓库附件总量 1 GiB。若报配额错误，减小 workflow 输入 \`keep\`，或临时关闭 \`prune\` 前后人工清理旧发行版。
+          4. 本地可跑 \`gh workflow run "Mirror to Gitee"\` 重试；refs 镜像幂等，可安全重复执行。
+          5. 修复后关闭本 issue；同名的下一次失败会重新开一条。
+          EOF
+
+          gh issue list --repo "${GITHUB_REPOSITORY}" --state open \
+            --label mirror-alert --limit 100 --json number,title > issues.json
+          existing=$(jq -r --arg t "${title}" '.[] | select(.title == $t) | .number' issues.json | head -1)
+
+          if [[ -n "${existing}" ]]; then
+            echo "updating existing issue #${existing}"
+            gh issue comment "${existing}" --repo "${GITHUB_REPOSITORY}" --body-file body.md
+          else
+            gh issue create --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" --label mirror-alert --body-file body.md
+          fi

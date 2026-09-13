@@ -1,0 +1,180 @@
+name: Mirror releases to Gitee
+
+# Mirrors GitHub Release assets to the Gitee mirror repository.
+#
+# Gitee account limits (https://help.gitee.com/repository/release/create):
+#   - single attachment <= 100 MiB
+#   - total attachments per repository <= 1 GiB (includes repository attachments)
+# Upstream has ~1.7 GiB of release assets, so this workflow keeps a rolling
+# window instead of a full backfill: the newest `keep` releases per channel.
+#
+# Only git-visible branches/tags are mirrored by `mirror-to-gitee.yml`; this
+# workflow owns release bodies and assets. Update feeds (`latest.json`) are
+# mirrored verbatim for download convenience only: its `url` fields still point
+# at GitHub, so the desktop updater is unchanged by this mirror.
+#
+# Required repository configuration:
+#   variable XHARNESS_GITEE_REPOSITORY = <owner>/<repo>
+#   secret   XHARNESS_GITEE_TOKEN      = <Gitee private token, projects scope>
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Single tag to mirror; empty means resolve channels below"
+        required: false
+        default: ""
+      keep:
+        description: "Releases to retain per channel"
+        required: false
+        default: "2"
+      include_prereleases:
+        description: "Also mirror desktop-test-* rehearsals (consumes the 1 GiB budget)"
+        type: boolean
+        default: false
+      prune:
+        description: "Delete older mirrored releases of the same channel"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-releases-to-gitee
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: vars.XHARNESS_GITEE_REPOSITORY != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITEE_REPOSITORY: ${{ vars.XHARNESS_GITEE_REPOSITORY }}
+      GITEE_TOKEN: ${{ secrets.XHARNESS_GITEE_TOKEN }}
+      SINGLE_TAG: ${{ inputs.tag || github.event.release.tag_name || '' }}
+      KEEP: ${{ inputs.keep || '2' }}
+      INCLUDE_PRE: ${{ inputs.include_prereleases || 'false' }}
+      PRUNE: ${{ inputs.prune || 'true' }}
+      # Never mirror the Windows debug symbols: ~99 MiB of the 1 GiB budget for
+      # an attachment that upstream already ships outside the user installer.
+      SKIP_ASSETS: "windows-debug-symbols.zip"
+      MAX_ASSET_MB: "100"
+    steps:
+      - name: Validate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GITEE_REPOSITORY:-}" ]] || { echo '::error::variable XHARNESS_GITEE_REPOSITORY is not set'; exit 1; }
+          [[ -n "${GITEE_TOKEN:-}" ]] || { echo '::error::secret XHARNESS_GITEE_TOKEN is not set'; exit 1; }
+          echo "::add-mask::${GITEE_TOKEN}"
+          echo "mirror target: gitee.com/${GITEE_REPOSITORY}  keep=${KEEP}  prereleases=${INCLUDE_PRE}  prune=${PRUNE}"
+
+      - name: Mirror release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://gitee.com/api/v5/repos/${GITEE_REPOSITORY}"
+          PUSH_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_REPOSITORY}.git"
+          auth=(-H "Authorization: token ${GITEE_TOKEN}")
+          gitee() { curl -sS -m 180 "${auth[@]}" "$@"; }
+
+          echo '== resolve tags =='
+          if [[ -n "${SINGLE_TAG}" ]]; then
+            printf '%s\n' "${SINGLE_TAG}" > tags.txt
+          else
+            gh release list --repo "${GITHUB_REPOSITORY}" --limit 100 \
+              --json tagName,isPrerelease,createdAt > rels.json
+            jq -r --arg pre "${INCLUDE_PRE}" '
+              .[] | select($pre == "true" or (.isPrerelease | not)) | [.tagName, .createdAt] | @tsv
+            ' rels.json | sort -k2 -r | awk -F'\t' -v keep="${KEEP}" '
+              { ch = $1; sub(/-v[0-9].*$/, "", ch); if (count[ch]++ < keep) print $1 }
+            ' > tags.txt
+          fi
+          echo "tags to mirror:"; cat tags.txt
+
+          handled_channels=$(sed -E 's/-v[0-9].*$//' tags.txt | sort -u | tr '\n' ' ')
+          echo "channels: ${handled_channels}"
+
+          while IFS= read -r tag; do
+            [[ -z "${tag}" ]] && continue
+            echo "== release ${tag} =="
+
+            if ! git ls-remote --tags "${PUSH_URL}" "refs/tags/${tag}" 2>/dev/null | grep -q .; then
+              echo "tag missing on Gitee; pushing it first"
+              [[ -d repo.git ]] || git clone --bare --quiet "https://github.com/${GITHUB_REPOSITORY}.git" repo.git
+              git -C repo.git push --quiet "${PUSH_URL}" "refs/tags/${tag}:refs/tags/${tag}"
+            fi
+
+            gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" \
+              --json name,body,isPrerelease,targetCommitish > "gh.json"
+            name=$(jq -r '.name // ""' gh.json)
+            [[ -n "${name}" ]] || name="${tag}"
+            jq -r '.body // ""' gh.json > body.txt
+            pre=$(jq -r '.isPrerelease' gh.json)
+            commitish=$(jq -r '.targetCommitish // ""' gh.json)
+            [[ -n "${commitish}" ]] || commitish="${tag}"
+
+            gitee "${API}/releases?per_page=100" > gitee-releases.json
+            rid=$(jq -r --arg t "${tag}" '.[] | select(.tag_name == $t) | .id' gitee-releases.json | head -1)
+            if [[ -z "${rid}" ]]; then
+              code=$(curl -sS -m 180 "${auth[@]}" -o create.json -w '%{http_code}' -X POST "${API}/releases" \
+                --data-urlencode "tag_name=${tag}" \
+                --data-urlencode "target_commitish=${commitish}" \
+                --data-urlencode "name=${name}" \
+                --data-urlencode "body@body.txt" \
+                --data-urlencode "prerelease=${pre}")
+              [[ "${code}" == "201" ]] || { echo "::error::release create failed for ${tag} (HTTP ${code}): $(cat create.json)"; exit 1; }
+              rid=$(jq -r '.id' create.json)
+              echo "created Gitee release ${rid}"
+            else
+              echo "Gitee release already exists: ${rid}"
+            fi
+
+            mkdir -p "dl/${tag}"
+            gh release download "${tag}" --repo "${GITHUB_REPOSITORY}" --dir "dl/${tag}" --pattern '*'
+            gitee "${API}/releases/${rid}" | jq -r '.assets[].name' > attached.txt
+            echo "already attached: $(wc -l < attached.txt)"
+
+            while IFS= read -r file; do
+              base=$(basename "${file}")
+              size_mb=$(( $(stat -c%s "${file}") / 1048576 ))
+              if grep -qxF "${base}" attached.txt; then
+                echo "  skip (already mirrored): ${base}"; continue
+              fi
+              if [[ "${size_mb}" -ge "${MAX_ASSET_MB}" ]]; then
+                echo "::warning::skip asset over the Gitee per-file limit (${size_mb} MiB): ${base}"; continue
+              fi
+              skipped=false
+              for pattern in ${SKIP_ASSETS}; do
+                if [[ "${base}" == ${pattern} ]]; then skipped=true; break; fi
+              done
+              if [[ "${skipped}" == "true" ]]; then
+                echo "  skip (policy ${SKIP_ASSETS}): ${base}"; continue
+              fi
+              code=$(curl -sS -m 1800 "${auth[@]}" -o up.json -w '%{http_code}' -X POST \
+                -F "file=@${file}" "${API}/releases/${rid}/attach_files")
+              if [[ "${code}" != "201" ]]; then
+                echo "::error::upload failed for ${base} (HTTP ${code}): $(cat up.json)"; exit 1
+              fi
+              echo "  uploaded: ${base} (${size_mb} MiB)"
+            done < <(find "dl/${tag}" -type f | sort)
+          done < tags.txt
+
+          echo '== prune older releases =='
+          if [[ "${PRUNE}" != "true" ]]; then
+            echo "prune disabled"; exit 0
+          fi
+          gitee "${API}/releases?per_page=100" > gitee-releases.json
+          for channel in ${handled_channels}; do
+            keep_ids=$(jq -r --arg ch "${channel}-v" '.[] | select(.tag_name | startswith($ch)) | [.created_at, .id, .tag_name] | @tsv' gitee-releases.json \
+              | sort -r | awk -v keep="${KEEP}" 'NR > keep { print $2 }')
+            for id in ${keep_ids}; do
+              stale_tag=$(jq -r --arg id "${id}" '.[] | select((.id | tostring) == $id) | .tag_name' gitee-releases.json)
+              echo "deleting stale mirrored release ${stale_tag} (id ${id})"
+              gitee -X DELETE "${API}/releases/${id}" -o /dev/null -w 'delete http %{http_code}\n'
+            done
+          done
+          echo 'mirror complete'
