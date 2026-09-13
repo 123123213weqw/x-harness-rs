@@ -1,7 +1,6 @@
 //! Deferred answers remain human-owned; releasing a tool never grants consent.
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
-use xharness_tools::{GuardDecision, MiddlewareError, MonotonicGuard, ToolExecutionContext};
 
 pub(super) fn deferred_resolution(invocation: &QuestionInvocation) -> QuestionResolution {
     QuestionResolution {
@@ -227,73 +226,5 @@ impl DurableQuestionHub {
             }
         }
         self.deliver_restored_answers().await
-    }
-
-    /// Conservative Host-owned allowlist, independent of full-access approval.
-    /// Once latched, remains read-only for this turn even if an answer arrives
-    /// between preflight and handler entry. The next turn builds a fresh guard.
-    pub fn exploration_guard(self: &Arc<Self>, session: &str) -> Arc<dyn MonotonicGuard> {
-        Arc::new(ExplorationGuard {
-            hub: self.clone(),
-            session: session.into(),
-            restricted: AtomicBool::new(false),
-        })
-    }
-}
-
-struct ExplorationGuard {
-    hub: Arc<DurableQuestionHub>,
-    session: String,
-    restricted: AtomicBool,
-}
-#[async_trait]
-impl MonotonicGuard for ExplorationGuard {
-    async fn evaluate(&self, ctx: &ToolExecutionContext) -> Result<GuardDecision, MiddlewareError> {
-        let s = self
-            .hub
-            .snapshot(&self.session)
-            .await
-            .map_err(|e| MiddlewareError::new(e.to_string()))?;
-        if !self.restricted.load(Ordering::Acquire)
-            && !s
-                .events()
-                .iter()
-                .any(|e| matches!(e.data(), EventData::QuestionDeferred { .. }))
-        {
-            return Ok(GuardDecision::Allow);
-        }
-        let current_turn = s.events().iter().rev().find_map(|e| match e.data() {
-            EventData::TurnStart { turn } => Some(*turn),
-            _ => None,
-        });
-        let deferred_this_turn = xharness_session::all_user_questions(s.events())
-            .iter()
-            .any(|q| {
-                Some(q.turn) == current_turn
-                    && xharness_session::question_is_deferred(
-                        s.events(),
-                        &q.invocation.interaction_id,
-                    )
-            });
-        if deferred_this_turn || xharness_session::has_unanswered_deferred_question(s.events()) {
-            self.restricted.store(true, Ordering::Release)
-        }
-        if !self.restricted.load(Ordering::Acquire) {
-            return Ok(GuardDecision::Allow);
-        }
-        let allowed = matches!(ctx.tool_name(), "read" | "glob" | "grep" | "read_image")
-            || (ctx.tool_name() == "goal"
-                && ctx.arguments.get("action").and_then(Value::as_str) == Some("get"))
-            || (ctx.tool_name() == "goal"
-                && ctx.arguments["action"] == "report"
-                && matches!(
-                    ctx.arguments["report"]["status"].as_str(),
-                    Some("progress" | "blocked")
-                ));
-        Ok(if allowed {
-            GuardDecision::Allow
-        } else {
-            GuardDecision::deny("An unanswered question has deferred this turn. Only scoped read/glob/grep/read_image and goal get are allowed. No Bash, writes, network fetches, jobs, subagents, scheduling or repeated questions. Investigate independently or finish and wait; do not assume consent.")
-        })
     }
 }

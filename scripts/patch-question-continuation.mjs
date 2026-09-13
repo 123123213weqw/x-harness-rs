@@ -21,7 +21,7 @@ export function patchQuestionContinuation(name,bytes) {
 // or subagent winner never carries this marker and remains blocking.
 function patchDeferredQuestionUI(name,bytes) {
  if(name!=='@deepseek-ai/dsh-client-ui-user-questions')return bytes;
- let s=bytes.toString();const marker='// xh-question-strip/v2';if(s.includes(marker))return bytes;
+ let s=bytes.toString();const marker='// xh-question-strip/v2';if(s.includes(marker))return patchQuestionGuidance(bytes);
  const once=(a,b)=>{if(s.split(a).length!==2)throw Error('Question strip anchor changed: '+a);s=s.replace(a,b)};
  once('const [minimized, setMinimized] = (0, react.useState)(false);',`const [minimized, setMinimized] = (0, react.useState)(pending.deferred);
  const deferredSeen = react.useRef(pending.deferred);
@@ -46,7 +46,12 @@ function patchDeferredQuestionUI(name,bytes) {
  @media(max-width:520px){[data-question-deferred="true"][data-question-minimized="true"] .r3cF6q_title{display:none}}
  `;
  once('tag.textContent = css;', 'tag.textContent = css + '+JSON.stringify(css)+';');
- return Buffer.from(marker+'\n'+s);
+ return patchQuestionGuidance(Buffer.from(marker+'\n'+s));
+}
+function patchQuestionGuidance(bytes) {
+ return Buffer.from(bytes.toString().replaceAll(
+  '等待回答 · 仅允许独立的只读探索；未回答不代表同意',
+  '等待回答 · 可继续不依赖答案的工作；未回答不代表同意'));
 }
 if(process.argv[1]&&realpathSync(process.argv[1])===fileURLToPath(import.meta.url)) {
  const dist=resolve(process.argv[2]??'ui/dist');const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));

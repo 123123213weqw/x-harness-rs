@@ -1,5 +1,5 @@
 {
-  "rev": "473c2d884ed64699",
+  "rev": "fae85abe89b7e094",
   "entries": [
     {
       "id": "@deepseek-ai/dsh-typert-registry",
@@ -419,8 +419,8 @@
     },
     {
       "id": "@deepseek-ai/dsh-client-ui-user-questions",
-      "url": "/plugins/@deepseek-ai/dsh-client-ui-user-questions/client.js?rev=0db2c04e94a80826",
-      "rev": "0db2c04e94a80826",
+      "url": "/plugins/@deepseek-ai/dsh-client-ui-user-questions/client.js?rev=e13d7de534513514",
+      "rev": "e13d7de534513514",
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation"
