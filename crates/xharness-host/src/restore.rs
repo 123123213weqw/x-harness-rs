@@ -1036,6 +1036,35 @@ fn prompt_views(session: &Session) -> BTreeMap<String, PromptView> {
     prompts
 }
 
+fn web_event_envelope(event_type: String, seq: u64, time: u64, data: Value) -> Value {
+    // json! serializes borrowed expressions, even when they are already Values.
+    // Move the owned payload into its envelope instead of cloning its JSON tree.
+    Value::Object(serde_json::Map::from_iter([
+        ("type".to_owned(), Value::String(event_type)),
+        ("seq".to_owned(), Value::from(seq)),
+        ("time".to_owned(), Value::from(time)),
+        ("data".to_owned(), data),
+    ]))
+}
+
+#[cfg(test)]
+mod projection_allocation_tests {
+    use super::*;
+
+    #[test]
+    fn projection_envelope_moves_owned_payload_without_changing_json() {
+        let data = json!({"nested": ["你好\n\"\\", "x".repeat(128 * 1024)]});
+        let pointer = data["nested"][1].as_str().unwrap().as_ptr();
+        let expected = json!({"type":"tool/result", "seq":7, "time":9, "data":data});
+        let actual = web_event_envelope("tool/result".into(), 7, 9, data);
+        assert_eq!(actual, expected);
+        assert_eq!(
+            actual["data"]["nested"][1].as_str().unwrap().as_ptr(),
+            pointer
+        );
+    }
+}
+
 fn restored_web_event(
     event: &LoggedEvent,
     route: &ModelRoute,
@@ -1245,12 +1274,7 @@ fn restored_web_event(
         ),
         EventData::SessionEndSeed => tagged_event_data(event.data()),
     };
-    let mut web = json!({
-        "type": event_type,
-        "seq": event.seq,
-        "time": event.timestamp_ms,
-        "data": data,
-    });
+    let mut web = web_event_envelope(event_type, event.seq, event.timestamp_ms, data);
     if let Some(surface_op) = surface_op {
         web.as_object_mut()
             .expect("restored event is an object")
