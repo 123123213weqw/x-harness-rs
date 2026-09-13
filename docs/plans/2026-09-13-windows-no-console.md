@@ -4,7 +4,7 @@
 
 **Goal:** Ship the existing GUI desktop fix together with console-free non-interactive Windows tools, including the restricted-token runner.
 
-**Architecture:** Continue upstream PR #70; do not duplicate it. The desktop uses the existing release GUI subsystem setting, while tauri-plugin-shell 2.3.6 already starts the standalone console Host with CREATE_NO_WINDOW. Add CREATE_NO_WINDOW alongside CREATE_SUSPENDED at the shared tool launcher; the restricted-token child uses DETACHED_PROCESS to avoid initializing a fresh console. Preserve explicitly supplied pipes, Job ownership, cancellation and the separate ConPTY terminal implementation.
+**Architecture:** Continue upstream PR #70; do not duplicate it. The desktop uses the existing release GUI subsystem setting, while tauri-plugin-shell 2.3.6 already starts the standalone console Host with CREATE_NO_WINDOW. Add CREATE_NO_WINDOW alongside CREATE_SUSPENDED at the shared tool launcher; the restricted-token child inherits the runner's headless console. Preserve explicitly supplied pipes, Job ownership, cancellation and the separate ConPTY terminal implementation.
 
 **Tech Stack:** Rust, Win32, PowerShell native fixtures, Node source contracts, GitHub-hosted Windows CI.
 
@@ -24,7 +24,7 @@ Files: `crates/xharness-win32/src/suspended.rs`, `crates/xharness-win32/src/lib.
 
 1. Re-export the native CREATE_NO_WINDOW constant for the shared safe launcher.
 2. Use `WINDOWS_CREATE_SUSPENDED | WINDOWS_CREATE_NO_WINDOW` in ProcessRuntime.
-3. Use `CREATE_SUSPENDED | DETACHED_PROCESS` in CreateProcessAsUserW. Keep STARTF_USESTDHANDLES and pre-resume Job assignment intact. Native CI showed CREATE_NO_WINDOW at this boundary fails with STATUS_DLL_INIT_FAILED (0xc0000142), including the pre-existing ACL tests; never bypass restricted tokens or ignore those tests to obtain a green run.
+3. Keep `CREATE_SUSPENDED` alone in CreateProcessAsUserW, inheriting the runner's headless console. Keep STARTF_USESTDHANDLES and pre-resume Job assignment intact. Native CI rejected both attempts to change console state at this inner boundary: CREATE_NO_WINDOW failed with STATUS_DLL_INIT_FAILED (0xc0000142); DETACHED_PROCESS returned zero without executing PowerShell scripts. Both broke pre-existing ACL tests. Never bypass restricted tokens or ignore those tests to obtain a green run.
 4. Re-run source contracts and `cargo fmt --all --check` (formatting only locally); commit the implementation.
 
 ### Task 3: Verify and update the existing upstream PR

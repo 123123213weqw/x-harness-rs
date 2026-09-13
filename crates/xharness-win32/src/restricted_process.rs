@@ -12,7 +12,7 @@ use windows_sys::Win32::{
         Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
         Threading::{
             CreateProcessAsUserW, GetExitCodeProcess, ResumeThread, TerminateProcess,
-            WaitForSingleObject, CREATE_SUSPENDED, DETACHED_PROCESS, INFINITE, PROCESS_INFORMATION,
+            WaitForSingleObject, CREATE_SUSPENDED, INFINITE, PROCESS_INFORMATION,
             STARTF_USESTDHANDLES, STARTUPINFOW,
         },
     },
@@ -79,11 +79,11 @@ impl RestrictedChild {
                 ptr::null(),
                 ptr::null(),
                 1,
-                // A restricted token must not initialize a fresh console:
-                // CREATE_NO_WINDOW can fail during console initialization
-                // (STATUS_DLL_INIT_FAILED). Detach the console, not the explicit
-                // STARTF_USESTDHANDLES pipes; keep Job assignment before resume.
-                CREATE_SUSPENDED | DETACHED_PROCESS,
+                // Inherit the runner's console: ProcessRuntime already starts
+                // it with CREATE_NO_WINDOW. A fresh console under a restricted
+                // token can fail initialization; detaching can break PowerShell
+                // execution. Preserve inherited console state and explicit pipes.
+                CREATE_SUSPENDED,
                 ptr::null(),
                 cwd.as_ptr(),
                 &startup,
