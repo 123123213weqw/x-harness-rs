@@ -10,10 +10,10 @@ on:
         required: true
         type: string
       release_scope:
-        description: Selected platforms; all-macos-preview explicitly uses unnotarized ad-hoc Mac apps
+        description: Selected platforms; `all` requires Apple Developer ID and notarization secrets, all-macos-preview explicitly uses unnotarized ad-hoc Mac apps
         type: choice
         options: [all, windows-linux, all-macos-preview]
-        default: all
+        default: windows-linux
         required: true
 
 # Matrix workers cannot write a release or replace latest.json.
@@ -49,7 +49,14 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_SCOPE_INPUT: ${{ inputs.release_scope || 'all' }}
+          # A tag push cannot choose a scope and this repository holds no Apple Developer ID
+          # material, so the stable channel resolves to windows-linux: the same scope the
+          # documented manual dispatch uses. Widen it by setting the
+          # XHARNESS_DESKTOP_TAG_RELEASE_SCOPE repository variable (for example to `all`)
+          # once Apple signing exists; workflow_dispatch keeps its own explicit input.
+          # Promote still refuses to drop a platform the live manifest already publishes, so
+          # this default can never silently delete the macOS channel.
+          RELEASE_SCOPE_INPUT: ${{ inputs.release_scope || vars.XHARNESS_DESKTOP_TAG_RELEASE_SCOPE || 'windows-linux' }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag || github.ref_name }}
           XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
         run: python3 -B scripts/desktop-release-build.py plan --output dist/desktop-plan/plan.json
