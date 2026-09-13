@@ -115,6 +115,12 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-attachments-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-execution-checkpoints-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-execution-checkpoints-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-streaming-math.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-streaming-math.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-session-history-cache.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-session-history-cache.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
           node scripts/test-question-continuation-patch.mjs
           UI_TEST_BROWSER=chromium node scripts/test-question-continuation-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-question-continuation-browser.mjs

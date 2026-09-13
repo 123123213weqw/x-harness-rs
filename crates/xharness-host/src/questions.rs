@@ -1127,7 +1127,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn live_loop_deferred_question_completes_tool_but_keeps_question_and_guard() {
+    async fn live_loop_deferred_question_keeps_question_without_restricting_tools() {
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         store
             .create(SessionHeader::new("live-defer"))
@@ -1159,34 +1159,6 @@ mod tests {
         assert!(s.recoverable_user_questions().is_empty());
         assert_eq!(s.pending_user_questions().len(), 1);
         assert_eq!(hub.baseline().await.len(), 1);
-        let guard = hub.exploration_guard("live-defer");
-        for (name, args, allowed) in [
-            ("read", json!({}), true),
-            ("glob", json!({}), true),
-            ("grep", json!({}), true),
-            ("bash", json!({"command":"echo harmless"}), false),
-            ("write", json!({}), false),
-            ("ask_user_question", json!({}), false),
-            ("agent", json!({}), false),
-            ("job_create", json!({}), false),
-            ("web_fetch", json!({}), false),
-            ("goal", json!({"action":"create"}), false),
-            ("goal", json!({"action":"get"}), true),
-        ] {
-            let ctx = xharness_tools::ToolExecutionContext {
-                execution_id: xharness_tools::ExecutionId::new("probe").unwrap(),
-                definition: Arc::new(xharness_tools::ToolDefinition::new(name, "test", json!({}))),
-                arguments: Arc::new(args.clone()),
-                arguments_json: args.to_string().into(),
-                cancellation: CancellationToken::new(),
-            };
-            let verdict = guard.evaluate(&ctx).await.unwrap();
-            assert_eq!(
-                matches!(verdict, xharness_tools::GuardDecision::Allow),
-                allowed,
-                "{name}"
-            );
-        }
         // A late answer remains durable even if delivery is temporarily unavailable.
         let pending = hub.pending.read().await.values().next().unwrap().clone();
         let error=hub.resolve_response(&pending,json!({"sessionId":"live-defer","answer":{"answers":[{"id":"target","selected":["本机"]}]}})).await.unwrap_err();
@@ -1199,24 +1171,6 @@ mod tests {
             xharness_session::all_user_questions(s.events())[0].terminal,
             QuestionTerminalState::Resolved(_)
         ));
-        let ctx = xharness_tools::ToolExecutionContext {
-            execution_id: xharness_tools::ExecutionId::new("late-probe").unwrap(),
-            definition: Arc::new(xharness_tools::ToolDefinition::new(
-                "write",
-                "test",
-                json!({}),
-            )),
-            arguments: Arc::new(json!({})),
-            arguments_json: "{}".into(),
-            cancellation: CancellationToken::new(),
-        };
-        assert!(
-            matches!(
-                guard.evaluate(&ctx).await.unwrap(),
-                xharness_tools::GuardDecision::Deny { .. }
-            ),
-            "late answer must not unlock the stale current turn"
-        );
     }
 
     #[tokio::test]
