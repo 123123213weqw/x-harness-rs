@@ -1,0 +1,76 @@
+name: Mirror to Gitee
+
+# Read-only git mirror of this repository on Gitee.
+#
+# Branches and tags only: Gitee rejects GitHub's hidden `refs/pull/*` namespace
+# with "deny updating a hidden ref", so the clone is deliberately `--bare`
+# (refs/heads + refs/tags) instead of `--mirror`. Release assets and issues are
+# not mirrored.
+#
+# Required repository configuration:
+#   variable XHARNESS_GITEE_REPOSITORY = <owner>/<repo>   (e.g. wangyue2006/x-harness-rs)
+#   secret   XHARNESS_GITEE_TOKEN      = <Gitee private token with projects scope>
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  schedule:
+    # Safety net for missed push events and upstream ref deletions.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-to-gitee
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: vars.XHARNESS_GITEE_REPOSITORY != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GITEE_REPOSITORY: ${{ vars.XHARNESS_GITEE_REPOSITORY }}
+      GITEE_TOKEN: ${{ secrets.XHARNESS_GITEE_TOKEN }}
+    steps:
+      - name: Validate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GITEE_REPOSITORY:-}" ]] || { echo '::error::variable XHARNESS_GITEE_REPOSITORY is not set'; exit 1; }
+          [[ -n "${GITEE_TOKEN:-}" ]] || { echo '::error::secret XHARNESS_GITEE_TOKEN is not set'; exit 1; }
+          echo "::add-mask::${GITEE_TOKEN}"
+          echo "mirror target: gitee.com/${GITEE_REPOSITORY}"
+
+      - name: "Clone upstream (bare clone, refs/heads + refs/tags only)"
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --bare --quiet "https://github.com/${GITHUB_REPOSITORY}.git" repo.git
+          echo "local refs: $(git -C repo.git for-each-ref --format='%(refname)' | wc -l)"
+
+      - name: Push mirror to Gitee
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C repo.git push --mirror --quiet \
+            "https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_REPOSITORY}.git"
+
+      - name: Verify ref parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote="https://oauth2:${GITEE_TOKEN}@gitee.com/${GITEE_REPOSITORY}.git"
+          git -C repo.git for-each-ref --format='%(refname) %(objectname)' \
+            | grep -E '^refs/(heads|tags)/' | sort > local.txt
+          git ls-remote "$remote" | awk '{print $2" "$1}' \
+            | grep -E '^refs/(heads|tags)/' | sort > remote.txt
+          echo "local=$(wc -l < local.txt) remote=$(wc -l < remote.txt)"
+          if ! diff -u local.txt remote.txt; then
+            echo '::error::Gitee mirror refs diverge from upstream'
+            exit 1
+          fi
+          echo 'mirror verified: every branch and tag matches upstream'
+
