@@ -25,7 +25,9 @@ impl ModelProvider for FloodThenBlock {
                 for _ in 0..2200 {
                     yield Ok(ProviderEvent::TextDelta("x".into()));
                     emitted.fetch_add(1, AtomicOrdering::SeqCst);
-                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    // No wall-clock pacing: Windows timer granularity can turn
+                    // 2200 one-millisecond sleeps into >30 seconds.
+                    tokio::task::yield_now().await;
                 }
                 finish.notified().await;
                 yield Ok(ProviderEvent::Completed { finish_reason:Some(FinishReason::Stop), usage:None, provider_items:Vec::new() });
