@@ -1,5 +1,5 @@
-import { patchMaxTokensNotice } from './patch-max-tokens-notice.mjs'
 #!/usr/bin/env node
+import { patchMaxTokensNotice } from './patch-max-tokens-notice.mjs'
 import { patchSessionHistoryCache } from './patch-session-history-cache.mjs'
 import { patchTranscriptWindowing } from './patch-transcript-windowing.mjs'
 import { patchQuestionContinuation } from './patch-question-continuation.mjs'

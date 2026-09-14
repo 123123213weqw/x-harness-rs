@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import {patchMaxTokensNotice} from './patch-max-tokens-notice.mjs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {execFileSync} from 'node:child_process';
 const root=new URL('../',import.meta.url);
 const fixturePath=new URL('docs/evidence/max-tokens-notice-20260914/host-events.json',root);
 const bundles=[fileURLToPath(new URL('ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js',root))];
@@ -65,3 +66,5 @@ const boot=JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]);
 assert.deepEqual(boot,graph,'desktop/web must ship the updated manifest');
 assert.match(readFileSync(new URL('scripts/assemble-static-ui.mjs',root),'utf8'),/bytes = patchMaxTokensNotice\(bytes\)/);
 console.log('max-token notice: history, running, paused, bilingual, rebuild and manifest checks passed');
+
+execFileSync(process.execPath,['--check',fileURLToPath(new URL('scripts/assemble-static-ui.mjs',root))]);
