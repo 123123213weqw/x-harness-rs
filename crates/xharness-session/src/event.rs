@@ -152,6 +152,8 @@ pub enum TurnEndReason {
     /// part of the durable surface.
     MaxTokens,
     Cancelled,
+    /// Explicit user stop, distinct from shutdown, consumer loss, or recovery.
+    UserInterrupted,
     LimitReached,
     Failed {
         error: String,

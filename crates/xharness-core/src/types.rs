@@ -495,6 +495,8 @@ pub enum LoopCommand {
     Pause,
     Resume,
     Cancel,
+    /// Explicit user stop; unlike internal cancellation, records a model-visible interruption.
+    InterruptByUser,
     ApproveTool {
         call_id: String,
     },
