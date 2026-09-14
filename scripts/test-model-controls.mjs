@@ -84,3 +84,17 @@ for(const id of ['@deepseek-ai/dsh-client-connection','@deepseek-ai/dsh-client-u
  assert.equal(graph.entries.find(e=>e.id===id).rev,createHash('sha256').update(bytes).digest('hex').slice(0,16))
 }
 console.log('boot graph and shipped model control module hashes match')
+
+assert.equal(api.xhReasoningStatus({current,groups:[{id:'test',models:[{id:'large'}]}]}),'能力未知');
+assert.equal(api.xhReasoningStatus({current,groups:[{id:'test',models:[{id:'large',reasoningCapability:{state:'disabled'}}]}]}),'已禁用配置');
+assert.equal(api.xhReasoningStatus({current,groups:[{id:'test',models:[{id:'large',reasoning:{efforts:[]},reasoningCapability:{stale:true}}]}]}),'沿用上次能力 · 待刷新');
+const withCapability=structuredClone(input);withCapability.groups[0].models[0].reasoningCapability={state:'supported',source:'provider_reported',stale:false};
+assert.equal(wire.testModelsSchema.parse(withCapability).groups[0].models[0].reasoningCapability.source,'provider_reported');
+const refreshCalls=[];
+const refreshed=new api.ModelDirectory({models:async args=>{refreshCalls.push(args);return {result:{ok:true,value:input}}}},'refresh-session',()=>true);
+await refreshed.load(true);assert.equal(refreshCalls[0].refreshCapabilities,true);
+const {patchReasoningSettings,patchModelConnection}=await import('./patch-model-controls.mjs');
+for (const [id,patch] of [['dsh-client-ui-model-selection',patchModelControls],['dsh-client-connection',patchModelConnection],['dsh-client-ui-settings-models',patchReasoningSettings]]) {
+ const bytes=readFileSync(new URL(`../ui/dist/plugins/@deepseek-ai/${id}/client.js`,import.meta.url));assert.deepEqual(patch(bytes),bytes,'patch must be repeatable: '+id);
+}
+console.log('Reasoning unknown/disabled/stale state, discovery refresh and repeatable asset patches passed');

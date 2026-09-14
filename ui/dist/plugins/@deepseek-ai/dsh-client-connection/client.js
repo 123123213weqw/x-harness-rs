@@ -5309,7 +5309,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			defaultEffort: string().min(1).optional()
 		});
 		/** One advisory model entry inside a provider group. */
-		const modelCatalogModelSchema = object({
+		// XHARNESS REASONING CAPABILITY WIRE
+        const modelCatalogModelSchema = object({
+            reasoningCapability: unknown().optional(),
             contextWindow: number().int().positive().optional(),
             contextWindowSource: string().optional(),
             contextWindowCapability: unknown().optional(),
@@ -5985,6 +5987,7 @@ requireIdle: boolean().optional(),
 		});
 		/** DiscoveredModelView row of llm.discoverModels. */
 		const discoveredModelViewSchema = object({
+            reasoning: unknown().optional(),
 			id: string().min(1),
 			name: string().min(1).optional(),
 			contextWindow: number().int().positive().optional(),

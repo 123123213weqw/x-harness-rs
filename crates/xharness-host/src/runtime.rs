@@ -51,9 +51,11 @@ pub struct ModelDescriptor {
     pub provider_display_name: String,
     pub model: String,
     pub model_display_name: String,
-    /// Exact-model reasoning controls exposed to the browser. Absence means
-    /// this route does not support user-selectable reasoning strength.
+    /// Exact-model reasoning controls exposed to the browser. Absence can mean
+    /// unknown or explicitly disabled; consult reasoning_capability.
     pub reasoning: Option<ModelReasoning>,
+    /// Provenance/state for discovery; no vendor wire patches enter the UI.
+    pub reasoning_capability: serde_json::Value,
     /// Capability snapshot reported by the exact deployment, or an explicitly
     /// labelled deployment fallback when the Provider cannot advertise it.
     pub context_window: ContextWindowCapability,
@@ -125,6 +127,7 @@ impl ModelDescriptor {
             model: model.into(),
             model_display_name: model_display_name.into(),
             reasoning: None,
+            reasoning_capability: serde_json::json!({"state":"unknown"}),
             context_window: ContextWindowCapability::default(),
         }
     }
