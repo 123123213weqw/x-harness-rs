@@ -193,7 +193,9 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                         let outcome = end
                             .map(|end| match end {
                                 TurnEndReason::Completed => GoalTurnOutcome::Completed,
-                                TurnEndReason::Cancelled => GoalTurnOutcome::Cancelled,
+                                TurnEndReason::Cancelled | TurnEndReason::UserInterrupted => {
+                                    GoalTurnOutcome::Cancelled
+                                }
                                 TurnEndReason::Failed { .. } => GoalTurnOutcome::Failed,
                                 TurnEndReason::LimitReached => GoalTurnOutcome::StepLimit,
                                 TurnEndReason::MaxTokens => GoalTurnOutcome::OutputLimit,

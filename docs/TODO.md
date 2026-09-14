@@ -992,3 +992,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] `UI-MATH-01` 流式/最终解析器共享数学扩展，未闭合块公式保留原文，保留 frozen/tail 增量缓存。见 [规范](specs/streaming-math.md)。
 - [x] `UI-MATH-02` 打包入口补丁、内容哈希、重建接线，真实 MarkdownText 在 WebKit / V100 Chromium 上 18 组检查通过。
 - [ ] `UI-MATH-03` GitHub CI 通过后合并发布、更新软件并在真实流式回答验收。
+
+## 用户中断提示（2026-09-14）
+
+- [x] `INTERRUPT-CONTEXT-01` 显式用户停止来源、模型可见中断标记、实时/历史一致投影，复用取消机制；见 [规范](specs/user-interruption.md)。
+- [x] `INTERRUPT-CONTEXT-02` V100 六个 crate 339 项通过、4 项既有忽略，四个核心 crate Clippy 零警告；见 [回归记录](reports/user-interruption-20260914.md)。
+- [x] `INTERRUPT-CONTEXT-03` V100 真实 DeepSeek Flash/xhigh 三组打断 → 转向 → 恢复通过；发现并修复自动标题元数据日志竞态，保留模型先后顺序偏差记录。旧的 task/current-scope 实验已撤回。
+- [ ] `INTERRUPT-CONTEXT-04` 长历史/Compact/快速连续转向行为评估、跨平台 CI 与发布安装；提示标记不保证工具依赖排序或回滚。

@@ -607,7 +607,7 @@ fn closed_outcome(session: &Session, t: u32) -> Option<GoalTurnOutcome> {
     session.events().iter().rev().find_map(|e| match e.data() {
         EventData::TurnEnd { turn, reason } if *turn == t => Some(match reason {
             TurnEndReason::Completed => GoalTurnOutcome::Completed,
-            TurnEndReason::Cancelled => GoalTurnOutcome::Cancelled,
+            TurnEndReason::Cancelled | TurnEndReason::UserInterrupted => GoalTurnOutcome::Cancelled,
             TurnEndReason::Failed { .. } => GoalTurnOutcome::Failed,
             TurnEndReason::LimitReached => GoalTurnOutcome::StepLimit,
             TurnEndReason::MaxTokens => GoalTurnOutcome::OutputLimit,

@@ -1348,7 +1348,7 @@ fn web_turn_end(reason: &TurnEndReason) -> Value {
     match reason {
         TurnEndReason::Completed => json!({"kind": "completed"}),
         TurnEndReason::MaxTokens => json!({"kind": "max-tokens"}),
-        TurnEndReason::Cancelled => json!({"kind": "cancelled"}),
+        TurnEndReason::Cancelled | TurnEndReason::UserInterrupted => json!({"kind": "cancelled"}),
         TurnEndReason::LimitReached => json!({"kind": "max-steps"}),
         TurnEndReason::Failed { error } => json!({
             "kind": "error",

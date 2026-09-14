@@ -484,3 +484,58 @@ async fn handle_shutdown_waits_until_the_active_provider_stream_is_dropped() {
             }
         )));
 }
+
+#[tokio::test]
+async fn explicit_interrupt_reaches_durable_loop_and_idle_repeat_does_not_add_markers() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = AgentRegistry::new(store.clone(), Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("explicit-stop"))
+        .await
+        .unwrap();
+    let polled = Arc::new(tokio::sync::Notify::new());
+    let dropped = Arc::new(AtomicBool::new(false));
+    let handle = DurableAgentHandle::start(
+        activation,
+        Arc::new(Factory {
+            provider: Arc::new(HangingProvider {
+                polled: polled.clone(),
+                stream_dropped: dropped.clone(),
+            }),
+        }),
+        64,
+    );
+    let mut events = handle.subscribe();
+    handle
+        .followup(InboxMessage::user("p", "old task"))
+        .await
+        .unwrap();
+    polled.notified().await;
+    handle.interrupt_by_user().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if matches!(
+                events.recv().await.unwrap(),
+                AgentEvent::TurnFinished { .. }
+            ) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(dropped.load(Ordering::Acquire));
+    let before = store.load("explicit-stop").await.unwrap().unwrap();
+    assert_eq!(
+        before
+            .derive_messages()
+            .iter()
+            .filter(|m| m.content == xharness_session::USER_INTERRUPTION_CONTENT)
+            .count(),
+        1
+    );
+    handle.interrupt_by_user().await.unwrap();
+    let after = store.load("explicit-stop").await.unwrap().unwrap();
+    assert_eq!(before.derive_messages(), after.derive_messages());
+    handle.shutdown(Duration::from_secs(1)).await;
+}
