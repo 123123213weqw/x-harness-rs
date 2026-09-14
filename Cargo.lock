@@ -2174,6 +2174,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -3595,6 +3596,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-channel-telegram"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "xharness-api",
+ "xharness-remote",
+]
+
+[[package]]
 name = "xharness-cloud"
 version = "0.1.0"
 dependencies = [
@@ -3785,6 +3806,7 @@ dependencies = [
  "base64",
  "chrono",
  "futures",
+ "getrandom 0.3.4",
  "serde",
  "serde_json",
  "sha2",
@@ -3817,19 +3839,24 @@ name = "xharness-host-app"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "fs2",
  "futures",
+ "getrandom 0.3.4",
  "keyring",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
+ "tower",
  "xharness-agent",
  "xharness-api",
  "xharness-attachments",
+ "xharness-channel-telegram",
  "xharness-cloud",
  "xharness-cloud-app",
  "xharness-coding-tools",
@@ -3847,6 +3874,7 @@ dependencies = [
  "xharness-platform",
  "xharness-plugins",
  "xharness-provider-openai",
+ "xharness-remote",
  "xharness-schedule",
  "xharness-server",
  "xharness-session",
@@ -3987,6 +4015,27 @@ dependencies = [
  "xharness-core",
  "xharness-debug",
  "xharness-token",
+]
+
+[[package]]
+name = "xharness-remote"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "fs2",
+ "futures",
+ "getrandom 0.3.4",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "xharness-api",
+ "xharness-host",
 ]
 
 [[package]]

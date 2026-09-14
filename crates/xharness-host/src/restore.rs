@@ -5357,6 +5357,38 @@ mod tests {
         assert_eq!(report.restored_sessions, 1);
         assert_eq!(report.issues.len(), 1);
 
+        // The control gateway reconciles admission without replaying a prompt
+        // or relying on the bounded public message projection.
+        let payload = json!({
+            "sessionId": "receipt-session", "mode": "queue",
+            "content": [{"type": "text", "text": "admitted before crash"}],
+        });
+        assert!(matches!(
+            host.prompt_receipt("receipt-session", &RpcId::new("receipt-rpc"), &payload)
+                .await
+                .unwrap(),
+            Some(RpcResult::Success { .. })
+        ));
+        assert!(host
+            .prompt_receipt("receipt-session", &RpcId::new("not-admitted"), &payload)
+            .await
+            .unwrap()
+            .is_none());
+        let mut conflict_payload = payload.clone();
+        conflict_payload["content"][0]["text"] = json!("changed");
+        assert!(host
+            .prompt_receipt(
+                "receipt-session",
+                &RpcId::new("receipt-rpc"),
+                &conflict_payload
+            )
+            .await
+            .is_err());
+        assert!(host
+            .prompt_receipt("another-session", &RpcId::new("receipt-rpc"), &payload)
+            .await
+            .is_err());
+
         let replay = host
             .call(
                 RpcId::new("receipt-rpc"),

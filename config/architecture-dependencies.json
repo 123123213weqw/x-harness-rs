@@ -73,6 +73,7 @@
     "xharness-agent",
     "xharness-api",
     "xharness-attachments",
+    "xharness-channel-telegram",
     "xharness-cloud",
     "xharness-cloud-app",
     "xharness-coding-tools",
@@ -90,6 +91,7 @@
     "xharness-platform",
     "xharness-plugins",
     "xharness-provider-openai",
+    "xharness-remote",
     "xharness-schedule",
     "xharness-server",
     "xharness-session",
@@ -169,5 +171,11 @@
   "xharness-win32": [],
   "xharness-cloud-app": [
     "xharness-cloud"
+  ],
+  "xharness-remote": [
+    "xharness-api"
+  ],
+  "xharness-channel-telegram": [
+    "xharness-remote"
   ]
 }
