@@ -87,6 +87,25 @@ async fn run(workspace: &Path, mode: SandboxMode, spec: SpawnSpec) -> ProcessOut
 }
 
 #[tokio::test]
+async fn restricted_child_has_no_console_and_keeps_streams_and_exit_code() {
+    let tree = TestTree::new();
+    let workspace = tree.directory("workspace");
+    let output = run(
+        &workspace,
+        SandboxMode::WorkspaceWrite,
+        powershell(
+            &workspace,
+            include_str!("../../../scripts/fixtures/windows-no-console.ps1"),
+            &[],
+        ),
+    )
+    .await;
+    assert_eq!(output.status.code, Some(17), "{}", output.stderr.text);
+    assert_eq!(output.stdout.text, "no-console-stdout-你好");
+    assert_eq!(output.stderr.text, "no-console-stderr-错误");
+}
+
+#[tokio::test]
 async fn workspace_write_allows_workspace_and_private_temp_but_denies_outside() {
     let tree = TestTree::new();
     let workspace = tree.directory("workspace");
