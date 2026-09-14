@@ -1792,6 +1792,7 @@ mod tests {
     };
     use xharness_session::MemorySessionStore;
 
+    mod max_tokens_diagnostic;
     mod observer_tests;
 
     struct ScriptProvider {
