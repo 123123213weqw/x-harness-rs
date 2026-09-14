@@ -108,3 +108,39 @@ Subscribed/Projection，并为非空 Inbox 发送完整 Queue Snapshot；空列�
 - 真实 `xharness-host` 子进程在相同 State Dir 和端口重启后，`workspace.list`、`session.list`、
   `session.history` 与 WebSocket Carrier 均恢复。
 - 所有 Rust 测试必须同步到 `WZU_Server`，远程通过 Workspace Check/Test/Clippy。
+
+## 运行中观察器恢复（2026-09-14）
+
+实现集中于 `runtime/observer.rs`，复用现有 Agent 广播、Inbox 与 Session Store，不增加调度器、工具或模型调用。
+
+- 广播仅是通知，不是完成状态的唯一来源。`Lagged` 不再被映射为模型失败；读取持久日志，按稳定 input ID 定位实际所属 turn，再通知 Host 同步已有历史。
+- 输入既可以在 TurnStart 时被领取，也可以由 Steering 在当前 turn 内产生 UserMessage；不能要求每条输入都有独立 TurnStarted。恢复审批/提问使用其持久 interaction 对应的恢复 ID 定位。
+- 终态按输入所属 turn 的 TurnEnd 恢复；结果仅使用该结束位置及之前的消息，禁止混入已经开始的后续 turn。能恢复的 Usage/Finish 信息保留，旧日志缺失字段不伪造。
+- 删除、Parked、Idle 和广播关闭均触发身份/终态检查。静默时最多每秒检查一次 Agent 是否 Idle；模型/工具忙碌期间不轮询完整日志。Idle 的遗留观察器可以收敛，不依赖下一条模型输出唤醒。
+- 正常结束后仍走原有 Host Driver 收尾：同步事件、清除 running/control、发布状态。用户停止的 dispatch-paused 门禁不变；内部 settlement 到达只排队，不恢复运行。
+- 恢复只重建观察状态，不重放输入、不重新执行工具、不伪造新的 TurnEnd，也不通过扩大缓冲区掩盖丢事件。
+
+回归覆盖：默认 2048 容量下 2200 片流式输出；订阅滞后后 Steer/删除再停止；旧观察器晚于后续四轮恢复；完整 Host RPC 的队列 Steering、用户停止、running/control 清理及后续内部回执不得唤醒。
+
+## 内部回执与用户草稿队列隔离（2026-09-14）
+
+- `role=user` 是模型输入协议，不代表用户手写消息。只有 `source.kind=user` 可以通过 `session.updateQueue` 编辑、删除或 Steer。
+- `queue_view()` 为所有非用户来源复用现有 `placement=context` 投影，包含 `agent-settlement`、`agent-message`、工具上下文及未来内部来源；不改变持久 Inbox 的 NextTurn/NextStep 或执行顺序。
+- Web/Tauri 已有 QueueDock、批量 Steer、输入框 Steer 快捷入口只选择 `placement=queued`。因此内部回执不再出现在可编辑用户草稿区，不新增插件/组件；完整来源、内容仍保留在队列协议及持久日志，供上下文/Agent 界面消费。
+- 旧客户端即使仍缓存原 queued 卡片，调用三个变更操作均得到 `bad-request`，`details.reason=QUEUE_ITEM_READ_ONLY`；检查在任何 Inbox 删除/替换之前，不能导致回执丢失或唤醒已暂停会话。
+- 恢复元数据逐字段解码，缺少 UI content 不得把显式内部 source 回退为 user；无来源的旧日志保持历史用户消息兼容。实时和重启共用 queue_view 判定。
+- 不改变 Agent 内部合法的消息递送/Steer，不丢弃回执、不新增模型调用。停止门禁、去重与用户手写队列操作保持原有行为。
+- 回归覆盖真实 Runtime 子 Agent 回执递送、六条去重、三种 RPC 拒绝且日志不变、暂停不被唤醒、重启投影一致，以及已打包前端筛选/批量 Steer/旧编辑器关闭契约。
+
+## 输出截断通知的历史语义（2026-09-14）
+
+`turn/end.reason.kind=max-tokens` 表示该历史轮次耗尽输出续写额度，不等同于当前会话空闲或需要用户继续。前端通知只能描述“该轮达到输出上限、已有内容保留”，不能无条件附加发送 continue 的指令，也不能把处理下一条队列消息称为续写原回答。中英文文案共用产品 override，Web/Tauri 产物及构建路径一致。历史节点保留，不改预算和任务调度。
+
+## Compact 既有组件协议适配（2026-09-14）
+
+- Durable `CompactionSummary.summary` 继续保存字符串；仅 Host Web 投影转换为 `[{type:"text",text:summary}]`。保留 compactionId/sourceCommandId、shadowedSeqs/Range/TokenCount 与用量证据；生命周期 turn 统一转换为 Web 的零基坐标。
+- 压缩 replacement user/message 的 source 固定为 `{kind:"plugin",plugin:"compact",compactionId,...sourceCommandId}`。普通用户消息不变，来源索引按 compactionId 构建，历史页即使从 replacement 开始也保留手动命令关联。
+- 自动压缩复用 CompactionItem；手动压缩复用 ManualCompactionNodeView/CompactionCommandCard，不额外添加卡片。同一转换函数服务实时范围、分页历史、启动尾部和恢复重放。
+- Context Inspector 同时兼容旧字符串及新内容块数组，只拼接 text 块。源码、打包产物及 boot manifest 一起更新，Web/Tauri 复用。
+- 这些都是展示投影：不写回模型消息，不增加摘要副本，不修改压缩预算、事务或算法。失败/取消保留原 surface，无 replacement，不伪造成功卡片。
+- 既有自动压缩组件仍只在 checkpoint 成功落地后显示完成标记；本修复不新增自动压缩运行中/失败卡片。手动命令继续复用既有命令状态显示。

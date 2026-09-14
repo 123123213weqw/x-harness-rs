@@ -581,6 +581,7 @@ mod tests {
     use crate::{AgentRuntime, DurableLoopAgentRuntime, HostConfig, NoTools};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use xharness_agent::MemoryLeaseManager;
+    use xharness_api::{ApiBackend, RpcMethod};
     use xharness_core::{
         FinishReason, IdentityContextPolicy, ModelProvider, ProviderError, ProviderEvent,
         ProviderRequest, ProviderStream,
@@ -781,6 +782,38 @@ mod tests {
             host.deliver_child_settlements(id).await.unwrap();
         }
         assert_eq!(host.state.read().await.sessions["p"].queue.len(), 6);
+        let view = host.state.read().await.sessions["p"].queue_view();
+        assert_eq!(view.len(), 6);
+        assert!(view.iter().all(|item| item["placement"] == "context"));
+        assert!(view
+            .iter()
+            .all(|item| item["message"]["source"]["kind"] == "agent-settlement"));
+        let before = store.load("p").await.unwrap().unwrap();
+        // A stale client can still hold queued cards. The RPC must reject all
+        // mutations before removal, replacement, or steering admission.
+        for action in [
+            json!({"kind":"remove"}),
+            json!({"kind":"steer"}),
+            json!({"kind":"edit","content":[{"type":"text","text":"tampered"}]}),
+        ] {
+            let result = host
+                .call(
+                    RpcId::new("receipt-action"),
+                    RpcMethod::SessionUpdateQueue,
+                    json!({"sessionId":"p","itemId":view[0]["id"],"action":action}),
+                    CancellationToken::new(),
+                )
+                .await;
+            let xharness_api::RpcResult::Failure { error } = result else {
+                panic!("internal receipt was mutable");
+            };
+            assert_eq!(error.details["reason"], "QUEUE_ITEM_READ_ONLY");
+        }
+        assert_eq!(
+            store.load("p").await.unwrap().unwrap().events(),
+            before.events()
+        );
+        assert_eq!(host.state.read().await.sessions["p"].queue_view(), view);
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert_eq!(
             probe.calls.load(Ordering::SeqCst),
@@ -806,6 +839,7 @@ mod tests {
             resumed.deliver_child_settlements(id).await.unwrap();
         }
         assert_eq!(resumed.state.read().await.sessions["p"].queue.len(), 6);
+        assert_eq!(resumed.state.read().await.sessions["p"].queue_view(), view);
         resumed.agent_runtime.shutdown(Duration::from_secs(2)).await;
     }
     #[tokio::test]

@@ -1,3 +1,6 @@
+mod observer;
+use observer::DurableRunningTurn;
+
 use std::{
     collections::HashMap,
     sync::{
@@ -1235,15 +1238,10 @@ impl DurableLoopAgentRuntime {
     }
 
     fn running_from_prepared(&self, prepared: PreparedDurableTurn) -> Box<dyn RunningTurn> {
-        Box::new(DurableRunningTurn {
-            handle: prepared.handle,
-            events: prepared.events,
-            target_input_id: prepared.input_id,
-            turn: None,
-            result: None,
-            terminal: false,
-            next_control_id: Arc::clone(&self.next_control_id),
-        })
+        Box::new(DurableRunningTurn::new(
+            prepared,
+            Arc::clone(&self.next_control_id),
+        ))
     }
 }
 
@@ -1747,160 +1745,6 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 }
 
-struct DurableRunningTurn {
-    handle: DurableAgentHandle,
-    events: broadcast::Receiver<AgentEvent>,
-    target_input_id: String,
-    turn: Option<u32>,
-    result: Option<LoopResult>,
-    terminal: bool,
-    next_control_id: Arc<AtomicU64>,
-}
-
-impl DurableRunningTurn {
-    fn inbox_message(
-        &self,
-        mut message: AgentMessage,
-        source: Option<serde_json::Value>,
-    ) -> Result<InboxMessage, LoopControlError> {
-        if message.role != Role::User {
-            return Err(LoopControlError::Rejected(
-                "durable steering currently accepts user messages only".to_owned(),
-            ));
-        }
-        let id = message.id.clone().unwrap_or_else(|| {
-            let ordinal = self.next_control_id.fetch_add(1, Ordering::Relaxed);
-            format!("control-{}-{ordinal}", self.handle.id())
-        });
-        message.id = Some(id.clone());
-        Ok(InboxMessage {
-            id,
-            message,
-            source,
-        })
-    }
-
-    fn failed_result(message: impl Into<String>) -> LoopResult {
-        let message = message.into();
-        LoopResult {
-            status: LoopStatus::Failed,
-            final_text: String::new(),
-            messages: Vec::new(),
-            usage: None,
-            step_usage: Vec::new(),
-            finish_reason: None,
-            error: Some(message),
-        }
-    }
-
-    async fn receive_event(&mut self) -> Option<LoopEvent> {
-        while !self.terminal {
-            match self.events.recv().await {
-                Ok(AgentEvent::Parked { input_ids })
-                    if input_ids.contains(&self.target_input_id) =>
-                {
-                    let mut result =
-                        Self::failed_result("pending work was parked before execution");
-                    result.status = LoopStatus::Cancelled;
-                    self.result = Some(result);
-                    self.terminal = true;
-                }
-                Ok(AgentEvent::TurnStarted { turn, input_ids })
-                    if self.turn.is_none()
-                        && input_ids
-                            .iter()
-                            .any(|input_id| input_id == &self.target_input_id) =>
-                {
-                    self.turn = Some(turn);
-                }
-                Ok(AgentEvent::TurnEvent { turn, event }) if self.turn == Some(turn) => {
-                    return Some(event);
-                }
-                Ok(AgentEvent::TurnFinished { turn, result }) if self.turn == Some(turn) => {
-                    self.result = Some(result);
-                    self.terminal = true;
-                }
-                Ok(AgentEvent::Error { message }) => {
-                    self.result = Some(Self::failed_result(message));
-                    self.terminal = true;
-                }
-                Ok(_) => {}
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    self.result = Some(Self::failed_result(format!(
-                        "durable Agent event subscriber lagged by {skipped} events"
-                    )));
-                    self.terminal = true;
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    self.result = Some(Self::failed_result(
-                        "durable Agent closed before publishing a turn result",
-                    ));
-                    self.terminal = true;
-                }
-            }
-        }
-        None
-    }
-
-    async fn send_command(
-        &self,
-        command: LoopCommand,
-        input_metadata: Option<serde_json::Value>,
-    ) -> Result<(), LoopControlError> {
-        let result = match command {
-            LoopCommand::InjectMessage { message, mode } => {
-                let message = self.inbox_message(message, input_metadata)?;
-                match mode {
-                    InjectionMode::NextStep => self.handle.inject(message).await,
-                    InjectionMode::InterruptModel => self.handle.steer(message).await,
-                }
-            }
-            LoopCommand::Steer(message) => {
-                self.handle
-                    .steer(self.inbox_message(message, input_metadata)?)
-                    .await
-            }
-            LoopCommand::Pause => self.handle.pause().await,
-            LoopCommand::Resume => self.handle.resume().await,
-            LoopCommand::Cancel => self.handle.cancel_turn().await,
-            LoopCommand::InterruptByUser => self.handle.interrupt_by_user().await,
-            LoopCommand::ApproveTool { call_id } => self.handle.approve_tool(call_id).await,
-            LoopCommand::RejectTool { call_id, reason } => {
-                self.handle.reject_tool(call_id, reason).await
-            }
-        };
-        result.map_err(loop_control_error)
-    }
-}
-
-#[async_trait]
-impl RunningTurn for DurableRunningTurn {
-    async fn next_event(&mut self) -> Option<LoopEvent> {
-        self.receive_event().await
-    }
-
-    async fn send(&mut self, command: LoopCommand) -> Result<(), LoopControlError> {
-        self.send_command(command, None).await
-    }
-
-    async fn send_with_metadata(
-        &mut self,
-        command: LoopCommand,
-        input_metadata: Option<serde_json::Value>,
-    ) -> Result<(), LoopControlError> {
-        self.send_command(command, input_metadata).await
-    }
-
-    async fn result(&mut self) -> LoopResult {
-        while self.result.is_none() {
-            let _ = self.receive_event().await;
-        }
-        self.result.clone().unwrap_or_else(|| {
-            Self::failed_result("durable Agent ended without publishing a result")
-        })
-    }
-}
-
 fn registry_error(error: RegistryError) -> AgentRuntimeError {
     AgentRuntimeError::Preparation {
         message: error.to_string(),
@@ -1947,6 +1791,9 @@ mod tests {
         ProviderStream,
     };
     use xharness_session::MemorySessionStore;
+
+    mod max_tokens_diagnostic;
+    mod observer_tests;
 
     struct ScriptProvider {
         answers: Mutex<VecDeque<String>>,

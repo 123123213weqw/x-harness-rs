@@ -1704,6 +1704,15 @@ impl BasicHost {
                 )
             })?
         };
+        // Check before mutating the durable inbox. Old clients can still submit
+        // actions for a formerly queued internal receipt after a Host upgrade.
+        if !item.user_mutable() {
+            return Err(rpc_error(
+                RpcErrorCode::BadRequest,
+                "runtime context is not an editable user queue item",
+                json!({"itemId": item_id, "reason": "QUEUE_ITEM_READ_ONLY"}),
+            ));
+        }
         let mut steer_item = None;
         let mut replacement = None;
         match kind {
