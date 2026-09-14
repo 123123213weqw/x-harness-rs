@@ -554,27 +554,23 @@ pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
 }
 
 pub(crate) fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
-    let (content, source, fingerprint) = input
-        .source
-        .as_ref()
-        .and_then(Value::as_object)
-        .and_then(|metadata| {
-            Some((
-                metadata.get("content")?.as_array()?.clone(),
-                metadata.get("source").cloned()?,
-                metadata
-                    .get("rpcFingerprint")
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned),
-            ))
-        })
-        .unwrap_or_else(|| {
-            (
-                vec![json!({"type": "text", "text": input.message.content})],
-                json!({"kind": "user", "restored": true}),
-                None,
-            )
-        });
+    // Decode fields independently: old/runtime metadata may omit UI content.
+    // Never turn an explicit internal source into a user draft in that case.
+    let metadata = input.source.as_ref();
+    let content = metadata
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| vec![json!({"type": "text", "text": input.message.content})]);
+    let source = metadata
+        .and_then(|m| m.get("source"))
+        .cloned()
+        .or_else(|| metadata.filter(|m| m.get("kind").is_some()).cloned())
+        .unwrap_or_else(|| json!({"kind": "user", "restored": true}));
+    let fingerprint = metadata
+        .and_then(|m| m.get("rpcFingerprint"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
     QueuedPrompt {
         id: input.id.clone(),
         text: input.message.content.clone(),
@@ -4090,6 +4086,37 @@ mod tests {
             .events
             .clone();
         assert_eq!(restarted_events, live_events);
+    }
+
+    #[test]
+    fn queue_sources_survive_partial_and_legacy_metadata() {
+        for metadata in [
+            json!({"source":{"kind":"agent-settlement","senderSessionId":"child"}}),
+            json!({"kind":"agent-settlement","senderSessionId":"child"}),
+            json!({"content":[],"source":{"kind":"agent-message"}}),
+            json!({"source":{"kind":"tool"},"content":"malformed"}),
+            json!({"source":{"kind":"future-runtime-event"}}),
+        ] {
+            let prompt = restored_prompt(&InboxMessage {
+                id: "receipt".into(),
+                message: Message::user("result").with_id("receipt"),
+                source: Some(metadata),
+            });
+            assert!(!prompt.user_mutable());
+            assert_eq!(prompt.ui_placement(), QueuePlacement::Context);
+        }
+        for source in [None, Some(json!({"source":{"kind":"user"}}))] {
+            let mut prompt = restored_prompt(&InboxMessage {
+                id: "legacy-user".into(),
+                message: Message::user("draft").with_id("legacy-user"),
+                source,
+            });
+            assert!(prompt.user_mutable());
+            assert_eq!(prompt.ui_placement(), QueuePlacement::Queued);
+            prompt.placement = QueuePlacement::Steering;
+            assert_eq!(prompt.ui_placement(), QueuePlacement::Steering);
+            assert_eq!(prompt.content[0]["text"], "draft");
+        }
     }
 
     #[tokio::test]

@@ -121,3 +121,13 @@ Subscribed/Projection，并为非空 Inbox 发送完整 Queue Snapshot；空列�
 - 恢复只重建观察状态，不重放输入、不重新执行工具、不伪造新的 TurnEnd，也不通过扩大缓冲区掩盖丢事件。
 
 回归覆盖：默认 2048 容量下 2200 片流式输出；订阅滞后后 Steer/删除再停止；旧观察器晚于后续四轮恢复；完整 Host RPC 的队列 Steering、用户停止、running/control 清理及后续内部回执不得唤醒。
+
+## 内部回执与用户草稿队列隔离（2026-09-14）
+
+- `role=user` 是模型输入协议，不代表用户手写消息。只有 `source.kind=user` 可以通过 `session.updateQueue` 编辑、删除或 Steer。
+- `queue_view()` 为所有非用户来源复用现有 `placement=context` 投影，包含 `agent-settlement`、`agent-message`、工具上下文及未来内部来源；不改变持久 Inbox 的 NextTurn/NextStep 或执行顺序。
+- Web/Tauri 已有 QueueDock、批量 Steer、输入框 Steer 快捷入口只选择 `placement=queued`。因此内部回执不再出现在可编辑用户草稿区，不新增插件/组件；完整来源、内容仍保留在队列协议及持久日志，供上下文/Agent 界面消费。
+- 旧客户端即使仍缓存原 queued 卡片，调用三个变更操作均得到 `bad-request`，`details.reason=QUEUE_ITEM_READ_ONLY`；检查在任何 Inbox 删除/替换之前，不能导致回执丢失或唤醒已暂停会话。
+- 恢复元数据逐字段解码，缺少 UI content 不得把显式内部 source 回退为 user；无来源的旧日志保持历史用户消息兼容。实时和重启共用 queue_view 判定。
+- 不改变 Agent 内部合法的消息递送/Steer，不丢弃回执、不新增模型调用。停止门禁、去重与用户手写队列操作保持原有行为。
+- 回归覆盖真实 Runtime 子 Agent 回执递送、六条去重、三种 RPC 拒绝且日志不变、暂停不被唤醒、重启投影一致，以及已打包前端筛选/批量 Steer/旧编辑器关闭契约。

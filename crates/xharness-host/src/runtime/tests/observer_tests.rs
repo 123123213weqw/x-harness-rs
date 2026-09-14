@@ -285,7 +285,7 @@ async fn host_flood_steer_stop_clears_running_and_parks_internal_followup() {
         mode: "queue".into(),
         text: id.into(),
         content: vec![json!({"type":"text","text":id})],
-        source: json!({"kind":if id=="a" {"user"} else {"agent-settlement"}}),
+        source: json!({"kind":if id=="late-settlement" {"agent-settlement"} else {"user"}}),
         fingerprint: None,
     };
     host.enqueue_prompt(admission("a")).await.unwrap();
