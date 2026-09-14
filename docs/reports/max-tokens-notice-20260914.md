@@ -49,3 +49,18 @@ node scripts/diagnose-max-tokens-notice.mjs docs/evidence/max-tokens-notice-2026
 保留历史截断事实，去掉无条件操作建议。若保留继续引导，需要根据当前运行、后续轮次、明确停止等状态选择文案，不应修改 max_steps，也不能把队列工作误称为回答续写。
 
 远程重复复现：3/3 通过（每次含空队列与有队列两个场景）。完整输出见 docs/evidence/max-tokens-notice-20260914/remote-repeat.log。
+
+## 修复验收
+
+2026-09-14 源码与仓库 Web 产物已修复（未部署安装包）。采用与状态无关的历史事实说明，不再指示用户无条件发送 continue，也不误称独立后续任务为原回答的续写：
+
+- 中文：本轮输出达到上限，已生成的内容已保留。
+- 英文：This turn reached its output limit. The generated content has been preserved.
+
+保留标题与旧轮截断节点；不修改输出预算、自动续写次数、max_steps、用户停止或队列调度。
+
+`ui/overrides/max-tokens-notice.json` 保存产品双语文案；`scripts/patch-max-tokens-notice.mjs` 在静态 UI 构建时应用，锚点变化报错，不静默漏补丁。已提交 dist 插件、client-graph 和 index boot manifest 更新，供 Web/Tauri 共用。
+
+`node scripts/test-max-tokens-notice.mjs` 已通过并接入 CI：用上述真实 Host 事件 fixture 执行已打包通知构建/渲染，覆盖无队列、有后续轮次、running、idle、用户暂停、历史恢复；验证双语不含继续操作指令、补丁幂等及上游旧文案替换、产物 hash/boot 一致。
+
+相邻检查也通过：test-execution-checkpoints、test-internal-queue、test-context-plugin、test-brand-headline。此次仅改前端文案与构建脚本，未修改 Rust 生产代码，没有执行本机 Rust 编译。此前远程复现日志是修复前证据，保留不重写；当前正确行为以新 test-max-tokens-notice 为准。

@@ -1022,4 +1022,4 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] 增加回执递送/暂停/重启/不可变回归与已打包 UI 契约测试，接入 CI。
 - [ ] 合并上述队列修复与停止观察器修复、发布并更新桌面安装包（源码修改不等于已部署）。
 
-- [ ] **P1 输出截断通知**：2026-09-14 已用默认两次输出续写 + 排队后续任务复现；旧提示在 running=true 时仍要求发送 continue。本机 0.2.18 与仓库 UI 均存在；证据见 docs/reports/max-tokens-notice-20260914.md。与 max_steps 无关，尚未修复。
+- [x] **P1 输出截断通知（源码及 Web 产物）**：中英文改为历史事实说明，不再无条件要求发送 continue。已补运行/空闲/暂停/历史恢复与前端重建、manifest 回归；未替换已安装软件。复现及验收见 docs/reports/max-tokens-notice-20260914.md。

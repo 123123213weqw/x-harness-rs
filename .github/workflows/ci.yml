@@ -82,6 +82,7 @@ jobs:
       - run: node scripts/test-attachments.mjs
       - run: node scripts/test-conversation-message-edit.mjs
       - run: node scripts/test-internal-queue.mjs
+      - run: node scripts/test-max-tokens-notice.mjs
       - run: node scripts/test-context-plugin.mjs
       - run: node scripts/test-brand-headline.mjs
       - run: node scripts/test-logo-gradient.mjs

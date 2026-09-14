@@ -1,3 +1,4 @@
+import { patchMaxTokensNotice } from './patch-max-tokens-notice.mjs'
 #!/usr/bin/env node
 import { patchSessionHistoryCache } from './patch-session-history-cache.mjs'
 import { patchTranscriptWindowing } from './patch-transcript-windowing.mjs'
@@ -111,6 +112,7 @@ for (const entry of composed) {
   if (entry.name === "@deepseek-ai/dsh-client-ui-goal") bytes = patchGoalRuntime(bytes)
   bytes = patchQuestionContinuation(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)
+  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchMaxTokensNotice(bytes)
   bytes = patchWorkspaceCreatedAt(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchTranscriptWindowing(bytes)
   const rev = revision(bytes)
