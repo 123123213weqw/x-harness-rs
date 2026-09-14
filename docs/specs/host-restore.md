@@ -108,3 +108,16 @@ Subscribed/Projection，并为非空 Inbox 发送完整 Queue Snapshot；空列�
 - 真实 `xharness-host` 子进程在相同 State Dir 和端口重启后，`workspace.list`、`session.list`、
   `session.history` 与 WebSocket Carrier 均恢复。
 - 所有 Rust 测试必须同步到 `WZU_Server`，远程通过 Workspace Check/Test/Clippy。
+
+## 运行中观察器恢复（2026-09-14）
+
+实现集中于 `runtime/observer.rs`，复用现有 Agent 广播、Inbox 与 Session Store，不增加调度器、工具或模型调用。
+
+- 广播仅是通知，不是完成状态的唯一来源。`Lagged` 不再被映射为模型失败；读取持久日志，按稳定 input ID 定位实际所属 turn，再通知 Host 同步已有历史。
+- 输入既可以在 TurnStart 时被领取，也可以由 Steering 在当前 turn 内产生 UserMessage；不能要求每条输入都有独立 TurnStarted。恢复审批/提问使用其持久 interaction 对应的恢复 ID 定位。
+- 终态按输入所属 turn 的 TurnEnd 恢复；结果仅使用该结束位置及之前的消息，禁止混入已经开始的后续 turn。能恢复的 Usage/Finish 信息保留，旧日志缺失字段不伪造。
+- 删除、Parked、Idle 和广播关闭均触发身份/终态检查。静默时最多每秒检查一次 Agent 是否 Idle；模型/工具忙碌期间不轮询完整日志。Idle 的遗留观察器可以收敛，不依赖下一条模型输出唤醒。
+- 正常结束后仍走原有 Host Driver 收尾：同步事件、清除 running/control、发布状态。用户停止的 dispatch-paused 门禁不变；内部 settlement 到达只排队，不恢复运行。
+- 恢复只重建观察状态，不重放输入、不重新执行工具、不伪造新的 TurnEnd，也不通过扩大缓冲区掩盖丢事件。
+
+回归覆盖：默认 2048 容量下 2200 片流式输出；订阅滞后后 Steer/删除再停止；旧观察器晚于后续四轮恢复；完整 Host RPC 的队列 Steering、用户停止、running/control 清理及后续内部回执不得唤醒。

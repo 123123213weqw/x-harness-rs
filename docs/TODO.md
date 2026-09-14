@@ -1008,3 +1008,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
 - [x] `INTERRUPT-CONTEXT-02` V100 六个 crate 339 项通过、4 项既有忽略，四个核心 crate Clippy 零警告；见 [回归记录](reports/user-interruption-20260914.md)。
 - [x] `INTERRUPT-CONTEXT-03` V100 真实 DeepSeek Flash/xhigh 三组打断 → 转向 → 恢复通过；发现并修复自动标题元数据日志竞态，保留模型先后顺序偏差记录。旧的 task/current-scope 实验已撤回。
 - [ ] `INTERRUPT-CONTEXT-04` 长历史/Compact/快速连续转向行为评估、跨平台 CI 与发布安装；提示标记不保证工具依赖排序或回滚。
+
+### 2026-09-14：停止后的观察状态收敛
+
+- [x] 修复广播滞后被误判为模型失败，复用持久日志重新定位输入所属轮次。
+- [x] 修复 Steering/删除队列输入后观察器等待不存在的独立轮次。
+- [x] 增加旧轮次隔离和完整 Host 停止状态回归，内部回执不能突破停止门禁。
+- [ ] 将上述修复合并、发布并安装到桌面软件；当前代码验证不等于已替换安装包。
