@@ -1,0 +1,113 @@
+{
+  "mode": "default",
+  "label": "auto-0",
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "model": "deepseek-flash",
+  "settings": {
+    "thinking": "disabled",
+    "temperature": 0,
+    "observation_policy": "model selected; schema defaults unchanged"
+  },
+  "error": null,
+  "calls": [
+    {
+      "id": 0,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 9120,
+      "wall_s": 11.113860457669944
+    },
+    {
+      "id": 1,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 9069,
+      "wall_s": 11.847670541610569
+    },
+    {
+      "id": 2,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 9413,
+      "wall_s": 11.695415750145912
+    },
+    {
+      "id": 3,
+      "action": "type",
+      "ok": true,
+      "elapsed_ms": 9371,
+      "wall_s": 12.180140584241599
+    },
+    {
+      "id": 4,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 3914,
+      "wall_s": 7.097579499706626
+    }
+  ],
+  "usage": [
+    {
+      "prompt_tokens": 1091,
+      "completion_tokens": 63,
+      "total_tokens": 1154,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 1091
+    },
+    {
+      "prompt_tokens": 25478,
+      "completion_tokens": 134,
+      "total_tokens": 25612,
+      "prompt_tokens_details": {
+        "cached_tokens": 1152
+      },
+      "prompt_cache_hit_tokens": 1152,
+      "prompt_cache_miss_tokens": 24326
+    },
+    {
+      "prompt_tokens": 40621,
+      "completion_tokens": 127,
+      "total_tokens": 40748,
+      "prompt_tokens_details": {
+        "cached_tokens": 25600
+      },
+      "prompt_cache_hit_tokens": 25600,
+      "prompt_cache_miss_tokens": 15021
+    },
+    {
+      "prompt_tokens": 53527,
+      "completion_tokens": 135,
+      "total_tokens": 53662,
+      "prompt_tokens_details": {
+        "cached_tokens": 40704
+      },
+      "prompt_cache_hit_tokens": 40704,
+      "prompt_cache_miss_tokens": 12823
+    },
+    {
+      "prompt_tokens": 64507,
+      "completion_tokens": 114,
+      "total_tokens": 64621,
+      "prompt_tokens_details": {
+        "cached_tokens": 53632
+      },
+      "prompt_cache_hit_tokens": 53632,
+      "prompt_cache_miss_tokens": 10875
+    },
+    {
+      "prompt_tokens": 82687,
+      "completion_tokens": 119,
+      "total_tokens": 82806,
+      "prompt_tokens_details": {
+        "cached_tokens": 64512
+      },
+      "prompt_cache_hit_tokens": 64512,
+      "prompt_cache_miss_tokens": 18175
+    }
+  ],
+  "elapsed_s": 77.1179033331573,
+  "actual_cost_not_reported": true
+}

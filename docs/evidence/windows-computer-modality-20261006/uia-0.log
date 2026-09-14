@@ -1,0 +1,5 @@
+{"mode": "uia", "turn": 0, "model_s": 0.87, "calls": 1, "usage": {"prompt_tokens": 1160, "completion_tokens": 103, "total_tokens": 1263, "prompt_tokens_details": {"cached_tokens": 0}, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1160}}
+{"id": 8, "action": "observe", "ok": true, "native_ms": 8869, "wall_s": 27.79, "image": false}
+{"mode": "uia", "turn": 1, "model_s": 0.96, "calls": 1, "usage": {"prompt_tokens": 14190, "completion_tokens": 167, "total_tokens": 14357, "prompt_tokens_details": {"cached_tokens": 1152}, "prompt_cache_hit_tokens": 1152, "prompt_cache_miss_tokens": 13038}}
+STOP: Modality contract violated; not rewritten or dispatched
+{"mode": "uia", "error": "Modality contract violated; not rewritten or dispatched", "native_calls": 1, "elapsed_s": 32.61}

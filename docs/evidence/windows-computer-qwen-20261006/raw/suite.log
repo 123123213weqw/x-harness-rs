@@ -1,0 +1,6 @@
+Finished filter-B
+Traceback (most recent call last):
+  File "/Users/wangyue/codex-build/windows-computer-lab-20261005/qwen-model-20261006/run-ab.py", line 13, in <module>
+    if p.returncode!=0:raise RuntimeError('Experiment controller failed; no input replay: '+label+' '+script)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Experiment controller failed; no input replay: scroll-detail-B reset-case.py

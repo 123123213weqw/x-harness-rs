@@ -1,0 +1,201 @@
+{
+  "case": "filter",
+  "mode": "expanded",
+  "label": "filter-B",
+  "variant": "B",
+  "response_bound": 12,
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "model": "qwen3.8-27b-uncensored",
+  "settings": {
+    "thinking": "disabled",
+    "temperature": 0,
+    "observation_policy": "model selected; schema defaults unchanged"
+  },
+  "error": "Turn limit reached, not completion",
+  "calls": [
+    {
+      "id": 5,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8786,
+      "wall_s": 11.498047333999693
+    },
+    {
+      "id": 6,
+      "action": "click",
+      "ok": false,
+      "elapsed_ms": 1,
+      "wall_s": 3.486022583000249
+    },
+    {
+      "id": 7,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8917,
+      "wall_s": 17.041256583000177
+    },
+    {
+      "id": 8,
+      "action": "click",
+      "ok": false,
+      "elapsed_ms": 2,
+      "wall_s": 2.373329874999854
+    },
+    {
+      "id": 9,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8813,
+      "wall_s": 11.783080791999964
+    },
+    {
+      "id": 10,
+      "action": "click",
+      "ok": false,
+      "elapsed_ms": 1,
+      "wall_s": 2.370763540999633
+    },
+    {
+      "id": 11,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8708,
+      "wall_s": 12.086003916999744
+    },
+    {
+      "id": 12,
+      "action": "click",
+      "ok": false,
+      "elapsed_ms": 0,
+      "wall_s": 2.2436421669999618
+    },
+    {
+      "id": 13,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8895,
+      "wall_s": 13.961032166000223
+    },
+    {
+      "id": 14,
+      "action": "click",
+      "ok": false,
+      "elapsed_ms": 2,
+      "wall_s": 1.9473580409999158
+    },
+    {
+      "id": 15,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8873,
+      "wall_s": 12.712018582999917
+    },
+    {
+      "id": 16,
+      "action": "click",
+      "ok": false,
+      "elapsed_ms": 2,
+      "wall_s": 3.246748624999782
+    }
+  ],
+  "usage": [
+    {
+      "completion_tokens": 52,
+      "prompt_tokens": 1362,
+      "total_tokens": 1414,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    {
+      "completion_tokens": 108,
+      "prompt_tokens": 13861,
+      "total_tokens": 13969,
+      "prompt_tokens_details": {
+        "cached_tokens": 1358
+      }
+    },
+    {
+      "completion_tokens": 52,
+      "prompt_tokens": 14033,
+      "total_tokens": 14085,
+      "prompt_tokens_details": {
+        "cached_tokens": 13857
+      }
+    },
+    {
+      "completion_tokens": 104,
+      "prompt_tokens": 26531,
+      "total_tokens": 26635,
+      "prompt_tokens_details": {
+        "cached_tokens": 14085
+      }
+    },
+    {
+      "completion_tokens": 52,
+      "prompt_tokens": 26699,
+      "total_tokens": 26751,
+      "prompt_tokens_details": {
+        "cached_tokens": 26636
+      }
+    },
+    {
+      "completion_tokens": 94,
+      "prompt_tokens": 39197,
+      "total_tokens": 39291,
+      "prompt_tokens_details": {
+        "cached_tokens": 26695
+      }
+    },
+    {
+      "completion_tokens": 52,
+      "prompt_tokens": 39355,
+      "total_tokens": 39407,
+      "prompt_tokens_details": {
+        "cached_tokens": 39193
+      }
+    },
+    {
+      "completion_tokens": 94,
+      "prompt_tokens": 51852,
+      "total_tokens": 51946,
+      "prompt_tokens_details": {
+        "cached_tokens": 39351
+      }
+    },
+    {
+      "completion_tokens": 52,
+      "prompt_tokens": 52010,
+      "total_tokens": 52062,
+      "prompt_tokens_details": {
+        "cached_tokens": 51848
+      }
+    },
+    {
+      "completion_tokens": 95,
+      "prompt_tokens": 64509,
+      "total_tokens": 64604,
+      "prompt_tokens_details": {
+        "cached_tokens": 52006
+      }
+    },
+    {
+      "completion_tokens": 52,
+      "prompt_tokens": 64668,
+      "total_tokens": 64720,
+      "prompt_tokens_details": {
+        "cached_tokens": 64605
+      }
+    },
+    {
+      "completion_tokens": 95,
+      "prompt_tokens": 77167,
+      "total_tokens": 77262,
+      "prompt_tokens_details": {
+        "cached_tokens": 64664
+      }
+    }
+  ],
+  "elapsed_s": 362.73475391700003,
+  "actual_cost_not_reported": true
+}

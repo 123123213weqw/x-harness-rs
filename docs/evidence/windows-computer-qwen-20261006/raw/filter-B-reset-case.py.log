@@ -1,0 +1,5 @@
+{"id": 1, "action": "observe", "ok": true, "native_ms": 415, "wall_s": 3.51, "image": false}
+{"id": 2, "action": "keypress", "ok": true, "native_ms": 437, "wall_s": 3.16, "image": false}
+{"id": 3, "action": "type", "ok": true, "native_ms": 496, "wall_s": 3.48, "image": false}
+{"id": 4, "action": "keypress", "ok": true, "native_ms": 201, "wall_s": 4.77, "image": false}
+Fresh reset verified

@@ -1263,6 +1263,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                                             crate::GoalPhase::Active
                                                 | crate::GoalPhase::Paused
                                                 | crate::GoalPhase::Blocked
+                                                | crate::GoalPhase::Complete
                                         )
                                         && goal.phase == crate::GoalPhase::Active
                                         && change.rounds_started < goal.max_goal_rounds

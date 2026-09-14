@@ -155,6 +155,10 @@ pub struct GoalObservation {
     /// Reset on new activation/definition; no text-similarity judge involved.
     pub empty_report_rounds: u32,
     pub empty_report_limit: u32,
+    #[serde(default)]
+    pub now_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<GoalRetryState>,
 }
 
 /// Revalidate ALL fields under the existing admission fence before mutation.
@@ -224,6 +228,7 @@ pub enum WaitReason {
     ContinuationPending,
     AlreadyAdmitted,
     CompletionConfirmation,
+    NetworkBackoff,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -233,6 +238,7 @@ pub enum ContinueReason {
     MissingReport,
     StaleReport,
     CompletionRejected,
+    ProviderRecovery,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -329,6 +335,82 @@ impl GoalReport {
     }
 }
 
+pub const MAX_GOAL_PROVIDER_RETRIES: u32 = 5;
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GoalRetryState {
+    pub failed_turn: u32,
+    pub attempts: u32,
+    pub retry_at_ms: u64,
+}
+
+/// Only durably closed, classified provider failures with settled tool outcomes
+/// may admit a fresh turn. This never replays a tool execution.
+pub fn provider_retry_after_turn(
+    events: &[crate::LoggedEvent],
+    turn: u32,
+    previous: Option<&GoalRetryState>,
+) -> Option<GoalRetryState> {
+    use crate::{EventData, ToolOutcome, TurnEndReason};
+    let end = events
+        .iter()
+        .rev()
+        .find(|e| matches!(e.data(), EventData::TurnEnd { turn: t, .. } if *t == turn))?;
+    let EventData::TurnEnd {
+        reason:
+            TurnEndReason::Failed {
+                provider_failure: Some(failure),
+                ..
+            },
+        ..
+    } = end.data()
+    else {
+        return None;
+    };
+    if !failure.retryable
+        || failure
+            .http_status
+            .is_some_and(|status| !(status == 408 || status == 429 || (500..600).contains(&status)))
+    {
+        return None;
+    }
+    let calls: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e.data() {
+            EventData::ToolCall { turn: t, call, .. } if *t == turn => Some(call.id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let results: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e.data() {
+            EventData::ToolResult {
+                turn: t, result, ..
+            } if *t == turn => Some(result),
+            _ => None,
+        })
+        .collect();
+    if results
+        .iter()
+        .any(|r| r.outcome == ToolOutcome::OutcomeUnknown)
+        || calls
+            .iter()
+            .any(|id| !results.iter().any(|r| &r.call_id.as_str() == id))
+    {
+        return None;
+    }
+    let attempts = previous.map_or(1, |p| p.attempts.saturating_add(1));
+    let delay = 5_000u64
+        .saturating_mul(1u64 << attempts.saturating_sub(1).min(6))
+        .min(300_000)
+        .max(failure.retry_after_ms.unwrap_or(0));
+    Some(GoalRetryState {
+        failed_turn: turn,
+        attempts,
+        retry_at_ms: end.timestamp_ms.saturating_add(delay),
+    })
+}
+
 /// Only the envelope is persisted; credentials/provider config never belong here.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -346,6 +428,8 @@ pub struct GoalExecutionState {
     pub pause_reason: Option<PauseReason>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pause_detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<GoalRetryState>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

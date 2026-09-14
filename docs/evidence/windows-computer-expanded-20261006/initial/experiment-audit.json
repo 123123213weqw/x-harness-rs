@@ -1,0 +1,39 @@
+{
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "runtime_modified": false,
+  "case_scope": "disposable synthetic shop, default registered tool",
+  "cases": {
+    "filter": {
+      "recipe": "run-case-filter.py",
+      "move_allowed": false,
+      "wait_allowed": false,
+      "recipe_sha256": "61ff945cf6dcf5679a28f2044702e26e9ec84ad88424dbf25b66919714d84e4e"
+    },
+    "scroll-detail": {
+      "recipe": "run-case-before-move.py",
+      "move_allowed": false,
+      "wait_allowed": true,
+      "result": "controller blocked move; not product failure",
+      "recipe_sha256": "605ededc034dab31c8b00edea370d3ad7b7a5112a86b4de77f3618783ec3bc71"
+    },
+    "modal": {
+      "recipe": "run-case-before-move.py",
+      "move_allowed": false,
+      "wait_allowed": true,
+      "recipe_sha256": "605ededc034dab31c8b00edea370d3ad7b7a5112a86b4de77f3618783ec3bc71"
+    },
+    "slow-layout": {
+      "recipe": "run-case-with-move.py",
+      "move_allowed": true,
+      "wait_allowed": true,
+      "recipe_sha256": "bd786802b78d4508b72a597964a67f6d5d756cd8dccef2365f291f8895a2ff0e"
+    }
+  },
+  "oracle_changes": [
+    "Accept either comparison-item order because no order was requested",
+    "Accept exact CNY price strings for functional reporting, separately flag numeric field types",
+    "Require actual positive scroll position, not an arbitrary 400-pixel threshold"
+  ],
+  "probe_time_limit_seconds": 1200,
+  "case_model_response_limit": 20
+}

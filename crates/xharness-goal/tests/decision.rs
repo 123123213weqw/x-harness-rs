@@ -29,6 +29,8 @@ fn observation() -> GoalObservation {
         admitted_intents: BTreeSet::new(),
         empty_report_rounds: 0,
         empty_report_limit: 3,
+        now_ms: 0,
+        retry: None,
     }
 }
 fn report(status: GoalReportStatus) -> GoalReport {
@@ -501,4 +503,80 @@ fn contracts_roundtrip_and_reject_unknown_fields() {
     v["execute_command"] = "bad".into();
     assert!(serde_json::from_value::<GoalReport>(v).is_err());
     assert!(serde_json::from_str::<GoalEvidence>(r#"{"kind":"command","command":"bad"}"#).is_err());
+}
+
+#[test]
+fn provider_recovery_deadline_budget_and_failure_scope_are_fenced() {
+    let mut o = settled(Some(GoalReportStatus::Complete));
+    o.latest_turn.as_mut().unwrap().outcome = GoalTurnOutcome::Failed;
+    o.retry = Some(GoalRetryState {
+        failed_turn: 7,
+        attempts: 1,
+        retry_at_ms: 5_000,
+    });
+    o.now_ms = 4_999;
+    assert_eq!(
+        decision(&o),
+        GoalDecision::Wait {
+            reason: WaitReason::NetworkBackoff
+        }
+    );
+    o.now_ms = 5_000;
+    assert!(
+        matches!(
+            decision(&o),
+            GoalDecision::Continue {
+                reason: ContinueReason::ProviderRecovery,
+                ..
+            }
+        ),
+        "failed completion report must never finish Goal"
+    );
+    o.unresolved_dependencies = true;
+    assert_eq!(
+        decision(&o),
+        GoalDecision::Wait {
+            reason: WaitReason::Dependencies
+        }
+    );
+    o.unresolved_dependencies = false;
+    o.rounds_started = o.goal.as_ref().unwrap().snapshot.max_goal_rounds;
+    assert!(matches!(
+        decision(&o),
+        GoalDecision::Pause {
+            reason: PauseReason::RoundBudget,
+            ..
+        }
+    ));
+    o.rounds_started = 1;
+    o.retry.as_mut().unwrap().attempts = MAX_GOAL_PROVIDER_RETRIES + 1;
+    assert!(matches!(
+        decision(&o),
+        GoalDecision::Pause {
+            reason: PauseReason::ExecutionError,
+            ..
+        }
+    ));
+    o.retry.as_mut().unwrap().attempts = 1;
+    o.retry.as_mut().unwrap().failed_turn = 6;
+    assert!(matches!(
+        decision(&o),
+        GoalDecision::Pause {
+            reason: PauseReason::ExecutionError,
+            ..
+        }
+    ));
+    o.retry.as_mut().unwrap().failed_turn = 7;
+    for outcome in [
+        GoalTurnOutcome::Cancelled,
+        GoalTurnOutcome::OutcomeUnknown,
+        GoalTurnOutcome::OutputLimit,
+        GoalTurnOutcome::StepLimit,
+    ] {
+        o.latest_turn.as_mut().unwrap().outcome = outcome;
+        assert!(
+            matches!(decision(&o), GoalDecision::Pause { .. }),
+            "retry metadata cannot override {outcome:?}"
+        );
+    }
 }
