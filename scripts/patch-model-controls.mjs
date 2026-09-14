@@ -54,6 +54,15 @@ export function patchModelControls(bytes) {
       // already handled by the document listener; do not unmount the form here.
       if (event.relatedTarget === null) return;`);
   }
+  if (!text.includes('// XHARNESS REASONING DISCOVERY')) {
+    text = once(text, 'async load() {', '// XHARNESS REASONING DISCOVERY\n            async load(refreshCapabilities = false) {');
+    text = once(text, 'this.sessions.models({ sessionId: this.sessionId })', 'this.sessions.models({ sessionId: this.sessionId, refreshCapabilities })');
+    text = once(text, 'react.createElement(XHarnessContextRow, {state, itemRef: itemRef(), open: () => setPane("context")})', 'react.createElement(XHarnessReasoningStatus, {state, directory, itemRef: itemRef()}), react.createElement(XHarnessContextRow, {state, itemRef: itemRef(), open: () => setPane("context")})');
+  }
+  // Upgrade the callback, not the snapshot store, to request live capabilities.
+  text = text.replace(/XHarnessReasoningStatus, \{state, directory(?:, itemRef: itemRef\(\))?\}/g, 'XHarnessReasoningStatus, {state, load, itemRef: itemRef()}');
+  text = text.replace('load: () => {', 'load: (refreshCapabilities = false) => {');
+  text = text.replace('if (available) directory.load().catch(() => {});', 'if (available) return directory.load(refreshCapabilities).catch(() => {});');
   return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client.js.map\s*$/, '').trimEnd() + '\n')
 }
 export function patchModelConnection(bytes) {
@@ -63,7 +72,23 @@ export function patchModelConnection(bytes) {
     text = once(text, 'const modelSelectionSchema = object({', marker + '\n\t\tconst modelSelectionSchema = object({\n            contextWindowTokens: number().int().positive().optional(),')
     text = once(text, 'const modelCatalogModelSchema = object({', 'const modelCatalogModelSchema = object({\n            contextWindow: number().int().positive().optional(),\n            contextWindowSource: string().optional(),\n            contextWindowCapability: unknown().optional(),')
   }
+  if (!text.includes('// XHARNESS REASONING CAPABILITY WIRE')) {
+    text = once(text, 'const modelCatalogModelSchema = object({', '// XHARNESS REASONING CAPABILITY WIRE\n        const modelCatalogModelSchema = object({\n            reasoningCapability: unknown().optional(),');
+    text = once(text, 'const discoveredModelViewSchema = object({', 'const discoveredModelViewSchema = object({\n            reasoning: unknown().optional(),');
+  }
+  // Upgrade the callback, not the snapshot store, to request live capabilities.
+  text = text.replace(/XHarnessReasoningStatus, \{state, directory(?:, itemRef: itemRef\(\))?\}/g, 'XHarnessReasoningStatus, {state, load, itemRef: itemRef()}');
+  text = text.replace('load: () => {', 'load: (refreshCapabilities = false) => {');
+  text = text.replace('if (available) directory.load().catch(() => {});', 'if (available) return directory.load(refreshCapabilities).catch(() => {});');
   return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client.js.map\s*$/, '').trimEnd() + '\n')
+}
+export function patchReasoningSettings(bytes) {
+  let text=bytes.toString('utf8');
+  if (!text.includes('// XHARNESS DISCOVERED REASONING')) {
+    text=once(text, 'function adopt(candidate) {', '// XHARNESS DISCOVERED REASONING\n        function adopt(candidate) {');
+    text=once(text, 'id: candidate.id,', 'id: candidate.id,\n                ...candidate.reasoning === undefined ? {} : {reasoning:candidate.reasoning},');
+  }
+  return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client.js.map\s*$/, '').trimEnd()+'\n');
 }
 export function refreshModelControls(dist) {
   const hash = value => createHash('sha256').update(value).digest('hex').slice(0,16)
@@ -73,6 +98,7 @@ export function refreshModelControls(dist) {
   for (const [id, patch] of [
     ['@deepseek-ai/dsh-client-ui-model-selection', patchModelControls],
     ['@deepseek-ai/dsh-client-connection', patchModelConnection],
+    ['@deepseek-ai/dsh-client-ui-settings-models', patchReasoningSettings],
   ]) {
     const path = resolve(dist, `plugins/${id}/client.js`)
     const bytes = patch(readFileSync(path))

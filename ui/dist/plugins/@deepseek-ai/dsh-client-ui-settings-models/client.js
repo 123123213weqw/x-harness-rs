@@ -738,9 +738,11 @@ window.__ModuleLoader__.load({
 			return value === void 0 ? "" : formatCapacity(value);
 		}
 		/** Adopt a candidate, keeping whatever capacities the provider disclosed. */
-		function adopt(candidate) {
+		// XHARNESS DISCOVERED REASONING
+        function adopt(candidate) {
 			return {
 				id: candidate.id,
+                ...candidate.reasoning === undefined ? {} : {reasoning:candidate.reasoning},
 				...candidate.name === void 0 ? {} : { name: candidate.name },
  ...typeof candidate.imageInput === "boolean" ? {imageInput:candidate.imageInput} : {},
 				...candidate.contextWindow === void 0 ? {} : { contextWindow: candidate.contextWindow },

@@ -949,6 +949,14 @@ impl BasicHost {
 
     async fn session_models(&self, payload: &Value) -> Result<Value, RpcError> {
         let session_id = required_string(payload, "sessionId")?;
+        if !self.state.read().await.sessions.contains_key(&session_id) {
+            return Err(session_not_found(&session_id));
+        }
+        if payload.get("refreshCapabilities").and_then(Value::as_bool) == Some(true) {
+            self.refresh_model_settings()
+                .await
+                .map_err(crate::model_settings::model_settings_error)?;
+        }
         let state = self.state.read().await;
         let session = state
             .sessions
@@ -3020,7 +3028,7 @@ impl BasicHost {
         merge_object(&mut namespace.value, &namespace.user);
         namespace.revision = namespace.revision.saturating_add(1);
         drop(state);
-        let model_change = self.prepare_model_change(&namespace).await?;
+        let model_change = self.prepare_model_change(&mut namespace).await?;
         let view = namespace.view();
         let view = self
             .commit_control_mutation(
@@ -3075,7 +3083,7 @@ impl BasicHost {
         }
         namespace.revision = namespace.revision.saturating_add(1);
         drop(state);
-        let model_change = self.prepare_model_change(&namespace).await?;
+        let model_change = self.prepare_model_change(&mut namespace).await?;
         let view = namespace.view();
         let view = self
             .commit_control_mutation(
@@ -3159,7 +3167,7 @@ impl BasicHost {
         }
         namespace.revision = namespace.revision.saturating_add(1);
         drop(state);
-        let model_change = self.prepare_model_change(&namespace).await?;
+        let model_change = self.prepare_model_change(&mut namespace).await?;
         let view = namespace.view();
         let view = self
             .commit_control_mutation(
@@ -3361,6 +3369,7 @@ impl BasicHost {
                     serde_json::to_value(model.context_window.effective_source())
                         .unwrap_or(Value::Null);
             }
+            model_value["reasoningCapability"] = model.reasoning_capability.clone();
             if let Some(reasoning) = model.reasoning {
                 let efforts = reasoning
                     .efforts

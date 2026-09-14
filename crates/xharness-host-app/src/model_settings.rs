@@ -95,6 +95,7 @@ pub struct NativeModelSettings {
     /// Compatibility credentials explicitly passed to the process are not
     /// persisted; they remain read-only, just like environment overrides.
     process_keys: BTreeMap<String, String>,
+    discovery: crate::reasoning_discovery::ReasoningDiscovery,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
 }
 
@@ -109,8 +110,13 @@ impl NativeModelSettings {
             credentials,
             debug,
             process_keys: BTreeMap::new(),
+            discovery: Default::default(),
             attachments: None,
         }
+    }
+    pub fn with_capability_cache(mut self, path: std::path::PathBuf) -> Self {
+        self.discovery = crate::reasoning_discovery::ReasoningDiscovery::with_path(path);
+        self
     }
     pub fn with_attachments(
         mut self,
@@ -144,8 +150,9 @@ impl NativeModelSettings {
         &self,
         section: &Value,
         replacement: Option<(&str, Option<&str>)>,
+        force_discovery: bool,
     ) -> Result<ModelRegistry, String> {
-        let doc = parse_model_settings(section)?;
+        let mut doc = parse_model_settings(section)?;
         let mut keys = BTreeMap::new();
         for profile in doc.providers.values() {
             if let Some(reference) = &profile.api_key_env {
@@ -158,13 +165,70 @@ impl NativeModelSettings {
                 }
             }
         }
+        let mut observations = BTreeMap::new();
+        let discovery_deadline = std::time::Instant::now() + Duration::from_secs(10);
+        for (id, profile) in &mut doc.providers {
+            let (discovered, provenance) = if let Some(spec) = &profile.reasoning_discovery {
+                let spec = serde_json::from_value(spec.clone())
+                    .map_err(|_| "Invalid reasoningDiscovery configuration")?;
+                self.discovery
+                    .get_with_timeout(
+                        &profile.base_url,
+                        &profile.api,
+                        profile
+                            .api_key_env
+                            .as_ref()
+                            .and_then(|r| keys.get(r))
+                            .and_then(|v| v.as_deref()),
+                        &spec,
+                        force_discovery,
+                        discovery_deadline.saturating_duration_since(std::time::Instant::now()),
+                    )
+                    .await?
+            } else {
+                (BTreeMap::new(), json!({"source":"unknown"}))
+            };
+            for model in &mut profile.models {
+                let upstream = model.upstream_model.as_deref().unwrap_or(&model.id);
+                let mut observation = json!({"state":"unknown","source":"unknown"});
+                if let Some(explicit) = &model.reasoning {
+                    observation = json!({"state":if explicit.is_null() {"disabled"} else {"supported"},"source":"configured"});
+                } else if let Some(value) = discovered.get(upstream) {
+                    model.reasoning = Some(value.clone());
+                    observation = provenance.clone();
+                    observation["state"] = json!("supported");
+                } else {
+                    let protocol = if profile.api == "openai-responses" {
+                        xharness_provider_openai::OpenAiProtocol::Responses
+                    } else {
+                        xharness_provider_openai::OpenAiProtocol::ChatCompletions
+                    };
+                    if let Some(value) = crate::config::reasoning_catalog::builtin(
+                        &profile.base_url,
+                        upstream,
+                        protocol,
+                    ) {
+                        model.reasoning = Some(
+                            serde_json::to_value(value)
+                                .map_err(|_| "Invalid documented reasoning profile")?,
+                        );
+                        observation = json!({"state":"supported","source":"documented","verifiedAt":"2026-09-14"});
+                    } else if profile.reasoning_discovery.is_some() {
+                        observation = provenance.clone();
+                        observation["state"] = json!("unknown");
+                    }
+                }
+                observations.insert((id.clone(), model.id.clone()), observation);
+            }
+        }
         tokio::time::timeout(
             Duration::from_secs(20),
-            crate::config::registry_from_settings(
+            crate::config::registry_from_resolved_settings(
                 &doc,
                 &keys,
                 self.debug.clone(),
                 self.attachments.clone(),
+                &observations,
             ),
         )
         .await
@@ -178,7 +242,10 @@ impl NativeModelSettings {
 #[async_trait]
 impl ModelSettingsBackend for NativeModelSettings {
     async fn prepare(&self, section: &Value) -> Result<ModelRegistry, String> {
-        self.prepare_with_key(section, None).await
+        self.prepare_with_key(section, None, false).await
+    }
+    async fn refresh(&self, section: &Value) -> Result<ModelRegistry, String> {
+        self.prepare_with_key(section, None, true).await
     }
     fn activate(&self, registry: ModelRegistry) {
         self.runtime.replace_model_registry(registry);
@@ -205,7 +272,7 @@ impl ModelSettingsBackend for NativeModelSettings {
             return Err("API key contains whitespace/control characters or is too long".to_owned());
         }
         let registry = self
-            .prepare_with_key(section, Some((reference, Some(value))))
+            .prepare_with_key(section, Some((reference, Some(value))), false)
             .await?;
         self.credentials.set(reference, value).await?;
         Ok(registry)
@@ -219,7 +286,7 @@ impl ModelSettingsBackend for NativeModelSettings {
             return Err("An environment/process credential is read-only".to_owned());
         }
         let registry = self
-            .prepare_with_key(section, Some((reference, None)))
+            .prepare_with_key(section, Some((reference, None)), false)
             .await?;
         self.credentials.delete(reference).await?;
         Ok(registry)
@@ -258,7 +325,7 @@ impl ModelSettingsBackend for NativeModelSettings {
             .build()
             .map_err(|_| "Cannot initialize model discovery".to_owned())?;
         let mut query = client.get(format!("{}/models", base.trim_end_matches('/')));
-        if let Some(key) = key.filter(|k| !k.is_empty()) {
+        if let Some(key) = key.as_ref().filter(|k| !k.is_empty()) {
             query = query.bearer_auth(key);
         }
         let mut response = query
@@ -287,13 +354,46 @@ impl ModelSettingsBackend for NativeModelSettings {
         let data = listing["data"]
             .as_array()
             .ok_or_else(|| "Endpoint did not return a data array".to_owned())?;
+        let remote_profiles =
+            if let Some(p) = profile.filter(|p| p.base_url == base && p.api == api) {
+                if let Some(spec) = &p.reasoning_discovery {
+                    let spec = serde_json::from_value(spec.clone())
+                        .map_err(|_| "Invalid reasoningDiscovery configuration")?;
+                    self.discovery
+                        .get(base, api, key.as_deref(), &spec, true)
+                        .await?
+                        .0
+                } else {
+                    BTreeMap::new()
+                }
+            } else {
+                BTreeMap::new()
+            };
         let models = data
             .iter()
             .filter_map(|m| {
-                m["id"]
-                    .as_str()
-                    .filter(|id| !id.is_empty())
-                    .map(|id| json!({"id":id,"name":m["name"].as_str().unwrap_or(id)}))
+                m["id"].as_str().filter(|id| !id.is_empty()).map(|id| {
+                    let mut item = json!({"id":id,"name":m["name"].as_str().unwrap_or(id)});
+                    // Only explicit discovery specs authorize interpreting nonstandard remote profiles.
+                    let configured = profile
+                        .filter(|p| p.base_url == base && p.api == api)
+                        .and_then(|p| p.models.iter().find(|model| model.id == id))
+                        .and_then(|m| m.reasoning.clone());
+                    let protocol = if api == "openai-responses" {
+                        xharness_provider_openai::OpenAiProtocol::Responses
+                    } else {
+                        xharness_provider_openai::OpenAiProtocol::ChatCompletions
+                    };
+                    let documented = crate::config::reasoning_catalog::builtin(base, id, protocol)
+                        .and_then(|p| serde_json::to_value(p).ok());
+                    if let Some(value) = configured
+                        .or_else(|| remote_profiles.get(id).cloned())
+                        .or(documented)
+                    {
+                        item["reasoning"] = value;
+                    }
+                    item
+                })
             })
             .take(512)
             .collect::<Vec<_>>();

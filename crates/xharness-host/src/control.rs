@@ -145,6 +145,12 @@ impl BasicHost {
                 .expect("settings namespaces were validated before projection");
             namespace.user = settings.user.clone();
             namespace.value = settings.value.clone();
+            if settings.namespace == crate::MODEL_SETTINGS_NAMESPACE {
+                crate::model_settings::inherit_model_capabilities(
+                    &mut namespace.value,
+                    &namespace.base,
+                );
+            }
             namespace.revision = settings.revision;
         }
         state.control_revision = revision;

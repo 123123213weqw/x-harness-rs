@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto'
 import { patchAttachments } from './patch-attachments.mjs'
 import { patchConversationMessageEdit, patchMessageEditConnection, patchMessageEditRuntime } from './patch-conversation-message-edit.mjs'
 import { patchContextAccounting, patchContextConnection } from './patch-context-accounting.mjs'
-import { patchModelControls, patchModelConnection } from './patch-model-controls.mjs'
+import { patchModelControls, patchModelConnection, patchReasoningSettings } from './patch-model-controls.mjs'
 import { patchWorkspaceCreatedAt } from './patch-workspace-created-at.mjs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
@@ -107,6 +107,7 @@ for (const entry of composed) {
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchMessageEditConnection(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchSessionHistoryCache(patchMessageEditRuntime(bytes))
   bytes = patchAttachments(entry.name, bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-ui-settings-models') bytes = patchReasoningSettings(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-goal") bytes = patchGoalRuntime(bytes)
   bytes = patchQuestionContinuation(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)

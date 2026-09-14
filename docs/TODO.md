@@ -1,5 +1,14 @@
 # XHarness 总任务清单
 
+## 推理能力发现与配置恢复（2026-09-14）
+
+- [x] `REASONING-DISCOVERY-01` 同源可配置能力发现、原生档位/请求映射、未知与来源标记、独立有界持久缓存及失败保留。
+- [x] `REASONING-DISCOVERY-02` 保存/恢复补回缺失元数据，明确 null 和跨 endpoint/协议/模型隔离；菜单刷新和共享构建资源。
+- [x] `REASONING-DISCOVERY-03` 单元、真实 HTTP fixture、Host RPC、配置恢复与打包前端回归。规范见 [推理能力发现](specs/reasoning-capability-discovery.md)。
+- [ ] `REASONING-DISCOVERY-04` CI、合并、发布与本机安装验证；源代码完成不代表当前软件已生效。
+- [ ] `REASONING-DISCOVERY-05` 更多厂商官方发现端点、非兼容原生协议与连续数值预算控件，逐项验证后接入。
+
+
 **状态日期：** 2026-09-12
 **完成规则：** 只有实现、规范、测试和用户文档全部落地，任务才算完成。ID 永久稳定，
 Commit、Issue、PR 应引用这些 ID。

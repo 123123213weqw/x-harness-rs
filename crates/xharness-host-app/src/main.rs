@@ -187,6 +187,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     };
     let credentials = Arc::new(NativeCredentialStore::new(&args.state_dir)?);
     let model_settings = NativeModelSettings::new(runtime.clone(), credentials, debug.clone())
+        .with_capability_cache(args.state_dir.join("reasoning-capabilities.json"))
         .with_attachments(attachments)
         .with_process_key(
             "XHARNESS_BOOTSTRAP_API_KEY".to_owned(),
