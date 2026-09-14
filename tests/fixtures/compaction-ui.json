@@ -1,0 +1,418 @@
+[
+  {
+    "error": "cancelled",
+    "events": [
+      {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1,
+        "type": "turn/start"
+      },
+      {
+        "data": {
+          "content": [
+            {
+              "text": "keep original",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1,
+        "type": "user/message"
+      },
+      {
+        "data": {
+          "compactionId": "failed",
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1,
+        "type": "compaction/start"
+      },
+      {
+        "data": {
+          "compactionId": "failed",
+          "error": "cancelled",
+          "turn": 0
+        },
+        "seq": 3,
+        "time": 1,
+        "type": "compaction/end"
+      }
+    ]
+  },
+  {
+    "events": [
+      {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1789369887188,
+        "type": "turn/start"
+      },
+      {
+        "data": {
+          "content": [
+            {
+              "text": "large history",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1789369887188,
+        "type": "user/message"
+      },
+      {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1789369887188,
+        "type": "step/start"
+      },
+      {
+        "data": {
+          "compactionId": "compact-1",
+          "turn": 0
+        },
+        "seq": 3,
+        "time": 1789369887188,
+        "type": "compaction/start"
+      },
+      {
+        "data": {
+          "compactionId": "compact-1",
+          "maxTokens": 64,
+          "model": "test-model",
+          "provider": "test",
+          "shadowedRange": {
+            "end": 1,
+            "start": 1
+          },
+          "shadowedSeqs": [
+            1
+          ],
+          "shadowedTokenCount": 128,
+          "summary": [
+            {
+              "text": "## 摘要\n保留任务 🧪",
+              "type": "text"
+            }
+          ]
+        },
+        "seq": 4,
+        "time": 1789369887188,
+        "type": "compaction/summary"
+      },
+      {
+        "data": {
+          "content": [
+            {
+              "text": "checkpoint",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-5",
+          "role": "user",
+          "source": {
+            "compactionId": "compact-1",
+            "kind": "plugin",
+            "plugin": "compact"
+          }
+        },
+        "seq": 5,
+        "sourceEventSeqs": [
+          1
+        ],
+        "surfaceOp": {
+          "end": 1,
+          "op": "replace",
+          "start": 1
+        },
+        "time": 1789369887188,
+        "type": "user/message"
+      },
+      {
+        "data": {
+          "compactionId": "compact-1",
+          "turn": 0
+        },
+        "seq": 6,
+        "time": 1789369887188,
+        "type": "compaction/end"
+      }
+    ],
+    "manual": false
+  },
+  {
+    "error": "output token limit",
+    "events": [
+      {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1,
+        "type": "turn/start"
+      },
+      {
+        "data": {
+          "content": [
+            {
+              "text": "keep original",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1,
+        "type": "user/message"
+      },
+      {
+        "data": {
+          "compactionId": "failed",
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1,
+        "type": "compaction/start"
+      },
+      {
+        "data": {
+          "compactionId": "failed",
+          "error": "output token limit",
+          "turn": 0
+        },
+        "seq": 3,
+        "time": 1,
+        "type": "compaction/end"
+      }
+    ]
+  },
+  {
+    "error": "network timeout",
+    "events": [
+      {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1,
+        "type": "turn/start"
+      },
+      {
+        "data": {
+          "content": [
+            {
+              "text": "keep original",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1,
+        "type": "user/message"
+      },
+      {
+        "data": {
+          "compactionId": "failed",
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1,
+        "type": "compaction/start"
+      },
+      {
+        "data": {
+          "compactionId": "failed",
+          "error": "network timeout",
+          "turn": 0
+        },
+        "seq": 3,
+        "time": 1,
+        "type": "compaction/end"
+      }
+    ]
+  },
+  {
+    "events": [
+      {
+        "data": {
+          "trigger": {
+            "kind": "message",
+            "source": {
+              "kind": "user"
+            }
+          },
+          "turn": 0
+        },
+        "seq": 0,
+        "time": 1789369887189,
+        "type": "turn/start"
+      },
+      {
+        "data": {
+          "content": [
+            {
+              "text": "large history",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-1",
+          "role": "user",
+          "source": {
+            "kind": "user",
+            "restored": true
+          }
+        },
+        "seq": 1,
+        "surfaceOp": "append",
+        "time": 1789369887189,
+        "type": "user/message"
+      },
+      {
+        "data": {
+          "step": 1,
+          "turn": 0
+        },
+        "seq": 2,
+        "time": 1789369887189,
+        "type": "step/start"
+      },
+      {
+        "data": {
+          "compactionId": "compact-1",
+          "sourceCommandId": "manual-compact",
+          "turn": 0
+        },
+        "seq": 3,
+        "time": 1789369887189,
+        "type": "compaction/start"
+      },
+      {
+        "data": {
+          "compactionId": "compact-1",
+          "maxTokens": 64,
+          "model": "test-model",
+          "provider": "test",
+          "shadowedRange": {
+            "end": 1,
+            "start": 1
+          },
+          "shadowedSeqs": [
+            1
+          ],
+          "shadowedTokenCount": 128,
+          "sourceCommandId": "manual-compact",
+          "summary": [
+            {
+              "text": "## 摘要\n保留任务 🧪",
+              "type": "text"
+            }
+          ]
+        },
+        "seq": 4,
+        "time": 1789369887189,
+        "type": "compaction/summary"
+      },
+      {
+        "data": {
+          "content": [
+            {
+              "text": "checkpoint",
+              "type": "text"
+            }
+          ],
+          "id": "restored-user-5",
+          "role": "user",
+          "source": {
+            "compactionId": "compact-1",
+            "kind": "plugin",
+            "plugin": "compact",
+            "sourceCommandId": "manual-compact"
+          }
+        },
+        "seq": 5,
+        "sourceEventSeqs": [
+          1
+        ],
+        "surfaceOp": {
+          "end": 1,
+          "op": "replace",
+          "start": 1
+        },
+        "time": 1789369887189,
+        "type": "user/message"
+      },
+      {
+        "data": {
+          "compactionId": "compact-1",
+          "sourceCommandId": "manual-compact",
+          "turn": 0
+        },
+        "seq": 6,
+        "time": 1789369887189,
+        "type": "compaction/end"
+      }
+    ],
+    "manual": true
+  }
+]

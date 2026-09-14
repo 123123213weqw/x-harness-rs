@@ -84,6 +84,7 @@ jobs:
       - run: node scripts/test-internal-queue.mjs
       - run: node scripts/test-max-tokens-notice.mjs
       - run: node scripts/test-context-plugin.mjs
+      - run: node scripts/test-compaction-ui.mjs
       - run: node scripts/test-brand-headline.mjs
       - run: node scripts/test-logo-gradient.mjs
       - run: node scripts/test-logo-motion.mjs

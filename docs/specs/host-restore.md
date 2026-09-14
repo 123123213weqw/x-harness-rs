@@ -135,3 +135,12 @@ Subscribed/Projection，并为非空 Inbox 发送完整 Queue Snapshot；空列�
 ## 输出截断通知的历史语义（2026-09-14）
 
 `turn/end.reason.kind=max-tokens` 表示该历史轮次耗尽输出续写额度，不等同于当前会话空闲或需要用户继续。前端通知只能描述“该轮达到输出上限、已有内容保留”，不能无条件附加发送 continue 的指令，也不能把处理下一条队列消息称为续写原回答。中英文文案共用产品 override，Web/Tauri 产物及构建路径一致。历史节点保留，不改预算和任务调度。
+
+## Compact 既有组件协议适配（2026-09-14）
+
+- Durable `CompactionSummary.summary` 继续保存字符串；仅 Host Web 投影转换为 `[{type:"text",text:summary}]`。保留 compactionId/sourceCommandId、shadowedSeqs/Range/TokenCount 与用量证据；生命周期 turn 统一转换为 Web 的零基坐标。
+- 压缩 replacement user/message 的 source 固定为 `{kind:"plugin",plugin:"compact",compactionId,...sourceCommandId}`。普通用户消息不变，来源索引按 compactionId 构建，历史页即使从 replacement 开始也保留手动命令关联。
+- 自动压缩复用 CompactionItem；手动压缩复用 ManualCompactionNodeView/CompactionCommandCard，不额外添加卡片。同一转换函数服务实时范围、分页历史、启动尾部和恢复重放。
+- Context Inspector 同时兼容旧字符串及新内容块数组，只拼接 text 块。源码、打包产物及 boot manifest 一起更新，Web/Tauri 复用。
+- 这些都是展示投影：不写回模型消息，不增加摘要副本，不修改压缩预算、事务或算法。失败/取消保留原 surface，无 replacement，不伪造成功卡片。
+- 既有自动压缩组件仍只在 checkpoint 成功落地后显示完成标记；本修复不新增自动压缩运行中/失败卡片。手动命令继续复用既有命令状态显示。

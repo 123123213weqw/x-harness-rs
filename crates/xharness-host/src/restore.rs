@@ -654,6 +654,12 @@ struct PromptView {
     source: Value,
 }
 
+#[derive(Default)]
+struct ProjectionSources {
+    prompts: BTreeMap<String, PromptView>,
+    compaction_commands: BTreeMap<String, Option<String>>,
+}
+
 pub(crate) fn project_session_event_range(
     session: &Session,
     route: &ModelRoute,
@@ -894,7 +900,7 @@ pub(crate) fn project_session_history(
 fn project_session_event_range_with_prompts(
     session: &Session,
     route: &ModelRoute,
-    prompts: &BTreeMap<String, PromptView>,
+    prompts: &ProjectionSources,
     start: usize,
     end: usize,
 ) -> Vec<Value> {
@@ -1010,15 +1016,25 @@ fn initial_request_header_seq(session: &Session) -> Option<u64> {
     })
 }
 
-fn prompt_views(session: &Session) -> BTreeMap<String, PromptView> {
-    let mut prompts = BTreeMap::new();
+fn prompt_views(session: &Session) -> ProjectionSources {
+    let mut prompts = ProjectionSources::default();
     for event in session.events() {
+        if let EventData::CompactionStart {
+            compaction_id,
+            source_command_id,
+            ..
+        } = event.data()
+        {
+            prompts
+                .compaction_commands
+                .insert(compaction_id.clone(), source_command_id.clone());
+        }
         let EventData::AgentInboxSpliced { inserted, .. } = event.data() else {
             continue;
         };
         for input in inserted {
             let prompt = restored_prompt(input);
-            prompts.insert(
+            prompts.prompts.insert(
                 input.id.clone(),
                 PromptView {
                     content: prompt.content,
@@ -1153,7 +1169,7 @@ mod projection_allocation_tests {
 fn restored_web_event(
     event: &LoggedEvent,
     route: &ModelRoute,
-    prompts: &BTreeMap<String, PromptView>,
+    prompts: &ProjectionSources,
     initial_request_header_seq: Option<u64>,
     fold_completed_chunks: Option<&BTreeSet<(u32, u32)>>,
 ) -> Value {
@@ -1203,11 +1219,23 @@ fn restored_web_event(
         | EventData::PlanMode { .. }
         | EventData::LlmRetry { .. }
         | EventData::LlmRetryStarted { .. }
-        | EventData::CompactionStart { .. }
-        | EventData::CompactionSummary { .. }
-        | EventData::CompactionEnd { .. }
         | EventData::CompactionPrune { .. }
         | EventData::RequestContext { .. } => tagged_event_data(event.data()),
+        EventData::CompactionSummary { summary, usage, .. } => {
+            let (kind, mut data, surface) = tagged_event_data(event.data());
+            data["summary"] = json!([{"type":"text", "text":summary}]);
+            if let Some(usage) = usage.as_ref().and_then(web_token_usage) {
+                data["usage"] = usage;
+            }
+            (kind, data, surface)
+        }
+        EventData::CompactionStart { turn, .. } | EventData::CompactionEnd { turn, .. } => {
+            let (kind, mut data, surface) = tagged_event_data(event.data());
+            if let Some(turn) = turn {
+                data["turn"] = json!(web_turn(*turn));
+            }
+            (kind, data, surface)
+        }
         EventData::RequestHeader { header } => {
             web_request_header(header, initial_request_header_seq == Some(event.seq))
         }
@@ -1285,7 +1313,20 @@ fn restored_web_event(
             surface_replace,
         } => (
             "user/message".to_owned(),
-            web_message(message, route, event.seq, prompts),
+            {
+                let mut data = web_message(message, route, event.seq, prompts);
+                if let Some(replace) = surface_replace {
+                    // Projection only: the durable message and model surface stay intact.
+                    let mut source = json!({"kind":"plugin", "plugin":"compact", "compactionId":replace.compaction_id});
+                    if let Some(Some(command)) =
+                        prompts.compaction_commands.get(&replace.compaction_id)
+                    {
+                        source["sourceCommandId"] = json!(command);
+                    }
+                    data["source"] = source;
+                }
+                data
+            },
             Some(surface_replace.as_ref().map_or_else(
                 || json!("append"),
                 |replace| {
@@ -1496,14 +1537,14 @@ fn web_message(
     message: &Message,
     route: &ModelRoute,
     seq: u64,
-    prompts: &BTreeMap<String, PromptView>,
+    prompts: &ProjectionSources,
 ) -> Value {
     let id = message
         .id
         .clone()
         .unwrap_or_else(|| format!("restored-{}-{seq}", message.role.as_str()));
     if message.role == MessageRole::User {
-        if let Some(prompt) = prompts.get(&id) {
+        if let Some(prompt) = prompts.prompts.get(&id) {
             return json!({
                 "id": id,
                 "role": "user",
@@ -3355,99 +3396,219 @@ mod tests {
 
     #[tokio::test]
     async fn compaction_projects_a_replace_surface_operation_with_source_evidence() {
-        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-        store
-            .create(SessionHeader::new("compaction-projection"))
-            .await
-            .unwrap();
-        store
-            .append(
-                "compaction-projection",
-                Revision::ZERO,
-                vec![
-                    EventData::TurnStart { turn: 1 }.into(),
-                    EventData::UserMessage {
-                        message: Message::user("large history"),
-                        surface_replace: None,
-                    }
-                    .into(),
-                    EventData::StepStart { turn: 1, step: 1 }.into(),
-                    EventData::CompactionStart {
-                        compaction_id: "compact-1".to_owned(),
-                        source_command_id: None,
-                        turn: Some(1),
-                    }
-                    .into(),
-                ],
-            )
-            .await
-            .unwrap();
-        let shadowed_range = SequenceRange { start: 1, end: 1 };
-        store
-            .append(
-                "compaction-projection",
-                Revision(1),
-                vec![
-                    EventData::CompactionSummary {
-                        compaction_id: "compact-1".to_owned(),
-                        source_command_id: None,
-                        summary: "summary".to_owned(),
-                        shadowed_range,
-                        shadowed_seqs: vec![1],
-                        shadowed_token_count: 128,
-                        provider: "test".to_owned(),
-                        model: "test-model".to_owned(),
-                        max_tokens: Some(64),
-                        usage: None,
-                    }
-                    .into(),
-                    EventData::UserMessage {
-                        message: Message::user("checkpoint"),
-                        surface_replace: Some(SurfaceReplace {
+        for command in [None, Some("manual-compact".to_owned())] {
+            let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+            store
+                .create(SessionHeader::new("compaction-projection"))
+                .await
+                .unwrap();
+            store
+                .append(
+                    "compaction-projection",
+                    Revision::ZERO,
+                    vec![
+                        EventData::TurnStart { turn: 1 }.into(),
+                        EventData::UserMessage {
+                            message: Message::user("large history"),
+                            surface_replace: None,
+                        }
+                        .into(),
+                        EventData::StepStart { turn: 1, step: 1 }.into(),
+                        EventData::CompactionStart {
                             compaction_id: "compact-1".to_owned(),
+                            source_command_id: command.clone(),
+                            turn: Some(1),
+                        }
+                        .into(),
+                    ],
+                )
+                .await
+                .unwrap();
+            let prefix = store.load("compaction-projection").await.unwrap().unwrap();
+            let shadowed_range = SequenceRange { start: 1, end: 1 };
+            store
+                .append(
+                    "compaction-projection",
+                    Revision(1),
+                    vec![
+                        EventData::CompactionSummary {
+                            compaction_id: "compact-1".to_owned(),
+                            source_command_id: command.clone(),
+                            summary: "## 摘要\n保留任务 🧪".to_owned(),
                             shadowed_range,
                             shadowed_seqs: vec![1],
-                        }),
-                    }
-                    .into(),
-                    EventData::CompactionEnd {
-                        compaction_id: "compact-1".to_owned(),
-                        source_command_id: None,
-                        turn: Some(1),
-                        error: None,
-                    }
-                    .into(),
-                ],
-            )
-            .await
-            .unwrap();
+                            shadowed_token_count: 128,
+                            provider: "test".to_owned(),
+                            model: "test-model".to_owned(),
+                            max_tokens: Some(64),
+                            usage: None,
+                        }
+                        .into(),
+                        EventData::UserMessage {
+                            message: Message::user("checkpoint"),
+                            surface_replace: Some(SurfaceReplace {
+                                compaction_id: "compact-1".to_owned(),
+                                shadowed_range,
+                                shadowed_seqs: vec![1],
+                            }),
+                        }
+                        .into(),
+                        EventData::CompactionEnd {
+                            compaction_id: "compact-1".to_owned(),
+                            source_command_id: command.clone(),
+                            turn: Some(1),
+                            error: None,
+                        }
+                        .into(),
+                    ],
+                )
+                .await
+                .unwrap();
 
-        let session = store.load("compaction-projection").await.unwrap().unwrap();
-        let route = ModelRoute {
-            provider: "test".to_owned(),
-            model: "test-model".to_owned(),
-            reasoning_effort: None,
-            context_window_tokens: None,
-        };
-        let projected = project_session_event_range(&session, &route, 0, session.events().len());
-        let replacement = projected
-            .iter()
-            .find(|event| event["data"]["content"][0]["text"] == "checkpoint")
-            .expect("checkpoint event is projected");
-        assert_eq!(
-            replacement["surfaceOp"],
-            json!({"op": "replace", "start": 1, "end": 1})
-        );
-        assert_eq!(replacement["sourceEventSeqs"], json!([1]));
-        assert!(projected
-            .iter()
-            .any(|event| event["type"] == "compaction/start"));
-        assert!(projected
-            .iter()
-            .any(|event| event["type"] == "compaction/summary"));
-        assert!(projected
-            .iter()
-            .any(|event| event["type"] == "compaction/end"));
+            let session = store.load("compaction-projection").await.unwrap().unwrap();
+            let route = ModelRoute {
+                provider: "test".to_owned(),
+                model: "test-model".to_owned(),
+                reasoning_effort: None,
+                context_window_tokens: None,
+            };
+            let projected =
+                project_session_event_range(&session, &route, 0, session.events().len());
+            let replacement = projected
+                .iter()
+                .find(|event| event["data"]["content"][0]["text"] == "checkpoint")
+                .expect("checkpoint event is projected");
+            assert_eq!(
+                replacement["surfaceOp"],
+                json!({"op": "replace", "start": 1, "end": 1})
+            );
+            assert_eq!(replacement["sourceEventSeqs"], json!([1]));
+            assert!(projected
+                .iter()
+                .any(|event| event["type"] == "compaction/start"));
+            assert!(projected
+                .iter()
+                .any(|event| event["type"] == "compaction/summary"));
+            assert!(projected
+                .iter()
+                .any(|event| event["type"] == "compaction/end"));
+
+            assert_eq!(replacement["data"]["source"]["kind"], "plugin");
+            assert_eq!(replacement["data"]["source"]["plugin"], "compact");
+            assert_eq!(replacement["data"]["source"]["compactionId"], "compact-1");
+            assert_eq!(
+                replacement["data"]["source"].get("sourceCommandId"),
+                command.as_ref().map(|_| json!("manual-compact")).as_ref()
+            );
+            let summary = projected
+                .iter()
+                .find(|e| e["type"] == "compaction/summary")
+                .unwrap();
+            assert_eq!(
+                summary["data"]["summary"],
+                json!([{"type":"text","text":"## 摘要\n保留任务 🧪"}])
+            );
+            assert_eq!(summary["data"]["shadowedTokenCount"], 128);
+            assert_eq!(
+                projected
+                    .iter()
+                    .find(|e| e["type"] == "compaction/start")
+                    .unwrap()["data"]["turn"],
+                0
+            );
+            assert_eq!(
+                project_session_event_range(&prefix, &route, 0, prefix.events().len()),
+                projected[..prefix.events().len()]
+            );
+            assert_eq!(
+                project_session_history_range(&session, &route, 0, session.events().len()),
+                projected
+            );
+            assert_eq!(
+                project_session_event_tail(&session, &route, 100, usize::MAX).events,
+                projected
+            );
+            // A page beginning at the replacement must retain the manual correlation.
+            let index = replacement["seq"].as_u64().unwrap() as usize;
+            assert_eq!(
+                project_session_event_range(&session, &route, index, index + 1)[0],
+                *replacement
+            );
+            let restored = Session::restore(
+                session.header().clone(),
+                session.revision(),
+                session.events().to_vec(),
+            )
+            .unwrap();
+            assert_eq!(
+                project_session_event_range(&restored, &route, 0, restored.events().len()),
+                projected
+            );
+            assert_eq!(
+                xharness_session::derive_messages(session.events())[0].content,
+                "checkpoint"
+            );
+            assert!(
+                matches!(session.events()[4].data(), EventData::CompactionSummary { summary, .. } if summary=="## 摘要\n保留任务 🧪")
+            );
+            println!(
+                "COMPACTION_UI_FIXTURE={}",
+                json!({"manual":command.is_some(),"events":projected})
+            );
+        }
+    }
+
+    #[test]
+    fn failed_or_cancelled_compaction_keeps_surface_and_never_publishes_checkpoint() {
+        for error in ["cancelled", "output token limit", "network timeout"] {
+            let mut session = Session::new(SessionHeader::new("compact-failed")).unwrap();
+            session
+                .append_batch_at(
+                    Revision::ZERO,
+                    vec![
+                        EventData::TurnStart { turn: 1 }.into(),
+                        EventData::UserMessage {
+                            message: Message::user("keep original"),
+                            surface_replace: None,
+                        }
+                        .into(),
+                        EventData::CompactionStart {
+                            compaction_id: "failed".into(),
+                            source_command_id: None,
+                            turn: Some(1),
+                        }
+                        .into(),
+                        EventData::CompactionEnd {
+                            compaction_id: "failed".into(),
+                            source_command_id: None,
+                            turn: Some(1),
+                            error: Some(error.into()),
+                        }
+                        .into(),
+                    ],
+                    1,
+                )
+                .unwrap();
+            let route = ModelRoute::new("test", "test-model");
+            let projected =
+                project_session_event_range(&session, &route, 0, session.events().len());
+            assert!(!projected
+                .iter()
+                .any(|e| e["surfaceOp"].is_object() || e["type"] == "compaction/summary"));
+            assert_eq!(projected.last().unwrap()["data"]["error"], error);
+            assert_eq!(
+                xharness_session::derive_messages(session.events())[0].content,
+                "keep original"
+            );
+            assert_eq!(
+                project_session_history_range(&session, &route, 0, session.events().len()),
+                projected
+            );
+            println!(
+                "COMPACTION_UI_FIXTURE={}",
+                json!({"error":error,"events":projected})
+            );
+        }
     }
 
     #[tokio::test]
