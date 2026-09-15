@@ -164,6 +164,26 @@ Windows x64 CI 发布骨架。Windows 包同时包含原生 Host、固定版本 
 Secret 配置完成为门禁；Windows ARM64 与 Authenticode 品牌签名仍是后续项。Updater 签名能验证
 更新完整性，但没有 Authenticode 证书的安装器仍可能触发 SmartScreen 信誉警告。
 
+## 7. macOS 未公证预览通道（滚动）
+
+稳定通道 `desktop-v*` 在没有 Apple Developer ID/公证凭据时无法产出 macOS 包；演练通道
+`desktop-test-*` 又把**按版本固定**的更新源编译进包，装了就再也收不到新版本。
+`Desktop macOS preview channel`（`.github/workflows/desktop-macos-preview.yml`）解决后者：
+它只维护一个固定标签 `desktop-preview`，每次发布替换其中的 `latest.json`。
+
+- 更新源（编译期写死）：`releases/download/desktop-preview/latest.json`。
+- 信任密钥：预览 updater 公钥；未单独配置时复用演练密钥。端点与密钥都是编译期常量，
+  因此换密钥或换通道必须重装一次。
+- 每次发布的包名带版本号，旧资产保留；`latest.json` 是唯一可变文件。
+- 门禁：版本必须递增；可以新增平台，但不能丢弃通道已在服务的平台。
+- 清单带 `macos_distribution: ad-hoc-unnotarized-preview`，明确这是未公证预览。
+- 首次安装为手工：解压 `.zip` 放入「应用程序」，Gatekeeper 拦截时右键「打开」放行；
+  之后同通道的新版本会在应用内提示更新。
+- 该通道不镜像到 Gitee（镜像默认跳过预发布，且包体较大）。稳定通道的写入者仍然只有
+  `Desktop Release` / `Desktop Promote`。
+
+Intel（`darwin-x86_64`）需显式选择 `include_intel`；一旦发布过，后续运行不能去掉。
+
 ## 7. macOS 手动升级演练通道
 
 `Desktop Update Rehearsal` 是仅手动触发、仅 master 的 macOS ARM64 演练 Workflow。
