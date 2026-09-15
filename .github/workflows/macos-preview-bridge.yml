@@ -1,0 +1,63 @@
+name: Mac Preview Channel Migration
+on:
+  workflow_dispatch:
+    inputs:
+      legacy_version:
+        description: Installed desktop-test version whose pinned feed will be migrated
+        required: true
+        default: '0.2.18'
+      target_version:
+        description: Already published, native-accepted desktop-v version containing macOS
+        required: true
+      publish:
+        description: Publish bridge and advance ONLY the selected legacy feed after verification
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  # Serialize with desktop publication and other migrations.
+  group: desktop-stable-release
+  cancel-in-progress: false
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/master' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      LEGACY_VERSION: ${{ inputs.legacy_version }}
+      TARGET_VERSION: ${{ inputs.target_version }}
+      XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+      XHARNESS_TEST_UPDATER_PUBKEY: ${{ secrets.XHARNESS_TEST_UPDATER_PUBKEY }}
+      XHARNESS_FRIENDS_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Regression and authenticated existing package
+        run: |
+          node scripts/test-macos-preview-bridge.mjs
+          node scripts/macos-preview-bridge.mjs prepare
+      - name: Sign unchanged package for old clients
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_TEST_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_TEST_UPDATER_PASSWORD }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri signer sign "dist/macos-preview-bridge/release/XHarness_${TARGET_VERSION}_aarch64.app.tar.gz"
+          node scripts/macos-preview-bridge.mjs finish
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-preview-migration
+          path: dist/macos-preview-bridge/release/
+          if-no-files-found: error
+      - name: Explicitly publish old-feed migration (never write unified feed)
+        if: inputs.publish
+        run: node scripts/macos-preview-bridge.mjs publish
