@@ -38,6 +38,7 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/test-update-channel-bridge.mjs
+      - run: node scripts/test-macos-preview-bridge.mjs
       - run: node scripts/test-migration-acceptance-guards.mjs
       - run: node scripts/test-install-ownership-contract.mjs
       - run: node scripts/test-desktop-bootstrap.mjs
