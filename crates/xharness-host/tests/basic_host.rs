@@ -345,6 +345,44 @@ fn fixtures_with_the_same_clock_tick_do_not_share_or_remove_each_others_files() 
 }
 
 #[tokio::test]
+async fn saved_default_preset_applies_to_new_sessions_but_not_explicit_choices() {
+    let mut fx = Fixture::new();
+    fx.value(
+        RpcMethod::AgentPresetCopy,
+        json!({"from":"coding","agentPreset":"custom"}),
+    )
+    .await;
+    fx.value(
+        RpcMethod::SettingsUpdate,
+        json!({"ns":"agent-presets","patch":{"default":"custom"}}),
+    )
+    .await;
+    let roster = fx.value(RpcMethod::AgentPresetList, json!({})).await;
+    for preset in roster["presets"].as_array().unwrap() {
+        assert_eq!(preset["isDefault"], preset["id"] == "custom");
+    }
+    let selected = fx.value(RpcMethod::SessionCreate, json!({})).await;
+    assert_eq!(selected["agentPreset"], "custom");
+    let explicit = fx
+        .value(RpcMethod::SessionCreate, json!({"agentPreset":"coding"}))
+        .await;
+    assert_eq!(explicit["agentPreset"], "coding");
+    fx.value(
+        RpcMethod::SettingsUpdate,
+        json!({"ns":"agent-presets","patch":{"default":"missing"}}),
+    )
+    .await;
+    let fallback = fx.value(RpcMethod::SessionCreate, json!({})).await;
+    assert_eq!(fallback["agentPreset"], "coding");
+    let retained = fx.value(RpcMethod::SettingsDescribe, json!({})).await;
+    assert!(retained["namespaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["ns"] == "agent-presets" && entry["value"]["default"] == "missing"));
+}
+
+#[tokio::test]
 async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_future_sessions() {
     let mut fx = Fixture::new();
     let root = fx.root.to_string_lossy().into_owned();
