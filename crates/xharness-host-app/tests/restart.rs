@@ -39,7 +39,12 @@ struct HostProcess(tokio::process::Child);
 
 // Unlike rpc_call (which intentionally tests receipt replay), each mutation
 // here gets a distinct ID so different preference writes are not deduplicated.
-async fn preference_rpc(client: &Client, address: SocketAddr, method: &str, payload: Value) -> Value {
+async fn preference_rpc(
+    client: &Client,
+    address: SocketAddr,
+    method: &str,
+    payload: Value,
+) -> Value {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
     client.post(format!("http://{address}/api/{method}"))
@@ -62,22 +67,41 @@ async fn shipped_preferences_survive_restart_and_rejected_writes_do_not_commit()
     ];
     let before = preference_rpc(&client, address, "settings.describe", json!({})).await;
     for (ns, field, value) in cases {
-        let described = before["result"]["value"]["namespaces"].as_array().unwrap()
-            .iter().find(|entry| entry["ns"] == ns).expect("shipped namespace registered before replay");
+        let described = before["result"]["value"]["namespaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["ns"] == ns)
+            .expect("shipped namespace registered before replay");
         assert_eq!(described["applies"], "live");
         assert_eq!(described["user"], json!({}));
-        for (revision, method) in ["settings.update", "settings.replace", "settings.mutate"].into_iter().enumerate() {
+        for (revision, method) in ["settings.update", "settings.replace", "settings.mutate"]
+            .into_iter()
+            .enumerate()
+        {
             let payload = match method {
-                "settings.update" => json!({"ns":ns,"patch":{(field):value},"expectedRevision":revision}),
-                "settings.replace" => json!({"ns":ns,"section":{(field):value},"expectedRevision":revision}),
-                _ => json!({"ns":ns,"ops":[{"op":"set","path":[field],"value":value}],"expectedRevision":revision}),
+                "settings.update" => {
+                    json!({"ns":ns,"patch":{(field):value},"expectedRevision":revision})
+                }
+                "settings.replace" => {
+                    json!({"ns":ns,"section":{(field):value},"expectedRevision":revision})
+                }
+                _ => {
+                    json!({"ns":ns,"ops":[{"op":"set","path":[field],"value":value}],"expectedRevision":revision})
+                }
             };
             let result = preference_rpc(&client, address, method, payload).await;
             assert_eq!(result["result"]["ok"], true, "{ns}: {result}");
             assert_eq!(result["result"]["value"]["revision"], revision + 1);
             assert_eq!(result["result"]["value"]["value"][field], value);
         }
-        let conflict = preference_rpc(&client, address, "settings.replace", json!({"ns":ns,"section":{},"expectedRevision":0})).await;
+        let conflict = preference_rpc(
+            &client,
+            address,
+            "settings.replace",
+            json!({"ns":ns,"section":{},"expectedRevision":0}),
+        )
+        .await;
         assert_eq!(conflict["result"]["ok"], false);
         for method in ["settings.update", "settings.replace", "settings.mutate"] {
             let payload = match method {
@@ -86,12 +110,20 @@ async fn shipped_preferences_survive_restart_and_rejected_writes_do_not_commit()
                 _ => json!({"ns":ns,"ops":[{"op":"set","path":[field,"nested"],"value":"bad"}]}),
             };
             let rejected = preference_rpc(&client, address, method, payload).await;
-            assert_eq!(rejected["result"]["ok"], false, "invalid preference accepted: {rejected}");
+            assert_eq!(
+                rejected["result"]["ok"], false,
+                "invalid preference accepted: {rejected}"
+            );
         }
     }
     for method in ["settings.update", "settings.replace", "settings.mutate"] {
-        let rejected = preference_rpc(&client, address, method,
-            json!({"ns":"unknown-plugin","patch":{},"section":{},"ops":[]})).await;
+        let rejected = preference_rpc(
+            &client,
+            address,
+            method,
+            json!({"ns":"unknown-plugin","patch":{},"section":{},"ops":[]}),
+        )
+        .await;
         assert_eq!(rejected["result"]["ok"], false);
     }
     first.stop().await;
@@ -99,12 +131,25 @@ async fn shipped_preferences_survive_restart_and_rejected_writes_do_not_commit()
     wait_for_workspace(&client, address, &workspace.0).await;
     let restored = preference_rpc(&client, address, "settings.describe", json!({})).await;
     for (ns, field, value) in cases {
-        let entry = restored["result"]["value"]["namespaces"].as_array().unwrap().iter()
-            .find(|entry| entry["ns"] == ns).unwrap();
+        let entry = restored["result"]["value"]["namespaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["ns"] == ns)
+            .unwrap();
         assert_eq!(entry["value"][field], value);
         assert_eq!(entry["user"][field], value);
-        assert_eq!(entry["revision"], 3, "rejected writes must not increment revision");
-        let cleared = preference_rpc(&client, address, "settings.mutate", json!({"ns":ns,"ops":[{"op":"unset","path":[field]}],"expectedRevision":3})).await;
+        assert_eq!(
+            entry["revision"], 3,
+            "rejected writes must not increment revision"
+        );
+        let cleared = preference_rpc(
+            &client,
+            address,
+            "settings.mutate",
+            json!({"ns":ns,"ops":[{"op":"unset","path":[field]}],"expectedRevision":3}),
+        )
+        .await;
         assert_eq!(cleared["result"]["ok"], true);
         assert_eq!(cleared["result"]["value"]["user"], json!({}));
     }
@@ -113,7 +158,12 @@ async fn shipped_preferences_survive_restart_and_rejected_writes_do_not_commit()
     wait_for_workspace(&client, address, &workspace.0).await;
     let cleared = preference_rpc(&client, address, "settings.describe", json!({})).await;
     for (ns, _, _) in cases {
-        let entry = cleared["result"]["value"]["namespaces"].as_array().unwrap().iter().find(|entry| entry["ns"] == ns).unwrap();
+        let entry = cleared["result"]["value"]["namespaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["ns"] == ns)
+            .unwrap();
         assert_eq!(entry["user"], json!({}));
         assert_eq!(entry["value"], json!({}));
         assert_eq!(entry["revision"], 4);
