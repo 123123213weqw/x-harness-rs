@@ -84,6 +84,10 @@ jobs:
       # an attachment that upstream already ships outside the user installer.
       SKIP_ASSETS: "windows-debug-symbols.zip"
       MAX_ASSET_MB: "100"
+      # Per-attempt cap for one attachment. A stall ends the attempt quickly instead of
+      # burning the whole job, and whatever already landed stays on Gitee: the upload loop
+      # skips attached files, so the next run resumes instead of starting over.
+      UPLOAD_TIMEOUT_S: "2700"
     steps:
       - name: Validate configuration
         shell: bash
@@ -118,6 +122,10 @@ jobs:
           echo "tags to mirror:"; cat tags.txt
 
           handled_channels=$(sed -E 's/-v[0-9].*$//' tags.txt | sort -u | tr '\n' ' ')
+          # Assets that could not be attached this run. Reported once at the end instead of
+          # aborting on the first failure, so one slow attachment cannot discard the
+          # progress made on every other release.
+          missing=""
           echo "channels: ${handled_channels}"
 
           while IFS= read -r tag; do
@@ -176,27 +184,44 @@ jobs:
               if [[ "${skipped}" == "true" ]]; then
                 echo "  skip (policy ${SKIP_ASSETS}): ${base}"; continue
               fi
-              code=$(curl -sS -m 5400 "${auth[@]}" -o up.json -w '%{http_code}' -X POST \
-                -F "file=@${file}" "${API}/releases/${rid}/attach_files")
-              if [[ "${code}" != "201" ]]; then
-                echo "::error::upload failed for ${base} (HTTP ${code}): $(cat up.json)"; exit 1
+              failure=""
+              if ! code=$(curl -sS -m "${UPLOAD_TIMEOUT_S}" --speed-limit 4096 --speed-time 60 \
+                    --retry 2 --retry-delay 15 --retry-all-errors \
+                    "${auth[@]}" -o up.json -w '%{http_code}' -X POST \
+                    -F "file=@${file}" "${API}/releases/${rid}/attach_files"); then
+                failure="transfer error (timeout or stalled connection)"
+              elif [[ "${code}" != "201" ]]; then
+                failure="HTTP ${code}: $(head -c 300 up.json)"
+              fi
+              if [[ -n "${failure}" ]]; then
+                echo "::warning::upload failed for ${base}: ${failure}"
+                missing="${missing}${tag}/${base} -- ${failure}"$'\n'
+                continue
               fi
               echo "  uploaded: ${base} (${size_mb} MiB)"
             done < <(find "dl/${tag}" -type f | sort)
           done < tags.txt
 
           echo '== prune older releases =='
-          if [[ "${PRUNE}" != "true" ]]; then
-            echo "prune disabled"; exit 0
-          fi
-          gitee "${API}/releases?per_page=100" > gitee-releases.json
-          for channel in ${handled_channels}; do
-            keep_ids=$(jq -r --arg ch "${channel}-v" '.[] | select(.tag_name | startswith($ch)) | [.created_at, .id, .tag_name] | @tsv' gitee-releases.json \
-              | sort -r | awk -v keep="${KEEP}" 'NR > keep { print $2 }')
-            for id in ${keep_ids}; do
-              stale_tag=$(jq -r --arg id "${id}" '.[] | select((.id | tostring) == $id) | .tag_name' gitee-releases.json)
-              echo "deleting stale mirrored release ${stale_tag} (id ${id})"
-              gitee -X DELETE "${API}/releases/${id}" -o /dev/null -w 'delete http %{http_code}\n'
+          if [[ "${PRUNE}" == "true" ]]; then
+            gitee "${API}/releases?per_page=100" > gitee-releases.json
+            for channel in ${handled_channels}; do
+              keep_ids=$(jq -r --arg ch "${channel}-v" '.[] | select(.tag_name | startswith($ch)) | [.created_at, .id, .tag_name] | @tsv' gitee-releases.json \
+                | sort -r | awk -v keep="${KEEP}" 'NR > keep { print $2 }')
+              for id in ${keep_ids}; do
+                stale_tag=$(jq -r --arg id "${id}" '.[] | select((.id | tostring) == $id) | .tag_name' gitee-releases.json)
+                echo "deleting stale mirrored release ${stale_tag} (id ${id})"
+                gitee -X DELETE "${API}/releases/${id}" -o /dev/null -w 'delete http %{http_code}\n'
+              done
             done
-          done
+          else
+            echo "prune disabled"
+          fi
+
+          if [[ -n "${missing}" ]]; then
+            echo "::error::Gitee mirror is still missing $(printf '%s' "${missing}" | grep -c .) attachment(s)"
+            printf '%s' "${missing}"
+            echo 'Re-run this workflow to resume: attached files are skipped, so only the gaps are retried.'
+            exit 1
+          fi
           echo 'mirror complete'
