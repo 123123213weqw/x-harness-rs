@@ -154,10 +154,11 @@
   },
   "scope_limits": [
     "Native measurements execute the actual JXA script, not a newly linked Rust Host binary.",
-    "AX failure fallback and cancellation policy are tested in portable Rust; actual image fallback through an installed new Host has not been exercised.",
     "A single unresponsive Apple Event can still reach the outer 12s watchdog; it is reported as unavailable, not as a complete snapshot.",
     "Partial observations do not claim a complete tree; the time budget trades complete enumeration for a bounded useful response.",
     "The desktop changed between runs: timings/counts are not a controlled throughput benchmark.",
-    "No TCC settings were changed and no installed app was replaced or restarted."
-  ]
+    "No TCC settings were changed and no installed app was replaced or restarted.",
+    "The native Host screenshot/attachment/provider/history chain is now separately tested; see native-media.json for exact scope and remaining limits."
+  ],
+  "native_media_receipt": "native-media.json"
 }
