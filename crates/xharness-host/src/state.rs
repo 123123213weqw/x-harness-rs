@@ -429,6 +429,22 @@ impl SessionRecord {
         Value::Object(values)
     }
 
+    /// A user-authored prompt that is still waiting for its own turn.
+    ///
+    /// Runtime receipts (`agent-settlement`, tool context, ...) project as
+    /// `QueuePlacement::Context`, so they never count here: an explicit stop
+    /// keeps blocking them, and only user input may reopen the admission gate.
+    pub(crate) fn has_queued_user_prompt(&self) -> bool {
+        let pending = |prompt: &QueuedPrompt| {
+            prompt.user_mutable() && prompt.ui_placement() == QueuePlacement::Queued
+        };
+        if self.authoritative_seq.is_some() {
+            self.projected_queue.iter().any(pending)
+        } else {
+            self.queue.iter().any(pending)
+        }
+    }
+
     pub(crate) fn queue_view(&self) -> Vec<Value> {
         let items: Vec<_> = if self.authoritative_seq.is_some() {
             self.projected_queue.iter().collect()

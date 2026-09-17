@@ -115,7 +115,9 @@ Durable Inbox，再加入 Web Projection 并返回成功。正式 Agent 领取�
 `turn/end`。
 
 同一时间只能有一个 Driver 拥有一个 Session。额外 Prompt 进入由 Durable Inbox 派生的 FIFO
-Projection。Steering 交给活跃 `RunningTurn`；取消只停止当前 Turn，不删除排队输入。File Lease
+Projection。Steering 交给活跃 `RunningTurn`；取消只停止当前 Turn，不删除排队输入。取消留下的
+dispatch-paused 门禁只拦内部回执：只要用户自己排队的 Prompt 仍在等待，Driver 就重新打开门禁，
+让它开始下一 Turn（重启恢复同样如此），内部 `placement=context` 输入不能自行解冻会话。File Lease
 提供单机跨进程所有权；远程多主机仍需要 Fencing Epoch。
 
 每个 Step 无压力时通过默认 `IdentityContextPolicy` 完整重放当前 Session Surface。Host 已按
