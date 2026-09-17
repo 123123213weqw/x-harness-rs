@@ -13,6 +13,28 @@ name: Mirror releases to Gitee
 # over an hour: the per-upload curl timeout and the job timeout are sized for
 # that, and a slow run is expected rather than a failure.
 #
+# The per-attempt cap must clear the largest asset at the *measured* rate, not
+# the best observed one. A 94 MiB AppImage needs >= 35.7 KiB/s to fit in 45 min,
+# which is above the 25-30 KiB/s documented here: with UPLOAD_TIMEOUT_S=2700 the
+# desktop AppImage failed on every scheduled run (runs 34952791658 and
+# 35079055337 each burned all three 2700 s attempts on
+# desktop-v0.2.18/XHarness_0.2.18_amd64.AppImage, leaving the mirror one
+# attachment short, see issue #84). Retrying cannot help that case: `--speed-limit`
+# already ends a genuinely stalled attempt within a minute, so an attempt that
+# consumes the whole cap was making progress, just too slowly -- and a retry
+# restarts the same transfer at the same rate.
+#
+# UPLOAD_TIMEOUT_S is therefore 5400 s, which only needs >= 17.9 KiB/s: ~40 min
+# at the best observed rate (40.4 KiB/s), ~59 min at the slow end of the measured
+# band, ~90 min at the cap. The retry count drops to 1 so the budget stays sane.
+# One asset's full worst case is 2 x 5400 s + 15 s = 180 min; the typical run
+# mirrors two large AppImages, and even both of them at the slow end of the
+# measured band is only ~117 min, comfortably inside timeout-minutes. The one
+# case that does not fit -- both assets consuming the entire cap twice, i.e.
+# sustained throughput below 17.9 KiB/s -- is deliberately left to the job
+# timeout as a backstop: that run fails anyway, and because attached files are
+# skipped the next run resumes instead of starting over.
+#
 # Only git-visible branches/tags are mirrored by `mirror-to-gitee.yml`; this
 # workflow owns release bodies and assets. Update feeds (`latest.json`) are
 # mirrored verbatim for download convenience only: its `url` fields still point
@@ -87,7 +109,9 @@ jobs:
       # Per-attempt cap for one attachment. A stall ends the attempt quickly instead of
       # burning the whole job, and whatever already landed stays on Gitee: the upload loop
       # skips attached files, so the next run resumes instead of starting over.
-      UPLOAD_TIMEOUT_S: "2700"
+      # Sized to clear a 94 MiB AppImage at the slow end of measured throughput
+      # (~17.9 KiB/s); see the header comment for the arithmetic and issue #84.
+      UPLOAD_TIMEOUT_S: "5400"
     steps:
       - name: Validate configuration
         shell: bash
@@ -186,7 +210,7 @@ jobs:
               fi
               failure=""
               if ! code=$(curl -sS -m "${UPLOAD_TIMEOUT_S}" --speed-limit 4096 --speed-time 60 \
-                    --retry 2 --retry-delay 15 --retry-all-errors \
+                    --retry 1 --retry-delay 15 --retry-all-errors \
                     "${auth[@]}" -o up.json -w '%{http_code}' -X POST \
                     -F "file=@${file}" "${API}/releases/${rid}/attach_files"); then
                 failure="transfer error (timeout or stalled connection)"
