@@ -132,6 +132,8 @@ jobs:
           node scripts/test-question-continuation-patch.mjs
           UI_TEST_BROWSER=chromium node scripts/test-question-continuation-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-question-continuation-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-approval-prompt-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-approval-prompt-browser.mjs
           node scripts/test-goal-runtime-patch.mjs
           UI_TEST_BROWSER=chromium node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-goal-runtime-browser.mjs
@@ -143,6 +145,14 @@ jobs:
         with:
           name: workspace-directory-ui-evidence
           path: dist/workspace-directory-evidence/
+          if-no-files-found: warn
+
+      - name: Upload approval prompt UI evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: approval-prompt-ui-evidence
+          path: dist/approval-ui/
           if-no-files-found: warn
 
   rust-linux:
