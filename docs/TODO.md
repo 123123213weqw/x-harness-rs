@@ -1,5 +1,16 @@
 # XHarness 总任务清单
 
+## 停止后的排队用户 Prompt（2026-09-17）
+
+现场：`session-1789634172710-56127` 16:44:43 排队「可以关的关掉吧」→ 16:44:55 用户停止 →
+`agent/dispatch-paused{paused:true}` 把已排队的用户输入一起冻住，直到 16:44:59 手打「1」才解冻；
+`session-1789295337629-42012` 停止后 22 小时零派发。
+
+- [x] `STOP-QUEUE-01` Host Driver：门禁为 paused 且队列里仍有 `source.kind=user` 的 queued Prompt 时，重新打开门禁并让该 Prompt 开始下一 Turn；内部 `placement=context` 回执不能解冻（保留 TODO 中「内部回执不能突破停止门禁」不变式）。
+- [x] `STOP-QUEUE-02` 启动恢复：next-turn 里存在用户 Prompt 时，即使持久门禁为 paused 也恢复该会话；其余暂停语义不变。
+- [x] `STOP-QUEUE-03` 回归：`xharness-host` `user_stop_lets_the_already_queued_prompt_start_the_next_turn`（停止后自动 turn 2 + 门禁落盘为 false）与既有 `host_flood_steer_stop_clears_running_and_parks_internal_followup`（内部回执仍被拦）。
+- [ ] `STOP-QUEUE-04` 跨平台 CI、合并、发布与已安装桌面/Web 替换后真实会话复验（源码修复不代表已部署）。
+
 ## Token 校准重启恢复（2026-09-17）
 
 规范见 [校准持久化](specs/token-calibration-persistence.md)。

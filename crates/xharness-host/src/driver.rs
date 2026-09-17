@@ -1,7 +1,7 @@
 use std::sync::{atomic::Ordering, Arc};
 
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, OwnedMutexGuard};
 use xharness_agent::InboxProjection;
 use xharness_api::{RpcError, RpcErrorCode, RpcId};
 use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
@@ -800,14 +800,49 @@ impl BasicHost {
         mut control_rx: mpsc::Receiver<DriverCommand>,
     ) {
         loop {
-            let paused = {
+            // Serialize the pause check, gate commit and runtime handoff with
+            // queue edits and prompt admission. Never keep this guard while
+            // consuming model/tool events. A steering RPC can itself hold the
+            // admission lock while waiting for our acknowledgement; reject it
+            // at this idle boundary instead of deadlocking lock acquisition.
+            let admission = self.lock_admission(&session_id);
+            tokio::pin!(admission);
+            let admission_guard = loop {
+                tokio::select! {
+                    guard = &mut admission => break guard,
+                    Some(command) = control_rx.recv() => {
+                        let _ = command.acknowledgement.send(Err(xharness_core::LoopControlError::Closed));
+                    }
+                }
+            };
+            let (mut paused, queued_user_prompt) = {
                 let state = self.state.read().await;
                 let Some(record) = state.sessions.get(&session_id) else {
                     return;
                 };
-                record.dispatch_paused
+                (record.dispatch_paused, record.has_queued_user_prompt())
             };
             self.queue_title(&session_id);
+            let resuming = paused && queued_user_prompt;
+            if paused {
+                // An explicit stop ends the current turn; it never discards a
+                // queued user prompt (`docs/specs/host.md`). Reopen the gate so
+                // that prompt starts the next turn, exactly like a prompt
+                // admitted after the stop. Internal receipts project as context
+                // and keep the gate shut.
+                if queued_user_prompt {
+                    match self.set_dispatch_paused(&session_id, false).await {
+                        Ok(()) => paused = false,
+                        Err(error) => {
+                            self.push_host(json!({
+                                "type": "host/agent-error",
+                                "sessionId": session_id,
+                                "message": error.message,
+                            }));
+                        }
+                    }
+                }
+            }
             if paused {
                 let mut state = self.state.write().await;
                 if let Some(record) = state.sessions.get_mut(&session_id) {
@@ -823,10 +858,18 @@ impl BasicHost {
             }
             let next = {
                 let mut state = self.state.write().await;
-                state
-                    .sessions
-                    .get_mut(&session_id)
-                    .and_then(|session| session.queue.pop_front())
+                state.sessions.get_mut(&session_id).and_then(|session| {
+                    if resuming {
+                        // Claim the user input that authorized resumption,
+                        // not an older internal receipt ahead of it.
+                        let index = session.queue.iter().position(|item| {
+                            item.user_mutable() && item.ui_placement() == QueuePlacement::Queued
+                        })?;
+                        session.queue.remove(index)
+                    } else {
+                        session.queue.pop_front()
+                    }
+                })
             };
             let Some(prompt) = next else {
                 let mut state = self.state.write().await;
@@ -849,7 +892,10 @@ impl BasicHost {
             };
             self.emit_queue(&session_id).await;
             let work_id = prompt.id.clone();
-            if let Err(error) = self.run_turn(&session_id, prompt, &mut control_rx).await {
+            if let Err(error) = self
+                .run_turn(&session_id, prompt, &mut control_rx, admission_guard)
+                .await
+            {
                 if let Err(persist_error) = self
                     .record_delegation_failure(&session_id, &work_id, &error.message)
                     .await
@@ -947,6 +993,7 @@ impl BasicHost {
         session_id: &str,
         prompt: QueuedPrompt,
         control_rx: &mut mpsc::Receiver<DriverCommand>,
+        admission_guard: OwnedMutexGuard<()>,
     ) -> Result<(), RpcError> {
         let authoritative = self.sync_authoritative_session(session_id).await?;
         let (permission, assembled_prompt) = if authoritative {
@@ -1026,6 +1073,9 @@ impl BasicHost {
             })
             .await
             .map_err(agent_runtime_error)?;
+        // Runtime now owns the input. Queue mutation can no longer withdraw
+        // the user authorization underneath a paused-to-running transition.
+        drop(admission_guard);
         let mut current_step = None;
 
         loop {
