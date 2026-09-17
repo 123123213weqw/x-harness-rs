@@ -1,10 +1,11 @@
-//! Bounded, in-memory calibration of complete wire requests. Never stores prompts.
+//! Bounded calibration of complete wire requests; versioned numeric-only snapshots.
 use crate::{ProviderInputTokenCount, TokenCountAccuracy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WireFeatures {
     /// UTF-8 content bytes: ordinary text, tool/structured material, non-ASCII.
     pub buckets: [u64; 3],
@@ -92,8 +93,10 @@ impl WireFeatures {
                 < 0.30
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Sample {
+    observed_at_ms: u64,
     request_id: String,
     features: WireFeatures,
     actual: u64,
@@ -102,14 +105,99 @@ struct Sample {
 pub struct Calibration {
     scopes: BTreeMap<String, VecDeque<Sample>>,
 }
+pub const CALIBRATION_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+pub const MAX_CALIBRATION_BYTES: usize = 2 * 1024 * 1024;
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+fn digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Snapshot {
+    version: u32,
+    scopes: BTreeMap<String, VecDeque<Sample>>,
+}
 impl Calibration {
+    /// Only hashed identities and numeric features are serializable. Reject
+    /// arbitrary caller identifiers instead of accidentally persisting text.
+    pub fn snapshot(&self) -> Result<Vec<u8>, String> {
+        let scopes = self
+            .scopes
+            .iter()
+            .filter(|(scope, _)| digest(scope))
+            .map(|(scope, rows)| {
+                (
+                    scope.clone(),
+                    rows.iter()
+                        .filter(|s| digest(&s.request_id))
+                        .cloned()
+                        .collect(),
+                )
+            })
+            .collect();
+        serde_json::to_vec(&Snapshot { version: 1, scopes })
+            .map_err(|_| "invalid calibration snapshot".into())
+    }
+    pub fn restore(bytes: &[u8]) -> Result<Self, String> {
+        Self::restore_at(bytes, now_ms())
+    }
+    fn restore_at(bytes: &[u8], now: u64) -> Result<Self, String> {
+        if bytes.len() > MAX_CALIBRATION_BYTES {
+            return Err("calibration snapshot too large".into());
+        }
+        let mut snapshot: Snapshot =
+            serde_json::from_slice(bytes).map_err(|_| "invalid calibration snapshot")?;
+        if snapshot.version != 1 || snapshot.scopes.len() > 64 {
+            return Err("unsupported calibration snapshot".into());
+        }
+        for (scope, rows) in &mut snapshot.scopes {
+            if !digest(scope) || rows.len() > 32 {
+                return Err("invalid calibration scope".into());
+            }
+            let mut ids = std::collections::BTreeSet::new();
+            for s in rows.iter() {
+                if !digest(&s.request_id)
+                    || !ids.insert(&s.request_id)
+                    || s.actual == 0
+                    || s.actual > 1_000_000_000_000
+                    || s.features.image_tokens != 0
+                    || s.features.units() > 1_000_000_000_000
+                {
+                    return Err("invalid calibration sample".into());
+                }
+            }
+            rows.retain(|s| {
+                s.observed_at_ms <= now && now - s.observed_at_ms <= CALIBRATION_TTL_MS
+            });
+        }
+        snapshot.scopes.retain(|_, rows| !rows.is_empty());
+        Ok(Self {
+            scopes: snapshot.scopes,
+        })
+    }
+    pub fn invalidate(&mut self, scope: &str) {
+        self.scopes.remove(scope);
+    }
+
     pub fn estimate(&self, scope: &str, features: &WireFeatures) -> ProviderInputTokenCount {
         let rows: Vec<_> = self
             .scopes
             .get(scope)
             .into_iter()
             .flatten()
-            .filter(|s| features.similar(&s.features))
+            .filter(|s| {
+                s.observed_at_ms <= now_ms()
+                    && now_ms().saturating_sub(s.observed_at_ms) <= CALIBRATION_TTL_MS
+                    && features.similar(&s.features)
+            })
             .collect();
         // Unknown distributions and multimodal requests stay conservative. Never
         // fit image pricing to a text-only observation or learn across endpoints.
@@ -151,6 +239,7 @@ impl Calibration {
             rows.clear();
         }
         rows.push_back(Sample {
+            observed_at_ms: now_ms(),
             request_id: request_id.into(),
             features,
             actual,
@@ -237,5 +326,103 @@ mod tests {
             WireFeatures::from_body(&a, 0).units(),
             WireFeatures::from_body(&b, 0).units()
         );
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    fn warm() -> Calibration {
+        let mut c = Calibration::default();
+        for n in 0..8 {
+            c.observe(
+                &"a".repeat(64),
+                &format!("{n:064x}"),
+                WireFeatures {
+                    buckets: [1_448_000, 0, 0],
+                    ..Default::default()
+                },
+                439_242,
+            );
+        }
+        c
+    }
+    #[test]
+    fn restart_preserves_warm_estimate_without_text() {
+        let c = warm();
+        let bytes = c.snapshot().unwrap();
+        let restored = Calibration::restore(&bytes).unwrap();
+        let f = WireFeatures {
+            buckets: [1_448_000, 0, 0],
+            ..Default::default()
+        };
+        let result = restored.estimate(&"a".repeat(64), &f);
+        assert_eq!(result.accuracy, TokenCountAccuracy::Calibrated);
+        assert_eq!(
+            result.input_tokens,
+            c.estimate(&"a".repeat(64), &f).input_tokens
+        );
+        assert!(result.input_tokens < 966_976);
+        assert!(
+            Calibration::default()
+                .estimate(&"a".repeat(64), &f)
+                .input_tokens
+                > 966_976
+        );
+        assert_eq!(
+            restored.estimate(&"b".repeat(64), &f).accuracy,
+            TokenCountAccuracy::Estimated
+        );
+        let mut unsafe_ids = Calibration::default();
+        unsafe_ids.observe("https://host?api_key=secret", "private prompt", f, 12);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&unsafe_ids.snapshot().unwrap()).unwrap()["scopes"],
+            serde_json::json!({})
+        );
+    }
+    #[test]
+    fn expired_future_corrupt_unsupported_and_oversized_snapshots_are_not_trusted() {
+        let bytes = warm().snapshot().unwrap();
+        assert!(
+            Calibration::restore_at(&bytes, now_ms() + CALIBRATION_TTL_MS + 1)
+                .unwrap()
+                .scopes
+                .is_empty()
+        );
+        assert!(Calibration::restore_at(&bytes, 0)
+            .unwrap()
+            .scopes
+            .is_empty());
+        assert!(Calibration::restore(b"{broken").is_err());
+        assert!(Calibration::restore(&vec![b' '; MAX_CALIBRATION_BYTES + 1]).is_err());
+        let mut v: Value = serde_json::from_slice(&bytes).unwrap();
+        v["version"] = 9.into();
+        assert!(Calibration::restore(&serde_json::to_vec(&v).unwrap()).is_err());
+        v["version"] = 1.into();
+        v["scopes"]["a".repeat(64)][0]["actual"] = 0.into();
+        assert!(Calibration::restore(&serde_json::to_vec(&v).unwrap()).is_err());
+    }
+    #[test]
+    fn persisted_invalidation_and_underestimate_do_not_resurrect_old_samples() {
+        let mut c = warm();
+        let scope = "a".repeat(64);
+        c.observe(
+            &scope,
+            &"f".repeat(64),
+            WireFeatures {
+                buckets: [1_448_000, 0, 0],
+                ..Default::default()
+            },
+            900_000,
+        );
+        assert_eq!(
+            Calibration::restore(&c.snapshot().unwrap()).unwrap().scopes[&scope].len(),
+            1
+        );
+        c.invalidate(&scope);
+        assert!(Calibration::restore(&c.snapshot().unwrap())
+            .unwrap()
+            .scopes
+            .is_empty());
     }
 }

@@ -1,5 +1,7 @@
 //! Streaming Chat Completions and Responses API support.
 
+mod calibration_store;
+pub use calibration_store::CalibrationStore;
 mod protocol;
 mod provider;
 mod sse;

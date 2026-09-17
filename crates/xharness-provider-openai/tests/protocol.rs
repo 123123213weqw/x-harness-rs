@@ -1183,3 +1183,123 @@ async fn http_provider_honors_input_usage_override_before_emitting_completion() 
         server.await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn completed_http_usage_survives_restart_and_overflow_invalidates_disk() {
+    use std::sync::Arc;
+    use xharness_token::TokenCountAccuracy;
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "xh-calibration-http-{}-{}",
+            std::process::id(),
+            address.port()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("cache.json");
+        let server = tokio::spawn(async move {
+            for i in 0..9 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buf = Vec::new();
+                let mut chunk = [0; 8192];
+                loop {
+                    let n = socket.read(&mut chunk).await.unwrap();
+                    assert!(n > 0);
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
+                        let len: usize = head
+                            .lines()
+                            .find_map(|s| s.strip_prefix("content-length: "))
+                            .unwrap()
+                            .parse()
+                            .unwrap();
+                        if buf.len() >= end + 4 + len {
+                            break;
+                        }
+                    }
+                }
+                let (status, body) = if i == 8 {
+                    ("400 Bad Request",json!({"error":{"code":"context_length_exceeded","message":"maximum context length exceeded"}}).to_string())
+                } else {
+                    let event = match protocol {
+                        OpenAiProtocol::ChatCompletions => {
+                            json!({"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100000,"completion_tokens":1,"prompt_tokens_details":{"cached_tokens":90000}}})
+                        }
+                        OpenAiProtocol::Responses => {
+                            json!({"type":"response.completed","response":{"output":[],"usage":{"input_tokens":100000,"output_tokens":1,"input_tokens_details":{"cached_tokens":90000}}}})
+                        }
+                    };
+                    ("200 OK", format!("data: {event}\n\ndata: [DONE]\n\n"))
+                };
+                socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let config = OpenAiProviderConfig::new(
+            protocol,
+            format!("http://{address}/v1"),
+            "private-key-marker",
+            "private-model-marker",
+        );
+        let provider = OpenAiProvider::new(config.clone())
+            .unwrap()
+            .with_calibration_store(Arc::new(CalibrationStore::open(path.clone())));
+        let mut request = ProviderRequest {
+            messages: vec![],
+            tools: vec![],
+            step: 1,
+            reasoning_effort: None,
+            max_output_tokens: None,
+            debug_scope: Default::default(),
+        };
+        for i in 0..8 {
+            request.messages = vec![AgentMessage::user(format!(
+                "private-prompt-marker-{i} {}",
+                "x".repeat(400000)
+            ))];
+            let mut stream = provider
+                .stream(request.clone(), CancellationToken::new())
+                .await
+                .unwrap();
+            while let Some(event) = stream.next().await {
+                event.unwrap();
+            }
+        }
+        let before = provider.estimate_input_tokens(&request).unwrap();
+        assert_eq!(before.accuracy, TokenCountAccuracy::Calibrated);
+        assert!(before.input_tokens < 150000);
+        drop(provider);
+        let restored = OpenAiProvider::new(config)
+            .unwrap()
+            .with_calibration_store(Arc::new(CalibrationStore::open(path.clone())));
+        assert_eq!(
+            restored
+                .estimate_input_tokens(&request)
+                .unwrap()
+                .input_tokens,
+            before.input_tokens
+        );
+        let disk = std::fs::read_to_string(&path).unwrap();
+        for secret in [
+            "private-key-marker",
+            "private-model-marker",
+            "private-prompt-marker",
+            "http://",
+        ] {
+            assert!(!disk.contains(secret));
+        }
+        let error = match restored.stream(request, CancellationToken::new()).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected overflow"),
+        };
+        assert!(error.is_context_overflow());
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(&path).unwrap()).unwrap()
+                ["scopes"],
+            json!({})
+        );
+        server.await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
