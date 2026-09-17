@@ -1217,10 +1217,16 @@ fn restored_web_event(
         | EventData::GoalChange { .. }
         | EventData::ScheduleChange { .. }
         | EventData::PlanMode { .. }
-        | EventData::LlmRetry { .. }
-        | EventData::LlmRetryStarted { .. }
         | EventData::CompactionPrune { .. }
         | EventData::RequestContext { .. } => tagged_event_data(event.data()),
+        EventData::LlmRetry { turn, .. } | EventData::LlmRetryStarted { turn, .. } => {
+            let (kind, mut data, surface) = tagged_event_data(event.data());
+            // Retry updates must share their start/end's zero-based Web turn.
+            // Passing the durable turn through attaches them to the next turn,
+            // where history replay sees an update before its start.
+            data["turn"] = json!(web_turn(*turn));
+            (kind, data, surface)
+        }
         EventData::CompactionSummary { summary, usage, .. } => {
             let (kind, mut data, surface) = tagged_event_data(event.data());
             data["summary"] = json!([{"type":"text", "text":summary}]);
