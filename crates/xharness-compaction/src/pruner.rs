@@ -110,7 +110,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_deepseek_tool_result_pruner() {
+    fn defaults_match_the_documented_tool_result_pruner() {
         let config = ToolResultPrunerConfig::default();
         assert_eq!(config.threshold_chars, 8_192);
         assert_eq!(config.head_chars, 4_096);

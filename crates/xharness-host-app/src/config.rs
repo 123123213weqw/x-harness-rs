@@ -1,5 +1,3 @@
-pub(crate) mod reasoning_catalog;
-
 use std::{collections::BTreeMap, env, fs, path::Path, sync::Arc};
 
 use serde::Deserialize;
@@ -94,18 +92,15 @@ impl ModelDeployment {
                 default_token_guard: None,
             });
         }
-        let reasoning =
-            reasoning_catalog::builtin(&config.base_url, &config.model, config.protocol);
-        let mut provider_config = OpenAiProviderConfig::new(
+        // The single-model CLI path has no provider document to declare efforts
+        // in; `--providers-file` is the supported way to describe a route.
+        let provider_config = OpenAiProviderConfig::new(
             config.protocol,
             config.base_url,
             config.api_key,
             &config.model,
         )
         .with_context_window_fallback(config.context_window_tokens);
-        if let Some(reasoning) = &reasoning {
-            provider_config = provider_config.with_reasoning_profile(reasoning.adapter_profile()?);
-        }
         let adapter = OpenAiProvider::new(provider_config)
             .map_err(|error| error.to_string())?
             .with_debug(debug);
@@ -125,16 +120,13 @@ impl ModelDeployment {
             config.token_safety_margin,
         )?;
         let provider: Arc<dyn ModelProvider> = Arc::new(adapter);
-        let mut descriptor = ModelDescriptor::new(
+        let descriptor = ModelDescriptor::new(
             &config.provider,
             &config.provider,
             &config.model,
             &config.model,
         )
         .with_context_window(capabilities.context_window);
-        if let Some(reasoning) = reasoning {
-            descriptor = descriptor.with_reasoning(reasoning.public());
-        }
         let mut registry = ModelRegistry::new();
         registry
             .register(
@@ -316,14 +308,8 @@ impl ProviderConfig {
                 reasoning_capability,
             } = model;
             let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
-            let reasoning = if reasoning_disabled {
-                None
-            } else {
-                reasoning.or_else(|| {
-                    reasoning_catalog::builtin(&self.base_url, &upstream_model, protocol)
-                })
-            };
-            let reasoning_state = reasoning_capability.unwrap_or_else(|| serde_json::json!({"state":if reasoning_disabled {"disabled"} else if reasoning.is_some() {"supported"} else {"unknown"},"source":if reasoning_disabled {"explicit"} else {"configured_or_documented"}}));
+            let reasoning = if reasoning_disabled { None } else { reasoning };
+            let reasoning_state = reasoning_capability.unwrap_or_else(|| serde_json::json!({"state":if reasoning_disabled {"disabled"} else if reasoning.is_some() {"supported"} else {"unknown"},"source":if reasoning_disabled {"explicit"} else {"configured"}}));
             let mut provider_config =
                 OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model)
                     .with_context_window_fallback(fallback_context_window_tokens);
@@ -395,20 +381,6 @@ impl ProviderConfig {
         }
         Ok(())
     }
-}
-
-/// Reuse native adapter construction for editable profiles. Missing credentials
-/// leave a configured provider inactive so the subsequent credentials.set can
-/// activate it; no placeholder model is advertised as usable.
-#[cfg(test)]
-pub(crate) async fn registry_from_settings(
-    document: &xharness_host::ModelSettingsDocument,
-    keys: &BTreeMap<String, Option<String>>,
-    debug: DebugRecorder,
-    attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
-) -> Result<ModelRegistry, String> {
-    registry_from_resolved_settings(document, keys, debug, attachments, &BTreeMap::new(), None)
-        .await
 }
 
 pub(crate) async fn registry_from_resolved_settings(
@@ -661,33 +633,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn checked_in_deepseek_example_uses_environment_credentials_and_current_models() {
+    fn checked_in_remote_example_uses_environment_credentials_and_declared_efforts() {
         let config: ProviderFile = serde_json::from_str(include_str!(
-            "../../../config/providers.deepseek.example.json"
+            "../../../config/providers.remote.example.json"
         ))
         .unwrap();
-        assert_eq!(config.default.provider, "deepseek");
-        assert_eq!(config.default.model, "deepseek-v4-flash");
+        assert_eq!(config.default.provider, "remote");
+        assert_eq!(config.default.model, "chat-model");
         assert_eq!(config.default.reasoning_effort.as_deref(), Some("high"));
         assert_eq!(config.providers.len(), 1);
         let provider = &config.providers[0];
-        assert_eq!(provider.base_url, "https://api.deepseek.com");
+        assert_eq!(provider.base_url, "https://api.example.com/v1");
         assert_eq!(provider.protocol, "chat");
-        assert_eq!(provider.api_key_env.as_deref(), Some("DEEPSEEK_API_KEY"));
+        assert_eq!(provider.api_key_env.as_deref(), Some("EXAMPLE_API_KEY"));
         assert_eq!(
             provider
                 .models
                 .iter()
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            ["deepseek-v4-flash", "deepseek-v4-pro"]
+            ["chat-model", "chat-model-pro"]
         );
+        // Effort levels are configuration, not a vendor table baked into the Host.
         assert!(provider.models.iter().all(|model| {
-            model.fallback_context_window_tokens == Some(1_048_576)
-                && model
-                    .reasoning
-                    .as_ref()
-                    .is_some_and(|reasoning| reasoning.default_effort.as_deref() == Some("high"))
+            model.fallback_context_window_tokens == Some(131_072)
+                && model.reasoning.as_ref().is_some_and(|reasoning| {
+                    reasoning.default_effort.as_deref() == Some("high")
+                        && reasoning.efforts.iter().any(|effort| effort.id == "high")
+                })
         }));
     }
     use xharness_core::CapabilitySource;
@@ -947,7 +920,7 @@ mod usage_settings_tests {
     #[test]
     fn deployment_file_preserves_usage_semantics_in_editable_settings() {
         let mut value: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../config/providers.deepseek.example.json"
+            "../../../config/providers.remote.example.json"
         ))
         .unwrap();
         let defaults: ProviderFile = serde_json::from_value(value.clone()).unwrap();
@@ -969,7 +942,7 @@ mod usage_settings_tests {
         std::fs::remove_file(path).unwrap();
         let settings = settings.unwrap();
         assert_eq!(
-            settings["providers"]["deepseek"]["usageInputSemantics"],
+            settings["providers"]["remote"]["usageInputSemantics"],
             "uncached_input"
         );
         value["providers"][0]["usage_input_semantics"] = serde_json::json!("invalid");

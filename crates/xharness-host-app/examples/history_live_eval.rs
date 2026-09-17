@@ -88,9 +88,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::io::stdin().read_to_string(&mut input)?;
     let cfg: Value = serde_json::from_str(&input)?;
     let model = cfg["model"].as_str().ok_or("model required")?.to_owned();
+    let base_url = cfg["base_url"]
+        .as_str()
+        .ok_or("base_url required (OpenAI-compatible endpoint)")?;
     let provider = Arc::new(OpenAiProvider::new(OpenAiProviderConfig::new(
         OpenAiProtocol::ChatCompletions,
-        "https://api.deepseek.com",
+        base_url,
         cfg["api_key"].as_str().ok_or("api_key required")?,
         &model,
     ))?);

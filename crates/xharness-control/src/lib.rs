@@ -697,7 +697,7 @@ fn reject_sensitive_values(value: &Value, context: &str) -> Result<(), ControlEr
 #[test]
 fn settings_credential_references_are_not_secret_values() {
     assert!(reject_sensitive_values(
-        &serde_json::json!({"apiKeyEnv":"DEEPSEEK_API_KEY"}),
+        &serde_json::json!({"apiKeyEnv":"EXAMPLE_API_KEY"}),
         "settings"
     )
     .is_ok());

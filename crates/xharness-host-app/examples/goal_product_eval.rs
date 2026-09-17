@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?);
         let runtime = Arc::new(DurableLoopAgentRuntime::new(
             "test",
-            "deepseek",
+            "eval-model",
             None,
             Arc::new(xharness_host::NoTools),
             Arc::new(xharness_core::IdentityContextPolicy),
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
         let mut config = HostConfig::new(root.join("work"));
         config.provider_id = "test".into();
-        config.model_id = "deepseek".into();
+        config.model_id = "eval-model".into();
         let host = BasicHost::with_agent_runtime(config, runtime.clone());
         let restore = host.restore_from_store(store.clone()).await?;
         if !restore.issues.is_empty() {
@@ -133,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
     let runtime = Arc::new(DurableLoopAgentRuntime::new(
         "test",
-        "deepseek",
+        "eval-model",
         Some(provider),
         tools.clone(),
         Arc::new(xharness_core::IdentityContextPolicy),
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     let mut config = HostConfig::new(cwd.clone());
     config.provider_id = "test".into();
-    config.model_id = "deepseek".into();
+    config.model_id = "eval-model".into();
     let host = BasicHost::with_agent_runtime(config, runtime.clone());
     host.restore_from_store(store.clone()).await?;
     if !revise {

@@ -384,16 +384,22 @@ async fn credential_storage_failure_does_not_activate_unsaved_key() {
 }
 
 #[tokio::test]
-async fn legacy_deepseek_effort_selection_survives_restore_and_model_switch() {
+async fn declared_effort_selection_survives_restore_and_model_switch() {
     let dir = TempDir::new();
     let keys = Arc::new(TestCredentials::default());
     let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
     let (host, runtime) = fixture_with_store(&dir, keys.clone(), store.clone()).await;
     // No credential and no network call is needed to construct a descriptor.
+    // Efforts are declared by the deployment, so any endpoint can describe them.
     add(
         &host,
-        json!({"baseURL":"https://api.deepseek.com", "api":"openai-completions", "models":[
-            {"id":"deepseek-v4-flash","contextWindow":1000000},
+        json!({"baseURL":"https://api.example.com/v1", "api":"openai-completions", "models":[
+            {"id":"chat-model","contextWindow":1000000,"reasoning":{"defaultEffort":"high","efforts":[
+                {"id":"off","name":"Off","requestPatch":{"reasoning_effort":"none"}},
+                {"id":"low","name":"Low","requestPatch":{"reasoning_effort":"low"}},
+                {"id":"high","name":"High","requestPatch":{"reasoning_effort":"high"}},
+                {"id":"max","name":"Max","requestPatch":{"reasoning_effort":"max"}}
+            ]}},
             {"id":"unknown","contextWindow":32768}
         ]}),
     )
@@ -401,7 +407,7 @@ async fn legacy_deepseek_effort_selection_survives_restore_and_model_switch() {
     let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
     let id = created["sessionId"].as_str().unwrap();
     for effort in ["off", "low", "high", "max"] {
-        rpc(&host,RpcMethod::SessionSelectModel,json!({"sessionId":id,"provider":"test-gateway","model":"deepseek-v4-flash","reasoningEffort":effort,"contextWindowTokens":65536})).await;
+        rpc(&host,RpcMethod::SessionSelectModel,json!({"sessionId":id,"provider":"test-gateway","model":"chat-model","reasoningEffort":effort,"contextWindowTokens":65536})).await;
         let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
         assert_eq!(catalog["current"]["reasoningEffort"], effort);
         assert_eq!(catalog["current"]["contextWindowTokens"], 65536);
