@@ -1091,4 +1091,206 @@ mod tests {
         }
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
+
+    /// The shipped Web client mutates Goals through the upstream namespaced
+    /// remotes (`/api/goals/*`). Without the bridge every GoalBar verb except the
+    /// `/goal` command answered `404` ("client api: goals/clear failed:
+    /// transport failure for /api/goals/clear: HTTP 404"), so the trash, pause,
+    /// resume, edit and confirm buttons were all dead in the real UI.
+    #[tokio::test]
+    async fn namespaced_goal_remotes_serve_every_goal_bar_action() {
+        async fn remote(host: &BasicHost, endpoint: &str, payload: Value) -> Value {
+            match host
+                .call_dynamic(
+                    xharness_api::RpcId::new(format!("{endpoint}-{}", next_rpc())),
+                    endpoint,
+                    payload,
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap_or_else(|| panic!("{endpoint} is not mounted"))
+            {
+                xharness_api::RpcResult::Success { value: Some(value) } => value,
+                other => panic!("{endpoint} failed: {other:?}"),
+            }
+        }
+        async fn fails(host: &BasicHost, endpoint: &str, payload: Value) -> bool {
+            !host
+                .call_dynamic(
+                    xharness_api::RpcId::new(format!("{endpoint}-{}", next_rpc())),
+                    endpoint,
+                    payload,
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap_or_else(|| panic!("{endpoint} is not mounted"))
+                .is_ok()
+        }
+        // Every client call mints its own rpcId; reuse would hit the durable
+        // mutation receipt and fail with SessionConflict on purpose.
+        fn next_rpc() -> usize {
+            static NEXT: AtomicUsize = AtomicUsize::new(1);
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        }
+        let (host, store, _) = setup("progress").await;
+        let created = call(
+            &host,
+            "create",
+            RpcMethod::GoalCreate,
+            json!({
+                "sessionId": "g",
+                "objective": "Namespaced remotes",
+                "maxGoalRounds": 3,
+                "executionEnabled": false,
+            }),
+        )
+        .await;
+        // Creation keeps the flat `{ref}` result its schema expects; nothing runs
+        // yet because automatic execution is off.
+        let reference = created["ref"].clone();
+        assert!(reference["id"].as_str().is_some_and(|id| !id.is_empty()));
+        assert_eq!(reference["revision"], 1);
+
+        // Edit answers with the whole goal state, not just the flat ref.
+        let edited = remote(
+            &host,
+            "goals/edit",
+            json!({"args": {
+                "agentId": "g",
+                "ref": reference,
+                "request": {"objective": "Edited remotely", "maxGoalRounds": 3},
+            }}),
+        )
+        .await;
+        assert_eq!(edited["ref"]["id"], created["ref"]["id"]);
+        assert_eq!(edited["ref"]["revision"], 2);
+        assert_eq!(edited["id"], created["ref"]["id"]);
+        assert_eq!(edited["revision"], 2);
+        assert_eq!(edited["objective"], "Edited remotely");
+        assert_eq!(edited["maxGoalRounds"], 3);
+        assert_eq!(edited["roundsStarted"], 0);
+        assert_eq!(edited["phase"], "active");
+        assert_eq!(edited["activation"], "disarmed");
+        assert!(edited["createdAt"].as_u64().unwrap() > 0);
+        assert!(edited["updatedAt"].as_u64().unwrap() > 0);
+
+        // Pause, confirm and clear drive the same durable transitions as the bar.
+        let paused = remote(
+            &host,
+            "goals/pause",
+            json!({"args": {"agentId": "g", "ref": edited["ref"]}}),
+        )
+        .await;
+        assert_eq!(paused["phase"], "paused");
+        assert_eq!(paused["activation"], "disarmed");
+        assert_eq!(paused["ref"]["revision"], 3);
+        let completed = remote(
+            &host,
+            "goals/complete",
+            json!({"args": {"agentId": "g", "ref": paused["ref"]}}),
+        )
+        .await;
+        assert_eq!(completed["phase"], "complete");
+        assert_eq!(completed["activation"], "disarmed");
+        let cleared = remote(
+            &host,
+            "goals/clear",
+            json!({"args": {"agentId": "g", "ref": completed["ref"]}}),
+        )
+        .await;
+        assert_eq!(cleared, json!({"cleared": true}));
+        let session = store.load("g").await.unwrap().unwrap();
+        assert!(session.events().iter().any(|event| matches!(
+            event.data(),
+            EventData::GoalChange {
+                change: xharness_session::GoalChange::Clear(_)
+            }
+        )));
+        // The cleared session has no goal left, so the same verbs fail like the
+        // flat methods instead of reporting success.
+        assert!(
+            fails(
+                &host,
+                "goals/resume",
+                json!({"args": {"agentId": "g", "ref": completed["ref"]}})
+            )
+            .await
+        );
+
+        // A second goal proves the resume path arms automatic continuation and
+        // answers with the full state contract, key set included.
+        let second = call(
+            &host,
+            "create-second",
+            RpcMethod::GoalCreate,
+            json!({
+                "sessionId": "g",
+                "objective": "Resume remotely",
+                "maxGoalRounds": 1,
+                "executionEnabled": false,
+            }),
+        )
+        .await;
+        let paused_second = remote(
+            &host,
+            "goals/pause",
+            json!({"args": {"agentId": "g", "ref": second["ref"]}}),
+        )
+        .await;
+        let resumed = remote(
+            &host,
+            "goals/resume",
+            json!({"args": {"agentId": "g", "ref": paused_second["ref"]}}),
+        )
+        .await;
+        assert_eq!(resumed["ref"]["id"], second["ref"]["id"]);
+        // Arming starts rounds immediately, and each round bumps the revision,
+        // so only the lower bound is stable here.
+        assert!(
+            resumed["ref"]["revision"].as_u64().unwrap()
+                > paused_second["ref"]["revision"].as_u64().unwrap()
+        );
+        let mut keys = resumed
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "activation",
+                "createdAt",
+                "id",
+                "maxGoalRounds",
+                "objective",
+                "phase",
+                "ref",
+                "revision",
+                "roundsStarted",
+                "updatedAt",
+            ]
+        );
+        // Round settlement is asynchronous, so read the durable arming instead.
+        let session = store.load("g").await.unwrap().unwrap();
+        assert!(session.events().iter().any(|event| matches!(
+            event.data(),
+            EventData::GoalExecution { change }
+                if change.operation == GoalExecutionOperation::Enable
+        )));
+
+        // The other upstream namespaces stay unmounted instead of silently
+        // succeeding, which is what keeps unknown endpoints a 404.
+        assert!(host
+            .call_dynamic(
+                xharness_api::RpcId::new("files"),
+                "fileReferences/list",
+                json!({"args": {"agentId": "g", "query": ""}}),
+                CancellationToken::new(),
+            )
+            .await
+            .is_none());
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
 }

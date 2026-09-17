@@ -11,6 +11,45 @@
 - [x] `STOP-QUEUE-03` 回归：`xharness-host` `user_stop_lets_the_already_queued_prompt_start_the_next_turn`（停止后自动 turn 2 + 门禁落盘为 false）与既有 `host_flood_steer_stop_clears_running_and_parks_internal_followup`（内部回执仍被拦）。
 - [ ] `STOP-QUEUE-04` 跨平台 CI、合并、发布与已安装桌面/Web 替换后真实会话复验（源码修复不代表已部署）。
 
+## Web UI 与桌面 App UI 的漂移（2026-09-17）
+
+现象：`http://127.0.0.1:3082` 的页面与已安装 App 的界面看起来不同。实测结论是「两边各新一半」：
+
+- 静态资源：`diff`/md5 全树比对（各 199 个文件）只有 3 个文件不同，且无单边文件。
+  App 的 `Contents/Resources/web` 与标签 `desktop-v0.2.19`（`9f8e7dc`）的 `ui/dist` **逐字节相同**；
+  仓库 `ui/dist`（= 3082 的 `--static-dir`）多了 #87（`3e28e17`）的设置补丁。
+  唯一有行为差异的文件是 `plugins/@deepseek-ai/dsh-client-ui-settings/client.js`（51168 → 53464 字节，
+  多出 `xhSettingsSaveFeedback`），`index.html` / `client-graph.json` 只是它的 rev 变了。
+- Host 二进制：App 内是 0.2.19 官方构建（27181344 字节，装机时间 09-17 10:00）；
+  3082 用的是 `~/Library/Application Support/XHarness/bin/xharness-host`（26739920 字节，09-11 15:33，更旧）。
+- 数据面：App Host `--state-dir .../com.xlang.xharness/state`、无 `--providers-file`；
+  3082 Host `--state-dir .../XHarness` + `--providers-file .../XHarness/providers.json`，
+  工作区/会话/模型列表天然不同。
+- 桌面专有层：`ui/dist/desktop-updater.js` 只在 `window.__TAURI__` 存在时挂载，浏览器里永远看不到
+  「XHarness 桌面更新 / 运行诊断」入口，两边资源相同但渲染结果不同。
+
+- [x] `UI-DRIFT-01` 用 md5 全树比对确认 App 资源 == `desktop-v0.2.19` 树、与 HEAD 只差 3 文件，并定位到 #87 设置补丁。
+- [x] `UI-DRIFT-02` 在 WZU_Server 上用**App 自带的那份 web 资源**（`~/ca-work/app-web`）配修复版 Host 跑真实 Chromium 探针：30/30 通过，证明 GoalBar 修复不依赖仓库 `ui/dist`。
+- [ ] `UI-DRIFT-03` App 侧缺 #87 的两半：UI 无「设置未保存」提示，Host 也不持久化 `ui-theme`/`locale`/`ui-conversation`/`agent-presets`（重启即丢）。发版替换 App 后需复验这两点。
+- [ ] `UI-DRIFT-04` 改 App UI 必须重打包：`apps/desktop/src-tauri/tauri.conf.json:45` 把 `ui/dist/` 整体塞进 `Contents/Resources/web`，桌面壳 `apps/desktop/src-tauri/src/sidecar.rs:78` 又硬编码 `app.path().resolve("web", BaseDirectory::Resource)`，没有覆盖开关（同一处已支持 `XHARNESS_WORKSPACE`/`XHARNESS_STATE_DIR`/`XHARNESS_PROVIDERS_FILE` 三个环境变量）。建议加 `XHARNESS_STATIC_DIR`：桌面壳先按环境变量解析 web 目录，缺省仍走 bundle，之后改 UI 只需改工作目录 + 重载窗口，不必重打包重装。
+- [x] `UI-DRIFT-05` 免重打包的临时办法（机制已验证）：把 `Contents/Resources/web` 换成指向工作副本的符号链接。用 0.2.19 自带 Host 实测 `--static-dir /tmp/xh-web-link`（软链到仓库 `ui/dist`）→ `/`、`/plugins/.../client.js`、`/monochrome.css` 全部 200 且 `index.html` 内容正确，说明 Host 静态服务会跟随目录软链。注意：这是改本机已安装 App（会被下次自动更新覆盖），必须先整目录备份。
+
+## GoalBar 按钮全 404：上游命名空间 Remote 未挂载（2026-09-17）
+
+现场：已安装桌面 App（0.2.19）与 3082 Web 后端上，GoalBar 的暂停/恢复/编辑/确认/清除按钮点击后
+只出现红字 `client api: goals/clear failed: transport failure for /api/goals/clear: HTTP 404`，
+目标不变。真实 Chromium + 出厂 Web 资源抓包确认：UI 发的是上游命名空间 Remote
+`POST /api/goals/<verb>`（`{"args":{agentId,ref,request}}`），而 Host 只挂了
+`commands/list`、`commands/execute`，其余动态端点按设计返回 404。
+
+- [x] `GOAL-UI-01` Host `call_dynamic` 挂载 `goals/create|edit|pause|resume|complete|clear`，把 `args.{agentId,ref,request}` 映射到既有扁平方法；其他上游命名空间（`fileReferences`、`dynamicCordisRunner` 等）保持 404，不在此次范围。
+- [x] `GOAL-UI-02` 结果形状按客户端 schema 返回：create 为 `{ref}`、clear 为 `{cleared:true}`，edit/pause/resume/complete 返回整个目标状态（含 `activation: armed|disarmed`，取自执行 `enabled`），否则客户端 `rejected "result"`。
+- [x] `GOAL-UI-03` 回归两层：`xharness-host` 单测 `namespaced_goal_remotes_serve_every_goal_bar_action`（六个动词 + 过期 ref 仍报错 + 其他命名空间仍 404）；`xharness-host-app` 集成测试 `tests/goal_remotes.rs` 起真实 Host 进程走 HTTP `POST /api/goals/<verb>`，断言 200 且返回整目标、未挂载命名空间仍 404。负向验证：删掉 `call_dynamic` 的 goals arm 后两个测试都失败（`goals/create must not 404` / `goals/edit is not mounted`）。
+- [ ] `GOAL-UI-04` 跨平台 CI、发布与已安装实例替换后在真实 App/Web 上复验按钮（源码修复不代表已部署）。真实路由已由 `GOAL-UI-03` 的进程级集成测试覆盖；`scripts/test-goal-runtime-browser.mjs` 仍用内存 stub，只验 UI 补丁形状。手工端到端（真实 Chromium + 修复版 Host + `ui/dist`，逐个点击 暂停/恢复/预算/编辑/清除）已一次性 30/30 通过，脚本未入库。
+- [ ] `GOAL-UI-05` 停止过的会话里 `goal.resume` 到达 Host 后不会解除 `agent/dispatch-paused` 门禁（自动续轮是内部回执），因此恢复按钮即使路由通了也不会立刻起轮；与停止后排队 Prompt 的修复（PR #91）属同一扇门。
+- [ ] `GOAL-UI-06` `goal.clear` 只写 tombstone，未像 pause/edit 那样落 `GoalExecutionOperation::Discard` + `execution_enabled=false`（`invalidate_goal_pending(id, None)` 跳过整段），清除后执行层仍留 `enabled=true/active`。
+- [ ] `GOAL-UI-07` `goal` 工具没有 clear/cancel 动作（`goals.rs` 取消用例显式断言拒绝），且非 complete 旧目标挡住宅建（`rpc.rs` `session already has a non-complete goal`），模型无法主动取消或替换目标。
+
 ## Token 校准重启恢复（2026-09-17）
 
 规范见 [校准持久化](specs/token-calibration-persistence.md)。

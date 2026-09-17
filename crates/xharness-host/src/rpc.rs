@@ -123,7 +123,7 @@ impl ApiBackend for BasicHost {
 
     async fn call_dynamic(
         &self,
-        _rpc_id: RpcId,
+        rpc_id: RpcId,
         endpoint: &str,
         payload: Value,
         _cancellation: CancellationToken,
@@ -132,6 +132,12 @@ impl ApiBackend for BasicHost {
             "session.requestSnapshot" => self.request_snapshot(&payload).await.map(Some),
             "commands/list" => self.commands_list(&payload).await.map(Some),
             "commands/execute" => self.commands_execute(&payload).await,
+            // The shipped Web client mutates Goals through the upstream
+            // namespaced remotes (`/api/goals/*`). Map them onto the flat
+            // methods above so every GoalBar action works instead of 404ing.
+            // The other upstream namespaces stay unmounted on purpose.
+            "goals/create" | "goals/edit" | "goals/pause" | "goals/resume" | "goals/complete"
+            | "goals/clear" => self.goal_remote(rpc_id, endpoint, &payload).await.map(Some),
             _ => return None,
         };
         Some(match result {
@@ -313,6 +319,105 @@ impl ApiBackend for BasicHost {
 }
 
 impl BasicHost {
+    /// Namespaced `goals/*` mutations for the shipped Web client.
+    ///
+    /// `args.agentId` names the session, `args.ref` the exact goal revision and
+    /// `args.request` the optional objective/budget change. Flat mutations answer
+    /// with `{ref}` only; the namespaced remotes answer with the whole goal state
+    /// their schemas require, so the client accepts them.
+    async fn goal_remote(
+        &self,
+        rpc_id: RpcId,
+        endpoint: &str,
+        payload: &Value,
+    ) -> Result<Value, RpcError> {
+        let args = payload
+            .get("args")
+            .ok_or_else(|| bad_request(format!("{endpoint} requires args")))?;
+        let session_id = required_string(args, "agentId")?;
+        let request = args.get("request").cloned().unwrap_or_else(|| json!({}));
+        let mut flat = json!({"sessionId": session_id});
+        if let Some(objective) = optional_string(&request, "objective")? {
+            flat["objective"] = json!(objective);
+        }
+        if let Some(rounds) = optional_u64(&request, "maxGoalRounds")? {
+            flat["maxGoalRounds"] = json!(rounds);
+        }
+        if endpoint == "goals/create" {
+            // The shipped client never sends `executionEnabled`, but the flat
+            // method understands it, so pass it through instead of silently
+            // arming a goal the caller asked to create disarmed.
+            if let Some(enabled) = request.get("executionEnabled") {
+                let enabled = enabled
+                    .as_bool()
+                    .ok_or_else(|| bad_request("request.executionEnabled must be a boolean"))?;
+                flat["executionEnabled"] = json!(enabled);
+            }
+            // Creation arms the goal and already answers with exactly the ref
+            // the upstream create schema expects.
+            return self.goal_create(rpc_id, &flat).await;
+        }
+        let reference = args
+            .get("ref")
+            .cloned()
+            .ok_or_else(|| bad_request(format!("{endpoint} requires ref")))?;
+        goal_ref(&json!({"ref": reference}))?;
+        flat["ref"] = reference;
+        match endpoint {
+            "goals/edit" => {
+                self.goal_edit(rpc_id, &flat).await?;
+            }
+            "goals/pause" => {
+                self.goal_transition(rpc_id, &flat, "paused").await?;
+            }
+            "goals/resume" => {
+                self.goal_transition(rpc_id, &flat, "active").await?;
+            }
+            "goals/complete" => {
+                self.goal_transition(rpc_id, &flat, "complete").await?;
+            }
+            "goals/clear" => return self.goal_clear(rpc_id, &flat).await,
+            _ => unreachable!("goal_remote is only mounted for goals/*"),
+        }
+        self.goal_remote_state(&session_id).await
+    }
+
+    /// Whole-goal value the upstream `goals/*` result schemas require.
+    ///
+    /// `activation` mirrors the execution `enabled` flag the Host already projects
+    /// for this session, so a paused or edited goal reports `disarmed`.
+    async fn goal_remote_state(&self, session_id: &str) -> Result<Value, RpcError> {
+        let goal = self
+            .state
+            .read()
+            .await
+            .goals
+            .get(session_id)
+            .cloned()
+            .ok_or_else(|| bad_request("session has no goal"))?;
+        let armed = goal
+            .execution
+            .as_ref()
+            .and_then(|execution| execution.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let mut value = json!({
+            "ref": {"id": &goal.id, "revision": goal.revision},
+            "id": &goal.id,
+            "revision": goal.revision,
+            "objective": &goal.objective,
+            "phase": goal.phase,
+            "maxGoalRounds": goal.max_goal_rounds,
+            "roundsStarted": goal.rounds_started,
+            "createdAt": goal.created_at,
+            "updatedAt": goal.updated_at,
+            "activation": if armed { "armed" } else { "disarmed" },
+        });
+        if let Some(reason) = goal.blocked_reason.as_ref() {
+            value["blockedReason"] = json!(reason);
+        }
+        Ok(value)
+    }
     async fn commands_list(&self, payload: &Value) -> Result<Value, RpcError> {
         let args = payload
             .get("args")

@@ -74,8 +74,11 @@ Create/Fork/Cancel/Attachment 等 RPC、补 Credential Reference，并继续减�
 
 固定 RPC 目录与生成式 Remote 目录必须保持分离。`RpcMethod::ALL` 仍严格等于上游 52 个固定
 方法；`/api/<namespace>/<method>` 只在 Backend 明确声明动态端点时分发，未知动态端点保持
-HTTP 404。当前先实现 Web 控件依赖的 `commands/list` 和 `commands/execute`；动态目录已暴露
-`permission` 与 `plan` 两个命令。
+HTTP 404。当前先实现 Web 控件依赖的 `commands/list` 和 `commands/execute`，以及上游 GoalBar
+动词所依赖的 `goals/create|edit|pause|resume|complete|clear`（把 `args.{agentId,ref,request}`
+映射到扁平 `goal.*`，按客户端 schema 返回 `{ref}`、`{cleared:true}` 或整个目标状态）；
+其他上游命名空间（`fileReferences`、`sessionReferenceResolver`、`dynamicCordisRunner` 等）仍未
+声明，保持 404。动态目录已暴露 `permission` 与 `plan` 两个命令。
 
 选中的 `AgentPreset.content` 已由 `xharness-prompt/v1` 与权限、Workspace、Coding Workflow、
 Plan Policy 确定性组装，并作为每轮第一个 `Role::System` 进入 Provider 请求。Request Header
