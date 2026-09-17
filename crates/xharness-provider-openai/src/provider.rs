@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use crate::CalibrationStore;
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::{header, Client, Response};
@@ -22,7 +23,7 @@ use xharness_core::{
     ProviderNetworkDiagnostics, ProviderRequest, ProviderStream,
 };
 use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
-use xharness_token::{Calibration, WireFeatures};
+use xharness_token::WireFeatures;
 
 use crate::{
     build_openai_request, build_openai_token_count_request, OpenAiProtocol, OpenAiStreamNormalizer,
@@ -305,7 +306,7 @@ pub struct OpenAiProvider {
     config: Arc<OpenAiProviderConfig>,
     client: Client,
     token_count_support: Arc<AtomicU8>,
-    calibration: Arc<std::sync::Mutex<Calibration>>,
+    calibration: Arc<CalibrationStore>,
     counter_retry_at: Arc<std::sync::Mutex<Option<Instant>>>,
     capability_cache: Arc<Mutex<Option<CachedCapabilities>>>,
     debug: DebugRecorder,
@@ -388,13 +389,18 @@ impl OpenAiProvider {
             config: Arc::new(config),
             client,
             token_count_support: Arc::new(AtomicU8::new(TOKEN_COUNT_UNKNOWN)),
-            calibration: Arc::new(std::sync::Mutex::new(Calibration::default())),
+            calibration: Arc::new(CalibrationStore::default()),
             counter_retry_at: Arc::new(std::sync::Mutex::new(None)),
             capability_cache: Arc::new(Mutex::new(None)),
             debug: DebugRecorder::disabled(),
             attachments: None,
             image_support: None,
         })
+    }
+
+    pub fn with_calibration_store(mut self, store: Arc<CalibrationStore>) -> Self {
+        self.calibration = store;
+        self
     }
 
     pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
@@ -556,7 +562,7 @@ impl OpenAiProvider {
         for k in ["messages", "input", "max_tokens", "max_output_tokens"] {
             controls.as_object_mut().unwrap().remove(k);
         }
-        let scope=format!("{:x}",Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":"openai-wire/v2"})).unwrap()));
+        let scope=format!("{:x}",Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":"openai-wire/v2","usageSemantics":self.config.usage_input_semantics})).unwrap()));
         let request_id = format!("{:x}", Sha256::digest(serde_json::to_vec(&body).unwrap()));
         let messages = request
             .messages
@@ -768,7 +774,7 @@ impl ModelProvider for OpenAiProvider {
 
     fn estimate_input_tokens(&self, request: &ProviderRequest) -> Option<ProviderInputTokenCount> {
         let (scope, _, features) = self.count_features(request).ok()?;
-        Some(self.calibration.lock().ok()?.estimate(&scope, &features))
+        self.calibration.estimate(&scope, &features)
     }
 
     async fn count_input_tokens(
@@ -930,9 +936,7 @@ impl ModelProvider for OpenAiProvider {
             };
             let mut error = observation.failure(ProviderError::http(code, detail), "http_status");
             if error.is_context_overflow() {
-                if let Ok(mut c) = calibration.lock() {
-                    *c = Calibration::default();
-                }
+                calibration.invalidate(count_features.0.clone()).await;
             }
             error.retry_after_ms = retry_after;
             return Err(error);
@@ -984,7 +988,7 @@ impl ModelProvider for OpenAiProvider {
                                                 ).with_scope(debug_scope.clone())).await;
                                                 if let ProviderEvent::Completed { usage: Some(usage), .. } = &provider_event {
                                                     let actual=usage.input_tokens.saturating_add(usage.cache_read_tokens).saturating_add(usage.cache_write_tokens);
-                                                    if let Ok(mut c)=calibration.lock() {c.observe(&count_features.0,&count_features.1,count_features.2.clone(),actual);}
+                                                    calibration.observe(count_features.0.clone(),count_features.1.clone(),count_features.2.clone(),actual).await;
                                                 }
                                                 let terminal = matches!(provider_event, ProviderEvent::Completed { .. });
                                                 yield Ok(provider_event);
@@ -1049,7 +1053,7 @@ impl ModelProvider for OpenAiProvider {
                                                 ).with_scope(debug_scope.clone())).await;
                                                 if let ProviderEvent::Completed { usage: Some(usage), .. } = &provider_event {
                                                     let actual=usage.input_tokens.saturating_add(usage.cache_read_tokens).saturating_add(usage.cache_write_tokens);
-                                                    if let Ok(mut c)=calibration.lock() {c.observe(&count_features.0,&count_features.1,count_features.2.clone(),actual);}
+                                                    calibration.observe(count_features.0.clone(),count_features.1.clone(),count_features.2.clone(),actual).await;
                                                 }
                                                 let terminal = matches!(provider_event, ProviderEvent::Completed { .. });
                                                 yield Ok(provider_event);
@@ -1302,6 +1306,37 @@ mod tests {
     }
 
     #[test]
+    fn offline_recovery_encoder_matches_actual_rust_wire_features() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../scripts/fixtures/token-calibration-wire-v2.json"
+        ))
+        .unwrap();
+        let value = &fixture["request"];
+        let request = ProviderRequest {
+            messages: serde_json::from_value(value["messages"].clone()).unwrap(),
+            tools: serde_json::from_value(value["tools"].clone()).unwrap(),
+            step: 1,
+            reasoning_effort: None,
+            max_output_tokens: Some(32000),
+            debug_scope: Default::default(),
+        };
+        let p = OpenAiProvider::new(OpenAiProviderConfig::new(
+            OpenAiProtocol::ChatCompletions,
+            "http://localhost:1234/v1",
+            "not-in-snapshot",
+            "fixture-model",
+        ))
+        .unwrap();
+        let (scope, id, features) = p.count_features(&request).unwrap();
+        assert_eq!(scope, fixture["expected"]["scope"]);
+        assert_eq!(id, fixture["expected"]["request_id"]);
+        assert_eq!(
+            serde_json::to_value(features).unwrap(),
+            fixture["expected"]["features"]
+        );
+    }
+
+    #[test]
     fn calibration_scope_tracks_model_endpoint_tools_and_reasoning_not_output_limit() {
         let profile = OpenAiReasoningProfile::new(
             Some("off".into()),
@@ -1334,6 +1369,36 @@ mod tests {
         assert_ne!(base, p.count_features(&r).unwrap().0);
         let mut c = config.clone();
         c.model = "b".into();
+        assert_ne!(
+            base,
+            OpenAiProvider::new(c)
+                .unwrap()
+                .count_features(&request(None))
+                .unwrap()
+                .0
+        );
+        let mut c = config.clone();
+        c.api_key = "rotated-secret".into();
+        assert_eq!(
+            base,
+            OpenAiProvider::new(c)
+                .unwrap()
+                .count_features(&request(None))
+                .unwrap()
+                .0
+        );
+        let mut c = config.clone();
+        c.protocol = OpenAiProtocol::Responses;
+        assert_ne!(
+            base,
+            OpenAiProvider::new(c)
+                .unwrap()
+                .count_features(&request(None))
+                .unwrap()
+                .0
+        );
+        let mut c = config.clone();
+        c.usage_input_semantics = crate::InputUsageSemantics::UncachedInput;
         assert_ne!(
             base,
             OpenAiProvider::new(c)

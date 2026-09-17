@@ -1,0 +1,63 @@
+{
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "policy 中文"
+      },
+      {
+        "role": "user",
+        "content": "inspect"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": "think",
+        "tool_calls": [
+          {
+            "id": "internal",
+            "provider_call_id": "call-1",
+            "index": 0,
+            "name": "bash",
+            "arguments_json": "{\"command\":\"echo ok\"}"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call-1",
+        "content": "{\"ok\": true, \"truncated\": false, \"content\": \"{\\\"exit_code\\\": 0, \\\"stdout\\\": \\\"\\\\u4f60\\\\u597d\\\\nokay\\\"}\"}"
+      }
+    ],
+    "tools": [
+      {
+        "name": "bash",
+        "description": "fixture shell",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    ],
+    "step": 1,
+    "max_output_tokens": 32000
+  },
+  "expected": {
+    "legacy_scope": "ae21c8b0a0ec226ecd9d45bb9b0ed7af3b0b40b60d8ee32d2befc9a23c2481e6",
+    "scope": "7bed5719acc8ca8806da5c07fddcea513928c219332c6581d1609659747982a7",
+    "request_id": "964b7b2f270cc7156834da3de0b6e3ffd2df59faac08e615b0e2124a3840d2a5",
+    "features": {
+      "buckets": [
+        51,
+        159,
+        12
+      ],
+      "framing": 350,
+      "image_tokens": 0
+    }
+  }
+}

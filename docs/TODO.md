@@ -1,5 +1,17 @@
 # XHarness 总任务清单
 
+## Token 校准重启恢复（2026-09-17）
+
+规范见 [校准持久化](specs/token-calibration-persistence.md)。
+
+- [x] `TOKEN-CACHE-01` 数值/哈希快照、版本/容量/TTL 校验、损坏退回保守估算。
+- [x] `TOKEN-CACHE-02` Host state 独占目录接入共享缓存，模型刷新复用，完整 usage 原子落盘，服务端超限持久化失效。
+- [x] `TOKEN-CACHE-03` V100 单测、两种协议模拟 HTTP 重启回归、隐私/隔离/并发/写入失败边界与 Clippy。
+- [ ] `TOKEN-CACHE-04` 跨平台 CI、合并发布、已安装 Mac/Web 升级和真实会话重启验收。
+- [x] `TOKEN-CACHE-05a` 旧版文本 Chat 历史离线回填：审计 blob 哈希、turn/step 配对、历史 wire 指纹匹配、TTL、去重及 Rust 编码/缓存恢复交叉验证；当前真实会话恢复 32 个数值样本。
+- [ ] `TOKEN-CACHE-05b` 新版安装时停机备份并应用候选缓存，真实会话继续请求验收；不把候选文件生成当作已修复运行中的 0.2.19。
+
+
 ## macOS 未公证长期更新（2026-09-15）
 
 - [x] `MAC-UPDATE-01` 发布默认包含两个 Mac 架构预览版，复用长期统一清单；正式公证模式仍保留凭据门禁。
