@@ -9,7 +9,7 @@ use std::{
 
 use async_trait::async_trait;
 use serde_json::json;
-use tokio::sync::{Barrier, Mutex, Notify};
+use tokio::sync::{oneshot, Barrier, Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_tools::{
@@ -436,6 +436,63 @@ async fn approval_deadline_fails_closed_when_provider_never_answers() {
         Some(ToolFailureKind::ApprovalUnavailable)
     );
     assert!(result.failure.unwrap().message.contains("deadline"));
+}
+
+struct DeferredApproval {
+    decision: Mutex<Option<oneshot::Receiver<ApprovalDecision>>>,
+}
+
+#[async_trait]
+impl ApprovalProvider for DeferredApproval {
+    async fn request_approval(
+        &self,
+        _request: ApprovalRequest,
+    ) -> Result<ApprovalDecision, MiddlewareError> {
+        let receiver = self
+            .decision
+            .lock()
+            .await
+            .take()
+            .expect("approval is requested once per invocation");
+        receiver
+            .await
+            .map_err(|_| MiddlewareError::new("approval decision channel was dropped"))
+    }
+}
+
+/// The user answers when they answer. With no configured deadline an approval must
+/// never settle on its own, and a decision injected later must still run the tool.
+/// The paused clock advances far past the five-minute deadline this executor used to
+/// impose by default, so a bounded-by-default executor fails this test: its timer
+/// would settle the call and the wait below would observe a result instead of a
+/// timeout.
+#[tokio::test(start_paused = true)]
+async fn unanswered_approval_waits_for_the_user_instead_of_failing_closed() {
+    let registry = Arc::new(ToolRegistry::new());
+    registry
+        .register(successful_spec("approve_me").requiring_approval(true))
+        .await
+        .unwrap();
+    let (decision_tx, decision_rx) = oneshot::channel();
+    let executor = ToolExecutor::new(registry).with_approval_provider(Arc::new(DeferredApproval {
+        decision: Mutex::new(Some(decision_rx)),
+    }));
+
+    let call = executor.execute(ToolRequest::new("approve_me", r#"{"value":"x"}"#));
+    tokio::pin!(call);
+
+    assert!(
+        tokio::time::timeout(Duration::from_secs(30 * 60), &mut call)
+            .await
+            .is_err(),
+        "an unanswered approval must not settle without a decision"
+    );
+
+    decision_tx
+        .send(ApprovalDecision::Approved)
+        .expect("approval decision is delivered");
+    let result = call.await;
+    assert!(result.is_ok(), "{:?}", result.failure);
 }
 
 #[tokio::test]
