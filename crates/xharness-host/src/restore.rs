@@ -1217,10 +1217,16 @@ fn restored_web_event(
         | EventData::GoalChange { .. }
         | EventData::ScheduleChange { .. }
         | EventData::PlanMode { .. }
-        | EventData::LlmRetry { .. }
-        | EventData::LlmRetryStarted { .. }
         | EventData::CompactionPrune { .. }
         | EventData::RequestContext { .. } => tagged_event_data(event.data()),
+        EventData::LlmRetry { turn, .. } | EventData::LlmRetryStarted { turn, .. } => {
+            let (kind, mut data, surface) = tagged_event_data(event.data());
+            // Retry updates must share their start/end's zero-based Web turn.
+            // Passing the durable turn through attaches them to the next turn,
+            // where history replay sees an update before its start.
+            data["turn"] = json!(web_turn(*turn));
+            (kind, data, surface)
+        }
         EventData::CompactionSummary { summary, usage, .. } => {
             let (kind, mut data, surface) = tagged_event_data(event.data());
             data["summary"] = json!([{"type":"text", "text":summary}]);
@@ -3386,12 +3392,61 @@ mod tests {
             ]
         );
         assert_eq!(controls[0]["data"]["retryId"], "retry-1");
+        assert_eq!(controls[0]["data"]["turn"], 0);
+        assert_eq!(controls[1]["data"]["turn"], 0);
+        assert_eq!(controls[0]["data"]["step"], 1);
+        assert_eq!(controls[1]["data"]["retryId"], "retry-1");
+        assert_eq!(controls[1]["data"]["retry"], 1);
         assert_eq!(controls[2]["data"]["toolName"], "bash");
         assert_eq!(controls[2]["data"]["callId"], "execution-1");
         assert_eq!(controls[3]["data"]["outcome"], "rejected");
         assert!(controls
             .iter()
             .all(|event| event.get("surfaceOp").is_none()));
+
+        store
+            .append(
+                "control-projection",
+                session.revision(),
+                vec![
+                    EventData::TurnStart { turn: 2 }.into(),
+                    EventData::TurnEnd {
+                        turn: 2,
+                        reason: TurnEndReason::Completed,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let session = store.load("control-projection").await.unwrap().unwrap();
+        let full = project_session_event_range(&session, &route, 0, session.events().len());
+        let expected: Value = serde_json::from_str(include_str!(
+            "../../../scripts/fixtures/retry-turn-projection.json"
+        ))
+        .unwrap();
+        let associations = full
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event["type"].as_str(),
+                    Some("turn/start" | "turn/end" | "llm/retry" | "llm/retry-started")
+                )
+            })
+            .map(|event| json!({"type": event["type"], "turn": event["data"]["turn"]}))
+            .collect::<Vec<_>>();
+        assert_eq!(json!(associations), expected);
+        // Every history split must have the same coordinates as the full replay.
+        for split in 0..=session.events().len() {
+            let mut pages = project_session_event_range(&session, &route, 0, split);
+            pages.extend(project_session_event_range(
+                &session,
+                &route,
+                split,
+                session.events().len(),
+            ));
+            assert_eq!(pages, full, "history split {split}");
+        }
     }
 
     #[tokio::test]
