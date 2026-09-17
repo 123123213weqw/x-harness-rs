@@ -120,6 +120,11 @@ dispatch-paused 门禁只拦内部回执：只要用户自己排队的 Prompt �
 让它开始下一 Turn（重启恢复同样如此），内部 `placement=context` 输入不能自行解冻会话。File Lease
 提供单机跨进程所有权；远程多主机仍需要 Fencing Epoch。
 
+解除暂停、领取授权恢复的用户输入、交给 Runtime 必须与队列编辑及停止请求使用同一会话
+Admission 锁：撤回先完成则不恢复；Runtime 先领取则撤回返回“不再待处理”，不假报成功。
+恢复时先领取用户输入而非更早的内部回执。锁在 Runtime 返回 RunningTurn 后释放，不覆盖模型
+流式生成及工具执行；等待锁时须应答已失去活跃 Turn 的 Steering，防止锁与控制回执相互等待。
+
 每个 Step 无压力时通过默认 `IdentityContextPolicy` 完整重放当前 Session Surface。Host 已按
 平台能力投影工具，并从选中 Registry Route 读取真实 Context Window、输出预留和安全余量；正式
 Durable Runtime 默认安装 `CompactionConfig`，在 80% Pressure、Hard Overflow 或无 Delta 的

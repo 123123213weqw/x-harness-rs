@@ -1,5 +1,6 @@
 //! Regression coverage for delayed, steered and removed Host observers.
 use super::*;
+use serde_json::json;
 
 struct FloodThenBlock {
     attempts: AtomicUsize,
@@ -595,4 +596,208 @@ async fn restart_resumes_a_queued_user_prompt_despite_the_persisted_stop() {
     let session = store.load("stop-restore").await.unwrap().unwrap();
     assert!(!crate::delegation::restored_dispatch_paused(&session));
     runtime.shutdown(Duration::from_secs(1)).await;
+}
+
+// Hold the gate commit at a deterministic scheduling boundary.
+struct GateCommitRuntime {
+    entered: Notify,
+    release: Notify,
+    starts: AtomicUsize,
+    inputs: Mutex<Vec<String>>,
+}
+#[async_trait]
+impl AgentRuntime for GateCommitRuntime {
+    fn has_available_route(&self) -> bool {
+        true
+    }
+    fn can_route(&self, _: &ModelRoute) -> bool {
+        true
+    }
+    async fn persist_session_events(
+        &self,
+        _: &str,
+        _: &str,
+        events: Vec<xharness_session::SessionEvent>,
+    ) -> Result<bool, AgentRuntimeError> {
+        if events.iter().any(|e| {
+            matches!(
+                e.data(),
+                xharness_session::EventData::AgentDispatchPaused { paused: false }
+            )
+        }) {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
+        Ok(false)
+    }
+    async fn start_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.starts.fetch_add(1, AtomicOrdering::SeqCst);
+        self.inputs
+            .lock()
+            .unwrap()
+            .push(request.messages.last().unwrap().content.clone());
+        Err(AgentRuntimeError::Preparation {
+            message: "fixture handoff".into(),
+        })
+    }
+}
+async fn gate_race_host() -> (Arc<crate::BasicHost>, Arc<GateCommitRuntime>) {
+    use crate::state::{QueuePlacement, QueuedPrompt};
+    let rt = Arc::new(GateCommitRuntime {
+        entered: Notify::new(),
+        release: Notify::new(),
+        starts: AtomicUsize::new(0),
+        inputs: Mutex::new(Vec::new()),
+    });
+    let host = crate::BasicHost::with_agent_runtime(
+        crate::HostConfig::new(std::env::temp_dir()),
+        rt.clone(),
+    );
+    host.session_create(&json!({"sessionId":"race"}))
+        .await
+        .unwrap();
+    {
+        let mut state = host.state.write().await;
+        let s = state.sessions.get_mut("race").unwrap();
+        s.dispatch_paused = true;
+        s.running = true;
+        for (id, kind) in [("internal", "agent-settlement"), ("user-queued", "user")] {
+            s.queue.push_back(QueuedPrompt {
+                id: id.into(),
+                text: id.into(),
+                content: vec![json!({"type":"text","text":id})],
+                source: json!({"kind":kind}),
+                fingerprint: None,
+                placement: QueuePlacement::Queued,
+            });
+        }
+    }
+    (host, rt)
+}
+async fn remove_race_input(host: &crate::BasicHost) -> xharness_api::RpcResult {
+    use xharness_api::{ApiBackend, RpcId, RpcMethod};
+    host.call(
+        RpcId::new("delete"),
+        RpcMethod::SessionUpdateQueue,
+        json!({"sessionId":"race","itemId":"user-queued","action":{"kind":"remove"}}),
+        CancellationToken::new(),
+    )
+    .await
+}
+#[tokio::test]
+async fn deleting_last_queued_user_before_handoff_keeps_internal_work_paused() {
+    let (host, rt) = gate_race_host().await;
+    assert!(remove_race_input(&host).await.is_ok());
+    let (_tx, rx) = tokio::sync::mpsc::channel(4);
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        host.as_ref().clone().drive_session("race".into(), rx),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rt.starts.load(AtomicOrdering::SeqCst), 0);
+    assert!(host.state.read().await.sessions["race"].dispatch_paused);
+}
+#[tokio::test]
+async fn queue_removal_cannot_overtake_resume_commit_and_user_handoff() {
+    let (host, rt) = gate_race_host().await;
+    let (_tx, rx) = tokio::sync::mpsc::channel(4);
+    let h = host.as_ref().clone();
+    let driver = tokio::spawn(async move { h.drive_session("race".into(), rx).await });
+    tokio::time::timeout(Duration::from_secs(3), rt.entered.notified())
+        .await
+        .unwrap();
+    // Poll the real RPC while persistence is blocked. It must wait rather
+    // than acknowledge deletion and then let the old gate commit take effect.
+    let removal = remove_race_input(&host);
+    tokio::pin!(removal);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut removal)
+            .await
+            .is_err()
+    );
+    rt.release.notify_one();
+    let result = tokio::time::timeout(Duration::from_secs(3), removal)
+        .await
+        .unwrap();
+    assert!(
+        !result.is_ok(),
+        "handoff already claimed the queued user input"
+    );
+    tokio::time::timeout(Duration::from_secs(3), driver)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rt.inputs.lock().unwrap().first().unwrap(), "user-queued");
+}
+#[tokio::test]
+async fn idle_driver_acknowledges_steering_while_waiting_for_admission_lock() {
+    use crate::state::DriverCommand;
+    let (host, rt) = gate_race_host().await;
+    let guard = host.lock_admission("race").await;
+    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    let h = host.as_ref().clone();
+    let driver = tokio::spawn(async move { h.drive_session("race".into(), rx).await });
+    let (acknowledgement, accepted) = tokio::sync::oneshot::channel();
+    tx.send(DriverCommand {
+        command: xharness_core::LoopCommand::Steer(AgentMessage::new(
+            xharness_core::Role::User,
+            "steer",
+        )),
+        input_metadata: None,
+        acknowledgement,
+    })
+    .await
+    .unwrap();
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(3), accepted)
+            .await
+            .unwrap()
+            .unwrap(),
+        Err(xharness_core::LoopControlError::Closed)
+    ));
+    // No model request is necessary to exercise the idle lock/ack inversion.
+    host.state
+        .write()
+        .await
+        .sessions
+        .get_mut("race")
+        .unwrap()
+        .queue
+        .clear();
+    drop(guard);
+    tokio::time::timeout(Duration::from_secs(3), driver)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rt.starts.load(AtomicOrdering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn concurrent_stop_is_not_overwritten_by_resume_commit() {
+    let (host, rt) = gate_race_host().await;
+    let (_tx, rx) = tokio::sync::mpsc::channel(4);
+    let h = host.as_ref().clone();
+    let driver = tokio::spawn(async move { h.drive_session("race".into(), rx).await });
+    tokio::time::timeout(Duration::from_secs(3), rt.entered.notified())
+        .await
+        .unwrap();
+    let stop = host.send_control("race", xharness_core::LoopCommand::Cancel);
+    tokio::pin!(stop);
+    assert!(tokio::time::timeout(Duration::from_millis(20), &mut stop)
+        .await
+        .is_err());
+    rt.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(3), stop)
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), driver)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.state.read().await.sessions["race"].dispatch_paused);
 }
