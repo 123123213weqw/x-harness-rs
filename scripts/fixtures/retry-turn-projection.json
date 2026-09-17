@@ -1,0 +1,8 @@
+[
+  { "type": "turn/start", "turn": 0 },
+  { "type": "llm/retry", "turn": 0 },
+  { "type": "llm/retry-started", "turn": 0 },
+  { "type": "turn/end", "turn": 0 },
+  { "type": "turn/start", "turn": 1 },
+  { "type": "turn/end", "turn": 1 }
+]
