@@ -161,13 +161,18 @@ pub struct ToolExecutor {
     observers: Arc<[Arc<dyn ToolObserver>]>,
     lifecycle: Option<Arc<dyn ToolLifecycle>>,
     approval: Option<Arc<dyn ApprovalProvider>>,
-    approval_timeout: Duration,
+    approval_deadline: Option<Duration>,
     concurrency: ConcurrencyGate,
     debug: DebugRecorder,
 }
 
 impl ToolExecutor {
-    pub const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+    /// No deadline by default. An approval is a question for the user, and the user
+    /// answers when they answer: the wait ends when the decision is injected
+    /// (`ApproveTool` / `RejectTool`) or when the turn is stopped or cancelled. A
+    /// deadline would fail an invocation that the user was still about to answer,
+    /// and record it as a decision nobody made.
+    pub const DEFAULT_APPROVAL_DEADLINE: Option<Duration> = None;
 
     pub fn new(registry: Arc<ToolRegistry>) -> Self {
         Self {
@@ -180,7 +185,7 @@ impl ToolExecutor {
             observers: Arc::from([]),
             lifecycle: None,
             approval: None,
-            approval_timeout: Self::DEFAULT_APPROVAL_TIMEOUT,
+            approval_deadline: Self::DEFAULT_APPROVAL_DEADLINE,
             concurrency: ConcurrencyGate::default(),
             debug: DebugRecorder::disabled(),
         }
@@ -233,13 +238,16 @@ impl ToolExecutor {
         self
     }
 
-    /// Set the maximum time an approval backend may hold one invocation.
-    /// Zero is rejected rather than silently disabling the fail-closed bound.
+    /// Opt in to a maximum time an approval backend may hold one invocation.
+    /// The default is [`Self::DEFAULT_APPROVAL_DEADLINE`], which is no deadline at
+    /// all: a configured bound is a policy choice, not a safety requirement, so
+    /// leaving it out no longer fails an approval the user has not answered yet.
+    /// Zero stays rejected rather than silently disabling a bound the caller asked for.
     pub fn with_approval_timeout(mut self, timeout: Duration) -> Result<Self, ExecutorConfigError> {
         if timeout.is_zero() {
             return Err(ExecutorConfigError::ZeroApprovalTimeout);
         }
-        self.approval_timeout = timeout;
+        self.approval_deadline = Some(timeout);
         Ok(self)
     }
 
@@ -482,18 +490,29 @@ impl ToolExecutor {
             context: context.clone(),
             reasons,
         };
+        let deadline = self.approval_deadline;
         self.trace(
             "approval.requested",
             json!({
                 "executionId": context.execution_id.as_str(),
                 "tool": &context.definition.name,
                 "reasons": &request.reasons,
-                "timeoutMs": duration_ms(self.approval_timeout),
+                "timeoutMs": deadline.map(duration_ms),
             }),
         )
         .await;
         let future = AssertUnwindSafe(provider.request_approval(request)).catch_unwind();
-        let timed = tokio::time::timeout(self.approval_timeout, future);
+        // `Err(limit)` is produced only by a configured deadline elapsing, so a wait
+        // that was never bounded can never be reported as a deadline nobody set.
+        let wait = async {
+            match deadline {
+                Some(limit) => match tokio::time::timeout(limit, future).await {
+                    Ok(decided) => Ok(decided),
+                    Err(_elapsed) => Err(limit),
+                },
+                None => Ok(future.await),
+            }
+        };
         let response = tokio::select! {
             _ = context.cancellation.cancelled() => {
                 return Err(ToolFailure::new(
@@ -501,14 +520,14 @@ impl ToolExecutor {
                     "tool invocation was cancelled while awaiting approval",
                 ));
             }
-            response = timed => response,
+            response = wait => response,
         };
         let result = match response {
-            Err(_) => Err(ToolFailure::new(
+            Err(limit) => Err(ToolFailure::new(
                 ToolFailureKind::ApprovalUnavailable,
                 format!(
                     "approval provider exceeded its {} ms deadline and failed closed",
-                    duration_ms(self.approval_timeout)
+                    duration_ms(limit)
                 ),
             )),
             Ok(Ok(Ok(ApprovalDecision::Approved))) => Ok(()),
@@ -803,7 +822,7 @@ impl fmt::Debug for ToolExecutor {
             .field("observers", &self.observers.len())
             .field("lifecycle_configured", &self.lifecycle.is_some())
             .field("approval_configured", &self.approval.is_some())
-            .field("approval_timeout", &self.approval_timeout)
+            .field("approval_deadline", &self.approval_deadline)
             .finish_non_exhaustive()
     }
 }

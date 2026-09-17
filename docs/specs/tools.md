@@ -63,8 +63,11 @@ Guard 状态单调：后续阶段可以把 `allow` 收紧为 `ask` 或 `deny`，
 限制。Approval 缺失、出错、Panic、超时或取消时必须 fail closed。Finalizer 禁止把拒绝
 或执行失败改成成功。
 
-默认审批 Deadline 为 5 分钟，零 Deadline 非法。审批必须按 Execution ID 关联，不能只
-使用 Provider Call ID。
+默认没有审批 Deadline：审批是交给用户的问题，何时回答由用户决定。等待只由两种事件结束——
+决定注入（`ApproveTool` / `RejectTool`）或轮次停止/取消。因此未回答的审批不会自行失败关闭，
+也不会被记成用户做出的取消决定。显式配置 Deadline 属于调用方的策略选择，此时零值非法。
+工具的 `timeout_ms` 只约束 Handler 执行，不约束审批等待。审批必须按 Execution ID 关联，
+不能只使用 Provider Call ID。
 
 ## 并发与取消
 
