@@ -37,6 +37,140 @@ impl Drop for TempWorkspace {
 
 struct HostProcess(tokio::process::Child);
 
+// Unlike rpc_call (which intentionally tests receipt replay), each mutation
+// here gets a distinct ID so different preference writes are not deduplicated.
+async fn preference_rpc(
+    client: &Client,
+    address: SocketAddr,
+    method: &str,
+    payload: Value,
+) -> Value {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    client.post(format!("http://{address}/api/{method}"))
+        .json(&json!({"type":"client-request", "rpcId":format!("preference-{}", NEXT.fetch_add(1, Ordering::Relaxed)), "method":method, "payload":payload}))
+        .send().await.unwrap().error_for_status().unwrap().json().await.unwrap()
+}
+
+#[tokio::test]
+async fn shipped_preferences_survive_restart_and_rejected_writes_do_not_commit() {
+    let workspace = TempWorkspace::new();
+    let client = Client::new();
+    let address = format!("127.0.0.1:{}", unique_port()).parse().unwrap();
+    let first = spawn_host(address, &workspace.0);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    let cases = [
+        ("ui-theme", "preference", "dark"),
+        ("locale", "preference", "en"),
+        ("ui-conversation", "busyEnter", "steer"),
+        ("agent-presets", "default", "coding"),
+    ];
+    let before = preference_rpc(&client, address, "settings.describe", json!({})).await;
+    for (ns, field, value) in cases {
+        let described = before["result"]["value"]["namespaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["ns"] == ns)
+            .expect("shipped namespace registered before replay");
+        assert_eq!(described["applies"], "live");
+        assert_eq!(described["user"], json!({}));
+        for (revision, method) in ["settings.update", "settings.replace", "settings.mutate"]
+            .into_iter()
+            .enumerate()
+        {
+            let payload = match method {
+                "settings.update" => {
+                    json!({"ns":ns,"patch":{(field):value},"expectedRevision":revision})
+                }
+                "settings.replace" => {
+                    json!({"ns":ns,"section":{(field):value},"expectedRevision":revision})
+                }
+                _ => {
+                    json!({"ns":ns,"ops":[{"op":"set","path":[field],"value":value}],"expectedRevision":revision})
+                }
+            };
+            let result = preference_rpc(&client, address, method, payload).await;
+            assert_eq!(result["result"]["ok"], true, "{ns}: {result}");
+            assert_eq!(result["result"]["value"]["revision"], revision + 1);
+            assert_eq!(result["result"]["value"]["value"][field], value);
+        }
+        let conflict = preference_rpc(
+            &client,
+            address,
+            "settings.replace",
+            json!({"ns":ns,"section":{},"expectedRevision":0}),
+        )
+        .await;
+        assert_eq!(conflict["result"]["ok"], false);
+        for method in ["settings.update", "settings.replace", "settings.mutate"] {
+            let payload = match method {
+                "settings.update" => json!({"ns":ns,"patch":{(field):42}}),
+                "settings.replace" => json!({"ns":ns,"section":{"unknown":"bad"}}),
+                _ => json!({"ns":ns,"ops":[{"op":"set","path":[field,"nested"],"value":"bad"}]}),
+            };
+            let rejected = preference_rpc(&client, address, method, payload).await;
+            assert_eq!(
+                rejected["result"]["ok"], false,
+                "invalid preference accepted: {rejected}"
+            );
+        }
+    }
+    for method in ["settings.update", "settings.replace", "settings.mutate"] {
+        let rejected = preference_rpc(
+            &client,
+            address,
+            method,
+            json!({"ns":"unknown-plugin","patch":{},"section":{},"ops":[]}),
+        )
+        .await;
+        assert_eq!(rejected["result"]["ok"], false);
+    }
+    first.stop().await;
+    let second = spawn_host(address, &workspace.0);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    let restored = preference_rpc(&client, address, "settings.describe", json!({})).await;
+    for (ns, field, value) in cases {
+        let entry = restored["result"]["value"]["namespaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["ns"] == ns)
+            .unwrap();
+        assert_eq!(entry["value"][field], value);
+        assert_eq!(entry["user"][field], value);
+        assert_eq!(
+            entry["revision"], 3,
+            "rejected writes must not increment revision"
+        );
+        let cleared = preference_rpc(
+            &client,
+            address,
+            "settings.mutate",
+            json!({"ns":ns,"ops":[{"op":"unset","path":[field]}],"expectedRevision":3}),
+        )
+        .await;
+        assert_eq!(cleared["result"]["ok"], true);
+        assert_eq!(cleared["result"]["value"]["user"], json!({}));
+    }
+    second.stop().await;
+    let third = spawn_host(address, &workspace.0);
+    wait_for_workspace(&client, address, &workspace.0).await;
+    let cleared = preference_rpc(&client, address, "settings.describe", json!({})).await;
+    for (ns, _, _) in cases {
+        let entry = cleared["result"]["value"]["namespaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["ns"] == ns)
+            .unwrap();
+        assert_eq!(entry["user"], json!({}));
+        assert_eq!(entry["value"], json!({}));
+        assert_eq!(entry["revision"], 4);
+    }
+    third.stop().await;
+}
+
 #[tokio::test]
 async fn second_host_cannot_restore_same_state_and_crash_releases_ownership() {
     let workspace = TempWorkspace::new();

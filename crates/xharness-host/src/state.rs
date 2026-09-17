@@ -524,6 +524,11 @@ impl HostState {
             },
         );
         let mut settings = BTreeMap::new();
+        // Register before control-log replay: durable settings cannot reference
+        // namespaces that only appear later when a UI plugin connects.
+        for namespace in crate::preference_settings::namespaces() {
+            settings.insert(namespace.ns.clone(), namespace);
+        }
         settings.insert(
             crate::MODEL_SETTINGS_NAMESPACE.to_owned(),
             crate::model_settings::empty_model_namespace(),
