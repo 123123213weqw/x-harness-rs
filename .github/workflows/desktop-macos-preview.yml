@@ -62,7 +62,7 @@ env:
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/codex/macos-0219-local-package' && inputs.dry_run == true && inputs.version == '0.2.19' && inputs.include_intel == false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -70,6 +70,8 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: 9f8e7dca0a9750a406746488831623ed8f15dc09
       - name: Validate the version and select targets
         id: plan
         env:
@@ -121,6 +123,8 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_PREVIEW_UPDATER_PASSWORD || secrets.XHARNESS_TEST_UPDATER_PASSWORD }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: 9f8e7dca0a9750a406746488831623ed8f15dc09
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -163,7 +167,7 @@ jobs:
           bundle="apps/desktop/src-tauri/target/$TARGET/release/bundle/macos"
           codesign --verify --deep --strict "$bundle/XHarness.app"
           python3 scripts/test-desktop-assets.py --app "$bundle/XHarness.app"
-          node scripts/verify-updater-package.mjs "$bundle/XHarness.app.tar.gz" "$bundle/XHarness.app.tar.gz.sig" dist/desktop-macos-preview/updater-preview.pub
+          node scripts/verify-updater-package.mjs "$bundle/XHarness.app.tar.gz" "$bundle/XHarness.app.tar.gz.sig" "$out/updater-preview.pub"
           cp "$bundle/XHarness.app.tar.gz" "$out/XHarness_${VERSION}_${ARCH}.app.tar.gz"
           cp "$bundle/XHarness.app.tar.gz.sig" "$out/XHarness_${VERSION}_${ARCH}.app.tar.gz.sig"
           ditto -c -k --keepParent "$bundle/XHarness.app" "$out/XHarness_${VERSION}_${ARCH}.zip"
@@ -189,7 +193,7 @@ jobs:
 
   publish:
     needs: [plan, build]
-    if: github.ref == 'refs/heads/master' && inputs.dry_run == false
+    if: false && github.ref == 'refs/heads/master' && inputs.dry_run == false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
