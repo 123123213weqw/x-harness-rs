@@ -1,5 +1,17 @@
 # XHarness 总任务清单
 
+## 厂商耦合清除：Host 能力表、示例与 CI（2026-09-17）
+
+承接「上游命名空间退出出厂产物」。产物侧的 `@deepseek-ai` 已随 `feat/ui-namespace` 迁到
+`@xharness/`；这里清掉剩余会**影响行为**的厂商耦合。
+
+- [x] `VENDOR-01` 删除 `xharness-host-app` 内置能力目录（只在 HTTPS `api.deepseek.com` + 三个精确模型 ID 生效的冗余回退），思考档位改由部署声明（`reasoning.efforts[].request_patch`）或 `reasoningDiscovery` 发现；观测来源收敛为 `configured` / 发现来源，未知端点照旧不主动探测。
+- [x] `VENDOR-02` `config/providers.deepseek.example.json` → `config/providers.remote.example.json`（占位端点 + `EXAMPLE_API_KEY` + 显式档位）；`scripts/start-windows.ps1`、Windows 打包步骤、`docs/windows.md`、`docs/specs/model-settings.md` 同步。
+- [x] `VENDOR-03` live 验收工作流 `deepseek-live.yml` → `live-model-acceptance.yml`：端点、模型与密名都变成 `workflow_dispatch` 输入；`live_loop.rs` 的用例名/会话名/断言文案中性化；`history_live_eval` 例子的端点由输入提供（`scripts/history-live-ab.py` 转发并记录 `base_url`）。
+- [x] `VENDOR-04` 测试夹具里的 `DEEPSEEK_API_KEY` 示例名改为 `EXAMPLE_API_KEY`（control / process / desktop sidecar）；compaction 的用例名与注释、host 的示例 provider id、server/metrics 的文档注释改为按「上游契约版本」表述。
+- [ ] `VENDOR-05` 发版与装机复验：确认移除内置能力表后，现有 `providers.json`（已显式声明档位）行为不变；未声明档位的旧配置在 Web 中显示 `unknown`，需要按 `docs/specs/model-settings.md` 迁移段落补 `reasoning`。
+- [ ] `UI-NS-06` 保留项与仍属上游语义的名字：`--dsw-static-deepseek-*` 设计令牌、`__DSH_BOOT__`、`--dsh-*` class 前缀、UI 侧 provider/settings id（`deepseek-official`、`llm-deepseek`、`web-search-deepseek`）与 onboarding/搜索文案；必须保留的上游溯源记录（`xharness-api::UPSTREAM_CONTRACT_REVISION`、`docs/compat/*`、`scripts/terminal_bench/official-*`、`THIRD_PARTY_NOTICES.md`）。
+
 ## 停止后的排队用户 Prompt（2026-09-17）
 
 现场：`session-1789634172710-56127` 16:44:43 排队「可以关的关掉吧」→ 16:44:55 用户停止 →

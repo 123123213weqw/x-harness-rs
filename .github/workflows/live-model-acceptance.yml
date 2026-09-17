@@ -13,11 +13,8 @@ on:
         required: true
         default: chat-model
         type: string
-      api_key_secret:
-        description: Repository secret holding the endpoint credential
-        required: true
-        default: XHARNESS_LIVE_API_KEY
-        type: string
+      # The endpoint credential is read from the XHARNESS_LIVE_API_KEY
+      # repository secret; create it before dispatching this workflow.
 
 permissions:
   contents: read
@@ -39,10 +36,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Require repository secret
         env:
-          XHARNESS_LIVE_API_KEY: ${{ secrets[inputs.api_key_secret] }}
+          XHARNESS_LIVE_API_KEY: ${{ secrets.XHARNESS_LIVE_API_KEY }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:XHARNESS_LIVE_API_KEY)) {
-            throw "Repository secret ${{ inputs.api_key_secret }} is not configured."
+            throw 'Repository secret XHARNESS_LIVE_API_KEY is not configured.'
           }
       - name: Managed background-job behavior
         env:
