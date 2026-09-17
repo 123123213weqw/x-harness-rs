@@ -135,6 +135,7 @@ jobs:
           UI_TEST_BROWSER=chromium node scripts/test-approval-prompt-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-approval-prompt-browser.mjs
           node scripts/test-goal-runtime-patch.mjs
+          node scripts/test-ui-namespace.mjs
           UI_TEST_BROWSER=chromium node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-request-audit-browser.mjs

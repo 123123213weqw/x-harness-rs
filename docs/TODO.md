@@ -11,6 +11,18 @@
 - [x] `STOP-QUEUE-03` 回归：`xharness-host` `user_stop_lets_the_already_queued_prompt_start_the_next_turn`（停止后自动 turn 2 + 门禁落盘为 false）与既有 `host_flood_steer_stop_clears_running_and_parks_internal_followup`（内部回执仍被拦）。
 - [ ] `STOP-QUEUE-04` 跨平台 CI、合并、发布与已安装桌面/Web 替换后真实会话复验（源码修复不代表已部署）。
 
+## 上游命名空间退出出厂产物（2026-09-17）
+
+产物（`ui/dist`）过去沿用上游 npm scope：41 个插件目录、图 id、boot 清单、每个插件内部由
+import 路径派生的标识符（`deepseek_ai_*`）以及打包时写入的 region 注释都带 `@deepseek-ai`。
+仓是 fork，产物归我们发布，因此统一改到自有 scope。
+
+- [x] `UI-NS-01` `scripts/ui-namespace.mjs` 作为唯一映射源（`UI_NAMESPACE=@xharness`、`UPSTREAM_NAMESPACE`、`distId`、`pluginName`、`isPlugin`、`portableBytes` 用的来源标签）。
+- [x] `UI-NS-02` `scripts/rewrite-ui-namespace.mjs` 在装配最后一步执行：迁移插件目录、改写 scope 与派生标识符、重算每个 entry 的 `rev`/`url`、重算 `graph.rev` 并刷新 `index.html` 的 boot 清单；重复执行是空操作，残留 scope 直接抛错。
+- [x] `UI-NS-03` `assemble-static-ui.mjs` 末尾调用改写并把 region 注释来源标签从 `deepseek-harness/` 改为 `vendored/`；`sync-workspace-directory.mjs` 的依赖注入表、`rebuild-ui.sh` 的 brand 目录、`ui/plugins/**` 与 `ui/overrides/**` 同步改名；dual-use 补丁（settings 保存提示、workspace 时间戳、attachments、composer、question continuation）改为用 `pluginName()` 比对，装配期（上游名）与出厂后（`@xharness`）两种拼写都能命中。
+- [x] `UI-NS-04` 回归：`ui/dist` 内 `@deepseek-ai` 与 `deepseek_ai_` 均为 0；非浏览器 UI 测试 29/30 通过（唯一失败 `test-context-layout` 是本机缺 playwright，master 上同样失败）；服务端真实 Chromium 跑 CI 浏览器清单；真实 Host + 真实页面复验 GoalBar 六条 `/api/goals/*` 仍 200。
+- [ ] `UI-NS-05` 仍是上游语义的名字，按层 B/C 后续处理（不影响本项“依赖”目标）：`--dsw-static-deepseek-*` 设计令牌与 `__DSH_BOOT__` 协议名；UI 侧 provider/settings id（`deepseek-official`、`llm-deepseek`、`web-search-deepseek`、`DEEPSEEK_API_KEY`）与 onboarding/搜索文案；Rust 侧 `reasoning_catalog.rs` 的 host/model 白名单；CI `deepseek-live.yml` 与 live 测试；`xharness-api::UPSTREAM_CONTRACT_REVISION`、`docs/compat/*`、`scripts/terminal_bench/official-*` 等上游溯源记录（保留）。
+
 ## Token 校准重启恢复（2026-09-17）
 
 规范见 [校准持久化](specs/token-calibration-persistence.md)。

@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
   id: '@xlang/xharness-client-ui-directory',
   factory: require => {
     const { createElement: h, useEffect, useRef, useState } = require('react')
-    const { Modal, Button, IconFolderClose16, IconChevronRightOutline14 } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const { Modal, Button, IconFolderClose16, IconChevronRightOutline14 } = require('@xharness/dsh-client-ui-primitives')
     const NS = 'xharness.directory'
     const zh = {
       title: '选择工作区目录', home: '主目录', path: '目录路径', go: '前往',

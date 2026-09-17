@@ -36,7 +36,7 @@ if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[
   const dist = resolve(process.argv[2] ?? 'ui/dist');
   const graph = JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
   const hash = b => createHash('sha256').update(b).digest('hex').slice(0,16);
-  const entry = graph.entries.find(e => e.id === '@deepseek-ai/dsh-client-runtime');
+  const entry = graph.entries.find(e => e.id === '@xharness/dsh-client-runtime');
   const path = resolve(dist,'plugins',entry.id,'client.js');
   const bytes = patchSessionHistoryCache(readFileSync(path));
   writeFileSync(path,bytes); entry.rev = hash(bytes); entry.url = `/plugins/${entry.id}/client.js?rev=${entry.rev}`;

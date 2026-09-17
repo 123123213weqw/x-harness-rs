@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const read=p=>readFileSync(new URL(p,import.meta.url),'utf8');
-const bundle=read('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js');
-const runtime=read('../ui/dist/plugins/@deepseek-ai/dsh-client-runtime/client.js');
+const bundle=read('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js');
+const runtime=read('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js');
 const fixture=JSON.parse(read('./fixtures/assistant-projection.json'));
 function extract(source,name) {
  const start=source.indexOf(`function ${name}(`);
@@ -16,7 +16,7 @@ function extract(source,name) {
 const context=vm.createContext({});
 for(const name of ['toAssistantBlock','toAssistantBlocks']) vm.runInContext(extract(runtime,name),context);
 for(const name of ['compactBlocks','hasVisibleContent','hasInterruptionEvidence'])vm.runInContext(extract(bundle,name),context);
-context._deepseek_ai_dsh_client_runtime_client={
+context._xharness_dsh_client_runtime_client={
  toAssistantBlocks:context.toAssistantBlocks,
  isTokenDelta:c=>c.type==='text-delta'||c.type==='reasoning-delta',
 };

@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs'
 import {createRequire} from 'node:module'
 import {resolve} from 'node:path'
 import vm from 'node:vm'
-const base=new URL('../ui/dist/plugins/@deepseek-ai/',import.meta.url)
+const base=new URL('../ui/dist/plugins/@xharness/',import.meta.url)
 const conversation=readFileSync(new URL('dsh-client-ui-conversation/client.js',base),'utf8')
 const runtime=readFileSync(new URL('dsh-client-runtime/client.js',base),'utf8')
 const take=(text,start,end)=>{

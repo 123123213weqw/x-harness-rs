@@ -4,7 +4,7 @@ import {readFileSync,writeFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {resolve,join} from 'node:path'
 const dist=resolve(process.argv[2]||'ui/dist')
-const id='@deepseek-ai/dsh-client-ui-conversation'
+const id='@xharness/dsh-client-ui-conversation'
 const p=join(dist,'plugins',id,'client.js')
 let s=readFileSync(p,'utf8')
 for (const [locale, title] of [['zh','新时代的语言'],['en','The Language of a New Era']]) {

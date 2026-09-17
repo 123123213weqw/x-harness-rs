@@ -26,17 +26,17 @@ try {
   await page.goto('https://attachment-fixture.test/')
   await page.waitForFunction(()=>window.staticModules)
   await page.evaluate(()=>{window.registrations={};window.__ModuleLoader__={load:r=>registrations[r.id]=r}})
-  for(const name of readdirSync(resolve(dist,'plugins/@deepseek-ai'))) {
-    let content=readFileSync(resolve(dist,'plugins/@deepseek-ai',name,'client.js'),'utf8')
+  for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
+    let content=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8')
     if(name==='dsh-client-ui-conversation') content=content.replace('exports.ConversationController =', 'exports.InputBar = InputBar; exports.SessionInputShell = SessionInputShell; exports.ConversationController =')
     await page.addScriptTag({content})
   }
   await page.evaluate(()=>{
     const React=staticModules.react,h=React.createElement,ReactDOM=staticModules['react-dom']
-    const runtime=registrations['@deepseek-ai/dsh-client-runtime'].factory(id=>staticModules[id])
-    const readModule=id=>id==='@deepseek-ai/dsh-client-runtime/client'?{...runtime,defineStore:spec=>spec}:staticModules[id]
+    const runtime=registrations['@xharness/dsh-client-runtime'].factory(id=>staticModules[id])
+    const readModule=id=>id==='@xharness/dsh-client-runtime/client'?{...runtime,defineStore:spec=>spec}:staticModules[id]
     const ctx={effect:fn=>fn(),provide:(name,value)=>{ctx[name]=value},on:()=>{},emit:()=>{},settingsScope:{bind:()=>({subscribe:()=>()=>{},getSnapshot:()=>({value:{preference:'light'}})})},locale:{register:()=>()=>{}},slots:{inject:()=>{}}}
-    registrations['@deepseek-ai/dsh-client-ui-theme'].factory(readModule).apply(ctx)
+    registrations['@xharness/dsh-client-ui-theme'].factory(readModule).apply(ctx)
     document.documentElement.dataset.theme='light'
     for(const [name,value] of Object.entries(ctx.theme.getTheme().active.tokens))document.documentElement.style.setProperty(name,value)
     document.body.style.fontFamily='system-ui,sans-serif'
@@ -44,10 +44,10 @@ try {
     document.body.style.color='var(--dsw-alias-label-primary)'
     const slots={}
     const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
-    const api=load('@deepseek-ai/dsh-client-ui-attachment/client')
+    const api=load('@xharness/dsh-client-ui-attachment/client')
     api.apply({slots:{inject(_name,callback){callback()},register(definition,component){slots[definition.name]=component}}})
     const Composer=slots['conversation.input.attachments'],History=slots['conversation.message.images']
-    const module=load('@deepseek-ai/dsh-client-ui-conversation/client')
+    const module=load('@xharness/dsh-client-ui-conversation/client')
     const owner=Object.assign(Object.create(module.ConversationController.prototype),{draftAttachments:new Map(),createdImageUrls:new Set()})
     const shell=new module.SessionInputShell({defaultSink:async()=>({kind:'error'}),commandImages:{serialize:async()=>[],release:()=>{},unsupportedNotice:()=>''}})
     const useInput=select=>select(React.useSyncExternalStore(shell.state.subscribe,shell.state.getSnapshot))

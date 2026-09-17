@@ -36,9 +36,9 @@ try {
   await page.goto('http://workspace-fixture.test/')
   await page.waitForFunction(() => window.staticModules)
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
-  const plugins = readdirSync(resolve(dist,'plugins/@deepseek-ai'));
+  const plugins = readdirSync(resolve(dist,'plugins/@xharness'));
   for (const name of plugins) {
-    const file = resolve(dist,'plugins/@deepseek-ai',name,'client.js');
+    const file = resolve(dist,'plugins/@xharness',name,'client.js');
     let source=readFileSync(file,'utf8');
     if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =', 'exports.xhEditStorage = xhEditStorage; exports.SessionInputShell = SessionInputShell; exports.XHarnessEditAction = XHarnessEditAction; exports.XHarnessMessageEditor =');
     await page.addScriptTag({content:source});
@@ -53,7 +53,7 @@ try {
       return cache[name]=registrations[name].factory(load);
     }
     const React=staticModules.react,DOM=staticModules['react-dom'];
-    const module=load('@deepseek-ai/dsh-client-ui-conversation/client');
+    const module=load('@xharness/dsh-client-ui-conversation/client');
     window.module=module;
     const registry=new Map();let count=0;
     const conversation={createdImageUrls:new Set(),draftImages:ids=>ids.map(id=>registry.get(id)).filter(Boolean),

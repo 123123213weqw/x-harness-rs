@@ -7,13 +7,13 @@ import { Script } from 'node:vm';
 import { createHash } from 'node:crypto';
 import { patchSessionHistoryCache } from './patch-session-history-cache.mjs';
 const root = fileURLToPath(new URL('../',import.meta.url)), dist=resolve(root,'ui/dist');
-const shipped=readFileSync(resolve(dist,'plugins/@deepseek-ai/dsh-client-runtime/client.js'));
+const shipped=readFileSync(resolve(dist,'plugins/@xharness/dsh-client-runtime/client.js'));
 new Script(shipped.toString());
 assert.deepEqual(patchSessionHistoryCache(shipped),shipped);
 assert.deepEqual(patchSessionHistoryCache(Buffer.from(shipped.toString().replace('Product-owned history residency','Older history residency'))),shipped);
 assert.throws(()=>patchSessionHistoryCache(Buffer.from('upstream changed')),/anchor changed/);
 const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
-const entry=graph.entries.find(e=>e.id==='@deepseek-ai/dsh-client-runtime');
+const entry=graph.entries.find(e=>e.id==='@xharness/dsh-client-runtime');
 assert.equal(entry.rev,createHash('sha256').update(shipped).digest('hex').slice(0,16));
 assert.ok(readFileSync(resolve(dist,'index.html'),'utf8').includes(entry.url));
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','package.json'));
@@ -30,17 +30,17 @@ try {
  });
  await page.goto('http://history.test/');await page.waitForFunction(()=>window.staticModules);
  await page.evaluate(()=>{window.registrations={};window.__ModuleLoader__={load:r=>{registrations[r.id]=r}}});
- for(const name of readdirSync(resolve(dist,'plugins/@deepseek-ai'))) {
-  let source=readFileSync(resolve(dist,'plugins/@deepseek-ai',name,'client.js'),'utf8');
+ for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
+  let source=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
   if(name==='dsh-client-runtime')source=source.replace('exports.apply = apply;', 'exports.Session = Session; exports.SessionManager = SessionManager; exports.apply = apply;');
   if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.registerConversationNodes = registerConversationNodes; exports.apply = apply;');
   await page.addScriptTag({content:source});
  }
  const checks=await page.evaluate(async()=>{
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
-  const {SessionManager}=load('@deepseek-ai/dsh-client-runtime/client');window.SessionManager=SessionManager;
+  const {SessionManager}=load('@xharness/dsh-client-runtime/client');window.SessionManager=SessionManager;
   const definitions=[],views=[];let fallback;
-  load('@deepseek-ai/dsh-client-ui-conversation/client').registerConversationNodes({conversationEvents:{register:d=>definitions.push(d),registerFallback:d=>{fallback=d}},conversationViews:{register:d=>views.push(d)}});
+  load('@xharness/dsh-client-ui-conversation/client').registerConversationNodes({conversationEvents:{register:d=>definitions.push(d),registerFallback:d=>{fallback=d}},conversationViews:{register:d=>views.push(d)}});
   const conversation={events:{entries:()=>definitions,fallbackEntry:()=>fallback},views:{entries:()=>views}};
   let checks=0;function ok(v,m){if(!v)throw Error(m);checks++}
   const tick=()=>new Promise(r=>setTimeout(r,0));

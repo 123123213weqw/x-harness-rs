@@ -40,7 +40,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
   const dist = resolve(process.argv[2] ?? 'ui/dist');
   const graph = JSON.parse(readFileSync(resolve(dist, 'client-graph.json')));
   const hash = b => createHash('sha256').update(b).digest('hex').slice(0, 16);
-  const entry = graph.entries.find(e => e.id === '@deepseek-ai/dsh-client-ui-conversation');
+  const entry = graph.entries.find(e => e.id === '@xharness/dsh-client-ui-conversation');
   const path = resolve(dist, 'plugins', entry.id, 'client.js');
   const bytes = patchTranscriptWindowing(readFileSync(path));
   writeFileSync(path, bytes); entry.rev = hash(bytes); entry.url = `/plugins/${entry.id}/client.js?rev=${entry.rev}`;

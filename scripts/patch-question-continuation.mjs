@@ -1,4 +1,5 @@
 import {readFileSync,writeFileSync,realpathSync} from 'node:fs';
+import { UI_NAMESPACE, isPlugin, pluginName } from './ui-namespace.mjs'
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
@@ -6,9 +7,9 @@ export function patchQuestionContinuation(name,bytes) {
  let s=bytes.toString(); const marker='// xh-question-deferred/v1';
  if(s.includes(marker))return patchDeferredQuestionUI(name,bytes);
  const once=(a,b)=>{if(s.split(a).length!==2)throw Error('Question continuation anchor changed: '+name+' '+a);s=s.replace(a,b)};
- if(name==='@deepseek-ai/dsh-client-connection') {
+ if(isPlugin(name,'dsh-client-connection')) {
   once('questions: array(askUserQuestionItemSchema).min(1)','questions: array(askUserQuestionItemSchema).min(1),\n deferred: boolean().optional(), waitTimeoutSeconds: number().optional()');
- } else if(name==='@deepseek-ai/dsh-client-ui-user-questions') {
+ } else if(isPlugin(name,'dsh-client-ui-user-questions')) {
   once('get questions() {','get deferred() { return this.wait.payload.deferred === true; }\n get questions() {');
   once('"data-question-key": pending.key,','"data-question-key": pending.key,\n "data-question-deferred": pending.deferred ? "true" : "false",');
   once('children: question.question','children: question.question');
@@ -20,7 +21,7 @@ export function patchQuestionContinuation(name,bytes) {
 // durably deferred question releases the existing composer fallback; an approval
 // or subagent winner never carries this marker and remains blocking.
 function patchDeferredQuestionUI(name,bytes) {
- if(name!=='@deepseek-ai/dsh-client-ui-user-questions')return bytes;
+ if(!isPlugin(name,'dsh-client-ui-user-questions'))return bytes;
  let s=bytes.toString();const marker='// xh-question-strip/v2';if(s.includes(marker))return patchQuestionGuidance(bytes);
  const once=(a,b)=>{if(s.split(a).length!==2)throw Error('Question strip anchor changed: '+a);s=s.replace(a,b)};
  once('const [minimized, setMinimized] = (0, react.useState)(false);',`const [minimized, setMinimized] = (0, react.useState)(pending.deferred);
@@ -57,7 +58,7 @@ if(process.argv[1]&&realpathSync(process.argv[1])===fileURLToPath(import.meta.ur
  const dist=resolve(process.argv[2]??'ui/dist');const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
  const hash=b=>createHash('sha256').update(b).digest('hex').slice(0,16);
  for(const e of graph.entries) {
-  if(!['@deepseek-ai/dsh-client-connection','@deepseek-ai/dsh-client-ui-user-questions'].includes(e.id))continue;
+  if(!['dsh-client-connection','dsh-client-ui-user-questions'].includes(pluginName(e.id)))continue;
   const p=resolve(dist,'plugins',e.id,'client.js');const old=readFileSync(p),b=patchQuestionContinuation(e.id,old);
   if(!b.equals(old))writeFileSync(p,b);e.rev=hash(b);e.url='/plugins/'+e.id+'/client.js?rev='+e.rev;
  }

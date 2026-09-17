@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { patchModelControls } from './patch-model-controls.mjs'
-const bundle = readFileSync(new URL('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-model-selection/client.js', import.meta.url))
+const bundle = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-model-selection/client.js', import.meta.url))
 assert.equal(patchModelControls(bundle).toString(), bundle.toString(), 'packaged extension must match product source; patch is idempotent')
 let registration
 vm.runInNewContext(bundle.toString(), { window: { __ModuleLoader__: { load(x) { registration=x } } } })
@@ -11,9 +11,9 @@ function createSnapshotStore(snapshot) {
   return { getSnapshot:()=>snapshot, subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)}, update:fn=>{snapshot=structuredClone(snapshot);fn(snapshot);listeners.forEach(fn=>fn())} }
 }
 const api = registration.factory(id => {
-  if(id==='@deepseek-ai/cordis')return {Service:class{}}
-  if(id==='@deepseek-ai/dsh-client-runtime/client')return {createSnapshotStore}
-  if(['react','react/jsx-runtime','@deepseek-ai/dsh-client-ui-primitives'].includes(id))return {}
+  if(id==='@xharness/cordis')return {Service:class{}}
+  if(id==='@xharness/dsh-client-runtime/client')return {createSnapshotStore}
+  if(['react','react/jsx-runtime','@xharness/dsh-client-ui-primitives'].includes(id))return {}
   throw new Error(id)
 })
 const current={provider:'test',model:'large',reasoningEffort:'max',contextWindowTokens:65536}
@@ -60,11 +60,11 @@ release({result:{ok:true,value:{current,groups,failures:[],routable:true}}});awa
 assert.equal(directory.store.getSnapshot(),snapshot)
 console.log('model controls: RPC forwarding, persistence re-load, model limits, invalid input, transport errors, race/disposal passed')
 // Use the actual bundled wire schemas, not a lookalike validator.
-const connectionBundle=readFileSync(new URL('../ui/dist/plugins/@deepseek-ai/dsh-client-connection/client.js',import.meta.url),'utf8')
+const connectionBundle=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-connection/client.js',import.meta.url),'utf8')
 let connectionFactory
 const sandbox={window:{__ModuleLoader__:{load(x){connectionFactory=x.factory}}},console,URL,AbortController,setTimeout,clearTimeout}
 vm.runInNewContext(connectionBundle.replace('exports.AbstractApiClient = AbstractApiClient;', 'exports.testModelsSchema = sessionModelsValueSchema; exports.testSelectedSchema = sessionSelectModelValueSchema; exports.AbstractApiClient = AbstractApiClient;'), sandbox)
-const wire=connectionFactory(id=>{if(id==='@deepseek-ai/cordis')return {Service:class{}};return {}})
+const wire=connectionFactory(id=>{if(id==='@xharness/cordis')return {Service:class{}};return {}})
 const input={current,groups:[{id:'test',name:'Test',models:[{id:'large',name:'Large',contextWindow:131072,contextWindowSource:'provider_reported',contextWindowCapability:{providerLimit:{tokens:131072,source:'provider_reported'}},reasoning:{defaultEffort:'max',efforts:[{id:'max',name:'Max'}]}}]}],failures:[],routable:true}
 const decoded=wire.testModelsSchema.parse(input)
 assert.equal(decoded.current.contextWindowTokens,65536)
@@ -79,7 +79,7 @@ const {createHash}=await import('node:crypto')
 const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url),'utf8'))
 const html=readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8')
 assert.deepEqual(JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]),graph)
-for(const id of ['@deepseek-ai/dsh-client-connection','@deepseek-ai/dsh-client-ui-model-selection']){
+for(const id of ['@xharness/dsh-client-connection','@xharness/dsh-client-ui-model-selection']){
  const bytes=readFileSync(new URL(`../ui/dist/plugins/${id}/client.js`,import.meta.url))
  assert.equal(graph.entries.find(e=>e.id===id).rev,createHash('sha256').update(bytes).digest('hex').slice(0,16))
 }
@@ -95,6 +95,6 @@ const refreshed=new api.ModelDirectory({models:async args=>{refreshCalls.push(ar
 await refreshed.load(true);assert.equal(refreshCalls[0].refreshCapabilities,true);
 const {patchReasoningSettings,patchModelConnection}=await import('./patch-model-controls.mjs');
 for (const [id,patch] of [['dsh-client-ui-model-selection',patchModelControls],['dsh-client-connection',patchModelConnection],['dsh-client-ui-settings-models',patchReasoningSettings]]) {
- const bytes=readFileSync(new URL(`../ui/dist/plugins/@deepseek-ai/${id}/client.js`,import.meta.url));assert.deepEqual(patch(bytes),bytes,'patch must be repeatable: '+id);
+ const bytes=readFileSync(new URL(`../ui/dist/plugins/@xharness/${id}/client.js`,import.meta.url));assert.deepEqual(patch(bytes),bytes,'patch must be repeatable: '+id);
 }
 console.log('Reasoning unknown/disabled/stale state, discovery refresh and repeatable asset patches passed');

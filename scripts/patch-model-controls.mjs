@@ -96,9 +96,9 @@ export function refreshModelControls(dist) {
   const graph = JSON.parse(readFileSync(graphPath, 'utf8'))
   const writes = []
   for (const [id, patch] of [
-    ['@deepseek-ai/dsh-client-ui-model-selection', patchModelControls],
-    ['@deepseek-ai/dsh-client-connection', patchModelConnection],
-    ['@deepseek-ai/dsh-client-ui-settings-models', patchReasoningSettings],
+    ['@xharness/dsh-client-ui-model-selection', patchModelControls],
+    ['@xharness/dsh-client-connection', patchModelConnection],
+    ['@xharness/dsh-client-ui-settings-models', patchReasoningSettings],
   ]) {
     const path = resolve(dist, `plugins/${id}/client.js`)
     const bytes = patch(readFileSync(path))

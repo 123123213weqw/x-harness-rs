@@ -14,7 +14,7 @@ assert.equal(d.buildViewNode({state:live}).data.noticeKind,'issued');
 assert.equal(d.match({...event,data:{turn:0,notice:null}}),null);
 assert.equal(d.match({type:'turn/end',data:{turn:0,reason:{kind:'completed'}}}),null);
 assert.equal(d.start({}, {event:{...event,type:'turn/end',data:{turn:0,reason:{kind:'max-steps'}}}}).kind,'limit');
-const bundle=readFileSync(new URL('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js',import.meta.url));
+const bundle=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',import.meta.url));
 assert.deepEqual(patchExecutionCheckpoints(bundle),bundle);
 assert.ok(bundle.toString().includes(helper.trim()));
 assert.ok(bundle.toString().includes('ctx.conversationEvents.register(xhCheckpointDefinition)'));

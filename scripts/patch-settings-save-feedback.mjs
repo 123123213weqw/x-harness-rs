@@ -2,8 +2,9 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
+import {UI_NAMESPACE,pluginName} from './ui-namespace.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-const ID='@deepseek-ai/dsh-client-ui-settings';
+const ID=`${UI_NAMESPACE}/dsh-client-ui-settings`;
 const MARK='// XHARNESS SETTINGS SAVE FEEDBACK';
 const helper=readFileSync(resolve(root,'ui/overrides/settings-save-feedback.js'),'utf8').replaceAll('\r\n','\n');
 function once(text,before,after) {
@@ -11,7 +12,7 @@ function once(text,before,after) {
   return text.replace(before,after);
 }
 export function patchSettingsSaveFeedback(id,bytes) {
-  if(id!==ID) return bytes;
+  if(pluginName(id)!==pluginName(ID)) return bytes;
   let text=bytes.toString().replaceAll('\r\n','\n');
   if(text.includes(MARK)) return Buffer.from(text);
   text=once(text,'\t\tvar module = { exports: {} };',`${MARK}\n${helper}\n\t\tvar module = { exports: {} };`);

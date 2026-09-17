@@ -14,15 +14,15 @@ try {
  await page.setContent('<html><head></head><body><div id="root" style="position:fixed;bottom:16px;right:24px;max-width:calc(100vw - 48px)"></div></body></html>')
  for(const file of ['react/umd/react.development.js','react-dom/umd/react-dom.development.js'])await page.addScriptTag({path:resolve(process.env.UI_TEST_DEPS??'/tmp/xharness-model-ui-tests','node_modules',file)})
  await page.addScriptTag({content:'window.__ModuleLoader__={load:x=>{window.registration=x}}'})
- await page.addScriptTag({content:readFileSync(new URL('../ui/dist/plugins/@deepseek-ai/dsh-client-ui-model-selection/client.js',import.meta.url),'utf8')})
+ await page.addScriptTag({content:readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-model-selection/client.js',import.meta.url),'utf8')})
  await page.evaluate(async()=>{
   const makeStore=initial=>{let value=initial;const listeners=new Set();return{getSnapshot:()=>value,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},update:fn=>{value=structuredClone(value);fn(value);listeners.forEach(fn=>fn())}}}
   const api=registration.factory(id=>{
    if(id==='react')return React;
    if(id==='react/jsx-runtime')return {jsx:(type,props,key)=>React.createElement(type,{...props,key}),jsxs:(type,props,key)=>React.createElement(type,{...props,key}),Fragment:React.Fragment};
-   if(id==='@deepseek-ai/dsh-client-ui-primitives')return new Proxy({}, {get:(_,key)=>key==='Toast'?({text})=>React.createElement('div',{role:'alert'},text):()=>null});
-   if(id==='@deepseek-ai/cordis')return {Service:class{}};
-   if(id==='@deepseek-ai/dsh-client-runtime/client')return {createSnapshotStore:makeStore};
+   if(id==='@xharness/dsh-client-ui-primitives')return new Proxy({}, {get:(_,key)=>key==='Toast'?({text})=>React.createElement('div',{role:'alert'},text):()=>null});
+   if(id==='@xharness/cordis')return {Service:class{}};
+   if(id==='@xharness/dsh-client-runtime/client')return {createSnapshotStore:makeStore};
    return {};
   });
   window.saved={provider:'p',model:'large',reasoningEffort:'max',contextWindowTokens:65536};window.calls=[];window.refreshes=0;window.offline=false;

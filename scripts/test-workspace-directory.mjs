@@ -33,7 +33,7 @@ vm.runInNewContext(shipped, { window: { __ModuleLoader__: { load: value => { reg
 assert.equal(registration.id, id)
 const client = registration.factory(name => {
   if (name === 'react') return {}
-  if (name === '@deepseek-ai/dsh-client-ui-primitives') return {}
+  if (name === '@xharness/dsh-client-ui-primitives') return {}
   throw Error(`unexpected dependency ${name}`)
 })
 assert.deepEqual([...client.inject], ['slots', 'workspaces', 'locale'])
