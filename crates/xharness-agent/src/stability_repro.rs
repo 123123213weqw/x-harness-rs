@@ -1,14 +1,12 @@
 //! Regression tests for worker lifecycle recovery.
 //!
-//! Each test failed against the code that cached a dead worker handle forever;
-//! they now guard the invariants that make a worker replaceable: identity that
-//! survives a respawn, subscribers that outlive one, and a lifecycle
-//! reservation that does not outlive its task.
+//! Stable identity/subscriptions, recoverable errors, supervised panic recovery,
+//! bounded backoff, cancellation, and reservation cleanup.
 
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex as StdMutex,
     },
     time::Duration,
@@ -41,6 +39,7 @@ async fn wait_out_respawn_backoff() {
 struct ToggleFailStore {
     inner: Arc<dyn Store>,
     failing: Arc<AtomicBool>,
+    reads: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -54,6 +53,7 @@ impl Store for ToggleFailStore {
     }
 
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
+        self.reads.fetch_add(1, Ordering::AcqRel);
         if self.failing.load(Ordering::Acquire) {
             return Err(StoreError::Backend {
                 message: "injected read failure".to_owned(),
@@ -140,21 +140,16 @@ fn stop_script() -> Script {
     ]
 }
 
-/// Reproduction: one transient store error permanently bricks an agent.
-///
-/// Every `Err` out of the worker loop makes the worker task `return`, while
-/// `AgentSupervisor::activate` keeps handing back the cached handle with no
-/// liveness check, and nothing ever evicts it. Once the store recovers the
-/// session stays dead: every later command answers `Closed` until the process
-/// is restarted.
+/// A recoverable storage error must not require worker replacement.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_transient_store_error_permanently_bricks_the_agent() {
+async fn a_transient_store_error_does_not_kill_the_worker() {
     let inner: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
     inner.create(SessionHeader::new("bricked")).await.unwrap();
     let failing = Arc::new(AtomicBool::new(false));
     let store: Arc<dyn Store> = Arc::new(ToggleFailStore {
         inner: Arc::clone(&inner),
         failing: Arc::clone(&failing),
+        reads: Arc::new(AtomicUsize::new(0)),
     });
 
     let registry = Arc::new(AgentRegistry::new(
@@ -182,7 +177,8 @@ async fn a_transient_store_error_permanently_bricks_the_agent() {
     failing.store(false, Ordering::Release);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // A fresh activate() still returns the cached, dead worker.
+    assert_eq!(handle.availability(), crate::WorkerAvailability::Ready);
+    // Re-activation preserves the stable handle.
     let revived = supervisor
         .activate(SessionHeader::new("bricked"))
         .await
@@ -196,21 +192,16 @@ async fn a_transient_store_error_permanently_bricks_the_agent() {
     supervisor.shutdown(Duration::from_secs(2)).await;
 }
 
-/// Verifies the design claim behind the respawn fix: the event channels belong
-/// to the *handle*, so a subscriber that attached before the worker died still
-/// observes the replacement worker's turns.
-///
-/// This is what lets every long-lived holder of an old handle — the Host goal
-/// watcher, `goals.prepared`, and the Schedule owner's prepared deliveries —
-/// recover without being re-created.
+/// Existing subscribers survive a failed operation on the live worker.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_subscriber_attached_before_the_death_observes_the_respawned_worker() {
+async fn subscriptions_survive_a_recoverable_storage_error() {
     let inner: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
     inner.create(SessionHeader::new("resub")).await.unwrap();
     let failing = Arc::new(AtomicBool::new(false));
     let store: Arc<dyn Store> = Arc::new(ToggleFailStore {
         inner: Arc::clone(&inner),
         failing: Arc::clone(&failing),
+        reads: Arc::new(AtomicUsize::new(0)),
     });
     let registry = Arc::new(AgentRegistry::new(
         Arc::clone(&store),
@@ -244,20 +235,21 @@ async fn a_subscriber_attached_before_the_death_observes_the_respawned_worker() 
     .expect("turn 1 must finish on the original worker");
     assert_eq!(first, 1);
 
-    // One transient store error ends that worker task. Whether *this* call
-    // observes the death (`Err`) or is acknowledged just before it (`Ok`) is a
-    // race between the worker returning to its idle snapshot and this command,
-    // so only the invariant is asserted: the worker stops.
+    // Recoverable command/store errors stay in the same live worker.
     failing.store(true, Ordering::Release);
     let _ = handle.wake().await;
-    tokio::time::timeout(Duration::from_secs(2), handle.when_stopped())
-        .await
-        .expect("the worker must stop after the transient store error");
-    assert!(handle.is_stopped());
-
-    // Storage recovers; the next durable input must run on the replacement.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if matches!(early.recv().await, Ok(AgentEvent::Error { .. })) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!handle.is_stopped());
+    assert_eq!(handle.availability(), crate::WorkerAvailability::Ready);
     failing.store(false, Ordering::Release);
-    wait_out_respawn_backoff().await;
     handle
         .followup(InboxMessage::user("prompt-2", "second"))
         .await
@@ -270,7 +262,7 @@ async fn a_subscriber_attached_before_the_death_observes_the_respawned_worker() 
         }
     })
     .await
-    .expect("the pre-death subscriber must observe the respawned worker's turn");
+    .expect("the original subscriber must observe the next turn");
     assert_eq!(second, 2);
     assert!(!handle.is_stopped());
 
@@ -356,4 +348,315 @@ async fn a_worker_that_died_mid_drive_can_still_be_replaced() {
         finished.is_ok(),
         "no turn finished: a worker that died mid-drive blocks its own replacement"
     );
+}
+
+// A waiter attached to the public handle must settle after death without a new command.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn when_idle_does_not_hang_after_worker_panic() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    store
+        .create(SessionHeader::new("review-idle"))
+        .await
+        .unwrap();
+    let registry = Arc::new(AgentRegistry::new(
+        store,
+        Arc::new(MemoryLeaseManager::default()),
+    ));
+    let factory: Arc<dyn TurnRequestFactory> = Arc::new(PanicOnceFactory {
+        panicked: Arc::new(AtomicBool::new(false)),
+        provider: Arc::new(ScriptProvider {
+            scripts: StdMutex::new(VecDeque::new()),
+        }),
+    });
+    let supervisor = AgentSupervisor::new(registry, factory, 64);
+    let handle = supervisor
+        .activate(SessionHeader::new("review-idle"))
+        .await
+        .unwrap();
+    let _ = handle.followup(InboxMessage::user("first", "first")).await;
+    tokio::time::timeout(Duration::from_secs(2), handle.when_stopped())
+        .await
+        .unwrap();
+    let settled = tokio::time::timeout(Duration::from_millis(200), handle.when_idle()).await;
+    assert_eq!(settled.unwrap(), Err(crate::AgentCommandError::Unavailable));
+    assert_eq!(
+        handle.wake().await,
+        Err(crate::AgentCommandError::Unavailable)
+    );
+    // No followup/wake is sent: supervision alone must recover readiness.
+    tokio::time::timeout(Duration::from_secs(2), handle.when_ready())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(handle.when_idle().await, Ok(()));
+
+    supervisor.shutdown(Duration::from_secs(1)).await;
+}
+
+async fn panic_fixture(id: &str) -> (AgentSupervisor, crate::DurableAgentHandle) {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = Arc::new(AgentRegistry::new(
+        store,
+        Arc::new(MemoryLeaseManager::default()),
+    ));
+    let supervisor = AgentSupervisor::new(
+        registry,
+        Arc::new(PanicOnceFactory {
+            panicked: Arc::new(AtomicBool::new(false)),
+            provider: Arc::new(ScriptProvider {
+                scripts: StdMutex::new(VecDeque::new()),
+            }),
+        }),
+        256,
+    );
+    let handle = supervisor.activate(SessionHeader::new(id)).await.unwrap();
+    (supervisor, handle)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recovery_without_commands_does_not_replay_pending_work() {
+    let (supervisor, handle) = panic_fixture("no-replay").await;
+    let mut events = handle.subscribe();
+    handle
+        .followup(InboxMessage::user("first", "first"))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), handle.when_stopped())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), handle.when_ready())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(handle.inbox().snapshot().await.unwrap().has_pending());
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(
+            event,
+            AgentEvent::TurnStarted { .. } | AgentEvent::TurnFinished { .. }
+        ));
+    }
+    // Only an explicit wake may retry the pending, not-yet-claimed input.
+    handle.wake().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !matches!(
+            events.recv().await.unwrap(),
+            AgentEvent::TurnFinished { .. }
+        ) {}
+    })
+    .await
+    .unwrap();
+    assert!(!handle.inbox().snapshot().await.unwrap().has_pending());
+    supervisor.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_recovery_waiters_share_one_generation() {
+    let (supervisor, handle) = panic_fixture("concurrent-recovery").await;
+    handle
+        .followup(InboxMessage::user("first", "first"))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), handle.when_stopped())
+        .await
+        .unwrap();
+    let mut events = handle.subscribe();
+    let mut callers = tokio::task::JoinSet::new();
+    for i in 0..16 {
+        let handle = handle.clone();
+        callers.spawn(async move {
+            handle.when_ready().await.unwrap();
+            handle
+                .followup(InboxMessage::user(format!("input-{i}"), "next"))
+                .await
+                .unwrap();
+        });
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(result) = callers.join_next().await {
+            result.unwrap();
+        }
+        let mut turns = std::collections::HashSet::new();
+        while turns.len() < 17 {
+            if let AgentEvent::TurnFinished { turn, .. } = events.recv().await.unwrap() {
+                assert!(turns.insert(turn), "a turn was replayed");
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!handle.inbox().snapshot().await.unwrap().has_pending());
+    supervisor.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_during_backoff_never_respawns_and_wakes_waiters() {
+    let (supervisor, handle) = panic_fixture("stop-backoff").await;
+    handle
+        .followup(InboxMessage::user("first", "first"))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), handle.when_stopped())
+        .await
+        .unwrap();
+    let waiter = {
+        let handle = handle.clone();
+        tokio::spawn(async move { handle.when_ready().await })
+    };
+    let report = supervisor.shutdown(Duration::from_secs(1)).await;
+    assert!(report.is_graceful());
+    assert_eq!(waiter.await.unwrap(), Err(crate::AgentCommandError::Closed));
+    wait_out_respawn_backoff().await;
+    assert_eq!(handle.availability(), crate::WorkerAvailability::Closed);
+    assert_eq!(handle.wake().await, Err(crate::AgentCommandError::Closed));
+    assert_eq!(
+        handle.when_idle().await,
+        Err(crate::AgentCommandError::Closed)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn persistent_startup_fault_has_backoff_and_recovers_without_a_command() {
+    let failing = Arc::new(AtomicBool::new(false));
+    let reads = Arc::new(AtomicUsize::new(0));
+    let store: Arc<dyn Store> = Arc::new(ToggleFailStore {
+        inner: Arc::new(MemorySessionStore::default()),
+        failing: failing.clone(),
+        reads: reads.clone(),
+    });
+    let registry = AgentRegistry::new(store, Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("startup-fault"))
+        .await
+        .unwrap();
+    failing.store(true, Ordering::Release);
+    reads.store(0, Ordering::Release);
+    let handle = crate::DurableAgentHandle::start(
+        activation,
+        Arc::new(Factory(Arc::new(ScriptProvider {
+            scripts: StdMutex::new(VecDeque::new()),
+        }))),
+        64,
+    );
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    let attempts = reads.load(Ordering::Acquire);
+    assert!(
+        (1..=3).contains(&attempts),
+        "startup busy loop: {attempts} reads"
+    );
+    failing.store(false, Ordering::Release);
+    tokio::time::timeout(Duration::from_secs(3), handle.when_ready())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(handle.when_idle().await, Ok(()));
+    handle.shutdown(Duration::from_secs(1)).await;
+}
+
+struct StuckFactory {
+    entered: Arc<tokio::sync::Notify>,
+    dropped: Arc<AtomicBool>,
+}
+struct BuildDrop(Arc<AtomicBool>);
+impl Drop for BuildDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+#[async_trait]
+impl TurnRequestFactory for StuckFactory {
+    async fn build(&self, _: &str, _: Vec<AgentMessage>) -> Result<LoopRequest, String> {
+        let _guard = BuildDrop(self.dropped.clone());
+        self.entered.notify_one();
+        std::future::pending().await
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forced_shutdown_reaps_worker_and_releases_reservation() {
+    let registry = AgentRegistry::new(
+        Arc::new(MemorySessionStore::default()),
+        Arc::new(MemoryLeaseManager::default()),
+    );
+    let activation = registry
+        .activate(SessionHeader::new("forced"))
+        .await
+        .unwrap();
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let dropped = Arc::new(AtomicBool::new(false));
+    let handle = crate::DurableAgentHandle::start(
+        activation.clone(),
+        Arc::new(StuckFactory {
+            entered: entered.clone(),
+            dropped: dropped.clone(),
+        }),
+        64,
+    );
+    handle
+        .followup(InboxMessage::user("first", "first"))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
+    assert_eq!(
+        handle.shutdown(Duration::from_millis(10)).await,
+        crate::AgentShutdownOutcome::ForcedCleanup
+    );
+    assert!(dropped.load(Ordering::Acquire));
+    assert_eq!(activation.status().await, crate::AgentStatus::Idle);
+    assert_eq!(handle.availability(), crate::WorkerAvailability::Closed);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dropping_last_handle_releases_activation_and_supervisor() {
+    let registry = AgentRegistry::new(
+        Arc::new(MemorySessionStore::default()),
+        Arc::new(MemoryLeaseManager::default()),
+    );
+    let activation = registry
+        .activate(SessionHeader::new("drop-handle"))
+        .await
+        .unwrap();
+    let weak = Arc::downgrade(&activation);
+    let handle = crate::DurableAgentHandle::start(
+        activation,
+        Arc::new(Factory(Arc::new(ScriptProvider {
+            scripts: StdMutex::new(VecDeque::new()),
+        }))),
+        64,
+    );
+    handle.when_ready().await.unwrap();
+    drop(handle);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while weak.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("supervisor retained the activation after all handles were dropped");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stopped_waiter_detects_replacement_even_if_it_missed_backoff() {
+    let (supervisor, handle) = panic_fixture("generation-fence").await;
+    handle.when_ready().await.unwrap();
+    let stopped = handle.when_stopped();
+    tokio::pin!(stopped);
+    assert!(futures::poll!(&mut stopped).is_pending());
+    handle
+        .followup(InboxMessage::user("first", "first"))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), handle.when_stopped())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), handle.when_ready())
+        .await
+        .unwrap()
+        .unwrap();
+    // Deliberately do not poll the original waiter during Unavailable.
+    tokio::time::timeout(Duration::from_millis(100), &mut stopped)
+        .await
+        .unwrap();
+    supervisor.shutdown(Duration::from_secs(1)).await;
 }
