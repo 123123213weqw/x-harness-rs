@@ -5760,7 +5760,7 @@ async fn pause_during_candidate_admission_does_not_commit_and_resume_keeps_histo
 }
 
 #[tokio::test]
-async fn concurrent_durable_user_message_invalidates_summary_candidate_without_losing_message() {
+async fn concurrent_durable_inbox_preserves_pending_input_and_allows_valid_compaction() {
     let (request, provider) = candidate_probe(true).await;
     let mut run = LoopEngine.start(request);
     tokio::time::timeout(Duration::from_secs(5), provider.seen.notified())
@@ -5772,14 +5772,21 @@ async fn concurrent_durable_user_message_invalidates_summary_candidate_without_l
         .await
         .unwrap()
         .unwrap();
+    // External user input enters the durable inbox, not UserMessage mid-step.
     provider
         .journal
         .append(
             "candidate-probe",
             before.revision(),
-            vec![SessionEventData::UserMessage {
-                message: AgentMessage::user("CONCURRENT-NEW-INPUT"),
-                surface_replace: None,
+            vec![SessionEventData::AgentInboxSpliced {
+                target: InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 0,
+                inserted: vec![InboxMessage::user(
+                    "concurrent-input",
+                    "CONCURRENT-NEW-INPUT",
+                )],
+                outcome: None,
             }
             .into()],
         )
@@ -5791,23 +5798,29 @@ async fn concurrent_durable_user_message_invalidates_summary_candidate_without_l
     })
     .await
     .unwrap();
-    assert_eq!(run.result().await.status, LoopStatus::Failed);
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
     let after = provider
         .journal
         .load("candidate-probe")
         .await
         .unwrap()
         .unwrap();
-    assert!(!after
-        .events()
-        .iter()
-        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
-    assert!(after
-        .derive_messages()
-        .iter()
-        .any(|m| m.content.contains("OLD-CONTEXT")));
-    assert!(after
-        .derive_messages()
-        .iter()
-        .any(|m| m.content == "CONCURRENT-NEW-INPUT"));
+    assert_eq!(
+        after
+            .events()
+            .iter()
+            .filter(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. }))
+            .count(),
+        1
+    );
+    assert!(after.events().iter().any(|e| matches!(e.data(), SessionEventData::UserMessage { message, .. } if message.content.contains("OLD-CONTEXT"))));
+    assert!(after.events().iter().any(|e| matches!(e.data(), SessionEventData::AgentInboxSpliced { inserted, .. } if inserted.iter().any(|m| m.id == "concurrent-input"))));
+    assert!(
+        !provider.inner.requests()[1]
+            .messages
+            .iter()
+            .any(|m| m.content.contains("CONCURRENT-NEW-INPUT")),
+        "next-turn input is not part of this step's model request"
+    );
 }
