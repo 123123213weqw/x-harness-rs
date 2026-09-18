@@ -1021,6 +1021,12 @@ impl Runner {
             if reached_output_limit || !self.continuation_text.is_empty() {
                 self.continuation_text.push_str(&model.text);
                 self.final_text = self.continuation_text.clone();
+                if !reached_output_limit {
+                    // The continuation sequence ends with this step. The buffer
+                    // belongs to the message that was truncated, so a later step
+                    // starts its own text instead of being glued onto it.
+                    self.continuation_text.clear();
+                }
             } else {
                 self.final_text = model.text.clone();
             }
