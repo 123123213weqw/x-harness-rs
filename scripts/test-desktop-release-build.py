@@ -610,7 +610,13 @@ class NativeCargoCache(unittest.TestCase):
 class WorkflowGuard(unittest.TestCase):
     def test_single_aggregate_writer_and_four_native_platforms(self):
         text = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
-        self.assertEqual(text.count('contents: write'), 1)
+        self.assertEqual(text.count('contents: write'), 2) # Tag-only plan plus draft aggregator.
+        plan_job = text.split('  plan:', 1)[1].split('  build:', 1)[0]
+        matrix_job = text.split('  build:', 1)[1].split('  aggregate:', 1)[0]
+        self.assertIn('prepare-tag', plan_job)
+        self.assertNotIn('stage-draft', plan_job)
+        self.assertNotIn('publish --workspace', plan_job)
+        self.assertNotIn('contents: write', matrix_job)
         self.assertIn('needs: [plan, build]', text)
         self.assertNotIn('tauri-apps/tauri-action', text)
         self.assertNotIn('--clobber', text)

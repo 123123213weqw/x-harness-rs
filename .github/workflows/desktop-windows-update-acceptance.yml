@@ -1,8 +1,13 @@
 name: Desktop Windows Update Acceptance
+run-name: ${{ inputs.orchestration_id && format('release-task {0}', inputs.orchestration_id) || 'Desktop Windows Update Acceptance' }}
 
 on:
   workflow_dispatch:
     inputs:
+      orchestration_id:
+        description: Optional opaque correlation ID from scripts/release.py
+        required: false
+        type: string
       release_run_id:
         description: Successful Desktop Release run (immutable private candidate)
         required: true

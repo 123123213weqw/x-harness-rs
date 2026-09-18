@@ -66,6 +66,8 @@ XHarness Web UI / future CLI
 稳定通道继续维护；Mac/Linux 正式通道仍需 Apple 凭据和发布验收，不能把 CI 构件当成已经上线。
 前端只在桌面环境显示更新入口，下载不停止 Host，用户确认重启安装后才停止任务。
 详见[三平台稳定更新规范](docs/specs/unified-desktop-updates.md)。
+维护者可用 `python3 -B scripts/release.py <版本>` 准备候选包、自动等待 CI 和原生验收，
+再显式确认发布，无需手动传递 Run ID。见[统一发布任务入口](docs/specs/release-orchestrator.md)。
 Windows 安装包同时携带 Host、固定版本的 `rg.exe`、Web UI 和 ACL sandbox runner，仍要求系统
 安装 PowerShell 7。构建、数据目录、安全边界和发布 Secret 见[桌面规范](docs/specs/desktop.md)。
 

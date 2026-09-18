@@ -209,6 +209,34 @@ def verify_tag(repo, tag, sha):
         obj = api(f'repos/{repo}/git/tags/{obj["sha"]}')['object']
     raise ValueError('Annotated tag nesting exceeds the safe limit')
 
+def prepare_tag():
+    # GITHUB_TOKEN-created refs do not launch push workflows. The same dispatched
+    # build proceeds through the existing exact-SHA/signing/draft gates below.
+    repo, sha = trusted_checkout()
+    require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+            and os.environ.get('GITHUB_REF') == 'refs/heads/master',
+            'Tag preparation must run in the master dispatch workflow')
+    require(sha == os.environ.get('EXPECTED_SOURCE_SHA') == os.environ.get('GITHUB_SHA'),
+            'master moved since the release task was planned')
+    tag = os.environ.get('RELEASE_TAG_INPUT', '')
+    # Paginate to retain the existing all-published-versions comparison.
+    pages = json.loads(run('gh', 'api', '--paginate', '--slurp',
+                          f'repos/{repo}/releases?per_page=100', capture=True))
+    releases = [{'tagName': r['tag_name'], 'isDraft': r['draft']} for page in pages for r in page]
+    _contract.make_plan(repo, repo, tag, sha, os.environ['GITHUB_RUN_ID'],
+                        os.environ['GITHUB_RUN_ATTEMPT'], releases,
+                        _contract.fetch_ci(repo, sha), os.environ.get('RELEASE_SCOPE_INPUT', 'all'))
+    refs = api(f'repos/{repo}/git/matching-refs/tags/{tag}')
+    exact = [ref for ref in refs if ref.get('ref') == f'refs/tags/{tag}']
+    require(len(exact) <= 1, 'Ambiguous release tag')
+    if not exact:
+        # A failed POST may still have created the tag. Never delete/force it;
+        # a resumed build rechecks it against the same source instead.
+        run('gh', 'api', '--method', 'POST', f'repos/{repo}/git/refs',
+            '-f', f'ref=refs/tags/{tag}', '-f', f'sha={sha}')
+    verify_tag(repo, tag, sha)
+
+
 def snapshot(release):
     keys = ['id', 'tag_name', 'target_commitish', 'name', 'body', 'draft', 'prerelease', 'created_at', 'published_at']
     result = {key: release[key] for key in keys}
@@ -688,6 +716,7 @@ def export_native(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('prepare-tag')
     p = sub.add_parser('plan'); p.add_argument('--output', required=True, type=Path)
     p = sub.add_parser('signing-plan'); p.add_argument('--plan', required=True, type=Path)
     p = sub.add_parser('acceptance-matrix'); p.add_argument('--candidate', type=Path)
@@ -716,7 +745,8 @@ def main():
     p.add_argument('--root', type=Path, required=True); p.add_argument('--rehearsal', action='store_true')
     p = sub.add_parser('export-native'); p.add_argument('--root', type=Path, required=True); p.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    if args.command == 'plan':
+    if args.command == 'prepare-tag': prepare_tag()
+    elif args.command == 'plan':
         _, sha = trusted_checkout()
         require(sha == os.environ.get('GITHUB_SHA'), 'Release planning must use the exact workflow source')
         tag = os.environ.get('RELEASE_TAG_INPUT', '')

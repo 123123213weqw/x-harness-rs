@@ -1,5 +1,12 @@
 # XHarness 总任务清单
 
+## 统一发布任务入口（2026-09-18）
+
+- [x] `RELEASE-TASK-01` 单命令协调既有构建、Unix/Windows 验收与 Promote；固定来源 SHA，自动传递 Run ID。
+- [x] `RELEASE-TASK-02` 原子状态、进程锁、派发前记录意图、网络未知不重复触发、显式失败重试、正式发布确认。
+- [x] `RELEASE-TASK-03` 离线边界回归与三平台 CI 接线；中文[规范](specs/release-orchestrator.md)。
+- [ ] `RELEASE-TASK-04` PR 跨平台 CI 通过后合入 master；真实候选构建与发布演练单独授权，未修改线上更新通道。
+
 ## 厂商耦合清除：Host 能力表、示例与 CI（2026-09-17）
 
 承接「上游命名空间退出出厂产物」。产物侧的 `@deepseek-ai` 已随 `feat/ui-namespace` 迁到
