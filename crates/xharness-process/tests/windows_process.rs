@@ -160,7 +160,7 @@ fn secret_environment_scrubber_is_case_insensitive_on_windows() {
     let mut env = BTreeMap::from([
         (OsString::from("Path"), OsString::from("safe")),
         (
-            OsString::from("DEEPSEEK_API_KEY"),
+            OsString::from("EXAMPLE_API_KEY"),
             OsString::from("must-not-survive"),
         ),
         (OsString::from("Password"), OsString::from("hidden")),
@@ -170,6 +170,6 @@ fn secret_environment_scrubber_is_case_insensitive_on_windows() {
     assert!(env.contains_key(&OsString::from("Path")));
     assert_eq!(removed.len(), 2);
     assert!(is_secret_env_name(
-        OsString::from("deepseek_api_key").as_os_str()
+        OsString::from("example_api_key").as_os_str()
     ));
 }

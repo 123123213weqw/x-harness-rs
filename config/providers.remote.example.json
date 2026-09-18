@@ -1,42 +1,33 @@
 {
   "default": {
-    "provider": "deepseek",
-    "model": "deepseek-v4-flash",
+    "provider": "remote",
+    "model": "chat-model",
     "reasoning_effort": "high"
   },
   "providers": [
     {
-      "id": "deepseek",
-      "display_name": "DeepSeek API",
+      "id": "remote",
+      "display_name": "Remote OpenAI-compatible API",
       "kind": "openai-compatible",
-      "base_url": "https://api.deepseek.com",
+      "base_url": "https://api.example.com/v1",
       "protocol": "chat",
-      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_env": "EXAMPLE_API_KEY",
       "models": [
         {
-          "id": "deepseek-v4-flash",
-          "display_name": "DeepSeek V4 Flash",
-          "fallback_context_window_tokens": 1048576,
-          "max_output_tokens": 65536,
-          "minimum_output_tokens": 8192,
+          "id": "chat-model",
+          "display_name": "Chat model",
+          "fallback_context_window_tokens": 131072,
+          "max_output_tokens": 16384,
+          "minimum_output_tokens": 2048,
           "token_safety_margin": 4096,
           "reasoning": {
             "default_effort": "high",
             "efforts": [
               {
-                "id": "off",
-                "name": "关闭思考",
-                "description": "优先速度和工具响应",
-                "request_patch": {
-                  "thinking": { "type": "disabled" }
-                }
-              },
-              {
                 "id": "low",
                 "name": "低",
                 "description": "轻量推理",
                 "request_patch": {
-                  "thinking": { "type": "enabled" },
                   "reasoning_effort": "low"
                 }
               },
@@ -45,7 +36,6 @@
                 "name": "高",
                 "description": "长时间编码任务默认",
                 "request_patch": {
-                  "thinking": { "type": "enabled" },
                   "reasoning_effort": "high"
                 }
               },
@@ -54,7 +44,6 @@
                 "name": "最高",
                 "description": "复杂架构与调试任务",
                 "request_patch": {
-                  "thinking": { "type": "enabled" },
                   "reasoning_effort": "max"
                 }
               }
@@ -62,29 +51,19 @@
           }
         },
         {
-          "id": "deepseek-v4-pro",
-          "display_name": "DeepSeek V4 Pro",
-          "fallback_context_window_tokens": 1048576,
-          "max_output_tokens": 65536,
-          "minimum_output_tokens": 8192,
+          "id": "chat-model-pro",
+          "display_name": "Chat model Pro",
+          "fallback_context_window_tokens": 131072,
+          "max_output_tokens": 32768,
           "token_safety_margin": 4096,
           "reasoning": {
             "default_effort": "high",
             "efforts": [
               {
-                "id": "off",
-                "name": "关闭思考",
-                "description": "优先速度和工具响应",
-                "request_patch": {
-                  "thinking": { "type": "disabled" }
-                }
-              },
-              {
                 "id": "low",
                 "name": "低",
-                "description": "轻量推理",
+                "description": "速度与推理平衡",
                 "request_patch": {
-                  "thinking": { "type": "enabled" },
                   "reasoning_effort": "low"
                 }
               },
@@ -93,7 +72,6 @@
                 "name": "高",
                 "description": "高质量编码任务默认",
                 "request_patch": {
-                  "thinking": { "type": "enabled" },
                   "reasoning_effort": "high"
                 }
               },
@@ -102,14 +80,14 @@
                 "name": "最高",
                 "description": "最大推理预算",
                 "request_patch": {
-                  "thinking": { "type": "enabled" },
                   "reasoning_effort": "max"
                 }
               }
             ]
           }
         }
-      ]
+      ],
+      "usage_input_semantics": "auto"
     }
   ]
 }
