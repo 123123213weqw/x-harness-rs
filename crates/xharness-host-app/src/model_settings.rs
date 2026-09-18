@@ -206,26 +206,9 @@ impl NativeModelSettings {
                     model.reasoning = Some(value.clone());
                     observation = provenance.clone();
                     observation["state"] = json!("supported");
-                } else {
-                    let protocol = if profile.api == "openai-responses" {
-                        xharness_provider_openai::OpenAiProtocol::Responses
-                    } else {
-                        xharness_provider_openai::OpenAiProtocol::ChatCompletions
-                    };
-                    if let Some(value) = crate::config::reasoning_catalog::builtin(
-                        &profile.base_url,
-                        upstream,
-                        protocol,
-                    ) {
-                        model.reasoning = Some(
-                            serde_json::to_value(value)
-                                .map_err(|_| "Invalid documented reasoning profile")?,
-                        );
-                        observation = json!({"state":"supported","source":"documented","verifiedAt":"2026-09-14"});
-                    } else if profile.reasoning_discovery.is_some() {
-                        observation = provenance.clone();
-                        observation["state"] = json!("unknown");
-                    }
+                } else if profile.reasoning_discovery.is_some() {
+                    observation = provenance.clone();
+                    observation["state"] = json!("unknown");
                 }
                 observations.insert((id.clone(), model.id.clone()), observation);
             }
@@ -389,17 +372,7 @@ impl ModelSettingsBackend for NativeModelSettings {
                         .filter(|p| p.base_url == base && p.api == api)
                         .and_then(|p| p.models.iter().find(|model| model.id == id))
                         .and_then(|m| m.reasoning.clone());
-                    let protocol = if api == "openai-responses" {
-                        xharness_provider_openai::OpenAiProtocol::Responses
-                    } else {
-                        xharness_provider_openai::OpenAiProtocol::ChatCompletions
-                    };
-                    let documented = crate::config::reasoning_catalog::builtin(base, id, protocol)
-                        .and_then(|p| serde_json::to_value(p).ok());
-                    if let Some(value) = configured
-                        .or_else(|| remote_profiles.get(id).cloned())
-                        .or(documented)
-                    {
+                    if let Some(value) = configured.or_else(|| remote_profiles.get(id).cloned()) {
                         item["reasoning"] = value;
                     }
                     item

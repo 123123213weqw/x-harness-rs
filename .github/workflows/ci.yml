@@ -53,6 +53,7 @@ jobs:
       - name: Unix updater isolation and candidate contracts
         if: runner.os != 'Windows'
         run: python3 -B scripts/test-unix-update-acceptance.py
+      - run: python -B scripts/test-live-model-workflow.py
       - run: python -B scripts/test-desktop-release.py
       - run: node scripts/test-desktop-windows-acceptance.mjs
       - name: Real Tauri signer with disposable keys (no native compilation)
@@ -178,6 +179,12 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Goal remote HTTP replies match shipped client schemas
+        env:
+          XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json
+        run: |
+          cargo test -p xharness-host-app --test goal_remotes
+          node scripts/test-goal-remote-contract.mjs "$XHARNESS_GOAL_REMOTE_FIXTURE"
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
@@ -234,7 +241,7 @@ jobs:
           Copy-Item -LiteralPath "target/release/xharness-windows-sandbox-runner.exe" -Destination $package
           Copy-Item -LiteralPath $env:XHARNESS_RG -Destination $package
           New-Item -ItemType Directory -Force -Path "$package/config" | Out-Null
-          Copy-Item -LiteralPath "config/providers.deepseek.example.json" -Destination "$package/config"
+          Copy-Item -LiteralPath "config/providers.remote.example.json" -Destination "$package/config"
           Copy-Item -LiteralPath "scripts/start-windows.ps1" -Destination $package
           Copy-Item -LiteralPath "ui/dist" -Destination "$package/ui" -Recurse
           $archive = "dist/xharness-host-windows-x86_64.zip"

@@ -37,8 +37,8 @@ if ([string]::IsNullOrWhiteSpace($HostExecutable)) {
     }
 }
 if ([string]::IsNullOrWhiteSpace($ProvidersFile)) {
-    $packagedConfig = Join-Path $PSScriptRoot 'config/providers.deepseek.example.json'
-    $repositoryConfig = Join-Path $repositoryRoot 'config/providers.deepseek.example.json'
+    $packagedConfig = Join-Path $PSScriptRoot 'config/providers.remote.example.json'
+    $repositoryConfig = Join-Path $repositoryRoot 'config/providers.remote.example.json'
     $ProvidersFile = if (Test-Path -LiteralPath $packagedConfig -PathType Leaf) {
         $packagedConfig
     } else {

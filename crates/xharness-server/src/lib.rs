@@ -1,4 +1,5 @@
-//! DeepSeek Harness Web-compatible physical carrier.
+//! Upstream-Harness-compatible Web carrier for the frozen contract revision in
+//! `xharness_api::UPSTREAM_CONTRACT_REVISION`.
 //!
 //! Unary RPC travels upstream through JSON POST requests. Mux and Host events
 //! use two downlink-only WebSockets. The server owns transport validation only;

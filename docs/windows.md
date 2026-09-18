@@ -19,20 +19,21 @@ Agent Loop、上下文、压缩、Provider、Session、RPC、Web UI、工具 Sch
 Rust 实现。平台差异集中在 `xharness-win32`、`xharness-process`、`xharness-fs`、
 `xharness-sandbox`、`xharness-terminal` 和 shell 工具选择器；不需要维护一个 Windows 专用仓库。
 
-## 启动 DeepSeek
+## 启动远端模型
 
-官方 API 通过 OpenAI-compatible Chat Completions 接入，凭据只从
-`DEEPSEEK_API_KEY` 环境变量读取。不要把 key 填入 JSON、命令行参数或 Git 文件。
+任意 OpenAI-compatible 端点都能接入，凭据只从 provider 条目里 `api_key_env` 指定的环境变量读取。
+不要把 key 填入 JSON、命令行参数或 Git 文件。
 
 ```powershell
-$env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API key' -MaskInput
+$env:EXAMPLE_API_KEY = Read-Host 'API key' -MaskInput
 pwsh -File .\scripts\start-windows.ps1 -Workspace C:\src\my-project
 ```
 
-脚本使用 [`config/providers.deepseek.example.json`](../config/providers.deepseek.example.json)，
-默认路由是 `deepseek-v4-flash` / high，Web 中可切换 `deepseek-v4-pro` 和模型实际支持的
-`off` / `low` / `high` / `max` 思考强度。配置的 1M 上下文是部署声明 fallback；
-Harness 不会把模型名推断伪装成实时 capability。
+脚本使用 [`config/providers.remote.example.json`](../config/providers.remote.example.json) 作为模板：
+把 `base_url`、`api_key_env`、`models[].id` 换成自己的端点即可。思考强度也在这个文件里声明
+（`reasoning.efforts[].request_patch`），Host 不内置任何厂商的档位表；`fallback_context_window_tokens`
+是部署声明的 fallback，Harness 不会把模型名推断伪装成实时 capability。关闭思考的补丁字段取决于
+端点方言，例如 `{"thinking":{"type":"disabled"}}` 或 `{"reasoning_effort":"none"}`。
 
 ## SSH 和 Bash
 

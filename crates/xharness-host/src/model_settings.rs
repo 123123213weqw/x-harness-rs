@@ -381,7 +381,7 @@ mod tests {
             "llama.cpp-4080",
             "llama.cpp-v100",
             "my.provider_v2",
-            "deepseek",
+            "remote.api_v3",
         ] {
             let section = json!({"providers":{(id):{
                 "baseURL":"http://127.0.0.1:1234/v1",
