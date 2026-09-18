@@ -440,8 +440,9 @@ ui/dist/        Fresh Clone 可直接由 Rust Host 托管的静态 Bundle
 ```
 
 `ui/dist` 基于冻结版本 DeepSeek Harness Web UI 的 MIT 许可构建，第三方声明见
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。上游 `@deepseek-ai/dsh-*` 名称是浏览器插件
-协议兼容标识，不是残留的可见品牌。Host 支持环境变量和等价的 `--bind`、`--workspace`、`--static-dir`、
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。发布产物使用自有 scope `@xharness/`：
+装配最后一步会把上游包名、插件目录、boot 清单与打包派生标识符统一改写
+（`scripts/rewrite-ui-namespace.mjs`），因此出厂 bundle 里不再出现上游 scope。Host 支持环境变量和等价的 `--bind`、`--workspace`、`--static-dir`、
 `--provider`、`--model`、`--base-url`、`--api-key`、`--protocol` 参数：
 
 ```bash

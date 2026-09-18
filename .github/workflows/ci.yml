@@ -53,6 +53,7 @@ jobs:
       - name: Unix updater isolation and candidate contracts
         if: runner.os != 'Windows'
         run: python3 -B scripts/test-unix-update-acceptance.py
+      - run: python -B scripts/test-live-model-workflow.py
       - run: python -B scripts/test-desktop-release.py
       - run: node scripts/test-desktop-windows-acceptance.mjs
       - name: Real Tauri signer with disposable keys (no native compilation)
@@ -135,6 +136,7 @@ jobs:
           UI_TEST_BROWSER=chromium node scripts/test-approval-prompt-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-approval-prompt-browser.mjs
           node scripts/test-goal-runtime-patch.mjs
+          node scripts/test-ui-namespace.mjs
           UI_TEST_BROWSER=chromium node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-goal-runtime-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-request-audit-browser.mjs

@@ -22,10 +22,13 @@ clone does not need the historical sibling `x-harness` checkout.
   directly into product HTML and intentionally does not join the upstream
   client-module graph.
 
-The existing `@deepseek-ai/dsh-*`, `__DSH_BOOT__`, and CSS token identifiers in
-the compiled bundle are protocol/ABI compatibility identifiers. They are not
-rendered branding and are intentionally retained until the XHarness daemon
-provides its own browser protocol.
+The compiled bundle ships on the `@xharness/` scope: package ids, plugin
+directories, the boot manifest and the bundler-derived identifiers inside each
+plugin are rewritten by `scripts/rewrite-ui-namespace.mjs` after assembly, so no
+upstream package scope survives in `ui/dist`. `__DSH_BOOT__` and the `--dsw-*`
+CSS tokens are protocol/design-system identifiers from the same upstream
+contract; they are not rendered branding and are retained until the Host and
+theme define their own protocol.
 
 For license attribution, see the repository-level `THIRD_PARTY_NOTICES.md`.
 

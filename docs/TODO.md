@@ -12,6 +12,16 @@
 - [ ] `VENDOR-05` 发版与装机复验：确认移除内置能力表后，现有 `providers.json`（已显式声明档位）行为不变；未声明档位的旧配置在 Web 中显示 `unknown`，需要按 `docs/specs/model-settings.md` 迁移段落补 `reasoning`。
 - [ ] `UI-NS-06` 保留项与仍属上游语义的名字：`--dsw-static-deepseek-*` 设计令牌、`__DSH_BOOT__`、`--dsh-*` class 前缀、UI 侧 provider/settings id（`deepseek-official`、`llm-deepseek`、`web-search-deepseek`）与 onboarding/搜索文案；必须保留的上游溯源记录（`xharness-api::UPSTREAM_CONTRACT_REVISION`、`docs/compat/*`、`scripts/terminal_bench/official-*`、`THIRD_PARTY_NOTICES.md`）。
 
+## Worker 生命周期监督（2026-09-18，PR #102）
+
+- [x] `WORKER-01` 稳定 Handle 与 Worker 可用性分离，监督任务独占 Join/重建，旧代结束后才释放 reservation。
+- [x] `WORKER-02` 普通错误保留 Worker；异常退出自动退避重建，不自动重放命令/副作用；关闭可取消恢复。
+- [x] `WORKER-03` idle/ready/stopped 等待、跨代通知、并发恢复、强制退出和最后 Handle 释放回归。
+- [x] `WORKER-04` Schedule 等待 Ready，临时故障间隔重试；丢失 Worker 后真实 Owner 投递回归。
+- [x] `WORKER-05` V100 全工作区回归：679 通过、9 忽略、0 失败；相关模块 Clippy 通过。
+- [ ] `WORKER-06` 更新 PR 后通过跨平台 CI，再合并/发布；当前已安装软件不因源码修改自动生效。
+- 规范见 [Agent 生命周期](specs/agent.md#worker-故障监督与等待语义pr-102-调整)。
+
 ## 停止后的排队用户 Prompt（2026-09-17）
 
 现场：`session-1789634172710-56127` 16:44:43 排队「可以关的关掉吧」→ 16:44:55 用户停止 →
@@ -22,6 +32,7 @@
 - [x] `STOP-QUEUE-02` 启动恢复：next-turn 里存在用户 Prompt 时，即使持久门禁为 paused 也恢复该会话；其余暂停语义不变。
 - [x] `STOP-QUEUE-03` 回归：`xharness-host` `user_stop_lets_the_already_queued_prompt_start_the_next_turn`（停止后自动 turn 2 + 门禁落盘为 false）与既有 `host_flood_steer_stop_clears_running_and_parks_internal_followup`（内部回执仍被拦）。
 - [ ] `STOP-QUEUE-04` 跨平台 CI、合并、发布与已安装桌面/Web 替换后真实会话复验（源码修复不代表已部署）。
+
 
 
 
@@ -37,6 +48,8 @@ import 路径派生的标识符（`deepseek_ai_*`）以及打包时写入的 reg
 - [x] `UI-NS-04` 回归：`ui/dist` 内 `@deepseek-ai` 与 `deepseek_ai_` 均为 0；非浏览器 UI 测试 29/30 通过（唯一失败 `test-context-layout` 是本机缺 playwright，master 上同样失败）；服务端真实 Chromium 跑 CI 浏览器清单；真实 Host + 真实页面复验 GoalBar 六条 `/api/goals/*` 仍 200。
 - [x] `UI-NS-05` Host 侧厂商耦合清除：删除内置 `reasoning_catalog`（只在 `api.deepseek.com` + 精确模型 ID 生效的冗余回退），思考档位改由配置声明；`config/providers.deepseek.example.json` → `config/providers.remote.example.json`（占位端点 + 显式 `reasoning`），Windows 启动脚本、打包步骤、文档同步；live 验收工作流改为 `live-model-acceptance.yml`（端点/模型/密名均为输入），live 测试、示例与测试夹具改名。详见 PR。
 - [ ] `UI-NS-06` 仍是上游语义的名字（不构成依赖，按需处理）：`--dsw-static-deepseek-*` 设计令牌与 `__DSH_BOOT__` 协议名、`--dsh-*` class 前缀；UI 侧 provider/settings id（`deepseek-official`、`llm-deepseek`、`web-search-deepseek`）与 onboarding/搜索文案；必须保留的上游溯源记录（`xharness-api::UPSTREAM_CONTRACT_REVISION`、`docs/compat/*`、`scripts/terminal_bench/official-*`、`THIRD_PARTY_NOTICES.md`）。
+
+- [ ] `UI-NS-05` 仍是上游语义的名字，按层 B/C 后续处理（不影响本项“依赖”目标）：`--dsw-static-deepseek-*` 设计令牌与 `__DSH_BOOT__` 协议名；UI 侧 provider/settings id（`deepseek-official`、`llm-deepseek`、`web-search-deepseek`、`DEEPSEEK_API_KEY`）与 onboarding/搜索文案；Rust 侧 `reasoning_catalog.rs` 的 host/model 白名单；CI `deepseek-live.yml` 与 live 测试；`xharness-api::UPSTREAM_CONTRACT_REVISION`、`docs/compat/*`、`scripts/terminal_bench/official-*` 等上游溯源记录（保留）。
 
 ## Token 校准重启恢复（2026-09-17）
 

@@ -85,7 +85,7 @@ node "$repo_root/scripts/patch-streaming-math.mjs" "$repo_root/ui/dist"
 # package-level artifact in addition to the complete static graph in dist/.
 brand_plugin="$upstream/packages/client/ui-brand-official/lib/client.js"
 brand_map="$brand_plugin.map"
-brand_dist="$repo_root/ui/plugins/@deepseek-ai/dsh-client-ui-brand-official"
+brand_dist="$repo_root/ui/plugins/@xharness/dsh-client-ui-brand-official"
 mkdir -p "$brand_dist"
 cp "$brand_plugin" "$brand_dist/client.js"
 if [[ -f "$brand_map" ]]; then

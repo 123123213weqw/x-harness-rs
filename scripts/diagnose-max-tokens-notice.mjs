@@ -17,7 +17,7 @@ for(const path of bundles) {
  assert.ok(hints.length>=2);
  const jsx=(type,props)=>({type,props});
  const env={react_jsx_runtime:{jsx,jsxs:jsx},MessageItem_module_css_default:{},
-  _deepseek_ai_dsh_client_ui_primitives:{StateDot:'dot'},
+  _xharness_dsh_client_ui_primitives:{StateDot:'dot'},
   chatNode:(_ctx,kind,seq,data)=>({kind,seq,data})};
  vm.runInNewContext(source.slice(start,defEnd)+'\nglobalThis.def=turnMaxTokensDefinition;\n'+source.slice(itemStart,itemEnd)+'\nglobalThis.render=TurnMaxTokensItem;',env);
  for(const fixture of fixtures) {
