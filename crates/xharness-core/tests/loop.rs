@@ -5361,6 +5361,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
 }
 
 struct CandidateAdmissionProbe {
+    release: Notify,
     inner: ScriptProvider,
     counts: AtomicUsize,
     seen: Notify,
@@ -5388,7 +5389,7 @@ impl ModelProvider for CandidateAdmissionProbe {
             );
             self.seen.notify_one();
             if self.block {
-                futures::future::pending::<()>().await;
+                self.release.notified().await;
             }
         }
         Ok(Some(ProviderInputTokenCount::exact_request(
@@ -5412,6 +5413,7 @@ async fn candidate_probe(block: bool) -> (LoopRequest, Arc<CandidateAdmissionPro
     let journal = Arc::new(EventMemorySessionStore::default());
     seed_long_compaction_history(journal.as_ref(), "candidate-probe").await;
     let provider = Arc::new(CandidateAdmissionProbe {
+        release: Notify::new(),
         inner: ScriptProvider::new([
             vec![
                 Ok(ProviderEvent::TextDelta("CHECKPOINT".into())),
@@ -5534,4 +5536,278 @@ async fn steering_candidate_admission_discards_the_candidate_before_new_work() {
         .messages
         .iter()
         .any(|m| m.content.contains("OLD-CONTEXT")));
+}
+
+#[tokio::test]
+async fn summary_fault_matrix_keeps_history_and_never_sends_overbudget_main_request() {
+    let terminal = |reason| {
+        Ok(ProviderEvent::Completed {
+            finish_reason: reason,
+            usage: None,
+            provider_items: vec![],
+        })
+    };
+    let faults = vec![
+        vec![],
+        vec![Ok(ProviderEvent::TextDelta("PARTIAL".into()))],
+        vec![terminal(Some(FinishReason::Stop))],
+        vec![Ok(ProviderEvent::TextDelta(" \n\t".into())), terminal(None)],
+        vec![
+            Ok(ProviderEvent::ReasoningDelta(
+                "private reasoning is not a checkpoint".into(),
+            )),
+            terminal(Some(FinishReason::Stop)),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            terminal(Some(FinishReason::ContentFilter)),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            terminal(Some(FinishReason::Incomplete("network".into()))),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            terminal(Some(FinishReason::Other("unknown".into()))),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            terminal(Some(FinishReason::ToolCalls)),
+        ],
+        vec![
+            Ok(ProviderEvent::ToolCallDelta {
+                index: 0,
+                id: "forbidden".into(),
+                name: "echo".into(),
+                arguments_delta: "{}".into(),
+            }),
+            terminal(Some(FinishReason::Stop)),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            Err(ProviderError::http(401, "revoked")),
+        ],
+        vec![
+            Ok(ProviderEvent::TextDelta("PARTIAL".into())),
+            Err(ProviderError::retryable("stream disconnected")),
+        ],
+    ];
+    for (case, fault) in faults.into_iter().enumerate() {
+        for pressure in [false, true] {
+            let (mut request, probe) = candidate_probe(false).await;
+            request.compaction.as_mut().unwrap().compaction_retries = 0;
+            let provider = Arc::new(SequencedCountingProvider::new(
+                vec![if pressure { 900 } else { 980 }, 500],
+                [
+                    fault.clone(),
+                    vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+                ],
+            ));
+            request.provider = provider.clone();
+            let (_, result) =
+                tokio::time::timeout(Duration::from_secs(5), collect(LoopEngine.start(request)))
+                    .await
+                    .unwrap();
+            assert_eq!(
+                result.status,
+                if pressure {
+                    LoopStatus::Completed
+                } else {
+                    LoopStatus::Failed
+                },
+                "case={case} pressure={pressure}: {:?}",
+                result.error
+            );
+            assert_eq!(
+                provider.inner.attempts(),
+                if pressure { 2 } else { 1 },
+                "case={case}"
+            );
+            let session = probe
+                .journal
+                .load("candidate-probe")
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(
+                !session
+                    .events()
+                    .iter()
+                    .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })),
+                "case={case}"
+            );
+            assert!(
+                session
+                    .derive_messages()
+                    .iter()
+                    .any(|m| m.content.contains("OLD-CONTEXT")),
+                "case={case}"
+            );
+            assert!(
+                !session
+                    .derive_messages()
+                    .iter()
+                    .any(|m| m.content.contains("PARTIAL")),
+                "case={case}"
+            );
+            assert!(session.events().iter().any(|e| matches!(
+                e.data(),
+                SessionEventData::CompactionEnd { error: Some(_), .. }
+            )));
+        }
+    }
+}
+
+#[tokio::test]
+async fn summary_stream_fragmentation_and_reasoning_do_not_change_committed_checkpoint() {
+    let text = "事实：Unicode🙂，路径 /a/b.rs，保留结论而不是推理。";
+    let chars = text.chars().collect::<Vec<_>>();
+    for width in 1..=chars.len() {
+        for legacy_finish in [false, true] {
+            let (mut request, probe) = candidate_probe(false).await;
+            let mut summary = Vec::new();
+            for chunk in chars.chunks(width) {
+                summary.push(Ok(ProviderEvent::ReasoningDelta("NOT-SUMMARY".into())));
+                summary.push(Ok(ProviderEvent::TextDelta(chunk.iter().collect())));
+            }
+            summary.push(Ok(ProviderEvent::Completed {
+                finish_reason: if legacy_finish {
+                    None
+                } else {
+                    Some(FinishReason::Stop)
+                },
+                usage: None,
+                provider_items: vec![],
+            }));
+            let provider = Arc::new(SequencedCountingProvider::new(
+                vec![980, 500, 300, 300],
+                [
+                    summary,
+                    vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+                ],
+            ));
+            request.provider = provider.clone();
+            let (_, result) = collect(LoopEngine.start(request)).await;
+            assert_eq!(
+                result.status,
+                LoopStatus::Completed,
+                "width={width}: {:?}",
+                result.error
+            );
+            let main = provider.inner.requests().last().unwrap().messages.clone();
+            assert!(main.iter().any(|m| m.content.contains(text)));
+            assert!(!main
+                .iter()
+                .any(|m| m.content.contains("NOT-SUMMARY") || m.content.contains("OLD-CONTEXT")));
+            let session = probe
+                .journal
+                .load("candidate-probe")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. }))
+                    .count(),
+                1
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn pause_during_candidate_admission_does_not_commit_and_resume_keeps_history() {
+    let (request, provider) = candidate_probe(true).await;
+    let mut run = LoopEngine.start(request);
+    tokio::time::timeout(Duration::from_secs(5), provider.seen.notified())
+        .await
+        .unwrap();
+    run.send(LoopCommand::Pause).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(event) = run.next().await {
+            if matches!(event.kind, LoopEventKind::RunPaused) {
+                return;
+            }
+        }
+        panic!("run ended without pause");
+    })
+    .await
+    .unwrap();
+    assert_eq!(provider.inner.attempts(), 1);
+    let session = provider
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!session
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+    run.send(LoopCommand::Resume).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while run.next().await.is_some() {}
+    })
+    .await
+    .unwrap();
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    assert!(provider.inner.requests()[1]
+        .messages
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+}
+
+#[tokio::test]
+async fn concurrent_durable_user_message_invalidates_summary_candidate_without_losing_message() {
+    let (request, provider) = candidate_probe(true).await;
+    let mut run = LoopEngine.start(request);
+    tokio::time::timeout(Duration::from_secs(5), provider.seen.notified())
+        .await
+        .unwrap();
+    let before = provider
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    provider
+        .journal
+        .append(
+            "candidate-probe",
+            before.revision(),
+            vec![SessionEventData::UserMessage {
+                message: AgentMessage::user("CONCURRENT-NEW-INPUT"),
+                surface_replace: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    provider.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while run.next().await.is_some() {}
+    })
+    .await
+    .unwrap();
+    assert_eq!(run.result().await.status, LoopStatus::Failed);
+    let after = provider
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!after
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+    assert!(after
+        .derive_messages()
+        .iter()
+        .any(|m| m.content.contains("OLD-CONTEXT")));
+    assert!(after
+        .derive_messages()
+        .iter()
+        .any(|m| m.content == "CONCURRENT-NEW-INPUT"));
 }
