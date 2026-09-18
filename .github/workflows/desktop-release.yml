@@ -196,17 +196,32 @@ jobs:
           cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --target '${{ matrix.target }}' -- -D warnings
       - name: Project updater public key into bundler config
         run: python -B scripts/desktop-release-build.py configure --plan dist/desktop-plan/plan.json --public-key dist/updater.pub
+      # The bundler selects its Apple branch with `std::env::var_os`, which
+      # reports a present-but-empty variable as `Some("")`. Blanking a variable
+      # therefore still chooses certificate import and notarization, and the
+      # ad-hoc preview fails importing an empty keychain certificate. The two
+      # steps below keep the credentials undefined rather than empty; the
+      # signing gate above already rejects a missing formal identity.
       - name: Build and sign desktop bundle (artifacts only)
+        if: ${{ !matrix.macos_preview }}
         working-directory: apps/desktop
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ !matrix.macos_preview && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ !matrix.macos_preview && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ matrix.macos_preview && '-' || secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ !matrix.macos_preview && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ !matrix.macos_preview && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ !matrix.macos_preview && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
+      - name: Build and sign ad-hoc Mac preview bundle (artifacts only)
+        if: ${{ matrix.macos_preview }}
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: '-'
         run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
       - name: Verify architecture, embedded channel, updater signature and declared Mac code-signing policy
         env:
