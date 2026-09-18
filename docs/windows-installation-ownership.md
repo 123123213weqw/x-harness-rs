@@ -35,6 +35,24 @@ other XHarness desktop/Host processes owned by the current user. It does not kil
 processes by image name. Its inventory captures existing per-user shortcuts before
 NSIS creates/replaces its standard shortcuts.
 
+Owner-query failures are not evidence that a process is still running or that it
+is safe to ignore. The installer re-queries the PID: a disappeared entry is no
+longer a blocker. An inaccessible retained entry is ignored only if two bounded
+samples identify the same creation time/name and both explicitly report zero
+threads and handles, AND every existing executable in the target directory can
+be opened for exclusive read/write access. Missing fields, PID reuse, active
+threads/handles, query failures, redirects and locked/unwritable binaries fail
+closed. Diagnostics include the blocking PID or file, not a generic instruction
+to close an already-closed window. No process is killed and no ACL is changed.
+
+This is a bounded point-in-time check, not proof against another application
+starting afterwards. NSIS and the filesystem still enforce replacement safety.
+The same target checks run in reconciliation and on legacy directories before
+retirement. Known live current-user copies remain blockers even at different
+paths because they can share user data; this change does not infer isolation
+from the executable path. The target-file check also protects against a process
+owned by another user holding the installation open.
+
 After file installation, shortcuts still pointing to inventoried XHarness copies
 are redirected to the retained installation. Custom launch arguments are preserved.
 Automatic retirement is limited to inventoried legacy distribution directories:
@@ -62,6 +80,15 @@ application control/constrained-language restrictions are not disabled; an
 unavailable helper fails the installer with diagnostics.
 
 ## Verification and release gate
+
+- `scripts/test-install-process-probe.ps1`: real production functions with CIM
+  fault injection plus real exclusive file locks; no installed application used.
+- `scripts/test-install-process-native.ps1`: disposable Windows CI only; a live
+  child must block, an exited child held by a process handle must not. Outputs
+  whether CIM retained the entry and its owner-query result, so disappearance is
+  not misreported as reproduction of an inaccessible retained object.
+- `.github/workflows/installer-process-probe.yml`: runs these checks under
+  Windows PowerShell 5.1 (the actual NSIS interpreter) and PowerShell 7.
 
 - `node scripts/test-install-ownership-contract.mjs`: configuration and safety
   contracts, distinct from runtime behavior tests.

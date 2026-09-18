@@ -1,0 +1,29 @@
+name: Windows installer process probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/desktop/src-tauri/windows/**'
+      - 'scripts/test-install-process-*.ps1'
+      - 'scripts/test-install-ownership-contract.mjs'
+      - '.github/workflows/installer-process-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  process-probe:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Windows PowerShell 5.1 fault injection and native process regression
+        shell: powershell
+        run: ./scripts/test-install-process-probe.ps1 -Native
+      - name: PowerShell 7 fault injection and exclusive-file regression
+        shell: pwsh
+        run: ./scripts/test-install-process-probe.ps1
+      - name: Installer wiring and safety contracts
+        shell: pwsh
+        run: node scripts/test-install-ownership-contract.mjs
