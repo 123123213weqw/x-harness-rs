@@ -337,7 +337,10 @@ async fn shipped_goal_bar_verbs_answer_over_http_and_other_namespaces_stay_unmou
         StatusCode::OK,
         "goals/clear must not 404: {cleared}"
     );
-    assert_eq!(cleared["result"]["value"], json!({"cleared": true}));
+    assert_eq!(
+        cleared["result"]["value"],
+        json!({"id": completed["id"], "revision": completed["revision"].as_u64().unwrap() + 1})
+    );
 
     // Resume arms automatic continuation, so it goes last on a fresh goal: the
     // round it starts hangs against the never-answering route, which keeps the
@@ -375,6 +378,18 @@ async fn shipped_goal_bar_verbs_answer_over_http_and_other_namespaces_stay_unmou
     assert_goal_object(&resumed);
     assert_eq!(resumed["ref"]["id"], second_ref["id"]);
     assert_eq!(resumed["activation"], "armed");
+
+    if let Ok(path) = std::env::var("XHARNESS_GOAL_REMOTE_FIXTURE") {
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(&json!({
+                "create": created["result"]["value"], "edit": edited, "pause": paused,
+                "resume": resumed, "complete": completed, "clear": cleared["result"]["value"],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
 
     // Only those six verbs are mounted: unknown goals endpoints and the other
     // upstream namespaces keep answering 404 so the boundary stays visible.

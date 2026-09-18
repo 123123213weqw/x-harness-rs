@@ -26,7 +26,7 @@ const React = {
 const plugin = registration.factory((id) => {
   if (id === 'react') return React
   if (id === 'react-dom') return { createPortal() {} }
-  if (id === '@deepseek-ai/dsh-client-ui-primitives') {
+  if (id === '@xharness/dsh-client-ui-primitives') {
     return { IconChevronDownOutline14() {}, useAnchoredPosition() {} }
   }
   throw new Error(`unexpected module dependency: ${id}`)

@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
     const {
       IconChevronDownOutline14,
       useAnchoredPosition,
-    } = require('@deepseek-ai/dsh-client-ui-primitives')
+    } = require('@xharness/dsh-client-ui-primitives')
     const { createElement: h, useEffect, useMemo, useRef, useState } = React
 
     const NS = 'schedule.catalog'

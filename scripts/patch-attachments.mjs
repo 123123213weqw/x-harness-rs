@@ -1,5 +1,6 @@
 // Deterministic adaptation of the pinned upstream shared composer. No native UI fork.
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { UI_NAMESPACE, isPlugin, pluginName } from './ui-namespace.mjs'
 import { createHash } from 'node:crypto'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,12 +14,12 @@ function once(text, before, after) {
 export function patchAttachments(id, bytes) {
   let text = bytes.toString('utf8').replaceAll('\r\n', '\n')
   if (text.includes(marker)) return patchComposerAddMenu(id, Buffer.from(text))
-  if (id === '@deepseek-ai/dsh-client-connection') {
+  if (isPlugin(id, 'dsh-client-connection')) {
     text = once(text, "name: string().optional()\n\t\t})]);\n\t\tobject({\n\t\t\tsessionId: sessionIdSchema,\n\t\t\tmode:", "name: string().optional()\n\t\t}), object({type:literal(\"file\"),mediaType:string(),data:string(),name:string().optional()})]);\n\t\tobject({\n\t\t\tsessionId: sessionIdSchema,\n\t\t\tmode:");
     text = once(text, "attachmentId: attachmentIdSchema,\n\t\t\tmediaType: imageMediaTypeSchema,\n\t\t\tbytes: number().int().positive(),\n\t\t\twidth: number().int().positive(),\n\t\t\theight: number().int().positive(),", "attachmentId: attachmentIdSchema,\n\t\t\tmediaType: string(),\n\t\t\tbytes: number().int().nonnegative(),\n\t\t\twidth: number().int().positive().nullish(),\n\t\t\theight: number().int().positive().nullish(),");
     text = once(text, 'object({type:literal("image_ref"),attachmentId:string().min(1)})', 'object({type:literal("image_ref"),attachmentId:string().min(1)}),object({type:literal("file_ref"),attachmentId:string().min(1),name:string().optional()})');
     text += '\n' + marker;
-  } else if (id === '@deepseek-ai/dsh-client-ui-conversation') {
+  } else if (isPlugin(id, 'dsh-client-ui-conversation')) {
     text = once(text, 'function browserDraftAttachment(file) {', `function attachmentMediaType(file) {
       if (file.type) return file.type;
       return ({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp'})[file.name.split('.').pop().toLowerCase()] || 'application/octet-stream';
@@ -51,7 +52,7 @@ export function patchAttachments(id, bytes) {
     })();` + text.slice(end)
     text = once(text, 'else if (b.type === "image" && b.attachment !== void 0) images.push({ attachment: b.attachment });', 'else if ((b.type === "image" || b.type === "file") && b.attachment !== void 0) images.push({ attachment: b.attachment, kind: b.type });')
     text += '\n' + marker
-  } else if (id === '@deepseek-ai/dsh-client-ui-attachment') {
+  } else if (isPlugin(id, 'dsh-client-ui-attachment')) {
     const helper = readFileSync(resolve(root,'ui/overrides/attachment-cards.js'),'utf8')
     text = once(text, '\t\tfunction ComposerAttachments(', helper + '\n\t\tfunction ComposerAttachments(')
     text = once(text, 'children: items.map((item) => (0, react_jsx_runtime.jsxs)("div", {', `children: items.map((item) => item.attachment.kind === 'file' ? (0,react_jsx_runtime.jsx)(XHarnessFileCard,{name:item.attachment.file.name,bytes:item.attachment.file.size,onRemove:()=>onRemove(item),removeLabel:item.removeLabel},item.id) : (0, react_jsx_runtime.jsxs)("div", {`)
@@ -65,10 +66,10 @@ export function patchAttachments(id, bytes) {
     text = once(text, 'desc: limits === void 0 ? void 0 : t("image.dropDesc", limits)', 'desc: "图片 ≤ 20 MiB / 张，普通文件 ≤ 32 MiB；本次合计 ≤ 96 MiB"')
     text = once(text, 'children: images.map((image, index) => (0, react_jsx_runtime.jsx)(MessageImage, {', `children: images.map((image, index) => image.kind === 'file' || image.attachment.width == null ? (0,react_jsx_runtime.jsx)(XHarnessHistoryFile,{attachment:image.attachment,load},image.attachment.attachmentId+':'+index) : (0, react_jsx_runtime.jsx)(MessageImage, {`)
     text += '\n' + marker
-  } else if (id === '@deepseek-ai/dsh-client-runtime') {
+  } else if (isPlugin(id, 'dsh-client-runtime')) {
     text=once(text, 'part.type === "image" || part.type === "image_ref"', 'part.type === "image" || part.type === "image_ref" || part.type === "file" || part.type === "file_ref"');
     text += '\n' + marker;
-  } else if (id === '@deepseek-ai/dsh-client-ui-settings-models') {
+  } else if (isPlugin(id, 'dsh-client-ui-settings-models')) {
     text=once(text, '...candidate.name === void 0 ? {} : { name: candidate.name },', '...candidate.name === void 0 ? {} : { name: candidate.name },\n ...typeof candidate.imageInput === "boolean" ? {imageInput:candidate.imageInput} : {},');
     text = once(text, 'className: ModelsSection_module_css_default["modelAdvanced"],\n\t\t\t\t\t\t\tchildren: [', `className: ModelsSection_module_css_default["modelAdvanced"],
       children: [(0,react_jsx_runtime.jsxs)('label',{className:ModelsSection_module_css_default['modelField'],children:[
@@ -86,7 +87,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const graphPath = resolve(dist,'client-graph.json'), graph = JSON.parse(readFileSync(graphPath,'utf8'))
   const hash = bytes => createHash('sha256').update(bytes).digest('hex').slice(0,16)
   for (const entry of graph.entries) {
-    if (!['@deepseek-ai/dsh-client-connection','@deepseek-ai/dsh-client-ui-conversation','@deepseek-ai/dsh-client-ui-attachment','@deepseek-ai/dsh-client-ui-settings-models','@deepseek-ai/dsh-client-runtime'].includes(entry.id)) continue
+    if (!['dsh-client-connection','dsh-client-ui-conversation','dsh-client-ui-attachment','dsh-client-ui-settings-models','dsh-client-runtime'].includes(pluginName(entry.id))) continue
     const path = resolve(dist,'plugins',entry.id,'client.js')
     const bytes = patchAttachments(entry.id,readFileSync(path));writeFileSync(path,bytes)
     try { unlinkSync(path+'.map') } catch(error) { if(error.code !== 'ENOENT') throw error }

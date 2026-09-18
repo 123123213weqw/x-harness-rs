@@ -1,7 +1,7 @@
 // Shared composer entry point. Picker ownership stays local to this InputBar.
 function XHarnessComposerAddMenu({ className, canAttach, canCommands, onAddFiles, onCommands, onOpen, focusInput, t }) {
   const h = react.createElement;
-  const { Menu, IconPlusOutline16, IconPaperclipOutline16, IconCodeOutline16 } = _deepseek_ai_dsh_client_ui_primitives;
+  const { Menu, IconPlusOutline16, IconPaperclipOutline16, IconCodeOutline16 } = _xharness_dsh_client_ui_primitives;
   const [open, setOpen] = react.useState(false);
   const picker = react.useRef(null), trigger = react.useRef(null);
   const fileLabel = react.useRef(null), commandLabel = react.useRef(null);

@@ -6,6 +6,8 @@ import { patchQuestionContinuation } from './patch-question-continuation.mjs'
 import { patchPermissionSelection } from './patch-permission-selection.mjs'
 import { patchGoalRuntime } from './patch-goal-runtime.mjs'
 import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
+import { rewriteUiNamespace } from './rewrite-ui-namespace.mjs'
+import { UI_NAMESPACE, UPSTREAM_SOURCE_LABEL } from './ui-namespace.mjs'
 
 import {
   mkdirSync,
@@ -73,7 +75,7 @@ function portableBytes(bytes) {
   return Buffer.from(
     bytes
       .toString('utf8')
-      .replaceAll(`${upstream}/`, 'deepseek-harness/')
+      .replaceAll(`${upstream}/`, `${UPSTREAM_SOURCE_LABEL}/`)
       .replaceAll(`${repoRoot}/`, 'x-harness-rs/'),
   )
 }
@@ -216,4 +218,10 @@ if (!index.includes('</head>')) throw new Error('index.html does not contain </h
 index = index.replace('</head>', `    ${desktopUpdaterTag}\n  </head>`)
 writeFileSync(indexPath, clientModules.injectBootManifest(index, graph))
 writeFileSync(join(dist, 'client-graph.json'), `${JSON.stringify(graph, null, 2)}\n`)
-console.log(`assembled ${entries.length} client plugins (graph ${graph.rev}) into ${dist}`)
+// Ship the graph on our own scope: directories, ids, bundler-derived identifiers
+// and manifest revisions all move together, after every upstream-shaped patch.
+const renamed = rewriteUiNamespace(dist)
+console.log(
+  `assembled ${entries.length} client plugins (graph ${graph.rev}) into ${dist}; ` +
+    `moved ${renamed.moved} plugin directories and ${renamed.occurrences} scope occurrences onto ${UI_NAMESPACE}`,
+)

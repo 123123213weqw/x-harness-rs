@@ -4,7 +4,7 @@ import {Script} from 'node:vm';
 import {createHash} from 'node:crypto';
 import {patchQuestionContinuation} from './patch-question-continuation.mjs';
 const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url)));
-for(const name of ['@deepseek-ai/dsh-client-connection','@deepseek-ai/dsh-client-ui-user-questions']) {
+for(const name of ['@xharness/dsh-client-connection','@xharness/dsh-client-ui-user-questions']) {
  const bytes=readFileSync(new URL('../ui/dist/plugins/'+name+'/client.js',import.meta.url));
  assert.deepEqual(patchQuestionContinuation(name,bytes),bytes);
  new Script(bytes.toString());
@@ -14,7 +14,7 @@ for(const name of ['@deepseek-ai/dsh-client-connection','@deepseek-ai/dsh-client
 }
 console.log('Question patch syntax, idempotence, fail-closed anchors and shipped hashes passed');
 
-const questionName='@deepseek-ai/dsh-client-ui-user-questions';
+const questionName='@xharness/dsh-client-ui-user-questions';
 const updated=readFileSync(new URL('../ui/dist/plugins/'+questionName+'/client.js',import.meta.url),'utf8');
 const current='等待回答 · 可继续不依赖答案的工作；未回答不代表同意';
 const legacy='等待回答 · 仅允许独立的只读探索；未回答不代表同意';

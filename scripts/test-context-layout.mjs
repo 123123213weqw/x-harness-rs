@@ -12,7 +12,7 @@ const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? repo, 'package
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 assert.ok(['chromium', 'webkit'].includes(engine))
-const bundle = readFileSync(join(repo, 'ui/dist/plugins/@deepseek-ai/dsh-client-ui-conversation/client.js'), 'utf8')
+const bundle = readFileSync(join(repo, 'ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js'), 'utf8')
 // Fail loudly on upstream contract changes instead of testing stale copied CSS.
 const cssLine = bundle.split('\n').find(line => line.includes('const css') && line.includes('[data-conversation-composer-overlay]'))
 assert.ok(cssLine, 'upstream composer overlay CSS must exist')

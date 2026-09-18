@@ -8,13 +8,13 @@ import { createHash } from 'node:crypto';
 import { patchTranscriptWindowing } from './patch-transcript-windowing.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = resolve(root, 'ui/dist');
-const shipped = readFileSync(resolve(dist,'plugins/@deepseek-ai/dsh-client-ui-conversation/client.js'));
+const shipped = readFileSync(resolve(dist,'plugins/@xharness/dsh-client-ui-conversation/client.js'));
 new Script(shipped.toString());
 assert.deepEqual(patchTranscriptWindowing(shipped), shipped);
 assert.deepEqual(patchTranscriptWindowing(Buffer.from(shipped.toString().replace("Product-owned transcript DOM", "Older transcript DOM"))), shipped);
 assert.throws(()=>patchTranscriptWindowing(Buffer.from('upstream changed')), /anchor changed/);
 const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
-const entry=graph.entries.find(e=>e.id==='@deepseek-ai/dsh-client-ui-conversation');
+const entry=graph.entries.find(e=>e.id==='@xharness/dsh-client-ui-conversation');
 assert.equal(entry.rev,createHash('sha256').update(shipped).digest('hex').slice(0,16));
 assert.ok(readFileSync(resolve(dist,'index.html'),'utf8').includes(entry.url));
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','package.json'));
@@ -80,14 +80,14 @@ try {
  await page.locator('[data-row="0"] button').waitFor();
  // Exercise the actual shipped ChatView, not only the windowing primitive.
  await page.evaluate(()=>{fixtureRoot.unmount();window.registrations={};window.__ModuleLoader__={load:r=>{registrations[r.id]=r}}});
- for(const name of readdirSync(resolve(dist,'plugins/@deepseek-ai'))) {
-  let source=readFileSync(resolve(dist,'plugins/@deepseek-ai',name,'client.js'),'utf8');
+ for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
+  let source=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
   if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.ChatView = ChatView; exports.apply = apply;');
   await page.addScriptTag({content:source});
  }
  await page.evaluate(()=>{
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
-  const R=staticModules.react,D=staticModules['react-dom'],View=load('@deepseek-ai/dsh-client-ui-conversation/client').ChatView;
+  const R=staticModules.react,D=staticModules['react-dom'],View=load('@xharness/dsh-client-ui-conversation/client').ChatView;
   const root=D.createRoot(document.getElementById('root'));window.fixtureRoot=root;
   const make=i=>({key:String(i),kind:'user',anchorSeq:i,data:{}});
   const nodes=new Map(Array.from({length:100},(_,i)=>[String(i),make(i)]));

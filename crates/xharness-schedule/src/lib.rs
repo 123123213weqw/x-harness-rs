@@ -503,6 +503,27 @@ impl ScheduleOwner {
             if self.stop.is_cancelled() {
                 return;
             }
+            // Recovery is supervised independently of commands. Waiting for
+            // readiness here avoids spinning on a stopped generation and lets
+            // idle waiters resume without an unrelated user prompt.
+            let handle = self.handle.read().await.clone();
+            if let Some(handle) = handle {
+                let ready = tokio::select! {
+                    _ = self.stop.cancelled() => return,
+                    _ = self.notify.notified() => continue,
+                    result = handle.when_ready() => result,
+                };
+                if ready.is_err() {
+                    // Keep the owner alive for a future attach of a new handle.
+                    // A closed runtime must neither spin nor permanently kill
+                    // the session's timer projection.
+                    tokio::select! {
+                        _ = self.stop.cancelled() => return,
+                        _ = self.notify.notified() => {},
+                    }
+                    continue;
+                }
+            }
             let action = if self.faulted.load(Ordering::Acquire) {
                 DriveAction::Dormant
             } else {
@@ -554,11 +575,13 @@ impl ScheduleOwner {
         };
         let _guard = self.transaction.lock().await;
         if self.store.flush(&self.session_id).await.is_err() {
-            return DriveAction::Wait(None, handle);
+            return DriveAction::Wait(Some(self.clock.now_ms().saturating_add(1000)), handle);
         }
         let session = match load_session(&self.store, &self.session_id).await {
             Ok(session) => session,
-            Err(_) => return DriveAction::Wait(None, handle),
+            Err(_) => {
+                return DriveAction::Wait(Some(self.clock.now_ms().saturating_add(1000)), handle)
+            }
         };
         let folded = match fold_schedule_events(&session) {
             Ok(folded) => folded,
@@ -629,7 +652,10 @@ impl ScheduleOwner {
                     .is_ok_and(|session| message_seen(&session, &message.id));
                 if !delivered {
                     self.deliveries.lock().await.remove(&delivery_key);
-                    return DriveAction::Wait(None, handle);
+                    return DriveAction::Wait(
+                        Some(self.clock.now_ms().saturating_add(1000)),
+                        handle,
+                    );
                 }
                 let _ = self.delivery_tx.send(ScheduleDeliveryNotice {
                     session_id: self.session_id.clone(),
@@ -1549,6 +1575,173 @@ mod tests {
         assert_eq!(result.final_text, "该喝水了");
 
         let session = store.load("delivery").await.unwrap().unwrap();
+        assert!(fold_schedule_events(&session).unwrap().active.is_empty());
+        let reminders = session
+            .derive_messages()
+            .into_iter()
+            .filter(|message| {
+                message
+                    .id
+                    .as_deref()
+                    .is_some_and(|id| id.starts_with("schedule:"))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(reminders.len(), 1);
+        assert!(reminders[0].content.contains("[SCHEDULE REMINDER]"));
+
+        manager.shutdown().await.unwrap();
+        handle.shutdown(Duration::from_secs(1)).await;
+    }
+    struct PanicBuildOnce {
+        provider: Arc<dyn ModelProvider>,
+        first: AtomicBool,
+        entered: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+
+    #[async_trait]
+    impl TurnRequestFactory for PanicBuildOnce {
+        async fn build(&self, _: &str, input: Vec<AgentMessage>) -> Result<LoopRequest, String> {
+            if self.first.swap(false, Ordering::AcqRel) {
+                self.entered.notify_one();
+                self.release.notified().await;
+                panic!("injected worker death with a waiting schedule");
+            }
+            Ok(LoopRequest::new(self.provider.clone(), input))
+        }
+    }
+
+    #[tokio::test]
+    async fn lost_worker_does_not_strand_a_due_schedule() {
+        let now = DateTime::parse_from_rfc3339("2026-09-02T00:00:30.000Z")
+            .unwrap()
+            .timestamp_millis();
+        let clock = FixedClock::new(now);
+        clock.set(now);
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let session = store
+            .create(SessionHeader::new("worker-death"))
+            .await
+            .unwrap();
+        store
+            .append(
+                "worker-death",
+                session.revision(),
+                vec![SessionEvent::new(EventData::ScheduleChange {
+                    change: ScheduleChange::Create {
+                        version: 1,
+                        schedule: ScheduleRecord {
+                            id: "schedule-1".to_owned(),
+                            kind: ScheduleKind::After,
+                            prompt: "喝水".to_owned(),
+                            after_seconds: Some(30),
+                            every_seconds: None,
+                            scheduled_at: "2026-09-02T00:00:00.000Z".to_owned(),
+                        },
+                    },
+                })],
+            )
+            .await
+            .unwrap();
+        store.flush("worker-death").await.unwrap();
+
+        let registry =
+            AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));
+        let activation = registry
+            .activate(SessionHeader::new("worker-death"))
+            .await
+            .unwrap();
+        let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+            scripts: StdMutex::new(VecDeque::from([
+                vec![Ok(ProviderEvent::Completed {
+                    finish_reason: Some(FinishReason::Stop),
+                    usage: None,
+                    provider_items: Vec::new(),
+                })],
+                vec![
+                    Ok(ProviderEvent::TextDelta("该喝水了".to_owned())),
+                    Ok(ProviderEvent::Completed {
+                        finish_reason: Some(FinishReason::Stop),
+                        usage: None,
+                        provider_items: Vec::new(),
+                    }),
+                ],
+            ])),
+        });
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let handle = DurableAgentHandle::start(
+            activation,
+            Arc::new(PanicBuildOnce {
+                provider,
+                first: AtomicBool::new(true),
+                entered: entered.clone(),
+                release: release.clone(),
+            }),
+            64,
+        );
+        let mut events = handle.subscribe();
+        let manager = ScheduleManager::with_clock(Arc::clone(&store), clock);
+        let mut deliveries = manager.subscribe_deliveries();
+        handle
+            .followup(xharness_agent::InboxMessage::user(
+                "user-first",
+                "original work",
+            ))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), entered.notified())
+            .await
+            .unwrap();
+        let owner = manager.owner("worker-death").await.unwrap();
+        *owner.handle.write().await = Some(handle.clone());
+        // Both an idle waiter and a schedule command are already pending when
+        // the worker dies. Neither is allowed to strand the timer owner.
+        let idle = handle.when_idle();
+        tokio::pin!(idle);
+        assert!(futures::poll!(&mut idle).is_pending());
+        let delivery = owner.drive_once();
+        tokio::pin!(delivery);
+        assert!(futures::poll!(&mut delivery).is_pending());
+        release.notify_one();
+        assert!(tokio::time::timeout(Duration::from_secs(2), &mut idle)
+            .await
+            .unwrap()
+            .is_err());
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(2), &mut delivery)
+                .await
+                .unwrap(),
+            DriveAction::Wait(_, _)
+        ));
+        let runtime = owner.clone();
+        *owner.task.lock().await = Some(tokio::spawn(async move { runtime.run().await }));
+
+        let notice = tokio::time::timeout(Duration::from_secs(2), deliveries.recv())
+            .await
+            .expect("delivery notice was not published")
+            .unwrap();
+        assert_eq!(notice.session_id, "worker-death");
+        let prepared = manager
+            .take_delivery(&notice.session_id, &notice.work_id)
+            .await
+            .expect("delivery receiver was not prepared before the notice");
+        assert_eq!(prepared.input_id, notice.work_id);
+
+        let result = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let AgentEvent::TurnFinished { result, .. } = events.recv().await.unwrap() {
+                    if !result.final_text.is_empty() {
+                        break result;
+                    }
+                }
+            }
+        })
+        .await
+        .expect("overdue reminder did not wake the agent");
+        assert_eq!(result.final_text, "该喝水了");
+
+        let session = store.load("worker-death").await.unwrap().unwrap();
         assert!(fold_schedule_events(&session).unwrap().active.is_empty());
         let reminders = session
             .derive_messages()
