@@ -1,8 +1,13 @@
 name: Desktop Unix Update Acceptance
+run-name: ${{ inputs.orchestration_id && format('release-task {0}', inputs.orchestration_id) || 'Desktop Unix Update Acceptance' }}
 
 on:
   workflow_dispatch:
     inputs:
+      orchestration_id:
+        description: Optional opaque correlation ID from scripts/release.py
+        required: false
+        type: string
       mode:
         description: Formal immutable candidate acceptance, or disposable-key rehearsal (never publishable)
         required: true

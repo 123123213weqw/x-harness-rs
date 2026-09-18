@@ -1,10 +1,24 @@
 name: Desktop Release
+run-name: ${{ inputs.orchestration_id && format('release-task {0}', inputs.orchestration_id) || 'Desktop Release' }}
 
 on:
   push:
     tags: ['desktop-v*']
   workflow_dispatch:
     inputs:
+      orchestration_id:
+        description: Optional opaque correlation ID from scripts/release.py
+        required: false
+        type: string
+      prepare_tag:
+        description: Unified entry only; create immutable tag with GITHUB_TOKEN (no duplicate push build)
+        required: false
+        type: boolean
+        default: false
+      expected_sha:
+        description: Unified entry source lock; master movement is rejected before tag creation
+        required: false
+        type: string
       release_tag:
         description: Existing desktop-vMAJOR.MINOR.PATCH tag at this exact green master commit
         required: true
@@ -31,6 +45,9 @@ env:
 
 jobs:
   plan:
+    permissions:
+      contents: write # Tag creation only; candidate publication remains in aggregate/promote.
+      actions: read
     if: vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository && (github.event_name == 'push' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-22.04
     outputs:
@@ -45,6 +62,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Prepare immutable tag for unified entry
+        if: github.event_name == 'workflow_dispatch' && inputs.prepare_tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_sha }}
+          RELEASE_SCOPE_INPUT: ${{ inputs.release_scope }}
+        run: python3 -B scripts/desktop-release-build.py prepare-tag
       - name: Validate tag, master source and latest successful exact-SHA CI
         id: plan
         env:
