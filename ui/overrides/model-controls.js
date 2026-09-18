@@ -85,7 +85,7 @@ function XHarnessContextRow({ state, itemRef, open }) {
   return h('button', {ref: itemRef, type: 'button', role: 'menuitem', className: css.cell, onClick: open},
     h('span', {className: css.cellLabel}, '上下文容量'),
     h('span', {className: css.cellValue}, xhTokenLabel(current?.contextWindowTokens ?? maximum)),
-    h(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutline14, {className: css.cellChevron}));
+    h(_xharness_dsh_client_ui_primitives.IconChevronRightOutline14, {className: css.cellChevron}));
 }
 function XHarnessModelSelect(props) {
   return react.createElement(react.Fragment, null,

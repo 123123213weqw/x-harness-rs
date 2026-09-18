@@ -24,11 +24,11 @@ export function patchMaxTokensNotice(bytes) {
 }
 
 if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
- const dist=resolve(process.argv[2]??'ui/dist'),p=resolve(dist,'plugins/@deepseek-ai/dsh-client-ui-conversation/client.js');
+ const dist=resolve(process.argv[2]??'ui/dist'),p=resolve(dist,'plugins/@xharness/dsh-client-ui-conversation/client.js');
  const bytes=patchMaxTokensNotice(readFileSync(p));writeFileSync(p,bytes);
  const hash=b=>createHash('sha256').update(b).digest('hex').slice(0,16);
  const gp=resolve(dist,'client-graph.json'),g=JSON.parse(readFileSync(gp));
- const e=g.entries.find(e=>e.id==='@deepseek-ai/dsh-client-ui-conversation');e.rev=hash(bytes);e.url='/plugins/'+e.id+'/client.js?rev='+e.rev;
+ const e=g.entries.find(e=>e.id==='@xharness/dsh-client-ui-conversation');e.rev=hash(bytes);e.url='/plugins/'+e.id+'/client.js?rev='+e.rev;
  g.rev=hash(JSON.stringify(g.entries));writeFileSync(gp,JSON.stringify(g,null,2)+'\n');
  const ip=resolve(dist,'index.html');writeFileSync(ip,readFileSync(ip,'utf8').replace(/window\.__DSH_BOOT__ = .*?<\/script>/,()=>`window.__DSH_BOOT__ = ${JSON.stringify(g)}</script>`));
 }

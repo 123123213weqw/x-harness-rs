@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { UI_NAMESPACE } from './ui-namespace.mjs'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const dist = resolve(process.argv[2] ?? resolve(root, 'ui/dist'))
 const id = '@xlang/xharness-client-ui-directory'
@@ -10,7 +11,7 @@ const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 
 const source = readFileSync(resolve(root, `ui/plugins/${id}/client.js`), 'utf8').replaceAll('\r\n', '\n')
 const graphPath = resolve(dist, 'client-graph.json')
 const graph = JSON.parse(readFileSync(graphPath, 'utf8'))
-const inject = ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-locale']
+const inject = [`${UI_NAMESPACE}/dsh-client-runtime`, `${UI_NAMESPACE}/dsh-client-ui-workspace`, `${UI_NAMESPACE}/dsh-client-locale`]
 for (const dep of inject) if (!graph.entries.some(e => e.id === dep)) throw Error(`missing dependency ${dep}`)
 const rev = hash(source)
 graph.entries = graph.entries.filter(entry => entry.id !== id)
