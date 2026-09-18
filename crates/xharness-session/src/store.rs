@@ -28,6 +28,19 @@ pub enum StoreError {
     InvalidSession(#[from] SessionError),
 }
 
+/// One directory entry that a tolerant startup scan found but could not
+/// publish as a [`SessionHeader`].
+///
+/// The session id is reported whenever the entry's name could denote a session
+/// at all, so an operator can locate the offending file. `reason` is the
+/// store's own diagnostic text and is shown verbatim.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreadableSession {
+    pub session_id: String,
+    pub reason: String,
+}
+
 /// Durable append-only storage seam.
 #[async_trait]
 pub trait Store: Send + Sync + 'static {
@@ -61,7 +74,32 @@ pub trait Store: Send + Sync + 'static {
     /// startup discovery seam used by Hosts to rebuild projections after a
     /// process restart; silently skipping a corrupt session would make
     /// durable work disappear from the product surface.
+    ///
+    /// Failing closed is required for anything that may still hold durable
+    /// work. Implementations may skip only entries that provably carry none
+    /// and that the store can never address anyway, such as a zero-byte
+    /// crash residue left between `create` and the header write, or a
+    /// directory entry whose name cannot denote a session id. One writer
+    /// artifact must never make every healthy session undiscoverable.
     async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError>;
+
+    /// Tolerant variant of [`Store::list_headers`] for Host startup.
+    ///
+    /// Publishes every session that can be read and *reports* the ones that
+    /// cannot, instead of failing the whole enumeration. A Host uses this to
+    /// keep healthy sessions visible while recording the rest as a non-fatal
+    /// startup issue, which is what turns "unreadable entry" from "product does
+    /// not start" into "product starts and says what it skipped".
+    ///
+    /// Implementations must never drop an unreadable entry silently: anything
+    /// not returned in the header list has to appear in the unreadable list.
+    /// The default implementation keeps the strict [`Store::list_headers`]
+    /// contract, so stores that cannot distinguish the two cases fail closed.
+    async fn scan_sessions(
+        &self,
+    ) -> Result<(Vec<SessionHeader>, Vec<UnreadableSession>), StoreError> {
+        Ok((self.list_headers().await?, Vec::new()))
+    }
 
     /// Atomically register an empty session. Existing ids are never replaced.
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError>;

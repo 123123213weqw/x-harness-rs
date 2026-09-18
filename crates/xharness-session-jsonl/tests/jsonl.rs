@@ -143,6 +143,179 @@ async fn list_headers_fails_closed_for_symlinked_sessions() {
     ));
 }
 
+/// Regression for the crash artifact: `create` publishes the name before the
+/// header, so a crash in that window leaves a zero-byte file. It carries no
+/// durable work, so it must not hide every healthy session.
+#[tokio::test]
+async fn list_headers_skips_a_zero_byte_crash_residue() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("valid")).await.unwrap();
+
+    fs::write(dir.session_file("torn"), b"").unwrap();
+    assert_eq!(fs::metadata(dir.session_file("torn")).unwrap().len(), 0);
+
+    let headers = store.list_headers().await.unwrap();
+    assert_eq!(
+        headers
+            .iter()
+            .map(|header| header.id.as_str())
+            .collect::<Vec<_>>(),
+        ["valid"]
+    );
+}
+
+/// A name that cannot denote a session id is not addressable by this store, so
+/// it must not make startup enumeration fail either.
+#[tokio::test]
+async fn list_headers_ignores_names_that_cannot_be_session_ids() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("valid")).await.unwrap();
+
+    fs::write(dir.path().join(".hidden.jsonl"), b"").unwrap();
+    fs::write(dir.path().join("session-1 copy.jsonl"), b"").unwrap();
+
+    let headers = store.list_headers().await.unwrap();
+    assert_eq!(
+        headers
+            .iter()
+            .map(|header| header.id.as_str())
+            .collect::<Vec<_>>(),
+        ["valid"]
+    );
+}
+
+/// The tolerance above is exactly one byte wide: a file that has any content at
+/// all still fails closed, because it may hold durable work.
+#[tokio::test]
+async fn list_headers_fails_closed_for_a_single_byte_of_corruption() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("valid")).await.unwrap();
+
+    fs::write(dir.session_file("torn"), b"\n").unwrap();
+
+    assert!(matches!(
+        store.list_headers().await,
+        Err(StoreError::Backend { message }) if message.contains("torn.jsonl")
+    ));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn list_headers_does_not_treat_a_symlink_as_an_empty_artifact() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("valid")).await.unwrap();
+
+    // A symlink to an empty file: `symlink_metadata` must not follow it, so it
+    // keeps the existing stall-closed symlink rejection.
+    let empty = dir.path().join("empty-target");
+    fs::write(&empty, b"").unwrap();
+    std::os::unix::fs::symlink(&empty, dir.session_file("alias")).unwrap();
+
+    assert!(matches!(
+        store.list_headers().await,
+        Err(StoreError::Backend { message }) if message.contains("symbolic link")
+    ));
+}
+
+/// The tolerant seam publishes what it can and reports the rest, so a Host can
+/// start with the healthy sessions instead of exiting.
+#[tokio::test]
+async fn scan_sessions_publishes_healthy_sessions_and_reports_the_rest() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("valid")).await.unwrap();
+    store.create(header("also-valid")).await.unwrap();
+
+    fs::write(dir.session_file("empty"), b"").unwrap();
+    fs::write(dir.session_file("broken"), b"not-json\n").unwrap();
+
+    let (headers, unreadable) = store.scan_sessions().await.unwrap();
+    assert_eq!(
+        headers
+            .iter()
+            .map(|header| header.id.as_str())
+            .collect::<Vec<_>>(),
+        ["also-valid", "valid"]
+    );
+    let reported = unreadable
+        .iter()
+        .map(|entry| (entry.session_id.as_str(), entry.reason.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reported.len(),
+        2,
+        "every unpublished entry must be reported"
+    );
+    assert_eq!(reported[0].0, "broken");
+    assert!(
+        reported[0].1.contains("invalid header JSON"),
+        "the reason must be the store's own diagnostic, got {:?}",
+        reported[0].1
+    );
+    assert_eq!(reported[1].0, "empty");
+    assert!(
+        reported[1].1.contains("missing header record"),
+        "got {:?}",
+        reported[1].1
+    );
+}
+
+/// The strict seam still fails closed on the same directory: tolerating an
+/// entry at startup must not weaken `list_headers` for its other callers.
+#[tokio::test]
+async fn scan_sessions_tolerance_does_not_weaken_list_headers() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("valid")).await.unwrap();
+    fs::write(dir.session_file("broken"), b"not-json\n").unwrap();
+
+    assert!(store.scan_sessions().await.is_ok());
+    assert!(matches!(
+        store.list_headers().await,
+        Err(StoreError::Backend { message }) if message.contains("broken.jsonl")
+    ));
+}
+
+/// `create` must publish the name only once it already holds the header, so no
+/// crash can leave a zero-byte `<id>.jsonl` behind, and it must still refuse to
+/// replace an existing session.
+#[tokio::test]
+async fn create_publishes_atomically_and_never_replaces() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("once")).await.unwrap();
+    let published = fs::read(dir.session_file("once")).unwrap();
+    assert!(published.starts_with(b"{\"record\":\"header\""));
+
+    assert_eq!(
+        store.create(header("once")).await.unwrap_err(),
+        StoreError::AlreadyExists {
+            session_id: "once".to_owned()
+        }
+    );
+    assert_eq!(
+        fs::read(dir.session_file("once")).unwrap(),
+        published,
+        "a rejected create must not touch the published session"
+    );
+
+    // No staging residue survives a completed or rejected create.
+    let leftovers = fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(".creating-"))
+        .collect::<Vec<_>>();
+    assert!(
+        leftovers.is_empty(),
+        "staging files left behind: {leftovers:?}"
+    );
+}
+
 #[tokio::test]
 async fn append_persists_one_complete_batch_and_round_trips() {
     let dir = TestDir::new();
