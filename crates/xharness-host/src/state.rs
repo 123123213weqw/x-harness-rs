@@ -523,6 +523,10 @@ pub(crate) struct HostState {
     pub credentials: BTreeMap<String, String>,
     pub goals: BTreeMap<String, GoalState>,
     pub pending: BTreeMap<String, PendingResponse>,
+    /// Non-fatal conditions observed by the last startup replay. Durable
+    /// sessions that could not be published are recorded here so the surface
+    /// can report them instead of the process exiting with only a stderr line.
+    pub startup_issues: Vec<crate::HostRestoreIssue>,
 }
 
 impl HostState {
@@ -663,6 +667,7 @@ impl HostState {
             credentials: BTreeMap::new(),
             goals: BTreeMap::new(),
             pending: BTreeMap::new(),
+            startup_issues: Vec::new(),
         }
     }
 
