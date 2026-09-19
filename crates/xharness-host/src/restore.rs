@@ -64,6 +64,20 @@ pub(crate) struct ProjectedEventTail {
     pub(crate) events: Vec<Value>,
 }
 
+impl ProjectedEventTail {
+    /// Creates an empty live cache anchored at the authoritative durable
+    /// cursor. Cold history is loaded through `session.history` instead of
+    /// being projected eagerly while the Host is still starting.
+    fn empty_at(next_seq: u64) -> Self {
+        Self {
+            base_seq: next_seq,
+            next_seq,
+            bytes: 0,
+            events: Vec::new(),
+        }
+    }
+}
+
 /// Cursor page returned from the authoritative append-only Session rather
 /// than from the Host's bounded live tail.
 pub(crate) struct ProjectedHistoryPage {
@@ -190,21 +204,24 @@ impl BasicHost {
                     false
                 }
             };
-            // Fold one event at a time: startup must not materialize a second
-            // whole-log JSON projection just to compute counters.
-            let mut metrics = MetricsProjectionState::default();
-            let prompts = prompt_views(&session);
-            let initial = initial_request_header_seq(&session);
-            for event in session.events() {
-                metrics.apply(&restored_web_event(event, &route, &prompts, initial, None));
-            }
-            let tail = project_session_event_tail(
-                &session,
-                &route,
-                self.config.session_event_cache_capacity,
-                self.config.session_event_cache_bytes,
-            );
-            let messages = if self.agent_runtime.has_authoritative_sessions() {
+            let authoritative = self.agent_runtime.has_authoritative_sessions();
+            // Restore counters directly from typed durable events. In
+            // particular, do not construct the Web JSON projection before
+            // the RPC listener is available.
+            let metrics = MetricsProjectionState::rebuild_logged(session.events());
+            let tail = if authoritative {
+                ProjectedEventTail::empty_at(session.next_seq())
+            } else {
+                // Ephemeral runtimes have no authoritative history endpoint;
+                // retain their complete compatibility cache.
+                project_session_event_tail(
+                    &session,
+                    &route,
+                    self.config.session_event_cache_capacity,
+                    self.config.session_event_cache_bytes,
+                )
+            };
+            let messages = if authoritative {
                 Vec::new()
             } else {
                 session.derive_messages()
@@ -691,7 +708,7 @@ pub(crate) fn project_session_event_range(
     start: usize,
     end: usize,
 ) -> Vec<Value> {
-    let prompts = prompt_views(session);
+    let prompts = prompt_views_for_range(session, start, end);
     project_session_event_range_with_prompts(session, route, &prompts, start, end)
 }
 
@@ -857,8 +874,23 @@ pub(crate) fn project_session_event_tail(
     max_events: usize,
     max_bytes: usize,
 ) -> ProjectedEventTail {
+    project_session_event_tail_from(session, route, 0, max_events, max_bytes)
+}
+
+/// Rebuild only the live suffix that was already resident in the Host. A
+/// restored authoritative session anchors this floor at its durable cursor,
+/// so later runtime synchronization cannot accidentally materialize cold
+/// history before a client asks for it through `session.history`.
+pub(crate) fn project_session_event_tail_from(
+    session: &Session,
+    route: &ModelRoute,
+    min_seq: u64,
+    max_events: usize,
+    max_bytes: usize,
+) -> ProjectedEventTail {
     let end = session.events().len();
-    let prompts = prompt_views(session);
+    let floor = usize::try_from(min_seq).unwrap_or(end).min(end);
+    let prompts = prompt_views_for_range(session, floor, end);
     let initial_request_header_seq = initial_request_header_seq(session);
     let completed_steps = completed_assistant_steps(session);
     let max_events = max_events.max(1);
@@ -866,7 +898,7 @@ pub(crate) fn project_session_event_tail(
     let mut reversed = Vec::new();
     let mut bytes = 0usize;
 
-    for event in session.events().iter().rev().take(max_events) {
+    for event in session.events()[floor..end].iter().rev().take(max_events) {
         let projected = restored_web_event(
             event,
             route,
@@ -946,7 +978,7 @@ fn project_session_history_range(
 ) -> Vec<Value> {
     let end = end.min(session.events().len());
     let start = start.min(end);
-    let prompts = prompt_views(session);
+    let prompts = prompt_views_for_range(session, start, end);
     let initial_request_header_seq = initial_request_header_seq(session);
     let completed_steps = completed_assistant_steps(session);
     let mut projected = Vec::new();
@@ -1041,7 +1073,35 @@ fn initial_request_header_seq(session: &Session) -> Option<u64> {
     })
 }
 
-fn prompt_views(session: &Session) -> ProjectionSources {
+fn prompt_views_for_range(session: &Session, start: usize, end: usize) -> ProjectionSources {
+    let end = end.min(session.events().len());
+    let start = start.min(end);
+    let mut wanted_prompts = BTreeSet::new();
+    let mut wanted_compactions = BTreeSet::new();
+    for event in &session.events()[start..end] {
+        match event.data() {
+            EventData::UserMessage {
+                message,
+                surface_replace,
+            } => {
+                if message.role == MessageRole::User {
+                    if let Some(id) = message.id.as_ref() {
+                        wanted_prompts.insert(id.clone());
+                    }
+                }
+                if let Some(replace) = surface_replace {
+                    wanted_compactions.insert(replace.compaction_id.clone());
+                }
+            }
+            EventData::AssistantMessage { message, .. } if message.role == MessageRole::User => {
+                if let Some(id) = message.id.as_ref() {
+                    wanted_prompts.insert(id.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
     let mut prompts = ProjectionSources::default();
     for event in session.events() {
         if let EventData::CompactionStart {
@@ -1050,14 +1110,19 @@ fn prompt_views(session: &Session) -> ProjectionSources {
             ..
         } = event.data()
         {
-            prompts
-                .compaction_commands
-                .insert(compaction_id.clone(), source_command_id.clone());
+            if wanted_compactions.contains(compaction_id) {
+                prompts
+                    .compaction_commands
+                    .insert(compaction_id.clone(), source_command_id.clone());
+            }
         }
         let EventData::AgentInboxSpliced { inserted, .. } = event.data() else {
             continue;
         };
         for input in inserted {
+            if !wanted_prompts.contains(&input.id) {
+                continue;
+            }
             let prompt = restored_prompt(input);
             prompts.prompts.insert(
                 input.id.clone(),
@@ -1716,10 +1781,48 @@ mod tests {
 
     use super::*;
     use crate::{
-        state::now_ms, DurableLoopAgentRuntime, HostConfig, ModelDescriptor, ModelReasoning,
-        ModelReasoningEffort, ModelRegistry, NoTools, PermissionPreset, RegisteredModel,
-        SessionToolFactory,
+        state::now_ms, AgentRuntime, AgentRuntimeError, AgentTurnRequest, DurableLoopAgentRuntime,
+        HostConfig, ModelDescriptor, ModelReasoning, ModelReasoningEffort, ModelRegistry, NoTools,
+        PermissionPreset, RegisteredModel, RunningTurn, SessionToolFactory,
     };
+
+    struct OfflineSnapshotRuntime {
+        store: Arc<dyn Store>,
+    }
+
+    #[async_trait]
+    impl AgentRuntime for OfflineSnapshotRuntime {
+        fn has_available_route(&self) -> bool {
+            true
+        }
+
+        fn can_route(&self, _route: &ModelRoute) -> bool {
+            true
+        }
+
+        fn has_authoritative_sessions(&self) -> bool {
+            true
+        }
+
+        async fn authoritative_session(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<Session>, AgentRuntimeError> {
+            self.store
+                .load(session_id)
+                .await
+                .map_err(|error| AgentRuntimeError::Preparation {
+                    message: error.to_string(),
+                })
+        }
+
+        async fn start_turn(
+            &self,
+            _request: AgentTurnRequest,
+        ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+            panic!("offline restore validation must not start model work")
+        }
+    }
 
     struct GatedProvider {
         calls: AtomicUsize,
@@ -2387,7 +2490,7 @@ mod tests {
         );
         eprintln!("offline journal: loaded {} events", session.events().len());
         let route = ModelRoute::new("offline", "offline");
-        let prompts = prompt_views(&session);
+        let prompts = prompt_views_for_range(&session, 0, session.events().len());
         let initial = initial_request_header_seq(&session);
         // Serialize one event at a time: do not materialize a second full history.
         for event in session.events() {
@@ -2640,8 +2743,9 @@ mod tests {
             {
                 let state = host.state.read().await;
                 let record = &state.sessions["bounded-history"];
-                assert_eq!(record.events.len(), 5);
-                assert_eq!(record.event_base_seq, record.next_event_seq() - 5);
+                assert!(record.events.is_empty());
+                assert_eq!(record.event_base_seq, record.next_event_seq());
+                assert_eq!(record.event_cache_bytes, 0);
                 assert_eq!(record.last_event_seq(), Some(41));
             }
             let history = host
@@ -2659,6 +2763,91 @@ mod tests {
             assert_eq!(value["projections"]["asOfSeq"], 41);
             assert_eq!(value["hasMore"], false);
         }
+    }
+
+    /// Replays Host startup against an isolated journal copy 100 times. With
+    /// `XHARNESS_OFFLINE_JOURNAL` this exercises a private incident journal;
+    /// the original file is never opened by the Host or modified. CI uses the
+    /// synthetic fixture and Windows runner to keep the cold-start contract
+    /// continuously covered without checking private data into the repository.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "explicit isolated cold-start acceptance; run in diagnostics CI"]
+    async fn offline_authoritative_restore_100_cold_starts() {
+        use std::io::{BufRead, Read};
+        use xharness_session_jsonl::JsonlSessionStore;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "xharness-offline-cold-start-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let concrete = JsonlSessionStore::new(&root).unwrap().for_runtime();
+        let session_id = if let Some(input) = std::env::var_os("XHARNESS_OFFLINE_JOURNAL") {
+            let input = std::path::PathBuf::from(input);
+            assert!(
+                input.is_absolute() && input.is_file(),
+                "expected a local journal file"
+            );
+            let mut header_line = Vec::new();
+            std::io::BufReader::new(std::fs::File::open(&input).unwrap())
+                .take(1024 * 1024)
+                .read_until(b'\n', &mut header_line)
+                .unwrap();
+            let header: Value = serde_json::from_slice(&header_line)
+                .unwrap_or_else(|_| panic!("invalid offline journal header"));
+            let id = header["header"]["id"]
+                .as_str()
+                .expect("missing offline session ID")
+                .to_owned();
+            assert!(
+                !id.is_empty()
+                    && id.len() <= 200
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'),
+                "offline session ID must be a simple file name"
+            );
+            std::fs::copy(&input, root.join(format!("{id}.jsonl"))).unwrap();
+            id
+        } else {
+            let id = "offline-cold-start-fixture";
+            concrete.create(SessionHeader::new(id)).await.unwrap();
+            let mut events = Vec::new();
+            for turn in 1..=128 {
+                events.extend(closed_text_turn(
+                    turn,
+                    "synthetic cold-start question",
+                    "synthetic cold-start answer",
+                ));
+            }
+            concrete.append(id, Revision::ZERO, events).await.unwrap();
+            id.to_owned()
+        };
+        let store: Arc<dyn Store> = Arc::new(concrete);
+
+        for iteration in 0..100 {
+            let runtime = Arc::new(OfflineSnapshotRuntime {
+                store: Arc::clone(&store),
+            });
+            let host = BasicHost::with_agent_runtime(config(&root), runtime);
+            let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
+            assert_eq!(report.restored_sessions, 1, "iteration {iteration}");
+            assert!(report.issues.is_empty(), "iteration {iteration}");
+            let state = host.state.read().await;
+            let record = state.sessions.get(&session_id).unwrap();
+            assert!(record.events.is_empty(), "iteration {iteration}");
+            assert_eq!(record.event_cache_bytes, 0, "iteration {iteration}");
+            assert_eq!(
+                record.event_base_seq,
+                record.next_event_seq(),
+                "iteration {iteration}"
+            );
+        }
+        eprintln!("offline authoritative restore: 100 cold starts passed; no models or tools");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4341,7 +4530,7 @@ mod tests {
             .filter(|event| matches!(event.data(), EventData::SessionMutationCommitted { .. }))
             .count();
         assert_eq!(receipt_count, 3);
-        let restarted_events = {
+        let restarted_seq = {
             let state = restarted.state.read().await;
             let record = state.sessions.get("policy-session").unwrap();
             assert_eq!(record.permission_preset, PermissionPreset::DangerFullAccess);
@@ -4356,12 +4545,14 @@ mod tests {
                 record.projection_values()["plan"],
                 json!({"active": true, "pending": false})
             );
-            record.events.clone()
+            assert!(
+                record.events.is_empty(),
+                "authoritative cold history must stay in the durable store"
+            );
+            record.next_event_seq()
         };
-        let live_events = live.state.read().await.sessions["policy-session"]
-            .events
-            .clone();
-        assert_eq!(restarted_events, live_events);
+        let live_seq = live.state.read().await.sessions["policy-session"].next_event_seq();
+        assert_eq!(restarted_seq, live_seq);
     }
 
     #[test]
