@@ -1,0 +1,1 @@
+e0a35e4c4b3af36ed0e1b0ef6f348800c298a872:apps/desktop/src-tauri/src/browser.rs; all other sources use source-sha.txt

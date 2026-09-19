@@ -1,0 +1,11 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+page.waitForFunction: Timeout 1500ms exceeded.
+    at /Users/wangyue/codex-build/xharness-subagent-question-owner-20261012/scripts/test-browser-native-bridge.mjs:109:14 {
+  log: [],
+  name: 'TimeoutError'
+}
+
+Node.js v25.9.0

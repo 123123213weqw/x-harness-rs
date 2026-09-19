@@ -1,0 +1,76 @@
+    Checking xharness-diagnostics v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/windows-browser-bounds-20261012/crates/xharness-diagnostics)
+    Checking xharness-installation v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/windows-browser-bounds-20261012/crates/xharness-installation)
+   Compiling xharness-desktop v0.1.1 (/home/data/wangyue/repos/codex-build/x-harness-rs/windows-browser-bounds-20261012/apps/desktop/src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.72s
+   Compiling xharness-desktop v0.1.1 (/home/data/wangyue/repos/codex-build/x-harness-rs/windows-browser-bounds-20261012/apps/desktop/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.41s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/apps/desktop/src-tauri/target/debug/deps/xharness_desktop-ecf9fec19be9a660)
+
+running 64 tests
+test browser::tests::download_filename_cannot_escape_download_directory ... ok
+test browser::tests::only_web_pages_and_safe_tab_ids ... ok
+test account_callback::tests::callback_accepts_only_fixed_bounded_route ... ok
+test browser::tests::rejects_invalid_bounds ... ok
+test browser_bridge::tests::malformed_action_is_not_started_not_unknown_and_never_echoes_input ... ok
+test browser_delegation::tests::exact_owner_origin_scope_expiry_and_revocation ... ok
+test browser_delegation::tests::renewal_only_preserves_a_live_identical_scope ... ok
+test browser_bridge::tests::private_protocol_has_no_tab_override_eval_or_guest_control ... ok
+test browser_bridge::tests::malformed_control_is_unstarted_and_does_not_echo_private_input ... ok
+test browser_inspect::tests::navigation_invalidates_even_same_url_document_reloads ... ok
+test browser_inspect::tests::a_frame_authorizes_at_most_one_effect_and_only_observed_refs ... ok
+test browser_lifecycle::tests::empty_browser_is_discoverable_without_claiming_hard_capabilities ... ok
+test browser_lifecycle::tests::closing_an_admitted_navigation_is_not_reported_as_unstarted ... ok
+test browser_inspect::tests::request_has_no_arbitrary_script_selector_or_negative_offsets ... ok
+test browser_inspect::tests::native_callback_is_correlated_bounded_and_not_a_command_channel ... ok
+test browser_lifecycle::tests::lifecycle_contract_rejects_unknown_controls_and_fields ... ok
+test computer_activity::tests::bridge_rejects_unbounded_or_unknown_content ... ok
+test computer_activity::tests::stale_watchdog_cannot_expire_refreshed_call ... ok
+test computer_activity::tests::newest_activity_wins_and_previous_resumes_after_completion ... ok
+test browser_perform::tests::request_is_action_specific_bounded_and_has_no_script_selector_or_submit ... ok
+test browser_perform::tests::receipt_requires_matching_frame_and_consistent_effect_not_user_success_text ... ok
+test browser::tests::persisted_tabs_require_a_bounded_json_object ... ok
+test installations::tests::reporting_origin_is_immutable_https_without_credentials_or_path ... ok
+test sidecar::tests::launch_tokens_are_full_width_hex ... ok
+test managed_account::tests::rejects_credentials_pointing_at_another_origin ... ok
+test sidecar::tests::loader_errors_are_actionable_without_guessing_a_dll ... ok
+test sidecar::tests::lost_startup_channel_fails_without_faking_process_exit ... ok
+test sidecar::tests::provider_secret_projection_is_deduplicated_and_path_safe ... ok
+test sidecar::tests::readiness_accepts_only_nonzero_loopback_addresses ... ok
+test sidecar::tests::startup_stage_messages_are_closed_and_non_sensitive ... ok
+test sidecar::tests::startup_wait_extends_only_for_new_progress_with_an_absolute_cap ... ok
+test startup::tests::phase_protocol_is_closed ... ok
+test updater::state::tests::cache_invalidation_requires_redownload_but_keeps_live_candidate ... ok
+test updater::state::tests::check_and_download_are_not_install ... ok
+test updater::state::tests::check_failure_drops_stale_candidate_and_empty_release_is_up_to_date ... ok
+test updater::state::tests::failed_download_never_becomes_installable_and_retry_restarts_progress ... ok
+test updater::state::tests::failed_install_preserves_verified_package_for_explicit_retry ... ok
+test updater::state::tests::progress_is_monotonic_and_new_process_has_no_cached_install ... ok
+test updater::state::tests::reload_or_check_cannot_replace_verified_candidate ... ok
+test updater::tests::install_directory_is_explicit_and_preserves_spaces_and_unicode ... ok
+test updater::tests::update_gate_blocks_duplicate_clicks_and_releases_on_error ... ok
+test updater::tests::updater_requires_both_nonempty_immutable_build_inputs_and_https ... ok
+test sidecar::tests::startup_failure_receipt_becomes_safe_screen_text_and_diagnostic_metadata ... ok
+test updater::cache::tests::bad_signature_or_non_https_never_publishes ... ok
+test installations::tests::first_run_notice_is_native_configured_and_choice_is_local_only ... ok
+test installations::tests::storage_refuses_symlinks_and_leaves_target_unchanged ... ok
+test installations::tests::failed_storage_does_not_commit_consent_and_can_recover ... ok
+test installations::tests::consent_and_ack_are_atomically_persisted_without_exposing_the_credential ... ok
+test diagnostics::tests::installer_exit_hook_is_weak_and_failed_install_rearms_crash_detection ... ok
+test installations::tests::opt_out_stops_in_memory_reports_even_when_disk_is_unwritable ... ok
+test updater::cache::tests::identity_drift_never_restores ... ok
+test updater::cache::tests::forged_length_and_oversized_metadata_fail_closed ... ok
+test diagnostics::tests::normal_restart_keeps_history_without_reopening_notice ... ok
+test diagnostics::tests::persistent_options_restore_but_invalid_preferences_fail_closed ... ok
+test updater::cache::tests::symlinks_never_supply_cache_files ... ok
+test updater::cache::tests::durable_candidate_reopens_and_signature_is_rechecked ... ok
+test managed_account::tests::callback_is_bound_to_a_live_initiated_flow ... ok
+test updater::cache::tests::oversized_new_record_preserves_previous_verified_candidate ... ok
+test updater::cache::tests::partial_corrupt_and_missing_files_fail_closed_then_redownload ... ok
+test sidecar::tests::stop_timeout_does_not_pretend_process_exited ... ok
+test updater::tests::close_cancels_a_pending_transfer_without_waiting_for_network_timeout ... ok
+test installations::tests::native_delivery_rejects_fake_deletion_and_partial_or_oversized_ack ... ok
+test updater::tests::transfer_continues_across_polling_timeouts_and_propagates_errors ... ok
+test sidecar::tests::silent_health_endpoint_cannot_stall_the_startup_deadline ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.01s
+
