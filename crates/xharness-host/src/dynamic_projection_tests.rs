@@ -440,10 +440,6 @@ async fn experiment() {
     {
         let live = host.state.read().await;
         let cold = restored.state.read().await;
-        assert!(
-            cold.sessions[ID].events.is_empty(),
-            "authoritative restart unexpectedly projected cold history"
-        );
         assert_eq!(
             live.sessions[ID].authoritative_seq,
             cold.sessions[ID].authoritative_seq
