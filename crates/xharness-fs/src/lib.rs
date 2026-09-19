@@ -1,8 +1,20 @@
 //! Workspace-confined filesystem operations with observed-write CAS.
 //!
 //! Callers first resolve an input path into an opaque [`FsTarget`]. Reads
-//! record a strong version per `(session, target)`; replacement writes and
-//! literal edits fail closed unless that observation is still current. New
+//! record a version per `(session, target)`; replacement writes and literal
+//! edits fail closed unless that observation is still current. Files at or
+//! below [`CONTENT_HASH_LIMIT`] are versioned by hashing their whole content,
+//! so the model-facing digest is a real `sha256` of the file. Larger files are
+//! versioned by a bounded content sample plus the file stamp: versioning and
+//! paging must not cost the whole file. Size, timestamps, node identity, the
+//! head, the tail and three interior windows are compared, so an external
+//! rewrite is detected unless it preserves all of them.
+//!
+//! A page that starts at offset zero, or continues from a [`ReadCursor`], costs
+//! the page. Addressing a page by explicit byte offset or line number also
+//! costs the prefix before it, because this store keeps no line index: that
+//! scan counts newlines a word at a time, and a cursor carries the line it
+//! resolved, so paging never recomputes it. New
 //! files use an atomic no-replace publish. Every write uses a same-directory
 //! temporary file, file `fsync`, an atomic platform rename, and directory
 //! `fsync`.
@@ -15,7 +27,7 @@ use std::{
     collections::HashMap,
     ffi::OsString,
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -96,7 +108,42 @@ impl FsTarget {
     }
 }
 
-/// Strong file identity and content version.
+/// Files at or below this size are versioned by hashing the whole content, so
+/// the model-facing digest still matches a plain `sha256sum` of the file.
+/// Larger files are versioned by a bounded sample: reading one page of a
+/// multi-gigabyte file must not hash the whole thing first.
+pub const CONTENT_HASH_LIMIT: u64 = 4 * 1024 * 1024;
+/// Window size of each sample that defines a large file's content version.
+const SAMPLE_WINDOW: u64 = 128 * 1024;
+/// Interior sample points between a large file's head and tail.
+const SAMPLE_POINTS: u64 = 3;
+/// Domain separator for a sampled digest, so it can never be confused with the
+/// plain content digest of another file.
+const SAMPLE_DOMAIN: &[u8] = b"xharness.fs.version.sample.v1";
+/// Chunk size for prefix scans that resolve a byte offset or a line number.
+const SCAN_CHUNK: usize = 64 * 1024;
+
+/// Count newline bytes a word at a time. Resolving a byte offset or a line
+/// number has to look at everything before the page, so that prefix scan must
+/// not be a per-byte loop: at six bytes per cycle a multi-gigabyte prefix
+/// would hit the tool timeout again, which is the failure this module exists
+/// to remove.
+pub(crate) fn count_newlines(bytes: &[u8]) -> u64 {
+    const LO: u64 = 0x0101_0101_0101_0101;
+    const HI: u64 = 0x8080_8080_8080_8080;
+    let needle = LO * u64::from(b'\n');
+    let mut count = 0u64;
+    let (chunks, remainder) = bytes.as_chunks::<8>();
+    for chunk in chunks {
+        let word = u64::from_ne_bytes(*chunk);
+        let x = word ^ needle;
+        // The high bit of each byte is set exactly where the byte was a match.
+        count += u64::from(((x.wrapping_sub(LO)) & !x & HI).count_ones());
+    }
+    count + remainder.iter().filter(|byte| **byte == b'\n').count() as u64
+}
+
+/// File identity, size, timestamps and content version.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FsVersion {
     device: u64,
@@ -125,6 +172,79 @@ impl FsVersion {
     pub fn sha256_hex(&self) -> String {
         encode_sha256(&self.sha256)
     }
+
+    /// True when [`Self::sha256`] is a bounded content sample rather than a
+    /// hash of the whole file. The stamp fields are compared either way, so
+    /// two versions only match when they describe the same file state.
+    pub const fn is_sampled(&self) -> bool {
+        self.len > CONTENT_HASH_LIMIT
+    }
+}
+
+/// Offsets and lengths of the content windows that define a file version.
+fn version_windows(len: u64) -> Vec<(u64, usize)> {
+    if len <= CONTENT_HASH_LIMIT {
+        return vec![(0, usize::try_from(len).unwrap_or(usize::MAX))];
+    }
+    let window = SAMPLE_WINDOW.min(len);
+    let last = len - window;
+    let mut windows = Vec::with_capacity(SAMPLE_POINTS as usize + 3);
+    windows.push(0_u64);
+    for index in 1..=SAMPLE_POINTS {
+        let center = len / (SAMPLE_POINTS + 1) * index;
+        windows.push(center.saturating_sub(window / 2).min(last));
+    }
+    windows.push(last);
+    windows.sort_unstable();
+    windows.dedup();
+    windows
+        .into_iter()
+        .map(|offset| (offset, usize::try_from(window).unwrap_or(usize::MAX)))
+        .collect()
+}
+
+/// Hash the windows that define `len` bytes of content read from `file`.
+fn sampled_digest_file(file: &mut File, len: u64, path: &Path) -> Result<[u8; 32], FsError> {
+    let mut digest = Sha256::new();
+    if len > CONTENT_HASH_LIMIT {
+        digest.update(SAMPLE_DOMAIN);
+        digest.update(len.to_le_bytes());
+    }
+    let mut buffer = vec![0_u8; usize::try_from(SAMPLE_WINDOW.min(len.max(1))).unwrap_or(1)];
+    for (offset, length) in version_windows(len) {
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|source| io_error("seek target for version", path, source))?;
+        let mut remaining = length;
+        while remaining > 0 {
+            let want = remaining.min(buffer.len());
+            let count = file
+                .read(&mut buffer[..want])
+                .map_err(|source| io_error("hash target", path, source))?;
+            if count == 0 {
+                break;
+            }
+            digest.update(&buffer[..count]);
+            remaining -= count;
+        }
+    }
+    Ok(digest.finalize().into())
+}
+
+/// Hash the windows that define the already-read content of a file.
+fn sampled_digest_bytes(len: u64, bytes: &[u8]) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    if len > CONTENT_HASH_LIMIT {
+        digest.update(SAMPLE_DOMAIN);
+        digest.update(len.to_le_bytes());
+    }
+    for (offset, length) in version_windows(len) {
+        let start = usize::try_from(offset)
+            .unwrap_or(usize::MAX)
+            .min(bytes.len());
+        let end = start.saturating_add(length).min(bytes.len());
+        digest.update(&bytes[start..end]);
+    }
+    digest.finalize().into()
 }
 
 fn encode_sha256(digest: &[u8; 32]) -> String {
@@ -211,12 +331,14 @@ pub struct ReadLimits {
 
 /// Version-bound continuation for a paged read. The cursor is opaque to the
 /// model-facing tool: its embedded content hash prevents stitching pages from
-/// different file versions.
+/// different file versions, and the embedded line number lets the next page
+/// start without re-counting the lines before it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReadCursor {
     offset: u64,
     sha256: [u8; 32],
     limits: ReadLimits,
+    line: Option<u64>,
 }
 
 impl ReadCursor {
@@ -228,22 +350,42 @@ impl ReadCursor {
         self.limits
     }
 
+    /// One-based line that contains [`Self::offset`], when it is known.
+    pub const fn line(&self) -> Option<u64> {
+        self.line
+    }
+
     pub fn encode(&self) -> String {
-        format!(
-            "v1:{}:{}:{}:{}:{}",
-            self.offset,
-            self.limits.max_bytes,
-            self.limits.max_lines,
-            self.limits.max_line_bytes,
-            encode_sha256(&self.sha256)
-        )
+        match self.line {
+            Some(line) => format!(
+                "v2:{}:{}:{}:{}:{}:{}",
+                self.offset,
+                self.limits.max_bytes,
+                self.limits.max_lines,
+                self.limits.max_line_bytes,
+                encode_sha256(&self.sha256),
+                line
+            ),
+            None => format!(
+                "v1:{}:{}:{}:{}:{}",
+                self.offset,
+                self.limits.max_bytes,
+                self.limits.max_lines,
+                self.limits.max_line_bytes,
+                encode_sha256(&self.sha256)
+            ),
+        }
     }
 
     pub fn parse(value: &str) -> Result<Self, FsError> {
         let mut parts = value.split(':');
-        if parts.next() != Some("v1") {
-            return Err(FsError::InvalidReadCursor);
-        }
+        // `v1` cursors predate the embedded line number; they stay readable and
+        // fall back to counting the lines before the offset.
+        let expect_line = match parts.next() {
+            Some("v1") => false,
+            Some("v2") => true,
+            _ => return Err(FsError::InvalidReadCursor),
+        };
         let offset = parts
             .next()
             .and_then(|value| value.parse::<u64>().ok())
@@ -255,6 +397,17 @@ impl ReadCursor {
             .next()
             .and_then(decode_sha256)
             .ok_or(FsError::InvalidReadCursor)?;
+        let line = if expect_line {
+            Some(
+                parts
+                    .next()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .filter(|line| *line > 0)
+                    .ok_or(FsError::InvalidReadCursor)?,
+            )
+        } else {
+            None
+        };
         if parts.next().is_some() {
             return Err(FsError::InvalidReadCursor);
         }
@@ -269,6 +422,7 @@ impl ReadCursor {
                 max_lines,
                 max_line_bytes,
             },
+            line,
         })
     }
 }
@@ -315,12 +469,17 @@ pub enum ReadDiagnostic {
 pub struct FileRead {
     pub text: String,
     pub version: FsVersion,
+    /// Bytes scanned from [`Self::page_start_offset`] for this page. Reading
+    /// stops as soon as the page is full, so this is bounded by the page (plus
+    /// the line that completed it) and equals the file size only when the page
+    /// covers the whole file.
     pub bytes_read: u64,
     pub truncated: bool,
     pub diagnostics: Vec<ReadDiagnostic>,
     pub page_start_offset: u64,
     pub page_start_line: u64,
     pub captured_bytes: u64,
+    /// Size of the whole file, from the inspected metadata.
     pub total_bytes: u64,
     pub next_cursor: Option<ReadCursor>,
 }
@@ -579,7 +738,11 @@ impl FsService {
             observations.record(
                 &session_id,
                 &key,
-                Observation::Version(after.into_version(Sha256::digest(&bytes).into())),
+                Observation::Version(
+                    after
+                        .clone()
+                        .into_version(sampled_digest_bytes(after.len, &bytes)),
+                ),
             )?;
             Ok(bytes)
         })
@@ -1260,17 +1423,7 @@ fn current_version(root: &Path, target: &PhysicalTarget) -> Result<Option<FsVers
             .metadata()
             .map_err(|source| io_error("inspect target before hashing", &target.path, source))?,
     );
-    let mut digest = Sha256::new();
-    let mut buffer = [0u8; 32 * 1024];
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|source| io_error("hash target", &target.path, source))?;
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-    }
+    let digest = sampled_digest_file(&mut file, before.len, &target.path)?;
     let after = MetadataStamp::from_metadata(
         &file
             .metadata()
@@ -1281,7 +1434,7 @@ fn current_version(root: &Path, target: &PhysicalTarget) -> Result<Option<FsVers
             display: target.display.clone(),
         });
     }
-    Ok(Some(after.into_version(digest.finalize().into())))
+    Ok(Some(after.into_version(digest)))
 }
 
 fn read_full(root: &Path, target: &PhysicalTarget) -> Result<(Vec<u8>, FsVersion), FsError> {
@@ -1306,7 +1459,7 @@ fn read_full(root: &Path, target: &PhysicalTarget) -> Result<(Vec<u8>, FsVersion
             display: target.display.clone(),
         });
     }
-    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    let digest = sampled_digest_bytes(after.len, &bytes);
     Ok((bytes, after.into_version(digest)))
 }
 
@@ -1331,33 +1484,53 @@ fn scan_limited(
             .metadata()
             .map_err(|source| io_error("inspect target before read", &target.path, source))?,
     );
-    let mut digest = Sha256::new();
+    let total_bytes = before.len;
+    // The version is bounded by the sample windows, so it no longer forces a
+    // whole-file pass before the page itself can be read.
+    let version =
+        before
+            .clone()
+            .into_version(sampled_digest_file(&mut file, total_bytes, &target.path)?);
+    // Resolve the page start by seeking: only a requested line number (or a
+    // legacy cursor without one) needs to count the bytes before the page.
+    let (page_start_offset, page_start_line) = match &start {
+        ReadStart::Byte(offset) => {
+            let offset = (*offset).min(total_bytes);
+            (offset, line_at(&mut file, offset, &target.path)?)
+        }
+        ReadStart::Line(line) => offset_of_line(&mut file, *line, total_bytes, &target.path)?,
+        ReadStart::Cursor(cursor) => {
+            if cursor.sha256 != *version.sha256() {
+                return Err(FsError::StaleReadCursor {
+                    display: target.display.clone(),
+                });
+            }
+            let offset = cursor.offset.min(total_bytes);
+            let line = match cursor.line {
+                Some(line) => line,
+                None => line_at(&mut file, offset, &target.path)?,
+            };
+            (offset, line)
+        }
+    };
+    file.seek(SeekFrom::Start(page_start_offset))
+        .map_err(|source| io_error("seek target", &target.path, source))?;
     let mut capture = LimitedCapture::new(limits);
-    let mut bytes_read = 0u64;
-    let mut source_line = 1u64;
-    let mut page_start = None;
+    let mut source_line = page_start_line;
     let mut buffer = [0u8; 32 * 1024];
-    loop {
+    // Stop at the end of the page instead of walking to the end of the file.
+    while !capture.stopped {
         let count = file
             .read(&mut buffer)
             .map_err(|source| io_error("read target", &target.path, source))?;
         if count == 0 {
             break;
         }
-        bytes_read = bytes_read.saturating_add(count as u64);
-        digest.update(&buffer[..count]);
-        let chunk_start = bytes_read.saturating_sub(count as u64);
-        for (index, byte) in buffer[..count].iter().enumerate() {
-            let source_offset = chunk_start.saturating_add(index as u64);
-            let selected = match &start {
-                ReadStart::Byte(offset) => source_offset >= *offset,
-                ReadStart::Line(line) => source_line >= *line,
-                ReadStart::Cursor(cursor) => source_offset >= cursor.offset,
-            };
-            if selected && !capture.stopped {
-                page_start.get_or_insert((source_offset, source_line));
-                capture.push_byte(*byte);
+        for byte in &buffer[..count] {
+            if capture.stopped {
+                break;
             }
+            capture.push_byte(*byte);
             if *byte == b'\n' {
                 source_line = source_line.saturating_add(1);
             }
@@ -1373,16 +1546,10 @@ fn scan_limited(
             display: target.display.clone(),
         });
     }
-    let version = after.into_version(digest.finalize().into());
-    if let ReadStart::Cursor(cursor) = &start {
-        if cursor.sha256 != *version.sha256() {
-            return Err(FsError::StaleReadCursor {
-                display: target.display.clone(),
-            });
-        }
-    }
-    let (page_start_offset, page_start_line) = page_start.unwrap_or((bytes_read, source_line));
-    let raw_captured_bytes = capture.bytes.len() as u64;
+    // Every byte the page accepted was scanned exactly once, and a rejected
+    // byte ends the page without being consumed.
+    let bytes_read = capture.bytes.len() as u64;
+    let raw_captured_bytes = bytes_read;
     let (text, mut utf8_diagnostics, captured_bytes) =
         decode_capture(capture.bytes, capture.stopped);
     capture.diagnostics.append(&mut utf8_diagnostics);
@@ -1392,10 +1559,11 @@ fn scan_limited(
         captured_bytes
     };
     let next_offset = page_start_offset.saturating_add(continuation_bytes);
-    let next_cursor = (capture.stopped && next_offset < bytes_read).then(|| ReadCursor {
+    let next_cursor = (capture.stopped && next_offset < total_bytes).then(|| ReadCursor {
         offset: next_offset,
         sha256: *version.sha256(),
         limits,
+        line: Some(source_line),
     });
     Ok(Some(FileRead {
         text,
@@ -1406,9 +1574,79 @@ fn scan_limited(
         page_start_offset,
         page_start_line,
         captured_bytes,
-        total_bytes: bytes_read,
+        total_bytes,
         next_cursor,
     }))
+}
+
+/// One-based line that contains `offset`, counted in chunks. Only explicit byte
+/// offsets and legacy cursors need this: a cursor from this version already
+/// carries its line.
+fn line_at(file: &mut File, offset: u64, path: &Path) -> Result<u64, FsError> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|source| io_error("seek target", path, source))?;
+    let mut seen = 0u64;
+    let mut lines = 1u64;
+    let mut buffer = [0u8; SCAN_CHUNK];
+    while seen < offset {
+        let want =
+            usize::try_from((offset - seen).min(buffer.len() as u64)).unwrap_or(buffer.len());
+        let count = file
+            .read(&mut buffer[..want])
+            .map_err(|source| io_error("read target", path, source))?;
+        if count == 0 {
+            break;
+        }
+        lines = lines.saturating_add(count_newlines(&buffer[..count]));
+        seen = seen.saturating_add(count as u64);
+    }
+    Ok(lines)
+}
+
+/// Byte offset of the start of the one-based `line`, plus the line the offset
+/// resolved to when the file is shorter than the request.
+fn offset_of_line(
+    file: &mut File,
+    line: u64,
+    total_bytes: u64,
+    path: &Path,
+) -> Result<(u64, u64), FsError> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|source| io_error("seek target", path, source))?;
+    let mut current = 1u64;
+    let mut offset = 0u64;
+    let mut buffer = [0u8; SCAN_CHUNK];
+    while current < line {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|source| io_error("read target", path, source))?;
+        if count == 0 {
+            break;
+        }
+        let chunk = &buffer[..count];
+        let newlines = count_newlines(chunk);
+        if current.saturating_add(newlines) < line {
+            // The target line starts after this chunk: no per-byte work needed.
+            current = current.saturating_add(newlines);
+            offset = offset.saturating_add(count as u64);
+            continue;
+        }
+        let mut seen = 0u64;
+        for (index, byte) in chunk.iter().enumerate() {
+            if *byte != b'\n' {
+                continue;
+            }
+            seen = seen.saturating_add(1);
+            if current.saturating_add(seen) == line {
+                offset = offset.saturating_add(index as u64).saturating_add(1);
+                current = current.saturating_add(seen);
+                break;
+            }
+        }
+        current = current.saturating_add(seen);
+        break;
+    }
+    Ok((offset.min(total_bytes), current.min(line)))
 }
 
 struct LimitedCapture {
