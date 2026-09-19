@@ -6205,12 +6205,13 @@ const activeSuffix = running ? Math.max(0, order.findLastIndex(key => nodeStore.
 								className: ChatView_module_css_default.hint,
 								children: t("chat.loadingHistory")
 							}),
-							openState === "error" && openError !== null && (0, react_jsx_runtime.jsx)("div", {
+							openState === "error" && openError !== null && (0, react_jsx_runtime.jsxs)("div", {
 								className: ChatView_module_css_default.openError,
-								children: t("chat.loadError", {
+								role: "alert",
+								children: [t("chat.loadError", {
 									message: openError.message,
 									code: openError.code
-								})
+								}), (0, react_jsx_runtime.jsx)("button", { type: "button", "data-history-retry": "", onClick: loadOlder, children: t("retry") })]
 							}),
 							hasMore && (0, react_jsx_runtime.jsx)("div", {
 								className: ChatView_module_css_default.older,
