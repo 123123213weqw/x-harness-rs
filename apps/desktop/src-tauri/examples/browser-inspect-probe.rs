@@ -719,6 +719,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
 /// Native geometry regression: use production pane commands, not a browser
 /// mock. Hidden tabs retain old native rectangles until activation refreshes
 /// them. The callback also checks the real document viewport after rendering.
+#[cfg(windows)]
 async fn bounds_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
     let main = app.get_webview("main").ok_or("missing main view")?;
     let window = app.get_window("main").ok_or("missing main window")?;
@@ -791,11 +792,21 @@ async fn bounds_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
             let size = guest.size().map_err(|error| error.to_string())?;
             let logical_position = position.to_logical::<f64>(scale);
             let logical_size = size.to_logical::<f64>(scale);
-            let viewport = evidence(
+            let viewport = match evidence(
                 &guest,
                 "({width:innerWidth,height:innerHeight,ratio:devicePixelRatio})",
             )
-            .await?;
+            .await
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    // Initial navigation can abandon an evaluation callback.
+                    // Retry read-only sampling, never the navigation/action.
+                    sample = json!({"case":name,"passed":false,"callback_error":error});
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+            };
             // Windows positions are relative to the parent client area. Other
             // native backends can report screen-relative positions; the size
             // and viewport assertions apply everywhere, but do not fake those
@@ -836,9 +847,13 @@ async fn bounds_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
 }
 
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    #[cfg(windows)]
     bounds_probe(app, &url).await?;
     if std::env::var("XHARNESS_NATIVE_PROBE_BOUNDS_ONLY").as_deref() == Ok("1") {
+        #[cfg(windows)]
         return Ok(());
+        #[cfg(not(windows))]
+        return Err("Windows bounds fixture cannot certify another native backend".into());
     }
     lifecycle_probe(app, &url).await?;
     subframe_navigation_probe(app).await?;
