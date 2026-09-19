@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { patchMaxTokensNotice } from './patch-max-tokens-notice.mjs'
 import { patchSessionHistoryCache } from './patch-session-history-cache.mjs'
+import { patchAtomicHistory, patchHistoryRetry } from './patch-atomic-history.mjs'
 import { patchTranscriptWindowing } from './patch-transcript-windowing.mjs'
 import { patchQuestionContinuation } from './patch-question-continuation.mjs'
 import { patchPermissionSelection } from './patch-permission-selection.mjs'
@@ -109,7 +110,7 @@ for (const entry of composed) {
   if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextConnection(patchModelConnection(bytes))
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchMessageEditConnection(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchSessionHistoryCache(patchMessageEditRuntime(bytes))
+  if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchAtomicHistory(patchSessionHistoryCache(patchMessageEditRuntime(bytes)))
   bytes = patchAttachments(entry.name, bytes)
   if (entry.name === '@deepseek-ai/dsh-client-ui-settings-models') bytes = patchReasoningSettings(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-goal") bytes = patchGoalRuntime(bytes)
@@ -119,6 +120,7 @@ for (const entry of composed) {
   bytes = patchWorkspaceCreatedAt(entry.name, bytes)
   bytes = patchSettingsSaveFeedback(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchTranscriptWindowing(bytes)
+  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchHistoryRetry(bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
