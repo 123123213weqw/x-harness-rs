@@ -73,4 +73,3 @@ test updater::tests::transfer_continues_across_polling_timeouts_and_propagates_e
 test sidecar::tests::silent_health_endpoint_cannot_stall_the_startup_deadline ... ok
 
 test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.01s
-
