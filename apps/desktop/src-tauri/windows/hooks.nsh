@@ -9,7 +9,8 @@
   ; downloaded scripts, profile loading or pwsh 7 dependency.
   System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_SCRIPT", t "$PLUGINSDIR\install-ownership.ps1")'
   System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_INVENTORY", t "$PLUGINSDIR\xharness-install-inventory.json")'
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command ". ([scriptblock]::Create([IO.File]::ReadAllText($$env:XHARNESS_INSTALL_SCRIPT))); Invoke-XHarnessPreflight $$env:XHARNESS_INSTALL_INVENTORY"'
+  System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_DIRECTORY", t "$INSTDIR")'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command ". ([scriptblock]::Create([IO.File]::ReadAllText($$env:XHARNESS_INSTALL_SCRIPT))); Invoke-XHarnessPreflight $$env:XHARNESS_INSTALL_INVENTORY $$env:XHARNESS_INSTALL_DIRECTORY"'
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -17,7 +18,7 @@
     FileOpen $2 "$TEMP\XHarness-installation.log" a
     FileWrite $2 "Preflight: $1$\r$\n"
     FileClose $2
-    MessageBox MB_OK|MB_ICONSTOP "Close all XHarness windows and Hosts, then retry. Installation was not started.$\r$\n$1" /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "Installation was stopped safely before replacing files. Resolve the process or file-access issue below, then retry.$\r$\n$1" /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
