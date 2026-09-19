@@ -67,9 +67,10 @@ Node 测试覆盖处理/视图构建异常；浏览器测试用实际压缩 clas
 用户不操作时表现为「模型还在答，前端不显示」。产品上报对应的真实事故是
 `session-1789711617394-1009`（回合 6/7 失败 → App 重启 → 新消息起轮 8 并持续产出）。
 
-`ui/overrides/live-answer-recovery.js` 补上自动恢复：当状态把**当前选中**会话置为 `running === true`
-且 `openState === 'error'` 时，重开窗口一次。触发点选在这里，因为新消息（用户自己的动作）正要
-产生回答，恢复后随后到达的实时帧就有窗口可落。
+`ui/overrides/live-answer-recovery.js` 补上自动恢复：**当前选中**会话在
+`openState === 'error'` 时，只要用户 Prompt 已被 Host 接纳，或状态上报 `running === true`，就重开
+窗口一次。Prompt 接纳是前台操作的权威信号：会话原本已运行时，排队消息不会产生第二个
+`running=true` 状态沿；状态上报则继续覆盖后台/远程启动。恢复后随后到达的实时帧已有窗口可落。
 
 - 复用错误横幅自己的只读路径：`loadOlder()` 在 `error` 态被事务层路由到 history-only retry，
   因此不重新提交 prompt、工具命令或审批回答，也不清理待审批/待回答与订阅水位。
@@ -77,12 +78,14 @@ Node 测试覆盖处理/视图构建异常；浏览器测试用实际压缩 clas
   `openState === 'open'` 时状态帧不产生任何请求。
 - 只对当前选中会话生效（`xhHistoryOwner.manager.selected`）。后台会话继续只保留缓冲、不自发请求。
   没有装载驻留层的宿主按当前会话处理，代价是一次仍受限速约束的只读历史请求。
-- 判断依据是**上报的** `running` 值而不是变化沿，因为 `handleRunning` 对未变化的状态会提前返回。
-- 包装而不是替换 `handleRunning`：驻留层也包装它，其回收调度必须继续看到每次状态变化。
+- Prompt 只有在接纳成功后触发；被拒绝的发送不产生无关历史请求。状态触发判断依据是**上报的**
+  `running` 值而不是变化沿，因为 `handleRunning` 对未变化的状态会提前返回。
+- 包装而不是替换 `prompt` / `handleRunning`：驻留层也包装它们，其回收调度必须继续看到操作与状态变化。
 
-`scripts/test-live-answer-recovery.mjs` 在真实打包产物上覆盖：失败读取后 `running` 触发重试并把
-缓冲回答发布出去、限速窗口内的状态帧突发不额外拉取、后台会话只保留缓冲不发请求、健康窗口的
-状态帧不产生请求；并校验补丁幂等、锚点失败关闭与图谱/index 哈希一致（含 eager `<script src>` 的 rev）。
+`scripts/test-live-answer-recovery.mjs` 在真实打包产物上覆盖：失败读取后 Prompt 接纳与 `running`
+都能触发重试并发布缓冲回答、Prompt 拒绝不请求历史、限速窗口内的状态帧突发不额外拉取、后台会话
+只保留缓冲不发请求、健康窗口的状态帧不产生请求；并校验补丁幂等、锚点失败关闭与图谱/index 哈希
+一致（含 eager `<script src>` 的 rev）。
 
 未覆盖：历史接口长期不可用时仍然只缓冲、不渲染；`cold` 会话收到实时帧仍按上游语义丢弃
 （冷窗口要么由选中打开，要么处于 `resync` 过渡态，其内容由新窗口覆盖）。

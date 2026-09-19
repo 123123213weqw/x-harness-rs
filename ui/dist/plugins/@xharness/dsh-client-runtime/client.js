@@ -8655,6 +8655,17 @@ function installLiveAnswerRecovery(Session) {
   };
   const handleRunning = Session.prototype.handleRunning;
   if (typeof handleRunning !== 'function') throw Error('Live answer recovery method missing: handleRunning');
+  const prompt = Session.prototype.prompt;
+  if (typeof prompt !== 'function') throw Error('Live answer recovery method missing: prompt');
+  // A queued prompt does not necessarily produce another running=true frame:
+  // the Host only publishes that edge when it starts an idle driver. Recover
+  // from the accepted prompt itself as the authoritative user-action signal,
+  // then keep handleRunning as the fallback for background/remote starts.
+  Session.prototype.prompt = async function(...args) {
+    const result = await prompt.apply(this, args);
+    if (result?.ok === true) this.xhRecoverLiveAnswer();
+    return result;
+  };
   // Wrapped rather than replaced: the residency layer wraps this method too, and
   // its trim must still observe every status change.
   Session.prototype.handleRunning = function(running) {

@@ -11,11 +11,12 @@
 - [x] `LIVE-ANSWER-01` 排除 Host：新增 `failed_turn_projection_tests.rs`，覆盖「失败已结束后再发」与
   「失败进行中就排队」两种顺序，断言该 Prompt 会真正起轮且 `assistant/message` 经 mux 发到浏览器。
   master 树 WZU_Server 上两项通过；此前 Host 侧无失败路径投影回归。
-- [x] `LIVE-ANSWER-02` 修复 `ui/overrides/live-answer-recovery.js`：当前会话在 `error` 态被置为
-  `running` 时复用错误横幅的只读重试路径重开窗口，使缓冲的实时回答得以发布；限速 5 秒、仅从
+- [x] `LIVE-ANSWER-02` 修复 `ui/overrides/live-answer-recovery.js`：当前会话在 `error` 态收到已接纳
+  Prompt 或 `running=true` 上报时复用错误横幅的只读重试路径重开窗口；Prompt 触发覆盖已运行会话
+  排队时不会产生第二个状态沿的路径，使缓冲的实时回答得以发布；限速 5 秒、仅从
   `error` 起步、仅当前选中会话，避免拉取循环与后台自发请求。补丁接入
   `scripts/assemble-static-ui.mjs` 与 `ui/dist`（含 eager `<script src>` 的 rev 收敛）。
-- [x] `LIVE-ANSWER-03` 回归 `scripts/test-live-answer-recovery.mjs`：发布缓冲回答、限速、后台隔离、
+- [x] `LIVE-ANSWER-03` 回归 `scripts/test-live-answer-recovery.mjs`：Prompt/状态双触发、拒绝零请求、发布缓冲回答、限速、后台隔离、
   健康窗口零请求，以及补丁幂等/锚点失败关闭/图谱哈希；未打补丁时首项即失败（回答留在缓冲不显示）。
   同轮 15 个涉及 runtime 包的既有 UI 套件全部通过。
 - [ ] `LIVE-ANSWER-04` PR 跨平台 CI 通过后合并；`ui/dist` 只覆盖 `--static-dir` 部署，

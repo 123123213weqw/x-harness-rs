@@ -83,6 +83,39 @@ assert.equal(session.openState, 'open');
 assert.equal(session.openError, null);
 assert.deepEqual(seqs(), [10, 11, 12], 'the buffered live answer must be published');
 
+// Queueing behind an already-running turn does not emit another running=true
+// edge from the Host. A successful local prompt admission must therefore be an
+// independent recovery trigger rather than relying exclusively on status.
+let promptHistoryCalls = 0, promptCalls = 0;
+const promptSession = new runtime.Session('prompt-fixture', {
+  sessions: {
+    prompt: async () => { promptCalls++; return { result: { ok: true, value: { accepted: true } } }; },
+    history: async () => { promptHistoryCalls++; return ok([row(20), row(21)]); },
+  },
+}, {}, { conversation: { events, views } });
+promptSession.installWindow([row(20)], true); promptSession.openState = 'error'; promptSession.getSnapshot();
+promptSession.acceptLiveEvent(row(21).event, undefined);
+await promptSession.prompt([{ type: 'text', text: 'queued while already running' }], 'queue');
+for (let attempt = 0; attempt < 50 && promptSession.openState !== 'open'; attempt++) await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(promptCalls, 1);
+assert.equal(promptHistoryCalls, 1, 'an accepted prompt must recover without a new running status frame');
+assert.equal(promptSession.openState, 'open');
+assert.deepEqual(Array.from(promptSession.events, event => event.seq), [20, 21]);
+
+// Rejected admission cannot produce an answer and must not turn into an
+// unrelated history request.
+let rejectedHistoryCalls = 0;
+const rejected = new runtime.Session('rejected', {
+  sessions: {
+    prompt: async () => ({ result: { ok: false, error: { code: 'rejected', message: 'no' } } }),
+    history: async () => { rejectedHistoryCalls++; return ok([row(30)]); },
+  },
+}, {}, { conversation: { events, views } });
+rejected.installWindow([row(30)], true); rejected.openState = 'error'; rejected.getSnapshot();
+const rejectedResult = await rejected.prompt([{ type: 'text', text: 'rejected' }], 'queue');
+assert.equal(rejectedResult.ok, false);
+assert.equal(rejectedHistoryCalls, 0, 'a rejected prompt must not trigger recovery');
+
 // Rate limit: streaming status frames must not become one history fetch each.
 //
 // One interval must pass before the next retry is allowed, so a burst of status
@@ -129,4 +162,4 @@ for (let index = 0; index < 20; index++) session.handleRunning(true);
 session.handleRunning(false);
 assert.equal(historyCalls, before, 'a healthy window must not refetch on status frames');
 
-console.log('live answer recovery: failed-read retry on a running turn, buffered answer publication, rate limit and background isolation passed');
+console.log('live answer recovery: prompt/status triggers, buffered answer publication, rate limit and background isolation passed');
