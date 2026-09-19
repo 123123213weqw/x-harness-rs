@@ -1876,7 +1876,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     state.replacement = true;
                 }
             }
-            EventData::AssistantChunk { turn, step, .. } => {
+            EventData::ModelReception { turn, step, .. }
+            | EventData::AssistantChunk { turn, step, .. } => {
                 let Some(state) = open_step.as_ref() else {
                     return Err(lifecycle_error(
                         logged.seq,

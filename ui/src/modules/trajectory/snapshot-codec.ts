@@ -22,7 +22,7 @@ function exactOptionals(value:Record<string,unknown>,keys:readonly string[]):boo
 const config=requestConfigSchema.refine(value => exactOptionals(value,['purpose','thinking','reasoningEffort','temperature','maxTokens','stop']))
 const assistant=z.looseObject({...base,kind:z.literal('assistant'),turn:n,step:n,blocks,
  messageId:s.optional(),usage:z.unknown().optional(),provenance:provenance.optional(),requestConfig:config.optional(),
- timing:z.looseObject({stepStartTime:n.nullable(),firstTokenTime:n.nullable(),completedTime:n}).optional(),interrupted:z.literal(true).optional(),
+ timing:z.looseObject({stepStartTime:n.nullable(),firstTokenTime:n.nullable(),completedTime:n,receptionMs:n.optional()}).optional(),interrupted:z.literal(true).optional(),
 }).refine(value => exactOptionals(value,['messageId','provenance','requestConfig','timing','interrupted']))
 const tool:z.ZodType<unknown>=z.lazy(()=>z.union([
  z.looseObject({callId:s,name:s,argsRaw:s,turn:n,step:n,time:n,callView,subCalls:z.array(tool)}).refine(value => !('kind' in value)),

@@ -21,6 +21,8 @@ pub struct MetricsProjectionState {
     daily_token_usage: DailyTokenUsageProjectionState,
     session_stats: SessionStatsProjectionState,
     context_pressure: ContextPressureProjectionState,
+    #[serde(default)]
+    performance: crate::performance::PerformanceTimelineState,
 }
 
 impl MetricsProjectionState {
@@ -60,12 +62,41 @@ impl MetricsProjectionState {
         self.daily_token_usage.apply_logged(event);
         self.session_stats.apply_logged(event);
         self.context_pressure.apply_logged(event.data());
+        self.performance.apply_logged(event);
     }
 
     /// Apply one event and return only public views that changed. In-flight
     /// boundaries such as `step/start` and `tool/call` mutate private fold
     /// state without publishing an identical zero-valued projection.
     pub fn apply(&mut self, event: &Value) -> Vec<MetricsProjectionUpdate> {
+        self.apply_inner(event, true)
+    }
+
+    /// Authoritative telemetry consumes original logged checkpoints, never
+    /// the history coalescer's rewritten timestamps.
+    pub fn apply_authoritative_web(&mut self, event: &Value) -> Vec<MetricsProjectionUpdate> {
+        self.apply_inner(event, false)
+    }
+
+    pub fn advance_performance_logged(
+        &mut self,
+        events: &[LoggedEvent],
+    ) -> Option<MetricsProjectionUpdate> {
+        let mut changed = false;
+        for event in events {
+            changed |= self.performance.apply_logged(event);
+        }
+        changed.then(|| MetricsProjectionUpdate {
+            key: "performanceTimeline",
+            value: self.performance.view(),
+        })
+    }
+
+    pub fn performance_timeline(&self) -> Value {
+        self.performance.view()
+    }
+
+    fn apply_inner(&mut self, event: &Value, performance: bool) -> Vec<MetricsProjectionUpdate> {
         let token_before = self.token_usage.view();
         let stats_before = self.session_stats.view();
         let pressure_before = self.context_pressure.view();
@@ -78,7 +109,13 @@ impl MetricsProjectionState {
         let token_after = self.token_usage.view();
         let stats_after = self.session_stats.view();
         let pressure_after = self.context_pressure.view();
-        let mut updates = Vec::with_capacity(4);
+        let mut updates = Vec::with_capacity(5);
+        if performance && self.performance.apply(event) {
+            updates.push(MetricsProjectionUpdate {
+                key: "performanceTimeline",
+                value: self.performance.view(),
+            });
+        }
         if token_after != token_before {
             updates.push(MetricsProjectionUpdate {
                 key: "tokenUsage",
@@ -673,6 +710,14 @@ struct SessionStatsProjectionState {
     last_turn: Option<u32>,
     open_step: Option<OpenStep>,
     pending_calls: BTreeMap<String, u64>,
+    #[serde(default)]
+    reception: Option<xharness_session::ModelReception>,
+    #[serde(default)]
+    route: Option<(String, String)>,
+    #[serde(default)]
+    open_route: Option<(String, String)>,
+    #[serde(default)]
+    rates: BTreeMap<String, (u64, u64)>,
 }
 
 impl SessionStatsProjectionState {
@@ -685,6 +730,32 @@ impl SessionStatsProjectionState {
         };
         let time = event.get("time").and_then(Value::as_u64);
         match event_type {
+            "request/header" => {
+                if let Some(header) = data.get("header") {
+                    let route = header.get("config").unwrap_or(header);
+                    self.route = route["provider"]
+                        .as_str()
+                        .zip(route["model"].as_str())
+                        .map(|(p, m)| (p.to_owned(), m.to_owned()));
+                    self.open_route = self.route.clone();
+                }
+            }
+            "session/model-selected" => {
+                self.route = data["provider"]
+                    .as_str()
+                    .zip(data["model"].as_str())
+                    .map(|(p, m)| (p.to_owned(), m.to_owned()));
+            }
+            "model/reception" => {
+                if coordinates(data).is_some_and(|(t, s)| {
+                    self.open_step.is_some_and(|o| o.turn == t && o.step == s)
+                }) {
+                    self.reception = data
+                        .get("reception")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok());
+                }
+            }
+
             "step/start" => {
                 let Some((turn, step, time)) = coordinates_with_time(data, time) else {
                     return;
@@ -695,6 +766,8 @@ impl SessionStatsProjectionState {
                     start_time: time,
                     first_token_time: None,
                 });
+                self.reception = None;
+                self.open_route = self.route.clone();
             }
             "assistant/chunk" => {
                 let Some((turn, step)) = coordinates(data) else {
@@ -726,29 +799,13 @@ impl SessionStatsProjectionState {
                 if open.turn != turn || open.step != step {
                     return;
                 }
-                self.totals.llm_ms = self
-                    .totals
-                    .llm_ms
-                    .saturating_add(time.saturating_sub(open.start_time));
-                if let Some(first_token_time) = open.first_token_time {
-                    self.totals.ttft_ms = self
-                        .totals
-                        .ttft_ms
-                        .saturating_add(first_token_time.saturating_sub(open.start_time));
-                    self.totals.ttft_steps = self.totals.ttft_steps.saturating_add(1);
-                    if let Some(output_tokens) = data
-                        .get("usage")
-                        .and_then(web_token_usage)
-                        .and_then(|usage| usage.get("outputTokens").and_then(Value::as_u64))
-                    {
-                        self.totals.decode_ms = self
-                            .totals
-                            .decode_ms
-                            .saturating_add(time.saturating_sub(first_token_time));
-                        self.totals.decode_tokens =
-                            self.totals.decode_tokens.saturating_add(output_tokens);
-                    }
-                }
+                let output = data.get("usage").and_then(web_token_usage).map(|usage| {
+                    usage["outputTokens"]
+                        .as_u64()
+                        .unwrap_or_default()
+                        .saturating_add(usage["reasoningTokens"].as_u64().unwrap_or_default())
+                });
+                self.settle(open, time, output);
                 self.open_step = None;
             }
             "tool/call" => {
@@ -797,6 +854,26 @@ impl SessionStatsProjectionState {
     fn apply_logged(&mut self, event: &LoggedEvent) {
         let time = event.timestamp_ms;
         match event.data() {
+            EventData::RequestHeader { header } => {
+                self.route = Some((header.provider.clone(), header.model.clone()));
+                self.open_route = self.route.clone();
+            }
+            EventData::SessionModelSelected {
+                provider, model, ..
+            } => self.route = Some((provider.clone(), model.clone())),
+            EventData::ModelReception {
+                turn,
+                step,
+                reception,
+            } => {
+                if self
+                    .open_step
+                    .is_some_and(|o| o.turn == web_turn(*turn) && o.step == *step)
+                {
+                    self.reception = Some(reception.clone());
+                }
+            }
+
             EventData::StepStart { turn, step } => {
                 self.open_step = Some(OpenStep {
                     turn: web_turn(*turn),
@@ -804,6 +881,8 @@ impl SessionStatsProjectionState {
                     start_time: time,
                     first_token_time: None,
                 });
+                self.reception = None;
+                self.open_route = self.route.clone();
             }
             EventData::AssistantChunk { turn, step, chunk } => {
                 let Some(open) = self.open_step.as_mut() else {
@@ -828,29 +907,15 @@ impl SessionStatsProjectionState {
                 if open.turn != web_turn(*turn) || open.step != *step {
                     return;
                 }
-                self.totals.llm_ms = self
-                    .totals
-                    .llm_ms
-                    .saturating_add(time.saturating_sub(open.start_time));
-                if let Some(first_token_time) = open.first_token_time {
-                    self.totals.ttft_ms = self
-                        .totals
-                        .ttft_ms
-                        .saturating_add(first_token_time.saturating_sub(open.start_time));
-                    self.totals.ttft_steps = self.totals.ttft_steps.saturating_add(1);
-                    if let Some(output_tokens) = usage
-                        .as_ref()
-                        .and_then(TokenUsageProjection::from_usage)
-                        .map(|usage| usage.output_tokens)
-                    {
-                        self.totals.decode_ms = self
-                            .totals
-                            .decode_ms
-                            .saturating_add(time.saturating_sub(first_token_time));
-                        self.totals.decode_tokens =
-                            self.totals.decode_tokens.saturating_add(output_tokens);
-                    }
-                }
+                let output = usage.as_ref().map(|usage| {
+                    usage_u64(usage, "outputTokens", "output_tokens")
+                        .unwrap_or_default()
+                        .saturating_add(
+                            usage_u64(usage, "reasoningTokens", "reasoning_tokens")
+                                .unwrap_or_default(),
+                        )
+                });
+                self.settle(open, time, output);
                 self.open_step = None;
             }
             EventData::ToolCall { call, .. } => {
@@ -879,8 +944,65 @@ impl SessionStatsProjectionState {
         }
     }
 
+    fn settle(&mut self, open: OpenStep, time: u64, output: Option<u64>) {
+        self.totals.llm_ms = self
+            .totals
+            .llm_ms
+            .saturating_add(time.saturating_sub(open.start_time));
+        let first = self
+            .reception
+            .as_ref()
+            .and_then(|r| r.first_delta_ms)
+            .or(open.first_token_time);
+        let start = self
+            .reception
+            .as_ref()
+            .map_or(open.start_time, |r| r.start_ms);
+        if let Some(first) = first {
+            self.totals.ttft_ms = self
+                .totals
+                .ttft_ms
+                .saturating_add(first.saturating_sub(start));
+            self.totals.ttft_steps = self.totals.ttft_steps.saturating_add(1);
+            if let Some(tokens) = output {
+                let ms = self.reception.as_ref().map_or_else(
+                    || {
+                        let span = time.saturating_sub(first);
+                        if span > 0 {
+                            span
+                        } else {
+                            time.saturating_sub(start).max(1)
+                        }
+                    },
+                    |r| r.reception_ms,
+                );
+                self.totals.decode_ms = self.totals.decode_ms.saturating_add(ms);
+                self.totals.decode_tokens = self.totals.decode_tokens.saturating_add(tokens);
+                if let Some(route) = &self.open_route {
+                    let key = serde_json::to_string(route).expect("route tuple");
+                    if self.rates.len() >= 128 && !self.rates.contains_key(&key) {
+                        if let Some(old) = self.rates.keys().next().cloned() {
+                            self.rates.remove(&old);
+                        }
+                    }
+                    let rate = self.rates.entry(key).or_default();
+                    rate.0 = rate.0.saturating_add(tokens);
+                    rate.1 = rate.1.saturating_add(ms);
+                }
+            }
+        }
+    }
+
     fn view(&self) -> Value {
-        serde_json::to_value(&self.totals).expect("session stats projection is serializable")
+        let mut value =
+            serde_json::to_value(&self.totals).expect("session stats projection is serializable");
+        if let Some(route) = &self.route {
+            let key = serde_json::to_string(route).expect("route tuple");
+            let (tokens, ms) = self.rates.get(&key).copied().unwrap_or_default();
+            value["activeThroughput"] =
+                json!({"provider":route.0,"model":route.1,"decodeTokens":tokens,"decodeMs":ms});
+        }
+        value
     }
 }
 
@@ -936,6 +1058,162 @@ mod tests {
     use xharness_session::{
         Message, RequestHeader, Revision, SessionEvent, ToolCall, ToolResultData,
     };
+    #[test]
+    fn buffered_transport_timing_counts_reasoning_and_isolates_selected_model() {
+        let mut state = MetricsProjectionState::default();
+        let mut header = RequestHeader::new("provider", "alpha");
+        header.options.clear();
+        let events = [
+            logged(0, 1000, EventData::RequestHeader { header }),
+            logged(1, 1100, EventData::StepStart { turn: 1, step: 1 }),
+            logged(
+                2,
+                6100,
+                EventData::ModelReception {
+                    turn: 1,
+                    step: 1,
+                    reception: xharness_session::ModelReception {
+                        attempt: 0,
+                        start_ms: 1100,
+                        first_delta_ms: Some(3100),
+                        elapsed_ms: 5000,
+                        reception_ms: 3000,
+                        estimated_units: 8,
+                        estimated_reasoning_units: 0,
+                        finished: true,
+                        output_tokens: Some(288),
+                        reasoning_tokens: Some(12),
+                        samples: vec![],
+                    },
+                },
+            ),
+            logged(
+                3,
+                6112,
+                EventData::AssistantChunk {
+                    turn: 1,
+                    step: 1,
+                    chunk: AssistantChunk::TextDelta("released".into()),
+                },
+            ),
+            logged(
+                4,
+                6112,
+                EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: Message::assistant("done"),
+                    usage: Some(
+                        json!({"input_tokens":1,"output_tokens":288,"reasoning_tokens":12}),
+                    ),
+                },
+            ),
+        ];
+        for e in &events {
+            state.apply_logged(e);
+        }
+        let value = state.session_stats();
+        assert_eq!(value["decodeMs"], 3000);
+        assert_eq!(value["decodeTokens"], 300);
+        assert_eq!(value["ttftMs"], 2000);
+        assert_eq!(value["activeThroughput"]["model"], "alpha");
+        let mut hot = MetricsProjectionState::default();
+        struct Route;
+        impl crate::ProjectionRoute for Route {
+            fn provider(&self) -> &str {
+                "provider"
+            }
+            fn model(&self) -> &str {
+                "alpha"
+            }
+        }
+        for e in &events {
+            hot.apply(&crate::restored_web_event(
+                e,
+                &Route,
+                &crate::ProjectionSources::default(),
+                None,
+                None,
+            ));
+        }
+        assert_eq!(hot.session_stats(), value);
+        state.apply(&event(
+            5,
+            6200,
+            "session/model-selected",
+            json!({"provider":"provider","model":"beta"}),
+        ));
+        assert_eq!(state.session_stats()["activeThroughput"]["decodeTokens"], 0);
+        let mut raced = MetricsProjectionState::default();
+        for e in &events[..events.len() - 1] {
+            raced.apply_logged(e);
+        }
+        raced.apply(&event(
+            4,
+            6112,
+            "session/model-selected",
+            json!({"provider":"provider","model":"beta"}),
+        ));
+        let mut final_event = events.last().unwrap().clone();
+        final_event.seq = 5;
+        final_event.timestamp_ms = 6113;
+        raced.apply_logged(&final_event);
+        assert_eq!(raced.session_stats()["activeThroughput"]["decodeTokens"], 0);
+        raced.apply(&event(
+            6,
+            6114,
+            "session/model-selected",
+            json!({"provider":"provider","model":"alpha"}),
+        ));
+        assert_eq!(
+            raced.session_stats()["activeThroughput"]["decodeTokens"],
+            300
+        );
+        raced.apply_logged(&logged(7, 7000, EventData::StepStart { turn: 2, step: 1 }));
+        raced.apply_logged(&logged(
+            8,
+            7001,
+            EventData::RequestHeader {
+                header: RequestHeader::new("provider", "beta"),
+            },
+        ));
+        raced.apply_logged(&logged(
+            9,
+            7100,
+            EventData::AssistantChunk {
+                turn: 2,
+                step: 1,
+                chunk: AssistantChunk::TextDelta("beta".into()),
+            },
+        ));
+        raced.apply_logged(&logged(
+            10,
+            8000,
+            EventData::AssistantMessage {
+                turn: 2,
+                step: 1,
+                message: Message::assistant("beta"),
+                usage: Some(json!({"input_tokens":1,"output_tokens":20})),
+            },
+        ));
+        assert_eq!(
+            raced.session_stats()["activeThroughput"]["decodeTokens"],
+            20
+        );
+        raced.apply(&event(
+            11,
+            8100,
+            "session/model-selected",
+            json!({"provider":"provider","model":"alpha"}),
+        ));
+        assert_eq!(
+            raced.session_stats()["activeThroughput"]["decodeTokens"],
+            300
+        );
+        let restored: MetricsProjectionState =
+            serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
+        assert_eq!(restored.session_stats(), state.session_stats());
+    }
 
     fn event(seq: u64, time: u64, event_type: &str, data: Value) -> Value {
         json!({"type": event_type, "seq": seq, "time": time, "data": data})
@@ -1066,7 +1344,7 @@ mod tests {
                 1,
                 105,
                 "request/header",
-                json!({"header": {"options": {
+                json!({"header": {"config":{"provider":"test","model":"test-model"},"options": {
                     "tokenBudget": {
                         "contextWindowTokens": 262_144,
                         "accuracy": "calibrated",
@@ -1133,6 +1411,7 @@ mod tests {
                 "ttftSteps": 1,
                 "decodeMs": 40,
                 "decodeTokens": 10,
+                "activeThroughput":{"provider":"test","model":"test-model","decodeTokens":10,"decodeMs":40},
             })
         );
         assert_eq!(typed.context_pressure()["phase"], "history_changed");
