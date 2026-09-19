@@ -435,13 +435,22 @@ impl BasicHost {
                     if !inputs.matches(record) {
                         continue;
                     }
-                    let new_events = prepared_events
+                    let mut new_events = prepared_events
                         .into_iter()
                         .map(|(event, view)| {
-                            let updates = record.metrics.apply(&event);
+                            let updates = record.metrics.apply_authoritative_web(&event);
                             (event, updates, view)
                         })
                         .collect::<Vec<_>>();
+                    // Telemetry must retain original journal timestamps even
+                    // when the browser projection merges adjacent chunks.
+                    if let Some(update) = record.metrics.advance_performance_logged(
+                        &session.events()[inputs.cursor.unwrap_or_default() as usize..],
+                    ) {
+                        if let Some((_, updates, _)) = new_events.last_mut() {
+                            updates.push(update);
+                        }
+                    }
                     record.replace_authoritative_tail(
                         tail.base_seq,
                         tail.next_seq,

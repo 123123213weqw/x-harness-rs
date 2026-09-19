@@ -25,7 +25,7 @@ const finalAssistant = z.looseObject({ ...base, kind: z.literal('assistant'), tu
   messageId: s.optional(), usage: z.unknown().optional(), interrupted: z.literal(true).optional(),
   provenance: z.object({ provider: s, model: s }).optional(),
   requestConfig: z.looseObject({ provider: s, model: s, purpose: s.optional(), thinking: s.optional(), reasoningEffort: s.optional(), temperature: n.optional(), maxTokens: n.optional(), stop: z.array(s).optional() }).optional(),
-  timing: z.object({ stepStartTime: n.nullable(), firstTokenTime: n.nullable(), completedTime: n }).optional(),
+  timing: z.object({ stepStartTime: n.nullable(), firstTokenTime: n.nullable(), completedTime: n, receptionMs: n.optional() }).optional(),
 })
 const assistant = z.looseObject({ status: z.enum(['running', 'settled', 'interrupted']), turn: n, step: n, blocks, time: n, usage: z.unknown().optional(), finalNode: finalAssistant.optional() })
 const command = z.looseObject({ ...base, kind: z.literal('command'), commandId: s, name: nullable, args: nullable,
