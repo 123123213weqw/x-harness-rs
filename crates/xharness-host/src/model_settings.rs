@@ -6,7 +6,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use xharness_api::{RpcError, RpcErrorCode};
 
-use crate::{driver::rpc_error, state::SettingsNamespace, BasicHost, ModelRegistry};
+use crate::{
+    driver::rpc_error,
+    state::{ModelSelection, SettingsNamespace},
+    BasicHost, ModelDescriptor, ModelRegistry, ModelRoute,
+};
 
 pub const MODEL_SETTINGS_NAMESPACE: &str = "llm-pi-ai";
 
@@ -312,6 +316,9 @@ impl BasicHost {
                 .clone();
             backend.activate(backend.refresh(&section).await?);
         }
+        // The registry just changed under the sessions that were pinned to the
+        // old one.
+        self.reconcile_model_routes().await;
         Ok(())
     }
 
@@ -348,6 +355,142 @@ impl BasicHost {
                 });
             }
         }
+    }
+}
+
+/// Repair a stored model selection that the live registry no longer accepts as
+/// it stands.
+///
+/// The stored context window and reasoning effort are snapshots of what the
+/// deployment advertised when the user chose them. A later settings edit or an
+/// upgraded deployment can shrink either one, and `can_route` then fails for a
+/// session whose provider and model are both healthy: the model selector reads
+/// `routable: false` and blocks the composer with "model unavailable" while
+/// `llm.providers` still reports the provider as active, and nothing explains
+/// the disagreement. Clamp the selection back onto what the registry describes
+/// and return a description of what changed.
+///
+/// A route whose provider or model is genuinely absent is deliberately left
+/// alone: there is nothing to clamp to, and the user has to choose a
+/// replacement.
+pub(crate) fn reconcile_session_model(
+    selection: &mut ModelSelection,
+    catalog: &[ModelDescriptor],
+    can_route: &dyn Fn(&ModelRoute) -> bool,
+) -> Option<String> {
+    let route = |candidate: &ModelSelection| ModelRoute {
+        provider: candidate.provider.clone(),
+        model: candidate.model.clone(),
+        reasoning_effort: candidate.reasoning_effort.clone(),
+        context_window_tokens: candidate.context_window_tokens,
+    };
+    if can_route(&route(selection)) {
+        return None;
+    }
+    let descriptor = catalog
+        .iter()
+        .find(|entry| entry.provider == selection.provider && entry.model == selection.model)?;
+    let maximum_window = descriptor.context_window.effective_hard_max();
+    // Preserve a user-selected window whenever it is still within the live
+    // capability. Route failure may be caused solely by a removed reasoning
+    // effort; resetting an otherwise valid 8K choice to the model's 128K
+    // maximum would silently change an independent user preference.
+    let preferred_window = match (selection.context_window_tokens, maximum_window) {
+        (None, _) => None,
+        (Some(selected), Some(maximum)) if selected > 0 => Some(selected.min(maximum)),
+        (Some(_), Some(maximum)) => Some(maximum),
+        (Some(_), None) => None,
+    };
+    let mut windows = vec![preferred_window];
+    if !windows.contains(&maximum_window) {
+        windows.push(maximum_window);
+    }
+    if !windows.contains(&None) {
+        windows.push(None);
+    }
+    let mut efforts = vec![selection.reasoning_effort.clone()];
+    if let Some(default) = descriptor
+        .reasoning
+        .as_ref()
+        .and_then(|reasoning| reasoning.default_effort.clone())
+    {
+        efforts.push(Some(default));
+    }
+    efforts.push(None);
+    efforts.dedup();
+    // Prefer preserving/clamping the context choice, then find the closest
+    // supported effort. Only fall back to a different context shape if the
+    // deployment's token guard rejects the preferred one.
+    for window in windows {
+        for effort in &efforts {
+            let candidate = ModelSelection {
+                provider: selection.provider.clone(),
+                model: selection.model.clone(),
+                reasoning_effort: effort.clone(),
+                context_window_tokens: window,
+            };
+            if !can_route(&route(&candidate)) {
+                continue;
+            }
+            let mut changes = Vec::new();
+            if candidate.reasoning_effort != selection.reasoning_effort {
+                changes.push(format!(
+                    "reasoning effort {} -> {}",
+                    selection.reasoning_effort.as_deref().unwrap_or("none"),
+                    candidate.reasoning_effort.as_deref().unwrap_or("none")
+                ));
+            }
+            if candidate.context_window_tokens != selection.context_window_tokens {
+                changes.push(format!(
+                    "context window {} -> {}",
+                    selection
+                        .context_window_tokens
+                        .map_or_else(|| "none".to_owned(), |value| value.to_string()),
+                    candidate
+                        .context_window_tokens
+                        .map_or_else(|| "none".to_owned(), |value| value.to_string())
+                ));
+            }
+            *selection = candidate;
+            return Some(changes.join(", "));
+        }
+    }
+    None
+}
+
+impl BasicHost {
+    /// Re-apply every session's stored model selection to the live registry and
+    /// clamp whatever it no longer accepts. Returns one issue per repaired
+    /// session so the reason can reach `host.describe.startupIssues`.
+    ///
+    /// The clamped selection is process state, not a new durable event: it is
+    /// recomputed identically from the durable selection on every start, so the
+    /// session log keeps recording what the user actually chose.
+    pub(crate) async fn reconcile_model_routes(&self) -> Vec<crate::HostRestoreIssue> {
+        let catalog = self.agent_runtime.model_catalog();
+        if catalog.is_empty() {
+            return Vec::new();
+        }
+        let can_route = |route: &ModelRoute| self.agent_runtime.can_route(route);
+        let mut issues = Vec::new();
+        let mut state = self.state.write().await;
+        let ids = state.sessions.keys().cloned().collect::<Vec<_>>();
+        for id in ids {
+            let Some(session) = state.sessions.get_mut(&id) else {
+                continue;
+            };
+            let Some(changes) = reconcile_session_model(&mut session.model, &catalog, &can_route)
+            else {
+                continue;
+            };
+            issues.push(crate::HostRestoreIssue {
+                session_id: id,
+                message: format!(
+                    "the deployment no longer offers the stored model selection as saved;                      adjusted it to keep the model usable ({changes})"
+                ),
+            });
+        }
+        issues
     }
 }
 
@@ -418,6 +561,39 @@ mod tests {
         assert_eq!(s["refs"]["12"]["dict"]["providers"], 10);
         assert_eq!(s["refs"]["10"]["inner"], 9);
         assert_eq!(s["refs"]["5"]["list"], json!([3, 4]));
+    }
+
+    #[test]
+    fn reconciliation_preserves_a_valid_user_context_when_only_effort_drifted() {
+        let descriptor = ModelDescriptor::new("p", "Provider", "m", "Model")
+            .with_context_window(xharness_core::ContextWindowCapability::reported(16_384))
+            .with_reasoning(
+                crate::ModelReasoning::new(vec![crate::ModelReasoningEffort::new("low", "Low")])
+                    .with_default("low"),
+            );
+        let mut selection = ModelSelection {
+            provider: "p".to_owned(),
+            model: "m".to_owned(),
+            reasoning_effort: Some("high".to_owned()),
+            context_window_tokens: Some(8_192),
+        };
+        let can_route = |route: &ModelRoute| {
+            route.provider == "p"
+                && route.model == "m"
+                && route.reasoning_effort.as_deref() == Some("low")
+                && route.context_window_tokens == Some(8_192)
+        };
+
+        let changes = reconcile_session_model(&mut selection, &[descriptor], &can_route)
+            .expect("the unsupported effort should be repaired");
+
+        assert_eq!(selection.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(selection.context_window_tokens, Some(8_192));
+        assert!(
+            changes.contains("reasoning effort high -> low"),
+            "{changes}"
+        );
+        assert!(!changes.contains("context window"), "{changes}");
     }
 }
 
