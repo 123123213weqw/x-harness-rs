@@ -85,9 +85,19 @@ await session.loadOlder();
 assert.equal(session.events, afterGood, 'failed older page must not commit raw history');
 assert.equal(session.baseSeq, 10); assert.equal(session.hasMore, true);
 assert.equal(session.openState, 'error'); assert.ok(session.openError);
+const pendingApproval = { kind: 'approval', id: 'keep-me' };
+session.pending.set('approval:keep-me', pendingApproval); session.pendingRev++;
+const pendingRevision = session.pendingRev;
+session.subscribedLastSeq = 13;
+session.acceptLiveEvent(row(13).event, undefined);
+assert.deepEqual(Array.from(session.liveBuffer, entry => entry.event.seq), [13], 'error-state live events remain recoverable');
 replies = [ok([row(10), row(11), row(12)])];
 await session.loadOlder(); // error-state button is a history-only retry
 assert.equal(session.openState, 'open'); assert.equal(session.openError, null);
+assert.equal(session.pending.get('approval:keep-me'), pendingApproval, 'history retry must retain pending approval/question state');
+assert.equal(session.pendingRev, pendingRevision); assert.equal(session.subscribedLastSeq, 13);
+assert.deepEqual(Array.from(session.events, event => event.seq), [10, 11, 12, 13]);
+assert.equal(session.liveBuffer.length, 0);
 
 const beforeResync = session.events, beforeSnapshot = session.conversation.snapshot('probe');
 replies = [ok(bad)];
@@ -112,4 +122,26 @@ assert.equal(session.liveBuffer.length, 1); assert.equal(session.stitching, fals
 replies = [ok([row(10), row(11), row(12), row(13), row(14), row(15), row(16)])];
 await session.loadOlder();
 assert.equal(session.openState, 'open'); assert.equal(session.liveBuffer.length, 0);
-console.log('atomic history: mapping/reducer/view failures, pagination, buffer dedup/gaps, retry and stale resync passed');
+
+session.hasMore = true;
+const beforeRace = session.events;
+let releasePage, releaseRepair;
+replies = [
+  () => new Promise(resolve => { releasePage = resolve; }),
+  () => new Promise(resolve => { releaseRepair = resolve; }),
+];
+const paging = session.loadOlder();
+await Promise.resolve();
+session.acceptLiveEvent(row(18).event, undefined); // tail is 16: start gap repair for 17
+await Promise.resolve();
+assert.equal(session.stitching, true);
+releasePage(ok([row(8), row(9)]));
+await paging;
+assert.equal(session.openState, 'open', 'stale pagination must not fail a concurrent gap repair');
+assert.equal(session.events, beforeRace, 'pagination response is discarded once gap repair owns publication');
+releaseRepair(ok(Array.from({ length: 9 }, (_, offset) => row(10 + offset))));
+for (let attempt = 0; attempt < 20 && session.stitching; attempt++)
+  await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(session.stitching, false);
+assert.deepEqual(Array.from(session.events, event => event.seq), [10, 11, 12, 13, 14, 15, 16, 17, 18]);
+console.log('atomic history: transactional mapping, interaction/live-buffer preservation, pagination/gap serialization and retry passed');

@@ -16,7 +16,7 @@ The user approved staged replacement. Catching and ignoring invalid events would
 
 - Create `scripts/test-atomic-history.mjs` exercising the actual shipped assembler and Session.
 - Verify failure before start, reducer failure and view-builder failure preserve the old raw window, cursor, mappings and rendered snapshot.
-- Cover successful retry, buffered event deduplication/gaps, failed pagination, resync generations and no prompt/tool replay.
+- Cover successful retry, pending approval/question preservation, error-state live buffering, buffered event deduplication/gaps, pagination/Gap Repair races, failed pagination, resync generations and no prompt/tool replay.
 - Run `node scripts/test-atomic-history.mjs`; confirm failure against the original bundle.
 
 ## Task 2: Atomic history implementation
