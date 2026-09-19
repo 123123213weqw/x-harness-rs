@@ -660,13 +660,16 @@ mod scoped_stream_tests {
         assert!(host.state.read().await.sessions["other"].restoring);
         // Correct metadata permits recovery; the intentionally empty journal
         // then fails. Wrong scope above must return false, not this error.
+        let workspace_cwd = host.state.read().await.workspaces["workspace-default"]
+            .path
+            .clone();
         host.state
             .write()
             .await
             .sessions
             .get_mut("other")
             .unwrap()
-            .cwd = root.to_string_lossy().into_owned();
+            .cwd = workspace_cwd;
         assert!(host
             .session_in_workspace("workspace-default", "other")
             .await

@@ -139,7 +139,13 @@ mod tests {
         let second = host.scoped_catalogue(query).await.unwrap();
         assert_eq!(second.sessions.len(), 3);
         let mut header = xharness_session::SessionHeader::new("cold");
-        header.cwd = Some(root.to_string_lossy().into_owned());
+        // Match the native registered metadata, including Windows' verbatim
+        // canonical path prefix; do not loosen production scope comparison.
+        header.cwd = Some(
+            host.state.read().await.workspaces["workspace-default"]
+                .path
+                .clone(),
+        );
         host.lazy_headers
             .write()
             .await

@@ -20,7 +20,7 @@ try{
    assert.equal(receipt.fullGraph,true);assert.equal(receipt.fixtureTransport,true)
    assert.deepEqual(receipt.errors,[]);assert.deepEqual(receipt.staticFailures,[])
    assert.equal(receipt.settingsProviders,true);assert.equal(receipt.modelEffortAndContextControls,true);assert.equal(receipt.effortChange,true)
-   assert.equal(receipt.loadedPlugins,implementation==='source'?55:52,'source adds only the reviewed Plugin API helper, Code Review and Little X modules')
+   assert.equal(receipt.loadedPlugins,implementation==='source'?56:52,'source adds only the reviewed remote Settings, Plugin API helper, Code Review and Little X modules')
    assert.equal(receipt.shellNavigationCount,implementation==='source'?2:0,'reviewed Back/Forward controls only')
    assert.equal(receipt.assistantEntryCount,implementation==='source'?1:0,'one reviewed Little X entry; frozen control stays unchanged')
    assert.equal(receipt.codeReviewEntryCount,implementation==='source'?1:0,'only the reviewed Code Review navigation is projected out of old/new text and button parity')
@@ -30,6 +30,7 @@ try{
    outputs.push(receipt)
   }
   assert.deepEqual(outputs[0].loadedPluginPaths,[...outputs[1].loadedPluginPaths,
+   '/plugins/@xharness/dsh-client-ui-settings-remote-control/client.js',
    '/plugins/@xlang/xharness-client-plugin-api/client.js',
    '/plugins/@xlang/xharness-client-ui-code-review/client.js',
    '/plugins/@xlang/xharness-client-ui-assistant/client.js',

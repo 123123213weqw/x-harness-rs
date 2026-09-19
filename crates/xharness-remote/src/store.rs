@@ -25,6 +25,12 @@ impl Store {
         if fs::symlink_metadata(root)?.file_type().is_symlink() {
             return Err(Error::Invalid("storage symlink"));
         }
+        // System temp/state parents can be aliases (macOS /var -> /private/var).
+        // SQLite NOFOLLOW rejects those ancestors too. Resolve the already
+        // validated directory, never the database/lock leaf: their explicit
+        // symlink checks and SQLite NOFOLLOW remain in force.
+        let canonical_root = fs::canonicalize(root)?;
+        let root = canonical_root.as_path();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -221,4 +227,109 @@ pub(crate) fn save(tx: &Transaction<'_>, d: &Delivery) -> Result<(), Error> {
         params![d.state.wire(), serde_json::to_string(d)?, d.key],
     )?;
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod path_tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    #[test]
+    fn canonical_parent_alias_keeps_private_journal_and_exclusive_owner() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path().join("physical-parent");
+        fs::create_dir(&parent).unwrap();
+        let alias = temp.path().join("parent-alias");
+        symlink(&parent, &alias).unwrap();
+        let root = alias.join("journal");
+        let physical = parent.join("journal");
+        let store = Store::open(&root, "h").unwrap();
+        assert_eq!(
+            fs::metadata(&physical).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        for name in [
+            "consumer.lock",
+            "remote.sqlite",
+            "remote.sqlite-wal",
+            "remote.sqlite-shm",
+        ] {
+            assert_eq!(
+                fs::metadata(physical.join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        {
+            let connection = store.connection.lock().unwrap();
+            let mode: String = connection
+                .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+                .unwrap();
+            let sync: u32 = connection
+                .query_row("PRAGMA synchronous", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(mode, "wal");
+            assert_eq!(sync, 2);
+        }
+        assert!(matches!(
+            Store::open(&physical, "h"),
+            Err(Error::ConsumerBusy)
+        ));
+        drop(store);
+        let reopened = Store::open(&root, "h").unwrap();
+        let identity: String = reopened
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT body FROM entities WHERE kind='host' AND id='identity'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(identity, "h");
+    }
+
+    #[test]
+    fn canonical_parent_resolution_still_rejects_symlinked_storage_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let physical = temp.path().join("physical-root");
+        fs::create_dir(&physical).unwrap();
+        let root = temp.path().join("root-alias");
+        symlink(&physical, &root).unwrap();
+        assert!(matches!(
+            Store::open(&root, "h"),
+            Err(Error::Invalid("storage symlink"))
+        ));
+        assert!(!physical.join("consumer.lock").exists());
+        assert!(!physical.join("remote.sqlite").exists());
+    }
+
+    #[test]
+    fn canonical_parent_resolution_still_rejects_every_symlinked_journal_leaf() {
+        for name in [
+            "consumer.lock",
+            "remote.sqlite",
+            "remote.sqlite-wal",
+            "remote.sqlite-shm",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("journal");
+            fs::create_dir(&root).unwrap();
+            let outside = temp.path().join("outside");
+            fs::write(&outside, b"unchanged").unwrap();
+            symlink(&outside, root.join(name)).unwrap();
+            assert!(
+                matches!(
+                    Store::open(&root, "h"),
+                    Err(Error::Invalid("storage symlink"))
+                ),
+                "{name}"
+            );
+            assert_eq!(fs::read(&outside).unwrap(), b"unchanged");
+        }
+    }
 }

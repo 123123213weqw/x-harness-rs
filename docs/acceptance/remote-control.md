@@ -1,18 +1,20 @@
 # Remote control acceptance
 
-The shared remote gateway, Telegram protocol composition and desktop scope/recovery UI are implemented. Mobile relay/QR, Weixin iLink, Feishu and separate Lark, persistent activation and real account/model/native OS/CI acceptance remain unfinished. A fixture pass is not proof that a live channel is usable.
+The shared remote gateway, Telegram protocol composition and desktop scope/recovery UI are implemented. Mobile relay/QR, Weixin iLink, Feishu and separate Lark, persistent activation and real account/model/native OS acceptance remain unfinished. A fixture pass is not proof that a live channel is usable.
 
 ## Verification status
 
-The 2026-10-11 master integration checkpoint (`e0a35e4c`) passed 786 tests with zero failures and 11 ignored across API, remote, Telegram, Host, Host app, projection, server and Schedule on WZU_Server (56 test harnesses), with all-target Clippy warnings denied. Nine emitted-client contracts, architecture/CI source-policy checks and static UI assembly verification passed. Both remote Settings and the upstream Computer UI passed Chromium/WebKit fixtures. Ignored subprocess helpers are invoked by their parent cases; live CDN/offline diagnostic cases remain explicitly ignored.
+The 2026-10-12 CI repair checkpoint passed 789 tests with zero failures and 11 ignored across API, remote, Telegram, Host, Host app, projection, server and Schedule on WZU_Server (56 test harnesses), with all-target Clippy warnings denied. Nine emitted-client contracts, architecture/CI source-policy checks and static UI assembly verification passed. The exact UI migration/type/build contract gate passed all 69 cases, and the complete Chromium/WebKit boot comparison retained exact conversation pixel parity against the untouched frozen reference. Remote Settings also passed both browser fixtures.
 
-The prior 2026-10-10 convergence checkpoint passed 763 tests with zero failures and the same 11 ignored. Integration preserved the upstream macOS/Windows/test media gate alongside the remote account modules and regenerated UI outputs from merged source; no tests were removed or weakened.
+The fix resolves validated journal-directory ancestors before SQLite NOFOLLOW without permitting a symlinked storage root or journal/lock leaf. Three new regression tests preserve those rejections, exclusive ownership, private modes and WAL/FULL behavior. Two Windows Host fixtures now use the native registered workspace path; production authorization comparison is unchanged. The exact remote Settings ABI and loader path are admitted by UI gates without changing the frozen reference or pixel tolerances. Current-head automated CI results are tracked on [PR 266](https://github.com/123123213weqw/x-harness-rs/pull/266).
+
+The prior master integration checkpoint passed 786 tests, and the first convergence checkpoint passed 763; both had zero failures and the same 11 ignored. Ignored subprocess helpers are invoked by their parent cases; live CDN/offline diagnostic cases remain explicitly ignored.
 
 This first convergence pass shares only identical scope setup across eight test harnesses: 59 named test bodies remain byte-identical, with 100 net lines of setup removed including the shared helper. All 63 names previously exported by ten wildcard module exports are now explicit and preserved. Fault backends and operation-specific assertions remain separate. Production transaction, authorization, delivery and recovery implementations are unchanged; no crate or dependency was added.
 
 All 38 historical acceptance files were copied and SHA-256 verified before removal from the PR directory; reports, source snapshots and raw logs are preserved outside the repository. This summary is the single maintained acceptance entry. The plan was reduced from 217 to 153 lines without dropping the remaining implementation or acceptance scope.
 
-All 1319 selected integration file hashes match the tested remote files. Source-manifest digest (compact sorted-key JSON files map): `08dcf28c8f558d01ef680a16f1b4a021f15dedc3b93d5929315c7970f0450821`. This report itself is separately hashed, not included in that digest.
+All 1321 selected CI-repair file hashes match the tested remote files. Source-manifest digest (compact sorted-key JSON files map): `907871cff0f806dcfd2c033313c3004f06c0ee8e283df6d92c37bb8ac2111c93`. This report itself is separately hashed, not included in that digest.
 
 ## Coverage and limits
 
@@ -24,7 +26,7 @@ All 1319 selected integration file hashes match the tested remote files. Source-
 | Telegram | Official-shaped loopback HTTP, parser/formatting, media, callbacks, polling and durable result/output composition | Actual bot round trips, including restart, repeated three times |
 | Desktop Settings | Bilingual monochrome grants/capabilities/status/recovery, typed receipts, unknown writes without retry, Chromium/WebKit responsive fixtures | Persistent activation and native desktop runtime trials |
 | Other channels and mobile | Shared scoped primitives only | Mobile outbound relay/QR/UI, Weixin iLink, Feishu and separate Lark implementation and acceptance |
-| CI | Native test steps enrolled in all three PR workflows; source policy checks | Executed branch CI and required platform runtime acceptance |
+| CI | Native steps enrolled in all three PR workflows; source policy checks; current-head outcomes recorded on PR 266 | Native product acceptance beyond automated CI |
 
 ## Reproduce regression
 
