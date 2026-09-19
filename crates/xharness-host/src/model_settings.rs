@@ -390,7 +390,24 @@ pub(crate) fn reconcile_session_model(
     let descriptor = catalog
         .iter()
         .find(|entry| entry.provider == selection.provider && entry.model == selection.model)?;
-    let window = descriptor.context_window.effective_hard_max();
+    let maximum_window = descriptor.context_window.effective_hard_max();
+    // Preserve a user-selected window whenever it is still within the live
+    // capability. Route failure may be caused solely by a removed reasoning
+    // effort; resetting an otherwise valid 8K choice to the model's 128K
+    // maximum would silently change an independent user preference.
+    let preferred_window = match (selection.context_window_tokens, maximum_window) {
+        (None, _) => None,
+        (Some(selected), Some(maximum)) if selected > 0 => Some(selected.min(maximum)),
+        (Some(_), Some(maximum)) => Some(maximum),
+        (Some(_), None) => None,
+    };
+    let mut windows = vec![preferred_window];
+    if !windows.contains(&maximum_window) {
+        windows.push(maximum_window);
+    }
+    if !windows.contains(&None) {
+        windows.push(None);
+    }
     let mut efforts = vec![selection.reasoning_effort.clone()];
     if let Some(default) = descriptor
         .reasoning
@@ -400,37 +417,43 @@ pub(crate) fn reconcile_session_model(
         efforts.push(Some(default));
     }
     efforts.push(None);
-    for effort in efforts {
-        let candidate = ModelSelection {
-            provider: selection.provider.clone(),
-            model: selection.model.clone(),
-            reasoning_effort: effort,
-            context_window_tokens: window,
-        };
-        if !can_route(&route(&candidate)) {
-            continue;
+    efforts.dedup();
+    // Prefer preserving/clamping the context choice, then find the closest
+    // supported effort. Only fall back to a different context shape if the
+    // deployment's token guard rejects the preferred one.
+    for window in windows {
+        for effort in &efforts {
+            let candidate = ModelSelection {
+                provider: selection.provider.clone(),
+                model: selection.model.clone(),
+                reasoning_effort: effort.clone(),
+                context_window_tokens: window,
+            };
+            if !can_route(&route(&candidate)) {
+                continue;
+            }
+            let mut changes = Vec::new();
+            if candidate.reasoning_effort != selection.reasoning_effort {
+                changes.push(format!(
+                    "reasoning effort {} -> {}",
+                    selection.reasoning_effort.as_deref().unwrap_or("none"),
+                    candidate.reasoning_effort.as_deref().unwrap_or("none")
+                ));
+            }
+            if candidate.context_window_tokens != selection.context_window_tokens {
+                changes.push(format!(
+                    "context window {} -> {}",
+                    selection
+                        .context_window_tokens
+                        .map_or_else(|| "none".to_owned(), |value| value.to_string()),
+                    candidate
+                        .context_window_tokens
+                        .map_or_else(|| "none".to_owned(), |value| value.to_string())
+                ));
+            }
+            *selection = candidate;
+            return Some(changes.join(", "));
         }
-        let mut changes = Vec::new();
-        if candidate.reasoning_effort != selection.reasoning_effort {
-            changes.push(format!(
-                "reasoning effort {} -> {}",
-                selection.reasoning_effort.as_deref().unwrap_or("none"),
-                candidate.reasoning_effort.as_deref().unwrap_or("none")
-            ));
-        }
-        if candidate.context_window_tokens != selection.context_window_tokens {
-            changes.push(format!(
-                "context window {} -> {}",
-                selection
-                    .context_window_tokens
-                    .map_or_else(|| "none".to_owned(), |value| value.to_string()),
-                candidate
-                    .context_window_tokens
-                    .map_or_else(|| "none".to_owned(), |value| value.to_string())
-            ));
-        }
-        *selection = candidate;
-        return Some(changes.join(", "));
     }
     None
 }
@@ -538,6 +561,39 @@ mod tests {
         assert_eq!(s["refs"]["12"]["dict"]["providers"], 10);
         assert_eq!(s["refs"]["10"]["inner"], 9);
         assert_eq!(s["refs"]["5"]["list"], json!([3, 4]));
+    }
+
+    #[test]
+    fn reconciliation_preserves_a_valid_user_context_when_only_effort_drifted() {
+        let descriptor = ModelDescriptor::new("p", "Provider", "m", "Model")
+            .with_context_window(xharness_core::ContextWindowCapability::reported(16_384))
+            .with_reasoning(
+                crate::ModelReasoning::new(vec![crate::ModelReasoningEffort::new("low", "Low")])
+                    .with_default("low"),
+            );
+        let mut selection = ModelSelection {
+            provider: "p".to_owned(),
+            model: "m".to_owned(),
+            reasoning_effort: Some("high".to_owned()),
+            context_window_tokens: Some(8_192),
+        };
+        let can_route = |route: &ModelRoute| {
+            route.provider == "p"
+                && route.model == "m"
+                && route.reasoning_effort.as_deref() == Some("low")
+                && route.context_window_tokens == Some(8_192)
+        };
+
+        let changes = reconcile_session_model(&mut selection, &[descriptor], &can_route)
+            .expect("the unsupported effort should be repaired");
+
+        assert_eq!(selection.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(selection.context_window_tokens, Some(8_192));
+        assert!(
+            changes.contains("reasoning effort high -> low"),
+            "{changes}"
+        );
+        assert!(!changes.contains("context window"), "{changes}");
     }
 }
 

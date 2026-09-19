@@ -15,7 +15,9 @@ provider 仍是 `active: true`。三条互不相关的路径都会产生这一�
 - **B**：凭据缺失的 provider 被 `registry_from_resolved_settings` 静默丢弃（`None => continue`），
   `model_settings_error` 为 `None`、`startupIssues` 为空、stderr 也没有任何输出。
 
-- [x] `MODEL-ROUTE-01` 对账会话存储的选择：窗口夹回 `effective_hard_max`，effort 依次回退到模型默认与无；provider/model 真消失时不动（无可夹目标）。夹回结果只作进程状态，不写新的持久事件。
+- [x] `MODEL-ROUTE-01` 对账会话存储的选择：仍合法的用户窗口原样保留，只有超出新上限时才夹回
+  `effective_hard_max`；effort 依次回退到模型默认与无，必要时才尝试其他可路由窗口。provider/model
+  真消失时不动（无可夹目标）。夹回结果只作进程状态，不写新的持久事件。
 - [x] `MODEL-ROUTE-02` 在 `restore_from_store` 与读取 `session.models` 两处对账，使**实时改设置无需重启**即自愈；修复写入 `startupIssues` 说明改了什么。
 - [x] `MODEL-ROUTE-03` `host.describe.modelSettingsError` 暴露激活失败原因（与 #94 让 `startupIssues` 可达同构）；客户端 schema 忽略未知字段，加字段不破坏客户端。
 - [x] `MODEL-ROUTE-04` 填充 `session.models.failures` / `llm.models.failures`——UI **已渲染**该通道（`warning.groupLoad`、`option.loadError`），Host 此前恒返回 `[]`；凭据缺失时点名具体引用。
