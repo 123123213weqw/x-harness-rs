@@ -64,6 +64,20 @@ pub(crate) struct ProjectedEventTail {
     pub(crate) events: Vec<Value>,
 }
 
+impl ProjectedEventTail {
+    /// Creates an empty live cache anchored at the authoritative durable
+    /// cursor. Cold history is loaded through `session.history` instead of
+    /// being projected eagerly while the Host is still starting.
+    fn empty_at(next_seq: u64) -> Self {
+        Self {
+            base_seq: next_seq,
+            next_seq,
+            bytes: 0,
+            events: Vec::new(),
+        }
+    }
+}
+
 /// Cursor page returned from the authoritative append-only Session rather
 /// than from the Host's bounded live tail.
 pub(crate) struct ProjectedHistoryPage {
@@ -190,21 +204,24 @@ impl BasicHost {
                     false
                 }
             };
-            // Fold one event at a time: startup must not materialize a second
-            // whole-log JSON projection just to compute counters.
-            let mut metrics = MetricsProjectionState::default();
-            let prompts = prompt_views(&session);
-            let initial = initial_request_header_seq(&session);
-            for event in session.events() {
-                metrics.apply(&restored_web_event(event, &route, &prompts, initial, None));
-            }
-            let tail = project_session_event_tail(
-                &session,
-                &route,
-                self.config.session_event_cache_capacity,
-                self.config.session_event_cache_bytes,
-            );
-            let messages = if self.agent_runtime.has_authoritative_sessions() {
+            let authoritative = self.agent_runtime.has_authoritative_sessions();
+            // Restore counters directly from typed durable events. In
+            // particular, do not construct the Web JSON projection before
+            // the RPC listener is available.
+            let metrics = MetricsProjectionState::rebuild_logged(session.events());
+            let tail = if authoritative {
+                ProjectedEventTail::empty_at(session.next_seq())
+            } else {
+                // Ephemeral runtimes have no authoritative history endpoint;
+                // retain their complete compatibility cache.
+                project_session_event_tail(
+                    &session,
+                    &route,
+                    self.config.session_event_cache_capacity,
+                    self.config.session_event_cache_bytes,
+                )
+            };
+            let messages = if authoritative {
                 Vec::new()
             } else {
                 session.derive_messages()
@@ -2640,8 +2657,9 @@ mod tests {
             {
                 let state = host.state.read().await;
                 let record = &state.sessions["bounded-history"];
-                assert_eq!(record.events.len(), 5);
-                assert_eq!(record.event_base_seq, record.next_event_seq() - 5);
+                assert!(record.events.is_empty());
+                assert_eq!(record.event_base_seq, record.next_event_seq());
+                assert_eq!(record.event_cache_bytes, 0);
                 assert_eq!(record.last_event_seq(), Some(41));
             }
             let history = host
