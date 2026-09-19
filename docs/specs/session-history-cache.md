@@ -60,6 +60,33 @@ Gap Repair 竞争，以 Gap Repair 的完整窗口为准并丢弃旧分页响应
 这不是原生 Rust Host 内存崩溃的修复，也没有声称所有实时 reducer 异常都已事务化。
 Node 测试覆盖处理/视图构建异常；浏览器测试用实际压缩 classifier、ChatView 和重试按钮验证。
 
+## 实时回答自动恢复（2026-09-19，Issue #119）
+
+上面的保护只保证错误提示期间到达的实时事件**不丢**：`openState` 仍是 `error`，缓冲后缀要等
+用户点错误横幅的重试（或刷新）才经 `installWindow` 缝合发布。模型在此期间继续回答，因此在
+用户不操作时表现为「模型还在答，前端不显示」。产品上报对应的真实事故是
+`session-1789711617394-1009`（回合 6/7 失败 → App 重启 → 新消息起轮 8 并持续产出）。
+
+`ui/overrides/live-answer-recovery.js` 补上自动恢复：当状态把**当前选中**会话置为 `running === true`
+且 `openState === 'error'` 时，重开窗口一次。触发点选在这里，因为新消息（用户自己的动作）正要
+产生回答，恢复后随后到达的实时帧就有窗口可落。
+
+- 复用错误横幅自己的只读路径：`loadOlder()` 在 `error` 态被事务层路由到 history-only retry，
+  因此不重新提交 prompt、工具命令或审批回答，也不清理待审批/待回答与订阅水位。
+- 限速 5 秒，且只从 `error` 状态起步。这样历史接口故障不会被放大成拉取循环；
+  `openState === 'open'` 时状态帧不产生任何请求。
+- 只对当前选中会话生效（`xhHistoryOwner.manager.selected`）。后台会话继续只保留缓冲、不自发请求。
+  没有装载驻留层的宿主按当前会话处理，代价是一次仍受限速约束的只读历史请求。
+- 判断依据是**上报的** `running` 值而不是变化沿，因为 `handleRunning` 对未变化的状态会提前返回。
+- 包装而不是替换 `handleRunning`：驻留层也包装它，其回收调度必须继续看到每次状态变化。
+
+`scripts/test-live-answer-recovery.mjs` 在真实打包产物上覆盖：失败读取后 `running` 触发重试并把
+缓冲回答发布出去、限速窗口内的状态帧突发不额外拉取、后台会话只保留缓冲不发请求、健康窗口的
+状态帧不产生请求；并校验补丁幂等、锚点失败关闭与图谱/index 哈希一致（含 eager `<script src>` 的 rev）。
+
+未覆盖：历史接口长期不可用时仍然只缓冲、不渲染；`cold` 会话收到实时帧仍按上游语义丢弃
+（冷窗口要么由选中打开，要么处于 `resync` 过渡态，其内容由新窗口覆盖）。
+
 ## 缓存测试与诊断
 
 `scripts/test-session-history-cache.mjs` 在浏览器运行实际打包的 SessionManager、Session、Chat 定义和 assembler，而不是仅测试复制的假 LRU。
