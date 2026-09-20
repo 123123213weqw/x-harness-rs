@@ -75,6 +75,12 @@ SOURCE_BOUNDARIES = {
     },
 }
 
+# Transport modules may mention `BasicHost` in trait adapters, but may not grow
+# a second collection of domain methods on the aggregate again.
+FORBIDDEN_SOURCE_FRAGMENTS = {
+    "crates/xharness-host/src/rpc.rs": {"impl BasicHost {"},
+}
+
 
 def production_dependencies(manifest: Path) -> set[str]:
     section = ""
@@ -127,6 +133,16 @@ def main() -> int:
         found = sorted(token for token in forbidden_tokens if token in text)
         if found:
             errors.append(f"{relative}: forbidden coupling: {', '.join(found)}")
+
+    for relative, forbidden_fragments in FORBIDDEN_SOURCE_FRAGMENTS.items():
+        source = ROOT / relative
+        if not source.is_file():
+            errors.append(f"source boundary target is missing: {relative}")
+            continue
+        text = source.read_text()
+        found = sorted(fragment for fragment in forbidden_fragments if fragment in text)
+        if found:
+            errors.append(f"{relative}: forbidden legacy handler: {', '.join(found)}")
 
     if errors:
         print("architecture dependency regression:")

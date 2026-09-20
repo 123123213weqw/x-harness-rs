@@ -161,6 +161,10 @@ Session 历史推导，取消仍与 Admission Fence 排序。至此 Session/Turn
 删除旧 `BasicHost` 领域 handler、大 `match` 中的业务分支和双重投影。动态上游命名空间仍保留在
 明确命名的 Legacy/Dynamic Adapter 中，直至有独立迁移方案。
 
+落地后，总 `rpc.rs` 只实现 `ApiBackend` 传输分派、两条事件流和通用 wire 校验；Commands、Host/文件系统、
+Interaction Response 与 Export 都有独立适配器。动态端点集中在 `rpc/dynamic.rs`，未挂载端点仍返回 `None`。
+源码架构门禁明确拒绝在总 Dispatcher 重新添加 `impl BasicHost` 领域 handler。
+
 ## 5. 依赖规则
 
 - Protocol 不依赖 Host、store 或 UI；

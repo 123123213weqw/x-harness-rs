@@ -9,27 +9,29 @@ use std::{
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
-    ApiBackend, ClientResponse, EventStream, ReceiptRejection, RpcError, RpcErrorCode, RpcId,
-    RpcMethod, RpcReceipt, RpcResult, ServerRequest, SessionExport,
+    ApiBackend, ClientResponse, EventStream, RpcError, RpcErrorCode, RpcId, RpcMethod, RpcReceipt,
+    RpcResult, ServerRequest, SessionExport,
 };
-use xharness_core::LoopCommand;
 use xharness_session::{
-    ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData, SessionEvent,
-    SessionSandboxMode,
+    ApprovalPolicy, EventData as SessionEventData, SessionEvent, SessionSandboxMode,
 };
 
 use crate::{
-    driver::{agent_runtime_error, rpc_error},
+    driver::rpc_error,
     runtime::AgentRuntimeError,
-    state::{now_ms, DriverCommand, PendingResponse},
+    state::{now_ms, PendingResponse},
     BasicHost,
 };
 
+mod commands;
 mod credentials;
+mod dynamic;
+mod export;
 mod goal;
+mod host;
+mod interaction;
 mod model;
 mod preset;
 mod session;
@@ -41,7 +43,6 @@ mod workspace;
 
 const DEFAULT_HISTORY_MESSAGES: usize = 50;
 const MAX_HISTORY_MESSAGES: usize = 500;
-const MAX_DIRECTORY_ENTRIES: usize = 1_000;
 
 #[async_trait]
 impl ApiBackend for BasicHost {
@@ -73,11 +74,11 @@ impl ApiBackend for BasicHost {
             | RpcMethod::SubagentHistory
             | RpcMethod::SubagentPrompt
             | RpcMethod::SubagentInterrupt) => subagent::call(self, rpc_id, method, &payload).await,
-            RpcMethod::HostDescribe => self.host_describe(&payload).await,
-            RpcMethod::HostPickDirectory => self.host_pick_directory(&payload).await,
-            RpcMethod::HostListDirectory => self.host_list_directory(&payload).await,
-            RpcMethod::HostCreateDirectory => self.host_create_directory(&payload).await,
-            RpcMethod::HostOpenPath => self.host_open_path(&payload).await,
+            RpcMethod::HostDescribe => host::describe(self, &payload).await,
+            RpcMethod::HostPickDirectory => host::pick_directory(self, &payload).await,
+            RpcMethod::HostListDirectory => host::list_directory(self, &payload).await,
+            RpcMethod::HostCreateDirectory => host::create_directory(self, &payload).await,
+            RpcMethod::HostOpenPath => host::open_path(self, &payload).await,
             method @ (RpcMethod::WorkspaceList
             | RpcMethod::WorkspaceCreate
             | RpcMethod::WorkspaceRename
@@ -87,7 +88,7 @@ impl ApiBackend for BasicHost {
             | RpcMethod::WorkspaceArchiveSession) => {
                 workspace::call(self, rpc_id, method, &payload).await
             }
-            RpcMethod::SkillList => self.skill_list(&payload).await,
+            RpcMethod::SkillList => host::skill_list(self, &payload).await,
             method @ (RpcMethod::AgentPresetList
             | RpcMethod::AgentPresetSelect
             | RpcMethod::AgentPresetRead
@@ -125,20 +126,7 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
-        let result = match endpoint {
-            "session.requestSnapshot" => self.request_snapshot(&payload).await.map(Some),
-            "commands/list" => self.commands_list(&payload).await.map(Some),
-            "commands/execute" => self.commands_execute(&payload).await,
-            // The shipped Web client mutates Goals through the upstream
-            // namespaced remotes (`/api/goals/*`). Map them onto the flat
-            // methods above so every GoalBar action works instead of 404ing.
-            // The other upstream namespaces stay unmounted on purpose.
-            "goals/create" | "goals/edit" | "goals/pause" | "goals/resume" | "goals/complete"
-            | "goals/clear" => goal::remote(self, rpc_id, endpoint, &payload)
-                .await
-                .map(Some),
-            _ => return None,
-        };
+        let result = dynamic::call(self, rpc_id, endpoint, &payload).await?;
         Some(match result {
             Ok(Some(value)) => RpcResult::success(value),
             Ok(None) => RpcResult::Success { value: None },
@@ -147,7 +135,7 @@ impl ApiBackend for BasicHost {
     }
 
     async fn respond(&self, response: ClientResponse) -> RpcReceipt {
-        self.respond_pending(response).await
+        interaction::respond(self, response).await
     }
 
     fn mux_events(&self) -> EventStream {
@@ -286,591 +274,7 @@ impl ApiBackend for BasicHost {
         session_id: &str,
         _cancellation: CancellationToken,
     ) -> Result<SessionExport, RpcError> {
-        let state = self.state.read().await;
-        let session = state.sessions.get(session_id).ok_or_else(|| {
-            rpc_error(
-                RpcErrorCode::SessionNotFound,
-                format!("session {session_id:?} was not found"),
-                json!({"sessionId": session_id}),
-            )
-        })?;
-        let mut exported =
-            serde_json::to_value(session).map_err(|e| RpcError::internal(e.to_string()))?;
-        drop(state);
-        if let Some(source) = self
-            .agent_runtime
-            .authoritative_session(session_id)
-            .await
-            .map_err(agent_runtime_error)?
-        {
-            exported["messages"] = serde_json::to_value(source.derive_messages())
-                .map_err(|e| RpcError::internal(e.to_string()))?;
-        }
-        let bytes = serde_json::to_vec_pretty(&json!({
-            "format": "xharness-session-export",
-            "version": 1,
-            "session": exported,
-            "requestAudit": "full request snapshots remain in the state-directory audit archive",
-        }))
-        .map_err(|error| RpcError::internal(format!("could not encode session: {error}")))?;
-        Ok(SessionExport::json(format!("{session_id}.json"), bytes))
-    }
-}
-
-impl BasicHost {
-    async fn commands_list(&self, payload: &Value) -> Result<Value, RpcError> {
-        let args = payload
-            .get("args")
-            .ok_or_else(|| bad_request("commands/list requires args"))?;
-        let session_id = required_string(args, "agentId")?;
-        if !self.state.read().await.sessions.contains_key(&session_id) {
-            return Err(session_not_found(&session_id));
-        }
-        Ok(json!([
-            {
-                "name": "permission",
-                "description": "Switch the permission preset (sandbox mode + approval policy)",
-                "input": {"hint": "<preset>"},
-            },
-            {
-                "name": "plan",
-                "description": "Enter or leave plan mode",
-                "input": {"hint": "[off|message]", "images": true},
-            },
-            {"name":"goal","description":"Set a persistent Goal and continue automatically until review, pause or budget limit","input":{"hint":"<objective> | pause | resume | complete | clear | edit <objective> | budget <rounds>"}}
-        ]))
-    }
-
-    async fn commands_execute(&self, payload: &Value) -> Result<Option<Value>, RpcError> {
-        let args = payload
-            .get("args")
-            .ok_or_else(|| bad_request("commands/execute requires args"))?;
-        let session_id = required_string(args, "agentId")?;
-        let line = required_string(args, "line")?;
-        if line.trim() == "/goal" || line.trim_start().starts_with("/goal ") {
-            let images = required_array(args, "images")?;
-            return self
-                .execute_goal_command(
-                    &session_id,
-                    line.trim_start().strip_prefix("/goal").unwrap().trim(),
-                    images,
-                )
-                .await
-                .map(Some);
-        }
-        let _session_guard = self.lock_admission(&session_id).await;
-        let images = required_array(args, "images")?;
-
-        if let Some(raw_input) = plan_command_input(&line) {
-            return self
-                .execute_plan_command(&session_id, raw_input, images)
-                .await
-                .map(Some);
-        }
-
-        let Some(raw_input) = permission_command_input(&line) else {
-            return Ok(None);
-        };
-        let command_id = self.mint_id("command");
-        self.commit_session_events(
-            &session_id,
-            vec![SessionEventData::CommandRun {
-                command_id: command_id.clone(),
-                name: "permission".to_owned(),
-                args: Some(raw_input.to_owned()),
-                source: CommandSource::User,
-            }
-            .into()],
-        )
-        .await?;
-
-        let result = if !images.is_empty() {
-            json!({"kind": "error", "text": "/permission does not accept image attachments"})
-        } else if raw_input.trim().is_empty() {
-            let state = self.state.read().await;
-            let session = state
-                .sessions
-                .get(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?;
-            let view = session.permission_projection();
-            json!({
-                "kind":"success",
-                "text":format!("selected preset {}; active this turn: {}; pending: {} (available: workspace-write, danger-full-access)",
-                    session.permission_preset.as_str(), view["activeValue"].as_str().unwrap_or("none"), view["pending"]),
-            })
-        } else if let Some(preset) = crate::PermissionPreset::parse(raw_input.trim()) {
-            let _permission_guard = self.lock_permission_selection(&session_id).await;
-            self.commit_session_events(&session_id, permission_events(preset))
-                .await?;
-            let pending = {
-                let mut state = self.state.write().await;
-                let session = state
-                    .sessions
-                    .get_mut(&session_id)
-                    .ok_or_else(|| session_not_found(&session_id))?;
-                session.permission_preset = preset;
-                session.running && session.active_permission != Some(preset)
-            };
-            self.push_permission_projection(&session_id).await;
-            json!({"kind":"success", "text": if pending {
-                format!("preset {} saved; applies to the next turn. Current tools and approvals are unchanged.", preset.as_str())
-            } else { format!("preset {}", preset.as_str()) }})
-        } else {
-            json!({
-                "kind": "error",
-                "text": format!(
-                    "unknown preset {:?} (available: workspace-write, danger-full-access)",
-                    raw_input.trim()
-                ),
-            })
-        };
-
-        let kind = match result["kind"].as_str() {
-            Some("success") => CommandResultKind::Success,
-            _ => CommandResultKind::Error,
-        };
-        self.commit_session_events(
-            &session_id,
-            vec![SessionEventData::CommandDone {
-                command_id: command_id.clone(),
-                kind,
-                text: result["text"].as_str().map(str::to_owned),
-                source_event_seq: None,
-            }
-            .into()],
-        )
-        .await?;
-        Ok(Some(json!({"commandId": command_id, "result": result})))
-    }
-
-    async fn execute_plan_command(
-        &self,
-        session_id: &str,
-        raw_input: &str,
-        images: &[Value],
-    ) -> Result<Value, RpcError> {
-        let command_id = self.mint_id("command");
-        self.commit_session_events(
-            session_id,
-            vec![SessionEventData::CommandRun {
-                command_id: command_id.clone(),
-                name: "plan".to_owned(),
-                args: Some(raw_input.to_owned()),
-                source: CommandSource::User,
-            }
-            .into()],
-        )
-        .await?;
-
-        let message = raw_input.trim();
-        let result = if message == "off" && !images.is_empty() {
-            json!({"kind": "error", "text": "Image attachments cannot accompany /plan off."})
-        } else if (message != "off" && !message.is_empty()) || !images.is_empty() {
-            json!({
-                "kind": "error",
-                "text": "Plan-mode messages and images require the pending pre-step steering path, which is not available in this host build.",
-            })
-        } else {
-            let (running, current) = {
-                let state = self.state.read().await;
-                let session = state
-                    .sessions
-                    .get(session_id)
-                    .ok_or_else(|| session_not_found(session_id))?;
-                (session.running, session.plan_active)
-            };
-            let wanted = message != "off";
-            if running {
-                json!({
-                    "kind": "error",
-                    "text": "cannot switch plan mode while the session is running until pending pre-step selection is implemented",
-                })
-            } else if current == wanted {
-                json!({
-                    "kind": "success",
-                    "text": if wanted {
-                        "Plan mode is already active."
-                    } else {
-                        "Plan mode is already inactive."
-                    },
-                })
-            } else {
-                self.commit_session_events(
-                    session_id,
-                    vec![SessionEventData::PlanMode { active: wanted }.into()],
-                )
-                .await?;
-                self.state
-                    .write()
-                    .await
-                    .sessions
-                    .get_mut(session_id)
-                    .ok_or_else(|| session_not_found(session_id))?
-                    .plan_active = wanted;
-                self.push_projection(
-                    session_id,
-                    "plan",
-                    json!({"active": wanted, "pending": false}),
-                )
-                .await;
-                json!({
-                    "kind": "success",
-                    "text": if wanted {
-                        "Plan mode on. Use /plan off to leave."
-                    } else {
-                        "Plan mode off."
-                    },
-                })
-            }
-        };
-
-        let kind = match result["kind"].as_str() {
-            Some("success") => CommandResultKind::Success,
-            _ => CommandResultKind::Error,
-        };
-        self.commit_session_events(
-            session_id,
-            vec![SessionEventData::CommandDone {
-                command_id: command_id.clone(),
-                kind,
-                text: result["text"].as_str().map(str::to_owned),
-                source_event_seq: None,
-            }
-            .into()],
-        )
-        .await?;
-        Ok(json!({"commandId": command_id, "result": result}))
-    }
-
-    async fn host_describe(&self, payload: &Value) -> Result<Value, RpcError> {
-        require_object(payload)?;
-        let (attached, startup_issues, model_settings_error) = {
-            let state = self.state.read().await;
-            (
-                state.sessions.len(),
-                state.startup_issues.clone(),
-                state.model_settings_error.clone(),
-            )
-        };
-        Ok(json!({
-            "version": self.config.version,
-            "cwd": self.config.cwd,
-            "provider": self.config.provider_id,
-            "model": self.config.model_id,
-            "attachedSessions": attached,
-            "home": self.config.home,
-            "canOpenPath": cfg!(target_os = "macos"),
-            // Durable sessions that startup could not publish. Reported here so
-            // the surface can tell the user what was skipped instead of
-            // presenting a silently shorter session list.
-            "startupIssues": startup_issues,
-            // Why the persisted model settings are not live. Without this the
-            // user sees every configured provider listed while every session
-            // reports its model as unavailable.
-            "modelSettingsError": model_settings_error,
-        }))
-    }
-
-    async fn host_pick_directory(&self, payload: &Value) -> Result<Value, RpcError> {
-        require_object(payload)?;
-        Ok(json!({"path": Value::Null}))
-    }
-
-    async fn host_list_directory(&self, payload: &Value) -> Result<Value, RpcError> {
-        let requested = match require_object(payload)?.get("path") {
-            None => self.config.home.to_string_lossy().into_owned(),
-            Some(Value::String(path)) => path.clone(),
-            Some(_) => return Err(bad_request("path, when present, must be a string")),
-        };
-        // Empty path is a virtual location overview, not the process cwd.
-        // Omitted path retains the existing home-directory wire contract.
-        if requested.is_empty() {
-            let roots = directory_roots().map_err(|message| {
-                rpc_error(
-                    RpcErrorCode::DirectoryUnreadable,
-                    message,
-                    json!({"path": ""}),
-                )
-            })?;
-            let entries = roots
-                .iter()
-                .map(|path| json!({"name": path, "path": path, "hidden": false}))
-                .collect::<Vec<_>>();
-            return Ok(json!({
-                "path": "", "home": self.config.home,
-                "crumbs": [], "entries": entries, "truncated": false,
-            }));
-        }
-        let path = canonical_directory(&requested).map_err(|message| {
-            rpc_error(
-                RpcErrorCode::DirectoryUnreadable,
-                message,
-                json!({"path": requested}),
-            )
-        })?;
-        let mut entries = std::fs::read_dir(&path)
-            .map_err(|error| {
-                rpc_error(
-                    RpcErrorCode::DirectoryUnreadable,
-                    error.to_string(),
-                    json!({"path": path}),
-                )
-            })?
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .file_type()
-                    .is_ok_and(|kind| kind.is_dir() || kind.is_symlink())
-            })
-            .map(|entry| {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                json!({
-                    "name": name,
-                    "path": entry.path().to_string_lossy(),
-                    "hidden": name.starts_with('.'),
-                })
-            })
-            .collect::<Vec<_>>();
-        entries.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
-        let truncated = entries.len() > MAX_DIRECTORY_ENTRIES;
-        entries.truncate(MAX_DIRECTORY_ENTRIES);
-        let crumbs = breadcrumb_entries(Path::new(&path));
-        Ok(json!({
-            "path": path,
-            "home": self.config.home,
-            "crumbs": crumbs,
-            "entries": entries,
-            "truncated": truncated,
-        }))
-    }
-
-    async fn host_create_directory(&self, payload: &Value) -> Result<Value, RpcError> {
-        let parent = required_string(payload, "path")?;
-        let name = required_string(payload, "name")?;
-        if !valid_directory_name(&name) {
-            return Err(bad_request("name must be one valid, non-blank folder name"));
-        }
-        let parent = canonical_directory(&parent).map_err(|message| {
-            rpc_error(
-                RpcErrorCode::DirectoryUnreadable,
-                message,
-                json!({"path": parent}),
-            )
-        })?;
-        let created = Path::new(&parent).join(name);
-        match std::fs::create_dir(&created) {
-            Ok(()) => Ok(json!({"path": created.to_string_lossy()})),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(rpc_error(
-                RpcErrorCode::DirectoryExists,
-                error.to_string(),
-                json!({"path": created.to_string_lossy()}),
-            )),
-            Err(error) => Err(rpc_error(
-                RpcErrorCode::DirectoryCreateFailed,
-                error.to_string(),
-                json!({"path": created.to_string_lossy()}),
-            )),
-        }
-    }
-
-    async fn host_open_path(&self, payload: &Value) -> Result<Value, RpcError> {
-        let path = nonempty(required_string(payload, "path")?, "path")?;
-        if !Path::new(&path).exists() {
-            return Err(rpc_error(
-                RpcErrorCode::DirectoryUnreadable,
-                "path does not exist",
-                json!({"path": path}),
-            ));
-        }
-        #[cfg(target_os = "macos")]
-        {
-            std::process::Command::new("/usr/bin/open")
-                .arg(&path)
-                .spawn()
-                .map_err(|error| RpcError::internal(format!("could not open path: {error}")))?;
-            Ok(json!({"opened": true}))
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            Err(RpcError::internal(
-                "native path opening is unavailable on this host",
-            ))
-        }
-    }
-
-    async fn skill_list(&self, payload: &Value) -> Result<Value, RpcError> {
-        let session_id = required_string(payload, "sessionId")?;
-        if !self.state.read().await.sessions.contains_key(&session_id) {
-            return Err(session_not_found(&session_id));
-        }
-        Ok(json!({
-            "skills": [{
-                "name": "coding",
-                "description": "Inspect and modify a local workspace with XHarness coding tools.",
-                "whenToUse": "Use for software development, debugging, testing, and repository maintenance.",
-                "modelInvocable": true,
-            }],
-        }))
-    }
-
-    async fn request_snapshot(&self, payload: &Value) -> Result<Value, RpcError> {
-        let id = required_string(payload, "sessionId")?;
-        let seq = payload
-            .get("seq")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| bad_request("seq must be a nonnegative integer"))?;
-        if !self.state.read().await.sessions.contains_key(&id) {
-            return Err(session_not_found(&id));
-        }
-        let header = self
-            .agent_runtime
-            .request_header(&id, seq)
-            .await
-            .map_err(agent_runtime_error)?
-            .ok_or_else(|| bad_request("request snapshot not found at this sequence"))?;
-        Ok(json!({"sessionId":id,"seq":seq,"header":header}))
-    }
-
-    async fn execute_goal_command(
-        &self,
-        id: &str,
-        input: &str,
-        images: &[Value],
-    ) -> Result<Value, RpcError> {
-        let command_id = self.mint_id("command");
-        self.commit_session_events(
-            id,
-            vec![SessionEventData::CommandRun {
-                command_id: command_id.clone(),
-                name: "goal".into(),
-                args: Some(input.into()),
-                source: CommandSource::User,
-            }
-            .into()],
-        )
-        .await?;
-        self.sync_authoritative_session(id).await?;
-        let current = self.state.read().await.goals.get(id).cloned();
-        let result: Result<String, RpcError> = if !images.is_empty() {
-            Err(bad_request(
-                "/goal currently accepts text only; send attachments in a normal message first",
-            ))
-        } else if input.is_empty() {
-            Ok(current
-                .as_ref()
-                .map_or("Usage: /goal <objective>".into(), |g| {
-                    format!(
-                        "Goal: {} ({:?}, {}/{})",
-                        g.objective, g.phase, g.rounds_started, g.max_goal_rounds
-                    )
-                }))
-        } else {
-            let rpc = RpcId::new(format!("goal-command:{command_id}"));
-            let payload = json!({"sessionId":id,"ref":current.as_ref().map(|g|json!({"id":g.id,"revision":g.revision}))});
-            let action = match input {
-                "pause" => goal::transition(self, rpc, &payload, "paused").await,
-                "resume" => goal::transition(self, rpc, &payload, "active").await,
-                "complete" => goal::transition(self, rpc, &payload, "complete").await,
-                "clear" => goal::clear(self, rpc, &payload).await,
-                _ if input.starts_with("budget ") => match input[7..].trim().parse::<u64>() {
-                    Ok(n) => {
-                        let mut p = payload;
-                        p["maxGoalRounds"] = json!(n);
-                        goal::edit(self, rpc, &p).await
-                    }
-                    Err(_) => Err(bad_request("budget must be a positive integer")),
-                },
-                _ if input.starts_with("edit ") => {
-                    let mut p = payload;
-                    p["objective"] = json!(input[5..].trim());
-                    goal::edit(self, rpc, &p).await
-                }
-                _ => goal::create(self, rpc, &json!({"sessionId":id,"objective":input})).await,
-            };
-            action.map(|_| "Goal updated. The Goal bar shows execution and review status.".into())
-        };
-        let (kind, text) = match result {
-            Ok(text) => (CommandResultKind::Success, text),
-            Err(e) => (CommandResultKind::Error, e.message),
-        };
-        self.commit_session_events(
-            id,
-            vec![SessionEventData::CommandDone {
-                command_id: command_id.clone(),
-                kind,
-                text: Some(text.clone()),
-                source_event_seq: None,
-            }
-            .into()],
-        )
-        .await?;
-        Ok(
-            json!({"commandId":command_id,"result":{"kind":if kind==CommandResultKind::Success {"success"} else {"error"},"text":text}}),
-        )
-    }
-
-    async fn respond_pending(&self, response: ClientResponse) -> RpcReceipt {
-        let rpc_id = response.rpc_id.as_str().to_owned();
-        let pending = self.state.read().await.pending.get(&rpc_id).cloned();
-        let Some(pending) = pending else {
-            return self.questions.respond(response).await;
-        };
-        match pending {
-            PendingResponse::Approval {
-                session_id,
-                approval_id,
-                call_id,
-                tool_name: _,
-                control,
-            } => {
-                let value = match response.result {
-                    RpcResult::Success { value: Some(value) } => value,
-                    _ => {
-                        return RpcReceipt::Rejected {
-                            reason: ReceiptRejection::BadResponse,
-                        };
-                    }
-                };
-                if value.get("sessionId").and_then(Value::as_str) != Some(&session_id)
-                    || value.get("approvalId").and_then(Value::as_str) != Some(&approval_id)
-                {
-                    return RpcReceipt::Rejected {
-                        reason: ReceiptRejection::BadResponse,
-                    };
-                }
-                let command = match value.get("outcome").and_then(Value::as_str) {
-                    Some("allowed-once") => LoopCommand::ApproveTool {
-                        call_id: call_id.clone(),
-                    },
-                    Some("rejected") => LoopCommand::RejectTool {
-                        call_id: call_id.clone(),
-                        reason: "rejected by user".to_owned(),
-                    },
-                    _ => {
-                        return RpcReceipt::Rejected {
-                            reason: ReceiptRejection::BadResponse,
-                        };
-                    }
-                };
-                let (acknowledgement, accepted) = oneshot::channel();
-                if control
-                    .send(DriverCommand {
-                        command,
-                        input_metadata: None,
-                        acknowledgement,
-                    })
-                    .await
-                    .is_err()
-                    || !matches!(accepted.await, Ok(Ok(())))
-                {
-                    return RpcReceipt::Rejected {
-                        reason: ReceiptRejection::NotPending,
-                    };
-                }
-                self.state.write().await.pending.remove(&rpc_id);
-                RpcReceipt::Accepted
-            }
-        }
+        export::session(self, session_id).await
     }
 }
 
