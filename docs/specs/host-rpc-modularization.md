@@ -109,6 +109,11 @@ Agent Preset 随后按相同模式拆分：Processor 只读取 Preset 集合、�
 耐久提交。复制与删除仍在原来的 Host 写锁内完成“快照决策 + 应用”，避免为了抽象而引入新的竞态或
 丢失并发修改。Preset 文档打开仍是兼容响应，不在领域层引入平台副作用。
 
+Credential 采用“Secret-blind snapshot”边界：Processor 的状态只包含已配置引用和环境变量引用的集合，
+不复制任何密钥值；它负责引用格式、环境遮蔽和内存后备决策。Adapter 才接触 Set 请求中的瞬时 Secret，
+负责 Keychain/Model Settings Backend 调用、Registry 激活与设置更新事件。响应、错误、Processor 快照和
+持久化日志均不得携带 Secret Value；Backend 与无 Backend 两条兼容路径保留原有大小写错误文本和锁顺序。
+
 ### 阶段 4：统一 EventGateway
 
 领域只发结构化事件。实时推送、历史恢复和 UI 所需投影从同一 reducer 生成，解决“刷新前后不一致”。

@@ -1,10 +1,10 @@
 //! Settings, credential and model-catalog RPC command service.
 //!
 //! Settings RPCs are compatibility adapters around the pure
-//! `SettingsProcessor`. Credential and model-catalog RPCs remain here until
-//! their own application boundaries are extracted.
+//! `SettingsProcessor`. Model-catalog RPCs remain here until their application
+//! boundary is extracted.
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use xharness_api::{RpcError, RpcId, RpcMethod};
 use xharness_control::ControlEvent;
 
@@ -14,10 +14,7 @@ use crate::{
     BasicHost,
 };
 
-use super::{
-    bad_request, credential_rejected, nonempty, optional_u64, require_object, required_array,
-    required_string, validate_credential_ref,
-};
+use super::{bad_request, nonempty, optional_u64, require_object, required_array, required_string};
 
 pub(super) async fn call(
     host: &BasicHost,
@@ -136,103 +133,6 @@ async fn commit(
 }
 
 impl BasicHost {
-    pub(super) async fn credentials_describe(&self, payload: &Value) -> Result<Value, RpcError> {
-        let refs = required_array(payload, "refs")?;
-        if refs.len() > 64 {
-            return Err(bad_request("at most 64 credential references are accepted"));
-        }
-        if let Some(backend) = self.model_settings.get() {
-            let _guard = self.control_gate.lock().await;
-            let mut credentials = Map::new();
-            for reference in refs {
-                let reference = reference
-                    .as_str()
-                    .ok_or_else(|| bad_request("Credential references must be strings"))?;
-                validate_credential_ref(reference)?;
-                credentials.insert(
-                    reference.to_owned(),
-                    backend
-                        .credential_info(reference)
-                        .await
-                        .map_err(crate::model_settings::model_settings_error)?,
-                );
-            }
-            return Ok(json!({"credentials":credentials}));
-        }
-        let state = self.state.read().await;
-        let mut credentials = Map::new();
-        for reference in refs {
-            let reference = reference
-                .as_str()
-                .ok_or_else(|| bad_request("credential references must be strings"))?;
-            validate_credential_ref(reference)?;
-            let env = std::env::var_os(reference).is_some_and(|value| !value.is_empty());
-            let file = state.credentials.contains_key(reference);
-            credentials.insert(
-                reference.to_owned(),
-                json!({
-                    "configured": env || file,
-                    "source": if env { Some("env") } else if file { Some("memory") } else { None },
-                    "writable": !env,
-                }),
-            );
-        }
-        Ok(json!({"credentials": credentials}))
-    }
-
-    pub(super) async fn credentials_set(&self, payload: &Value) -> Result<Value, RpcError> {
-        let reference = required_string(payload, "ref")?;
-        validate_credential_ref(&reference)?;
-        let value = nonempty(required_string(payload, "value")?, "value")?;
-        if let Some(backend) = self.model_settings.get() {
-            let _guard = self.control_gate.lock().await;
-            let section = self.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
-                .value
-                .clone();
-            backend.activate(
-                backend
-                    .set_credential(&reference, &value, &section)
-                    .await
-                    .map_err(crate::model_settings::model_settings_error)?,
-            );
-            self.push_host(json!({"type":"host/remote-event","event":"settings/document-updated","args":[crate::MODEL_SETTINGS_NAMESPACE]}));
-            return Ok(json!({}));
-        }
-        if std::env::var_os(&reference).is_some_and(|value| !value.is_empty()) {
-            return Err(credential_rejected(&reference));
-        }
-        self.state
-            .write()
-            .await
-            .credentials
-            .insert(reference, value);
-        Ok(json!({}))
-    }
-
-    pub(super) async fn credentials_unset(&self, payload: &Value) -> Result<Value, RpcError> {
-        let reference = required_string(payload, "ref")?;
-        validate_credential_ref(&reference)?;
-        if let Some(backend) = self.model_settings.get() {
-            let _guard = self.control_gate.lock().await;
-            let section = self.state.read().await.settings[crate::MODEL_SETTINGS_NAMESPACE]
-                .value
-                .clone();
-            backend.activate(
-                backend
-                    .unset_credential(&reference, &section)
-                    .await
-                    .map_err(crate::model_settings::model_settings_error)?,
-            );
-            self.push_host(json!({"type":"host/remote-event","event":"settings/document-updated","args":[crate::MODEL_SETTINGS_NAMESPACE]}));
-            return Ok(json!({}));
-        }
-        if std::env::var_os(&reference).is_some_and(|value| !value.is_empty()) {
-            return Err(credential_rejected(&reference));
-        }
-        self.state.write().await.credentials.remove(&reference);
-        Ok(json!({}))
-    }
-
     /// Why each declared provider currently has no live route, in the shape the
     /// model selector already renders (`session.models.failures` /
     /// `llm.models.failures`). Empty means every declared provider resolved.

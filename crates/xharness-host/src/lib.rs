@@ -7,6 +7,7 @@
 type SessionGateMap = Arc<Mutex<std::collections::HashMap<(String, bool), Arc<Mutex<()>>>>>;
 
 mod control;
+mod credential_processor;
 mod delegation;
 mod delegation_concurrency;
 mod goal_tool;
