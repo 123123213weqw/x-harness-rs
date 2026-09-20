@@ -906,7 +906,14 @@ pub(crate) fn project_session_event_tail_from(
             initial_request_header_seq,
             Some(&completed_steps),
         );
-        let event_bytes = serialized_json_size(&projected).unwrap_or(max_bytes.saturating_add(1));
+        // Keep the release-proven encoding path here. A streaming byte counter
+        // saves one short-lived buffer, but Windows crash dumps from v0.2.21
+        // repeatedly faulted while this projection was being serialized. Cold
+        // history is no longer eagerly projected, so the temporary buffer is
+        // bounded by the live tail and is the safer tradeoff.
+        let event_bytes = serde_json::to_vec(&projected)
+            .map(|encoded| encoded.len())
+            .unwrap_or(max_bytes.saturating_add(1));
         if event_bytes > max_bytes.saturating_sub(bytes) {
             break;
         }
@@ -1136,76 +1143,9 @@ fn prompt_views_for_range(session: &Session, start: usize, end: usize) -> Projec
     prompts
 }
 
-#[derive(Default)]
-struct JsonByteCounter(usize);
-
-impl std::io::Write for JsonByteCounter {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0 = self
-            .0
-            .checked_add(bytes.len())
-            .ok_or_else(|| std::io::Error::other("serialized projection size overflow"))?;
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-// Count the actual encoding, including UTF-8 and escaping, without retaining
-// an encoded copy. This does not bound the prior construction of the Value.
-fn serialized_json_size(value: &Value) -> serde_json::Result<usize> {
-    let mut counter = JsonByteCounter::default();
-    serde_json::to_writer(&mut counter, value)?;
-    Ok(counter.0)
-}
-
-fn web_event_envelope(event_type: String, seq: u64, time: u64, data: Value) -> Value {
-    // json! serializes borrowed expressions, even when they are already Values.
-    // Move the owned payload into its envelope instead of cloning its JSON tree.
-    Value::Object(serde_json::Map::from_iter([
-        ("type".to_owned(), Value::String(event_type)),
-        ("seq".to_owned(), Value::from(seq)),
-        ("time".to_owned(), Value::from(time)),
-        ("data".to_owned(), data),
-    ]))
-}
-
 #[cfg(test)]
-mod projection_allocation_tests {
+mod projection_encoding_tests {
     use super::*;
-
-    #[test]
-    fn projection_byte_count_matches_encoded_json() {
-        for value in [
-            Value::Null,
-            json!(true),
-            json!(u64::MAX),
-            json!(i64::MIN),
-            json!(1.25),
-            json!("你好🧪\n\r\t\u{0000}\"\\"),
-            json!([]),
-            json!({}),
-            json!({"nested": [{"a": [null, false, 2.5]}], "large": "x".repeat(1024 * 1024)}),
-        ] {
-            assert_eq!(
-                serialized_json_size(&value).unwrap(),
-                serde_json::to_vec(&value).unwrap().len()
-            );
-        }
-    }
-
-    #[test]
-    fn projection_byte_counter_rejects_overflow_without_wrapping() {
-        use std::io::Write;
-        let mut counter = JsonByteCounter(usize::MAX - 1);
-        assert_eq!(counter.write(b"a").unwrap(), 1);
-        assert!(counter.write(b"b").is_err());
-        assert_eq!(counter.0, usize::MAX);
-        assert_eq!(counter.write(b"").unwrap(), 0);
-        counter.flush().unwrap();
-    }
 
     #[test]
     fn projection_tail_keeps_exact_encoded_byte_boundaries() {
@@ -1240,19 +1180,6 @@ mod projection_allocation_tests {
                 assert_eq!(tail.base_seq, 0);
             }
         }
-    }
-
-    #[test]
-    fn projection_envelope_moves_owned_payload_without_changing_json() {
-        let data = json!({"nested": ["你好\n\"\\", "x".repeat(128 * 1024)]});
-        let pointer = data["nested"][1].as_str().unwrap().as_ptr();
-        let expected = json!({"type":"tool/result", "seq":7, "time":9, "data":data});
-        let actual = web_event_envelope("tool/result".into(), 7, 9, data);
-        assert_eq!(actual, expected);
-        assert_eq!(
-            actual["data"]["nested"][1].as_str().unwrap().as_ptr(),
-            pointer
-        );
     }
 }
 
@@ -1496,7 +1423,15 @@ fn restored_web_event(
         ),
         EventData::SessionEndSeed => tagged_event_data(event.data()),
     };
-    let mut web = web_event_envelope(event_type, event.seq, event.timestamp_ms, data);
+    // Use the conservative construction path that predates the v0.2.21
+    // Windows access violations. The extra payload clone is bounded to one
+    // projected event; cold history is served page-by-page instead.
+    let mut web = json!({
+        "type": event_type,
+        "seq": event.seq,
+        "time": event.timestamp_ms,
+        "data": data,
+    });
     if let Some(surface_op) = surface_op {
         web.as_object_mut()
             .expect("restored event is an object")
