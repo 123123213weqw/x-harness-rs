@@ -28,7 +28,7 @@ use crate::{
     control::SessionMutationResponse,
     control::{settings_snapshot, workspace_snapshot},
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
-    metrics::MetricsProjectionState,
+    projection::metrics::MetricsProjectionState,
     projection::{
         project_session_event_range, project_session_event_view, project_session_history,
         project_web_event_view,

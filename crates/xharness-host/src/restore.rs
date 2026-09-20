@@ -5,7 +5,9 @@ use std::{
 };
 
 use serde::Serialize;
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use xharness_agent::InboxProjection;
@@ -17,10 +19,10 @@ mod dynamic_projection_tests;
 
 #[cfg(test)]
 use crate::projection::*;
-use crate::projection::{project_session_event_tail, SessionProjector};
+use crate::projection::{project_inbox_message, project_session_event_tail, SessionProjector};
 
 use crate::{
-    metrics::MetricsProjectionState,
+    projection::metrics::MetricsProjectionState,
     runtime::{AgentSessionRequest, ModelRoute},
     state::{
         DriverCommand, GoalState, ModelSelection, QueuePlacement, QueuedPrompt, SessionRecord,
@@ -559,29 +561,13 @@ pub(crate) fn restored_goal(session: &Session) -> Option<GoalState> {
 }
 
 pub(crate) fn restored_prompt(input: &xharness_session::InboxMessage) -> QueuedPrompt {
-    // Decode fields independently: old/runtime metadata may omit UI content.
-    // Never turn an explicit internal source into a user draft in that case.
-    let metadata = input.source.as_ref();
-    let content = metadata
-        .and_then(|m| m.get("content"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_else(|| vec![json!({"type": "text", "text": input.message.content})]);
-    let source = metadata
-        .and_then(|m| m.get("source"))
-        .cloned()
-        .or_else(|| metadata.filter(|m| m.get("kind").is_some()).cloned())
-        .unwrap_or_else(|| json!({"kind": "user", "restored": true}));
-    let fingerprint = metadata
-        .and_then(|m| m.get("rpcFingerprint"))
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned);
+    let projected = project_inbox_message(input);
     QueuedPrompt {
         id: input.id.clone(),
         text: input.message.content.clone(),
-        content,
-        source,
-        fingerprint,
+        content: projected.content,
+        source: projected.source,
+        fingerprint: projected.rpc_fingerprint,
         placement: QueuePlacement::Queued,
     }
 }
@@ -1072,7 +1058,7 @@ mod tests {
 
     #[test]
     fn reasoning_text_and_tools_have_disjoint_live_and_restored_blocks() {
-        use crate::assistant_projection as projection;
+        use crate::projection;
         let fixture: Value = serde_json::from_str(include_str!(
             "../../../scripts/fixtures/assistant-projection.json"
         ))
@@ -1153,19 +1139,19 @@ mod tests {
                 );
             }
             assert_eq!(
-                projection::content("正文🙂done", "思考α再想"),
+                projection::assistant_content("正文🙂done", "思考α再想"),
                 fixture["content"].as_array().unwrap().clone()
             );
         }
         assert_eq!(
-            projection::content("", "only thought"),
+            projection::assistant_content("", "only thought"),
             vec![json!({"type":"reasoning","text":"only thought"})]
         );
         assert_eq!(
-            projection::content("text", ""),
+            projection::assistant_content("text", ""),
             vec![json!({"type":"text","text":"text"})]
         );
-        assert!(projection::content("", "").is_empty());
+        assert!(projection::assistant_content("", "").is_empty());
     }
 
     #[test]

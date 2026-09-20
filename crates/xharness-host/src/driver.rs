@@ -8,7 +8,7 @@ use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopSta
 use xharness_session::SessionEvent;
 
 use crate::{
-    metrics::web_token_usage_from_core,
+    projection::metrics::web_token_usage_from_core,
     projection::{
         project_session_event_range, project_session_event_tail, project_session_event_view,
         project_web_event_view,
@@ -1369,7 +1369,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::assistant_projection::text_delta(&text),
+                        "chunk": crate::projection::text_delta(&text),
                     }),
                     None,
                 )
@@ -1382,7 +1382,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::assistant_projection::reasoning_delta(&text),
+                        "chunk": crate::projection::reasoning_delta(&text),
                     }),
                     None,
                 )
@@ -1400,7 +1400,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::assistant_projection::tool_delta(index, &id, &name, &arguments_delta),
+                        "chunk": crate::projection::tool_delta(index, &id, &name, &arguments_delta),
                     }),
                     None,
                 )
@@ -1632,7 +1632,7 @@ fn web_assistant_message(
     json!({
         "id": id,
         "role": "assistant",
-        "content": crate::assistant_projection::content(text, reasoning),
+        "content": crate::projection::assistant_content(text, reasoning),
         "source": {"kind": "model", "provider": provider, "model": model},
     })
 }

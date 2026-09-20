@@ -6,13 +6,50 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 use xharness_session::{
-    AssistantChunk, EventData, LoggedEvent, Message, MessageRole, RequestHeader, Session,
-    ToolOutcome, TurnEndReason,
+    AssistantChunk, EventData, InboxMessage, LoggedEvent, Message, MessageRole, RequestHeader,
+    Session, ToolOutcome, TurnEndReason,
 };
 
-use crate::{metrics::web_token_usage, restore::restored_prompt, runtime::ModelRoute};
+pub(crate) mod metrics;
+use metrics::web_token_usage;
 
 const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;
+
+/// Minimal model identity required by presentation. The projection boundary
+/// deliberately does not depend on Host routing, provider clients or runtime
+/// configuration.
+pub(crate) trait ProjectionRoute: Send + Sync {
+    fn provider(&self) -> &str;
+    fn model(&self) -> &str;
+}
+
+/// Canonical live/history assistant block contract. Canonical messages store
+/// reasoning separately, so both projections use reasoning, text, then tool
+/// slots. Cross-kind interleaving is not claimed when the durable schema does
+/// not retain it.
+pub(crate) fn reasoning_delta(text: &str) -> Value {
+    json!({"type":"reasoning-delta", "index":0, "text":text})
+}
+
+pub(crate) fn text_delta(text: &str) -> Value {
+    json!({"type":"text-delta", "index":1, "text":text})
+}
+
+pub(crate) fn tool_delta(index: usize, id: &str, name: &str, arguments: &str) -> Value {
+    json!({"type":"tool-call-delta", "index":index.saturating_add(2),
+        "id":id, "name":name, "argumentsDelta":arguments})
+}
+
+pub(crate) fn assistant_content(text: &str, reasoning: &str) -> Vec<Value> {
+    let mut blocks = Vec::new();
+    if !reasoning.is_empty() {
+        blocks.push(json!({"type":"reasoning", "text":reasoning}));
+    }
+    if !text.is_empty() {
+        blocks.push(json!({"type":"text", "text":text}));
+    }
+    blocks
+}
 
 /// One bounded suffix of the deterministic Web projection. Sequence numbers
 /// stay identical to the append-only Session log, so eviction never changes a
@@ -33,9 +70,40 @@ pub(crate) struct ProjectedHistoryPage {
 }
 
 #[derive(Clone)]
-struct PromptView {
-    content: Vec<Value>,
-    source: Value,
+pub(crate) struct PromptView {
+    pub(crate) content: Vec<Value>,
+    pub(crate) source: Value,
+    pub(crate) rpc_fingerprint: Option<String>,
+}
+
+/// Decode the durable inbox metadata once for both Host queue restoration and
+/// browser projection. Old journals may omit the UI envelope, but an explicit
+/// internal source must never be rewritten into a user draft.
+pub(crate) fn project_inbox_message(input: &InboxMessage) -> PromptView {
+    let metadata = input.source.as_ref();
+    let content = metadata
+        .and_then(|value| value.get("content"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| vec![json!({"type": "text", "text": input.message.content})]);
+    let source = metadata
+        .and_then(|value| value.get("source"))
+        .cloned()
+        .or_else(|| {
+            metadata
+                .filter(|value| value.get("kind").is_some())
+                .cloned()
+        })
+        .unwrap_or_else(|| json!({"kind": "user", "restored": true}));
+    let rpc_fingerprint = metadata
+        .and_then(|value| value.get("rpcFingerprint"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    PromptView {
+        content,
+        source,
+        rpc_fingerprint,
+    }
 }
 
 #[derive(Default)]
@@ -47,13 +115,13 @@ pub(crate) struct ProjectionSources {
 /// Prepared projection context for streaming one durable Session without
 /// rebuilding prompt and request-header indexes for every event.
 pub(crate) struct SessionProjector<'a> {
-    route: &'a ModelRoute,
+    route: &'a dyn ProjectionRoute,
     sources: ProjectionSources,
     initial_request_header_seq: Option<u64>,
 }
 
 impl<'a> SessionProjector<'a> {
-    pub(crate) fn new(session: &Session, route: &'a ModelRoute) -> Self {
+    pub(crate) fn new(session: &Session, route: &'a dyn ProjectionRoute) -> Self {
         Self {
             route,
             sources: prompt_views(session),
@@ -74,7 +142,7 @@ impl<'a> SessionProjector<'a> {
 
 pub(crate) fn project_session_event_range(
     session: &Session,
-    route: &ModelRoute,
+    route: &dyn ProjectionRoute,
     start: usize,
     end: usize,
 ) -> Vec<Value> {
@@ -240,7 +308,7 @@ fn append_terminal_notice(output: &mut String, notice: &str) {
 
 pub(crate) fn project_session_event_tail(
     session: &Session,
-    route: &ModelRoute,
+    route: &dyn ProjectionRoute,
     max_events: usize,
     max_bytes: usize,
 ) -> ProjectedEventTail {
@@ -280,7 +348,7 @@ pub(crate) fn project_session_event_tail(
 
 pub(crate) fn project_session_history(
     session: &Session,
-    route: &ModelRoute,
+    route: &dyn ProjectionRoute,
     before_seq: Option<u64>,
     max_messages: usize,
 ) -> ProjectedHistoryPage {
@@ -311,7 +379,7 @@ pub(crate) fn project_session_history(
 
 fn project_session_event_range_with_prompts(
     session: &Session,
-    route: &ModelRoute,
+    route: &dyn ProjectionRoute,
     prompts: &ProjectionSources,
     start: usize,
     end: usize,
@@ -327,7 +395,7 @@ fn project_session_event_range_with_prompts(
 
 pub(crate) fn project_session_history_range(
     session: &Session,
-    route: &ModelRoute,
+    route: &dyn ProjectionRoute,
     start: usize,
     end: usize,
 ) -> Vec<Value> {
@@ -445,14 +513,9 @@ pub(crate) fn prompt_views(session: &Session) -> ProjectionSources {
             continue;
         };
         for input in inserted {
-            let prompt = restored_prompt(input);
-            prompts.prompts.insert(
-                input.id.clone(),
-                PromptView {
-                    content: prompt.content,
-                    source: prompt.source,
-                },
-            );
+            prompts
+                .prompts
+                .insert(input.id.clone(), project_inbox_message(input));
         }
     }
     prompts
@@ -496,7 +559,7 @@ fn web_event_envelope(event_type: String, seq: u64, time: u64, data: Value) -> V
 
 pub(crate) fn restored_web_event(
     event: &LoggedEvent,
-    route: &ModelRoute,
+    route: &dyn ProjectionRoute,
     prompts: &ProjectionSources,
     initial_request_header_seq: Option<u64>,
     fold_completed_chunks: Option<&BTreeSet<(u32, u32)>>,
@@ -850,14 +913,14 @@ pub(crate) fn web_turn_end(reason: &TurnEndReason) -> Value {
 
 pub(crate) fn web_assistant_chunk(chunk: &AssistantChunk) -> Value {
     match chunk {
-        AssistantChunk::TextDelta(text) => crate::assistant_projection::text_delta(text),
-        AssistantChunk::ReasoningDelta(text) => crate::assistant_projection::reasoning_delta(text),
+        AssistantChunk::TextDelta(text) => text_delta(text),
+        AssistantChunk::ReasoningDelta(text) => reasoning_delta(text),
         AssistantChunk::ToolCallDelta {
             index,
             id,
             name,
             arguments_delta,
-        } => crate::assistant_projection::tool_delta(*index, id, name, arguments_delta),
+        } => tool_delta(*index, id, name, arguments_delta),
         AssistantChunk::Usage(usage) => web_token_usage(usage).map_or_else(
             || json!({"type": "provider", "item": {"kind": "invalid-usage"}}),
             |usage| json!({"type": "usage", "usage": usage}),
@@ -869,7 +932,7 @@ pub(crate) fn web_assistant_chunk(chunk: &AssistantChunk) -> Value {
 
 fn web_message(
     message: &Message,
-    route: &ModelRoute,
+    route: &dyn ProjectionRoute,
     seq: u64,
     prompts: &ProjectionSources,
 ) -> Value {
@@ -889,7 +952,7 @@ fn web_message(
     }
     let source = match message.role {
         MessageRole::Assistant => {
-            json!({"kind": "model", "provider": route.provider, "model": route.model})
+            json!({"kind": "model", "provider": route.provider(), "model": route.model()})
         }
         MessageRole::Tool => json!({"kind": "tool", "callId": message.tool_call_id}),
         MessageRole::System => json!({"kind": "system"}),
@@ -899,7 +962,7 @@ fn web_message(
         "id": id,
         "role": message.role.as_str(),
         "content": if message.role == MessageRole::Assistant {
-            crate::assistant_projection::content(&message.content, &message.reasoning)
+            assistant_content(&message.content, &message.reasoning)
         } else {
             vec![json!({"type":"text", "text":message.content})]
         },
@@ -921,6 +984,7 @@ pub(crate) fn web_tool_content(text: &str, metadata: Option<&Value>) -> Vec<Valu
 #[cfg(test)]
 mod projection_allocation_tests {
     use super::*;
+    use crate::runtime::ModelRoute;
 
     #[test]
     fn projection_byte_count_matches_encoded_json() {
