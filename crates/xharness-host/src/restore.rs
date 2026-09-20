@@ -5484,6 +5484,7 @@ mod tests {
         let live_metrics = tokio::time::timeout(Duration::from_secs(2), async {
             let mut token_usage = None;
             let mut session_stats = None;
+            let mut performance = None;
             loop {
                 let frame = mux.next().await.expect("mux remained open");
                 if frame.payload["type"] != "session/projection"
@@ -5497,20 +5498,35 @@ mod tests {
                     Some("sessionStats") if frame.payload["value"]["steps"].as_u64() == Some(1) => {
                         session_stats = Some(frame.payload["value"].clone())
                     }
+                    Some("performanceTimeline")
+                        if frame.payload["value"]["turns"]
+                            .as_array()
+                            .and_then(|turns| turns.last())
+                            .is_some_and(|turn| !turn["endMs"].is_null()) =>
+                    {
+                        performance = Some(frame.payload["value"].clone())
+                    }
                     _ => {}
                 }
-                if let (Some(token_usage), Some(session_stats)) = (&token_usage, &session_stats) {
-                    break (token_usage.clone(), session_stats.clone());
+                if let (Some(token_usage), Some(session_stats), Some(performance)) =
+                    (&token_usage, &session_stats, &performance)
+                {
+                    break (
+                        token_usage.clone(),
+                        session_stats.clone(),
+                        performance.clone(),
+                    );
                 }
             }
         })
         .await;
-        let (live_token_usage, live_session_stats) = live_metrics.unwrap_or_else(|_| {
-            panic!(
-                "live metric projection frames were not published: {:?}",
-                seen_metric_frames.lock().unwrap()
-            )
-        });
+        let (live_token_usage, live_session_stats, live_performance) =
+            live_metrics.unwrap_or_else(|_| {
+                panic!(
+                    "live metric projection frames were not published: {:?}",
+                    seen_metric_frames.lock().unwrap()
+                )
+            });
         assert_eq!(
             live_token_usage,
             json!({
@@ -5592,6 +5608,33 @@ mod tests {
         assert_eq!(
             live_history["projections"]["values"]["sessionStats"]["ttftSteps"],
             1
+        );
+        assert_eq!(
+            live_history["projections"]["values"]["performanceTimeline"],
+            live_performance
+        );
+        assert!(live_performance["turns"][0]["samples"]
+            .as_array()
+            .is_some_and(|samples| !samples.is_empty()));
+        assert_eq!(
+            live_performance["turns"][0]["requests"][0]["reportedOutputTokens"],
+            5
+        );
+        assert_eq!(
+            live_performance["turns"][0]["requests"][0]["reportedReasoningTokens"],
+            3
+        );
+        assert!(
+            live.state
+                .read()
+                .await
+                .sessions
+                .get("projection-session")
+                .unwrap()
+                .summary()["projections"]["values"]
+                .get("performanceTimeline")
+                .is_none(),
+            "session lists must not carry the full sampling window"
         );
         let assistant = live_history["events"]
             .as_array()

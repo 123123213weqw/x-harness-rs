@@ -1,5 +1,5 @@
 {
-  "rev": "68ee22eacc5f0d6b",
+  "rev": "d18ce7565b3fce97",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -662,6 +662,20 @@
       ],
       "external": [
         "react"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-performance",
+      "url": "/plugins/@xlang/xharness-client-ui-performance/client.js?rev=3ebfc7390b936904",
+      "rev": "3ebfc7390b936904",
+      "inject": [
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale"
+      ],
+      "external": [
+        "react",
+        "react/jsx-runtime"
       ]
     },
     {

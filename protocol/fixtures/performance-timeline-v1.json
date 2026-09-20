@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "source": "journal_checkpoint_estimate",
+  "bucketMs": 1000,
+  "maxSamples": 600,
+  "turns": [
+    {
+      "turn": 0,
+      "startMs": 1000,
+      "endMs": 3600,
+      "lastMs": 3600,
+      "truncated": false,
+      "samples": [
+        {
+          "timeMs": 1000,
+          "step": 1,
+          "attempt": 0,
+          "textUnits": 0,
+          "reasoningUnits": 8,
+          "argumentUnits": 0
+        },
+        {
+          "timeMs": 2000,
+          "step": 1,
+          "attempt": 0,
+          "textUnits": 12,
+          "reasoningUnits": 0,
+          "argumentUnits": 0
+        },
+        {
+          "timeMs": 3000,
+          "step": 1,
+          "attempt": 0,
+          "textUnits": 8,
+          "reasoningUnits": 0,
+          "argumentUnits": 0
+        }
+      ],
+      "phases": [
+        {
+          "startMs": 1000,
+          "endMs": 1100,
+          "kind": "preparing",
+          "step": null,
+          "attempt": 0
+        },
+        {
+          "startMs": 1100,
+          "endMs": 1400,
+          "kind": "waiting_first_token",
+          "step": 1,
+          "attempt": 0
+        },
+        {
+          "startMs": 1400,
+          "endMs": 2200,
+          "kind": "reasoning",
+          "step": 1,
+          "attempt": 0
+        },
+        {
+          "startMs": 2200,
+          "endMs": 3500,
+          "kind": "output",
+          "step": 1,
+          "attempt": 0
+        },
+        {
+          "startMs": 3500,
+          "endMs": 3600,
+          "kind": "between_steps",
+          "step": 1,
+          "attempt": 0
+        }
+      ],
+      "requests": [
+        {
+          "step": 1,
+          "attempt": 0,
+          "startMs": 1100,
+          "firstDeltaMs": 1400,
+          "endMs": 3500,
+          "provider": "test-provider",
+          "model": "test-model",
+          "reportedOutputTokens": 9,
+          "reportedReasoningTokens": 2
+        }
+      ]
+    }
+  ]
+}
