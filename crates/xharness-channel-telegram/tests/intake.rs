@@ -1072,13 +1072,29 @@ async fn full_subscription_generation_rotation_drains_old_workers_before_replace
     let stop = CancellationToken::new();
     let observer = tokio::spawn(run_interactions(g.clone(), intake.lease(), stop.clone()));
     wait_for(|| host.subscriptions.load(std::sync::atomic::Ordering::SeqCst) == 32).await;
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while g.pending_replies(&intake.lease()).await.unwrap().len() != 32 {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    // This preparation flushes 32 tickets AND 32 outbox entries with SQLite
+    // FULL durability. It is not the per-worker drain latency contract below;
+    // slow CI disks need a bounded bulk-I/O budget, not a busy SQL polling loop.
+    let mut journaled = 0;
+    let ready = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            assert!(
+                !observer.is_finished(),
+                "observer exited during initial journaling"
+            );
+            journaled = g.pending_replies(&intake.lease()).await.unwrap().len();
+            assert!(journaled <= 32, "initial observers emitted extra replies");
+            if journaled == 32 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
     })
-    .await
-    .unwrap();
+    .await;
+    assert!(
+        ready.is_ok(),
+        "FULL-durable initial journaling stalled at {journaled}/32"
+    );
     eprintln!("rotation: initial 32 journals ready");
     for mut b in bindings {
         b.generation = 2;
