@@ -12,6 +12,8 @@ use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Map, Value};
 use tokio_util::sync::CancellationToken;
 
+pub mod protocol;
+
 pub const API_PREFIX: &str = "/api";
 /// Upstream Web contract snapshot used to build the method and frame catalog.
 pub const UPSTREAM_CONTRACT_REVISION: &str = "deepseek-harness@141eb6fef8";

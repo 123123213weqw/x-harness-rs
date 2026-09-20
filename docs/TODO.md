@@ -1,5 +1,23 @@
 # XHarness 总任务清单
 
+## Host RPC 模块化重构（2026-09-20）
+
+目标：保持单进程、线协议和持久格式不变，把当前“文件已拆、依赖未拆”的 `BasicHost` 重构为可维护的
+模块化单体。完整规范见 [Host RPC 模块化重构规范](specs/host-rpc-modularization.md)。
+
+- [x] `RPC-ARCH-00` 建立 WZU_Server quick/full 回归入口，锁定当前 master 行为和动态投影压力测试。
+- [x] `RPC-ARCH-01a` 为 52 个固定 RPC 建立穷举的 typed Params/Response 目录；兼容边界允许附加字段，
+  `Value` 只留在 content block、schema、事件等确实开放的内部节点。
+- [x] `RPC-ARCH-01b` 增加协议契约测试：全部方法请求可解码、字段保持 camelCase、错误报告包含方法与方向。
+- [x] `RPC-ARCH-01c` 用现有 Host 全方法基线实际验证其中返回的全部成功响应，确保冻结的是运行行为而不是只靠手写猜测；错误路径仍按既有 `RpcResult` 契约断言。
+- [x] `RPC-ARCH-01d` WZU_Server quick/full 全绿；本阶段没有接入生产分发，也未修改 UI、JSONL 或 Control Log。
+- [ ] `RPC-ARCH-02` 以 `WorkspaceProcessor` 建样板：只注入所需 store/port，不持有 `BasicHost`；新旧契约对照后删旧分支。
+- [ ] `RPC-ARCH-03` 依次迁移 Settings、Preset/Credentials/Model、Subagent、Goal；一次只迁移一个领域。
+- [ ] `RPC-ARCH-04` 建立统一 `EventGateway`，让实时事件和历史恢复使用同一投影 reducer。
+- [ ] `RPC-ARCH-05` 最后迁移 Session/Prompt/Turn 状态机；本项不夹带 compaction、预算或调度语义改动。
+- [ ] `RPC-ARCH-06` 删除旧 `BasicHost` handler 与双重投影；动态上游端点保留在明确的兼容适配器中。
+- [ ] `RPC-ARCH-07` 每阶段独立提交、可回滚；合并前跑跨平台 CI 和 WZU_Server full，部署另设门禁。
+
 ## 模型路由对账与原因可见（2026-09-19）
 
 现场：已配置模型的用户被作曲家提示「当前模型不可用，请先选择模型」，而 `llm.providers` 里该
