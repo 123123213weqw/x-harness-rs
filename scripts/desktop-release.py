@@ -515,6 +515,29 @@ def gh_json(*arguments):
     return json.loads(subprocess.check_output(['gh', *arguments], text=True, encoding='utf-8'), object_pairs_hook=unique_object)
 
 
+def remote_tag_commit(repository, tag):
+    """Resolve an immutable release tag from GitHub, not checkout-local refs.
+
+    A tag created through the GitHub API during a running workflow is not
+    automatically materialized in that workflow's existing checkout.  The
+    remote ref is the publication authority, so validate and peel it directly.
+    """
+    validate_repository(repository, repository)
+    require(re.fullmatch(r'desktop-v[0-9]+\.[0-9]+\.[0-9]+', tag), 'Unexpected production tag')
+    value = gh_json('api', f'repos/{repository}/git/ref/tags/{tag}')
+    require(isinstance(value, dict) and isinstance(value.get('object'), dict), 'Malformed remote release tag')
+    obj = value['object']
+    for _ in range(8):
+        require(re.fullmatch(r'[0-9a-f]{40}', obj.get('sha', '')), 'Malformed remote tag object')
+        if obj.get('type') == 'commit':
+            return obj['sha']
+        require(obj.get('type') == 'tag', 'Release tag does not resolve to a commit')
+        value = gh_json('api', f'repos/{repository}/git/tags/{obj["sha"]}')
+        require(isinstance(value, dict) and isinstance(value.get('object'), dict), 'Malformed annotated release tag')
+        obj = value['object']
+    raise ValueError('Annotated tag nesting exceeds the safe limit')
+
+
 def fetch_ci(repository, sha):
     # GitHub's workflow endpoint fixes workflow identity; head SHA and returned
     # path are independently checked. The latest matching run must have passed.
@@ -560,7 +583,7 @@ def main():
                          os.environ['GITHUB_SHA'], os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT'],
                          _friends.releases(repository), fetch_ci(repository, os.environ['GITHUB_SHA']), args.release_scope)
         require_environment(plan, building=True)
-        tag_sha = subprocess.check_output(['git', 'rev-parse', args.tag + '^{commit}'], cwd=ROOT, text=True, encoding='utf-8').strip()
+        tag_sha = remote_tag_commit(repository, args.tag)
         require(tag_sha == plan['sha'], 'Release tag differs from checked-out source')
         write_json(args.output, plan)
         if os.environ.get('GITHUB_ENV'):
