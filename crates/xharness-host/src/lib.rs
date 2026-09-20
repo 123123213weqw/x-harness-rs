@@ -27,6 +27,7 @@ mod rpc;
 mod runtime;
 mod state;
 mod titles;
+mod workspace_processor;
 
 use std::{
     path::PathBuf,

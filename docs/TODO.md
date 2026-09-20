@@ -11,7 +11,10 @@
 - [x] `RPC-ARCH-01b` 增加协议契约测试：全部方法请求可解码、字段保持 camelCase、错误报告包含方法与方向。
 - [x] `RPC-ARCH-01c` 用现有 Host 全方法基线实际验证其中返回的全部成功响应，确保冻结的是运行行为而不是只靠手写猜测；错误路径仍按既有 `RpcResult` 契约断言。
 - [x] `RPC-ARCH-01d` WZU_Server quick/full 全绿；本阶段没有接入生产分发，也未修改 UI、JSONL 或 Control Log。
-- [ ] `RPC-ARCH-02` 以 `WorkspaceProcessor` 建样板：只注入所需 store/port，不持有 `BasicHost`；新旧契约对照后删旧分支。
+- [x] `RPC-ARCH-02a` 以 Workspace 建立首个职责分离样板：`WorkspaceProcessor` 只接收只读领域快照，纯计算响应、Control Event 与 Host Event，不依赖 `BasicHost`、Transport、锁或 Store。
+- [x] `RPC-ARCH-02b` `rpc/workspace.rs` 收敛为兼容适配器：保留旧字段校验、控制锁、Exactly-once Receipt、原子提交及提交成功后发布事件；`rpc.rs` 的七个 Workspace 分支合并为一个领域入口。
+- [x] `RPC-ARCH-02c` 加源码依赖门禁，禁止 WorkspaceProcessor 重新引入 `BasicHost`、RPC ID/Method、Tokio 或 ControlStore；新增重复创建、确定性排序和失败前零事件测试。
+- [x] `RPC-ARCH-02d` WZU_Server full 全绿：全工作区、Clippy `-D warnings`、进程清理与 UI 套件均为 `failures=0`；固定 RPC 类型基线继续覆盖 Workspace 实际响应。
 - [ ] `RPC-ARCH-03` 依次迁移 Settings、Preset/Credentials/Model、Subagent、Goal；一次只迁移一个领域。
 - [ ] `RPC-ARCH-04` 建立统一 `EventGateway`，让实时事件和历史恢复使用同一投影 reducer。
 - [ ] `RPC-ARCH-05` 最后迁移 Session/Prompt/Turn 状态机；本项不夹带 compaction、预算或调度语义改动。

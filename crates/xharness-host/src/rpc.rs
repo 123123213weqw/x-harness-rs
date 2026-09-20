@@ -79,18 +79,14 @@ impl ApiBackend for BasicHost {
             RpcMethod::HostListDirectory => self.host_list_directory(&payload).await,
             RpcMethod::HostCreateDirectory => self.host_create_directory(&payload).await,
             RpcMethod::HostOpenPath => self.host_open_path(&payload).await,
-            RpcMethod::WorkspaceList => self.workspace_list(&payload).await,
-            RpcMethod::WorkspaceCreate => self.workspace_create(rpc_id, &payload).await,
-            RpcMethod::WorkspaceRename => self.workspace_rename(rpc_id, &payload).await,
-            RpcMethod::WorkspaceDelete => self.workspace_delete(rpc_id, &payload).await,
-            RpcMethod::WorkspaceInsertBefore => {
-                self.workspace_insert_before(rpc_id, &payload).await
-            }
-            RpcMethod::WorkspaceInsertSessionBefore => {
-                self.workspace_insert_session_before(rpc_id, &payload).await
-            }
-            RpcMethod::WorkspaceArchiveSession => {
-                self.workspace_archive_session(rpc_id, &payload).await
+            method @ (RpcMethod::WorkspaceList
+            | RpcMethod::WorkspaceCreate
+            | RpcMethod::WorkspaceRename
+            | RpcMethod::WorkspaceDelete
+            | RpcMethod::WorkspaceInsertBefore
+            | RpcMethod::WorkspaceInsertSessionBefore
+            | RpcMethod::WorkspaceArchiveSession) => {
+                workspace::call(self, rpc_id, method, &payload).await
             }
             RpcMethod::SkillList => self.skill_list(&payload).await,
             RpcMethod::AgentPresetList => self.agent_preset_list(&payload).await,
@@ -2891,14 +2887,6 @@ fn session_not_found(session_id: &str) -> RpcError {
         RpcErrorCode::SessionNotFound,
         format!("session {session_id:?} was not found"),
         json!({"sessionId": session_id}),
-    )
-}
-
-fn workspace_not_found(workspace_id: &str) -> RpcError {
-    rpc_error(
-        RpcErrorCode::WorkspaceNotFound,
-        format!("workspace {workspace_id:?} was not found"),
-        json!({"workspaceId": workspace_id}),
     )
 }
 
