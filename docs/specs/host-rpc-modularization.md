@@ -1,6 +1,6 @@
 # Host RPC 模块化重构规范
 
-状态：第一阶段实施中  
+状态：第三阶段实施中
 日期：2026-09-20
 
 ## 1. 为什么要重构
@@ -89,6 +89,20 @@ ID/时钟计算响应、Control Event 与 Host Event；锁、Receipt、原子提
 
 按 Settings → Preset/Credentials/Model → Subagent → Goal 的顺序迁移。每次只迁移一个领域，保持
 Dispatcher 和 DTO 稳定；禁止跨领域直接读内部字段，协作必须经过显式 port。
+
+Settings 已沿用 Workspace 的“纯决策核 + 兼容适配器”边界，但保留一个必要的两阶段提交细节：
+
+1. Processor 从只读 Namespace 快照计算下一版 `user/value/revision`，负责 CAS、Permission 约束、
+   Preference 校验和 JSON Path 语义；
+2. Adapter 在持有 Control Gate 时先重放 Receipt，再调用 Processor；模型 Namespace 还必须在持久化前
+   由 Model Settings Backend `prepare`，因为它会验证路由并补齐能力元数据；
+3. Prepare 成功后，Adapter 将最终 Namespace 和 Receipt 原子写入 Control Log；只有耐久化成功后才激活
+   Model Registry 并发布 Web 事件；
+4. Model Schema 仍不写入 Receipt，重放时从当前可执行版本重建；Credential 值从不进入 Namespace、
+   Processor 输出或 Control Log。
+
+源码门禁禁止 SettingsProcessor 依赖 `BasicHost`、RPC ID/Method、Tokio 或具体 ControlStore。这样
+Settings 领域可以独立单测，同时不改变现有 Exactly-once、Secret 与 Live Apply 语义。
 
 ### 阶段 4：统一 EventGateway
 

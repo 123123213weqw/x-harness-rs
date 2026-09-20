@@ -15,7 +15,11 @@
 - [x] `RPC-ARCH-02b` `rpc/workspace.rs` 收敛为兼容适配器：保留旧字段校验、控制锁、Exactly-once Receipt、原子提交及提交成功后发布事件；`rpc.rs` 的七个 Workspace 分支合并为一个领域入口。
 - [x] `RPC-ARCH-02c` 加源码依赖门禁，禁止 WorkspaceProcessor 重新引入 `BasicHost`、RPC ID/Method、Tokio 或 ControlStore；新增重复创建、确定性排序和失败前零事件测试。
 - [x] `RPC-ARCH-02d` WZU_Server full 全绿：全工作区、Clippy `-D warnings`、进程清理与 UI 套件均为 `failures=0`；固定 RPC 类型基线继续覆盖 Workspace 实际响应。
-- [ ] `RPC-ARCH-03` 依次迁移 Settings、Preset/Credentials/Model、Subagent、Goal；一次只迁移一个领域。
+- [x] `RPC-ARCH-03a` 抽出纯 `SettingsProcessor`：Settings Describe/Update/Replace/Mutate 只根据设置快照计算下一版 Namespace；Revision CAS、Permission 白名单、偏好校验和 JSON Path 语义均由领域核负责。
+- [x] `RPC-ARCH-03b` `rpc/settings.rs` 成为兼容与持久化适配器：Receipt Replay 仍先于校验，Model Registry 在提交前 Prepare，Control Log 原子提交后才 Activate 并发布 `settings/document-updated`；模型 Schema 继续只作为可执行版本元数据重建，不写入回执。
+- [x] `RPC-ARCH-03c` 为 SettingsProcessor 增加源码依赖门禁以及 Revision 冲突、Model Base 合并、非法操作零变更、Permission 拒绝测试；WZU_Server quick 回归全绿。
+- [x] `RPC-ARCH-03d` WZU_Server full 回归全绿：全 Workspace Test、Clippy `-D warnings`、进程清理、模型设置真实进程重启和 UI 套件均为 `failures=0`，Settings 阶段完成。
+- [ ] `RPC-ARCH-03e` 依次迁移 Preset/Credentials/Model、Subagent、Goal；一次只迁移一个领域。
 - [ ] `RPC-ARCH-04` 建立统一 `EventGateway`，让实时事件和历史恢复使用同一投影 reducer。
 - [ ] `RPC-ARCH-05` 最后迁移 Session/Prompt/Turn 状态机；本项不夹带 compaction、预算或调度语义改动。
 - [ ] `RPC-ARCH-06` 删除旧 `BasicHost` handler 与双重投影；动态上游端点保留在明确的兼容适配器中。
