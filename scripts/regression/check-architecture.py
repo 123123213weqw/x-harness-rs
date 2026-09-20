@@ -59,6 +59,13 @@ SOURCE_BOUNDARIES = {
         "ControlStore",
         "tokio::",
     },
+    "crates/xharness-host/src/goal_processor.rs": {
+        "BasicHost",
+        "RpcId",
+        "RpcMethod",
+        "ControlStore",
+        "tokio::",
+    },
 }
 
 

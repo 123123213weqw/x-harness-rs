@@ -123,6 +123,11 @@ Subagent 领域的 Processor 只接收 Session 的 `id/parent/title/running` 快
 授权错误（父不存在、子不存在、非直接子项）。History 映射、Prompt Exactly-once Admission、Cancel 控制
 仍由 Adapter 调用现有 Session/Runtime 边界；因此抽离不会产生第二套队列或子 Agent 生命周期。
 
+Goal 领域将创建、编辑、阶段转换和清除建模为纯、Revision-fenced 的 Mutation：Processor 只返回下一版
+Goal 与操作类型，不写 Session。Adapter 继续严格执行“Admission Lock → Receipt Replay → Authoritative Sync
+→ 纯决策 → Pending 失效/Enable 事件 → 原子 Journal+Receipt → 投影/Runtime Wake”的既有顺序。固定 RPC、
+动态 `goals/*` 与 Slash Command 只在协议翻译上不同，最终汇入同一 Adapter，避免三套 Goal 状态机。
+
 ### 阶段 4：统一 EventGateway
 
 领域只发结构化事件。实时推送、历史恢复和 UI 所需投影从同一 reducer 生成，解决“刷新前后不一致”。

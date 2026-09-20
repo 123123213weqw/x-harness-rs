@@ -32,7 +32,10 @@
 - [x] `RPC-ARCH-03l` 抽出纯 `SubagentProcessor` 与 `rpc/subagent.rs` 适配器：直接子会话列表、
   父/子存在性与所有权判定只读取最小快照；History/Prompt/Interrupt 的 Admission、Runtime 与控制副作用
   留在适配器。错误分类、嵌套子项和缺失父会话测试及源码依赖门禁已覆盖，WZU_Server quick/full 全绿。
-- [ ] `RPC-ARCH-03m` 迁移 Goal 领域，保持 Goal Journal、Runtime Wake 与回执语义不变。
+- [x] `RPC-ARCH-03m` 抽出纯 `GoalProcessor` 与 `rpc/goal.rs` 兼容适配器：创建、编辑、暂停、恢复、
+  完成与清除的引用栅栏、阶段矩阵、预算和单调 Revision 进入领域核；Session Receipt、Goal Journal、
+  Pending Input 失效、投影与 Runtime Wake 保持原适配顺序。固定 RPC、动态 `goals/*` 和 Slash Command
+  复用同一入口，状态矩阵测试与源码依赖门禁已覆盖，WZU_Server quick/full 全绿。
 - [ ] `RPC-ARCH-04` 建立统一 `EventGateway`，让实时事件和历史恢复使用同一投影 reducer。
 - [ ] `RPC-ARCH-05` 最后迁移 Session/Prompt/Turn 状态机；本项不夹带 compaction、预算或调度语义改动。
 - [ ] `RPC-ARCH-06` 删除旧 `BasicHost` handler 与双重投影；动态上游端点保留在明确的兼容适配器中。

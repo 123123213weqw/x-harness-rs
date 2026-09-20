@@ -22,9 +22,7 @@ use xharness_api::{
 };
 use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_session::{
-    ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData,
-    GoalChange as SessionGoalChange, GoalChangeKind, GoalClearChange, GoalClearOperation,
-    GoalPhase, GoalRef as DurableGoalRef, GoalSnapshotChange, GoalSnapshotOperation, SessionEvent,
+    ApprovalPolicy, CommandResultKind, CommandSource, EventData as SessionEventData, SessionEvent,
     SessionSandboxMode, SessionTitleSource,
 };
 
@@ -32,13 +30,12 @@ use crate::{
     control::SessionMutationResponse,
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
     runtime::{AgentRuntimeError, ModelRoute},
-    state::{
-        iso_now, now_ms, DriverCommand, GoalState, ModelSelection, PendingResponse, SessionRecord,
-    },
+    state::{iso_now, now_ms, DriverCommand, ModelSelection, PendingResponse, SessionRecord},
     BasicHost,
 };
 
 mod credentials;
+mod goal;
 mod model;
 mod preset;
 mod settings;
@@ -97,12 +94,12 @@ impl ApiBackend for BasicHost {
             | RpcMethod::AgentPresetCopy
             | RpcMethod::AgentPresetOpenDocument
             | RpcMethod::AgentPresetRemove) => preset::call(self, rpc_id, method, &payload).await,
-            RpcMethod::GoalCreate => self.goal_create(rpc_id, &payload).await,
-            RpcMethod::GoalEdit => self.goal_edit(rpc_id, &payload).await,
-            RpcMethod::GoalPause => self.goal_transition(rpc_id, &payload, "paused").await,
-            RpcMethod::GoalResume => self.goal_transition(rpc_id, &payload, "active").await,
-            RpcMethod::GoalComplete => self.goal_transition(rpc_id, &payload, "complete").await,
-            RpcMethod::GoalClear => self.goal_clear(rpc_id, &payload).await,
+            method @ (RpcMethod::GoalCreate
+            | RpcMethod::GoalEdit
+            | RpcMethod::GoalPause
+            | RpcMethod::GoalResume
+            | RpcMethod::GoalComplete
+            | RpcMethod::GoalClear) => goal::call(self, rpc_id, method, &payload).await,
             method @ (RpcMethod::SettingsDescribe
             | RpcMethod::SettingsOpenDocument
             | RpcMethod::SettingsUpdate
@@ -137,7 +134,9 @@ impl ApiBackend for BasicHost {
             // methods above so every GoalBar action works instead of 404ing.
             // The other upstream namespaces stay unmounted on purpose.
             "goals/create" | "goals/edit" | "goals/pause" | "goals/resume" | "goals/complete"
-            | "goals/clear" => self.goal_remote(rpc_id, endpoint, &payload).await.map(Some),
+            | "goals/clear" => goal::remote(self, rpc_id, endpoint, &payload)
+                .await
+                .map(Some),
             _ => return None,
         };
         Some(match result {
@@ -319,69 +318,6 @@ impl ApiBackend for BasicHost {
 }
 
 impl BasicHost {
-    /// Namespaced `goals/*` mutations for the shipped Web client.
-    ///
-    /// `args.agentId` names the session, `args.ref` the exact goal revision and
-    /// `args.request` the optional objective/budget change. Flat mutations answer
-    /// with `{ref}` only; the namespaced remotes answer with the whole goal state
-    /// their schemas require, so the client accepts them.
-    async fn goal_remote(
-        &self,
-        rpc_id: RpcId,
-        endpoint: &str,
-        payload: &Value,
-    ) -> Result<Value, RpcError> {
-        let args = payload
-            .get("args")
-            .ok_or_else(|| bad_request(format!("{endpoint} requires args")))?;
-        let session_id = required_string(args, "agentId")?;
-        let request = args.get("request").cloned().unwrap_or_else(|| json!({}));
-        let mut flat = json!({"sessionId": session_id});
-        if let Some(objective) = optional_string(&request, "objective")? {
-            flat["objective"] = json!(objective);
-        }
-        if let Some(rounds) = optional_u64(&request, "maxGoalRounds")? {
-            flat["maxGoalRounds"] = json!(rounds);
-        }
-        if endpoint == "goals/create" {
-            // The shipped client never sends `executionEnabled`, but the flat
-            // method understands it, so pass it through instead of silently
-            // arming a goal the caller asked to create disarmed.
-            if let Some(enabled) = request.get("executionEnabled") {
-                let enabled = enabled
-                    .as_bool()
-                    .ok_or_else(|| bad_request("request.executionEnabled must be a boolean"))?;
-                flat["executionEnabled"] = json!(enabled);
-            }
-            // Creation arms the goal and already answers with exactly the ref
-            // the upstream create schema expects.
-            return self.goal_create(rpc_id, &flat).await;
-        }
-        let reference = args
-            .get("ref")
-            .cloned()
-            .ok_or_else(|| bad_request(format!("{endpoint} requires ref")))?;
-        goal_ref(&json!({"ref": reference}))?;
-        flat["ref"] = reference;
-        match endpoint {
-            "goals/edit" => self.goal_edit_reply(rpc_id, &flat, true).await,
-            "goals/pause" => {
-                self.goal_transition_reply(rpc_id, &flat, "paused", true)
-                    .await
-            }
-            "goals/resume" => {
-                self.goal_transition_reply(rpc_id, &flat, "active", true)
-                    .await
-            }
-            "goals/complete" => {
-                self.goal_transition_reply(rpc_id, &flat, "complete", true)
-                    .await
-            }
-            "goals/clear" => self.goal_clear_reply(rpc_id, &flat, true).await,
-            _ => unreachable!("goal_remote is only mounted for goals/*"),
-        }
-    }
-
     async fn commands_list(&self, payload: &Value) -> Result<Value, RpcError> {
         let args = payload
             .get("args")
@@ -2172,27 +2108,24 @@ impl BasicHost {
             let rpc = RpcId::new(format!("goal-command:{command_id}"));
             let payload = json!({"sessionId":id,"ref":current.as_ref().map(|g|json!({"id":g.id,"revision":g.revision}))});
             let action = match input {
-                "pause" => self.goal_transition(rpc, &payload, "paused").await,
-                "resume" => self.goal_transition(rpc, &payload, "active").await,
-                "complete" => self.goal_transition(rpc, &payload, "complete").await,
-                "clear" => self.goal_clear(rpc, &payload).await,
+                "pause" => goal::transition(self, rpc, &payload, "paused").await,
+                "resume" => goal::transition(self, rpc, &payload, "active").await,
+                "complete" => goal::transition(self, rpc, &payload, "complete").await,
+                "clear" => goal::clear(self, rpc, &payload).await,
                 _ if input.starts_with("budget ") => match input[7..].trim().parse::<u64>() {
                     Ok(n) => {
                         let mut p = payload;
                         p["maxGoalRounds"] = json!(n);
-                        self.goal_edit(rpc, &p).await
+                        goal::edit(self, rpc, &p).await
                     }
                     Err(_) => Err(bad_request("budget must be a positive integer")),
                 },
                 _ if input.starts_with("edit ") => {
                     let mut p = payload;
                     p["objective"] = json!(input[5..].trim());
-                    self.goal_edit(rpc, &p).await
+                    goal::edit(self, rpc, &p).await
                 }
-                _ => {
-                    self.goal_create(rpc, &json!({"sessionId":id,"objective":input}))
-                        .await
-                }
+                _ => goal::create(self, rpc, &json!({"sessionId":id,"objective":input})).await,
             };
             action.map(|_| "Goal updated. The Goal bar shows execution and review status.".into())
         };
@@ -2214,391 +2147,6 @@ impl BasicHost {
         Ok(
             json!({"commandId":command_id,"result":{"kind":if kind==CommandResultKind::Success {"success"} else {"error"},"text":text}}),
         )
-    }
-
-    async fn goal_create(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
-        let session_id = required_string(payload, "sessionId")?;
-        let objective = nonempty(required_string(payload, "objective")?, "objective")?;
-        let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?.unwrap_or(256);
-        if max_goal_rounds == 0 {
-            return Err(bad_request("maxGoalRounds must be positive"));
-        }
-        let _session_guard = self.lock_admission(&session_id).await;
-        if let Some(response) = self
-            .replay_session_mutation_receipt(&session_id, &rpc_id, RpcMethod::GoalCreate, payload)
-            .await?
-        {
-            return Ok(response);
-        }
-        {
-            let state = self.state.read().await;
-            if !state.sessions.contains_key(&session_id) {
-                return Err(session_not_found(&session_id));
-            }
-            if state
-                .goals
-                .get(&session_id)
-                .is_some_and(|goal| goal.phase != GoalPhase::Complete)
-            {
-                return Err(bad_request("session already has a non-complete goal"));
-            }
-        }
-        let now = now_ms();
-        let goal = GoalState {
-            execution: None,
-            id: self.mint_id("goal"),
-            revision: 1,
-            objective,
-            max_goal_rounds,
-            phase: GoalPhase::Active,
-            blocked_reason: None,
-            rounds_started: 0,
-            created_at: now,
-            updated_at: now,
-        };
-        let mut events = vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Create)];
-        if payload.get("executionEnabled").and_then(Value::as_bool) != Some(false) {
-            events.extend(self.goal_enable_events(&session_id, &goal).await?);
-        }
-        let response = json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}});
-        self.commit_session_mutation(
-            &session_id,
-            &rpc_id,
-            RpcMethod::GoalCreate,
-            payload,
-            events,
-            SessionMutationResponse::fixed(response.clone()),
-        )
-        .await?;
-        if !self.agent_runtime.has_authoritative_sessions() {
-            let mut state = self.state.write().await;
-            state
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?
-                .goal = Some(goal.clone());
-            state.goals.insert(session_id.clone(), goal.clone());
-        }
-        if self.agent_runtime.has_authoritative_sessions() {
-            self.sync_authoritative_session(&session_id).await?;
-        } else {
-            self.push_projection(&session_id, "goal", goal.projection())
-                .await;
-        }
-        self.activate_goal(&session_id).await?;
-        Ok(response)
-    }
-
-    async fn goal_edit(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
-        self.goal_edit_reply(rpc_id, payload, false).await
-    }
-
-    async fn goal_edit_reply(
-        &self,
-        rpc_id: RpcId,
-        payload: &Value,
-        remote: bool,
-    ) -> Result<Value, RpcError> {
-        let session_id = required_string(payload, "sessionId")?;
-        // A valid flat request always has a top-level sessionId; wrapping only
-        // remote receipts gives the two protocols disjoint fingerprints while
-        // preserving all historical flat receipts unchanged.
-        let receipt_payload = if remote {
-            json!({"goalRemoteRequest": payload})
-        } else {
-            payload.clone()
-        };
-        let objective = optional_string(payload, "objective")?;
-        let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?;
-        if objective.is_none() && max_goal_rounds.is_none() {
-            return Err(bad_request("goal.edit requires objective or maxGoalRounds"));
-        }
-        let expected = goal_ref(payload)?;
-        let _session_guard = self.lock_admission(&session_id).await;
-        if let Some(response) = self
-            .replay_session_mutation_receipt(
-                &session_id,
-                &rpc_id,
-                RpcMethod::GoalEdit,
-                &receipt_payload,
-            )
-            .await?
-        {
-            return Ok(response);
-        }
-        self.sync_authoritative_session(&session_id).await?;
-        let mut goal = self
-            .state
-            .read()
-            .await
-            .goals
-            .get(&session_id)
-            .cloned()
-            .ok_or_else(|| {
-                rpc_error(
-                    RpcErrorCode::BadRequest,
-                    "session has no active goal",
-                    json!({"issues": []}),
-                )
-            })?;
-        require_goal_ref(&goal, &expected)?;
-        if let Some(objective) = objective {
-            goal.objective = nonempty(objective, "objective")?;
-        }
-        if let Some(rounds) = max_goal_rounds {
-            if rounds == 0 {
-                return Err(bad_request("maxGoalRounds must be positive"));
-            }
-            goal.max_goal_rounds = rounds;
-        }
-        goal.revision = goal.revision.saturating_add(1);
-        goal.updated_at = now_ms().max(goal.updated_at);
-
-        let mut events = vec![goal_snapshot_event(&goal, GoalSnapshotOperation::Edit)];
-        events.extend(
-            self.invalidate_goal_pending(&session_id, Some(&goal))
-                .await?,
-        );
-        let response = if remote {
-            goal_remote_snapshot(&goal, &events)
-        } else {
-            json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}})
-        };
-        self.commit_session_mutation(
-            &session_id,
-            &rpc_id,
-            RpcMethod::GoalEdit,
-            &receipt_payload,
-            events,
-            SessionMutationResponse::fixed(response.clone()),
-        )
-        .await?;
-        if !self.agent_runtime.has_authoritative_sessions() {
-            let mut state = self.state.write().await;
-            state
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?
-                .goal = Some(goal.clone());
-            state.goals.insert(session_id.clone(), goal.clone());
-        }
-        if self.agent_runtime.has_authoritative_sessions() {
-            self.sync_authoritative_session(&session_id).await?;
-        } else {
-            self.push_projection(&session_id, "goal", goal.projection())
-                .await;
-        }
-        Ok(response)
-    }
-
-    async fn goal_transition(
-        &self,
-        rpc_id: RpcId,
-        payload: &Value,
-        transition: &str,
-    ) -> Result<Value, RpcError> {
-        self.goal_transition_reply(rpc_id, payload, transition, false)
-            .await
-    }
-
-    async fn goal_transition_reply(
-        &self,
-        rpc_id: RpcId,
-        payload: &Value,
-        transition: &str,
-        remote: bool,
-    ) -> Result<Value, RpcError> {
-        let session_id = required_string(payload, "sessionId")?;
-        // A valid flat request always has a top-level sessionId; wrapping only
-        // remote receipts gives the two protocols disjoint fingerprints while
-        // preserving all historical flat receipts unchanged.
-        let receipt_payload = if remote {
-            json!({"goalRemoteRequest": payload})
-        } else {
-            payload.clone()
-        };
-        let expected = goal_ref(payload)?;
-        let _session_guard = self.lock_admission(&session_id).await;
-        let method = match transition {
-            "paused" => RpcMethod::GoalPause,
-            "active" => RpcMethod::GoalResume,
-            "complete" => RpcMethod::GoalComplete,
-            _ => return Err(RpcError::internal("unknown goal transition")),
-        };
-        if let Some(response) = self
-            .replay_session_mutation_receipt(&session_id, &rpc_id, method, &receipt_payload)
-            .await?
-        {
-            return Ok(response);
-        }
-        self.sync_authoritative_session(&session_id).await?;
-        let mut goal = self
-            .state
-            .read()
-            .await
-            .goals
-            .get(&session_id)
-            .cloned()
-            .ok_or_else(|| bad_request("session has no goal"))?;
-        require_goal_ref(&goal, &expected)?;
-        let (operation, phase, valid) = match transition {
-            "paused" => (
-                GoalSnapshotOperation::Pause,
-                GoalPhase::Paused,
-                goal.phase == GoalPhase::Active,
-            ),
-            "active" => (
-                GoalSnapshotOperation::Resume,
-                GoalPhase::Active,
-                matches!(
-                    goal.phase,
-                    GoalPhase::Active | GoalPhase::Paused | GoalPhase::Blocked
-                ) && goal.rounds_started < goal.max_goal_rounds,
-            ),
-            "complete" => (
-                GoalSnapshotOperation::Complete,
-                GoalPhase::Complete,
-                goal.phase != GoalPhase::Complete,
-            ),
-            _ => unreachable!("transition was validated above"),
-        };
-        if !valid {
-            return Err(bad_request(format!(
-                "cannot {transition} goal from phase {:?}",
-                goal.phase
-            )));
-        }
-        goal.phase = phase;
-        goal.blocked_reason = None;
-        goal.revision = goal.revision.saturating_add(1);
-        goal.updated_at = now_ms().max(goal.updated_at);
-        let mut events = vec![goal_snapshot_event(&goal, operation)];
-        if transition == "active" {
-            events.extend(self.goal_enable_events(&session_id, &goal).await?);
-        }
-        if transition != "active" {
-            events.extend(
-                self.invalidate_goal_pending(&session_id, Some(&goal))
-                    .await?,
-            );
-        }
-        let response = if remote {
-            goal_remote_snapshot(&goal, &events)
-        } else {
-            json!({"ref": {"id": goal.id.clone(), "revision": goal.revision}})
-        };
-        self.commit_session_mutation(
-            &session_id,
-            &rpc_id,
-            method,
-            &receipt_payload,
-            events,
-            SessionMutationResponse::fixed(response.clone()),
-        )
-        .await?;
-        if !self.agent_runtime.has_authoritative_sessions() {
-            let mut state = self.state.write().await;
-            state
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?
-                .goal = Some(goal.clone());
-            state.goals.insert(session_id.clone(), goal.clone());
-        }
-        if self.agent_runtime.has_authoritative_sessions() {
-            self.sync_authoritative_session(&session_id).await?;
-        } else {
-            self.push_projection(&session_id, "goal", goal.projection())
-                .await;
-        }
-        if transition == "active" {
-            self.activate_goal(&session_id).await?;
-        }
-        Ok(response)
-    }
-
-    async fn goal_clear(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
-        self.goal_clear_reply(rpc_id, payload, false).await
-    }
-
-    async fn goal_clear_reply(
-        &self,
-        rpc_id: RpcId,
-        payload: &Value,
-        remote: bool,
-    ) -> Result<Value, RpcError> {
-        let session_id = required_string(payload, "sessionId")?;
-        // A valid flat request always has a top-level sessionId; wrapping only
-        // remote receipts gives the two protocols disjoint fingerprints while
-        // preserving all historical flat receipts unchanged.
-        let receipt_payload = if remote {
-            json!({"goalRemoteRequest": payload})
-        } else {
-            payload.clone()
-        };
-        let expected = goal_ref(payload)?;
-        let _session_guard = self.lock_admission(&session_id).await;
-        if let Some(response) = self
-            .replay_session_mutation_receipt(
-                &session_id,
-                &rpc_id,
-                RpcMethod::GoalClear,
-                &receipt_payload,
-            )
-            .await?
-        {
-            return Ok(response);
-        }
-        self.sync_authoritative_session(&session_id).await?;
-        let goal = self
-            .state
-            .read()
-            .await
-            .goals
-            .get(&session_id)
-            .cloned()
-            .ok_or_else(|| bad_request("session has no goal"))?;
-        require_goal_ref(&goal, &expected)?;
-        let cleared = DurableGoalRef {
-            id: goal.id.clone(),
-            revision: goal.revision.saturating_add(1),
-        };
-        let response = if remote {
-            json!({"id": &cleared.id, "revision": cleared.revision})
-        } else {
-            json!({"cleared": true})
-        };
-        let mut events = vec![SessionEventData::GoalChange {
-            change: SessionGoalChange::Clear(GoalClearChange {
-                kind: GoalChangeKind::GoalChange,
-                version: 1,
-                operation: GoalClearOperation::Clear,
-                cleared,
-                cleared_at: now_ms().max(goal.updated_at),
-            }),
-        }
-        .into()];
-        events.extend(self.invalidate_goal_pending(&session_id, None).await?);
-        self.commit_session_mutation(
-            &session_id,
-            &rpc_id,
-            RpcMethod::GoalClear,
-            &receipt_payload,
-            events,
-            SessionMutationResponse::fixed(response.clone()),
-        )
-        .await?;
-        if !self.agent_runtime.has_authoritative_sessions() {
-            let mut state = self.state.write().await;
-            state
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?
-                .goal = None;
-            state.goals.remove(&session_id);
-        }
-        self.push_projection(&session_id, "goal", Value::Null).await;
-        Ok(response)
     }
 
     async fn respond_pending(&self, response: ClientResponse) -> RpcReceipt {
@@ -2908,52 +2456,6 @@ pub(crate) fn permission_events(preset: crate::PermissionPreset) -> Vec<SessionE
     ]
 }
 
-fn goal_snapshot_event(goal: &GoalState, operation: GoalSnapshotOperation) -> SessionEvent {
-    SessionEventData::GoalChange {
-        change: SessionGoalChange::Snapshot(GoalSnapshotChange {
-            kind: GoalChangeKind::GoalChange,
-            version: 1,
-            operation,
-            goal: goal.snapshot(),
-            rounds_started: goal.rounds_started,
-            created_at: goal.created_at,
-            updated_at: goal.updated_at,
-        }),
-    }
-    .into()
-}
-
-#[derive(Clone, Debug)]
-struct GoalRef {
-    id: String,
-    revision: u64,
-}
-
-fn goal_ref(payload: &Value) -> Result<GoalRef, RpcError> {
-    let reference = payload
-        .get("ref")
-        .and_then(Value::as_object)
-        .ok_or_else(|| bad_request("ref must be an object"))?;
-    let id = reference
-        .get("id")
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| bad_request("ref.id must be a string"))?;
-    let revision = reference
-        .get("revision")
-        .and_then(Value::as_u64)
-        .filter(|revision| *revision > 0)
-        .ok_or_else(|| bad_request("ref.revision must be positive"))?;
-    Ok(GoalRef { id, revision })
-}
-
-fn require_goal_ref(goal: &GoalState, expected: &GoalRef) -> Result<(), RpcError> {
-    if goal.id != expected.id || goal.revision != expected.revision {
-        return Err(bad_request("goal reference is stale or does not match"));
-    }
-    Ok(())
-}
-
 fn queue_item_not_found(item_id: &str, error: AgentRuntimeError) -> RpcError {
     rpc_error(
         RpcErrorCode::QueueItemNotFound,
@@ -2965,40 +2467,6 @@ fn queue_item_not_found(item_id: &str, error: AgentRuntimeError) -> RpcError {
 fn mint_stream_id(next_id: &AtomicU64, prefix: &str) -> String {
     let ordinal = next_id.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{}-{ordinal}", now_ms())
-}
-
-/// Build a reply from the exact mutation being committed, never by re-reading
-/// mutable Host state after releasing admission (or after a receipt replay).
-fn goal_remote_snapshot(goal: &GoalState, events: &[SessionEvent]) -> Value {
-    let armed = events
-        .iter()
-        .rev()
-        .find_map(|event| match event.data() {
-            SessionEventData::GoalExecution { change } => {
-                Some(change.state.definition.execution_enabled)
-            }
-            SessionEventData::GoalChange {
-                change: SessionGoalChange::Snapshot(change),
-            } if change.version == 1 => Some(false),
-            _ => None,
-        })
-        .unwrap_or(false);
-    let mut value = json!({
-        "ref": {"id": &goal.id, "revision": goal.revision},
-        "id": &goal.id,
-        "revision": goal.revision,
-        "objective": &goal.objective,
-        "phase": goal.phase,
-        "maxGoalRounds": goal.max_goal_rounds,
-        "roundsStarted": goal.rounds_started,
-        "createdAt": goal.created_at,
-        "updatedAt": goal.updated_at,
-        "activation": if armed { "armed" } else { "disarmed" },
-    });
-    if let Some(reason) = &goal.blocked_reason {
-        value["blockedReason"] = json!(reason);
-    }
-    value
 }
 
 #[cfg(test)]
