@@ -18,6 +18,7 @@ pub use delegation_concurrency::DelegationConcurrency;
 mod driver;
 #[cfg(test)]
 mod failed_turn_projection_tests;
+mod model_processor;
 mod model_settings;
 #[cfg(test)]
 mod permission_tests;

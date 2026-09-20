@@ -114,6 +114,11 @@ Credential 采用“Secret-blind snapshot”边界：Processor 的状态只包�
 负责 Keychain/Model Settings Backend 调用、Registry 激活与设置更新事件。响应、错误、Processor 快照和
 持久化日志均不得携带 Secret Value；Backend 与无 Backend 两条兼容路径保留原有大小写错误文本和锁顺序。
 
+Model 领域沿用同一原则，但把“事实收集”和“公开投影”严格分开：Adapter 从 Settings、Runtime Catalog、
+激活错误和 Credential Backend 收集不可变事实，Processor 只负责 Provider 列表、Model Groups 与 Failure
+优先级。Processor 不接触 Backend、网络、锁或 Secret；`llm.discoverModels` 的真实网络发现仍是 Adapter
+副作用。`session.models` 与 `llm.models` 复用同一个 Catalog View，避免两处手写能力投影发生漂移。
+
 ### 阶段 4：统一 EventGateway
 
 领域只发结构化事件。实时推送、历史恢复和 UI 所需投影从同一 reducer 生成，解决“刷新前后不一致”。
