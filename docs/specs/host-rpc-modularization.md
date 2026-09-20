@@ -165,6 +165,9 @@ Session 历史推导，取消仍与 Admission Fence 排序。至此 Session/Turn
 Interaction Response 与 Export 都有独立适配器。动态端点集中在 `rpc/dynamic.rs`，未挂载端点仍返回 `None`。
 源码架构门禁明确拒绝在总 Dispatcher 重新添加 `impl BasicHost` 领域 handler。
 
+最终整理又把 JSON 字段校验、指纹、目录规则、权限事件和流 ID 等兼容 helper 移入 `rpc/wire.rs`；
+总 Dispatcher 不再同时充当协议工具箱。该模块只处理 wire 兼容，不读 Host 状态，也不执行 I/O。
+
 ## 5. 依赖规则
 
 - Protocol 不依赖 Host、store 或 UI；
