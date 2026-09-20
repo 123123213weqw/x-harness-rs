@@ -21,6 +21,8 @@ pub struct MetricsProjectionState {
     daily_token_usage: DailyTokenUsageProjectionState,
     session_stats: SessionStatsProjectionState,
     context_pressure: ContextPressureProjectionState,
+    #[serde(default)]
+    performance: crate::performance::PerformanceTimelineState,
 }
 
 impl MetricsProjectionState {
@@ -60,12 +62,41 @@ impl MetricsProjectionState {
         self.daily_token_usage.apply_logged(event);
         self.session_stats.apply_logged(event);
         self.context_pressure.apply_logged(event.data());
+        self.performance.apply_logged(event);
     }
 
     /// Apply one event and return only public views that changed. In-flight
     /// boundaries such as `step/start` and `tool/call` mutate private fold
     /// state without publishing an identical zero-valued projection.
     pub fn apply(&mut self, event: &Value) -> Vec<MetricsProjectionUpdate> {
+        self.apply_inner(event, true)
+    }
+
+    /// Authoritative telemetry consumes original logged checkpoints, never
+    /// the history coalescer's rewritten timestamps.
+    pub fn apply_authoritative_web(&mut self, event: &Value) -> Vec<MetricsProjectionUpdate> {
+        self.apply_inner(event, false)
+    }
+
+    pub fn advance_performance_logged(
+        &mut self,
+        events: &[LoggedEvent],
+    ) -> Option<MetricsProjectionUpdate> {
+        let mut changed = false;
+        for event in events {
+            changed |= self.performance.apply_logged(event);
+        }
+        changed.then(|| MetricsProjectionUpdate {
+            key: "performanceTimeline",
+            value: self.performance.view(),
+        })
+    }
+
+    pub fn performance_timeline(&self) -> Value {
+        self.performance.view()
+    }
+
+    fn apply_inner(&mut self, event: &Value, performance: bool) -> Vec<MetricsProjectionUpdate> {
         let token_before = self.token_usage.view();
         let stats_before = self.session_stats.view();
         let pressure_before = self.context_pressure.view();
@@ -78,7 +109,13 @@ impl MetricsProjectionState {
         let token_after = self.token_usage.view();
         let stats_after = self.session_stats.view();
         let pressure_after = self.context_pressure.view();
-        let mut updates = Vec::with_capacity(4);
+        let mut updates = Vec::with_capacity(5);
+        if performance && self.performance.apply(event) {
+            updates.push(MetricsProjectionUpdate {
+                key: "performanceTimeline",
+                value: self.performance.view(),
+            });
+        }
         if token_after != token_before {
             updates.push(MetricsProjectionUpdate {
                 key: "tokenUsage",

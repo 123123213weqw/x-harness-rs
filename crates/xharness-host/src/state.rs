@@ -408,7 +408,7 @@ impl SessionRecord {
             "cwd": self.cwd,
             "projections": {
                 "asOfSeq": self.last_event_seq_i64(),
-                "values": self.projection_values(),
+                "values": self.projection_values_inner(false),
             },
         });
         let object = value.as_object_mut().expect("summary is an object");
@@ -425,6 +425,10 @@ impl SessionRecord {
     }
 
     pub(crate) fn projection_values(&self) -> Value {
+        self.projection_values_inner(true)
+    }
+
+    fn projection_values_inner(&self, performance: bool) -> Value {
         let mut values = serde_json::Map::new();
         values.insert(
             "sessionListMetadata".to_owned(),
@@ -476,6 +480,12 @@ impl SessionRecord {
                 self.metrics.daily_token_usage(),
             );
             values.insert("sessionStats".to_owned(), self.metrics.session_stats());
+            if performance {
+                values.insert(
+                    "performanceTimeline".to_owned(),
+                    self.metrics.performance_timeline(),
+                );
+            }
             values.insert(
                 "contextPressure".to_owned(),
                 self.metrics.context_pressure(),
