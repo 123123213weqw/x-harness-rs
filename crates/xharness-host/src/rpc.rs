@@ -33,12 +33,12 @@ use crate::{
     driver::{agent_runtime_error, rpc_error, PromptAdmission},
     runtime::{AgentRuntimeError, ModelRoute},
     state::{
-        iso_now, now_ms, AgentPreset, DriverCommand, GoalState, ModelSelection, PendingResponse,
-        SessionRecord,
+        iso_now, now_ms, DriverCommand, GoalState, ModelSelection, PendingResponse, SessionRecord,
     },
     BasicHost,
 };
 
+mod preset;
 mod settings;
 mod subagent;
 mod workspace;
@@ -89,12 +89,12 @@ impl ApiBackend for BasicHost {
                 workspace::call(self, rpc_id, method, &payload).await
             }
             RpcMethod::SkillList => self.skill_list(&payload).await,
-            RpcMethod::AgentPresetList => self.agent_preset_list(&payload).await,
-            RpcMethod::AgentPresetSelect => self.agent_preset_select(rpc_id, &payload).await,
-            RpcMethod::AgentPresetRead => self.agent_preset_read(&payload).await,
-            RpcMethod::AgentPresetCopy => self.agent_preset_copy(&payload).await,
-            RpcMethod::AgentPresetOpenDocument => self.agent_preset_open_document(&payload).await,
-            RpcMethod::AgentPresetRemove => self.agent_preset_remove(&payload).await,
+            method @ (RpcMethod::AgentPresetList
+            | RpcMethod::AgentPresetSelect
+            | RpcMethod::AgentPresetRead
+            | RpcMethod::AgentPresetCopy
+            | RpcMethod::AgentPresetOpenDocument
+            | RpcMethod::AgentPresetRemove) => preset::call(self, rpc_id, method, &payload).await,
             RpcMethod::GoalCreate => self.goal_create(rpc_id, &payload).await,
             RpcMethod::GoalEdit => self.goal_edit(rpc_id, &payload).await,
             RpcMethod::GoalPause => self.goal_transition(rpc_id, &payload, "paused").await,
@@ -2115,148 +2115,6 @@ impl BasicHost {
         }))
     }
 
-    async fn agent_preset_list(&self, payload: &Value) -> Result<Value, RpcError> {
-        require_object(payload)?;
-        let state = self.state.read().await;
-        Ok(json!({
-            "presets": state.presets.values().map(|preset| {
-                let mut preset = preset.clone();
-                preset.is_default = preset.id == state.default_agent_preset();
-                preset
-            }).collect::<Vec<_>>(),
-            "authorable": true,
-            "hasDocument": false,
-        }))
-    }
-
-    async fn agent_preset_select(&self, rpc_id: RpcId, payload: &Value) -> Result<Value, RpcError> {
-        let session_id = required_string(payload, "sessionId")?;
-        let preset = nonempty(required_string(payload, "agentPreset")?, "agentPreset")?;
-        let _session_guard = self.lock_admission(&session_id).await;
-        if let Some(response) = self
-            .replay_session_mutation_receipt(
-                &session_id,
-                &rpc_id,
-                RpcMethod::AgentPresetSelect,
-                payload,
-            )
-            .await?
-        {
-            return Ok(response);
-        }
-        {
-            let state = self.state.read().await;
-            if !state.presets.contains_key(&preset) {
-                return Err(preset_not_found(&preset));
-            }
-            let session = state
-                .sessions
-                .get(&session_id)
-                .ok_or_else(|| session_not_found(&session_id))?;
-            if session.running {
-                return Err(rpc_error(
-                    RpcErrorCode::AgentBusy,
-                    "cannot switch presets while the session is running",
-                    json!({"reason": "session-running"}),
-                ));
-            }
-        }
-        let response = json!({"agentPreset": preset});
-        self.commit_session_mutation(
-            &session_id,
-            &rpc_id,
-            RpcMethod::AgentPresetSelect,
-            payload,
-            vec![SessionEventData::AgentPresetSelected {
-                agent_preset: preset.clone(),
-            }
-            .into()],
-            SessionMutationResponse::fixed(response.clone()),
-        )
-        .await?;
-        self.state
-            .write()
-            .await
-            .sessions
-            .get_mut(&session_id)
-            .ok_or_else(|| session_not_found(&session_id))?
-            .agent_preset = Some(preset.clone());
-        Ok(response)
-    }
-
-    async fn agent_preset_read(&self, payload: &Value) -> Result<Value, RpcError> {
-        let id = required_string(payload, "agentPreset")?;
-        let state = self.state.read().await;
-        let preset = state
-            .presets
-            .get(&id)
-            .ok_or_else(|| preset_not_found(&id))?;
-        Ok(json!({
-            "agentPreset": preset.id,
-            "trust": preset.trust,
-            "content": preset.content,
-            "name": preset.name,
-            "description": preset.description,
-        }))
-    }
-
-    async fn agent_preset_copy(&self, payload: &Value) -> Result<Value, RpcError> {
-        let from = required_string(payload, "from")?;
-        let id = nonempty(required_string(payload, "agentPreset")?, "agentPreset")?;
-        let name = optional_string(payload, "name")?;
-        let mut state = self.state.write().await;
-        let source = state
-            .presets
-            .get(&from)
-            .cloned()
-            .ok_or_else(|| preset_not_found(&from))?;
-        if state.presets.contains_key(&id) {
-            return Err(rpc_error(
-                RpcErrorCode::AgentPresetConflict,
-                "agent preset id already exists",
-                json!({"agentPreset": id}),
-            ));
-        }
-        state.presets.insert(
-            id.clone(),
-            AgentPreset {
-                id: id.clone(),
-                trust: "user".to_owned(),
-                is_default: false,
-                name: name.or(source.name),
-                description: source.description,
-                content: source.content,
-            },
-        );
-        Ok(json!({"agentPreset": id}))
-    }
-
-    async fn agent_preset_open_document(&self, payload: &Value) -> Result<Value, RpcError> {
-        let id = required_string(payload, "agentPreset")?;
-        if !self.state.read().await.presets.contains_key(&id) {
-            return Err(preset_not_found(&id));
-        }
-        Ok(json!({"opened": false, "path": ""}))
-    }
-
-    async fn agent_preset_remove(&self, payload: &Value) -> Result<Value, RpcError> {
-        let id = required_string(payload, "agentPreset")?;
-        let mut state = self.state.write().await;
-        let preset = state
-            .presets
-            .get(&id)
-            .ok_or_else(|| preset_not_found(&id))?;
-        if preset.trust == "system" {
-            return Err(rpc_error(
-                RpcErrorCode::AgentPresetReadOnly,
-                "system agent presets cannot be removed",
-                json!({"agentPreset": id, "reason": "system preset"}),
-            ));
-        }
-        state.presets.remove(&id);
-        Ok(json!({}))
-    }
-
     async fn request_snapshot(&self, payload: &Value) -> Result<Value, RpcError> {
         let id = required_string(payload, "sessionId")?;
         let seq = payload
@@ -2887,14 +2745,6 @@ fn session_not_found(session_id: &str) -> RpcError {
         RpcErrorCode::SessionNotFound,
         format!("session {session_id:?} was not found"),
         json!({"sessionId": session_id}),
-    )
-}
-
-fn preset_not_found(preset: &str) -> RpcError {
-    rpc_error(
-        RpcErrorCode::AgentPresetNotFound,
-        format!("agent preset {preset:?} was not found"),
-        json!({"agentPreset": preset}),
     )
 }
 
