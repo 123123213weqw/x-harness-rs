@@ -35,6 +35,46 @@ impl Drop for Root {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+fn isolated_crash_child(root: &Root) -> std::process::Command {
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &root.0);
+    // Winsock loads its provider DLL through %SystemRoot%. Keep this one OS
+    // path on Windows, not the ambient user profile, credentials or full PATH.
+    #[cfg(windows)]
+    command.env(
+        "SystemRoot",
+        std::env::var_os("SystemRoot").expect("Windows provider SystemRoot"),
+    );
+    command
+}
+
+#[test]
+fn isolated_crash_child_exports_only_fixture_paths_and_windows_system_root() {
+    let root = Root::new("child-environment");
+    let command = isolated_crash_child(&root);
+    let environment: std::collections::BTreeMap<_, _> = command
+        .get_envs()
+        .map(|(key, value)| (key.to_string_lossy().to_ascii_uppercase(), value.unwrap()))
+        .collect();
+    #[cfg(windows)]
+    let expected = vec!["HOME", "PATH", "SYSTEMROOT"];
+    #[cfg(not(windows))]
+    let expected = vec!["HOME", "PATH"];
+    assert_eq!(
+        environment.keys().map(String::as_str).collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(environment["HOME"], root.0.as_os_str());
+    assert_eq!(environment["PATH"], std::ffi::OsStr::new("/usr/bin:/bin"));
+    #[cfg(windows)]
+    {
+        let system_root = std::env::var_os("SystemRoot").unwrap();
+        assert_eq!(environment["SYSTEMROOT"], system_root.as_os_str());
+    }
+}
 struct Provider(AtomicUsize);
 #[async_trait]
 impl ModelProvider for Provider {
@@ -1470,16 +1510,13 @@ async fn native_creation_command_abrupt_exit_recovers_original_proof_http_reply_
 ) {
     use xharness_channel_telegram::{format_command_reply, BotToken, Client, Intake, Replies};
     let root = Root::new("creation-command-abrupt");
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
+    let child = isolated_crash_child(&root)
         .args([
             "--ignored",
             "--exact",
             "native_creation_command_abrupt_cut_worker",
             "--nocapture",
         ])
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("HOME", &root.0)
         .env("XH_CREATION_COMMAND_CUT_ROOT", &root.0)
         .status()
         .unwrap();
@@ -1924,16 +1961,13 @@ async fn native_automation_abrupt_exit_original_proof_http_uncertainty_and_fresh
 ) {
     use xharness_channel_telegram::{format_command_reply, Intake, Replies};
     let root = Root::new("automation-command-abrupt");
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
+    let child = isolated_crash_child(&root)
         .args([
             "--ignored",
             "--exact",
             "native_automation_command_abrupt_cut_worker",
             "--nocapture",
         ])
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("HOME", &root.0)
         .env("XH_AUTOMATION_COMMAND_CUT_ROOT", &root.0)
         .status()
         .unwrap();
