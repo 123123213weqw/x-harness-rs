@@ -1,0 +1,146 @@
+{
+  "xharness-agent": [
+    "xharness-core",
+    "xharness-goal",
+    "xharness-session"
+  ],
+  "xharness-api": [],
+  "xharness-attachments": [
+    "xharness-session"
+  ],
+  "xharness-coding-tools": [
+    "xharness-debug",
+    "xharness-fs",
+    "xharness-jobs",
+    "xharness-platform",
+    "xharness-process",
+    "xharness-tools",
+    "xharness-web"
+  ],
+  "xharness-compaction": [
+    "xharness-session"
+  ],
+  "xharness-context": [
+    "xharness-compaction",
+    "xharness-session"
+  ],
+  "xharness-control": [],
+  "xharness-core": [
+    "xharness-compaction",
+    "xharness-context",
+    "xharness-debug",
+    "xharness-prompt",
+    "xharness-session",
+    "xharness-token",
+    "xharness-tools"
+  ],
+  "xharness-debug": [
+    "xharness-diagnostics",
+    "xharness-win32"
+  ],
+  "xharness-diagnostics": [],
+  "xharness-fs": [
+    "xharness-win32"
+  ],
+  "xharness-goal": [
+    "xharness-session"
+  ],
+  "xharness-host": [
+    "xharness-agent",
+    "xharness-api",
+    "xharness-attachments",
+    "xharness-compaction",
+    "xharness-control",
+    "xharness-core",
+    "xharness-debug",
+    "xharness-interaction",
+    "xharness-projection",
+    "xharness-prompt",
+    "xharness-schedule",
+    "xharness-session",
+    "xharness-token",
+    "xharness-tools",
+    "xharness-win32"
+  ],
+  "xharness-host-app": [
+    "xharness-agent",
+    "xharness-api",
+    "xharness-attachments",
+    "xharness-coding-tools",
+    "xharness-compaction",
+    "xharness-control",
+    "xharness-core",
+    "xharness-debug",
+    "xharness-host",
+    "xharness-interaction",
+    "xharness-jobs",
+    "xharness-platform",
+    "xharness-provider-openai",
+    "xharness-schedule",
+    "xharness-server",
+    "xharness-session",
+    "xharness-session-jsonl",
+    "xharness-token",
+    "xharness-tools",
+    "xharness-web",
+    "xharness-win32"
+  ],
+  "xharness-interaction": [
+    "xharness-tools"
+  ],
+  "xharness-jobs": [],
+  "xharness-platform": [
+    "xharness-debug",
+    "xharness-fs",
+    "xharness-process",
+    "xharness-sandbox"
+  ],
+  "xharness-process": [
+    "xharness-debug",
+    "xharness-win32"
+  ],
+  "xharness-projection": [
+    "xharness-core",
+    "xharness-session"
+  ],
+  "xharness-prompt": [],
+  "xharness-provider-openai": [
+    "xharness-attachments",
+    "xharness-core",
+    "xharness-debug",
+    "xharness-token"
+  ],
+  "xharness-sandbox": [
+    "xharness-debug",
+    "xharness-process",
+    "xharness-win32"
+  ],
+  "xharness-schedule": [
+    "xharness-agent",
+    "xharness-session",
+    "xharness-tools"
+  ],
+  "xharness-server": [
+    "xharness-api",
+    "xharness-debug"
+  ],
+  "xharness-session": [
+    "xharness-interaction"
+  ],
+  "xharness-session-jsonl": [
+    "xharness-session"
+  ],
+  "xharness-terminal": [
+    "xharness-debug",
+    "xharness-process",
+    "xharness-win32"
+  ],
+  "xharness-token": [],
+  "xharness-tools": [
+    "xharness-debug"
+  ],
+  "xharness-web": [
+    "xharness-debug"
+  ],
+  "xharness-win32": []
+}

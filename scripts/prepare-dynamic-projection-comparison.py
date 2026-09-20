@@ -19,6 +19,19 @@ test = "dynamic_projection_tests.rs"
 if (crate / "src" / test).exists():
     raise SystemExit("Refusing to overwrite an existing test module")
 shutil.copyfile(source / "crates/xharness-host/src" / test, crate / "src" / test)
+# The current Host publishes through EventGateway; the two frozen release
+# subjects predate that extraction and expose the exact same broadcast channel
+# as `mux_tx`. Keep the experiment itself identical while adapting only this
+# test-only subscription seam to the historical API.
+test_path = crate / "src" / test
+test_text = test_path.read_text(encoding="utf-8")
+current_subscription = "host.event_gateway.subscribe_mux()"
+if test_text.count(current_subscription) != 1:
+    raise SystemExit("Current projection subscription seam changed")
+test_path.write_text(
+    test_text.replace(current_subscription, "host.mux_tx.subscribe()"),
+    encoding="utf-8",
+)
 restore = crate / "src/restore.rs"
 anchor = "const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;"
 text = restore.read_text(encoding="utf-8")

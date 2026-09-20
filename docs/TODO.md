@@ -1,5 +1,58 @@
 # XHarness 总任务清单
 
+## Host RPC 模块化重构（2026-09-20）
+
+目标：保持单进程、线协议和持久格式不变，把当前“文件已拆、依赖未拆”的 `BasicHost` 重构为可维护的
+模块化单体。完整规范见 [Host RPC 模块化重构规范](specs/host-rpc-modularization.md)。
+
+- [x] `RPC-ARCH-00` 建立 WZU_Server quick/full 回归入口，锁定当前 master 行为和动态投影压力测试。
+- [x] `RPC-ARCH-01a` 为 52 个固定 RPC 建立穷举的 typed Params/Response 目录；兼容边界允许附加字段，
+  `Value` 只留在 content block、schema、事件等确实开放的内部节点。
+- [x] `RPC-ARCH-01b` 增加协议契约测试：全部方法请求可解码、字段保持 camelCase、错误报告包含方法与方向。
+- [x] `RPC-ARCH-01c` 用现有 Host 全方法基线实际验证其中返回的全部成功响应，确保冻结的是运行行为而不是只靠手写猜测；错误路径仍按既有 `RpcResult` 契约断言。
+- [x] `RPC-ARCH-01d` WZU_Server quick/full 全绿；本阶段没有接入生产分发，也未修改 UI、JSONL 或 Control Log。
+- [x] `RPC-ARCH-02a` 以 Workspace 建立首个职责分离样板：`WorkspaceProcessor` 只接收只读领域快照，纯计算响应、Control Event 与 Host Event，不依赖 `BasicHost`、Transport、锁或 Store。
+- [x] `RPC-ARCH-02b` `rpc/workspace.rs` 收敛为兼容适配器：保留旧字段校验、控制锁、Exactly-once Receipt、原子提交及提交成功后发布事件；`rpc.rs` 的七个 Workspace 分支合并为一个领域入口。
+- [x] `RPC-ARCH-02c` 加源码依赖门禁，禁止 WorkspaceProcessor 重新引入 `BasicHost`、RPC ID/Method、Tokio 或 ControlStore；新增重复创建、确定性排序和失败前零事件测试。
+- [x] `RPC-ARCH-02d` WZU_Server full 全绿：全工作区、Clippy `-D warnings`、进程清理与 UI 套件均为 `failures=0`；固定 RPC 类型基线继续覆盖 Workspace 实际响应。
+- [x] `RPC-ARCH-03a` 抽出纯 `SettingsProcessor`：Settings Describe/Update/Replace/Mutate 只根据设置快照计算下一版 Namespace；Revision CAS、Permission 白名单、偏好校验和 JSON Path 语义均由领域核负责。
+- [x] `RPC-ARCH-03b` `rpc/settings.rs` 成为兼容与持久化适配器：Receipt Replay 仍先于校验，Model Registry 在提交前 Prepare，Control Log 原子提交后才 Activate 并发布 `settings/document-updated`；模型 Schema 继续只作为可执行版本元数据重建，不写入回执。
+- [x] `RPC-ARCH-03c` 为 SettingsProcessor 增加源码依赖门禁以及 Revision 冲突、Model Base 合并、非法操作零变更、Permission 拒绝测试；WZU_Server quick 回归全绿。
+- [x] `RPC-ARCH-03d` WZU_Server full 回归全绿：全 Workspace Test、Clippy `-D warnings`、进程清理、模型设置真实进程重启和 UI 套件均为 `failures=0`，Settings 阶段完成。
+- [x] `RPC-ARCH-03e` 抽出纯 `PresetProcessor` 和 `rpc/preset.rs` 兼容适配器：六个 Agent Preset RPC 统一领域入口；列表默认项、读取、复制、只读删除保护、Session 存在性/运行态选择校验由快照决策核负责，Session Receipt 与耐久提交仍由适配器负责。
+- [x] `RPC-ARCH-03f` PresetProcessor 增加默认项不污染快照、选择错误矩阵、复制冲突零变更、System Preset 删除拒绝测试和源码依赖门禁；WZU_Server quick 回归全绿。
+- [x] `RPC-ARCH-03g` WZU_Server full 回归全绿：全 Workspace Test、Clippy `-D warnings`、进程清理、Preset/Session Receipt 基线和 UI 套件均为 `failures=0`，Preset 阶段完成。
+- [x] `RPC-ARCH-03h` 抽出纯 `CredentialProcessor` 与 `rpc/credentials.rs` 适配器：引用格式、环境变量遮蔽、内存后备状态和只含元数据的 Describe 响应进入领域核；Keychain/Backend I/O、Registry 激活和 Web 通知留在副作用适配器。
+- [x] `RPC-ARCH-03i` Credential 快照只含引用集合、不含 Secret Value；新增引用矩阵、环境遮蔽、响应/错误不回显密钥和显式内存变更测试，并加入源码依赖门禁；WZU_Server quick 回归全绿。
+- [x] `RPC-ARCH-03j` WZU_Server full 回归全绿：全 Workspace Test、Clippy `-D warnings`、Secret-free Session/Server 测试、Model Settings Keychain/进程重启和 UI 套件均为 `failures=0`，Credentials 阶段完成。
+- [x] `RPC-ARCH-03k` 抽出纯 `ModelProcessor` 与 `rpc/model.rs` 适配器：Provider/Group/Failure
+  投影只读取配置、目录、激活错误和 Secret-blind 凭据事实；Credential/Discovery I/O 留在适配器，
+  `rpc/settings.rs` 不再承载模型方法。源码依赖门禁与能力/顺序/失败优先级/不泄密测试已覆盖，
+  WZU_Server quick/full 全绿。
+- [x] `RPC-ARCH-03l` 抽出纯 `SubagentProcessor` 与 `rpc/subagent.rs` 适配器：直接子会话列表、
+  父/子存在性与所有权判定只读取最小快照；History/Prompt/Interrupt 的 Admission、Runtime 与控制副作用
+  留在适配器。错误分类、嵌套子项和缺失父会话测试及源码依赖门禁已覆盖，WZU_Server quick/full 全绿。
+- [x] `RPC-ARCH-03m` 抽出纯 `GoalProcessor` 与 `rpc/goal.rs` 兼容适配器：创建、编辑、暂停、恢复、
+  完成与清除的引用栅栏、阶段矩阵、预算和单调 Revision 进入领域核；Session Receipt、Goal Journal、
+  Pending Input 失效、投影与 Runtime Wake 保持原适配顺序。固定 RPC、动态 `goals/*` 和 Slash Command
+  复用同一入口，状态矩阵测试与源码依赖门禁已覆盖，WZU_Server quick/full 全绿。
+- [x] `RPC-ARCH-04` 建立统一 `EventGateway`：Mux/Host 通道所有权、事件帧构造和实时/历史投影
+  reducer 收口到单一边界；`BasicHost` 只组合该网关，Driver 与 RPC 恢复路径不再分别手写投影。
+- [x] `RPC-ARCH-05` 迁移 Session/Prompt/Turn 状态机；本项不夹带 compaction、预算或调度语义改动。
+  - [x] `RPC-ARCH-05a` 抽出 Session 只读边界：列表、搜索、历史分页与模型视图进入
+    `rpc/session.rs`；排序、查询限制、结果上限和本地分页进入纯 `SessionProcessor`。
+  - [x] `RPC-ARCH-05b` 迁移 Session 创建、改名、Fork 与模型选择生命周期到独立
+    `session_lifecycle` 适配器；调用方不再绕回 `BasicHost` 领域方法。
+  - [x] `RPC-ARCH-05c` 迁移 Prompt、附件、队列、取消和 Turn 控制到 `rpc/turn.rs`；
+    Question、Subagent、Delegation 与运行时测试都通过同一 Admission/Control 入口。
+- [x] `RPC-ARCH-06` 删除旧 `BasicHost` handler 与双重投影：Commands、Host/Filesystem、Interaction、
+  Export 分别进入独立适配器，动态上游端点只保留在 `rpc/dynamic.rs`；源码门禁禁止总 Dispatcher
+  重新新增 `impl BasicHost` 领域方法。
+- [ ] `RPC-ARCH-07` 每阶段独立提交、可回滚；合并前跑跨平台 CI 和 WZU_Server full，部署另设门禁。
+  - [x] `RPC-ARCH-07a` 协议、Processor、EventGateway、Session/Turn 与 Dispatcher 收口均为独立提交，
+    WZU_Server quick/full 与 Clippy `-D warnings` 全绿；wire 校验另置 `rpc/wire.rs`。
+  - [ ] `RPC-ARCH-07b` 推送分支并通过 GitHub 跨平台 CI 后再合并；本地完成不冒充远端 CI 已通过。
+
 ## 模型路由对账与原因可见（2026-09-19）
 
 现场：已配置模型的用户被作曲家提示「当前模型不可用，请先选择模型」，而 `llm.providers` 里该

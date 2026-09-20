@@ -9,7 +9,10 @@ use crate::{
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use xharness_session::{Revision, SessionEvent, SessionHeader, ToolCall, ToolResultData};
+use xharness_session::{
+    AssistantChunk, Message, RequestHeader, Revision, SessionEvent, SessionHeader, ToolCall,
+    ToolOutcome, ToolResultData, TurnEndReason,
+};
 use xharness_session_jsonl::JsonlSessionStore;
 
 const ID: &str = "dynamic-projection-synthetic";
@@ -194,7 +197,7 @@ async fn experiment() {
     assert_eq!(report.restored_sessions, 1);
     assert!(report.issues.is_empty());
     let initial_seq = store.load(ID).await.unwrap().unwrap().next_seq();
-    let mut mux = host.mux_tx.subscribe();
+    let mut mux = host.event_gateway.subscribe_mux();
     let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
     let frames = tokio::spawn(async move {
         let mut expected = initial_seq;

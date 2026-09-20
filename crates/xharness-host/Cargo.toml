@@ -25,6 +25,7 @@ xharness-core = { path = "../xharness-core" }
 xharness-control = { path = "../xharness-control" }
 xharness-compaction = { path = "../xharness-compaction" }
 xharness-prompt = { path = "../xharness-prompt" }
+xharness-projection = { path = "../xharness-projection" }
 xharness-interaction = { path = "../xharness-interaction" }
 xharness-schedule = { path = "../xharness-schedule" }
 xharness-session = { path = "../xharness-session" }

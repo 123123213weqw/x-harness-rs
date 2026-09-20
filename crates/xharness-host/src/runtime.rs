@@ -404,6 +404,16 @@ impl ModelProvider for RouteBoundProvider {
     }
 }
 
+impl xharness_projection::ProjectionRoute for ModelRoute {
+    fn provider(&self) -> &str {
+        &self.provider
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+}
+
 impl ModelRoute {
     pub fn new(provider: impl Into<String>, model: impl Into<String>) -> Self {
         Self {

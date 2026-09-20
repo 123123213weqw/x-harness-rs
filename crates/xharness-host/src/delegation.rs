@@ -165,7 +165,7 @@ impl BasicHost {
             }
             AgentOperation::Stop { agent_id } => {
                 self.authorize_delegated(caller, &agent_id).await?;
-                self.send_control(&agent_id, LoopCommand::Cancel)
+                crate::rpc::turn::send_control(self, &agent_id, LoopCommand::Cancel)
                     .await
                     .map_err(|e| e.message)?;
                 Ok(json!({"ok":true,"agent_id":agent_id,"accepted":true}))
@@ -254,9 +254,13 @@ impl BasicHost {
                 }
             }
         } else {
-            self.session_create_with_visibility(&json!({"sessionId":id,"cwd":cwd}), false)
-                .await
-                .map_err(|e| e.message)?;
+            crate::rpc::session_lifecycle::create_with_visibility(
+                self,
+                &json!({"sessionId":id,"cwd":cwd}),
+                false,
+            )
+            .await
+            .map_err(|e| e.message)?;
             let mut events = permission_events(permission);
             events.push(
                 EventData::SessionModelSelected {
@@ -343,8 +347,7 @@ impl BasicHost {
     ) -> Result<(), String> {
         let _admission = self.lock_admission(target).await;
         let fingerprint = json!({"sender":sender,"text":text,"kind":kind}).to_string();
-        if self
-            .is_duplicate_admission(target, id, &fingerprint)
+        if crate::rpc::turn::duplicate_admission(self, target, id, &fingerprint)
             .await
             .map_err(|e| e.message)?
         {
@@ -646,7 +649,9 @@ mod tests {
         BasicHost::with_agent_runtime(config, runtime)
     }
     async fn parent(host: &BasicHost, id: &str) {
-        host.session_create(&json!({"sessionId":id})).await.unwrap();
+        crate::rpc::session_lifecycle::create(host, &json!({"sessionId":id}))
+            .await
+            .unwrap();
     }
     async fn wait_for_calls(probe: &Probe, expected: usize) {
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -681,7 +686,7 @@ mod tests {
         let host = setup(store, Arc::new(Probe::default())).await;
         parent(&host, "p").await;
         parent(&host, "other").await;
-        let mut announcements = host.host_tx.subscribe();
+        let mut announcements = host.event_gateway.subscribe_host();
         let (a, b) = tokio::join!(
             host.execute_agent("p", "call", start("inspect files")),
             host.execute_agent("p", "call", start("inspect files"))
