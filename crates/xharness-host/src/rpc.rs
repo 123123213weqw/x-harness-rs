@@ -72,10 +72,10 @@ impl ApiBackend for BasicHost {
             RpcMethod::SessionAttachment => self.session_attachment(&payload).await,
             RpcMethod::SessionUpdateQueue => self.session_update_queue(&payload).await,
             RpcMethod::SessionCancel => self.session_cancel(&payload).await,
-            RpcMethod::SubagentList => self.subagent_list(&payload).await,
-            RpcMethod::SubagentHistory => self.subagent_history(&payload).await,
-            RpcMethod::SubagentPrompt => self.subagent_prompt(rpc_id, &payload).await,
-            RpcMethod::SubagentInterrupt => self.subagent_interrupt(&payload).await,
+            method @ (RpcMethod::SubagentList
+            | RpcMethod::SubagentHistory
+            | RpcMethod::SubagentPrompt
+            | RpcMethod::SubagentInterrupt) => subagent::call(self, rpc_id, method, &payload).await,
             RpcMethod::HostDescribe => self.host_describe(&payload).await,
             RpcMethod::HostPickDirectory => self.host_pick_directory(&payload).await,
             RpcMethod::HostListDirectory => self.host_list_directory(&payload).await,

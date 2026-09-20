@@ -29,7 +29,10 @@
   投影只读取配置、目录、激活错误和 Secret-blind 凭据事实；Credential/Discovery I/O 留在适配器，
   `rpc/settings.rs` 不再承载模型方法。源码依赖门禁与能力/顺序/失败优先级/不泄密测试已覆盖，
   WZU_Server quick/full 全绿。
-- [ ] `RPC-ARCH-03l` 依次迁移 Subagent、Goal；一次只迁移一个领域。
+- [x] `RPC-ARCH-03l` 抽出纯 `SubagentProcessor` 与 `rpc/subagent.rs` 适配器：直接子会话列表、
+  父/子存在性与所有权判定只读取最小快照；History/Prompt/Interrupt 的 Admission、Runtime 与控制副作用
+  留在适配器。错误分类、嵌套子项和缺失父会话测试及源码依赖门禁已覆盖，WZU_Server quick/full 全绿。
+- [ ] `RPC-ARCH-03m` 迁移 Goal 领域，保持 Goal Journal、Runtime Wake 与回执语义不变。
 - [ ] `RPC-ARCH-04` 建立统一 `EventGateway`，让实时事件和历史恢复使用同一投影 reducer。
 - [ ] `RPC-ARCH-05` 最后迁移 Session/Prompt/Turn 状态机；本项不夹带 compaction、预算或调度语义改动。
 - [ ] `RPC-ARCH-06` 删除旧 `BasicHost` handler 与双重投影；动态上游端点保留在明确的兼容适配器中。
