@@ -397,9 +397,22 @@ try {
   await footer.click();assert.equal(await footer.getAttribute('aria-expanded'),'true')
   await page.locator('[data-chat-flow-kind="tool-call"]').waitFor()
  }
+ // Communication receipts survive both automatic live folding and completed
+ // turn folding. They remain ordinary windowed rows, not globally pinned DOM.
+ await page.evaluate(()=>{
+  setId('agent-communication');seedFew()
+  toolFixture('job0',{call:{name:'agent',argsRaw:'{"action":"send","agent_id":"child","message":"clarify"}'}})
+ })
+ await page.locator('[data-tool-card="job0"]').waitFor()
+ await page.evaluate(()=>finish());await summary.waitFor()
+ assert.equal(await summary.getAttribute('aria-expanded'),'false')
+ await page.locator('[data-tool-card="job0"]').waitFor()
+ assert.equal(await page.locator('[data-tool-card]').count(),1,'agent receipt remains while ordinary completed tools fold')
+ await summary.click();await page.locator('[data-tool-card="job1"]').waitFor()
+ await summary.click();assert.equal(await page.locator('[data-tool-card]').count(),1,'group toggle cannot hide the message receipt')
  await page.evaluate(()=>unmount())
  assert.equal(await page.evaluate(()=>__foldObservers.size),0,'all adaptive and window resize observers disposed on unmount')
  assert.equal(await page.evaluate(()=>__foldMutations.size),0,'adaptive mutation observer disposed on unmount')
  assert.deepEqual(errors,[])
- console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive live failure protection, settled failure folding, pending/unknown-outcome protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup; 42 Rust-fixture -> Session/Assembler -> DOM terminal windows passed`)
+ console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive live failure protection, settled failure folding, pending/unknown-outcome protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup; 42 Rust-fixture -> Session/Assembler -> DOM terminal windows and persistent agent communication rows passed`)
 } finally {await browser.close();await new Promise(r=>server.close(r))}
