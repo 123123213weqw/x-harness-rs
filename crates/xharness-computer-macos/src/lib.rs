@@ -3,6 +3,9 @@
 //! Unsafe FFI is intentionally confined to this crate. Higher layers only see
 //! logical desktop coordinates and versioned observations.
 
+#[cfg(any(target_os = "macos", test))]
+mod observation;
+
 #[cfg(target_os = "macos")]
 mod macos;
 
