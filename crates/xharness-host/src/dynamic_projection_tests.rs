@@ -9,7 +9,10 @@ use crate::{
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use xharness_session::{Revision, SessionEvent, SessionHeader, ToolCall, ToolResultData};
+use xharness_session::{
+    AssistantChunk, Message, RequestHeader, Revision, SessionEvent, SessionHeader, ToolCall,
+    ToolOutcome, ToolResultData, TurnEndReason,
+};
 use xharness_session_jsonl::JsonlSessionStore;
 
 const ID: &str = "dynamic-projection-synthetic";
